@@ -114,7 +114,8 @@ func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.S
 	s.resolverCredsFile = strings.TrimSpace(credsFile)
 
 	if s.resolverConn != nil {
-		s.resolverConn.Close()
+		// Use Drain for graceful shutdown to prevent race conditions
+		_ = s.resolverConn.Drain()
 		s.resolverConn = nil
 	}
 }
@@ -188,7 +189,8 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	}
 
 	if s.resolverConn != nil {
-		s.resolverConn.Close()
+		// Use Drain for graceful shutdown to prevent race conditions
+		_ = s.resolverConn.Drain()
 		s.resolverConn = nil
 	}
 
@@ -376,6 +378,11 @@ func (s *NATSAccountServer) BootstrapOperator(
 		return nil, status.Errorf(codes.Internal, "failed to bootstrap operator: %v", err)
 	}
 
+	// Store original state for rollback on failure
+	originalOperator := s.operator
+	originalSigner := s.signer
+	originalSystemAccountSeed := s.systemAccountSeed
+
 	// Update the server state
 	s.operator = operator
 	s.signer = accounts.NewAccountSigner(operator)
@@ -388,8 +395,11 @@ func (s *NATSAccountServer) BootstrapOperator(
 	// Write operator config for NATS resolver (if paths are configured)
 	if s.operatorConfigPath != "" {
 		if err := s.writeOperatorConfigLocked(); err != nil {
-			log.Printf("Warning: failed to write operator config: %v", err)
-			// Don't fail bootstrap - config can be written later
+			// Rollback state on failure to maintain consistency
+			s.operator = originalOperator
+			s.signer = originalSigner
+			s.systemAccountSeed = originalSystemAccountSeed
+			return nil, status.Errorf(codes.Internal, "failed to write operator config: %v", err)
 		}
 	}
 

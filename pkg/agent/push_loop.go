@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -41,6 +42,46 @@ type PushLoop struct {
 	configVersion      string        // Current config version for polling
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
+
+	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled
+}
+
+// Thread-safe accessors for shared state
+
+func (p *PushLoop) getInterval() time.Duration {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.interval
+}
+
+func (p *PushLoop) setInterval(d time.Duration) {
+	p.stateMu.Lock()
+	p.interval = d
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) getConfigPollInterval() time.Duration {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.configPollInterval
+}
+
+func (p *PushLoop) setConfigPollInterval(d time.Duration) {
+	p.stateMu.Lock()
+	p.configPollInterval = d
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) isEnrolled() bool {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.enrolled
+}
+
+func (p *PushLoop) setEnrolled(v bool) {
+	p.stateMu.Lock()
+	p.enrolled = v
+	p.stateMu.Unlock()
 }
 
 // Default config poll interval (5 minutes)
@@ -72,7 +113,7 @@ func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration,
 
 // Start begins the push loop. It runs until the context is cancelled.
 func (p *PushLoop) Start(ctx context.Context) error {
-	p.logger.Info().Dur("interval", p.interval).Msg("Starting push loop")
+	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
 
 	// Initial connection and enrollment attempt
 	if err := p.gateway.Connect(ctx); err != nil {
@@ -85,13 +126,9 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	// Start config polling in a separate goroutine
 	go p.configPollLoop(ctx)
 
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
-
-	// Do an initial push immediately (only if enrolled)
-	if p.enrolled {
-		p.pushStatus(ctx)
-	}
+	// Use a resettable timer so updated intervals take effect
+	timer := time.NewTimer(0) // fire immediately for first tick
+	defer timer.Stop()
 
 	for {
 		select {
@@ -100,8 +137,12 @@ func (p *PushLoop) Start(ctx context.Context) error {
 			close(p.done)
 			return ctx.Err()
 
-		case <-ticker.C:
-			p.pushStatus(ctx)
+		case <-timer.C:
+			// Only push when enrolled (enrollment can happen later via reconnect)
+			if p.isEnrolled() {
+				p.pushStatus(ctx)
+			}
+			timer.Reset(p.getInterval())
 		}
 	}
 }
@@ -120,12 +161,12 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 			return
 		}
 		// Re-enroll after reconnect
-		p.enrolled = false
+		p.setEnrolled(false)
 		p.enroll(ctx)
 	}
 
 	// Skip pushing if not enrolled
-	if !p.enrolled {
+	if !p.isEnrolled() {
 		p.logger.Debug().Msg("Not enrolled, skipping status push")
 		return
 	}
@@ -316,13 +357,13 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	// Update push interval if specified by gateway
 	if helloResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(helloResp.HeartbeatIntervalSec) * time.Second
-		if newInterval != p.interval {
-			p.interval = newInterval
-			p.logger.Info().Dur("interval", p.interval).Msg("Updated push interval from gateway")
+		if newInterval != p.getInterval() {
+			p.setInterval(newInterval)
+			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from gateway")
 		}
 	}
 
-	p.enrolled = true
+	p.setEnrolled(true)
 	p.logger.Info().
 		Str("agent_id", helloResp.AgentId).
 		Str("gateway_id", helloResp.GatewayId).
@@ -338,7 +379,7 @@ func (p *PushLoop) enroll(ctx context.Context) {
 // configPollLoop periodically polls for config updates.
 func (p *PushLoop) configPollLoop(ctx context.Context) {
 	// Wait for initial enrollment before polling
-	for !p.enrolled {
+	for !p.isEnrolled() {
 		select {
 		case <-ctx.Done():
 			return
@@ -347,18 +388,20 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 		}
 	}
 
-	ticker := time.NewTicker(p.configPollInterval)
-	defer ticker.Stop()
+	// Use a resettable timer so updated intervals take effect
+	timer := time.NewTimer(p.getConfigPollInterval())
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			p.logger.Debug().Msg("Config poll loop stopping")
 			return
-		case <-ticker.C:
-			if p.gateway.IsConnected() && p.enrolled {
+		case <-timer.C:
+			if p.gateway.IsConnected() && p.isEnrolled() {
 				p.fetchAndApplyConfig(ctx)
 			}
+			timer.Reset(p.getConfigPollInterval())
 		}
 	}
 }
@@ -385,17 +428,17 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	// Update intervals from config response
 	if configResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second
-		if newInterval != p.interval {
-			p.interval = newInterval
-			p.logger.Info().Dur("interval", p.interval).Msg("Updated push interval from config")
+		if newInterval != p.getInterval() {
+			p.setInterval(newInterval)
+			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from config")
 		}
 	}
 
 	if configResp.ConfigPollIntervalSec > 0 {
 		newPollInterval := time.Duration(configResp.ConfigPollIntervalSec) * time.Second
-		if newPollInterval != p.configPollInterval {
-			p.configPollInterval = newPollInterval
-			p.logger.Info().Dur("interval", p.configPollInterval).Msg("Updated config poll interval")
+		if newPollInterval != p.getConfigPollInterval() {
+			p.setConfigPollInterval(newPollInterval)
+			p.logger.Info().Dur("interval", newPollInterval).Msg("Updated config poll interval")
 		}
 	}
 
@@ -424,6 +467,11 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 	seenChecks := make(map[string]bool)
 
 	for _, check := range checks {
+		// Guard against nil entries in the checks slice
+		if check == nil {
+			continue
+		}
+
 		if !check.Enabled {
 			continue
 		}

@@ -377,8 +377,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       <div class={"alert #{@alert_class} text-xs"}>
         <.icon name="hero-exclamation-triangle" class="size-4" />
         <span>
-          {@message}
-          Regenerate the configuration to get new certificates.
+          {@message} Regenerate the configuration to get new certificates.
         </span>
       </div>
     <% end %>
@@ -584,8 +583,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     cond do
       diff < 60 -> "#{diff}s ago"
       diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86400 -> "#{div(diff, 3600)}h ago"
-      true -> "#{div(diff, 86400)}d ago"
+      diff < 86_400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
     end
   end
 end

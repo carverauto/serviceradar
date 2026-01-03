@@ -32,6 +32,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -248,68 +249,11 @@ func FromPEM(certPEM []byte) (*Info, error) {
 	return FromCertificate(cert)
 }
 
-// decodePEM extracts the DER bytes from PEM-encoded data.
+// decodePEM extracts the DER bytes from PEM-encoded data using standard library.
 func decodePEM(pemData []byte) []byte {
-	// Simple PEM decoder - find the base64 content between headers
-	const beginCert = "-----BEGIN CERTIFICATE-----"
-	const endCert = "-----END CERTIFICATE-----"
-
-	start := strings.Index(string(pemData), beginCert)
-	if start == -1 {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
 		return pemData // Not PEM, return as-is (might be DER)
 	}
-
-	end := strings.Index(string(pemData), endCert)
-	if end == -1 {
-		return pemData
-	}
-
-	// Extract base64 content
-	b64 := strings.TrimSpace(string(pemData[start+len(beginCert) : end]))
-	b64 = strings.ReplaceAll(b64, "\n", "")
-	b64 = strings.ReplaceAll(b64, "\r", "")
-
-	// Decode base64
-	decoded := make([]byte, len(b64))
-	n := decodeBase64(decoded, []byte(b64))
-
-	return decoded[:n]
-}
-
-// decodeBase64 is a simple base64 decoder.
-func decodeBase64(dst, src []byte) int {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-	// Build decode table
-	decodeTable := make([]int, 256)
-	for i := range decodeTable {
-		decodeTable[i] = -1
-	}
-	for i, c := range alphabet {
-		decodeTable[c] = i
-	}
-	decodeTable['='] = 0
-
-	n := 0
-	buf := 0
-	bufLen := 0
-
-	for _, c := range src {
-		val := decodeTable[c]
-		if val == -1 {
-			continue // Skip whitespace/invalid chars
-		}
-
-		buf = (buf << 6) | val
-		bufLen += 6
-
-		if bufLen >= 8 {
-			bufLen -= 8
-			dst[n] = byte(buf >> bufLen)
-			n++
-			buf &= (1 << bufLen) - 1
-		}
-	}
-
-	return n
+	return block.Bytes
 }

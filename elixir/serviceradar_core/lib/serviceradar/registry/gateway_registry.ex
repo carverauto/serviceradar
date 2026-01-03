@@ -246,9 +246,6 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec count() :: non_neg_integer()
   def count do
-    TenantRegistry.list_registries()
-    |> Enum.reduce(0, fn {_name, _pid}, acc ->
-      acc
-    end)
+    length(all_gateways())
   end
 end

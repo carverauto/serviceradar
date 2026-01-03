@@ -183,7 +183,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                         {format_datetime(site.inserted_at)}
                       </td>
                       <td>
-                        <.ui_button variant="ghost" size="xs" navigate={~p"/admin/edge-sites/#{site.id}"}>
+                        <.ui_button
+                          variant="ghost"
+                          size="xs"
+                          navigate={~p"/admin/edge-sites/#{site.id}"}
+                        >
                           View
                         </.ui_button>
                       </td>
@@ -380,7 +384,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   defp create_site(tenant_id, name, slug, nats_leaf_url) do
     attrs = %{name: name}
     attrs = if slug && slug != "", do: Map.put(attrs, :slug, slug), else: attrs
-    attrs = if nats_leaf_url && nats_leaf_url != "", do: Map.put(attrs, :nats_leaf_url, nats_leaf_url), else: attrs
+
+    attrs =
+      if nats_leaf_url && nats_leaf_url != "",
+        do: Map.put(attrs, :nats_leaf_url, nats_leaf_url),
+        else: attrs
 
     EdgeSite
     |> Ash.Changeset.for_create(:create, attrs)
@@ -389,15 +397,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   defp format_errors(%Ash.Error.Invalid{} = error) do
-    error.errors
-    |> Enum.map(fn err ->
+    Enum.map_join(error.errors, ", ", fn err ->
       case err do
         %{field: field, message: msg} -> "#{field}: #{msg}"
         %{message: msg} -> msg
         _ -> inspect(err)
       end
     end)
-    |> Enum.join(", ")
   end
 
   defp format_errors(error), do: inspect(error)
@@ -429,8 +435,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
     cond do
       diff < 60 -> "#{diff}s ago"
       diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86400 -> "#{div(diff, 3600)}h ago"
-      true -> "#{div(diff, 86400)}d ago"
+      diff < 86_400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
     end
   end
 end

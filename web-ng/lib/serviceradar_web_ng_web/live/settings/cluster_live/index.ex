@@ -243,7 +243,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   <tbody>
                     <%= for gateway <- @gateways do %>
                       <tr>
-                        <td class="font-mono text-xs">{Map.get(gateway, :partition_id, "default")}</td>
+                        <td class="font-mono text-xs">
+                          {Map.get(gateway, :partition_id, "default")}
+                        </td>
                         <td class="font-mono text-xs">{format_node(Map.get(gateway, :node))}</td>
                         <td><.status_badge status={Map.get(gateway, :status)} /></td>
                       </tr>

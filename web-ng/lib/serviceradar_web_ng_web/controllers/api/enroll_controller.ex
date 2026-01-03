@@ -45,54 +45,52 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     token_secret = params["token"]
     source_ip = get_client_ip(conn)
 
-    cond do
-      is_nil(token_secret) or token_secret == "" ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "token query parameter is required"})
+    if is_nil(token_secret) or token_secret == "" do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "token query parameter is required"})
+    else
+      case do_enrollment(package_id, token_secret, source_ip) do
+        {:ok, result} ->
+          json(conn, result)
 
-      true ->
-        case do_enrollment(package_id, token_secret, source_ip) do
-          {:ok, result} ->
-            json(conn, result)
+        {:error, :not_found} ->
+          conn
+          |> put_status(:not_found)
+          |> json(%{error: "package not found"})
 
-          {:error, :not_found} ->
-            conn
-            |> put_status(:not_found)
-            |> json(%{error: "package not found"})
+        {:error, :not_ready} ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
 
-          {:error, :not_ready} ->
-            conn
-            |> put_status(:conflict)
-            |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
+        {:error, :invalid_token} ->
+          conn
+          |> put_status(:unauthorized)
+          |> json(%{error: "invalid enrollment token"})
 
-          {:error, :invalid_token} ->
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "invalid enrollment token"})
+        {:error, :token_expired} ->
+          conn
+          |> put_status(:gone)
+          |> json(%{error: "enrollment token has expired, please generate a new package"})
 
-          {:error, :token_expired} ->
-            conn
-            |> put_status(:gone)
-            |> json(%{error: "enrollment token has expired, please generate a new package"})
+        {:error, :already_enrolled} ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "this package has already been enrolled"})
 
-          {:error, :already_enrolled} ->
-            conn
-            |> put_status(:conflict)
-            |> json(%{error: "this package has already been enrolled"})
+        {:error, :nats_creds_not_found} ->
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "NATS credentials not provisioned yet"})
 
-          {:error, :nats_creds_not_found} ->
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "NATS credentials not provisioned yet"})
+        {:error, reason} ->
+          Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
 
-          {:error, reason} ->
-            Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
-
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "enrollment failed"})
-        end
+          conn
+          |> put_status(:internal_server_error)
+          |> json(%{error: "enrollment failed"})
+      end
     end
   end
 
@@ -197,7 +195,8 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp generate_config(package) do
-    nats_url = Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
+    nats_url =
+      Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
 
     config = %{
       "collector_id" => package.id,

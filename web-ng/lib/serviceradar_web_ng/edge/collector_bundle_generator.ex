@@ -217,7 +217,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     # Apply any config overrides
     listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:162"
-    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50043
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50_043
 
     config = %{
       "listen_addr" => listen_addr,
@@ -254,7 +254,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     # Apply any config overrides
     listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:2055"
-    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50045
+    grpc_port = get_in(package.config_overrides, ["grpc_port"]) || 50_045
 
     config = %{
       "listen_addr" => listen_addr,
@@ -534,7 +534,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   # Extract NATS leaf URL from preloaded edge site, if available
-  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}})
+       when is_binary(url) and url != "" do
     url
   end
 

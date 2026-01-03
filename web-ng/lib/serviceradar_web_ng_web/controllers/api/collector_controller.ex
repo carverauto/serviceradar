@@ -356,7 +356,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
          {:ok, tls_key_pem} <- get_tls_key(package),
-         {:ok, tarball} <- CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
+         {:ok, tarball} <-
+           CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
          {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
       filename = CollectorBundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
@@ -432,28 +433,26 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     if is_nil(package.tls_cert_pem) or is_nil(package.ca_chain_pem) do
       {:error, :tls_cert_not_found}
     else
-      # Decrypt the TLS private key from the encrypted storage
-      case package.tls_key_pem_ciphertext do
-        nil ->
-          {:error, :tls_key_not_found}
-
-        encrypted_key when is_binary(encrypted_key) ->
-          case ServiceRadar.Vault.decrypt(encrypted_key) do
-            {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
-              {:ok, key_pem}
-
-            {:ok, _} ->
-              {:error, :tls_key_empty}
-
-            {:error, reason} ->
-              {:error, {:decrypt_failed, reason}}
-          end
-
-        _ ->
-          {:error, :tls_key_invalid}
-      end
+      decrypt_tls_key(package.tls_key_pem_ciphertext)
     end
   end
+
+  defp decrypt_tls_key(nil), do: {:error, :tls_key_not_found}
+
+  defp decrypt_tls_key(encrypted_key) when is_binary(encrypted_key) do
+    case ServiceRadar.Vault.decrypt(encrypted_key) do
+      {:ok, key_pem} when is_binary(key_pem) and key_pem != "" ->
+        {:ok, key_pem}
+
+      {:ok, _} ->
+        {:error, :tls_key_empty}
+
+      {:error, reason} ->
+        {:error, {:decrypt_failed, reason}}
+    end
+  end
+
+  defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
 
   defp mark_downloaded(package, source_ip) do
     package

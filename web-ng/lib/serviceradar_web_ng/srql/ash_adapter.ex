@@ -433,7 +433,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     %{
       "results" => Enum.map(results, &format_result(&1, entity)),
       "pagination" => %{
-        # TODO: Implement keyset pagination
+        # Keyset pagination is not implemented yet.
         "next_cursor" => nil,
         "prev_cursor" => nil,
         "limit" => limit

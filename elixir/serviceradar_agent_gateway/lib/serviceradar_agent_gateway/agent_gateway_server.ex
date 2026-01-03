@@ -184,9 +184,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     )
 
     # Extract metadata from request including tenant context
+    # Use server's gateway_id() instead of client-provided request.gateway_id
+    # to prevent spoofing and ensure correct data attribution
     metadata = %{
       agent_id: agent_id,
-      gateway_id: request.gateway_id,
+      gateway_id: gateway_id(),
       partition: request.partition,
       source_ip: request.source_ip,
       kv_store_id: request.kv_store_id,
@@ -301,25 +303,27 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Extract tenant info from the gRPC stream's mTLS certificate
   # Uses TenantResolver to properly validate and extract tenant identity
+  # Rejects requests without valid mTLS to prevent multi-tenant security vulnerabilities
   defp extract_tenant_from_stream(stream) do
-    case get_peer_cert(stream) do
-      {:ok, cert_der} ->
-        case TenantResolver.resolve_from_cert(cert_der) do
-          {:ok, %{tenant_id: tenant_id, tenant_slug: tenant_slug}} when not is_nil(tenant_id) ->
-            {tenant_id, tenant_slug}
-
-          {:ok, %{tenant_slug: tenant_slug}} when not is_nil(tenant_slug) ->
-            # tenant_id not available (no issuer lookup), use default
-            {@default_tenant_id, tenant_slug}
-
-          {:error, reason} ->
-            Logger.debug("TenantResolver failed: #{inspect(reason)}, using default tenant")
-            {@default_tenant_id, @default_tenant_slug}
-        end
+    with {:ok, cert_der} <- get_peer_cert(stream),
+         {:ok, %{tenant_id: tenant_id, tenant_slug: tenant_slug}} <-
+           TenantResolver.resolve_from_cert(cert_der),
+         true <- not is_nil(tenant_id) do
+      {tenant_id, tenant_slug}
+    else
+      {:ok, %{tenant_slug: tenant_slug}} when not is_nil(tenant_slug) ->
+        # If tenant_id cannot be resolved (e.g., issuer lookup unavailable), do not silently
+        # accept writes under a shared tenant; reject to avoid cross-tenant data leakage.
+        Logger.warning("Tenant resolution failed: tenant_slug=#{tenant_slug} but no tenant_id")
+        raise GRPC.RPCError, status: :unauthenticated, message: "tenant_id resolution required"
 
       {:error, reason} ->
-        Logger.debug("Could not extract peer certificate: #{inspect(reason)}, using default tenant")
-        {@default_tenant_id, @default_tenant_slug}
+        Logger.warning("Tenant resolution failed: #{inspect(reason)}")
+        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+
+      false ->
+        Logger.warning("Tenant resolution failed: tenant_id is nil")
+        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
     end
   end
 

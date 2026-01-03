@@ -39,7 +39,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     # Load existing agents from tracker on mount (don't start with empty cache)
     initial_agents_cache = load_initial_agents_cache()
-    connected_agents = compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
+
+    connected_agents =
+      compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
 
     {:ok,
      socket
@@ -208,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">
-              <%= if @is_platform_admin, do: "Infrastructure", else: "Connected Agents" %>
+              {if @is_platform_admin, do: "Infrastructure", else: "Connected Agents"}
             </h1>
             <p class="text-sm text-base-content/60">
               <%= if @is_platform_admin do %>
@@ -227,8 +229,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </.ui_button>
           </div>
         </div>
-
-        <!-- Debug Panel (platform admin only) -->
+        
+    <!-- Debug Panel (platform admin only) -->
         <div
           :if={@is_platform_admin && @show_debug}
           class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300"
@@ -255,8 +257,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </div>
           </div>
         </div>
-
-        <!-- Summary Cards (platform admin only) -->
+        
+    <!-- Summary Cards (platform admin only) -->
         <div :if={@is_platform_admin} class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <.summary_card
             title="Cluster Nodes"
@@ -280,8 +282,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             href={~p"/infrastructure?tab=agents"}
           />
         </div>
-
-        <!-- Tab Navigation (platform admin sees all tabs, others see only agents) -->
+        
+    <!-- Tab Navigation (platform admin sees all tabs, others see only agents) -->
         <div :if={@is_platform_admin} class="tabs tabs-box">
           <.link
             patch={~p"/infrastructure"}
@@ -308,8 +310,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             Connected Agents
           </.link>
         </div>
-
-        <!-- Tab Content (overview, nodes, gateways only for platform admin) -->
+        
+    <!-- Tab Content (overview, nodes, gateways only for platform admin) -->
         <div :if={@is_platform_admin && @active_tab == :overview}>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Agent Gateways -->
@@ -322,8 +324,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               </:header>
               <.gateways_table gateways={@gateways} />
             </.ui_panel>
-
-            <!-- Connected Agents -->
+            
+    <!-- Connected Agents -->
             <.ui_panel>
               <:header>
                 <div class="flex items-center gap-2">
@@ -361,8 +363,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <.gateways_table gateways={@gateways} expanded={true} />
           </.ui_panel>
         </div>
-
-        <!-- Connected Agents tab (visible to all authenticated users) -->
+        
+    <!-- Connected Agents tab (visible to all authenticated users) -->
         <div :if={@active_tab == :agents} class="space-y-6">
           <.ui_panel>
             <:header>
@@ -464,23 +466,36 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           <%= for gateway <- @gateways do %>
             <tr class="hover:bg-base-200/40 cursor-pointer">
               <td>
-                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}></span>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  class="flex items-center gap-1.5"
+                >
+                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
+                  </span>
                   <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>
               <td>
-                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs block">
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  class="font-mono text-xs block"
+                >
                   {gateway.gateway_id}
                 </.link>
               </td>
               <td :if={@expanded}>
-                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs block">
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  class="font-mono text-xs block"
+                >
                   {gateway.partition}
                 </.link>
               </td>
               <td :if={@expanded}>
-                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs text-base-content/60 block">
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  class="font-mono text-xs text-base-content/60 block"
+                >
                   {gateway.short_name}
                 </.link>
               </td>
@@ -518,7 +533,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <tr class="hover:bg-base-200/40 cursor-pointer">
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}></span>
+                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
+                  </span>
                   <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
                 </.link>
               </td>
@@ -560,6 +576,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       [current_node | connected_nodes]
       |> Enum.map(fn node ->
         node_str = to_string(node)
+
         %{
           node: node,
           is_current: node == current_node,
@@ -590,13 +607,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           <%= for node <- @nodes do %>
             <tr class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
               <td>
-                <.link navigate={~p"/infrastructure/nodes/#{node.node}"} class="flex items-center gap-1.5">
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node.node}"}
+                  class="flex items-center gap-1.5"
+                >
                   <span class="size-2 rounded-full bg-success"></span>
                   <span class="text-xs">Connected</span>
                 </.link>
               </td>
               <td class="font-mono text-xs">
-                <.link navigate={~p"/infrastructure/nodes/#{node.node}"} class="flex items-center gap-2">
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node.node}"}
+                  class="flex items-center gap-2"
+                >
                   <span>{node.short_name}</span>
                   <span :if={node.is_current} class="badge badge-xs badge-primary">current</span>
                 </.link>
@@ -722,36 +745,34 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     agents_cache
     |> Map.values()
-    |> Enum.filter(fn agent ->
-      # Platform admins see all agents
-      # Regular users only see their tenant's agents
-      if is_platform_admin do
-        true
-      else
-        # Match by tenant_id OR tenant_slug (agents may have one or both)
-        agent_tenant_id = Map.get(agent, :tenant_id)
-        agent_tenant_slug = Map.get(agent, :tenant_slug)
-
-        cond do
-          # Match by tenant_id if both have it
-          tenant_id != nil and agent_tenant_id != nil ->
-            to_string(agent_tenant_id) == to_string(tenant_id)
-
-          # Match by tenant_slug if both have it
-          tenant_slug != nil and agent_tenant_slug != nil ->
-            to_string(agent_tenant_slug) == to_string(tenant_slug)
-
-          # No match possible
-          true ->
-            false
-        end
-      end
-    end)
+    |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
     |> Enum.map(fn agent ->
       age_ms = now - Map.get(agent, :last_seen_mono, now)
       Map.put(agent, :active, age_ms < @stale_threshold_ms)
     end)
     |> Enum.sort_by(& &1.agent_id)
+  end
+
+  defp agent_visible?(_agent, true, _tenant_id, _tenant_slug), do: true
+
+  defp agent_visible?(agent, false, tenant_id, tenant_slug) do
+    # Match by tenant_id OR tenant_slug (agents may have one or both)
+    agent_tenant_id = Map.get(agent, :tenant_id)
+    agent_tenant_slug = Map.get(agent, :tenant_slug)
+
+    cond do
+      # Match by tenant_id if both have it
+      tenant_id != nil and agent_tenant_id != nil ->
+        to_string(agent_tenant_id) == to_string(tenant_id)
+
+      # Match by tenant_slug if both have it
+      tenant_slug != nil and agent_tenant_slug != nil ->
+        to_string(agent_tenant_slug) == to_string(tenant_slug)
+
+      # No match possible
+      true ->
+        false
+    end
   end
 
   # Detect node type based on node name prefix

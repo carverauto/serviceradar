@@ -77,6 +77,11 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 		return nil, nil
 	}
 
+	// Validate that required endpoints are present for online onboarding
+	if token != "" && packagePath == "" && gatewayEndpoint == "" && kvEndpoint == "" {
+		return nil, errors.New("gateway endpoint or KV endpoint is required for onboarding")
+	}
+
 	if log == nil {
 		log = logger.NewTestLogger()
 	}

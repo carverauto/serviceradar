@@ -81,6 +81,10 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	if g.addr == "" {
+		return ErrGatewayAddrRequired
+	}
+
 	if g.connected && g.conn != nil {
 		return nil // Already connected
 	}
@@ -96,8 +100,9 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	defer cancel()
 
 	// TODO: Migrate to grpc.NewClient when ready - requires testing lazy connection semantics
-	//nolint:staticcheck // SA1019: grpc.DialContext is deprecated but supported through 1.x
-	conn, err := grpc.DialContext(connectCtx, g.addr, opts...)
+	// Add WithBlock to ensure connection is established before returning
+	//nolint:staticcheck // SA1019: grpc.DialContext and WithBlock are deprecated but supported through 1.x
+	conn, err := grpc.DialContext(connectCtx, g.addr, append(opts, grpc.WithBlock())...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
 	}
@@ -238,20 +243,38 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 	return resp, nil
 }
 
-// markDisconnected marks the client as disconnected.
+// markDisconnected marks the client as disconnected and tears down the current connection.
 func (g *GatewayClient) markDisconnected() {
+	var (
+		conn     *grpc.ClientConn
+		provider srgrpc.SecurityProvider
+	)
+
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	g.connected = false
+	// Detach resources under lock
+	conn = g.conn
+	provider = g.securityProvider
+	g.conn = nil
+	g.client = nil
+	g.securityProvider = nil
+	g.mu.Unlock()
+
+	// Close outside lock to avoid holding lock during potentially slow I/O
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if provider != nil {
+		_ = provider.Close()
+	}
 }
 
 // ReconnectWithBackoff attempts to reconnect with exponential backoff.
 func (g *GatewayClient) ReconnectWithBackoff(ctx context.Context) error {
 	g.mu.Lock()
 	delay := g.reconnectDelay
-	g.mu.Unlock()
-
 	g.logger.Info().Dur("delay", delay).Msg("Attempting to reconnect to gateway")
+	g.mu.Unlock()
 
 	select {
 	case <-ctx.Done():
