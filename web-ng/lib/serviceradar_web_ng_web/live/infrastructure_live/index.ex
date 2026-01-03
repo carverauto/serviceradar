@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNG.Accounts.Scope
+
   # Cache agents and gateways locally since trackers use node-local ETS
   # Data is synced via PubSub broadcasts from gateway nodes
   @stale_threshold_ms :timer.minutes(2)
@@ -29,10 +31,18 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     cluster_info = load_cluster_info()
 
+    # Check if user is platform admin for tab visibility
+    is_platform_admin = Scope.platform_admin?(socket.assigns[:current_scope])
+
+    # Get tenant_id for scoping agents (only for non-platform admins)
+    tenant_id = get_tenant_id(socket)
+
     {:ok,
      socket
      |> assign(:page_title, "Infrastructure")
-     |> assign(:active_tab, :overview)
+     |> assign(:active_tab, :agents)
+     |> assign(:is_platform_admin, is_platform_admin)
+     |> assign(:tenant_id, tenant_id)
      |> assign(:show_debug, false)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
      |> assign(:cluster_info, cluster_info)
@@ -44,26 +54,26 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    tab =
-      case params["tab"] do
-        "nodes" -> :nodes
-        "gateways" -> :gateways
-        "agents" -> :agents
-        _ -> :overview
-      end
+    is_platform_admin = socket.assigns.is_platform_admin
 
-    page_path =
-      case tab do
-        :overview -> "/infrastructure"
-        :nodes -> "/infrastructure/nodes"
-        :gateways -> "/infrastructure/gateways"
-        :agents -> "/infrastructure/agents"
+    # Non-platform admins only see agents tab (other tabs are hidden)
+    # Platform admins can navigate to any tab
+    tab =
+      if is_platform_admin do
+        case params["tab"] do
+          "nodes" -> :nodes
+          "gateways" -> :gateways
+          "agents" -> :agents
+          _ -> :overview
+        end
+      else
+        :agents
       end
 
     {:noreply,
      socket
      |> assign(:active_tab, tab)
-     |> assign(:srql, %{enabled: false, page_path: page_path})}
+     |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})}
   end
 
   @impl true
@@ -72,7 +82,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     # Update activity status based on last_seen_mono
     gateways = compute_gateways(socket.assigns.gateways_cache)
-    connected_agents = compute_connected_agents(socket.assigns.agents_cache)
+
+    connected_agents =
+      compute_connected_agents(
+        socket.assigns.agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
 
     {:noreply,
      socket
@@ -133,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     updated_cache =
       Map.put(socket.assigns.agents_cache, agent_id, %{
         agent_id: agent_id,
+        tenant_id: agent_info[:tenant_id],
         tenant_slug: agent_info[:tenant_slug] || "default",
         last_seen: agent_info[:last_seen] || DateTime.utc_now(),
         last_seen_mono: System.monotonic_time(:millisecond),
@@ -141,7 +158,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         source_ip: agent_info[:source_ip]
       })
 
-    connected_agents = compute_connected_agents(updated_cache)
+    connected_agents =
+      compute_connected_agents(
+        updated_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
 
     {:noreply,
      socket
@@ -155,7 +177,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   def handle_event("refresh", _params, socket) do
     cluster_info = load_cluster_info()
     gateways = compute_gateways(socket.assigns.gateways_cache)
-    connected_agents = compute_connected_agents(socket.assigns.agents_cache)
+
+    connected_agents =
+      compute_connected_agents(
+        socket.assigns.agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
 
     {:noreply,
      socket
@@ -175,13 +203,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       <div class="mx-auto max-w-7xl p-6 space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Infrastructure</h1>
+            <h1 class="text-2xl font-semibold text-base-content">
+              <%= if @is_platform_admin, do: "Infrastructure", else: "Connected Agents" %>
+            </h1>
             <p class="text-sm text-base-content/60">
-              Cluster nodes and agent gateways
+              <%= if @is_platform_admin do %>
+                Cluster nodes and agent gateways
+              <% else %>
+                Agents connected to your tenant
+              <% end %>
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <.ui_button variant="ghost" size="sm" phx-click="toggle_debug">
+            <.ui_button :if={@is_platform_admin} variant="ghost" size="sm" phx-click="toggle_debug">
               <.icon name="hero-bug-ant" class="size-4" /> Debug
             </.ui_button>
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
@@ -190,8 +224,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </div>
         </div>
 
-        <!-- Debug Panel -->
-        <div :if={@show_debug} class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300">
+        <!-- Debug Panel (platform admin only) -->
+        <div
+          :if={@is_platform_admin && @show_debug}
+          class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300"
+        >
           <div class="text-sm font-semibold">Cluster Debug Info</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
             <div>
@@ -215,8 +252,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </div>
         </div>
 
-        <!-- Summary Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <!-- Summary Cards (platform admin only) -->
+        <div :if={@is_platform_admin} class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <.summary_card
             title="Cluster Nodes"
             value={length(@cluster_info.connected_nodes) + 1}
@@ -240,8 +277,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           />
         </div>
 
-        <!-- Tab Navigation -->
-        <div class="tabs tabs-box">
+        <!-- Tab Navigation (platform admin sees all tabs, others see only agents) -->
+        <div :if={@is_platform_admin} class="tabs tabs-box">
           <.link
             patch={~p"/infrastructure"}
             class={["tab", @active_tab == :overview && "tab-active"]}
@@ -268,8 +305,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </.link>
         </div>
 
-        <!-- Tab Content -->
-        <div :if={@active_tab == :overview}>
+        <!-- Tab Content (overview, nodes, gateways only for platform admin) -->
+        <div :if={@is_platform_admin && @active_tab == :overview}>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Agent Gateways -->
             <.ui_panel>
@@ -295,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </div>
         </div>
 
-        <div :if={@active_tab == :nodes} class="space-y-6">
+        <div :if={@is_platform_admin && @active_tab == :nodes} class="space-y-6">
           <.ui_panel>
             <:header>
               <div class="flex items-center gap-2">
@@ -309,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </.ui_panel>
         </div>
 
-        <div :if={@active_tab == :gateways} class="space-y-6">
+        <div :if={@is_platform_admin && @active_tab == :gateways} class="space-y-6">
           <.ui_panel>
             <:header>
               <div class="flex items-center gap-2">
@@ -321,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </.ui_panel>
         </div>
 
+        <!-- Connected Agents tab (visible to all authenticated users) -->
         <div :if={@active_tab == :agents} class="space-y-6">
           <.ui_panel>
             <:header>
@@ -587,12 +625,32 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     |> Enum.sort_by(& &1.gateway_id)
   end
 
+  # Get tenant_id from socket assigns for scoping
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{active_tenant: %{id: id}} when not is_nil(id) -> id
+      %{user: %{tenant_id: id}} when not is_nil(id) -> id
+      _ -> nil
+    end
+  end
+
   # Compute connected agents from local cache with activity status
-  defp compute_connected_agents(agents_cache) do
+  # Platform admins see all agents, regular users see only their tenant's agents
+  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_id) do
     now = System.monotonic_time(:millisecond)
 
     agents_cache
     |> Map.values()
+    |> Enum.filter(fn agent ->
+      # Platform admins see all agents
+      # Regular users only see their tenant's agents
+      if is_platform_admin do
+        true
+      else
+        agent_tenant = Map.get(agent, :tenant_id)
+        tenant_id != nil and to_string(agent_tenant) == to_string(tenant_id)
+      end
+    end)
     |> Enum.map(fn agent ->
       age_ms = now - Map.get(agent, :last_seen_mono, now)
       Map.put(agent, :active, age_ms < @stale_threshold_ms)

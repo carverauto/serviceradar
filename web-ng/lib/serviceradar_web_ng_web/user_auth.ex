@@ -96,6 +96,11 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       on the Ash JWT token.
       Redirects to login page if there's no logged user.
 
+    * `:require_platform_admin` - Requires the user to be a platform admin
+      (super_admin role). Used for infrastructure-level views like agent
+      gateways, cluster nodes, and platform configuration. Redirects to
+      analytics with an error if the user lacks permission.
+
   ## Examples
 
   Use the `on_mount` lifecycle macro in LiveViews to mount or authenticate
@@ -138,6 +143,34 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   # verify a recent authentication timestamp in the JWT claims.
   def on_mount(:require_sudo_mode, params, session, socket) do
     on_mount(:require_authenticated, params, session, socket)
+  end
+
+  # Requires the user to be a platform admin (super_admin role).
+  # Used for infrastructure-level views like agent gateways, cluster nodes,
+  # and platform configuration that should not be visible to regular tenant users.
+  def on_mount(:require_platform_admin, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    cond do
+      socket.assigns.current_scope == nil or socket.assigns.current_scope.user == nil ->
+        socket =
+          socket
+          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
+          |> Phoenix.LiveView.redirect(to: ~p"/users/log-in")
+
+        {:halt, socket}
+
+      Scope.platform_admin?(socket.assigns.current_scope) ->
+        {:cont, socket}
+
+      true ->
+        socket =
+          socket
+          |> Phoenix.LiveView.put_flash(:error, "You don't have permission to access this page.")
+          |> Phoenix.LiveView.redirect(to: ~p"/analytics")
+
+        {:halt, socket}
+    end
   end
 
   defp mount_current_scope(socket, session) do

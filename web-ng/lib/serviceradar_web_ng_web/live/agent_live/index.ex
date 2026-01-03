@@ -31,11 +31,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
     end
 
+    # Get tenant_id for scoping live agents
+    tenant_id = get_tenant_id(socket)
+
     {:ok,
      socket
      |> assign(:page_title, "Agents")
      |> assign(:agents, [])
-     |> assign(:live_agents, load_live_agents())
+     |> assign(:live_agents, load_live_agents(tenant_id))
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("agents", default_limit: @default_limit)}
   end
@@ -87,23 +90,40 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   # Handle PubSub events for live agent updates
   @impl true
   def handle_info({:agent_registered, _metadata}, socket) do
-    {:noreply, assign(socket, :live_agents, load_live_agents())}
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:agent_disconnected, _agent_id}, socket) do
-    {:noreply, assign(socket, :live_agents, load_live_agents())}
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
   end
 
   def handle_info({:agent_status_changed, _agent_id, _status}, socket) do
-    {:noreply, assign(socket, :live_agents, load_live_agents())}
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
   end
 
   # Catch-all for other PubSub messages
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp load_live_agents do
+  # Get tenant_id from socket assigns for scoping
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{active_tenant: %{id: id}} when not is_nil(id) -> id
+      %{user: %{tenant_id: id}} when not is_nil(id) -> id
+      _ -> nil
+    end
+  end
+
+  defp load_live_agents(tenant_id) do
     # Get all agents from Horde registry
     ServiceRadar.AgentRegistry.all_agents()
+    |> Enum.filter(fn agent ->
+      # Filter by tenant_id if set, otherwise show nothing for security
+      agent_tenant = Map.get(agent, :tenant_id)
+      tenant_id != nil and to_string(agent_tenant) == to_string(tenant_id)
+    end)
     |> Enum.map(fn agent ->
       %{
         agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),

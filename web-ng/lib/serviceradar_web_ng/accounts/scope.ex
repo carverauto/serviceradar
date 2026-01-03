@@ -16,10 +16,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   growing application requirements.
   """
 
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
-
-  require Ash.Query
 
   defstruct user: nil, active_tenant: nil, tenant_memberships: []
 
@@ -35,15 +32,15 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def for_user(%User{} = user, opts) do
     active_tenant_id = Keyword.get(opts, :active_tenant_id)
 
-    # Preload tenant and memberships for navbar display without decrypting cloaked fields.
-    tenant_query = Tenant |> Ash.Query.for_read(:for_nats_provisioning)
-
+    # Preload tenant and memberships for navbar display.
+    # Note: We don't use a specific read action because Ash.Query.for_read()
+    # breaks relationship loading in some versions. Just load directly.
     user_with_data =
       Ash.load!(
         user,
         [
-          tenant: tenant_query,
-          memberships: [tenant: tenant_query]
+          :tenant,
+          memberships: [:tenant]
         ],
         authorize?: false
       )
@@ -77,6 +74,15 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def tenant_id(%__MODULE__{active_tenant: %{id: id}}), do: id
   def tenant_id(%__MODULE__{user: %{tenant_id: id}}), do: id
   def tenant_id(_), do: nil
+
+  @doc """
+  Returns true if the user is a platform admin (super_admin role).
+
+  Platform admins have access to infrastructure-level views like
+  agent gateways, cluster nodes, and platform configuration.
+  """
+  def platform_admin?(%__MODULE__{user: %{role: :super_admin}}), do: true
+  def platform_admin?(_), do: false
 
   defp find_tenant_by_id(memberships, tenant_id) when is_list(memberships) do
     Enum.find_value(memberships, fn membership ->

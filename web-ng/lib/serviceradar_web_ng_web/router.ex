@@ -240,16 +240,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
 
-      # Consolidated infrastructure view (pollers + agents + nodes)
-      live "/infrastructure", InfrastructureLive.Index, :index
-      live "/infrastructure/nodes/:node_name", NodeLive.Show, :show
-      live "/infrastructure/agents/:uid", AgentLive.Show, :show
-
-      # Legacy routes (redirect to consolidated view)
-      live "/pollers", PollerLive.Index, :index
-      live "/pollers/:poller_id", PollerLive.Show, :show
+      # Connected agents view (tenant-scoped, visible to all authenticated users)
       live "/agents", AgentLive.Index, :index
       live "/agents/:uid", AgentLive.Show, :show
+
+      # Legacy routes
+      live "/pollers", PollerLive.Index, :index
+      live "/pollers/:poller_id", PollerLive.Show, :show
       live "/events", EventLive.Index, :index
       live "/events/:event_id", EventLive.Show, :show
       live "/observability", LogLive.Index, :index
@@ -263,6 +260,11 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Cluster visibility for all authenticated users
       live "/settings/cluster", Settings.ClusterLive.Index, :index
+
+      # Infrastructure view - all authenticated users can see Connected Agents tab
+      # Platform admins (super_admin role) can see all tabs (nodes, gateways)
+      live "/infrastructure", InfrastructureLive.Index, :index
+      live "/infrastructure/nodes/:node_name", NodeLive.Show, :show
     end
 
     post "/users/update-password", UserSessionController, :update_password

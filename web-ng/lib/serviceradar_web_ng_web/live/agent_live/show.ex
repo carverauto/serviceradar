@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent_uid, nil)
      |> assign(:agent, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents"})
+     |> assign(:srql, %{enabled: false, page_path: "/agents"})
      |> assign(:checks, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:checks, checks)
      |> assign(:live_agent, live_agent)
      |> assign(:poller_node_info, poller_node_info)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents/#{uid}"})}
+     |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
   end
 
   defp format_node(nil), do: nil

@@ -350,7 +350,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
               <span class="font-mono text-sm">{Map.get(agent, :agent_id, "unknown")}</span>
             </div>
             <.link
-              navigate={~p"/infrastructure/agents/#{Map.get(agent, :agent_id)}"}
+              navigate={~p"/agents/#{Map.get(agent, :agent_id)}"}
               class="btn btn-ghost btn-xs"
             >
               View
