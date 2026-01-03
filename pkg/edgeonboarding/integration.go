@@ -34,6 +34,8 @@ var (
 	ErrGeneratedConfigNotFound = errors.New("generated config not found")
 	// ErrIntegrationResultNil is returned when integration result is nil.
 	ErrIntegrationResultNil = errors.New("integration result is nil")
+	// ErrEndpointRequired is returned when neither gateway nor KV endpoint is provided for onboarding.
+	ErrEndpointRequired = errors.New("gateway endpoint or KV endpoint is required for onboarding")
 )
 
 const defaultServiceConfigFile = "service.json"
@@ -79,7 +81,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 
 	// Validate that required endpoints are present for online onboarding
 	if token != "" && packagePath == "" && gatewayEndpoint == "" && kvEndpoint == "" {
-		return nil, errors.New("gateway endpoint or KV endpoint is required for onboarding")
+		return nil, ErrEndpointRequired
 	}
 
 	if log == nil {

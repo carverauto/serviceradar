@@ -39,6 +39,8 @@ type PushLoop struct {
 	interval           time.Duration
 	logger             logger.Logger
 	done               chan struct{}
+	stopCh             chan struct{}
+	stopOnce           sync.Once
 	configVersion      string        // Current config version for polling
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
@@ -107,12 +109,16 @@ func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration,
 		interval:           interval,
 		logger:             log,
 		done:               make(chan struct{}),
+		stopCh:             make(chan struct{}),
 		configPollInterval: defaultConfigPollInterval,
 	}
 }
 
-// Start begins the push loop. It runs until the context is cancelled.
+// Start begins the push loop. It runs until the context is cancelled or Stop is called.
 func (p *PushLoop) Start(ctx context.Context) error {
+	// Ensure done is closed when Start exits (only once)
+	defer p.stopOnce.Do(func() { close(p.done) })
+
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
 
 	// Initial connection and enrollment attempt
@@ -134,8 +140,11 @@ func (p *PushLoop) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			p.logger.Info().Msg("Push loop stopping due to context cancellation")
-			close(p.done)
 			return ctx.Err()
+
+		case <-p.stopCh:
+			p.logger.Info().Msg("Push loop stopping due to Stop()")
+			return context.Canceled
 
 		case <-timer.C:
 			// Only push when enrolled (enrollment can happen later via reconnect)
@@ -147,8 +156,9 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	}
 }
 
-// Stop signals the push loop to stop.
+// Stop signals the push loop to stop and waits for it to exit.
 func (p *PushLoop) Stop() {
+	p.stopOnce.Do(func() { close(p.stopCh) })
 	<-p.done
 }
 
@@ -512,6 +522,9 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 	// }
 }
 
+// Default timeout for checks when not specified or invalid
+const defaultCheckTimeout = 10 * time.Second
+
 // protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Build address from target and port
@@ -523,11 +536,17 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Map proto check type to internal type
 	checkerType := mapCheckType(check.CheckType)
 
+	// Validate and default timeout to prevent issues with zero or negative values
+	timeout := time.Duration(check.TimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = defaultCheckTimeout
+	}
+
 	return &CheckerConfig{
 		Name:    check.Name,
 		Type:    checkerType,
 		Address: address,
-		Timeout: Duration(time.Duration(check.TimeoutSec) * time.Second),
+		Timeout: Duration(timeout),
 		// Additional fields from settings if needed
 	}
 }

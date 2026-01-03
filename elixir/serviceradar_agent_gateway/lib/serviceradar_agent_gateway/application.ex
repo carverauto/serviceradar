@@ -173,8 +173,18 @@ defmodule ServiceRadarAgentGateway.Application do
       Logger.info("Using mounted mTLS certs for agent gateway gRPC server: #{cert_file}")
       GRPC.Credential.new(ssl: ssl_opts)
     else
-      Logger.warning("No mTLS certs available, using insecure gRPC")
-      nil
+      # Fail closed by default - require explicit opt-in for insecure connections
+      allow_insecure? = System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
+
+      if allow_insecure? do
+        Logger.warning(
+          "No mTLS certs available; GATEWAY_ALLOW_INSECURE_GRPC=true so starting insecure gRPC (DEV ONLY)"
+        )
+
+        nil
+      else
+        raise "No mTLS certs available for agent gateway gRPC server (set GATEWAY_ALLOW_INSECURE_GRPC=true to override for local dev)"
+      end
     end
   end
 

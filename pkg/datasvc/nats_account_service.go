@@ -114,8 +114,9 @@ func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.S
 	s.resolverCredsFile = strings.TrimSpace(credsFile)
 
 	if s.resolverConn != nil {
-		// Use Drain for graceful shutdown to prevent race conditions
+		// Drain then close to ensure the underlying connection is released
 		_ = s.resolverConn.Drain()
+		s.resolverConn.Close()
 		s.resolverConn = nil
 	}
 }
@@ -189,8 +190,9 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	}
 
 	if s.resolverConn != nil {
-		// Use Drain for graceful shutdown to prevent race conditions
+		// Drain then close to ensure the underlying connection is released
 		_ = s.resolverConn.Drain()
+		s.resolverConn.Close()
 		s.resolverConn = nil
 	}
 
