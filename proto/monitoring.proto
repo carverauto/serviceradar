@@ -35,6 +35,12 @@ service PollerService {
 // AgentGatewayService receives status pushes from agents.
 // Agents connect outbound to the gateway and push their status/results.
 service AgentGatewayService {
+  // Hello is called by the agent on startup to announce itself and enroll.
+  // The gateway validates the mTLS certificate and registers the agent.
+  rpc Hello(AgentHelloRequest) returns (AgentHelloResponse) {}
+  // GetConfig is called by the agent to fetch its configuration.
+  // Supports versioning - returns not_modified if config hasn't changed.
+  rpc GetConfig(AgentConfigRequest) returns (AgentConfigResponse) {}
   // PushStatus sends a batch of service statuses from the agent to the gateway.
   rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
   // StreamStatus streams service status chunks for large payloads.
@@ -214,4 +220,80 @@ message GatewayServiceStatus {
   string kv_store_id = 10;     // KV store identifier this service is using
   string tenant_id = 11;       // Tenant UUID for multi-tenant routing
   string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
+}
+
+// ============================================================================
+// Agent Hello/Enrollment Messages
+// ============================================================================
+
+// AgentHelloRequest is sent by the agent on startup to announce itself.
+message AgentHelloRequest {
+  string agent_id = 1;              // Unique agent identifier (from bootstrap config)
+  string version = 2;               // Agent software version (e.g., "1.2.3")
+  repeated string capabilities = 3; // Agent capabilities (e.g., ["icmp", "tcp", "http", "sweep"])
+  string hostname = 4;              // Host machine name
+  string os = 5;                    // Operating system (e.g., "linux", "darwin", "windows")
+  string arch = 6;                  // Architecture (e.g., "amd64", "arm64")
+  string partition = 7;             // Partition/site identifier
+  string config_version = 8;        // Current config version hash (for config sync)
+  map<string, string> labels = 9;   // Optional labels/tags for grouping
+}
+
+// AgentHelloResponse is returned by the gateway after validating the agent.
+message AgentHelloResponse {
+  bool accepted = 1;                // Whether the agent was accepted
+  string agent_id = 2;              // Confirmed agent ID (may be assigned if not provided)
+  string message = 3;               // Human-readable status message
+  string gateway_id = 4;            // Gateway that accepted the connection
+  int64 server_time = 5;            // Server timestamp (for clock sync)
+  int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
+  bool config_outdated = 7;         // True if agent should fetch new config
+  string tenant_id = 8;             // Tenant UUID (extracted from mTLS cert)
+  string tenant_slug = 9;           // Tenant slug (extracted from mTLS cert)
+}
+
+// ============================================================================
+// Agent Configuration Messages
+// ============================================================================
+
+// AgentConfigRequest is sent by the agent to fetch its configuration.
+message AgentConfigRequest {
+  string agent_id = 1;              // Agent requesting config
+  string config_version = 2;        // Current config version hash (for cache validation)
+}
+
+// AgentConfigResponse contains the agent's configuration from the SaaS control plane.
+message AgentConfigResponse {
+  bool not_modified = 1;            // True if config_version matches current; config fields empty
+  string config_version = 2;        // New config version hash
+  int64 config_timestamp = 3;       // When config was last updated (unix timestamp)
+
+  // Agent settings
+  int32 heartbeat_interval_sec = 4; // How often to push status (seconds)
+  int32 config_poll_interval_sec = 5; // How often to check for config updates (seconds)
+
+  // Checks to perform
+  repeated AgentCheckConfig checks = 6;
+
+  // Optional: raw JSON config for extensibility
+  bytes config_json = 7;
+}
+
+// AgentCheckConfig defines a single check for the agent to perform.
+message AgentCheckConfig {
+  string check_id = 1;              // Unique check identifier
+  string check_type = 2;            // Type: "icmp", "tcp", "http", "grpc", "process", "sweep"
+  string name = 3;                  // Human-readable name
+  bool enabled = 4;                 // Whether check is active
+  int32 interval_sec = 5;           // Check interval in seconds
+  int32 timeout_sec = 6;            // Check timeout in seconds
+
+  // Target configuration (interpretation depends on check_type)
+  string target = 7;                // Target host/IP/URL
+  int32 port = 8;                   // Target port (for tcp, http, grpc)
+  string path = 9;                  // Path (for http checks)
+  string method = 10;               // HTTP method (for http checks)
+
+  // Additional settings as key-value pairs
+  map<string, string> settings = 11;
 }

@@ -462,17 +462,27 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for gateway <- @gateways do %>
-            <tr class="hover:bg-base-200/40">
+            <tr class="hover:bg-base-200/40 cursor-pointer">
               <td>
-                <div class="flex items-center gap-1.5">
+                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
-                </div>
+                </.link>
               </td>
-              <td class="font-mono text-xs">{gateway.gateway_id}</td>
-              <td :if={@expanded} class="font-mono text-xs">{gateway.partition}</td>
-              <td :if={@expanded} class="font-mono text-xs text-base-content/60">
-                {gateway.short_name}
+              <td>
+                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs block">
+                  {gateway.gateway_id}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs block">
+                  {gateway.partition}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/infrastructure/nodes/#{gateway.node}"} class="font-mono text-xs text-base-content/60 block">
+                  {gateway.short_name}
+                </.link>
               </td>
             </tr>
           <% end %>
@@ -505,17 +515,33 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for agent <- @agents do %>
-            <tr class="hover:bg-base-200/40">
+            <tr class="hover:bg-base-200/40 cursor-pointer">
               <td>
-                <div class="flex items-center gap-1.5">
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
                   <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}></span>
                   <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
-                </div>
+                </.link>
               </td>
-              <td class="font-mono text-xs">{agent.agent_id}</td>
-              <td class="font-mono text-xs">{agent.tenant_slug}</td>
-              <td :if={@expanded} class="font-mono text-xs">{format_time(agent.last_seen)}</td>
-              <td :if={@expanded} class="text-xs">{agent.service_count}</td>
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.agent_id}
+                </.link>
+              </td>
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.tenant_slug}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {format_time(agent.last_seen)}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="text-xs block">
+                  {agent.service_count}
+                </.link>
+              </td>
             </tr>
           <% end %>
         </tbody>
@@ -562,20 +588,24 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             </td>
           </tr>
           <%= for node <- @nodes do %>
-            <tr class={["hover:bg-base-200/40", node.is_current && "bg-primary/5"]}>
+            <tr class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
               <td>
-                <div class="flex items-center gap-1.5">
+                <.link navigate={~p"/infrastructure/nodes/#{node.node}"} class="flex items-center gap-1.5">
                   <span class="size-2 rounded-full bg-success"></span>
                   <span class="text-xs">Connected</span>
-                </div>
+                </.link>
               </td>
               <td class="font-mono text-xs">
-                <div class="flex items-center gap-2">
+                <.link navigate={~p"/infrastructure/nodes/#{node.node}"} class="flex items-center gap-2">
                   <span>{node.short_name}</span>
                   <span :if={node.is_current} class="badge badge-xs badge-primary">current</span>
-                </div>
+                </.link>
               </td>
-              <td><.node_type_badge type={node.type} /></td>
+              <td>
+                <.link navigate={~p"/infrastructure/nodes/#{node.node}"}>
+                  <.node_type_badge type={node.type} />
+                </.link>
+              </td>
             </tr>
           <% end %>
         </tbody>

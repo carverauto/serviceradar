@@ -104,8 +104,7 @@ func setupTempDir(t *testing.T) (tmpDir string, cleanup func()) {
 
 func setupServerConfig() *ServerConfig {
 	return &ServerConfig{
-		ListenAddr: ":50051",
-		Security:   &models.SecurityConfig{},
+		Security: &models.SecurityConfig{},
 	}
 }
 
@@ -188,7 +187,6 @@ func TestNewServerBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
-	assert.Equal(t, config.ListenAddr, server.ListenAddr())
 	assert.Equal(t, config.Security, server.SecurityConfig())
 
 	t.Logf("server.configStore = %v", server.configStore)
@@ -512,7 +510,6 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	err = s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
-	assert.Equal(t, config.ListenAddr, s.ListenAddr())
 	assert.Equal(t, config.Security, s.SecurityConfig())
 	assert.Len(t, s.services, 1)
 	assert.Equal(t, "mock_sweep", s.services[0].Name())
@@ -524,7 +521,7 @@ func TestServerGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -589,7 +586,7 @@ func TestServerLifecycle(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -615,7 +612,7 @@ func TestServerListServices(t *testing.T) {
 	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	services := server.ListServices()
@@ -665,8 +662,7 @@ func TestServerGetResults(t *testing.T) {
 	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
-		ListenAddr: ":50051",
-		AgentID:    "test-agent",
+		AgentID: "test-agent",
 	}, createTestLogger())
 	require.NoError(t, err)
 
@@ -747,8 +743,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
-		ListenAddr: ":50051",
-		AgentID:    "test-agent",
+		AgentID: "test-agent",
 	}, createTestLogger())
 	require.NoError(t, err)
 

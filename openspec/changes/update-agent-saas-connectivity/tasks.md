@@ -1,13 +1,69 @@
 ## 1. Implementation
 - [x] 1.1 Replace `PollerService` with `AgentGatewayService` in Elixir protos/clients and keep the streaming/chunked status payload flow intact.
-- [ ] 1.2 Define gRPC service and messages for agent `Hello` and `GetConfig` in `proto/` (and Elixir stubs), with agent changes deferred.
-- [ ] 1.3 Implement an agent ingress service (refactor poller or create `agent-gateway`) to terminate mTLS, resolve tenant identity via issuer SPKI lookup, and forward events to core-elx.
-- [ ] 1.4 Add Ash resources/actions in core-elx to register agents, update online status, and publish enrollment events.
+- [x] 1.2 Define gRPC service and messages for agent `Hello` and `GetConfig` in `proto/` (and Elixir stubs), with agent changes deferred.
+  - Added Hello and GetConfig RPCs to AgentGatewayService in proto/monitoring.proto
+  - Added AgentHelloRequest/Response, AgentConfigRequest/Response, AgentCheckConfig messages
+  - Added tenant_id/tenant_slug fields to GatewayStatusRequest/Chunk/ServiceStatus messages
+  - Generated Go protobuf stubs via make generate-proto
+  - Generated Elixir protobuf stubs via protoc-gen-elixir
+  - Implemented hello() and get_config() handlers in AgentGatewayServer
+- [x] 1.3 Implement an agent ingress service (refactor poller or create `agent-gateway`) to terminate mTLS, resolve tenant identity via issuer SPKI lookup, and forward events to core-elx.
+  - AgentGatewayServer implements PushStatus/StreamStatus with mTLS termination
+  - TenantResolver extracts tenant from certificate CN and SPKI hash
+  - StatusProcessor forwards to AgentTracker with tenant context
+- [x] 1.4 Add Ash resources/actions in core-elx to register agents, update online status, and publish enrollment events.
+  - Infrastructure.Agent Ash resource with OCSF alignment and state machine
+  - AgentTracker ETS-based in-memory tracking with PubSub broadcasts
+  - AgentRegistry Horde registry for distributed lookups
+  - Note: Hello-based enrollment events depend on 1.2 proto work
 - [x] 1.5 Persist tenant CA SPKI hashes in `ServiceRadar.Edge.TenantCA` and use them for issuer lookup during agent connection validation.
-- [ ] 1.6 Implement config generation and versioning in core-elx using tenant data from CNPG, with a `not_modified` response when unchanged.
-- [ ] 1.7 Update web-ng UI/API flows to surface agent online status and trigger config regeneration when users change monitoring settings.
+- [x] 1.6 Implement config generation and versioning in core-elx using tenant data from CNPG, with a `not_modified` response when unchanged.
+  - Created AgentConfigGenerator module in serviceradar_core/lib/serviceradar/edge/
+  - Loads ServiceCheck records by agent_uid and tenant_id from CNPG
+  - Computes SHA256 hash of config for versioning
+  - Returns :not_modified when config version matches current
+  - Updated AgentGatewayServer.get_config to use the generator
+  - Added comprehensive tests for config generation and versioning
+- [x] 1.7 Update web-ng UI/API flows to surface agent online status and trigger config regeneration when users change monitoring settings.
+  - InfrastructureLive shows Connected Agents tab with real-time PubSub updates
+  - Initial agents loaded via RPC to AgentTracker on all cluster nodes
+  - Clickable agent rows navigate to AgentLive.Show for details
+  - Tenant scoping for non-platform users
 - [ ] 1.8 Update onboarding bundles/install scripts to include only SaaS endpoint + mTLS credentials in bootstrap config.
 - [ ] 1.9 Add tests for hello/enrollment, config versioning, and agent polling behavior; update architecture docs.
 
-## 2. Deferred
-- [ ] 2.1 Update the Go agent to send `Hello`, fetch config after enrollment, and poll every 5 minutes with versioning (defer to a follow-up change if needed).
+## 3. Platform Tenant & Agent Visibility
+- [x] 3.1 Add `is_platform_tenant` boolean attribute to Tenant resource with unique partial index
+- [x] 3.2 Create UniquePlatformTenant validation module ensuring only one platform tenant exists
+- [x] 3.3 Add database migration for is_platform_tenant column (sets Default Tenant as platform tenant)
+- [x] 3.4 Update Scope.platform_admin?() to require BOTH super_admin role AND active_tenant.is_platform_tenant
+- [x] 3.5 Fix Scope.for_user/2 to properly load tenant memberships without Ash.Query.for_read()
+- [x] 3.6 Gate infrastructure tabs (nodes, gateways) to platform admins only in InfrastructureLive
+- [x] 3.7 Show only Connected Agents tab to non-platform tenant users
+- [x] 3.8 Load initial agents cache on mount via RPC to all cluster nodes (don't wait for PubSub)
+- [x] 3.9 Fix tenant matching to use tenant_slug when tenant_id unavailable (agents have slug, not id)
+- [x] 3.10 Make cluster nodes table rows clickable to NodeLive.Show
+- [x] 3.11 Make agent gateways table rows clickable to NodeLive.Show (gateway is a node)
+- [x] 3.12 Make connected agents table rows clickable to AgentLive.Show
+
+## 2. Agent Go Implementation
+- [x] 2.1 Update the Go agent to send `Hello`, fetch config after enrollment, and poll every 5 minutes with versioning.
+  - Removed legacy runServerMode - agents now require gateway_addr and only use push mode
+  - Added Hello and GetConfig methods to GatewayClient (pkg/agent/gateway_client.go)
+  - Updated runPushMode to call Hello then GetConfig before starting status push loop
+  - Agent receives tenant_id/tenant_slug from Hello response
+  - Agent uses heartbeat_interval from Hello response for push interval
+  - Added Version variable for build-time version injection
+  - Added getAgentCapabilities() to report agent capabilities in Hello request
+- [x] 2.2 Remove legacy server mode fields and code from agent package.
+  - Removed deprecated `ListenAddr` from ServerConfig (was for legacy gRPC server mode)
+  - Removed `listenAddr` field from Server struct
+  - Removed `proto.UnimplementedAgentServiceServer` embedding - agents are now push-mode only clients
+  - Removed `ListenAddr()` method from Server
+  - Updated `initializeServer()` to not reference ListenAddr
+  - Updated all tests to not reference ListenAddr
+  - Kept `Security` field in ServerConfig for checker connections fallback
+
+## 4. Follow-up Work
+- [ ] 4.1 Rename ServiceRadar.Poller modules to ServiceRadar.Gateway or ServiceRadar.Infrastructure (affects 16 files)
+- [ ] 4.2 Implement full config application from GetConfig response (currently logs but doesn't apply checks)

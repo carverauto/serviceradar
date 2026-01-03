@@ -149,7 +149,6 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 		checkerConfs:    make(map[string]*CheckerConfig),
 		configDir:       configDir,
 		services:        make([]Service, 0),
-		listenAddr:      cfg.ListenAddr,
 		registry:        initRegistry(log),
 		errChan:         make(chan error, defaultErrChansize),
 		done:            make(chan struct{}),
@@ -880,11 +879,6 @@ func (s *Server) RestartServices(ctx context.Context) {
 			s.logger.Info().Str("service", svc.Name()).Msg("Service restarted")
 		}
 	}
-}
-
-// ListenAddr returns the server's listening address.
-func (s *Server) ListenAddr() string {
-	return s.config.ListenAddr
 }
 
 // SecurityConfig returns the server's security configuration.

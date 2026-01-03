@@ -46,12 +46,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     all_agents = ServiceRadar.AgentRegistry.all_agents()
 
     Logger.debug(
-      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &(&1[:agent_id] || &1[:key])))}"
+      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &get_agent_id/1))}"
     )
 
     live_agent =
       Enum.find(all_agents, fn agent ->
-        (agent[:agent_id] || agent[:key]) == uid
+        get_agent_id(agent) == uid
       end)
 
     Logger.debug(
@@ -60,8 +60,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
     # Get poller node system info if live agent exists
     poller_node_info =
-      if live_agent && live_agent[:node] do
-        fetch_node_info(live_agent[:node])
+      if live_agent && Map.get(live_agent, :node) do
+        fetch_node_info(Map.get(live_agent, :node))
       else
         nil
       end
@@ -673,4 +673,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  # Safely extract agent ID from either Infrastructure.Agent structs or maps
+  # Structs use :uid, maps may use :agent_id or :key
+  defp get_agent_id(%ServiceRadar.Infrastructure.Agent{uid: uid}), do: uid
+
+  defp get_agent_id(agent) when is_map(agent) do
+    Map.get(agent, :uid) || Map.get(agent, :agent_id) || Map.get(agent, :key)
+  end
+
+  defp get_agent_id(_), do: nil
 end

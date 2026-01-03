@@ -268,3 +268,77 @@ func (g *GatewayClient) GetReconnectDelay() time.Duration {
 	defer g.mu.RUnlock()
 	return g.reconnectDelay
 }
+
+// Hello sends an enrollment request to the gateway.
+// This should be called on agent startup to announce the agent and register with the gateway.
+func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest) (*proto.AgentHelloResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	helloCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
+	defer cancel()
+
+	resp, err := client.Hello(helloCtx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to send Hello to gateway")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to send Hello: %w", err)
+	}
+
+	if !resp.Accepted {
+		return nil, fmt.Errorf("agent enrollment rejected: %s", resp.Message)
+	}
+
+	g.logger.Info().
+		Str("agent_id", resp.AgentId).
+		Str("gateway_id", resp.GatewayId).
+		Str("tenant_id", resp.TenantId).
+		Str("tenant_slug", resp.TenantSlug).
+		Int32("heartbeat_interval_sec", resp.HeartbeatIntervalSec).
+		Bool("config_outdated", resp.ConfigOutdated).
+		Msg("Agent enrolled with gateway")
+
+	return resp, nil
+}
+
+// GetConfig fetches the agent's configuration from the gateway.
+// Supports versioning - returns not_modified if config hasn't changed.
+func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	configCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
+	defer cancel()
+
+	resp, err := client.GetConfig(configCtx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to get config from gateway")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	if resp.NotModified {
+		g.logger.Debug().Str("version", resp.ConfigVersion).Msg("Agent config not modified")
+	} else {
+		g.logger.Info().
+			Str("version", resp.ConfigVersion).
+			Int32("heartbeat_interval_sec", resp.HeartbeatIntervalSec).
+			Int32("config_poll_interval_sec", resp.ConfigPollIntervalSec).
+			Int("checks_count", len(resp.Checks)).
+			Msg("Received new agent config from gateway")
+	}
+
+	return resp, nil
+}

@@ -354,6 +354,8 @@ var PollerService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	AgentGatewayService_Hello_FullMethodName        = "/monitoring.AgentGatewayService/Hello"
+	AgentGatewayService_GetConfig_FullMethodName    = "/monitoring.AgentGatewayService/GetConfig"
 	AgentGatewayService_PushStatus_FullMethodName   = "/monitoring.AgentGatewayService/PushStatus"
 	AgentGatewayService_StreamStatus_FullMethodName = "/monitoring.AgentGatewayService/StreamStatus"
 )
@@ -365,6 +367,12 @@ const (
 // AgentGatewayService receives status pushes from agents.
 // Agents connect outbound to the gateway and push their status/results.
 type AgentGatewayServiceClient interface {
+	// Hello is called by the agent on startup to announce itself and enroll.
+	// The gateway validates the mTLS certificate and registers the agent.
+	Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error)
+	// GetConfig is called by the agent to fetch its configuration.
+	// Supports versioning - returns not_modified if config hasn't changed.
+	GetConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (*AgentConfigResponse, error)
 	// PushStatus sends a batch of service statuses from the agent to the gateway.
 	PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error)
 	// StreamStatus streams service status chunks for large payloads.
@@ -377,6 +385,26 @@ type agentGatewayServiceClient struct {
 
 func NewAgentGatewayServiceClient(cc grpc.ClientConnInterface) AgentGatewayServiceClient {
 	return &agentGatewayServiceClient{cc}
+}
+
+func (c *agentGatewayServiceClient) Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentHelloResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_Hello_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentGatewayServiceClient) GetConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (*AgentConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentConfigResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_GetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *agentGatewayServiceClient) PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error) {
@@ -409,6 +437,12 @@ type AgentGatewayService_StreamStatusClient = grpc.ClientStreamingClient[Gateway
 // AgentGatewayService receives status pushes from agents.
 // Agents connect outbound to the gateway and push their status/results.
 type AgentGatewayServiceServer interface {
+	// Hello is called by the agent on startup to announce itself and enroll.
+	// The gateway validates the mTLS certificate and registers the agent.
+	Hello(context.Context, *AgentHelloRequest) (*AgentHelloResponse, error)
+	// GetConfig is called by the agent to fetch its configuration.
+	// Supports versioning - returns not_modified if config hasn't changed.
+	GetConfig(context.Context, *AgentConfigRequest) (*AgentConfigResponse, error)
 	// PushStatus sends a batch of service statuses from the agent to the gateway.
 	PushStatus(context.Context, *GatewayStatusRequest) (*GatewayStatusResponse, error)
 	// StreamStatus streams service status chunks for large payloads.
@@ -423,6 +457,12 @@ type AgentGatewayServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentGatewayServiceServer struct{}
 
+func (UnimplementedAgentGatewayServiceServer) Hello(context.Context, *AgentHelloRequest) (*AgentHelloResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Hello not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) GetConfig(context.Context, *AgentConfigRequest) (*AgentConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConfig not implemented")
+}
 func (UnimplementedAgentGatewayServiceServer) PushStatus(context.Context, *GatewayStatusRequest) (*GatewayStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PushStatus not implemented")
 }
@@ -448,6 +488,42 @@ func RegisterAgentGatewayServiceServer(s grpc.ServiceRegistrar, srv AgentGateway
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&AgentGatewayService_ServiceDesc, srv)
+}
+
+func _AgentGatewayService_Hello_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentHelloRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).Hello(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_Hello_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).Hello(ctx, req.(*AgentHelloRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentGatewayService_GetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).GetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_GetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).GetConfig(ctx, req.(*AgentConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _AgentGatewayService_PushStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -482,6 +558,14 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "monitoring.AgentGatewayService",
 	HandlerType: (*AgentGatewayServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Hello",
+			Handler:    _AgentGatewayService_Hello_Handler,
+		},
+		{
+			MethodName: "GetConfig",
+			Handler:    _AgentGatewayService_GetConfig_Handler,
+		},
 		{
 			MethodName: "PushStatus",
 			Handler:    _AgentGatewayService_PushStatus_Handler,

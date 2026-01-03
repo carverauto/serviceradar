@@ -24,10 +24,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
-
-	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -41,6 +40,9 @@ import (
 
 //go:embed config.json
 var defaultConfig []byte
+
+// Version is set at build time via ldflags
+var Version = "dev"
 
 var (
 	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
@@ -134,14 +136,12 @@ func run() error {
 		server.RestartServices(ctx)
 	})
 
-	// Determine which mode to run: push mode (new) or server mode (legacy)
-	if cfg.GatewayAddr != "" {
-		return runPushMode(ctx, server, &cfg, agentLogger)
+	// Gateway address is required - agents must push status to gateway
+	if cfg.GatewayAddr == "" {
+		return agent.ErrGatewayAddrRequired
 	}
 
-	// Legacy server mode (deprecated)
-	agentLogger.Warn().Msg("Running in legacy server mode. Configure gateway_addr to use push mode.")
-	return runServerMode(ctx, server)
+	return runPushMode(ctx, server, &cfg, agentLogger)
 }
 
 // runPushMode runs the agent in push mode, pushing status to the gateway.
@@ -154,8 +154,61 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	// Create gateway client
 	gatewayClient := agent.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
 
-	// Determine push interval
+	// Connect to gateway
+	if err := gatewayClient.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to gateway: %w", err)
+	}
+
+	// Step 1: Send Hello to register with gateway
+	hostname, _ := os.Hostname()
+	helloReq := &proto.AgentHelloRequest{
+		AgentId:       cfg.AgentID,
+		Version:       Version,
+		Capabilities:  getAgentCapabilities(server),
+		Hostname:      hostname,
+		Os:            runtime.GOOS,
+		Arch:          runtime.GOARCH,
+		Partition:     cfg.Partition,
+		ConfigVersion: "", // Empty on first connect, will be populated after GetConfig
+	}
+
+	helloResp, err := gatewayClient.Hello(ctx, helloReq)
+	if err != nil {
+		return fmt.Errorf("failed to enroll agent: %w", err)
+	}
+
+	// Update config with tenant info from gateway if not already set
+	if cfg.TenantID == "" && helloResp.TenantId != "" {
+		cfg.TenantID = helloResp.TenantId
+	}
+	if cfg.TenantSlug == "" && helloResp.TenantSlug != "" {
+		cfg.TenantSlug = helloResp.TenantSlug
+	}
+
+	// Step 2: Get configuration from gateway
+	configReq := &proto.AgentConfigRequest{
+		AgentId:       cfg.AgentID,
+		ConfigVersion: "", // Empty to get full config
+	}
+
+	configResp, err := gatewayClient.GetConfig(ctx, configReq)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get config from gateway, using local config")
+		// Continue with local config - this is not fatal
+	} else if !configResp.NotModified {
+		// TODO: Apply config from gateway (checks, intervals, etc.)
+		// For now, just use the heartbeat interval from the config
+		log.Info().
+			Str("config_version", configResp.ConfigVersion).
+			Int("checks_count", len(configResp.Checks)).
+			Msg("Received configuration from gateway")
+	}
+
+	// Determine push interval (prefer gateway config, fall back to local)
 	pushInterval := time.Duration(cfg.PushInterval)
+	if helloResp.HeartbeatIntervalSec > 0 {
+		pushInterval = time.Duration(helloResp.HeartbeatIntervalSec) * time.Second
+	}
 	if pushInterval <= 0 {
 		pushInterval = 30 * time.Second
 	}
@@ -210,23 +263,14 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	return nil
 }
 
-// runServerMode runs the agent in legacy server mode (deprecated).
-func runServerMode(ctx context.Context, server *agent.Server) error {
-	// Create server options
-	opts := &lifecycle.ServerOptions{
-		ListenAddr:        server.ListenAddr(),
-		ServiceName:       "AgentService",
-		Service:           server,
-		EnableHealthCheck: true,
-		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(s *grpc.Server) error {
-				proto.RegisterAgentServiceServer(s, server)
-				return nil
-			},
-		},
-		Security: server.SecurityConfig(),
-	}
+// getAgentCapabilities returns the capabilities of this agent based on configured services.
+func getAgentCapabilities(server *agent.Server) []string {
+	// Base capabilities that all agents have
+	capabilities := []string{"status", "push"}
 
-	// Run server with lifecycle management
-	return lifecycle.RunServer(ctx, opts)
+	// Add capabilities based on configured checkers/services
+	// TODO: Query the server for its configured services and add their types
+	// For now, return base capabilities
+
+	return capabilities
 }

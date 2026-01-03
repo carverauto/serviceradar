@@ -43,6 +43,127 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @default_tenant_id "00000000-0000-0000-0000-000000000000"
   @default_tenant_slug "default"
 
+  # Default heartbeat interval for agents
+  @default_heartbeat_interval_sec 30
+
+  # Gateway identifier (node name or configured ID)
+  defp gateway_id do
+    node() |> Atom.to_string()
+  end
+
+  @doc """
+  Handle an agent hello/enrollment request.
+
+  Called by the agent on startup to announce itself and register with the gateway.
+  Validates the mTLS certificate, extracts tenant identity, and registers the agent.
+  """
+  @spec hello(Monitoring.AgentHelloRequest.t(), GRPC.Server.Stream.t()) ::
+          Monitoring.AgentHelloResponse.t()
+  def hello(request, stream) do
+    agent_id = request.agent_id
+    version = request.version
+    capabilities = request.capabilities || []
+
+    Logger.info("Agent hello received: agent_id=#{agent_id}, version=#{version}")
+    Logger.debug("Agent capabilities: #{inspect(capabilities)}")
+
+    # Extract tenant from mTLS certificate (secure source of truth)
+    {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
+
+    # TODO: Register the agent with the core (AgentTracker)
+    # For now, we accept all agents with valid certificates
+    # In the future, this should verify the agent is expected for this tenant
+
+    # Check if config is outdated (placeholder - always false for now)
+    # TODO: Implement config versioning in core-elx
+    config_outdated = request.config_version == "" or request.config_version == nil
+
+    Logger.info(
+      "Agent enrolled: agent_id=#{agent_id}, tenant=#{tenant_slug}, config_outdated=#{config_outdated}"
+    )
+
+    %Monitoring.AgentHelloResponse{
+      accepted: true,
+      agent_id: agent_id,
+      message: "Agent enrolled successfully",
+      gateway_id: gateway_id(),
+      server_time: System.os_time(:second),
+      heartbeat_interval_sec: @default_heartbeat_interval_sec,
+      config_outdated: config_outdated,
+      tenant_id: tenant_id,
+      tenant_slug: tenant_slug
+    }
+  end
+
+  @doc """
+  Handle an agent config request.
+
+  Returns the agent's configuration from the SaaS control plane.
+  Supports versioning - returns not_modified if config hasn't changed.
+
+  The configuration is loaded from CNPG based on the agent's assigned
+  service checks. A SHA256 hash of the config is used for versioning,
+  so agents can cache their config and only fetch updates when changed.
+  """
+  @spec get_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) ::
+          Monitoring.AgentConfigResponse.t()
+  def get_config(request, stream) do
+    agent_id = request.agent_id
+    config_version = request.config_version || ""
+
+    Logger.debug("Agent config request: agent_id=#{agent_id}, version=#{config_version}")
+
+    # Extract tenant from mTLS certificate for authorization
+    {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
+
+    # Generate config from database using the config generator
+    case ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(
+           agent_id,
+           tenant_id,
+           config_version
+         ) do
+      :not_modified ->
+        Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
+
+        %Monitoring.AgentConfigResponse{
+          not_modified: true,
+          config_version: config_version
+        }
+
+      {:ok, config} ->
+        Logger.info(
+          "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
+        )
+
+        # Convert checks to proto format
+        proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
+
+        %Monitoring.AgentConfigResponse{
+          not_modified: false,
+          config_version: config.config_version,
+          config_timestamp: config.config_timestamp,
+          heartbeat_interval_sec: config.heartbeat_interval_sec,
+          config_poll_interval_sec: config.config_poll_interval_sec,
+          checks: proto_checks
+        }
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
+        )
+
+        # Return empty config on error rather than failing the request
+        %Monitoring.AgentConfigResponse{
+          not_modified: false,
+          config_version: "v0-error",
+          config_timestamp: System.os_time(:second),
+          heartbeat_interval_sec: @default_heartbeat_interval_sec,
+          config_poll_interval_sec: 300,
+          checks: []
+        }
+    end
+  end
+
   @doc """
   Handle a status push from an agent.
 
