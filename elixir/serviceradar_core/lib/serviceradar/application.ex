@@ -177,6 +177,10 @@ defmodule ServiceRadar.Application do
         # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
         # PollerRegistry and AgentRegistry now delegate to TenantRegistry
         ServiceRadar.Cluster.TenantRegistry,
+        # Platform-level gateway tracker (gateways serve all tenants)
+        ServiceRadar.GatewayTracker,
+        # Agent tracker for Go agents that push status to gateways
+        ServiceRadar.AgentTracker,
         # Identity cache for device lookups (ETS-based with TTL)
         ServiceRadar.Identity.IdentityCache,
         # DataService client for KV operations (used to push config to Go/Rust services)

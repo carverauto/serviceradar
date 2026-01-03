@@ -103,13 +103,15 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 
 	// Build the request
 	req := &proto.GatewayStatusRequest{
-		Services:  statuses,
-		GatewayId: "", // Will be set by the gateway
-		AgentId:   p.server.config.AgentID,
-		Timestamp: time.Now().UnixNano(),
-		Partition: p.server.config.Partition,
-		SourceIp:  p.getSourceIP(),
-		KvStoreId: p.server.config.KVAddress,
+		Services:   statuses,
+		GatewayId:  "", // Will be set by the gateway
+		AgentId:    p.server.config.AgentID,
+		Timestamp:  time.Now().UnixNano(),
+		Partition:  p.server.config.Partition,
+		SourceIp:   p.getSourceIP(),
+		KvStoreId:  p.server.config.KVAddress,
+		TenantId:   p.server.config.TenantID,
+		TenantSlug: p.server.config.TenantSlug,
 	}
 
 	// Push to gateway
@@ -195,6 +197,8 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		Partition:    p.server.config.Partition,
 		Source:       "status",
 		KvStoreId:    p.server.config.KVAddress,
+		TenantId:     p.server.config.TenantID,
+		TenantSlug:   p.server.config.TenantSlug,
 	}
 }
 

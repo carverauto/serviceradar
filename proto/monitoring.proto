@@ -175,6 +175,8 @@ message GatewayStatusRequest {
   string partition = 5;        // Partition identifier
   string source_ip = 6;        // Host IP where agent is running
   string kv_store_id = 7;      // KV store identifier this agent is using
+  string tenant_id = 8;        // Tenant UUID for multi-tenant routing
+  string tenant_slug = 9;      // Tenant slug for NATS subject prefixing
 }
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
@@ -194,6 +196,8 @@ message GatewayStatusChunk {
   int32 chunk_index = 8;       // Order of this chunk
   int32 total_chunks = 9;      // Total number of chunks
   string kv_store_id = 10;     // KV store identifier this agent is using
+  string tenant_id = 11;       // Tenant UUID for multi-tenant routing
+  string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.
@@ -208,4 +212,6 @@ message GatewayServiceStatus {
   string partition = 8;        // Partition identifier
   string source = 9;           // Source of the message: "status" or "results"
   string kv_store_id = 10;     // KV store identifier this service is using
+  string tenant_id = 11;       // Tenant UUID for multi-tenant routing
+  string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
 }

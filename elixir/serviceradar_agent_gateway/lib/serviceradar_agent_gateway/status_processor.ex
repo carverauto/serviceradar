@@ -39,6 +39,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       - `:source` - Source type ("status" or "results")
       - `:kv_store_id` - KV store identifier
       - `:timestamp` - Unix timestamp in nanoseconds
+      - `:tenant_id` - Tenant UUID for multi-tenant routing
+      - `:tenant_slug` - Tenant slug for NATS subject prefixing
 
   ## Returns
 
@@ -50,8 +52,27 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     with :ok <- validate_status(status),
          status <- normalize_status(status),
          :ok <- forward_to_core(status) do
+      # Track this agent for UI visibility
+      track_agent(status)
       :ok
     end
+  end
+
+  # Track the agent that sent this status update
+  defp track_agent(status) do
+    agent_id = status[:agent_id]
+    tenant_slug = status[:tenant_slug] || "default"
+
+    metadata = %{
+      service_count: 1,
+      partition: status[:partition],
+      source_ip: status[:source_ip]
+    }
+
+    ServiceRadar.AgentTracker.track_agent(agent_id, tenant_slug, metadata)
+  rescue
+    # AgentTracker may not be available (e.g., during tests)
+    _ -> :ok
   end
 
   # Validate required fields in the status
@@ -90,9 +111,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     partition = status[:partition]
     agent_id = status[:agent_id]
     service_name = status[:service_name]
+    _tenant_id = status[:tenant_id]
+    tenant_slug = status[:tenant_slug]
 
     Logger.debug(
-      "Forwarding status to core: partition=#{partition} agent=#{agent_id} service=#{service_name}"
+      "Forwarding status to core: tenant=#{tenant_slug} partition=#{partition} agent=#{agent_id} service=#{service_name}"
     )
 
     # Try to forward to the core cluster
@@ -130,8 +153,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp forward_distributed(status) do
     # Use Horde registry to find the appropriate core handler
     partition = status[:partition]
+    tenant_slug = status[:tenant_slug] || "default"
 
-    case find_core_handler(partition) do
+    case find_core_handler(tenant_slug, partition) do
       {:ok, pid} ->
         try do
           GenServer.cast(pid, {:status_update, status})
@@ -144,17 +168,24 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, :not_found} ->
         # Log but don't fail - core may not be available yet
-        Logger.debug("No core handler found for partition #{partition}, queuing for retry")
+        Logger.debug("No core handler found for tenant=#{tenant_slug} partition=#{partition}, queuing for retry")
         queue_for_retry(status)
     end
   end
 
-  # Find the core handler for a partition
-  defp find_core_handler(partition) do
-    # Try to find in Horde registry
-    case Horde.Registry.lookup(ServiceRadar.Registry, {:status_handler, partition}) do
+  # Find the core handler for a tenant/partition
+  defp find_core_handler(tenant_slug, partition) do
+    # Try to find in Horde registry with tenant-scoped key
+    registry_key = {tenant_slug, partition, :status_handler}
+
+    case Horde.Registry.lookup(ServiceRadar.Registry, registry_key) do
       [{pid, _}] -> {:ok, pid}
-      [] -> {:error, :not_found}
+      [] ->
+        # Fall back to partition-only key for backwards compatibility
+        case Horde.Registry.lookup(ServiceRadar.Registry, {:status_handler, partition}) do
+          [{pid, _}] -> {:ok, pid}
+          [] -> {:error, :not_found}
+        end
     end
   rescue
     # Horde may not be available

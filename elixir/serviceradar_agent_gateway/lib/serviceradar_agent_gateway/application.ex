@@ -104,13 +104,12 @@ defmodule ServiceRadarAgentGateway.Application do
        tenant_id: tenant_id,
        tenant_slug: tenant_slug},
 
-      # Registration worker - registers this gateway in the distributed registry
-      {ServiceRadar.Poller.RegistrationWorker,
-       partition_id: partition_id,
-       poller_id: gateway_id,
-       domain: domain,
-       capabilities: capabilities,
-       entity_type: :gateway},
+      # Registration worker - registers this gateway at the platform level
+      # (gateways serve all tenants, not tenant-scoped)
+      {ServiceRadar.GatewayRegistrationWorker,
+       gateway_id: gateway_id,
+       partition: partition_id,
+       domain: domain},
 
       # gRPC server that receives status pushes from Go agents
       {GRPC.Server.Supervisor,

@@ -101,6 +101,10 @@ type ServerConfig struct {
 	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
 	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
 	PushInterval    Duration               `json:"push_interval,omitempty"`    // How often to push status (default: 30s)
+
+	// Multi-tenant configuration
+	TenantID   string `json:"tenant_id,omitempty"`   // Tenant UUID for multi-tenant routing
+	TenantSlug string `json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
 }
 
 // CheckerConnection represents a connection to an external checker service.

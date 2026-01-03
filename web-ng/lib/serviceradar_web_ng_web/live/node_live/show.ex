@@ -69,9 +69,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   end
 
   defp detect_node_type(node_name) when is_binary(node_name) do
-    # Note: Agents are now Go-based and connect via gRPC, not ERTS
+    # Note: Go agents connect via gRPC to agent gateways, not ERTS
     cond do
       String.starts_with?(node_name, "serviceradar_core") -> :core
+      String.starts_with?(node_name, "serviceradar_agent_gateway") -> :gateway
       String.starts_with?(node_name, "serviceradar_poller") -> :poller
       String.starts_with?(node_name, "serviceradar_web") -> :web
       true -> :unknown
@@ -225,8 +226,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     {label, variant} =
       case assigns.type do
         :core -> {"Core", "primary"}
-        :poller -> {"Poller", "info"}
-        :agent -> {"Agent", "success"}
+        :gateway -> {"Gateway", "info"}
+        :poller -> {"Poller", "secondary"}
         :web -> {"Web", "warning"}
         _ -> {"Unknown", "ghost"}
       end
@@ -374,6 +375,17 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
               %{label: "COORDINATE", description: "Manage cluster membership"},
               %{label: "REGISTRY", description: "Host Horde registries"},
               %{label: "PROCESS", description: "Handle monitoring results"}
+            ]
+          }
+
+        :gateway ->
+          %{
+            description:
+              "Agent Gateway nodes receive status pushes from Go agents deployed in customer networks via gRPC/mTLS. They forward monitoring data to the core cluster.",
+            steps: [
+              %{label: "RECEIVE", description: "Accept gRPC status pushes from Go agents"},
+              %{label: "PROCESS", description: "Validate and normalize status data"},
+              %{label: "FORWARD", description: "Route data to core cluster for storage"}
             ]
           }
 
