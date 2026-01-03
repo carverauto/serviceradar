@@ -1,6 +1,6 @@
-defmodule ServiceRadar.PollerSupervisor do
+defmodule ServiceRadar.GatewaySupervisor do
   @moduledoc """
-  Distributed dynamic supervisor for poller-related processes.
+  Distributed dynamic supervisor for gateway-related processes.
 
   Uses Horde.DynamicSupervisor to distribute processes across the cluster.
   Processes are automatically redistributed when nodes join or leave.
@@ -9,7 +9,7 @@ defmodule ServiceRadar.PollerSupervisor do
 
   Processes started under this supervisor are distributed across the cluster:
 
-      ServiceRadar.PollerSupervisor.start_child({MyWorker, arg})
+      ServiceRadar.GatewaySupervisor.start_child({MyWorker, arg})
 
   If the node hosting the process goes down, Horde will restart it on
   another available node.

@@ -1,9 +1,9 @@
-defmodule ServiceRadar.Poller.RegistrationWorker do
+defmodule ServiceRadar.Gateway.RegistrationWorker do
   @moduledoc """
-  GenServer that handles poller/gateway auto-registration with the Horde registry.
+  GenServer that handles gateway auto-registration with the Horde registry.
 
-  When a poller or gateway node starts, this worker:
-  1. Registers the entity with ServiceRadar.PollerRegistry
+  When a gateway node starts, this worker:
+  1. Registers the entity with ServiceRadar.GatewayRegistry
   2. Broadcasts registration event via PubSub
   3. Maintains heartbeat to update status periodically
 
@@ -11,14 +11,14 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   Start with partition and domain configuration:
 
-      {ServiceRadar.Poller.RegistrationWorker, [
+      {ServiceRadar.Gateway.RegistrationWorker, [
         partition_id: "partition-1",
         domain: "site-a"
       ]}
 
   For gateways, set entity_type to :gateway for proper log messages:
 
-      {ServiceRadar.Poller.RegistrationWorker, [
+      {ServiceRadar.Gateway.RegistrationWorker, [
         partition_id: "partition-1",
         domain: "site-a",
         entity_type: :gateway
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :poller_id, :domain, :status, :registered_at, :entity_type]
+  defstruct [:tenant_id, :partition_id, :gateway_id, :domain, :status, :registered_at, :entity_type]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -53,14 +53,14 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   def init(opts) do
     tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
-    entity_type = Keyword.get(opts, :entity_type, :poller)
-    poller_id = Keyword.get(opts, :poller_id, generate_entity_id(entity_type))
+    entity_type = Keyword.get(opts, :entity_type, :gateway)
+    gateway_id = Keyword.get(opts, :gateway_id, generate_entity_id(entity_type))
     domain = Keyword.get(opts, :domain, "default")
 
     state = %__MODULE__{
       tenant_id: tenant_id,
       partition_id: partition_id,
-      poller_id: poller_id,
+      gateway_id: gateway_id,
       domain: domain,
       status: :available,
       registered_at: DateTime.utc_now(),
@@ -70,7 +70,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
     entity_label = entity_type_label(entity_type)
 
     # Register with Horde on startup
-    case register_poller(state) do
+    case register_gateway(state) do
       {:ok, _pid} ->
         Logger.info(
           "#{entity_label} registered: tenant=#{tenant_id} partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
@@ -131,13 +131,13 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   @impl true
   def terminate(_reason, state) do
     entity_label = entity_type_label(state.entity_type)
-    Logger.info("#{entity_label} unregistering: #{state.poller_id} for tenant: #{state.tenant_id}")
-    ServiceRadar.PollerRegistry.unregister_poller(state.tenant_id, state.poller_id)
+    Logger.info("#{entity_label} unregistering: #{state.gateway_id} for tenant: #{state.tenant_id}")
+    ServiceRadar.GatewayRegistry.unregister_gateway(state.tenant_id, state.gateway_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "poller:registrations:#{state.tenant_id}",
-      {:poller_unregistered, state.poller_id}
+      "gateway:registrations:#{state.tenant_id}",
+      {:gateway_unregistered, state.gateway_id}
     )
 
     :ok
@@ -154,12 +154,12 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
   end
 
   @doc """
-  Set the poller status.
+  Set the gateway status.
 
   ## Examples
 
-      ServiceRadar.Poller.RegistrationWorker.set_status(:unavailable)
-      ServiceRadar.Poller.RegistrationWorker.set_status(:available)
+      ServiceRadar.Gateway.RegistrationWorker.set_status(:unavailable)
+      ServiceRadar.Gateway.RegistrationWorker.set_status(:available)
   """
   @spec set_status(atom()) :: :ok
   def set_status(status) when status in [:available, :busy, :unavailable, :draining] do
@@ -192,7 +192,7 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   # Private functions
 
-  defp register_poller(state) do
+  defp register_gateway(state) do
     metadata = %{
       partition_id: state.partition_id,
       domain: state.domain,
@@ -202,18 +202,18 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
     }
 
     # Use the new tenant-scoped registration API
-    ServiceRadar.PollerRegistry.register_poller(state.tenant_id, state.poller_id, metadata)
+    ServiceRadar.GatewayRegistry.register_gateway(state.tenant_id, state.gateway_id, metadata)
   end
 
   defp update_heartbeat(state) do
-    ServiceRadar.PollerRegistry.heartbeat(state.tenant_id, state.poller_id)
+    ServiceRadar.GatewayRegistry.heartbeat(state.tenant_id, state.gateway_id)
   end
 
   defp update_status(state) do
     # Update status via TenantRegistry
     ServiceRadar.Cluster.TenantRegistry.update_value(
       state.tenant_id,
-      {:poller, state.poller_id},
+      {:gateway, state.gateway_id},
       fn meta ->
         %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
       end
@@ -221,8 +221,8 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "poller:registrations:#{state.tenant_id}",
-      {:poller_status_changed, state.poller_id, state.status}
+      "gateway:registrations:#{state.tenant_id}",
+      {:gateway_status_changed, state.gateway_id, state.status}
     )
   end
 
@@ -247,7 +247,8 @@ defmodule ServiceRadar.Poller.RegistrationWorker do
 
   # Get default tenant ID from environment or config
   defp default_tenant_id do
-    System.get_env("POLLER_TENANT_ID") ||
+    System.get_env("GATEWAY_TENANT_ID") ||
+      System.get_env("POLLER_TENANT_ID") ||
       Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 

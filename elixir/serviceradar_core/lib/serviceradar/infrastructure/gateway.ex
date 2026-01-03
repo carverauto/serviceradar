@@ -1,30 +1,30 @@
-defmodule ServiceRadar.Infrastructure.Poller do
+defmodule ServiceRadar.Infrastructure.Gateway do
   @moduledoc """
-  Poller resource for managing polling nodes.
+  Gateway resource for managing agent gateway nodes.
 
-  Pollers are job orchestrators - they do NOT perform checks directly.
+  Gateways are job orchestrators - they do NOT perform checks directly.
   They receive scheduled jobs (via AshOban), find available agents via
   Horde registry, and dispatch work to agents via RPC.
 
   ## Role
 
-  Pollers have a single, well-defined role in the monitoring architecture:
+  Gateways have a single, well-defined role in the monitoring architecture:
   1. **Receive** - Accept scheduled monitoring jobs from AshOban scheduler
   2. **Select** - Find available agents via Horde.Registry lookup
   3. **Dispatch** - Execute RPC calls to agents to perform actual checks
 
   Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
-  Pollers do not have capabilities - they only orchestrate work.
+  Gateways do not have capabilities - they only orchestrate work.
 
   ## Status Values
 
-  - `active` - Poller is healthy and receiving jobs
-  - `degraded` - Poller has issues but is still operating
-  - `inactive` - Poller is offline or unresponsive
-  - `draining` - Poller is shutting down gracefully
+  - `active` - Gateway is healthy and receiving jobs
+  - `degraded` - Gateway has issues but is still operating
+  - `inactive` - Gateway is offline or unresponsive
+  - `draining` - Gateway is shutting down gracefully
   """
 
-  @role_description "Pollers orchestrate monitoring jobs but do not perform checks directly. They receive scheduled jobs and dispatch work to available agents."
+  @role_description "Gateways orchestrate monitoring jobs but do not perform checks directly. They receive scheduled jobs and dispatch work to available agents."
 
   @role_steps [
     %{key: "receive", label: "JOB", description: "Receive scheduled jobs"},
@@ -32,10 +32,10 @@ defmodule ServiceRadar.Infrastructure.Poller do
     %{key: "dispatch", label: "DISPATCH", description: "RPC work to agents"}
   ]
 
-  @doc "Returns the role description for pollers"
+  @doc "Returns the role description for gateways"
   def role_description, do: @role_description
 
-  @doc "Returns the role steps that pollers perform"
+  @doc "Returns the role steps that gateways perform"
   def role_steps, do: @role_steps
 
   use Ash.Resource,
@@ -50,10 +50,10 @@ defmodule ServiceRadar.Infrastructure.Poller do
   end
 
   json_api do
-    type "poller"
+    type "gateway"
 
     routes do
-      base "/pollers"
+      base "/gateways"
 
       # Read operations
       get :by_id
@@ -136,7 +136,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     read :active do
-      description "All active pollers"
+      description "All active gateways"
       filter expr(status == :healthy and is_healthy == true)
     end
 
@@ -149,12 +149,12 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     read :recently_seen do
-      description "Pollers seen in the last 5 minutes"
+      description "Gateways seen in the last 5 minutes"
       filter expr(last_seen > ago(5, :minute))
     end
 
     read :by_partition do
-      description "Find active pollers in a specific partition"
+      description "Find active gateways in a specific partition"
       argument :partition_slug, :string, allow_nil?: false
 
       filter expr(
@@ -167,7 +167,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     read :by_partition_id do
-      description "Find active pollers by partition UUID"
+      description "Find active gateways by partition UUID"
       argument :partition_id, :uuid, allow_nil?: false
 
       filter expr(
@@ -178,7 +178,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     create :register do
-      description "Register a new poller (starts in healthy state)"
+      description "Register a new gateway (starts in healthy state)"
 
       accept [
         :id,
@@ -218,85 +218,85 @@ defmodule ServiceRadar.Infrastructure.Poller do
     # Each action includes PublishStateChange to emit NATS events
 
     update :activate do
-      description "Activate an inactive poller"
+      description "Activate an inactive gateway"
       require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :degrade do
-      description "Mark poller as degraded (having issues)"
+      description "Mark gateway as degraded (having issues)"
       argument :reason, :string
       require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
     end
 
     update :heartbeat_timeout do
-      description "Mark poller as degraded due to heartbeat timeout"
+      description "Mark gateway as degraded due to heartbeat timeout"
       require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
     end
 
     update :go_offline do
-      description "Mark poller as offline"
+      description "Mark gateway as offline"
       argument :reason, :string
       require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :lose_connection do
-      description "Mark poller as offline due to lost connection"
+      description "Mark gateway as offline due to lost connection"
       require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :recover do
-      description "Start recovery process for degraded/offline poller"
+      description "Start recovery process for degraded/offline gateway"
       require_atomic? false
 
       change transition_state(:recovering)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :recovering}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :recovering}
     end
 
     update :restore_health do
-      description "Restore poller to healthy state"
+      description "Restore gateway to healthy state"
       require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_maintenance do
-      description "Put poller into maintenance mode"
+      description "Put gateway into maintenance mode"
       require_atomic? false
 
       change transition_state(:maintenance)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :maintenance}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :maintenance}
     end
 
     update :end_maintenance do
@@ -306,7 +306,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :healthy}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
     end
 
     update :start_draining do
@@ -315,7 +315,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
       change transition_state(:draining)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :draining}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :draining}
     end
 
     update :finish_draining do
@@ -325,43 +325,43 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :offline}
     end
 
     update :deactivate do
-      description "Deactivate a poller (admin action)"
+      description "Deactivate a gateway (admin action)"
       require_atomic? false
 
       change transition_state(:inactive)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :inactive}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :inactive}
     end
 
     # Legacy compatibility aliases
     update :mark_unhealthy do
-      description "Mark poller as unhealthy (legacy - use degrade)"
+      description "Mark gateway as unhealthy (legacy - use degrade)"
       require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
     end
   end
 
   policies do
-    # Super admins can see all pollers across tenants
+    # Super admins can see all gateways across tenants
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Tenant isolation: users can only see pollers in their tenant
+    # Tenant isolation: users can only see gateways in their tenant
     policy action_type(:read) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
 
-    # Allow create/update for pollers in user's tenant
+    # Allow create/update for gateways in user's tenant
     policy action_type(:create) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
@@ -377,7 +377,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
       allow_nil? false
       primary_key? true
       public? true
-      description "Unique poller identifier"
+      description "Unique gateway identifier"
     end
 
     attribute :component_id, :string do
@@ -387,7 +387,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     attribute :registration_source, :string do
       public? true
-      description "How the poller was registered (auto, manual, kubernetes)"
+      description "How the gateway was registered (auto, manual, kubernetes)"
     end
 
     attribute :status, :atom do
@@ -405,17 +405,17 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     attribute :first_registered, :utc_datetime do
       public? true
-      description "When poller first registered"
+      description "When gateway first registered"
     end
 
     attribute :first_seen, :utc_datetime do
       public? true
-      description "When poller was first seen online"
+      description "When gateway was first seen online"
     end
 
     attribute :last_seen, :utc_datetime do
       public? true
-      description "When poller was last seen online"
+      description "When gateway was last seen online"
     end
 
     attribute :metadata, :map do
@@ -426,7 +426,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     attribute :created_by, :string do
       public? true
-      description "User or system that created this poller"
+      description "User or system that created this gateway"
     end
 
     attribute :is_healthy, :boolean do
@@ -456,13 +456,13 @@ defmodule ServiceRadar.Infrastructure.Poller do
     attribute :tenant_id, :uuid do
       allow_nil? false
       public? false
-      description "Tenant this poller belongs to"
+      description "Tenant this gateway belongs to"
     end
 
     # Partition assignment
     attribute :partition_id, :uuid do
       public? true
-      description "Partition this poller is assigned to"
+      description "Partition this gateway is assigned to"
     end
   end
 
@@ -526,6 +526,6 @@ defmodule ServiceRadar.Infrastructure.Poller do
   end
 
   identities do
-    identity :unique_poller_id, [:id]
+    identity :unique_gateway_id, [:id]
   end
 end

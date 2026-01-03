@@ -1,9 +1,9 @@
-defmodule ServiceRadar.Edge.PollerProcess do
+defmodule ServiceRadar.Edge.GatewayProcess do
   @moduledoc """
-  GenServer representing a poller in the ERTS cluster.
+  GenServer representing an agent gateway in the ERTS cluster.
 
-  The PollerProcess is responsible for:
-  1. Registering with the PollerRegistry for discoverability
+  The GatewayProcess is responsible for:
+  1. Registering with the GatewayRegistry for discoverability
   2. Accepting poll requests from Core (via AshOban scheduled jobs)
   3. Finding available agents in the correct partition
   4. Dispatching check requests to agents
@@ -11,12 +11,12 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
   ## Communication Pattern
 
-  Core (AshOban) -> Poller -> Agent -> serviceradar-sync
+  Core (AshOban) -> Gateway -> Agent -> serviceradar-sync
 
-  ## Starting a Poller
+  ## Starting a Gateway
 
-      {:ok, pid} = ServiceRadar.Edge.PollerProcess.start_link(
-        poller_id: "poller-uuid",
+      {:ok, pid} = ServiceRadar.Edge.GatewayProcess.start_link(
+        gateway_id: "gateway-uuid",
         tenant_id: "tenant-uuid",
         partition_id: "partition-1"
       )
@@ -26,12 +26,12 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
   require Logger
 
-  alias ServiceRadar.PollerRegistry
+  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentProcess
 
   @type state :: %{
-          poller_id: String.t(),
+          gateway_id: String.t(),
           tenant_id: String.t(),
           partition_id: String.t(),
           status: :idle | :executing,
@@ -44,28 +44,28 @@ defmodule ServiceRadar.Edge.PollerProcess do
   # Client API
 
   @doc """
-  Start a poller process.
+  Start a gateway process.
   """
   def start_link(opts) do
-    poller_id = Keyword.fetch!(opts, :poller_id)
-    GenServer.start_link(__MODULE__, opts, name: via_tuple(poller_id))
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
+    GenServer.start_link(__MODULE__, opts, name: via_tuple(gateway_id))
   end
 
   @doc """
-  Execute a polling job on this poller.
+  Execute a polling job on this gateway.
 
-  The poller will find an available agent and dispatch the checks.
+  The gateway will find an available agent and dispatch the checks.
   """
   @spec execute_job(String.t() | pid(), map()) :: {:ok, map()} | {:error, term()}
-  def execute_job(poller, job) when is_binary(poller) do
-    case lookup_pid(poller) do
-      nil -> {:error, :poller_not_found}
+  def execute_job(gateway, job) when is_binary(gateway) do
+    case lookup_pid(gateway) do
+      nil -> {:error, :gateway_not_found}
       pid -> execute_job(pid, job)
     end
   end
 
-  def execute_job(poller, job) when is_pid(poller) do
-    GenServer.call(poller, {:execute_job, job}, 120_000)
+  def execute_job(gateway, job) when is_pid(gateway) do
+    GenServer.call(gateway, {:execute_job, job}, 120_000)
   end
 
   @doc """
@@ -74,37 +74,37 @@ defmodule ServiceRadar.Edge.PollerProcess do
   Returns immediately with a job_id. Results are broadcast via PubSub.
   """
   @spec execute_job_async(String.t() | pid(), map()) :: {:ok, String.t()} | {:error, term()}
-  def execute_job_async(poller, job) when is_binary(poller) do
-    case lookup_pid(poller) do
-      nil -> {:error, :poller_not_found}
+  def execute_job_async(gateway, job) when is_binary(gateway) do
+    case lookup_pid(gateway) do
+      nil -> {:error, :gateway_not_found}
       pid -> execute_job_async(pid, job)
     end
   end
 
-  def execute_job_async(poller, job) when is_pid(poller) do
-    GenServer.call(poller, {:execute_job_async, job})
+  def execute_job_async(gateway, job) when is_pid(gateway) do
+    GenServer.call(gateway, {:execute_job_async, job})
   end
 
   @doc """
-  Get the current status of this poller.
+  Get the current status of this gateway.
   """
   @spec status(String.t() | pid()) :: {:ok, map()} | {:error, term()}
-  def status(poller) when is_binary(poller) do
-    case lookup_pid(poller) do
-      nil -> {:error, :poller_not_found}
+  def status(gateway) when is_binary(gateway) do
+    case lookup_pid(gateway) do
+      nil -> {:error, :gateway_not_found}
       pid -> status(pid)
     end
   end
 
-  def status(poller) when is_pid(poller) do
-    GenServer.call(poller, :status)
+  def status(gateway) when is_pid(gateway) do
+    GenServer.call(gateway, :status)
   end
 
   @doc """
   Execute a health check for a service via an agent.
 
   Used by HealthCheckRunner for high-frequency health monitoring.
-  The poller forwards the request to an available agent which performs
+  The gateway forwards the request to an available agent which performs
   the actual gRPC health check on the target service.
 
   ## Service Config
@@ -116,15 +116,15 @@ defmodule ServiceRadar.Edge.PollerProcess do
   - `:config` - Additional service-specific config
   """
   @spec health_check(String.t() | pid(), map()) :: {:ok, atom()} | {:error, term()}
-  def health_check(poller, service) when is_binary(poller) do
-    case lookup_pid(poller) do
-      nil -> {:error, :poller_not_found}
+  def health_check(gateway, service) when is_binary(gateway) do
+    case lookup_pid(gateway) do
+      nil -> {:error, :gateway_not_found}
       pid -> health_check(pid, service)
     end
   end
 
-  def health_check(poller, service) when is_pid(poller) do
-    GenServer.call(poller, {:health_check, service}, 30_000)
+  def health_check(gateway, service) when is_pid(gateway) do
+    GenServer.call(gateway, {:health_check, service}, 30_000)
   end
 
   @doc """
@@ -134,28 +134,28 @@ defmodule ServiceRadar.Edge.PollerProcess do
   from external services monitored by agents.
   """
   @spec get_results(String.t() | pid(), map()) :: {:ok, list()} | {:error, term()}
-  def get_results(poller, service) when is_binary(poller) do
-    case lookup_pid(poller) do
-      nil -> {:error, :poller_not_found}
+  def get_results(gateway, service) when is_binary(gateway) do
+    case lookup_pid(gateway) do
+      nil -> {:error, :gateway_not_found}
       pid -> get_results(pid, service)
     end
   end
 
-  def get_results(poller, service) when is_pid(poller) do
-    GenServer.call(poller, {:get_results, service}, 30_000)
+  def get_results(gateway, service) when is_pid(gateway) do
+    GenServer.call(gateway, {:get_results, service}, 30_000)
   end
 
   # Server Callbacks
 
   @impl true
   def init(opts) do
-    poller_id = Keyword.fetch!(opts, :poller_id)
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
     tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.get(opts, :partition_id, "default")
     domain = Keyword.get(opts, :domain)
 
     state = %{
-      poller_id: poller_id,
+      gateway_id: gateway_id,
       tenant_id: tenant_id,
       partition_id: partition_id,
       domain: domain,
@@ -170,12 +170,12 @@ defmodule ServiceRadar.Edge.PollerProcess do
     }
 
     # Register with the registry
-    register_poller(state)
+    register_gateway(state)
 
     # Schedule health checks
     schedule_health_check()
 
-    Logger.info("Poller #{poller_id} started for tenant #{tenant_id}/#{partition_id}")
+    Logger.info("Gateway #{gateway_id} started for tenant #{tenant_id}/#{partition_id}")
 
     {:ok, state}
   end
@@ -212,7 +212,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
       Phoenix.PubSub.broadcast(
         ServiceRadar.PubSub,
-        "poller:results:#{state.poller_id}",
+        "gateway:results:#{state.gateway_id}",
         {:job_result, job_id, result}
       )
     end)
@@ -222,7 +222,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
 
   def handle_call(:status, _from, state) do
     status = %{
-      poller_id: state.poller_id,
+      gateway_id: state.gateway_id,
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       status: state.status,
@@ -245,45 +245,45 @@ defmodule ServiceRadar.Edge.PollerProcess do
   @impl true
   def handle_info(:health_check, state) do
     # Update registry heartbeat
-    PollerRegistry.heartbeat(state.tenant_id, state.poller_id)
+    GatewayRegistry.heartbeat(state.tenant_id, state.gateway_id)
     schedule_health_check()
     {:noreply, state}
   end
 
   @impl true
   def terminate(reason, state) do
-    Logger.info("Poller #{state.poller_id} terminating: #{inspect(reason)}")
-    PollerRegistry.unregister_poller(state.tenant_id, state.poller_id)
+    Logger.info("Gateway #{state.gateway_id} terminating: #{inspect(reason)}")
+    GatewayRegistry.unregister_gateway(state.tenant_id, state.gateway_id)
     :ok
   end
 
   # Private Functions
 
-  defp via_tuple(poller_id) do
-    {:via, Registry, {ServiceRadar.LocalRegistry, {:poller, poller_id}}}
+  defp via_tuple(gateway_id) do
+    {:via, Registry, {ServiceRadar.LocalRegistry, {:gateway, gateway_id}}}
   end
 
-  defp lookup_pid(poller_id) do
-    case Registry.lookup(ServiceRadar.LocalRegistry, {:poller, poller_id}) do
+  defp lookup_pid(gateway_id) do
+    case Registry.lookup(ServiceRadar.LocalRegistry, {:gateway, gateway_id}) do
       [{pid, _}] -> pid
       [] -> nil
     end
   end
 
-  defp register_poller(state) do
-    poller_info = %{
+  defp register_gateway(state) do
+    gateway_info = %{
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
       status: :idle
     }
 
-    PollerRegistry.register_poller(state.poller_id, poller_info)
+    GatewayRegistry.register_gateway(state.gateway_id, gateway_info)
   end
 
   defp execute_job_impl(job, state) do
     checks = job[:checks] || []
-    Logger.info("Poller #{state.poller_id} executing job with #{length(checks)} checks")
+    Logger.info("Gateway #{state.gateway_id} executing job with #{length(checks)} checks")
 
     # Find an available agent in our partition
     case find_available_agent(state) do
@@ -297,7 +297,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
   end
 
   defp find_available_agent(state) do
-    # Try domain-based selection first if poller has a domain, then fall back to partition
+    # Try domain-based selection first if gateway has a domain, then fall back to partition
     domain = Map.get(state, :domain)
 
     agents =
@@ -338,7 +338,7 @@ defmodule ServiceRadar.Edge.PollerProcess do
         request = %{
           service_name: check[:service_name],
           service_type: check[:service_type],
-          poller_id: state.poller_id,
+          gateway_id: state.gateway_id,
           details: check[:details],
           port: check[:port]
         }

@@ -271,7 +271,7 @@ defmodule ServiceRadar.Telemetry do
     [
       {__MODULE__, :measure_cluster_size, []},
       {__MODULE__, :measure_registry_sizes, []},
-      {__MODULE__, :measure_active_pollers, []},
+      {__MODULE__, :measure_active_gateways, []},
       {__MODULE__, :measure_active_agents, []}
     ]
   end
@@ -293,10 +293,10 @@ defmodule ServiceRadar.Telemetry do
 
   @doc false
   def measure_registry_sizes do
-    # Measure PollerRegistry size
-    if registry_available?(ServiceRadar.PollerRegistry) do
-      count = count_registry_processes(ServiceRadar.PollerRegistry)
-      emit(@prefix ++ [:registry, :processes], %{count: count}, %{registry: :poller})
+    # Measure GatewayRegistry size
+    if registry_available?(ServiceRadar.GatewayRegistry) do
+      count = count_registry_processes(ServiceRadar.GatewayRegistry)
+      emit(@prefix ++ [:registry, :processes], %{count: count}, %{registry: :gateway})
     end
 
     # Measure AgentRegistry size
@@ -307,16 +307,16 @@ defmodule ServiceRadar.Telemetry do
   end
 
   @doc false
-  def measure_active_pollers do
-    if registry_available?(ServiceRadar.PollerRegistry) do
-      pollers = list_registry_processes(ServiceRadar.PollerRegistry)
+  def measure_active_gateways do
+    if registry_available?(ServiceRadar.GatewayRegistry) do
+      gateways = list_registry_processes(ServiceRadar.GatewayRegistry)
 
-      pollers
+      gateways
       |> Enum.group_by(fn {{partition_id, _}, _} -> partition_id end)
-      |> Enum.each(fn {partition_id, partition_pollers} ->
+      |> Enum.each(fn {partition_id, partition_gateways} ->
         emit(
-          @prefix ++ [:poller, :active],
-          %{count: length(partition_pollers)},
+          @prefix ++ [:gateway, :active],
+          %{count: length(partition_gateways)},
           %{partition_id: partition_id}
         )
       end)

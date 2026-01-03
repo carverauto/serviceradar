@@ -259,9 +259,9 @@ defmodule ServiceRadar.Infrastructure.Partition do
   end
 
   relationships do
-    has_many :pollers, ServiceRadar.Infrastructure.Poller do
+    has_many :gateways, ServiceRadar.Infrastructure.Gateway do
       public? true
-      description "Pollers assigned to this partition"
+      description "Gateways assigned to this partition"
     end
   end
 

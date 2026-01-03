@@ -1,24 +1,24 @@
-defmodule ServiceRadarPoller.RegistrationTest do
+defmodule ServiceRadarGateway.RegistrationTest do
   @moduledoc """
-  Tests for poller registration with the distributed Horde registry.
+  Tests for gateway registration with the distributed Horde registry.
 
   Verifies that:
-  - Poller can register with the PollerRegistry
+  - Gateway can register with the GatewayRegistry
   - Registration metadata is correct
   - Status updates are reflected in the registry
   - Heartbeat mechanism works
   """
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Poller.RegistrationWorker
-  alias ServiceRadar.PollerRegistry
+  alias ServiceRadar.Gateway.RegistrationWorker
+  alias ServiceRadar.GatewayRegistry
 
   @partition_id "test-partition"
   @domain "test-domain"
   @capabilities [:icmp, :tcp]
 
-  describe "PollerRegistry" do
-    test "can register a poller directly with the registry" do
+  describe "GatewayRegistry" do
+    test "can register a gateway directly with the registry" do
       key = {@partition_id, :test_node}
       metadata = %{
         partition_id: @partition_id,
@@ -30,18 +30,18 @@ defmodule ServiceRadarPoller.RegistrationTest do
         last_heartbeat: DateTime.utc_now()
       }
 
-      assert {:ok, _pid} = PollerRegistry.register(key, metadata)
+      assert {:ok, _pid} = GatewayRegistry.register(key, metadata)
 
       # Verify lookup works
-      result = PollerRegistry.lookup(key)
+      result = GatewayRegistry.lookup(key)
       assert [{_pid, registered_metadata}] = result
       assert registered_metadata.partition_id == @partition_id
       assert registered_metadata.domain == @domain
       assert registered_metadata.status == :available
     end
 
-    test "find_pollers_for_partition returns only pollers in that partition" do
-      # Register a poller in test-partition-a
+    test "find_gateways_for_partition returns only gateways in that partition" do
+      # Register a gateway in test-partition-a
       key_a = {"test-partition-a", :node_a}
       metadata_a = %{
         partition_id: "test-partition-a",
@@ -52,9 +52,9 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key_a, metadata_a)
+      {:ok, _} = GatewayRegistry.register(key_a, metadata_a)
 
-      # Register a poller in test-partition-b
+      # Register a gateway in test-partition-b
       key_b = {"test-partition-b", :node_b}
       metadata_b = %{
         partition_id: "test-partition-b",
@@ -65,16 +65,16 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key_b, metadata_b)
+      {:ok, _} = GatewayRegistry.register(key_b, metadata_b)
 
-      # Find pollers for partition-a
-      pollers_a = PollerRegistry.find_pollers_for_partition("test-partition-a")
-      assert length(pollers_a) >= 1
-      assert Enum.all?(pollers_a, &(&1.partition_id == "test-partition-a"))
+      # Find gateways for partition-a
+      gateways_a = GatewayRegistry.find_gateways_for_partition("test-partition-a")
+      assert length(gateways_a) >= 1
+      assert Enum.all?(gateways_a, &(&1.partition_id == "test-partition-a"))
     end
 
-    test "find_available_pollers filters by status" do
-      # Register an available poller
+    test "find_available_gateways filters by status" do
+      # Register an available gateway
       key_avail = {"avail-partition", :avail_node}
       metadata_avail = %{
         partition_id: "avail-partition",
@@ -85,9 +85,9 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key_avail, metadata_avail)
+      {:ok, _} = GatewayRegistry.register(key_avail, metadata_avail)
 
-      # Register an unavailable poller
+      # Register an unavailable gateway
       key_unavail = {"unavail-partition", :unavail_node}
       metadata_unavail = %{
         partition_id: "unavail-partition",
@@ -98,10 +98,10 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key_unavail, metadata_unavail)
+      {:ok, _} = GatewayRegistry.register(key_unavail, metadata_unavail)
 
-      # Find available pollers
-      available = PollerRegistry.find_available_pollers()
+      # Find available gateways
+      available = GatewayRegistry.find_available_gateways()
 
       # Should contain the available one
       avail_ids = Enum.map(available, & &1.partition_id)
@@ -123,20 +123,20 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key, metadata)
+      {:ok, _} = GatewayRegistry.register(key, metadata)
 
       # Update status to busy
-      PollerRegistry.update_value(key, fn meta ->
+      GatewayRegistry.update_value(key, fn meta ->
         %{meta | status: :busy}
       end)
 
       # Verify update
-      [{_pid, updated}] = PollerRegistry.lookup(key)
+      [{_pid, updated}] = GatewayRegistry.lookup(key)
       assert updated.status == :busy
     end
 
-    test "count returns number of registered pollers" do
-      initial_count = PollerRegistry.count()
+    test "count returns number of registered gateways" do
+      initial_count = GatewayRegistry.count()
 
       key = {"count-partition", :count_node}
       metadata = %{
@@ -148,12 +148,12 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key, metadata)
+      {:ok, _} = GatewayRegistry.register(key, metadata)
 
-      assert PollerRegistry.count() == initial_count + 1
+      assert GatewayRegistry.count() == initial_count + 1
     end
 
-    test "unregister removes poller from registry" do
+    test "unregister removes gateway from registry" do
       key = {"unregister-partition", :unregister_node}
       metadata = %{
         partition_id: "unregister-partition",
@@ -164,21 +164,21 @@ defmodule ServiceRadarPoller.RegistrationTest do
         registered_at: DateTime.utc_now(),
         last_heartbeat: DateTime.utc_now()
       }
-      {:ok, _} = PollerRegistry.register(key, metadata)
+      {:ok, _} = GatewayRegistry.register(key, metadata)
 
       # Verify registered
-      assert [{_pid, _}] = PollerRegistry.lookup(key)
+      assert [{_pid, _}] = GatewayRegistry.lookup(key)
 
       # Unregister
-      :ok = PollerRegistry.unregister(key)
+      :ok = GatewayRegistry.unregister(key)
 
       # Verify removed
-      assert [] = PollerRegistry.lookup(key)
+      assert [] = GatewayRegistry.lookup(key)
     end
   end
 
   describe "RegistrationWorker" do
-    # Note: The RegistrationWorker is started by ServiceRadarPoller.Application
+    # Note: The RegistrationWorker is started by ServiceRadarGateway.Application
     # so we test the already-running instance rather than starting new ones
 
     test "is running after application starts" do
@@ -188,10 +188,10 @@ defmodule ServiceRadarPoller.RegistrationTest do
       assert Process.alive?(pid)
     end
 
-    test "is registered in the PollerRegistry" do
+    test "is registered in the GatewayRegistry" do
       # The default partition from Application startup
       key = {"default", Node.self()}
-      result = PollerRegistry.lookup(key)
+      result = GatewayRegistry.lookup(key)
       assert [{_pid, metadata}] = result
       assert metadata.partition_id == "default"
       assert metadata.status == :available
@@ -202,7 +202,7 @@ defmodule ServiceRadarPoller.RegistrationTest do
       assert status in [:available, :busy, :unavailable, :draining]
     end
 
-    test "get_info returns poller information" do
+    test "get_info returns gateway information" do
       info = RegistrationWorker.get_info()
       assert info.partition_id == "default"
       assert info.node == Node.self()

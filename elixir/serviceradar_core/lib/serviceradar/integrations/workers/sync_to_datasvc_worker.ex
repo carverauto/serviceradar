@@ -23,7 +23,7 @@ defmodule ServiceRadar.Integrations.Workers.SyncToDataSvcWorker do
   require Logger
 
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Infrastructure.Poller
+  alias ServiceRadar.Infrastructure.Gateway
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"source_id" => source_id, "operation" => operation}}) do

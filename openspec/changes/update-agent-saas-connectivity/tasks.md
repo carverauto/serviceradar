@@ -66,4 +66,15 @@
 
 ## 4. Follow-up Work
 - [ ] 4.1 Rename ServiceRadar.Poller modules to ServiceRadar.Gateway or ServiceRadar.Infrastructure (affects 16 files)
-- [ ] 4.2 Implement full config application from GetConfig response (currently logs but doesn't apply checks)
+- [x] 4.2 Implement config application from GetConfig response for simple checks
+  - Added enrollment flow: Hello → GetConfig on PushLoop startup
+  - PushLoop now calls Hello to register with gateway, receives tenant info
+  - GetConfig fetches checks from gateway, applies to checkerConfs
+  - Config poll loop runs every 5 minutes (configurable via gateway response)
+  - Re-enrolls automatically on gateway reconnect
+  - Version variable for build-time injection
+  - Note: Sweep config (networks, device_targets) still uses KV; see 4.3 for full integration
+- [ ] 4.3 Integrate sync service → CNPG → sweep config flow
+  - Sync service should send discovered devices to core (not KV)
+  - Core builds sweep targets from device data in CNPG
+  - Include sweep config in GetConfig response (networks, device_targets, sweep_modes)
