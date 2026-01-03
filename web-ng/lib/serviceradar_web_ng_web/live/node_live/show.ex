@@ -42,10 +42,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
       end
 
     # Get node-type-specific info
-    {pollers, agents} =
+    {gateways, agents} =
       if is_connected do
         {
-          get_node_pollers(node_atom),
+          get_node_gateways(node_atom),
           get_node_agents(node_atom)
         }
       else
@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
      |> assign(:node_info, node_info)
      |> assign(:is_connected, is_connected)
      |> assign(:is_current, node_atom == Node.self())
-     |> assign(:pollers, pollers)
+     |> assign(:gateways, gateways)
      |> assign(:agents, agents)
      |> assign(:error, error)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure/nodes/#{node_name}"})}
@@ -106,9 +106,9 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     end
   end
 
-  defp get_node_pollers(node) do
-    ServiceRadar.PollerRegistry.all_pollers()
-    |> Enum.filter(fn poller -> Map.get(poller, :node) == node end)
+  defp get_node_gateways(node) do
+    ServiceRadar.GatewayRegistry.all_gateways()
+    |> Enum.filter(fn gateway -> Map.get(gateway, :node) == node end)
   rescue
     _ -> []
   end
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
           <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
           
     <!-- Poller-specific info -->
-          <.pollers_on_node :if={@node_type == :poller && @pollers != []} pollers={@pollers} />
+          <.gateways_on_node :if={@node_type == :poller && @gateways != []} gateways={@gateways} />
           
     <!-- Agent-specific info -->
           <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
@@ -307,23 +307,23 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     """
   end
 
-  attr :pollers, :list, required: true
+  attr :gateways, :list, required: true
 
-  defp pollers_on_node(assigns) do
+  defp gateways_on_node(assigns) do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Pollers on this Node</span>
-        <span class="ml-2 badge badge-info badge-sm">{length(@pollers)}</span>
+        <span class="text-sm font-semibold">Gateways on this Node</span>
+        <span class="ml-2 badge badge-info badge-sm">{length(@gateways)}</span>
       </div>
       <div class="divide-y divide-base-200">
-        <%= for poller <- @pollers do %>
+        <%= for gateway <- @gateways do %>
           <div class="px-4 py-3 flex items-center gap-4">
-            <.ui_badge variant="info" size="xs">{Map.get(poller, :status, :unknown)}</.ui_badge>
+            <.ui_badge variant="info" size="xs">{Map.get(gateway, :status, :unknown)}</.ui_badge>
             <div class="flex-1">
-              <span class="font-mono text-sm">{Map.get(poller, :partition_id, "default")}</span>
+              <span class="font-mono text-sm">{Map.get(gateway, :partition_id, "default")}</span>
             </div>
-            <.link navigate={~p"/pollers/#{format_poller_id(poller)}"} class="btn btn-ghost btn-xs">
+            <.link navigate={~p"/pollers/#{format_poller_id(gateway)}"} class="btn btn-ghost btn-xs">
               View
             </.link>
           </div>
@@ -390,10 +390,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
           }
 
         :poller ->
-          # Derive from Ash resource
+          # Derive from Ash resource (Gateway, formerly Poller)
           %{
-            description: ServiceRadar.Infrastructure.Poller.role_description(),
-            steps: ServiceRadar.Infrastructure.Poller.role_steps()
+            description: ServiceRadar.Infrastructure.Gateway.role_description(),
+            steps: ServiceRadar.Infrastructure.Gateway.role_steps()
           }
 
         :agent ->

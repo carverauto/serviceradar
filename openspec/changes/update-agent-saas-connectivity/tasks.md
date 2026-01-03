@@ -29,7 +29,13 @@
   - Initial agents loaded via RPC to AgentTracker on all cluster nodes
   - Clickable agent rows navigate to AgentLive.Show for details
   - Tenant scoping for non-platform users
-- [ ] 1.8 Update onboarding bundles/install scripts to include only SaaS endpoint + mTLS credentials in bootstrap config.
+- [x] 1.8 Update onboarding bundles/install scripts to include only SaaS endpoint + mTLS credentials in bootstrap config.
+  - Updated BundleGenerator (web-ng) to generate minimal config: agent_id, gateway_addr, gateway_security (mTLS)
+  - Updated K8s configmap generation to use minimal bootstrap config
+  - Updated Go edgeonboarding.Config to add GatewayEndpoint (primary for SaaS)
+  - Made KVEndpoint optional (for legacy/on-prem only)
+  - Updated generateAgentConfig and generateCheckerConfig to use minimal bootstrap
+  - Updated README to document minimal bootstrap architecture
 - [ ] 1.9 Add tests for hello/enrollment, config versioning, and agent polling behavior; update architecture docs.
 
 ## 3. Platform Tenant & Agent Visibility

@@ -1,10 +1,10 @@
 defmodule ServiceRadarWebNG.Dev.MockCluster do
   @moduledoc """
-  Development helper to register mock pollers and agents in the Horde registries.
+  Development helper to register mock gateways and agents in the Horde registries.
 
   This module is only for local development and testing. It simulates having
-  a distributed cluster by registering fake pollers and agents that would
-  normally be registered by serviceradar_poller (Elixir) and Go agents
+  a distributed cluster by registering fake gateways and agents that would
+  normally be registered by serviceradar_gateway (Elixir) and Go agents
   connecting via gRPC.
 
   ## Usage
@@ -34,13 +34,13 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   end
 
   @doc """
-  Manually set up mock cluster data (pollers and agents).
+  Manually set up mock cluster data (gateways and agents).
   """
   def setup(opts \\ []) do
-    poller_count = Keyword.get(opts, :pollers, 2)
+    gateway_count = Keyword.get(opts, :gateways, Keyword.get(opts, :pollers, 2))
     agent_count = Keyword.get(opts, :agents, 3)
 
-    register_mock_pollers(poller_count)
+    register_mock_gateways(gateway_count)
     register_mock_agents(agent_count)
 
     :ok
@@ -52,13 +52,13 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   def teardown do
     tenant_id = @dev_tenant_id
 
-    # Get all pollers and agents registered for the dev tenant
-    pollers = ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
+    # Get all gateways and agents registered for the dev tenant
+    gateways = ServiceRadar.GatewayRegistry.find_gateways_for_tenant(tenant_id)
     agents = ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
 
-    for poller <- pollers do
-      poller_id = Map.get(poller, :poller_id)
-      if poller_id, do: ServiceRadar.PollerRegistry.unregister_poller(tenant_id, poller_id)
+    for gateway <- gateways do
+      gateway_id = Map.get(gateway, :gateway_id)
+      if gateway_id, do: ServiceRadar.GatewayRegistry.unregister_gateway(tenant_id, gateway_id)
     end
 
     for agent <- agents do
@@ -73,25 +73,25 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   @impl true
   def init(opts) do
-    poller_count = Keyword.get(opts, :pollers, 2)
+    gateway_count = Keyword.get(opts, :gateways, Keyword.get(opts, :pollers, 2))
     agent_count = Keyword.get(opts, :agents, 3)
 
-    Logger.info("[MockCluster] Starting with #{poller_count} pollers and #{agent_count} agents")
+    Logger.info("[MockCluster] Starting with #{gateway_count} gateways and #{agent_count} agents")
 
     # Register mock data
-    pollers = register_mock_pollers(poller_count)
+    gateways = register_mock_gateways(gateway_count)
     agents = register_mock_agents(agent_count)
 
     # Schedule heartbeat updates
     schedule_heartbeat()
 
-    {:ok, %{pollers: pollers, agents: agents}}
+    {:ok, %{gateways: gateways, agents: agents}}
   end
 
   @impl true
   def handle_info(:heartbeat, state) do
     # Update heartbeats for all registered mocks
-    update_heartbeats(state.pollers, state.agents)
+    update_heartbeats(state.gateways, state.agents)
     schedule_heartbeat()
     {:noreply, state}
   end
@@ -101,8 +101,8 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
     Logger.info("[MockCluster] Shutting down, unregistering mock data")
     tenant_id = @dev_tenant_id
 
-    for poller <- state.pollers do
-      ServiceRadar.PollerRegistry.unregister_poller(tenant_id, poller.poller_id)
+    for gateway <- state.gateways do
+      ServiceRadar.GatewayRegistry.unregister_gateway(tenant_id, gateway.gateway_id)
     end
 
     for agent <- state.agents do
@@ -114,7 +114,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   # Private functions
 
-  defp register_mock_pollers(count) do
+  defp register_mock_gateways(count) do
     tenant_id = @dev_tenant_id
     partitions = ["production", "staging", "edge-site-1"]
     domains = ["us-west", "us-east", "eu-west"]
@@ -122,20 +122,20 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
     for i <- 1..count do
       partition = Enum.at(partitions, rem(i - 1, length(partitions)))
       domain = Enum.at(domains, rem(i - 1, length(domains)))
-      poller_id = "dev-poller-#{i}"
+      gateway_id = "dev-gateway-#{i}"
 
-      poller_info = %{
+      gateway_info = %{
         partition_id: partition,
         domain: domain,
         status: :available
       }
 
-      case ServiceRadar.PollerRegistry.register_poller(tenant_id, poller_id, poller_info) do
+      case ServiceRadar.GatewayRegistry.register_gateway(tenant_id, gateway_id, gateway_info) do
         {:ok, _pid} ->
-          Logger.debug("[MockCluster] Registered poller: #{poller_id}")
+          Logger.debug("[MockCluster] Registered gateway: #{gateway_id}")
 
           %{
-            poller_id: poller_id,
+            gateway_id: gateway_id,
             tenant_id: tenant_id,
             partition_id: partition,
             domain: domain,
@@ -144,7 +144,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
         {:error, reason} ->
           Logger.warning(
-            "[MockCluster] Failed to register poller #{poller_id}: #{inspect(reason)}"
+            "[MockCluster] Failed to register gateway #{gateway_id}: #{inspect(reason)}"
           )
 
           nil
@@ -199,11 +199,11 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp update_heartbeats(pollers, agents) do
+  defp update_heartbeats(gateways, agents) do
     tenant_id = @dev_tenant_id
 
-    for poller <- pollers do
-      ServiceRadar.PollerRegistry.heartbeat(tenant_id, poller.poller_id)
+    for gateway <- gateways do
+      ServiceRadar.GatewayRegistry.heartbeat(tenant_id, gateway.gateway_id)
     end
 
     for agent <- agents do

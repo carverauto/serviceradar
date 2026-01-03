@@ -29,13 +29,13 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
 
   @impl true
   def handle_params(%{"poller_id" => poller_id}, _uri, socket) do
-    # First check Horde registry for live poller
-    all_pollers = ServiceRadar.PollerRegistry.all_pollers()
+    # First check Horde registry for live gateway
+    all_gateways = ServiceRadar.GatewayRegistry.all_gateways()
 
     live_poller =
-      Enum.find(all_pollers, fn poller ->
-        poller_key = poller[:poller_id] || poller[:key]
-        match_poller_id?(poller_key, poller_id)
+      Enum.find(all_gateways, fn gateway ->
+        gateway_key = gateway[:gateway_id] || gateway[:key]
+        match_poller_id?(gateway_key, poller_id)
       end)
 
     # Get node system info if live poller exists
@@ -226,8 +226,8 @@ defmodule ServiceRadarWebNGWeb.PollerLive.Show do
 
   defp poller_role_card(assigns) do
     # Derive role information from the Ash resource
-    role_description = ServiceRadar.Infrastructure.Poller.role_description()
-    role_steps = ServiceRadar.Infrastructure.Poller.role_steps()
+    role_description = ServiceRadar.Infrastructure.Gateway.role_description()
+    role_steps = ServiceRadar.Infrastructure.Gateway.role_steps()
 
     assigns =
       assigns

@@ -61,9 +61,12 @@ type IntegrationResult struct {
 // - IntegrationResult if onboarding was performed
 // - nil if traditional config should be used
 // - error if onboarding was attempted but failed
+//
+// For SaaS mode, only GATEWAY_ENDPOINT is required. For legacy mode, KV_ENDPOINT may be used.
 func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponentType, log logger.Logger) (*IntegrationResult, error) {
 	// Check for onboarding token from environment or flags
 	token := os.Getenv("ONBOARDING_TOKEN")
+	gatewayEndpoint := firstNonEmpty(os.Getenv("GATEWAY_ENDPOINT"), os.Getenv("GATEWAY_ADDR"))
 	kvEndpoint := os.Getenv("KV_ENDPOINT")
 	packageID := os.Getenv("EDGE_PACKAGE_ID")
 	coreAPIURL := os.Getenv("CORE_API_URL")
@@ -81,22 +84,22 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	log.Info().
 		Str("component_type", string(componentType)).
 		Bool("offline_package", packagePath != "").
+		Str("gateway_endpoint", gatewayEndpoint).
 		Msg("Onboarding token detected - starting edge onboarding")
 
-	// Validate required bootstrap config
-	if kvEndpoint == "" {
-		return nil, ErrKVEndpointRequired
-	}
+	// Note: KVEndpoint is no longer required for SaaS mode.
+	// Agents connect to GatewayEndpoint and receive config via GetConfig.
 
 	// Create bootstrapper
 	b, err := NewBootstrapper(&Config{
-		Token:       token,
-		PackagePath: packagePath,
-		KVEndpoint:  kvEndpoint,
-		ServiceType: componentType,
-		PackageID:   packageID,
-		CoreAPIURL:  coreAPIURL,
-		Logger:      log,
+		Token:           token,
+		PackagePath:     packagePath,
+		GatewayEndpoint: gatewayEndpoint,
+		KVEndpoint:      kvEndpoint, // Optional for legacy/on-prem mode
+		ServiceType:     componentType,
+		PackageID:       packageID,
+		CoreAPIURL:      coreAPIURL,
+		Logger:          log,
 		// StoragePath will use default
 	})
 	if err != nil {
