@@ -74,10 +74,10 @@ defmodule ServiceRadarAgentGateway.Config do
   @doc """
   Returns the tenant ID for this gateway.
 
-  In multi-tenant mode, all operations are scoped to this tenant.
-  Returns nil for single-tenant deployments.
+  All operations are scoped to this tenant. Defaults to the
+  default tenant UUID if not explicitly configured.
   """
-  @spec tenant_id() :: String.t() | nil
+  @spec tenant_id() :: String.t()
   def tenant_id do
     GenServer.call(__MODULE__, :tenant_id)
   end
@@ -85,10 +85,10 @@ defmodule ServiceRadarAgentGateway.Config do
   @doc """
   Returns the tenant slug for this gateway.
 
-  The slug is extracted from the certificate CN and used for
-  NATS channel prefixing and Horde registry keys.
+  The slug is used for NATS channel prefixing and Horde registry keys.
+  Defaults to "default" if not explicitly configured.
   """
-  @spec tenant_slug() :: String.t() | nil
+  @spec tenant_slug() :: String.t()
   def tenant_slug do
     GenServer.call(__MODULE__, :tenant_slug)
   end
@@ -96,8 +96,7 @@ defmodule ServiceRadarAgentGateway.Config do
   @doc """
   Returns the NATS channel prefix for this gateway.
 
-  In multi-tenant mode, returns the tenant slug.
-  In single-tenant mode, returns an empty string.
+  Returns the tenant slug, which prefixes all NATS channels for tenant isolation.
   """
   @spec nats_prefix() :: String.t()
   def nats_prefix do
@@ -134,21 +133,19 @@ defmodule ServiceRadarAgentGateway.Config do
   @doc """
   Builds a Horde registry key with tenant scope.
 
-  In multi-tenant mode, includes tenant_slug in the key tuple.
-  This prevents cross-tenant process collisions.
+  Includes tenant_slug in the key tuple to prevent cross-tenant process collisions.
 
   ## Examples
 
       iex> Config.registry_key(:device, "partition-1", "10.0.0.1")
-      {"tenant-acme", "partition-1", "10.0.0.1"}  # multi-tenant
+      {"tenant-acme", "partition-1", "10.0.0.1"}
 
       iex> Config.registry_key(:device, "partition-1", "10.0.0.1")
-      {"default", "partition-1", "10.0.0.1"}  # single-tenant
+      {"default", "partition-1", "10.0.0.1"}  # default tenant
   """
   @spec registry_key(atom(), String.t(), String.t()) :: tuple()
   def registry_key(_type, partition_id, identifier) do
-    tenant = tenant_slug() || "default"
-    {tenant, partition_id, identifier}
+    {tenant_slug(), partition_id, identifier}
   end
 
   # Server callbacks
@@ -161,10 +158,13 @@ defmodule ServiceRadarAgentGateway.Config do
     capabilities = Keyword.get(opts, :capabilities, [])
 
     # Get tenant info from environment or certificate
+    # System is always multi-tenant - default tenant is used if none specified
     {tenant_id, tenant_slug} = resolve_tenant_info(opts)
+    tenant_slug = tenant_slug || "default"
+    tenant_id = tenant_id || "00000000-0000-0000-0000-000000000000"
 
     # Build NATS prefix
-    nats_prefix = if tenant_slug, do: tenant_slug, else: ""
+    nats_prefix = tenant_slug
 
     config = %{
       partition_id: partition_id,
@@ -176,11 +176,7 @@ defmodule ServiceRadarAgentGateway.Config do
       nats_prefix: nats_prefix
     }
 
-    if tenant_slug do
-      Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id || "unknown"})")
-    else
-      Logger.info("Gateway configured in single-tenant mode")
-    end
+    Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id})")
 
     {:ok, config}
   end

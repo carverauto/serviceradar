@@ -151,6 +151,8 @@ if config_env() != :test do
 
   oban_node = System.get_env("OBAN_NODE")
 
+  # web-ng should NOT run scheduled jobs - core-elx is the Oban coordinator
+  # web-ng only processes jobs, it doesn't schedule them
   oban_config = [
     repo: ServiceRadar.Repo,
     queues: [
@@ -166,11 +168,8 @@ if config_env() != :test do
       integrations: 5
     ],
     plugins: [
-      {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-      {Oban.Plugins.Cron,
-       crontab: [
-         {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
-       ]}
+      {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+      # No Cron plugin - core-elx handles all scheduled jobs
     ],
     peer: Oban.Peers.Database
   ]
