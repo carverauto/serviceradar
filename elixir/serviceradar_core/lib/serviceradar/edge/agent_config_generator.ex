@@ -191,7 +191,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     check_type = atom_to_check_type(check.check_type)
 
     # Extract settings from the config map
-    settings = Map.merge(check.config || %{}, check.metadata || %{})
+    raw_settings = Map.merge(check.config || %{}, check.metadata || %{})
+    settings = stringify_keys(raw_settings)
 
     %{
       check_id: to_string(check.id),
@@ -202,9 +203,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       timeout_sec: check.timeout_seconds || 10,
       target: check.target,
       port: check.port,
-      path: settings["path"],
-      method: settings["method"],
-      settings: stringify_keys(settings)
+      path: Map.get(settings, "path"),
+      method: Map.get(settings, "method"),
+      settings: settings
     }
   end
 

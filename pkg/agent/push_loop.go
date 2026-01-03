@@ -29,6 +29,7 @@ import (
 )
 
 // Version is set at build time via -ldflags
+//
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
@@ -158,8 +159,10 @@ func (p *PushLoop) Start(ctx context.Context) error {
 }
 
 // Stop signals the push loop to stop and waits for it to exit.
+// Closes done channel if Start() was never called to prevent deadlock.
 func (p *PushLoop) Stop() {
 	p.stopOnce.Do(func() { close(p.stopCh) })
+	p.doneOnce.Do(func() { close(p.done) })
 	<-p.done
 }
 
@@ -524,7 +527,10 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 }
 
 // Default timeout for checks when not specified or invalid
-const defaultCheckTimeout = 10 * time.Second
+const (
+	defaultCheckTimeout = 10 * time.Second
+	maxCheckTimeout     = 24 * time.Hour
+)
 
 // protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
@@ -537,10 +543,16 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Map proto check type to internal type
 	checkerType := mapCheckType(check.CheckType)
 
-	// Validate and default timeout to prevent issues with zero or negative values
-	timeout := time.Duration(check.TimeoutSec) * time.Second
-	if timeout <= 0 {
+	// Validate and default timeout to prevent issues with zero/negative values and duration overflow.
+	timeoutSec := int64(check.TimeoutSec)
+	var timeout time.Duration
+	if timeoutSec <= 0 {
 		timeout = defaultCheckTimeout
+	} else {
+		timeout = time.Duration(timeoutSec) * time.Second
+		if timeout > maxCheckTimeout {
+			timeout = maxCheckTimeout
+		}
 	}
 
 	return &CheckerConfig{

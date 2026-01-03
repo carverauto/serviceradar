@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     updated_cache =
       Map.put(socket.assigns.gateways_cache, gateway_id, %{
         gateway_id: gateway_id,
-        node: gateway_info[:node],
+        node: gateway_info[:node] || Node.self(),
         partition: gateway_info[:partition] || "default",
         domain: gateway_info[:domain] || "default",
         status: gateway_info[:status] || :available,

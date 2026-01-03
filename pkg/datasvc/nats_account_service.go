@@ -114,12 +114,8 @@ func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.S
 	s.resolverCredsFile = strings.TrimSpace(credsFile)
 
 	if s.resolverConn != nil {
-		// Drain then close to ensure the underlying connection is released.
-		if err := s.resolverConn.Drain(); err != nil {
-			s.resolverConn.Close()
-			s.resolverConn = nil
-			return
-		}
+		// Drain is best-effort; always close so we don't silently skip updating resolver settings.
+		_ = s.resolverConn.Drain()
 		s.resolverConn.Close()
 		s.resolverConn = nil
 	}

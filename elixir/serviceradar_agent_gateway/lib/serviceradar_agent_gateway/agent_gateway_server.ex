@@ -333,7 +333,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       payload = stream.payload
 
       # Check if the adapter supports certificate extraction
-      if function_exported?(adapter, :get_cert, 1) do
+      if is_atom(adapter) and function_exported?(adapter, :get_cert, 1) do
         case adapter.get_cert(payload) do
           :undefined ->
             {:error, :no_certificate}

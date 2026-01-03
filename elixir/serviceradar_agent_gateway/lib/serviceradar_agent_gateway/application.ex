@@ -72,7 +72,9 @@ defmodule ServiceRadarAgentGateway.Application do
 
   @impl true
   def start(_type, _args) do
-    partition_id = System.get_env("GATEWAY_PARTITION_ID", System.get_env("POLLER_PARTITION_ID", "default"))
+    partition_id =
+      System.get_env("GATEWAY_PARTITION_ID", System.get_env("POLLER_PARTITION_ID", "default"))
+
     gateway_id = System.get_env("GATEWAY_ID", generate_gateway_id())
     domain = System.get_env("GATEWAY_DOMAIN", System.get_env("POLLER_DOMAIN", "default"))
     tenant_id = System.get_env("GATEWAY_TENANT_ID", System.get_env("POLLER_TENANT_ID"))
@@ -89,7 +91,9 @@ defmodule ServiceRadarAgentGateway.Application do
         "Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id} for tenant: #{tenant_slug}"
       )
     else
-      Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id}")
+      Logger.info(
+        "Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id}"
+      )
     end
 
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
@@ -107,9 +111,7 @@ defmodule ServiceRadarAgentGateway.Application do
       # Registration worker - registers this gateway at the platform level
       # (gateways serve all tenants, not tenant-scoped)
       {ServiceRadar.GatewayRegistrationWorker,
-       gateway_id: gateway_id,
-       partition: partition_id,
-       domain: domain},
+       gateway_id: gateway_id, partition: partition_id, domain: domain},
 
       # gRPC server that receives status pushes from Go agents
       {GRPC.Server.Supervisor,
@@ -198,11 +200,32 @@ defmodule ServiceRadarAgentGateway.Application do
     "gateway-#{hostname}-#{:rand.uniform(9999)}"
   end
 
+  @allowed_capabilities %{
+    "icmp" => :icmp,
+    "tcp" => :tcp,
+    "http" => :http,
+    "grpc" => :grpc,
+    "snmp" => :snmp,
+    "dns" => :dns,
+    "custom" => :custom
+  }
+
   defp parse_capabilities(capabilities_str) do
     capabilities_str
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)
-    |> Enum.map(&String.to_atom/1)
+    |> Enum.flat_map(fn cap ->
+      key = String.downcase(cap)
+
+      case Map.fetch(@allowed_capabilities, key) do
+        {:ok, atom} ->
+          [atom]
+
+        :error ->
+          Logger.warning("Ignoring unknown capability: #{inspect(cap)}")
+          []
+      end
+    end)
   end
 
   defp build_adapter_opts(nil), do: []

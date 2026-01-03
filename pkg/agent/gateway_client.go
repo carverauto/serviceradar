@@ -48,11 +48,11 @@ var (
 )
 
 const (
-	defaultPushInterval    = 30 * time.Second
-	defaultConnectTimeout  = 10 * time.Second
-	defaultReconnectDelay  = 5 * time.Second
-	maxReconnectDelay      = 60 * time.Second
-	defaultPushTimeout     = 30 * time.Second
+	defaultPushInterval   = 30 * time.Second
+	defaultConnectTimeout = 10 * time.Second
+	defaultReconnectDelay = 5 * time.Second
+	maxReconnectDelay     = 60 * time.Second
+	defaultPushTimeout    = 30 * time.Second
 )
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
@@ -299,6 +299,11 @@ func (g *GatewayClient) ReconnectWithBackoff(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(delay):
+	}
+
+	// Another goroutine may have reconnected while we were sleeping.
+	if g.IsConnected() {
+		return nil
 	}
 
 	// Close existing connection if any

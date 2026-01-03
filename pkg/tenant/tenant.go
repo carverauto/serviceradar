@@ -253,12 +253,18 @@ func FromPEM(certPEM []byte) (*Info, error) {
 // Iterates through PEM blocks to find one with type "CERTIFICATE".
 func decodePEM(pemData []byte) []byte {
 	rest := pemData
+	sawPEM := false
 	for {
 		block, r := pem.Decode(rest)
 		if block == nil {
-			// Not PEM (or no CERTIFICATE block), return as-is (might be DER)
+			// If we decoded PEM blocks but none were CERTIFICATE, signal failure.
+			if sawPEM {
+				return nil
+			}
+			// Not PEM, return as-is (might be DER)
 			return pemData
 		}
+		sawPEM = true
 		if block.Type == "CERTIFICATE" {
 			return block.Bytes
 		}

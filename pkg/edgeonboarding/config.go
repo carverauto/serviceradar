@@ -259,9 +259,13 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 // The bootstrap config is minimal: checker_id + parent agent connection info.
 func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
-	_ = metadata // Reserved for future use (e.g., checker-specific settings from KV)
 
 	b.logger.Debug().Msg("Generating minimal checker bootstrap configuration")
+
+	agentAddr := "localhost:50051"
+	if v, ok := metadata["agent_address"].(string); ok && v != "" {
+		agentAddr = v
+	}
 
 	// Generate minimal checker config JSON
 	// Checkers connect to the local agent, which provides configuration
@@ -271,8 +275,8 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		"checker_kind": b.pkg.CheckerKind,
 		"parent_id":    b.pkg.ParentID, // Parent agent ID
 
-		// Agent connection - checkers connect to local agent
-		"agent_address": "localhost:50051",
+		// Agent connection - checkers connect to the agent
+		"agent_address": agentAddr,
 
 		// mTLS security configuration
 		"security": map[string]interface{}{
