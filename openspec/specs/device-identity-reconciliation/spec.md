@@ -1,4 +1,18 @@
-## ADDED Requirements
+# device-identity-reconciliation Specification
+
+## Purpose
+TBD - created by archiving change fix-identity-batch-lookup-partition. Update Purpose after archive.
+## Requirements
+### Requirement: Partition-Scoped Batch Identifier Lookup
+The system MUST resolve strong identifiers in batch mode within the update's partition, and MUST NOT match identifiers across partitions.
+
+#### Scenario: Same identifier in different partitions
+- **WHEN** two device updates in the same batch share the same strong identifier value but have different partitions
+- **THEN** each update resolves to the device ID that matches its own partition
+
+#### Scenario: Empty partition defaults consistently
+- **WHEN** a device update has an empty partition value
+- **THEN** identifier resolution treats it as partition `default` for both single and batch lookup paths
 
 ### Requirement: CNPG-Authoritative Identity Canonicalization
 The system SHALL treat CNPG (via `IdentityEngine` + `DeviceRegistry`) as the authoritative source of canonical device identity, and SHALL NOT rely on KV as the source of truth for identity reconciliation.
@@ -16,9 +30,3 @@ The system MAY use KV as a cache/hydration layer for limited identity lookups (e
 - **THEN** the system falls back to CNPG-backed lookup paths
 - **AND** MAY hydrate the KV cache from the CNPG result
 
-## REMOVED Requirements
-
-### Requirement: Registry KV Canonical Identity Publisher
-**Reason**: The KV canonical identity map publisher is disabled in normal operation due to write amplification and is not part of the current CNPG-authoritative reconciliation flow.
-
-**Migration**: Existing KV canonical-map data (if present from older deployments) can be treated as legacy cache data and cleaned up manually using tooling/runbooks.

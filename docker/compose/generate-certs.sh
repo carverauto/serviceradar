@@ -310,21 +310,21 @@ EOF
 # Include comprehensive cross-service SAN entries for all inter-service communication
 
 # Core services that many others connect to - include common client service names
-generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:serviceradar-sync,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:serviceradar-sync,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that are clients to others
-generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller-elx,DNS:poller-elx-t2,DNS:poller.serviceradar,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gateway,DNS:agent-gateway-t2,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 

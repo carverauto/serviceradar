@@ -1,9 +1,13 @@
-defmodule ServiceRadarPoller.TaskExecutor do
+defmodule ServiceRadarAgentGateway.TaskExecutor do
   @moduledoc """
-  GenServer for executing polling tasks from the core cluster.
+  GenServer for executing polling tasks from the core cluster (legacy support).
 
   This module receives polling task requests from the core and executes them
   using the appropriate check executor (ICMP, TCP, HTTP, SNMP, etc.).
+
+  Note: In the new architecture, the primary data flow is agent → gateway (push).
+  This TaskExecutor is maintained for backwards compatibility and for cases
+  where the gateway needs to perform active checks.
 
   ## Task Flow
 
@@ -13,20 +17,20 @@ defmodule ServiceRadarPoller.TaskExecutor do
 
   ## Supported Check Types
 
-  ### Local Checks (executed directly by poller)
+  ### Local Checks (executed directly by gateway)
   - `:icmp` - ICMP ping check
   - `:tcp` - TCP port check
   - `:http` - HTTP/HTTPS health check
   - `:dns` - DNS resolution check
 
-  ### Agent-Delegated Checks (via gRPC to Go agents)
+  ### Agent-Delegated Checks (via gRPC to Go agents - legacy)
   - `:agent_status` - Agent health check
   - `:agent_sweep` - Network sweep via agent
   - `:snmp` - SNMP polling via agent
   - `:wmi` - Windows WMI polling via agent
 
   Agent-delegated checks require a `tenant_id` and `agent_id` in the task config.
-  The poller will connect to the agent via gRPC to execute these checks.
+  The gateway will connect to the agent via gRPC to execute these checks.
   """
 
   use GenServer
@@ -141,7 +145,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
     Logger.debug("Executing #{check_type} check on #{target}")
 
     case check_type do
-      # Local checks (executed directly by poller)
+      # Local checks (executed directly by gateway)
       :icmp -> execute_icmp_check(target, config)
       "icmp" -> execute_icmp_check(target, config)
       :tcp -> execute_tcp_check(target, config)
@@ -150,7 +154,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
       "http" -> execute_http_check(target, config)
       :dns -> execute_dns_check(target, config)
       "dns" -> execute_dns_check(target, config)
-      # Agent-delegated checks (via gRPC to Go agents)
+      # Agent-delegated checks (via gRPC to Go agents - legacy)
       :agent_status -> execute_agent_status_check(config)
       "agent_status" -> execute_agent_status_check(config)
       :agent_sweep -> execute_agent_sweep(config)
@@ -176,7 +180,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
     unless tenant_id && agent_id do
       {:error, :missing_tenant_or_agent_id}
     else
-      case ServiceRadarPoller.AgentClient.get_status(tenant_id, agent_id, %{}) do
+      case ServiceRadarAgentGateway.AgentClient.get_status(tenant_id, agent_id, %{}) do
         {:ok, status} ->
           {:ok, %{
             status: if(status.available, do: :up, else: :down),
@@ -213,7 +217,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
         last_sequence: last_sequence || ""
       }
 
-      case ServiceRadarPoller.AgentClient.get_results(tenant_id, agent_id, opts) do
+      case ServiceRadarAgentGateway.AgentClient.get_results(tenant_id, agent_id, opts) do
         {:ok, results} ->
           {:ok, %{
             status: if(results.available, do: :up, else: :down),
@@ -252,7 +256,7 @@ defmodule ServiceRadarPoller.TaskExecutor do
         service_name: service_name || ""
       }
 
-      case ServiceRadarPoller.AgentClient.get_status(tenant_id, agent_id, opts) do
+      case ServiceRadarAgentGateway.AgentClient.get_status(tenant_id, agent_id, opts) do
         {:ok, status} ->
           {:ok, %{
             status: if(status.available, do: :up, else: :down),

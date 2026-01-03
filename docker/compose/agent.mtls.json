@@ -1,12 +1,22 @@
 {
   "checkers_dir": "/etc/serviceradar/checkers",
-  "listen_addr": ":50051",
-  "service_type": "grpc",
-  "service_name": "AgentService",
   "agent_id": "docker-agent",
   "agent_name": "agent",
   "host_ip": "agent",
   "partition": "default",
+  "gateway_addr": "agent-gateway:50052",
+  "push_interval": "30s",
+  "gateway_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "agent-gateway.serviceradar",
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
   "kv_address": "datasvc:50057",
   "kv_security": {
     "mode": "mtls",

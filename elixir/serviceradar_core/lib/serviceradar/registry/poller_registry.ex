@@ -61,6 +61,8 @@ defmodule ServiceRadar.PollerRegistry do
   @spec register_poller(String.t(), String.t(), map()) ::
           {:ok, pid()} | {:error, {:already_registered, pid()} | term()}
   def register_poller(tenant_id, poller_id, poller_info) when is_binary(tenant_id) do
+    entity_type = Map.get(poller_info, :entity_type, :poller)
+
     metadata = %{
       poller_id: poller_id,
       tenant_id: tenant_id,
@@ -68,6 +70,7 @@ defmodule ServiceRadar.PollerRegistry do
       domain: Map.get(poller_info, :domain),
       node: Node.self(),
       status: Map.get(poller_info, :status, :available),
+      entity_type: entity_type,
       registered_at: DateTime.utc_now(),
       last_heartbeat: DateTime.utc_now()
     }
@@ -88,11 +91,13 @@ defmodule ServiceRadar.PollerRegistry do
           {:poller_registered, metadata}
         )
 
-        Logger.info("Poller registered: #{poller_id} for tenant: #{tenant_id}")
+        entity_label = entity_type_label(entity_type)
+        Logger.info("#{entity_label} registered: #{poller_id} for tenant: #{tenant_id}")
         result
 
       error ->
-        Logger.warning("Failed to register poller #{poller_id}: #{inspect(error)}")
+        entity_label = entity_type_label(entity_type)
+        Logger.warning("Failed to register #{String.downcase(entity_label)} #{poller_id}: #{inspect(error)}")
         error
     end
   end
@@ -276,4 +281,9 @@ defmodule ServiceRadar.PollerRegistry do
       acc
     end)
   end
+
+  # Get human-readable label for entity type
+  defp entity_type_label(:gateway), do: "Gateway"
+  defp entity_type_label(:poller), do: "Poller"
+  defp entity_type_label(_), do: "Poller"
 end

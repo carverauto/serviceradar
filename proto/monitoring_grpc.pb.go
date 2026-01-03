@@ -223,6 +223,8 @@ const (
 // PollerServiceClient is the client API for PollerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Deprecated: Use AgentGatewayService instead. PollerService will be removed in a future release.
 type PollerServiceClient interface {
 	ReportStatus(ctx context.Context, in *PollerStatusRequest, opts ...grpc.CallOption) (*PollerStatusResponse, error)
 	StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse], error)
@@ -262,6 +264,8 @@ type PollerService_StreamStatusClient = grpc.ClientStreamingClient[PollerStatusC
 // PollerServiceServer is the server API for PollerService service.
 // All implementations must embed UnimplementedPollerServiceServer
 // for forward compatibility.
+//
+// Deprecated: Use AgentGatewayService instead. PollerService will be removed in a future release.
 type PollerServiceServer interface {
 	ReportStatus(context.Context, *PollerStatusRequest) (*PollerStatusResponse, error)
 	StreamStatus(grpc.ClientStreamingServer[PollerStatusChunk, PollerStatusResponse]) error
@@ -343,6 +347,150 @@ var PollerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamStatus",
 			Handler:       _PollerService_StreamStatus_Handler,
+			ClientStreams: true,
+		},
+	},
+	Metadata: "monitoring.proto",
+}
+
+const (
+	AgentGatewayService_PushStatus_FullMethodName   = "/monitoring.AgentGatewayService/PushStatus"
+	AgentGatewayService_StreamStatus_FullMethodName = "/monitoring.AgentGatewayService/StreamStatus"
+)
+
+// AgentGatewayServiceClient is the client API for AgentGatewayService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// AgentGatewayService receives status pushes from agents.
+// Agents connect outbound to the gateway and push their status/results.
+type AgentGatewayServiceClient interface {
+	// PushStatus sends a batch of service statuses from the agent to the gateway.
+	PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error)
+	// StreamStatus streams service status chunks for large payloads.
+	StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error)
+}
+
+type agentGatewayServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAgentGatewayServiceClient(cc grpc.ClientConnInterface) AgentGatewayServiceClient {
+	return &agentGatewayServiceClient{cc}
+}
+
+func (c *agentGatewayServiceClient) PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GatewayStatusResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_PushStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentGatewayServiceClient) StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentGatewayService_ServiceDesc.Streams[0], AgentGatewayService_StreamStatus_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GatewayStatusChunk, GatewayStatusResponse]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentGatewayService_StreamStatusClient = grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse]
+
+// AgentGatewayServiceServer is the server API for AgentGatewayService service.
+// All implementations must embed UnimplementedAgentGatewayServiceServer
+// for forward compatibility.
+//
+// AgentGatewayService receives status pushes from agents.
+// Agents connect outbound to the gateway and push their status/results.
+type AgentGatewayServiceServer interface {
+	// PushStatus sends a batch of service statuses from the agent to the gateway.
+	PushStatus(context.Context, *GatewayStatusRequest) (*GatewayStatusResponse, error)
+	// StreamStatus streams service status chunks for large payloads.
+	StreamStatus(grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error
+	mustEmbedUnimplementedAgentGatewayServiceServer()
+}
+
+// UnimplementedAgentGatewayServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAgentGatewayServiceServer struct{}
+
+func (UnimplementedAgentGatewayServiceServer) PushStatus(context.Context, *GatewayStatusRequest) (*GatewayStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushStatus not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) StreamStatus(grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamStatus not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
+func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
+
+// UnsafeAgentGatewayServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AgentGatewayServiceServer will
+// result in compilation errors.
+type UnsafeAgentGatewayServiceServer interface {
+	mustEmbedUnimplementedAgentGatewayServiceServer()
+}
+
+func RegisterAgentGatewayServiceServer(s grpc.ServiceRegistrar, srv AgentGatewayServiceServer) {
+	// If the following call pancis, it indicates UnimplementedAgentGatewayServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AgentGatewayService_ServiceDesc, srv)
+}
+
+func _AgentGatewayService_PushStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GatewayStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).PushStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_PushStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).PushStatus(ctx, req.(*GatewayStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentGatewayService_StreamStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AgentGatewayServiceServer).StreamStatus(&grpc.GenericServerStream[GatewayStatusChunk, GatewayStatusResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentGatewayService_StreamStatusServer = grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]
+
+// AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "monitoring.AgentGatewayService",
+	HandlerType: (*AgentGatewayServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PushStatus",
+			Handler:    _AgentGatewayService_PushStatus_Handler,
+		},
+	},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamStatus",
+			Handler:       _AgentGatewayService_StreamStatus_Handler,
 			ClientStreams: true,
 		},
 	},

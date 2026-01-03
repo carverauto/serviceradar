@@ -1191,6 +1191,378 @@ func (x *PollerStatusChunk) GetKvStoreId() string {
 	return ""
 }
 
+// GatewayStatusRequest is sent by agents to push their status to the gateway.
+type GatewayStatusRequest struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway receiving this status
+	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`       // Agent sending this status
+	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                    // Partition identifier
+	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`      // Host IP where agent is running
+	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"` // KV store identifier this agent is using
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayStatusRequest) Reset() {
+	*x = GatewayStatusRequest{}
+	mi := &file_monitoring_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusRequest) ProtoMessage() {}
+
+func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusRequest.ProtoReflect.Descriptor instead.
+func (*GatewayStatusRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GatewayStatusRequest) GetServices() []*GatewayServiceStatus {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+func (x *GatewayStatusRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *GatewayStatusRequest) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetSourceIp() string {
+	if x != nil {
+		return x.SourceIp
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetKvStoreId() string {
+	if x != nil {
+		return x.KvStoreId
+	}
+	return ""
+}
+
+// GatewayStatusResponse is the response from the gateway after receiving status.
+type GatewayStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Received      bool                   `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayStatusResponse) Reset() {
+	*x = GatewayStatusResponse{}
+	mi := &file_monitoring_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusResponse) ProtoMessage() {}
+
+func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusResponse.ProtoReflect.Descriptor instead.
+func (*GatewayStatusResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GatewayStatusResponse) GetReceived() bool {
+	if x != nil {
+		return x.Received
+	}
+	return false
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+type GatewayStatusChunk struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
+	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
+	IsFinal       bool                    `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`             // Whether this is the last chunk
+	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`    // Order of this chunk
+	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"` // Total number of chunks
+	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`     // KV store identifier this agent is using
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayStatusChunk) Reset() {
+	*x = GatewayStatusChunk{}
+	mi := &file_monitoring_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusChunk) ProtoMessage() {}
+
+func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
+func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+func (x *GatewayStatusChunk) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetSourceIp() string {
+	if x != nil {
+		return x.SourceIp
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
+func (x *GatewayStatusChunk) GetChunkIndex() int32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetTotalChunks() int32 {
+	if x != nil {
+		return x.TotalChunks
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetKvStoreId() string {
+	if x != nil {
+		return x.KvStoreId
+	}
+	return ""
+}
+
+// GatewayServiceStatus represents a single service status pushed by an agent.
+type GatewayServiceStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	Message       []byte                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
+	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`          // Agent ID for traceability
+	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`    // Gateway ID for traceability
+	Partition     string                 `protobuf:"bytes,8,opt,name=partition,proto3" json:"partition,omitempty"`                     // Partition identifier
+	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`                           // Source of the message: "status" or "results"
+	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"` // KV store identifier this service is using
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayServiceStatus) Reset() {
+	*x = GatewayServiceStatus{}
+	mi := &file_monitoring_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayServiceStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayServiceStatus) ProtoMessage() {}
+
+func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
+func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GatewayServiceStatus) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *GatewayServiceStatus) GetMessage() []byte {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *GatewayServiceStatus) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetResponseTime() int64 {
+	if x != nil {
+		return x.ResponseTime
+	}
+	return 0
+}
+
+func (x *GatewayServiceStatus) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetKvStoreId() string {
+	if x != nil {
+		return x.KvStoreId
+	}
+	return ""
+}
+
 var File_monitoring_proto protoreflect.FileDescriptor
 
 const file_monitoring_proto_rawDesc = "" +
@@ -1304,6 +1676,44 @@ const file_monitoring_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\t \x01(\x05R\vtotalChunks\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
+	" \x01(\tR\tkvStoreId\"\x87\x02\n" +
+	"\x14GatewayStatusRequest\x12<\n" +
+	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
+	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
+	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x1e\n" +
+	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\"3\n" +
+	"\x15GatewayStatusResponse\x12\x1a\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\xe4\x02\n" +
+	"\x12GatewayStatusChunk\x12<\n" +
+	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
+	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
+	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x19\n" +
+	"\bis_final\x18\a \x01(\bR\aisFinal\x12\x1f\n" +
+	"\vchunk_index\x18\b \x01(\x05R\n" +
+	"chunkIndex\x12!\n" +
+	"\ftotal_chunks\x18\t \x01(\x05R\vtotalChunks\x12\x1e\n" +
+	"\vkv_store_id\x18\n" +
+	" \x01(\tR\tkvStoreId\"\xc9\x02\n" +
+	"\x14GatewayServiceStatus\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\fR\amessage\x12!\n" +
+	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12#\n" +
+	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
+	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\x12\x1c\n" +
+	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
+	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
+	"\vkv_store_id\x18\n" +
 	" \x01(\tR\tkvStoreId2\xe8\x01\n" +
 	"\fAgentService\x12D\n" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
@@ -1312,7 +1722,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xb9\x01\n" +
 	"\rPollerService\x12S\n" +
 	"\fReportStatus\x12\x1f.monitoring.PollerStatusRequest\x1a .monitoring.PollerStatusResponse\"\x00\x12S\n" +
-	"\fStreamStatus\x12\x1d.monitoring.PollerStatusChunk\x1a .monitoring.PollerStatusResponse\"\x00(\x01B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\fStreamStatus\x12\x1d.monitoring.PollerStatusChunk\x1a .monitoring.PollerStatusResponse\"\x00(\x012\xc1\x01\n" +
+	"\x13AgentGatewayService\x12S\n" +
+	"\n" +
+	"PushStatus\x12 .monitoring.GatewayStatusRequest\x1a!.monitoring.GatewayStatusResponse\"\x00\x12U\n" +
+	"\fStreamStatus\x12\x1e.monitoring.GatewayStatusChunk\x1a!.monitoring.GatewayStatusResponse\"\x00(\x01B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_monitoring_proto_rawDescOnce sync.Once
@@ -1327,7 +1741,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_monitoring_proto_goTypes = []any{
 	(SweepCompletionStatus_Status)(0), // 0: monitoring.SweepCompletionStatus.Status
 	(*DeviceStatusRequest)(nil),       // 1: monitoring.DeviceStatusRequest
@@ -1343,6 +1757,10 @@ var file_monitoring_proto_goTypes = []any{
 	(*ResultsChunk)(nil),              // 11: monitoring.ResultsChunk
 	(*SweepCompletionStatus)(nil),     // 12: monitoring.SweepCompletionStatus
 	(*PollerStatusChunk)(nil),         // 13: monitoring.PollerStatusChunk
+	(*GatewayStatusRequest)(nil),      // 14: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),     // 15: monitoring.GatewayStatusResponse
+	(*GatewayStatusChunk)(nil),        // 16: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),      // 17: monitoring.GatewayServiceStatus
 }
 var file_monitoring_proto_depIdxs = []int32{
 	12, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -1351,21 +1769,27 @@ var file_monitoring_proto_depIdxs = []int32{
 	10, // 3: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
 	0,  // 4: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
 	8,  // 5: monitoring.PollerStatusChunk.services:type_name -> monitoring.ServiceStatus
-	2,  // 6: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	3,  // 7: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	3,  // 8: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	6,  // 9: monitoring.PollerService.ReportStatus:input_type -> monitoring.PollerStatusRequest
-	13, // 10: monitoring.PollerService.StreamStatus:input_type -> monitoring.PollerStatusChunk
-	4,  // 11: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	5,  // 12: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	11, // 13: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	7,  // 14: monitoring.PollerService.ReportStatus:output_type -> monitoring.PollerStatusResponse
-	7,  // 15: monitoring.PollerService.StreamStatus:output_type -> monitoring.PollerStatusResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	17, // 6: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	17, // 7: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	2,  // 8: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	3,  // 9: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	3,  // 10: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	6,  // 11: monitoring.PollerService.ReportStatus:input_type -> monitoring.PollerStatusRequest
+	13, // 12: monitoring.PollerService.StreamStatus:input_type -> monitoring.PollerStatusChunk
+	14, // 13: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	16, // 14: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	4,  // 15: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	5,  // 16: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	11, // 17: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	7,  // 18: monitoring.PollerService.ReportStatus:output_type -> monitoring.PollerStatusResponse
+	7,  // 19: monitoring.PollerService.StreamStatus:output_type -> monitoring.PollerStatusResponse
+	15, // 20: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	15, // 21: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	15, // [15:22] is the sub-list for method output_type
+	8,  // [8:15] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -1379,9 +1803,9 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_monitoring_proto_goTypes,
 		DependencyIndexes: file_monitoring_proto_depIdxs,

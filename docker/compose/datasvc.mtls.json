@@ -41,7 +41,7 @@
   "rbac": {
     "roles": [
       {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent-gateway.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=mapper.serviceradar,O=ServiceRadar", "role": "writer"},

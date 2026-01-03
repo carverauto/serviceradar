@@ -1,0 +1,270 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package agent pkg/agent/gateway_client.go
+package agent
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	srgrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+var (
+	// ErrGatewayNotConnected indicates the gateway client is not connected.
+	ErrGatewayNotConnected = errors.New("gateway client not connected")
+	// ErrGatewayAddrRequired indicates gateway_addr is required in configuration.
+	ErrGatewayAddrRequired = errors.New("gateway_addr is required for push mode")
+)
+
+const (
+	defaultPushInterval    = 30 * time.Second
+	defaultConnectTimeout  = 10 * time.Second
+	defaultReconnectDelay  = 5 * time.Second
+	maxReconnectDelay      = 60 * time.Second
+	defaultPushTimeout     = 30 * time.Second
+)
+
+// GatewayClient manages the connection to the agent-gateway and pushes status updates.
+type GatewayClient struct {
+	mu               sync.RWMutex
+	conn             *grpc.ClientConn
+	client           proto.AgentGatewayServiceClient
+	addr             string
+	security         *models.SecurityConfig
+	securityProvider srgrpc.SecurityProvider
+	connected        bool
+	reconnectDelay   time.Duration
+	logger           logger.Logger
+}
+
+// NewGatewayClient creates a new gateway client.
+func NewGatewayClient(addr string, security *models.SecurityConfig, log logger.Logger) *GatewayClient {
+	return &GatewayClient{
+		addr:           addr,
+		security:       security,
+		reconnectDelay: defaultReconnectDelay,
+		logger:         log,
+	}
+}
+
+// Connect establishes a connection to the gateway.
+func (g *GatewayClient) Connect(ctx context.Context) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.connected && g.conn != nil {
+		return nil // Already connected
+	}
+
+	g.logger.Info().Str("addr", g.addr).Msg("Connecting to agent-gateway")
+
+	opts, err := g.buildDialOptions(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to build dial options: %w", err)
+	}
+
+	connectCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
+	defer cancel()
+
+	conn, err := grpc.DialContext(connectCtx, g.addr, opts...)
+	if err != nil {
+		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
+	}
+
+	g.conn = conn
+	g.client = proto.NewAgentGatewayServiceClient(conn)
+	g.connected = true
+	g.reconnectDelay = defaultReconnectDelay // Reset backoff on successful connection
+
+	g.logger.Info().Str("addr", g.addr).Msg("Connected to agent-gateway")
+
+	return nil
+}
+
+// buildDialOptions constructs gRPC dial options based on security configuration.
+func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption, error) {
+	var opts []grpc.DialOption
+
+	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {
+		// Create security provider using the standard pattern
+		provider, err := srgrpc.NewSecurityProvider(ctx, g.security, g.logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
+
+		// Get client credentials from the provider
+		creds, err := provider.GetClientCredentials(ctx)
+		if err != nil {
+			_ = provider.Close()
+			return nil, fmt.Errorf("failed to get client credentials: %w", err)
+		}
+
+		g.securityProvider = provider
+		opts = append(opts, creds)
+	} else {
+		// Use insecure connection (for development/testing)
+		g.logger.Warn().Msg("Using insecure connection to gateway (no mTLS)")
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	return opts, nil
+}
+
+// Disconnect closes the connection to the gateway.
+func (g *GatewayClient) Disconnect() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.conn != nil {
+		if err := g.conn.Close(); err != nil {
+			g.logger.Warn().Err(err).Msg("Error closing gateway connection")
+		}
+		g.conn = nil
+		g.client = nil
+	}
+
+	if g.securityProvider != nil {
+		if err := g.securityProvider.Close(); err != nil {
+			g.logger.Warn().Err(err).Msg("Error closing security provider")
+		}
+		g.securityProvider = nil
+	}
+
+	g.connected = false
+
+	g.logger.Info().Msg("Disconnected from agent-gateway")
+
+	return nil
+}
+
+// IsConnected returns whether the client is currently connected.
+func (g *GatewayClient) IsConnected() bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.connected
+}
+
+// PushStatus sends a batch of service statuses to the gateway.
+func (g *GatewayClient) PushStatus(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, defaultPushTimeout)
+	defer cancel()
+
+	resp, err := client.PushStatus(pushCtx, req)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to push status to gateway")
+		// Mark as disconnected on error to trigger reconnect
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to push status: %w", err)
+	}
+
+	return resp, nil
+}
+
+// StreamStatus streams service status chunks to the gateway.
+func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.GatewayStatusChunk) (*proto.GatewayStatusResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	stream, err := client.StreamStatus(ctx)
+	if err != nil {
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to create stream: %w", err)
+	}
+
+	for _, chunk := range chunks {
+		if err := stream.Send(chunk); err != nil {
+			g.markDisconnected()
+			return nil, fmt.Errorf("failed to send chunk: %w", err)
+		}
+	}
+
+	resp, err := stream.CloseAndRecv()
+	if err != nil {
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to receive response: %w", err)
+	}
+
+	return resp, nil
+}
+
+// markDisconnected marks the client as disconnected.
+func (g *GatewayClient) markDisconnected() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.connected = false
+}
+
+// ReconnectWithBackoff attempts to reconnect with exponential backoff.
+func (g *GatewayClient) ReconnectWithBackoff(ctx context.Context) error {
+	g.mu.Lock()
+	delay := g.reconnectDelay
+	g.mu.Unlock()
+
+	g.logger.Info().Dur("delay", delay).Msg("Attempting to reconnect to gateway")
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+	}
+
+	// Close existing connection if any
+	_ = g.Disconnect()
+
+	err := g.Connect(ctx)
+	if err != nil {
+		// Increase backoff for next attempt
+		g.mu.Lock()
+		g.reconnectDelay = min(g.reconnectDelay*2, maxReconnectDelay)
+		g.mu.Unlock()
+		return err
+	}
+
+	return nil
+}
+
+// GetReconnectDelay returns the current reconnect delay.
+func (g *GatewayClient) GetReconnectDelay() time.Duration {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.reconnectDelay
+}

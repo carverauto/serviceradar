@@ -115,7 +115,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx,serviceradar_poller_t2@poller-elx-t2
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent_gateway@agent-gateway,serviceradar_agent_gateway_t2@agent-gateway-t2
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
@@ -429,23 +429,27 @@ services:
           - faker.serviceradar
     restart: unless-stopped
 
-  poller-elx:
-    image: ghcr.io/carverauto/serviceradar-poller-elx:${APP_TAG:-latest}
-    container_name: serviceradar-poller-elx-mtls
-    hostname: poller-elx
+  agent-gateway:
+    image: ghcr.io/carverauto/serviceradar-agent-gateway:${APP_TAG:-latest}
+    container_name: serviceradar-agent-gateway-mtls
+    hostname: agent-gateway
     environment:
-      - POLLER_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
-      - POLLER_PARTITION_ID=${POLLER_PARTITION_ID:-default}
-      - POLLER_ID=${POLLER_ID:-docker-poller}
-      - POLLER_DOMAIN=${POLLER_DOMAIN:-default}
+      - GATEWAY_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-default}
+      - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
+      - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
+      - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
+      - GATEWAY_GRPC_PORT=50052
+      # Disable StateMonitor - agent-gateway has no database
+      - STATE_MONITOR_ENABLED=false
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - RELEASE_NODE=serviceradar_poller@poller-elx
+      - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       # Datasvc gRPC client configuration
@@ -453,15 +457,15 @@ services:
       - DATASVC_PORT=50057
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
-      - DATASVC_CERT_NAME=poller
+      - DATASVC_CERT_NAME=gateway
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "/app/bin/serviceradar_poller", "pid"]
+      test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
       interval: 30s
       timeout: 15s
       retries: 5
@@ -470,26 +474,30 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  # Second tenant poller
-  poller-elx-t2:
-    image: ghcr.io/carverauto/serviceradar-poller-elx:${APP_TAG:-latest}
-    container_name: serviceradar-poller-elx-t2-mtls
-    hostname: poller-elx-t2
+  # Second tenant agent gateway
+  agent-gateway-t2:
+    image: ghcr.io/carverauto/serviceradar-agent-gateway:${APP_TAG:-latest}
+    container_name: serviceradar-agent-gateway-t2-mtls
+    hostname: agent-gateway-t2
     profiles:
       - multi-tenant
     environment:
-      - POLLER_TENANT_ID=00000000-0000-0000-0000-000000000002
-      - POLLER_PARTITION_ID=tenant2-partition
-      - POLLER_ID=tenant2-poller
-      - POLLER_DOMAIN=tenant2
+      - GATEWAY_TENANT_ID=00000000-0000-0000-0000-000000000002
+      - GATEWAY_TENANT_SLUG=tenant2
+      - GATEWAY_PARTITION_ID=tenant2-partition
+      - GATEWAY_ID=tenant2-gateway
+      - GATEWAY_DOMAIN=tenant2
+      - GATEWAY_GRPC_PORT=50052
+      # Disable StateMonitor - agent-gateway has no database
+      - STATE_MONITOR_ENABLED=false
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_poller@poller-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_core@core-elx,serviceradar_agent_gateway@agent-gateway
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - RELEASE_NODE=serviceradar_poller_t2@poller-elx-t2
+      - RELEASE_NODE=serviceradar_agent_gateway_t2@agent-gateway-t2
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       # Datasvc gRPC client configuration
@@ -497,15 +505,15 @@ services:
       - DATASVC_PORT=50057
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
-      - DATASVC_CERT_NAME=poller
+      - DATASVC_CERT_NAME=gateway
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "/app/bin/serviceradar_poller", "pid"]
+      test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
       interval: 30s
       timeout: 15s
       retries: 5
@@ -751,7 +759,7 @@ services:
       - SERVICERADAR_WEB_NG_OBAN_ENABLED=${SERVICERADAR_WEB_NG_OBAN_ENABLED:-true}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_core@core-elx,serviceradar_poller_t2@poller-elx-t2
+      - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}

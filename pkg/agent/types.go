@@ -90,12 +90,17 @@ type ServerConfig struct {
 	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
 	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
 	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
-	ListenAddr  string                 `json:"listen_addr"`
+	ListenAddr  string                 `json:"listen_addr"`          // Deprecated: Use GatewayAddr instead
 	Security    *models.SecurityConfig `json:"security" hot:"rebuild"`
 	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
 	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
 	CheckersDir string                 `json:"checkers_dir"`
 	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
+
+	// Gateway configuration for push-based architecture
+	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
+	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
+	PushInterval    Duration               `json:"push_interval,omitempty"`    // How often to push status (default: 30s)
 }
 
 // CheckerConnection represents a connection to an external checker service.

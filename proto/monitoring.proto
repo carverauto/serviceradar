@@ -26,9 +26,19 @@ service AgentService {
   rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
 }
 
+// Deprecated: Use AgentGatewayService instead. PollerService will be removed in a future release.
 service PollerService {
   rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
   rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
+}
+
+// AgentGatewayService receives status pushes from agents.
+// Agents connect outbound to the gateway and push their status/results.
+service AgentGatewayService {
+  // PushStatus sends a batch of service statuses from the agent to the gateway.
+  rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
+  // StreamStatus streams service status chunks for large payloads.
+  rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -153,5 +163,49 @@ message PollerStatusChunk {
   bool is_final = 7;           // Whether this is the last chunk
   int32 chunk_index = 8;       // Order of this chunk
   int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this service is using
+}
+
+// GatewayStatusRequest is sent by agents to push their status to the gateway.
+message GatewayStatusRequest {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;       // Gateway receiving this status
+  string agent_id = 3;         // Agent sending this status
+  int64 timestamp = 4;
+  string partition = 5;        // Partition identifier
+  string source_ip = 6;        // Host IP where agent is running
+  string kv_store_id = 7;      // KV store identifier this agent is using
+}
+
+// GatewayStatusResponse is the response from the gateway after receiving status.
+message GatewayStatusResponse {
+  bool received = 1;
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+message GatewayStatusChunk {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;
+  string agent_id = 3;
+  int64 timestamp = 4;
+  string partition = 5;
+  string source_ip = 6;
+  bool is_final = 7;           // Whether this is the last chunk
+  int32 chunk_index = 8;       // Order of this chunk
+  int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this agent is using
+}
+
+// GatewayServiceStatus represents a single service status pushed by an agent.
+message GatewayServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  bytes message = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;         // Agent ID for traceability
+  string gateway_id = 7;       // Gateway ID for traceability
+  string partition = 8;        // Partition identifier
+  string source = 9;           // Source of the message: "status" or "results"
   string kv_store_id = 10;     // KV store identifier this service is using
 }

@@ -1,11 +1,11 @@
-defmodule ServiceRadarPoller.MixProject do
+defmodule ServiceRadarAgentGateway.MixProject do
   use Mix.Project
 
   @version "0.1.0"
 
   def project do
     [
-      app: :serviceradar_poller,
+      app: :serviceradar_agent_gateway,
       version: @version,
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -19,7 +19,7 @@ defmodule ServiceRadarPoller.MixProject do
   def application do
     [
       extra_applications: [:logger, :ssl, :crypto, :public_key],
-      mod: {ServiceRadarPoller.Application, []}
+      mod: {ServiceRadarAgentGateway.Application, []}
     ]
   end
 
@@ -54,12 +54,12 @@ defmodule ServiceRadarPoller.MixProject do
 
   defp releases do
     [
-      serviceradar_poller: [
+      serviceradar_agent_gateway: [
         include_executables_for: [:unix],
         applications: [
           runtime_tools: :permanent,
           serviceradar_core: :permanent,
-          serviceradar_poller: :permanent
+          serviceradar_agent_gateway: :permanent
         ],
         steps: [:assemble, :tar],
         rel_templates_path: "rel"

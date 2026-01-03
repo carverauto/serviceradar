@@ -1,24 +1,24 @@
-defmodule ServiceRadarPoller.Config do
+defmodule ServiceRadarAgentGateway.Config do
   @moduledoc """
-  Configuration store for the poller.
+  Configuration store for the agent gateway.
 
-  Stores runtime configuration that can be queried by other poller components.
+  Stores runtime configuration that can be queried by other gateway components.
 
   ## Tenant Isolation
 
-  For multi-tenant deployments, each tenant's pollers run with:
+  For multi-tenant deployments, each tenant's gateways run with:
   - A unique tenant_id that scopes all operations
   - A tenant-derived EPMD cookie (prevents cross-tenant ERTS clustering)
   - Tenant-prefixed NATS channels
 
   The tenant_id is read from:
-  1. `POLLER_TENANT_ID` environment variable
+  1. `GATEWAY_TENANT_ID` environment variable
   2. Extracted from the mTLS certificate CN (if using tenant-scoped certs)
 
   ## Certificate CN Format
 
   When using per-tenant certificates, the CN has format:
-  `<poller_id>.<partition_id>.<tenant_slug>.serviceradar`
+  `<gateway_id>.<partition_id>.<tenant_slug>.serviceradar`
 
   The tenant_slug is extracted and used for:
   - Horde registry namespacing
@@ -32,7 +32,7 @@ defmodule ServiceRadarPoller.Config do
 
   @type config :: %{
           partition_id: String.t(),
-          poller_id: String.t(),
+          gateway_id: String.t(),
           domain: String.t(),
           capabilities: [atom()],
           tenant_id: String.t() | nil,
@@ -56,9 +56,9 @@ defmodule ServiceRadarPoller.Config do
     GenServer.call(__MODULE__, :partition_id)
   end
 
-  @spec poller_id() :: String.t()
-  def poller_id do
-    GenServer.call(__MODULE__, :poller_id)
+  @spec gateway_id() :: String.t()
+  def gateway_id do
+    GenServer.call(__MODULE__, :gateway_id)
   end
 
   @spec domain() :: String.t()
@@ -72,7 +72,7 @@ defmodule ServiceRadarPoller.Config do
   end
 
   @doc """
-  Returns the tenant ID for this poller.
+  Returns the tenant ID for this gateway.
 
   In multi-tenant mode, all operations are scoped to this tenant.
   Returns nil for single-tenant deployments.
@@ -83,7 +83,7 @@ defmodule ServiceRadarPoller.Config do
   end
 
   @doc """
-  Returns the tenant slug for this poller.
+  Returns the tenant slug for this gateway.
 
   The slug is extracted from the certificate CN and used for
   NATS channel prefixing and Horde registry keys.
@@ -94,7 +94,7 @@ defmodule ServiceRadarPoller.Config do
   end
 
   @doc """
-  Returns the NATS channel prefix for this poller.
+  Returns the NATS channel prefix for this gateway.
 
   In multi-tenant mode, returns the tenant slug.
   In single-tenant mode, returns an empty string.
@@ -117,11 +117,11 @@ defmodule ServiceRadarPoller.Config do
 
   ## Examples
 
-      iex> Config.nats_channel("pollers.heartbeat")
-      "tenant-acme.pollers.heartbeat"  # multi-tenant
+      iex> Config.nats_channel("gateways.heartbeat")
+      "tenant-acme.gateways.heartbeat"  # multi-tenant
 
-      iex> Config.nats_channel("pollers.heartbeat")
-      "pollers.heartbeat"  # single-tenant
+      iex> Config.nats_channel("gateways.heartbeat")
+      "gateways.heartbeat"  # single-tenant
   """
   @spec nats_channel(String.t()) :: String.t()
   def nats_channel(base_channel) do
@@ -156,7 +156,7 @@ defmodule ServiceRadarPoller.Config do
   @impl true
   def init(opts) do
     partition_id = Keyword.fetch!(opts, :partition_id)
-    poller_id = Keyword.fetch!(opts, :poller_id)
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
     domain = Keyword.fetch!(opts, :domain)
     capabilities = Keyword.get(opts, :capabilities, [])
 
@@ -168,7 +168,7 @@ defmodule ServiceRadarPoller.Config do
 
     config = %{
       partition_id: partition_id,
-      poller_id: poller_id,
+      gateway_id: gateway_id,
       domain: domain,
       capabilities: capabilities,
       tenant_id: tenant_id,
@@ -177,9 +177,9 @@ defmodule ServiceRadarPoller.Config do
     }
 
     if tenant_slug do
-      Logger.info("Poller configured for tenant: #{tenant_slug} (ID: #{tenant_id || "unknown"})")
+      Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id || "unknown"})")
     else
-      Logger.info("Poller configured in single-tenant mode")
+      Logger.info("Gateway configured in single-tenant mode")
     end
 
     {:ok, config}
@@ -194,8 +194,8 @@ defmodule ServiceRadarPoller.Config do
     {:reply, config.partition_id, config}
   end
 
-  def handle_call(:poller_id, _from, config) do
-    {:reply, config.poller_id, config}
+  def handle_call(:gateway_id, _from, config) do
+    {:reply, config.gateway_id, config}
   end
 
   def handle_call(:domain, _from, config) do
@@ -228,8 +228,8 @@ defmodule ServiceRadarPoller.Config do
       {tenant_id, tenant_slug}
     else
       # Priority 2: Environment variables
-      env_tenant_id = System.get_env("POLLER_TENANT_ID")
-      env_tenant_slug = System.get_env("POLLER_TENANT_SLUG")
+      env_tenant_id = System.get_env("GATEWAY_TENANT_ID") || System.get_env("POLLER_TENANT_ID")
+      env_tenant_slug = System.get_env("GATEWAY_TENANT_SLUG") || System.get_env("POLLER_TENANT_SLUG")
 
       if env_tenant_id || env_tenant_slug do
         {env_tenant_id, env_tenant_slug}
@@ -241,7 +241,7 @@ defmodule ServiceRadarPoller.Config do
   end
 
   # Extract tenant from certificate CN
-  # CN format: <poller_id>.<partition_id>.<tenant_slug>.serviceradar
+  # CN format: <gateway_id>.<partition_id>.<tenant_slug>.serviceradar
   defp extract_tenant_from_cert do
     cert_dir = System.get_env("CERT_DIR", "/etc/serviceradar/certs")
     cert_file = Path.join(cert_dir, "svid.pem")

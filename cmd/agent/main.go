@@ -22,6 +22,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -130,6 +134,84 @@ func run() error {
 		server.RestartServices(ctx)
 	})
 
+	// Determine which mode to run: push mode (new) or server mode (legacy)
+	if cfg.GatewayAddr != "" {
+		return runPushMode(ctx, server, &cfg, agentLogger)
+	}
+
+	// Legacy server mode (deprecated)
+	agentLogger.Warn().Msg("Running in legacy server mode. Configure gateway_addr to use push mode.")
+	return runServerMode(ctx, server)
+}
+
+// runPushMode runs the agent in push mode, pushing status to the gateway.
+func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerConfig, log logger.Logger) error {
+	log.Info().
+		Str("gateway_addr", cfg.GatewayAddr).
+		Str("agent_id", cfg.AgentID).
+		Msg("Starting agent in push mode")
+
+	// Create gateway client
+	gatewayClient := agent.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
+
+	// Determine push interval
+	pushInterval := time.Duration(cfg.PushInterval)
+	if pushInterval <= 0 {
+		pushInterval = 30 * time.Second
+	}
+
+	// Create push loop
+	pushLoop := agent.NewPushLoop(server, gatewayClient, pushInterval, log)
+
+	// Create a cancellable context for the push loop
+	pushCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start the server's services (checkers, sweep, etc.)
+	if err := server.Start(pushCtx); err != nil {
+		return fmt.Errorf("failed to start agent services: %w", err)
+	}
+	defer func() {
+		if err := server.Stop(context.Background()); err != nil {
+			log.Error().Err(err).Msg("Error stopping agent services")
+		}
+	}()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start push loop in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- pushLoop.Start(pushCtx)
+	}()
+
+	// Wait for shutdown signal or error
+	select {
+	case sig := <-sigChan:
+		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
+		cancel()
+		// Wait for push loop to stop
+		<-errChan
+
+	case err := <-errChan:
+		if err != nil && err != context.Canceled {
+			return fmt.Errorf("push loop error: %w", err)
+		}
+	}
+
+	// Disconnect from gateway
+	if err := gatewayClient.Disconnect(); err != nil {
+		log.Warn().Err(err).Msg("Error disconnecting from gateway")
+	}
+
+	log.Info().Msg("Agent shutdown complete")
+	return nil
+}
+
+// runServerMode runs the agent in legacy server mode (deprecated).
+func runServerMode(ctx context.Context, server *agent.Server) error {
 	// Create server options
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        server.ListenAddr(),

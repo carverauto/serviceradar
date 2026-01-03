@@ -1,14 +1,22 @@
-defmodule ServiceRadarPoller.AgentClient do
+defmodule ServiceRadarAgentGateway.AgentClient do
   @moduledoc """
-  gRPC client for communicating with Go-based monitoring agents.
+  gRPC client for communicating with Go-based monitoring agents (legacy support).
+
+  This client is maintained for backwards compatibility with the old polling model
+  where the gateway would poll agents. In the new architecture, agents push status
+  to the gateway instead.
 
   ## Architecture
 
-  Pollers initiate all connections to agents (agents never connect back).
-  This ensures:
+  In the legacy model:
+  - Gateway initiates connections to agents (agents never connect back)
   - Minimal firewall exposure: only gRPC port open inbound to agent
-  - No ERTS distribution in customer networks
   - Secure communication via mTLS
+
+  In the new model:
+  - Agents push status to the gateway (see AgentGatewayServer)
+  - Gateway never needs to initiate connections
+  - Simpler firewall rules: agents only need outbound access
 
   ## Connection Management
 
@@ -16,22 +24,6 @@ defmodule ServiceRadarPoller.AgentClient do
   - Established on first request
   - Kept alive via periodic health checks
   - Reconnected automatically on failure
-
-  ## Usage
-
-      # Get agent status (health check)
-      {:ok, status} = AgentClient.get_status(tenant_id, agent_id)
-
-      # Get sweep results from agent
-      {:ok, results} = AgentClient.get_results(tenant_id, agent_id, %{
-        service_type: "icmp_sweep",
-        last_sequence: "seq-001"
-      })
-
-      # Stream results for large datasets
-      AgentClient.stream_results(tenant_id, agent_id, opts, fn chunk ->
-        process_chunk(chunk)
-      end)
   """
 
   use GenServer
@@ -239,7 +231,7 @@ defmodule ServiceRadarPoller.AgentClient do
 
   @impl true
   def handle_info({:reconnect, key}, state) do
-    Logger.info("Attempting reconnect to #{key}")
+    Logger.info("Attempting reconnect to #{inspect(key)}")
     # Connection will be re-established on next request
     new_connections = Map.delete(state.connections, key)
     {:noreply, %{state | connections: new_connections}}

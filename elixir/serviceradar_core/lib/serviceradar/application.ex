@@ -215,19 +215,23 @@ defmodule ServiceRadar.Application do
   defp cluster_children do
     cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
 
-    # cluster_coordinator controls whether this node runs ClusterSupervisor/ClusterHealth
+    # cluster_coordinator controls whether this node runs ClusterHealth
     # - core-elx sets this to true (it's the coordinator)
-    # - web-ng/poller-elx should have it false (they join cluster but don't coordinate)
+    # - web-ng/poller-elx/agent-gateway should have it false (they join cluster but don't coordinate)
     # Defaults to cluster_enabled for backwards compatibility
     cluster_coordinator =
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
 
-    if cluster_coordinator do
-      [
-        # Cluster supervisor manages libcluster + Horde
-        ServiceRadar.ClusterSupervisor,
-        ServiceRadar.ClusterHealth
-      ]
+    if cluster_enabled do
+      # All cluster-enabled nodes should start ClusterSupervisor for libcluster
+      base = [ServiceRadar.ClusterSupervisor]
+
+      # Only coordinator nodes run ClusterHealth
+      if cluster_coordinator do
+        base ++ [ServiceRadar.ClusterHealth]
+      else
+        base
+      end
     else
       []
     end
