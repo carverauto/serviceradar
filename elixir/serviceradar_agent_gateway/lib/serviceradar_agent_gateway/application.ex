@@ -130,8 +130,16 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp get_grpc_port do
-    System.get_env("GATEWAY_GRPC_PORT", "50052")
-    |> String.to_integer()
+    port_str = System.get_env("GATEWAY_GRPC_PORT", "50052")
+
+    case Integer.parse(port_str) do
+      {port, ""} when port > 0 and port < 65_536 ->
+        port
+
+      _ ->
+        Logger.warning("Invalid GATEWAY_GRPC_PORT=#{inspect(port_str)}; defaulting to 50052")
+        50_052
+    end
   end
 
   defp get_grpc_ssl_opts do

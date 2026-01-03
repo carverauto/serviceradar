@@ -14,15 +14,6 @@
     "workload_socket": "unix:///run/spire/sockets/agent.sock",
     "role": "client"
   },
-  "kv_address": "serviceradar-datasvc:50057",
-  "kv_security": {
-    "mode": "spiffe",
-    "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "carverauto.dev",
-    "server_spiffe_id": "spiffe://carverauto.dev/services/datasvc",
-    "workload_socket": "unix:///run/spire/sockets/agent.sock",
-    "role": "client"
-  },
   "logging": {
     "level": "info",
     "debug": false,

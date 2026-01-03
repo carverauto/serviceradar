@@ -39,10 +39,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadar.Edge.TenantResolver
   alias ServiceRadarAgentGateway.StatusProcessor
 
-  # Default tenant values when no mTLS cert is available
-  @default_tenant_id "00000000-0000-0000-0000-000000000000"
-  @default_tenant_slug "default"
-
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
 
@@ -232,9 +228,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         )
 
         # Extract metadata from chunk including tenant context from mTLS cert
+        # Use server's gateway_id() instead of client-provided chunk.gateway_id
+        # to prevent spoofing and ensure correct data attribution
         metadata = %{
           agent_id: agent_id,
-          gateway_id: chunk.gateway_id,
+          gateway_id: gateway_id(),
           partition: chunk.partition,
           source_ip: chunk.source_ip,
           kv_store_id: chunk.kv_store_id,
@@ -265,8 +263,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
-    # Tenant comes from mTLS cert via metadata, NOT from the service message
-    # This is critical for security - prevents tenant spoofing
+    # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
+    # NOT from the service message - this prevents spoofing
     status = %{
       service_name: service.service_name,
       available: service.available,
@@ -274,7 +272,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       service_type: service.service_type,
       response_time: service.response_time,
       agent_id: service.agent_id || metadata.agent_id,
-      gateway_id: service.gateway_id || metadata.gateway_id,
+      gateway_id: metadata.gateway_id,
       partition: service.partition || metadata.partition,
       source: service.source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
@@ -328,24 +326,28 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   # Get the peer certificate from the gRPC stream
+  # Uses the adapter's built-in get_cert function which calls :cowboy_req.cert(req)
   defp get_peer_cert(stream) do
-    # The stream has an adapter with socket info
-    # For mTLS, the peer certificate is in the SSL socket
     try do
-      case stream.adapter do
-        %{socket: socket} when is_port(socket) ->
-          case :ssl.peercert(socket) do
-            {:ok, cert_der} -> {:ok, cert_der}
-            {:error, reason} -> {:error, reason}
-          end
+      adapter = stream.adapter
+      payload = stream.payload
 
-        _ ->
-          {:error, :no_socket}
+      # The Cowboy adapter has a get_cert function that retrieves the client certificate
+      # from the cowboy request via :cowboy_req.cert/1
+      case adapter.get_cert(payload) do
+        :undefined ->
+          {:error, :no_certificate}
+
+        cert_der when is_binary(cert_der) ->
+          {:ok, cert_der}
+
+        other ->
+          {:error, {:unexpected_cert_result, other}}
       end
     rescue
-      _ -> {:error, :extraction_failed}
+      e -> {:error, {:extraction_failed, e}}
     catch
-      _, _ -> {:error, :extraction_failed}
+      kind, reason -> {:error, {:extraction_failed, kind, reason}}
     end
   end
 end

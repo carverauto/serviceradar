@@ -221,7 +221,11 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 		return nil, ErrGatewayNotConnected
 	}
 
-	stream, err := client.StreamStatus(ctx)
+	// Add timeout to prevent hanging if gateway is unresponsive
+	streamCtx, cancel := context.WithTimeout(ctx, defaultPushTimeout)
+	defer cancel()
+
+	stream, err := client.StreamStatus(streamCtx)
 	if err != nil {
 		g.markDisconnected()
 		return nil, fmt.Errorf("failed to create stream: %w", err)
@@ -229,6 +233,8 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 
 	for _, chunk := range chunks {
 		if err := stream.Send(chunk); err != nil {
+			// Ensure stream is closed on send error to prevent resource leak
+			_ = stream.CloseSend()
 			g.markDisconnected()
 			return nil, fmt.Errorf("failed to send chunk: %w", err)
 		}

@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,12 +31,8 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
-	"github.com/carverauto/serviceradar/pkg/config"
-	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
-	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -46,10 +43,6 @@ var defaultConfig []byte
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
-var (
-	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
-)
-
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -59,51 +52,20 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
-	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
-	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Try edge onboarding first (checks env vars if flags not set)
-	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
-	if err != nil {
-		return fmt.Errorf("edge onboarding failed: %w", err)
-	}
-
-	// If onboarding was performed, use the generated config
-	if onboardingResult != nil {
-		*configPath = onboardingResult.ConfigPath
-		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
-		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
-	}
-
-	var cfg agent.ServerConfig
-	desc, ok := config.ServiceDescriptorFor("agent")
-	if !ok {
-		return errServiceDescriptorMissing
-	}
-	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
-		Role:         models.RoleAgent,
-		ConfigPath:   *configPath,
-		DisableWatch: true,
-		KeyContextFn: func(conf interface{}) config.KeyContext {
-			if agentCfg, ok := conf.(*agent.ServerConfig); ok {
-				return config.KeyContext{AgentID: agentCfg.AgentID}
-			}
-			return config.KeyContext{}
-		},
-	})
+	// Load configuration from file (no KV dependency)
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	defer func() { _ = bootstrapResult.Close() }()
 
-	// Step 2: Create logger from loaded config
+	// Create logger from loaded config
 	logConfig := cfg.Logging
 	if logConfig == nil {
-		// Use default config if not specified
 		logConfig = &logger.Config{
 			Level:  "info",
 			Output: "stdout",
@@ -115,35 +77,43 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Step 3: Create agent server with proper logger
-	if err := agent.SeedCheckerConfigsFromDisk(ctx, bootstrapResult.Manager(), &cfg, *configPath, agentLogger); err != nil {
-		agentLogger.Warn().Err(err).Msg("Failed to seed checker configs to KV")
-	}
-
-	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
+	// Create agent server
+	server, err := agent.NewServer(ctx, cfg.CheckersDir, cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
-
 		return fmt.Errorf("failed to create server: %w", err)
 	}
-
-	// KV Watch: overlay and apply hot-reload on relevant changes
-	if cfg.AgentID != "" {
-		bootstrapResult.SetInstanceID(cfg.AgentID)
-	}
-	bootstrapResult.StartWatch(ctx, agentLogger, &cfg, func() {
-		server.UpdateConfig(&cfg)
-		server.RestartServices(ctx)
-	})
 
 	// Gateway address is required - agents must push status to gateway
 	if cfg.GatewayAddr == "" {
 		return agent.ErrGatewayAddrRequired
 	}
 
-	return runPushMode(ctx, server, &cfg, agentLogger)
+	return runPushMode(ctx, server, cfg, agentLogger)
+}
+
+// loadConfig loads agent configuration from file, falling back to embedded defaults.
+func loadConfig(configPath string) (*agent.ServerConfig, error) {
+	var cfg agent.ServerConfig
+
+	// Try to read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Fall back to embedded default config
+			data = defaultConfig
+		} else {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+	}
+
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return &cfg, nil
 }
 
 // runPushMode runs the agent in push mode, pushing status to the gateway.

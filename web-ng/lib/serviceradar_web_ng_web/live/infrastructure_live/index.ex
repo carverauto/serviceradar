@@ -696,17 +696,26 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   # Compute gateways from local cache with activity status
+  # Uses wall-clock time (system_time) for accurate distributed staleness detection
   defp compute_gateways(gateways_cache) do
-    now = System.monotonic_time(:millisecond)
+    now_ms = System.system_time(:millisecond)
 
     gateways_cache
     |> Map.values()
     |> Enum.map(fn gateway ->
-      age_ms = now - Map.get(gateway, :last_heartbeat_mono, now)
+      last_heartbeat_ms =
+        case Map.get(gateway, :last_heartbeat) do
+          %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
+          _ -> nil
+        end
+
+      active =
+        is_integer(last_heartbeat_ms) and (now_ms - last_heartbeat_ms) < @stale_threshold_ms
+
       node_str = to_string(gateway.node)
 
       gateway
-      |> Map.put(:active, age_ms < @stale_threshold_ms)
+      |> Map.put(:active, active)
       |> Map.put(:full_name, node_str)
       |> Map.put(:short_name, node_str |> String.split("@") |> List.first())
     end)
@@ -741,14 +750,23 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         _ -> {nil, nil}
       end
 
-    now = System.monotonic_time(:millisecond)
+    # Use wall-clock time (system_time) for accurate distributed staleness detection
+    now_ms = System.system_time(:millisecond)
 
     agents_cache
     |> Map.values()
     |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
     |> Enum.map(fn agent ->
-      age_ms = now - Map.get(agent, :last_seen_mono, now)
-      Map.put(agent, :active, age_ms < @stale_threshold_ms)
+      last_seen_ms =
+        case Map.get(agent, :last_seen) do
+          %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
+          _ -> nil
+        end
+
+      active =
+        is_integer(last_seen_ms) and (now_ms - last_seen_ms) < @stale_threshold_ms
+
+      Map.put(agent, :active, active)
     end)
     |> Enum.sort_by(& &1.agent_id)
   end

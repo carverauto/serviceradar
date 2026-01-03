@@ -17,19 +17,6 @@
       "ca_file": "root.pem"
     }
   },
-  "kv_address": "datasvc:50057",
-  "kv_security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "datasvc.serviceradar",
-    "role": "agent",
-    "tls": {
-      "cert_file": "/etc/serviceradar/certs/agent.pem",
-      "key_file": "/etc/serviceradar/certs/agent-key.pem",
-      "ca_file": "/etc/serviceradar/certs/root.pem",
-      "client_ca_file": "/etc/serviceradar/certs/root.pem"
-    }
-  },
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
