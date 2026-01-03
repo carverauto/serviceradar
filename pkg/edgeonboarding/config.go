@@ -259,6 +259,7 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 // The bootstrap config is minimal: checker_id + parent agent connection info.
 func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
+	_ = metadata // Reserved for future use (e.g., checker-specific settings from KV)
 
 	b.logger.Debug().Msg("Generating minimal checker bootstrap configuration")
 

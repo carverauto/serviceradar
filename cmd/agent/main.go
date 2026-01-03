@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -42,6 +43,7 @@ import (
 var defaultConfig []byte
 
 // Version is set at build time via ldflags
+//nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
 var (
@@ -249,7 +251,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		<-errChan
 
 	case err := <-errChan:
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("push loop error: %w", err)
 		}
 	}

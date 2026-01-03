@@ -71,7 +71,14 @@
   - Kept `Security` field in ServerConfig for checker connections fallback
 
 ## 4. Follow-up Work
-- [ ] 4.1 Rename ServiceRadar.Poller modules to ServiceRadar.Gateway or ServiceRadar.Infrastructure (affects 16 files)
+- [x] 4.1 Rename ServiceRadar.Poller modules to ServiceRadar.Gateway or ServiceRadar.Infrastructure (affects 16 files)
+  - Created GatewayLive.Index and GatewayLive.Show modules (replacing PollerLive)
+  - Updated routes from /pollers to /gateways
+  - Updated SRQL catalog to use "gateways" entity
+  - Updated PollerRegistry → GatewayRegistry references in web-ng
+  - Updated template paths and UI labels
+  - Updated API documentation
+  - Note: Database table remains "pollers" and poller_id fields unchanged (would require migration)
 - [x] 4.2 Implement config application from GetConfig response for simple checks
   - Added enrollment flow: Hello → GetConfig on PushLoop startup
   - PushLoop now calls Hello to register with gateway, receives tenant info

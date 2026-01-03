@@ -244,9 +244,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/agents", AgentLive.Index, :index
       live "/agents/:uid", AgentLive.Show, :show
 
-      # Legacy routes
-      live "/pollers", PollerLive.Index, :index
-      live "/pollers/:poller_id", PollerLive.Show, :show
+      # Gateways (formerly pollers)
+      live "/gateways", GatewayLive.Index, :index
+      live "/gateways/:gateway_id", GatewayLive.Show, :show
       live "/events", EventLive.Index, :index
       live "/events/:event_id", EventLive.Show, :show
       live "/observability", LogLive.Index, :index

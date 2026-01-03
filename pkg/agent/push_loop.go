@@ -28,6 +28,7 @@ import (
 )
 
 // Version is set at build time via -ldflags
+//nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
 // PushLoop manages the periodic pushing of agent status to the gateway.
@@ -44,6 +45,14 @@ type PushLoop struct {
 
 // Default config poll interval (5 minutes)
 const defaultConfigPollInterval = 5 * time.Minute
+
+// Check type constants for goconst compliance
+const (
+	icmpCheckType = "icmp"
+	tcpCheckType  = "tcp"
+	httpCheckType = "http"
+	grpcCheckType = "grpc"
+)
 
 // NewPushLoop creates a new push loop.
 func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
@@ -237,16 +246,48 @@ func (p *PushLoop) getSourceIP() string {
 		return p.server.config.HostIP
 	}
 
-	// Try to get the outbound IP
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	// Enumerate local interfaces to find a non-loopback IP
+	// This avoids unexpected external network egress
+	ifaces, err := net.Interfaces()
 	if err != nil {
-		p.logger.Debug().Err(err).Msg("Failed to determine source IP")
+		p.logger.Debug().Err(err).Msg("Failed to enumerate network interfaces")
 		return ""
 	}
-	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+	for _, iface := range ifaces {
+		// Skip down interfaces and loopback
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			// Skip loopback and link-local addresses, prefer IPv4
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+
+			// Prefer IPv4 addresses
+			if ip4 := ip.To4(); ip4 != nil {
+				return ip4.String()
+			}
+		}
+	}
+
+	p.logger.Debug().Msg("No suitable source IP found")
+	return ""
 }
 
 // enroll sends Hello to the gateway and fetches initial config.
@@ -446,18 +487,18 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 // mapCheckType maps proto check types to internal checker types.
 func mapCheckType(protoType string) string {
 	switch protoType {
-	case "icmp", "ping":
-		return "icmp"
-	case "tcp":
-		return "tcp"
-	case "http", "https":
-		return "http"
-	case "grpc":
-		return "grpc"
+	case icmpCheckType, "ping":
+		return icmpCheckType
+	case tcpCheckType:
+		return tcpCheckType
+	case httpCheckType, "https":
+		return httpCheckType
+	case grpcCheckType:
+		return grpcCheckType
 	case "process":
 		return "process"
-	case "sweep":
-		return "sweep"
+	case sweepType:
+		return sweepType
 	default:
 		return protoType
 	}
@@ -466,11 +507,11 @@ func mapCheckType(protoType string) string {
 // getAgentCapabilities returns the list of capabilities this agent supports.
 func getAgentCapabilities() []string {
 	return []string{
-		"icmp",
-		"tcp",
-		"http",
-		"grpc",
-		"sweep",
+		icmpCheckType,
+		tcpCheckType,
+		httpCheckType,
+		grpcCheckType,
+		sweepType,
 		"snmp",
 		"process",
 	}

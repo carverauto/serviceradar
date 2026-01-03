@@ -323,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <div class="flex-1">
               <span class="font-mono text-sm">{Map.get(gateway, :partition_id, "default")}</span>
             </div>
-            <.link navigate={~p"/pollers/#{format_poller_id(gateway)}"} class="btn btn-ghost btn-xs">
+            <.link navigate={~p"/gateways/#{format_gateway_id(gateway)}"} class="btn btn-ghost btn-xs">
               View
             </.link>
           </div>
@@ -454,8 +454,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   defp step_badge_class(2), do: "badge-primary"
   defp step_badge_class(_), do: "badge-ghost"
 
-  defp format_poller_id(poller) do
-    case Map.get(poller, :key) do
+  defp format_gateway_id(gateway) do
+    case Map.get(gateway, :key) do
       {_partition, node} when is_atom(node) -> Atom.to_string(node)
       key when is_atom(key) -> Atom.to_string(key)
       key when is_binary(key) -> key

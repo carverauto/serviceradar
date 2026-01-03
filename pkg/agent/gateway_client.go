@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -38,6 +39,10 @@ var (
 	ErrGatewayNotConnected = errors.New("gateway client not connected")
 	// ErrGatewayAddrRequired indicates gateway_addr is required in configuration.
 	ErrGatewayAddrRequired = errors.New("gateway_addr is required for push mode")
+	// ErrEnrollmentRejected indicates the gateway rejected agent enrollment.
+	ErrEnrollmentRejected = errors.New("agent enrollment rejected by gateway")
+	// ErrSecurityRequired indicates security configuration is required for production.
+	ErrSecurityRequired = errors.New("security configuration required: set SR_ALLOW_INSECURE=true for development")
 )
 
 const (
@@ -90,6 +95,8 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	connectCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
 	defer cancel()
 
+	// TODO: Migrate to grpc.NewClient when ready - requires testing lazy connection semantics
+	//nolint:staticcheck // SA1019: grpc.DialContext is deprecated but supported through 1.x
 	conn, err := grpc.DialContext(connectCtx, g.addr, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
@@ -126,8 +133,13 @@ func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption
 		g.securityProvider = provider
 		opts = append(opts, creds)
 	} else {
-		// Use insecure connection (for development/testing)
-		g.logger.Warn().Msg("Using insecure connection to gateway (no mTLS)")
+		// Insecure connections require explicit opt-in via environment variable
+		// to prevent accidental plaintext gRPC in production deployments
+		if os.Getenv("SR_ALLOW_INSECURE") != "true" {
+			return nil, ErrSecurityRequired
+		}
+
+		g.logger.Warn().Msg("Using insecure connection to gateway (SR_ALLOW_INSECURE=true)")
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
@@ -292,7 +304,7 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 	}
 
 	if !resp.Accepted {
-		return nil, fmt.Errorf("agent enrollment rejected: %s", resp.Message)
+		return nil, fmt.Errorf("%w: %s", ErrEnrollmentRejected, resp.Message)
 	}
 
 	g.logger.Info().

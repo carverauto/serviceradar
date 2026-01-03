@@ -434,6 +434,7 @@ func (p *Poller) Close() error {
 	return nil
 }
 
+//nolint:staticcheck // SA1019: PollerServiceClient is deprecated but still used for legacy support
 func (p *Poller) connectToCore(ctx context.Context) (*grpc.Client, proto.PollerServiceClient, error) {
 	clientCfg := grpc.ClientConfig{
 		Address:    p.config.CoreAddress,
@@ -768,6 +769,7 @@ func (p *Poller) shouldReconnect(err error) bool {
 		strings.Contains(errMsg, "i/o timeout")
 }
 
+//nolint:staticcheck // SA1019: PollerServiceClient is deprecated but still used for legacy support
 func (p *Poller) getCoreClient() proto.PollerServiceClient {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -776,6 +778,8 @@ func (p *Poller) getCoreClient() proto.PollerServiceClient {
 }
 
 // reportToCoreStreaming sends service statuses to core using streaming for large datasets
+//
+//nolint:staticcheck // SA1019: PollerServiceClient is deprecated but still used for legacy support
 func (p *Poller) reportToCoreStreaming(ctx context.Context, coreClient proto.PollerServiceClient, statuses []*proto.ServiceStatus) error {
 	if coreClient == nil {
 		return errCoreClientUnavailable

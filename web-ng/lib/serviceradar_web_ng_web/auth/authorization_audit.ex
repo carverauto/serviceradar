@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
         actor_id: "user-uuid",
         actor_email: "user@example.com",
         tenant_id: "tenant-uuid",
-        resource: "ServiceRadar.Infrastructure.Poller",
+        resource: "ServiceRadar.Infrastructure.Gateway",
         action: :read,
-        request_path: "/api/v2/pollers",
+        request_path: "/api/v2/gateways",
         client_ip: "192.168.1.100",
         timestamp: ~U[2025-01-15 10:30:00Z],
         details: %{...}

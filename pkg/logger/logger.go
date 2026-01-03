@@ -38,6 +38,8 @@ type LoggerInstance struct {
 //
 //nolint:gochecknoglobals // singleton pattern for logger state
 var instance *LoggerInstance
+
+//nolint:gochecknoglobals // singleton pattern for logger initialization
 var initOnce sync.Once
 
 type Config struct {

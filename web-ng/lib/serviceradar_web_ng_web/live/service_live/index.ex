@@ -162,15 +162,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     <.ui_panel>
       <:header>
         <div class="min-w-0">
-          <div class="text-sm font-semibold">Pollers</div>
+          <div class="text-sm font-semibold">Gateways</div>
           <div class="text-xs text-base-content/70">
-            Pollers self-report and may not show up in service checks.
+            Gateways self-report and may not show up in service checks.
           </div>
         </div>
         <.link
-          href={~p"/pollers"}
+          href={~p"/gateways"}
           class="text-base-content/60 hover:text-primary"
-          title="View all pollers"
+          title="View all gateways"
         >
           <.icon name="hero-arrow-top-right-on-square" class="size-4" />
         </.link>
@@ -181,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           <thead>
             <tr>
               <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
-                Poller ID
+                Gateway ID
               </th>
               <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
                 Status
@@ -197,15 +197,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           <tbody>
             <tr :if={@pollers == []}>
               <td colspan="4" class="text-sm text-base-content/60 py-6 text-center">
-                No pollers found.
+                No gateways found.
               </td>
             </tr>
 
             <%= for {poller, idx} <- Enum.with_index(@pollers) do %>
               <tr
-                id={"services-poller-row-#{idx}"}
+                id={"services-gateway-row-#{idx}"}
                 class="hover:bg-base-200/40 cursor-pointer transition-colors"
-                phx-click={JS.navigate(~p"/pollers/#{poller_id(poller)}")}
+                phx-click={JS.navigate(~p"/gateways/#{poller_id(poller)}")}
               >
                 <td
                   class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
