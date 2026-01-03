@@ -166,10 +166,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
 
           <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
           <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
-
+          
     <!-- Gateway-specific info -->
           <.gateways_on_node :if={@node_type == :gateway && @gateways != []} gateways={@gateways} />
-
+          
     <!-- Agent-specific info -->
           <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
           

@@ -250,10 +250,18 @@ func FromPEM(certPEM []byte) (*Info, error) {
 }
 
 // decodePEM extracts the DER bytes from PEM-encoded data using standard library.
+// Iterates through PEM blocks to find one with type "CERTIFICATE".
 func decodePEM(pemData []byte) []byte {
-	block, _ := pem.Decode(pemData)
-	if block == nil {
-		return pemData // Not PEM, return as-is (might be DER)
+	rest := pemData
+	for {
+		block, r := pem.Decode(rest)
+		if block == nil {
+			// Not PEM (or no CERTIFICATE block), return as-is (might be DER)
+			return pemData
+		}
+		if block.Type == "CERTIFICATE" {
+			return block.Bytes
+		}
+		rest = r
 	}
-	return block.Bytes
 }

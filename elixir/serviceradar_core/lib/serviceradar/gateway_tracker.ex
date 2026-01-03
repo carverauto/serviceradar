@@ -41,17 +41,18 @@ defmodule ServiceRadar.GatewayTracker do
   """
   @spec register(String.t(), map()) :: :ok
   def register(gateway_id, metadata \\ %{}) do
-    now = System.monotonic_time(:millisecond)
+    now_dt = DateTime.utc_now()
 
+    # Note: We use wall-clock time (DateTime) for last_heartbeat since
+    # monotonic time is not comparable across different nodes in a distributed cluster
     gateway_info = %{
       gateway_id: gateway_id,
       node: Map.get(metadata, :node, Node.self()),
       partition: Map.get(metadata, :partition, "default"),
       domain: Map.get(metadata, :domain, "default"),
       status: Map.get(metadata, :status, :available),
-      registered_at: Map.get(metadata, :registered_at, DateTime.utc_now()),
-      last_heartbeat: DateTime.utc_now(),
-      last_heartbeat_mono: now
+      registered_at: Map.get(metadata, :registered_at, now_dt),
+      last_heartbeat: now_dt
     }
 
     # Insert into local ETS (may fail if table not ready)
@@ -59,7 +60,9 @@ defmodule ServiceRadar.GatewayTracker do
       :ets.insert(@table, {gateway_id, gateway_info})
     rescue
       ArgumentError ->
-        Logger.warning("[GatewayTracker] ETS table not ready, skipping local insert for #{gateway_id}")
+        Logger.warning(
+          "[GatewayTracker] ETS table not ready, skipping local insert for #{gateway_id}"
+        )
     end
 
     # Broadcast for UI updates across all nodes
@@ -69,7 +72,9 @@ defmodule ServiceRadar.GatewayTracker do
       {:gateway_registered, gateway_info}
     )
 
-    Logger.debug("[GatewayTracker] Registered gateway: #{gateway_id} on node #{inspect(gateway_info.node)}")
+    Logger.debug(
+      "[GatewayTracker] Registered gateway: #{gateway_id} on node #{inspect(gateway_info.node)}"
+    )
 
     :ok
   end
@@ -80,12 +85,12 @@ defmodule ServiceRadar.GatewayTracker do
   """
   @spec heartbeat(String.t()) :: :ok
   def heartbeat(gateway_id) do
-    now = System.monotonic_time(:millisecond)
+    now_dt = DateTime.utc_now()
 
     # If ETS table doesn't exist or entry not found, we may need to re-register
     case :ets.lookup(@table, gateway_id) do
       [{_key, info}] ->
-        updated = %{info | last_heartbeat: DateTime.utc_now(), last_heartbeat_mono: now}
+        updated = %{info | last_heartbeat: now_dt}
         :ets.insert(@table, {gateway_id, updated})
 
         # Broadcast heartbeat so UI can stay in sync (catches missed registration)
@@ -126,14 +131,21 @@ defmodule ServiceRadar.GatewayTracker do
 
   @doc """
   List all tracked gateways with their active status.
+  Uses wall-clock time for distributed staleness detection.
   """
   @spec list_gateways() :: [map()]
   def list_gateways do
-    now = System.monotonic_time(:millisecond)
+    now_ms = System.system_time(:millisecond)
 
     :ets.tab2list(@table)
     |> Enum.map(fn {_key, info} ->
-      age_ms = now - Map.get(info, :last_heartbeat_mono, now)
+      last_heartbeat_ms =
+        case Map.get(info, :last_heartbeat) do
+          %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
+          _ -> now_ms
+        end
+
+      age_ms = max(now_ms - last_heartbeat_ms, 0)
       Map.put(info, :active, age_ms < @stale_threshold_ms)
     end)
     |> Enum.sort_by(& &1.gateway_id)
@@ -143,13 +155,21 @@ defmodule ServiceRadar.GatewayTracker do
 
   @doc """
   Check if a gateway is active (heartbeat within threshold).
+  Uses wall-clock time for distributed staleness detection.
   """
   @spec active?(String.t()) :: boolean()
   def active?(gateway_id) do
     case :ets.lookup(@table, gateway_id) do
       [{_key, info}] ->
-        now = System.monotonic_time(:millisecond)
-        age_ms = now - Map.get(info, :last_heartbeat_mono, now)
+        now_ms = System.system_time(:millisecond)
+
+        last_heartbeat_ms =
+          case Map.get(info, :last_heartbeat) do
+            %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
+            _ -> now_ms
+          end
+
+        age_ms = max(now_ms - last_heartbeat_ms, 0)
         age_ms < @stale_threshold_ms
 
       [] ->
@@ -211,15 +231,22 @@ defmodule ServiceRadar.GatewayTracker do
   end
 
   defp cleanup_stale_gateways do
-    now = System.monotonic_time(:millisecond)
-    stale_threshold = now - :timer.hours(24)
+    now_dt = DateTime.utc_now()
+    stale_threshold_seconds = div(:timer.hours(24), 1_000)
 
     # Remove gateways that haven't sent heartbeat in 24 hours
     :ets.tab2list(@table)
     |> Enum.each(fn {gateway_id, info} ->
-      last_heartbeat_mono = Map.get(info, :last_heartbeat_mono, now)
+      last_heartbeat =
+        info
+        |> Map.get(:last_heartbeat)
+        |> normalize_datetime()
+        |> case do
+          nil -> now_dt
+          dt -> dt
+        end
 
-      if last_heartbeat_mono < stale_threshold do
+      if DateTime.diff(now_dt, last_heartbeat, :second) > stale_threshold_seconds do
         :ets.delete(@table, gateway_id)
         Logger.debug("[GatewayTracker] Removed stale gateway: #{gateway_id}")
       end
@@ -227,4 +254,16 @@ defmodule ServiceRadar.GatewayTracker do
   rescue
     _ -> :ok
   end
+
+  defp normalize_datetime(%DateTime{} = dt), do: dt
+  defp normalize_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
+
+  defp normalize_datetime(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> dt
+      _ -> nil
+    end
+  end
+
+  defp normalize_datetime(_), do: nil
 end

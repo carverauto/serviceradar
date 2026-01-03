@@ -240,12 +240,13 @@ defmodule ServiceRadar.GatewayRegistry do
   end
 
   @doc """
-  Count of registered gateways across all tenants.
+  Count of active runtime gateway registrations across all tenants.
+  Uses GatewayTracker ETS for accurate count of currently connected gateways.
 
   WARNING: Admin/platform use only.
   """
   @spec count() :: non_neg_integer()
   def count do
-    length(all_gateways())
+    ServiceRadar.GatewayTracker.count()
   end
 end

@@ -332,22 +332,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       adapter = stream.adapter
       payload = stream.payload
 
-      # The Cowboy adapter has a get_cert function that retrieves the client certificate
-      # from the cowboy request via :cowboy_req.cert/1
-      case adapter.get_cert(payload) do
-        :undefined ->
-          {:error, :no_certificate}
+      # Check if the adapter supports certificate extraction
+      if function_exported?(adapter, :get_cert, 1) do
+        case adapter.get_cert(payload) do
+          :undefined ->
+            {:error, :no_certificate}
 
-        cert_der when is_binary(cert_der) ->
-          {:ok, cert_der}
+          cert_der when is_binary(cert_der) ->
+            {:ok, cert_der}
 
-        other ->
-          {:error, {:unexpected_cert_result, other}}
+          other ->
+            {:error, {:unexpected_cert_result, other}}
+        end
+      else
+        {:error, {:cert_extraction_unsupported, adapter}}
       end
     rescue
-      e -> {:error, {:extraction_failed, e}}
+      e -> {:error, {:extraction_failed, Exception.message(e)}}
     catch
-      kind, reason -> {:error, {:extraction_failed, kind, reason}}
+      kind, reason -> {:error, {:extraction_failed, kind, inspect(reason)}}
     end
   end
 end

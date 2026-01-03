@@ -43,6 +43,8 @@ var (
 	ErrEnrollmentRejected = errors.New("agent enrollment rejected by gateway")
 	// ErrSecurityRequired indicates security configuration is required for production.
 	ErrSecurityRequired = errors.New("security configuration required: set SR_ALLOW_INSECURE=true for development")
+	// ErrNoChunksToSend indicates no valid status chunks were provided for streaming.
+	ErrNoChunksToSend = errors.New("no status chunks to send")
 )
 
 const (
@@ -231,13 +233,24 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 
+	// Guard against nil/empty chunks to prevent unnecessary stream operations
+	sentAny := false
 	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+		sentAny = true
 		if err := stream.Send(chunk); err != nil {
 			// Ensure stream is closed on send error to prevent resource leak
 			_ = stream.CloseSend()
 			g.markDisconnected()
 			return nil, fmt.Errorf("failed to send chunk: %w", err)
 		}
+	}
+
+	if !sentAny {
+		_ = stream.CloseSend()
+		return nil, ErrNoChunksToSend
 	}
 
 	resp, err := stream.CloseAndRecv()

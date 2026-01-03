@@ -126,8 +126,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         domain: gateway_info[:domain] || "default",
         status: gateway_info[:status] || :available,
         registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
-        last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now(),
-        last_heartbeat_mono: System.monotonic_time(:millisecond)
+        last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
       })
 
     gateways = compute_gateways(updated_cache)
@@ -668,15 +667,24 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   # This ensures we show existing agents immediately instead of waiting for PubSub
   # AgentTracker runs on gateway nodes, so we query all cluster nodes via RPC
   defp load_initial_agents_cache do
-    # Query all nodes in the cluster for their agents
+    # Query all nodes in the cluster for their agents using async_stream
+    # to prevent mount delays from slow or unresponsive nodes
     all_agents =
       [Node.self() | Node.list()]
-      |> Enum.flat_map(fn node ->
-        case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], 5000) do
-          {:badrpc, _} -> []
-          agents when is_list(agents) -> agents
-          _ -> []
-        end
+      |> Task.async_stream(
+        fn node ->
+          case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], 1_000) do
+            agents when is_list(agents) -> agents
+            _ -> []
+          end
+        end,
+        timeout: 1_500,
+        on_timeout: :kill_task,
+        max_concurrency: 4
+      )
+      |> Enum.flat_map(fn
+        {:ok, agents} -> agents
+        _ -> []
       end)
 
     # Convert to cache format
@@ -703,15 +711,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     gateways_cache
     |> Map.values()
     |> Enum.map(fn gateway ->
-      last_heartbeat_ms =
-        case Map.get(gateway, :last_heartbeat) do
-          %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
-          _ -> nil
-        end
+      last_heartbeat_ms = parse_timestamp_to_ms(Map.get(gateway, :last_heartbeat))
 
-      active =
-        is_integer(last_heartbeat_ms) and (now_ms - last_heartbeat_ms) < @stale_threshold_ms
+      # Clamp delta to non-negative to handle clock skew
+      delta_ms =
+        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0), else: nil
 
+      active = is_integer(delta_ms) and delta_ms < @stale_threshold_ms
       node_str = to_string(gateway.node)
 
       gateway
@@ -721,6 +727,22 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     end)
     |> Enum.sort_by(& &1.gateway_id)
   end
+
+  # Parse various timestamp formats to milliseconds since epoch
+  defp parse_timestamp_to_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
+
+  defp parse_timestamp_to_ms(%NaiveDateTime{} = ndt) do
+    ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+  end
+
+  defp parse_timestamp_to_ms(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp parse_timestamp_to_ms(_), do: nil
 
   # Get tenant info from socket assigns for scoping
   # Returns {tenant_id, tenant_slug} tuple
@@ -757,18 +779,45 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     |> Map.values()
     |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
     |> Enum.map(fn agent ->
-      last_seen_ms =
-        case Map.get(agent, :last_seen) do
-          %DateTime{} = dt -> DateTime.to_unix(dt, :millisecond)
-          _ -> nil
-        end
-
-      active =
-        is_integer(last_seen_ms) and (now_ms - last_seen_ms) < @stale_threshold_ms
-
-      Map.put(agent, :active, active)
+      Map.put(agent, :active, agent_active?(agent, now_ms))
     end)
     |> Enum.sort_by(& &1.agent_id)
+  end
+
+  defp agent_active?(agent, now_ms) do
+    last_seen_ms = agent_last_seen_ms(agent)
+
+    delta_ms =
+      if is_integer(last_seen_ms) do
+        max(now_ms - last_seen_ms, 0)
+      else
+        nil
+      end
+
+    is_integer(delta_ms) and delta_ms < @stale_threshold_ms
+  end
+
+  defp agent_last_seen_ms(agent) do
+    case Map.get(agent, :last_seen) do
+      %DateTime{} = dt ->
+        DateTime.to_unix(dt, :millisecond)
+
+      %NaiveDateTime{} = ndt ->
+        ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+
+      ts when is_binary(ts) ->
+        parse_iso8601_ms(ts)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_iso8601_ms(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
+      _ -> nil
+    end
   end
 
   defp agent_visible?(_agent, true, _tenant_id, _tenant_slug), do: true

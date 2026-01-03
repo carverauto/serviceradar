@@ -41,6 +41,7 @@ type PushLoop struct {
 	done               chan struct{}
 	stopCh             chan struct{}
 	stopOnce           sync.Once
+	doneOnce           sync.Once
 	configVersion      string        // Current config version for polling
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
@@ -117,7 +118,7 @@ func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration,
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.
 func (p *PushLoop) Start(ctx context.Context) error {
 	// Ensure done is closed when Start exits (only once)
-	defer p.stopOnce.Do(func() { close(p.done) })
+	defer p.doneOnce.Do(func() { close(p.done) })
 
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
 
