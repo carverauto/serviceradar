@@ -278,9 +278,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {total_services, saw_final?, _stream_agent_id} =
       Enum.reduce_while(request_stream, {0, false, nil}, fn chunk, {acc, _saw_final?, stream_agent_id} ->
         agent_id =
-          chunk.agent_id
-          |> to_string()
-          |> String.trim()
+          case chunk.agent_id do
+            nil ->
+              ""
+
+            value ->
+              value
+              |> to_string()
+              |> String.trim()
+          end
 
         if agent_id == "" do
           raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
@@ -335,8 +341,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           kv_store_id: chunk.kv_store_id,
           timestamp: System.os_time(:second),
           agent_timestamp: chunk.timestamp,
-          chunk_index: chunk.chunk_index,
-          total_chunks: chunk.total_chunks,
+          chunk_index: chunk_index,
+          total_chunks: total_chunks,
           is_final: chunk.is_final,
           tenant_id: tenant_id,
           tenant_slug: tenant_slug
@@ -384,8 +390,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     message =
-      service.message
-      |> to_string()
+      case service.message do
+        nil ->
+          ""
+
+        msg when is_binary(msg) ->
+          msg
+
+        msg when is_list(msg) ->
+          IO.iodata_to_binary(msg)
+
+        _ ->
+          ""
+      end
       |> then(fn msg ->
         if byte_size(msg) > 4_096 do
           binary_part(msg, 0, 4_096)

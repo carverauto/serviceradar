@@ -24,6 +24,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -126,6 +127,8 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 	}
 	if err := dec.Decode(&struct{}{}); err == nil {
 		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
 	}
 
 	return &cfg, nil
@@ -195,8 +198,15 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	case sig := <-sigChan:
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
 		cancel()
-		// Wait for push loop to stop
-		<-errChan
+		pushLoop.Stop()
+
+		// Bound shutdown so the process can't hang forever.
+		const shutdownTimeout = 10 * time.Second
+		select {
+		case <-errChan:
+		case <-time.After(shutdownTimeout):
+			return fmt.Errorf("shutdown timed out after %s", shutdownTimeout)
+		}
 
 	case err := <-errChan:
 		if err != nil && !errors.Is(err, context.Canceled) {

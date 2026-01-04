@@ -678,6 +678,9 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	port := normalizeCheckPort(check.Port)
 	wantHTTPS := check.CheckType == "https"
 	checkerType := mapCheckType(check.CheckType)
+	if (checkerType == tcpCheckType || checkerType == grpcCheckType) && port == 0 {
+		return nil
+	}
 	address := buildCheckAddress(target, port, checkerType, check.Path, wantHTTPS)
 	timeout := clampCheckTimeout(check.TimeoutSec)
 

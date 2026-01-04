@@ -93,6 +93,11 @@ func (s *SNMPService) Start(ctx context.Context) error {
 		s.cancel = nil
 		s.serviceCtx = nil
 	}
+	select {
+	case <-s.done:
+		s.done = make(chan struct{})
+	default:
+	}
 	s.serviceCtx, s.cancel = context.WithCancel(ctx)
 	s.mu.Unlock()
 

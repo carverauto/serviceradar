@@ -29,6 +29,7 @@ defmodule Monitoring.StatusRequest do
   field :poller_id, 4, type: :string, json_name: "pollerId"
   field :details, 5, type: :string
   field :port, 6, type: :int32
+  field :gateway_id, 7, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.ResultsRequest do
@@ -46,6 +47,7 @@ defmodule Monitoring.ResultsRequest do
   field :completion_status, 7,
     type: Monitoring.SweepCompletionStatus,
     json_name: "completionStatus"
+  field :gateway_id, 8, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.StatusResponse do
@@ -60,6 +62,7 @@ defmodule Monitoring.StatusResponse do
   field :response_time, 5, type: :int64, json_name: "responseTime"
   field :agent_id, 6, type: :string, json_name: "agentId"
   field :poller_id, 7, type: :string, json_name: "pollerId"
+  field :gateway_id, 8, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.ResultsResponse do
@@ -81,6 +84,7 @@ defmodule Monitoring.ResultsResponse do
   field :sweep_completion, 11,
     type: Monitoring.SweepCompletionStatus,
     json_name: "sweepCompletion"
+  field :gateway_id, 12, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.PollerStatusRequest do

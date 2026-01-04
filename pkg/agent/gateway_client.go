@@ -94,8 +94,8 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 		return ErrGatewayAddrRequired
 	}
 
-	if g.conn != nil && g.connected {
-		if g.conn.GetState() == connectivity.Ready {
+	if g.conn != nil {
+		if g.conn.GetState() == connectivity.Ready && g.connected {
 			g.mu.Unlock()
 			return nil // Already connected and ready
 		}
