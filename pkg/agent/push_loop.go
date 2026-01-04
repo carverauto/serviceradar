@@ -232,16 +232,24 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 
 	// Build the request
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	tenantID := p.server.config.TenantID
+	tenantSlug := p.server.config.TenantSlug
+	p.server.mu.RUnlock()
+
 	req := &proto.GatewayStatusRequest{
 		Services:   statuses,
 		GatewayId:  "", // Will be set by the gateway
-		AgentId:    p.server.config.AgentID,
+		AgentId:    agentID,
 		Timestamp:  time.Now().UnixNano(),
-		Partition:  p.server.config.Partition,
+		Partition:  partition,
 		SourceIp:   p.getSourceIP(),
-		KvStoreId:  p.server.config.KVAddress,
-		TenantId:   p.server.config.TenantID,
-		TenantSlug: p.server.config.TenantSlug,
+		KvStoreId:  kvStoreID,
+		TenantId:   tenantID,
+		TenantSlug: tenantSlug,
 	}
 
 	// Push to gateway

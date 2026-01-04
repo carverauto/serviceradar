@@ -275,11 +275,15 @@ defmodule ServiceRadar.Edge.GatewayProcess do
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
-      status: :available
+      status: registry_status(state.status)
     }
 
     GatewayRegistry.register_gateway(state.gateway_id, gateway_info)
   end
+
+  defp registry_status(:idle), do: :available
+  defp registry_status(:executing), do: :busy
+  defp registry_status(_), do: :available
 
   defp execute_job_impl(job, state) do
     checks = job[:checks] || []

@@ -194,18 +194,22 @@ defmodule ServiceRadar.Infrastructure.Gateway do
         now = DateTime.utc_now()
         actor = context.actor
         tenant_id = if is_map(actor), do: Map.get(actor, :tenant_id)
-        partition_id =
-          Ash.Changeset.get_attribute(changeset, :partition_id) ||
-            "00000000-0000-0000-0000-000000000000"
 
-        changeset
-        |> Ash.Changeset.change_attribute(:tenant_id, tenant_id)
-        |> Ash.Changeset.change_attribute(:partition_id, partition_id)
-        |> Ash.Changeset.change_attribute(:first_registered, now)
-        |> Ash.Changeset.change_attribute(:first_seen, now)
-        |> Ash.Changeset.change_attribute(:last_seen, now)
-        |> Ash.Changeset.change_attribute(:status, :healthy)
-        |> Ash.Changeset.change_attribute(:is_healthy, true)
+        if is_nil(tenant_id) do
+          changeset
+          |> Ash.Changeset.add_error(field: :tenant_id, message: "tenant_id is required")
+        else
+          partition_id = Ash.Changeset.get_attribute(changeset, :partition_id)
+
+          changeset
+          |> Ash.Changeset.change_attribute(:tenant_id, tenant_id)
+          |> Ash.Changeset.change_attribute(:partition_id, partition_id)
+          |> Ash.Changeset.change_attribute(:first_registered, now)
+          |> Ash.Changeset.change_attribute(:first_seen, now)
+          |> Ash.Changeset.change_attribute(:last_seen, now)
+          |> Ash.Changeset.change_attribute(:status, :healthy)
+          |> Ash.Changeset.change_attribute(:is_healthy, true)
+        end
       end
     end
 

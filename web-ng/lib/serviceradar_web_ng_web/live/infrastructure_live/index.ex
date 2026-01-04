@@ -36,8 +36,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Check if user is platform admin for tab visibility
     is_platform_admin =
       case current_scope do
-        nil -> false
-        scope -> Scope.platform_admin?(scope)
+        %Scope{} = scope -> Scope.platform_admin?(scope)
+        _ -> false
       end
 
     # Get tenant_id for scoping agents (only for non-platform admins)

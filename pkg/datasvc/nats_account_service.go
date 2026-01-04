@@ -197,7 +197,10 @@ func extractMTLSIdentity(ctx context.Context) (string, error) {
 func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	s.mu.Lock()
 	resolverURL := s.resolverURL
-	resolverSecurity := cloneSecurityConfig(s.resolverSecurity)
+	var resolverSecurity *models.SecurityConfig
+	if s.resolverSecurity != nil {
+		resolverSecurity = cloneSecurityConfig(s.resolverSecurity)
+	}
 	resolverCredsFile := s.resolverCredsFile
 
 	if resolverURL == "" {

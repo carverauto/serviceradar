@@ -271,7 +271,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         }
 
         # Process each service status in the chunk
-        chunk.services
+        (chunk.services || [])
         |> Enum.reject(&is_nil/1)
         |> Enum.each(fn service ->
           process_service_status(service, metadata)
@@ -306,7 +306,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       response_time: service.response_time,
       agent_id: service.agent_id || metadata.agent_id,
       gateway_id: metadata.gateway_id,
-      partition: service.partition || metadata.partition,
+      partition: normalize_partition(service.partition || metadata.partition),
       source: service.source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
