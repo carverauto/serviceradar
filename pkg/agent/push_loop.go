@@ -642,6 +642,9 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 		port = 0
 	}
 
+	// Map proto check type to internal type
+	checkerType := mapCheckType(check.CheckType)
+
 	// Build address from target and port
 	address := target
 	if port > 0 {
@@ -655,16 +658,24 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 			}
 			address = parsed.String()
 		} else if parsed, err := url.Parse(target); err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.Path != "" {
-			// Path-like target (e.g., "example.com/path") — don't corrupt it with JoinHostPort.
-			address = target
+			// Path-like target (e.g., "example.com/path"): for HTTP checks, normalize into a URL and apply port.
+			if checkerType == httpCheckType {
+				if parsedURL, err := url.Parse("http://" + target); err == nil && parsedURL.Host != "" {
+					if parsedURL.Port() == "" {
+						parsedURL.Host = net.JoinHostPort(parsedURL.Hostname(), fmt.Sprintf("%d", port))
+					}
+					address = parsedURL.String()
+				} else {
+					address = target
+				}
+			} else {
+				address = target
+			}
 		} else {
 			// Plain host/IP target without port
 			address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
 		}
 	}
-
-	// Map proto check type to internal type
-	checkerType := mapCheckType(check.CheckType)
 
 	// Validate and default timeout to prevent issues with zero/negative values and duration overflow.
 	timeoutSec := int64(check.TimeoutSec)

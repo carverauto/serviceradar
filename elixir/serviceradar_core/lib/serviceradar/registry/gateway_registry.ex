@@ -134,6 +134,15 @@ defmodule ServiceRadar.GatewayRegistry do
   end
 
   @doc """
+  Update a gateway's registry metadata using a callback.
+  """
+  @spec update_value(String.t(), String.t(), (map() -> map())) :: {map(), map()} | :error
+  def update_value(tenant_id, gateway_id, callback)
+      when is_binary(tenant_id) and is_binary(gateway_id) and is_function(callback, 1) do
+    TenantRegistry.update_value(tenant_id, {:gateway, gateway_id}, callback)
+  end
+
+  @doc """
   Look up a specific gateway in a tenant's registry.
   """
   @spec lookup(String.t(), String.t()) :: [{pid(), map()}]

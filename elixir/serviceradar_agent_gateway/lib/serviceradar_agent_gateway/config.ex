@@ -184,9 +184,17 @@ defmodule ServiceRadarAgentGateway.Config do
           value
           |> to_string()
           |> String.trim()
+          |> String.downcase()
           |> case do
-            "" -> nil
-            slug -> slug
+            "" ->
+              nil
+
+            slug ->
+              if Regex.match?(~r/^[a-z0-9-]{1,63}$/, slug) do
+                slug
+              else
+                raise "invalid tenant_slug format for agent gateway"
+              end
           end
       end
 

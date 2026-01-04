@@ -251,8 +251,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
               "too many service statuses in one stream (max: #{@max_services_per_request})"
         end
 
+        chunk_index = chunk.chunk_index || 0
+        total_chunks = chunk.total_chunks || 0
+
         Logger.debug(
-          "Received chunk #{chunk.chunk_index + 1}/#{chunk.total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
+          "Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
         )
 
         partition = normalize_partition(chunk.partition)

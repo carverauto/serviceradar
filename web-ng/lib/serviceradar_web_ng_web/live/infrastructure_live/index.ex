@@ -778,11 +778,25 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   defp parse_timestamp_to_ms(ts) when is_integer(ts) do
-    # Heuristic: treat large values as milliseconds, smaller as seconds.
-    if ts > 10_000_000_000 do
-      ts
-    else
-      ts * 1_000
+    cond do
+      ts < 0 ->
+        nil
+
+      # nanoseconds since epoch
+      ts > 10_000_000_000_000_000 ->
+        div(ts, 1_000_000)
+
+      # microseconds since epoch
+      ts > 10_000_000_000_000 ->
+        div(ts, 1_000)
+
+      # milliseconds since epoch
+      ts > 10_000_000_000 ->
+        ts
+
+      # seconds since epoch
+      true ->
+        ts * 1_000
     end
   end
 
