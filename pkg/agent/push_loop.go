@@ -362,8 +362,11 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 // getSourceIP attempts to determine the source IP of this agent.
 func (p *PushLoop) getSourceIP() string {
 	// First check if HostIP is configured
-	if p.server.config.HostIP != "" {
-		return p.server.config.HostIP
+	p.server.mu.RLock()
+	hostIP := p.server.config.HostIP
+	p.server.mu.RUnlock()
+	if hostIP != "" {
+		return hostIP
 	}
 
 	// Enumerate local interfaces to find a non-loopback IP
@@ -415,8 +418,11 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	p.logger.Info().Msg("Enrolling with gateway...")
 
 	// Build Hello request
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	p.server.mu.RUnlock()
 	helloReq := &proto.AgentHelloRequest{
-		AgentId:       p.server.config.AgentID,
+		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
 		Capabilities:  getAgentCapabilities(),
 		ConfigVersion: p.getConfigVersion(),
@@ -502,8 +508,11 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 
 // fetchAndApplyConfig fetches config from gateway and applies it.
 func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	p.server.mu.RUnlock()
 	configReq := &proto.AgentConfigRequest{
-		AgentId:       p.server.config.AgentID,
+		AgentId:       agentID,
 		ConfigVersion: p.getConfigVersion(),
 	}
 

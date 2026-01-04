@@ -197,28 +197,33 @@ func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption
 
 // Disconnect closes the connection to the gateway.
 func (g *GatewayClient) Disconnect() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	var (
+		conn     *grpc.ClientConn
+		provider srgrpc.SecurityProvider
+	)
 
-	if g.conn != nil {
-		if err := g.conn.Close(); err != nil {
+	g.mu.Lock()
+	conn = g.conn
+	provider = g.securityProvider
+	g.conn = nil
+	g.client = nil
+	g.securityProvider = nil
+	g.connected = false
+	g.mu.Unlock()
+
+	if conn != nil {
+		if err := conn.Close(); err != nil {
 			g.logger.Warn().Err(err).Msg("Error closing gateway connection")
 		}
-		g.conn = nil
-		g.client = nil
 	}
 
-	if g.securityProvider != nil {
-		if err := g.securityProvider.Close(); err != nil {
+	if provider != nil {
+		if err := provider.Close(); err != nil {
 			g.logger.Warn().Err(err).Msg("Error closing security provider")
 		}
-		g.securityProvider = nil
 	}
 
-	g.connected = false
-
 	g.logger.Info().Msg("Disconnected from agent-gateway")
-
 	return nil
 }
 

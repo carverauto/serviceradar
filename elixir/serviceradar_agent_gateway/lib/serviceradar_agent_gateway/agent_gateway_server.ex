@@ -304,10 +304,24 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp process_service_status(service, metadata) do
     # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
     # NOT from the service message - this prevents spoofing
+    service_name =
+      service.service_name
+      |> to_string()
+      |> String.trim()
+
+    if service_name == "" do
+      raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
+    end
+
+    message =
+      service.message
+      |> to_string()
+      |> String.slice(0, 4_096)
+
     status = %{
-      service_name: service.service_name,
-      available: service.available,
-      message: service.message,
+      service_name: service_name,
+      available: service.available == true,
+      message: message,
       service_type: service.service_type,
       response_time: service.response_time,
       agent_id: metadata.agent_id,
