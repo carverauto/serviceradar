@@ -174,15 +174,3 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	log.Info().Msg("Agent shutdown complete")
 	return nil
 }
-
-// getAgentCapabilities returns the capabilities of this agent based on configured services.
-func getAgentCapabilities(server *agent.Server) []string {
-	// Base capabilities that all agents have
-	capabilities := []string{"status", "push"}
-
-	// Add capabilities based on configured checkers/services
-	// TODO: Query the server for its configured services and add their types
-	// For now, return base capabilities
-
-	return capabilities
-}
