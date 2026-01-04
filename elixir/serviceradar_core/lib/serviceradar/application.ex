@@ -177,6 +177,10 @@ defmodule ServiceRadar.Application do
         # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
         # PollerRegistry and AgentRegistry now delegate to TenantRegistry
         ServiceRadar.Cluster.TenantRegistry,
+        # Platform-level gateway tracker (gateways serve all tenants)
+        ServiceRadar.GatewayTracker,
+        # Agent tracker for Go agents that push status to gateways
+        ServiceRadar.AgentTracker,
         # Identity cache for device lookups (ETS-based with TTL)
         ServiceRadar.Identity.IdentityCache,
         # DataService client for KV operations (used to push config to Go/Rust services)
@@ -215,19 +219,23 @@ defmodule ServiceRadar.Application do
   defp cluster_children do
     cluster_enabled = Application.get_env(:serviceradar_core, :cluster_enabled, false)
 
-    # cluster_coordinator controls whether this node runs ClusterSupervisor/ClusterHealth
+    # cluster_coordinator controls whether this node runs ClusterHealth
     # - core-elx sets this to true (it's the coordinator)
-    # - web-ng/poller-elx should have it false (they join cluster but don't coordinate)
+    # - web-ng/poller-elx/agent-gateway should have it false (they join cluster but don't coordinate)
     # Defaults to cluster_enabled for backwards compatibility
     cluster_coordinator =
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)
 
-    if cluster_coordinator do
-      [
-        # Cluster supervisor manages libcluster + Horde
-        ServiceRadar.ClusterSupervisor,
-        ServiceRadar.ClusterHealth
-      ]
+    if cluster_enabled do
+      # All cluster-enabled nodes should start ClusterSupervisor for libcluster
+      base = [ServiceRadar.ClusterSupervisor]
+
+      # Only coordinator nodes run ClusterHealth
+      if cluster_coordinator do
+        base ++ [ServiceRadar.ClusterHealth]
+      else
+        base
+      end
     else
       []
     end

@@ -2,10 +2,9 @@
 
 ## Purpose
 Document how ServiceRadar components seed configuration into KV storage and resolve effective configuration from default filesystem files, KV overlays, and pinned filesystem overrides.
-
 ## Requirements
 ### Requirement: Automatic Configuration Seeding
-Services SHALL automatically seed the Key-Value (KV) store with default configuration if the configuration is missing in the KV store upon startup.
+Services SHALL automatically seed the Key-Value (KV) store with default configuration if the configuration is missing in the KV store upon startup. Services MUST ignore the initial KV watch event (which contains the current value at subscription time) and only trigger configuration reloads on subsequent changes.
 
 #### Scenario: Seeding missing config
 - **GIVEN** one or more instances of a service starting up
@@ -22,6 +21,19 @@ Services SHALL automatically seed the Key-Value (KV) store with default configur
 - **WHEN** the service initializes its configuration
 - **THEN** the service uses the existing KV configuration
 - **AND** the service DOES NOT overwrite the KV configuration with the filesystem default
+
+#### Scenario: Initial KV watch event ignored
+- **GIVEN** a service that watches KV for configuration changes
+- **AND** the service has completed configuration loading
+- **WHEN** the KV watcher receives its first event (the current value)
+- **THEN** the service SHALL NOT trigger a restart or reload
+- **AND** the service continues running with the already-loaded configuration
+
+#### Scenario: Subsequent KV updates trigger reload
+- **GIVEN** a running service with an active KV watcher
+- **AND** the service has already received and ignored the initial KV watch event
+- **WHEN** a subsequent KV update is received
+- **THEN** the service triggers a configuration reload or restart to apply the new configuration
 
 ### Requirement: Configuration Precedence
 Services SHALL resolve configuration values by deeply merging sources in a specific order of precedence: Pinned Filesystem Config > KV Config > Default Filesystem Config. Nested objects MUST merge recursively so keys absent in higher-precedence sources inherit values from lower-precedence sources.
@@ -53,3 +65,28 @@ Services SHALL expose the final, merged configuration for diagnostics via a star
 - **WHEN** the service starts
 - **THEN** it emits a log entry or exposes a read-only endpoint showing the merged configuration
 - **AND** sensitive values remain redacted in the emitted configuration
+
+### Requirement: Docker Compose KV bootstrap
+Docker Compose deployments SHALL start KV-managed services with KV-backed configuration enabled so defaults are seeded into datasvc and watcher telemetry is published on first boot.
+
+#### Scenario: Compose seeds KV on first boot
+- **GIVEN** the Docker Compose stack starts against an empty `serviceradar-datasvc` bucket
+- **WHEN** core, poller, agent, sync, and other KV-managed services initialize
+- **THEN** each service writes its default config to its KV key without overwriting existing values
+- **AND** watcher snapshots appear under `watchers/<service>/<instance>.json` so the Settings → Watcher Telemetry UI lists those compose services
+
+### Requirement: Non-Destructive Compose Upgrades
+Docker Compose upgrades SHALL preserve user-managed configuration state (both persistent config artifacts and KV-backed configuration). Bootstrap jobs used by Compose (e.g., config-updater and KV seeders) MUST NOT overwrite existing non-empty configuration values during routine upgrades.
+
+#### Scenario: Upgrade preserves sysmon endpoint
+- **GIVEN** a running Compose stack with a user-configured checker in the poller configuration
+- **WHEN** the stack is upgraded (images updated and containers recreated)
+- **THEN** the checker configuration remains present after the upgrade
+- **AND** metrics continue to populate without requiring manual reconfiguration
+
+#### Scenario: Bootstrap does not write empty overrides
+- **GIVEN** a running Compose stack with non-empty configuration values stored in KV and/or persisted config artifacts
+- **AND** a bootstrap script is re-run during upgrade
+- **WHEN** an optional/override env var is unset or empty
+- **THEN** the bootstrap script DOES NOT write empty values into configuration files or KV
+

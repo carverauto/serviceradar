@@ -11,12 +11,12 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - GET /api/v2/devices/:uid - Get device by UID
 
   ### Infrastructure Domain
-  - GET /api/v2/pollers - List pollers
-  - GET /api/v2/pollers/:id - Get poller by ID
-  - GET /api/v2/pollers/active - List active pollers
+  - GET /api/v2/gateways - List gateways
+  - GET /api/v2/gateways/:id - Get gateway by ID
+  - GET /api/v2/gateways/active - List active gateways
   - GET /api/v2/agents - List agents
   - GET /api/v2/agents/:uid - Get agent by UID
-  - GET /api/v2/agents/by-poller/:poller_id - List agents by poller
+  - GET /api/v2/agents/by-gateway/:gateway_id - List agents by gateway
 
   ### Monitoring Domain
   - GET /api/v2/service-checks - List service checks

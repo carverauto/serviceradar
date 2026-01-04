@@ -131,7 +131,7 @@ generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:s
 
 # Generate certificates for other services that might need them
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
-generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller-elx,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
+generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gateway,DNS:agent-gateway-t2,DNS:serviceradar-agent-gateway,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 
 echo "Certificates generated successfully!"

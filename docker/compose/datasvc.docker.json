@@ -31,8 +31,8 @@
     "roles": [
       {"identity": "spiffe://carverauto.dev/services/core", "role": "writer"},
       {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "spiffe://carverauto.dev/services/poller", "role": "writer"},
-      {"identity": "CN=poller.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "spiffe://carverauto.dev/services/agent-gateway", "role": "writer"},
+      {"identity": "CN=agent-gateway.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/agent", "role": "writer"},
       {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "spiffe://carverauto.dev/services/sync", "role": "writer"},

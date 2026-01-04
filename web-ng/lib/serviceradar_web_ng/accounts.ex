@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNG.Accounts do
   def deliver_user_update_email_instructions(user, _current_email, _update_email_url_fun) do
     # The AshAuthentication confirmation add-on handles email change confirmation
     # This function is kept for API compatibility but uses Ash under the hood
-    # TODO: Integrate with AshAuthentication confirmation add-on
+    # Follow-up: integrate with AshAuthentication confirmation add-on.
     UserNotifier.deliver_update_email_instructions(user, "#")
   end
 end

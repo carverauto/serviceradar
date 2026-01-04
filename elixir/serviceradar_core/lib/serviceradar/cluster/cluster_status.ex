@@ -99,7 +99,7 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
       ServiceRadar.Cluster.ClusterStatus.find_coordinator()
   """
 
-  alias ServiceRadar.PollerRegistry
+  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
 
   @doc """
@@ -150,7 +150,7 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   """
   @spec registry_counts() :: map()
   def registry_counts do
-    poller_count = safe_call(fn -> PollerRegistry.count() end, 0)
+    poller_count = safe_call(fn -> GatewayRegistry.count() end, 0)
     agent_count = safe_call(fn -> AgentRegistry.count() end, 0)
 
     %{

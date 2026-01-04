@@ -23,7 +23,7 @@ defmodule ServiceRadar.Integrations.Workers.SyncToDataSvcWorker do
   require Logger
 
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Infrastructure.Poller
+  alias ServiceRadar.Infrastructure.Gateway
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"source_id" => source_id, "operation" => operation}}) do
@@ -160,22 +160,22 @@ defmodule ServiceRadar.Integrations.Workers.SyncToDataSvcWorker do
   defp find_pollers_for_partition("", _tenant_id), do: []
 
   defp find_pollers_for_partition(partition_slug, tenant_id) do
-    case Poller
+    case Gateway
          |> Ash.Query.for_read(:by_partition, %{partition_slug: partition_slug})
          |> Ash.read(tenant: tenant_id, authorize?: false) do
-      {:ok, pollers} ->
-        Enum.map(pollers, fn p ->
+      {:ok, gateways} ->
+        Enum.map(gateways, fn g ->
           %{
-            "id" => p.id,
-            "status" => p.status,
-            "is_healthy" => p.is_healthy,
-            "agent_count" => p.agent_count,
-            "last_seen" => p.last_seen && DateTime.to_iso8601(p.last_seen)
+            "id" => g.id,
+            "status" => g.status,
+            "is_healthy" => g.is_healthy,
+            "agent_count" => g.agent_count,
+            "last_seen" => g.last_seen && DateTime.to_iso8601(g.last_seen)
           }
         end)
 
       {:error, reason} ->
-        Logger.warning("Failed to find pollers for partition #{partition_slug}: #{inspect(reason)}")
+        Logger.warning("Failed to find gateways for partition #{partition_slug}: #{inspect(reason)}")
         []
     end
   end

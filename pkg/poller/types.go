@@ -44,7 +44,7 @@ type AgentPoller struct {
 type Poller struct {
 	proto.UnimplementedPollerServiceServer
 	config     Config
-	coreClient proto.PollerServiceClient
+	coreClient proto.PollerServiceClient //nolint:staticcheck // SA1019: deprecated but still used
 	grpcClient *grpc.Client
 	mu         sync.RWMutex
 	agents     map[string]*AgentPoller // Store stateful AgentPoller instances

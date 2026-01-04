@@ -109,30 +109,30 @@ Edge onboarding, packages, and deployment.
 
 ## Cluster & Registry
 
-### Poller Registration
+### Gateway Registration
 
 ```elixir
-# Register a poller in the distributed registry
-ServiceRadar.PollerRegistry.register(%{
+# Register a gateway in the distributed registry
+ServiceRadar.GatewayRegistry.register(%{
   partition_id: "partition-1",
-  poller_id: "poller-001",
+  gateway_id: "gateway-001",
   domain: "example.com",
   capabilities: [:icmp, :tcp, :http]
 })
 
-# Find pollers for a partition
-ServiceRadar.PollerRegistry.find_by_partition("partition-1")
+# Find gateways for a partition
+ServiceRadar.GatewayRegistry.find_by_partition("partition-1")
 ```
 
 ### Agent Registration
 
-Agents are registered when they connect via gRPC. The poller handles registration:
+Agents are registered when they connect via gRPC. The gateway handles registration:
 
 ```elixir
-# When a Go agent connects via gRPC, the poller registers it:
+# When a Go agent connects via gRPC, the gateway registers it:
 ServiceRadar.AgentRegistry.register(%{
   partition_id: "partition-1",
-  poller_id: "poller-001",
+  gateway_id: "gateway-001",
   agent_id: "agent-001",
   capabilities: [:snmp, :wmi]
 })
@@ -168,13 +168,13 @@ ServiceRadar.Telemetry.attach_default_handlers()
 
 ## Standalone Release Configuration
 
-For standalone poller releases, configure the cluster to join the main ServiceRadar cluster.
+For standalone gateway releases, configure the cluster to join the main ServiceRadar cluster.
 Note: Agents are now Go-based and do not join the ERTS cluster - they connect via gRPC:
 
 ```elixir
 # rel/env.sh.eex
 export RELEASE_DISTRIBUTION=name
-export RELEASE_NODE=poller@${HOSTNAME}
+export RELEASE_NODE=gateway@${HOSTNAME}
 
 # Enable TLS distribution
 export ERL_FLAGS="-proto_dist inet_tls -ssl_dist_optfile /etc/serviceradar/ssl_dist.conf"

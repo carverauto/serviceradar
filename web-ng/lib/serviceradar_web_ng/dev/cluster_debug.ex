@@ -60,17 +60,17 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   """
   def registry_state do
     try do
-      poller_count = ServiceRadar.PollerRegistry.count()
-      pollers = ServiceRadar.PollerRegistry.all_pollers()
-      IO.puts("\nPollers (db_count=#{length(pollers)}, registry_count=#{poller_count}):")
+      gateway_count = ServiceRadar.GatewayRegistry.count()
+      gateways = ServiceRadar.GatewayRegistry.all_gateways()
+      IO.puts("\nGateways (db_count=#{length(gateways)}, registry_count=#{gateway_count}):")
 
-      for poller <- Enum.take(pollers, 10) do
-        IO.puts("  - #{poller.id} status=#{poller.status}")
+      for gateway <- Enum.take(gateways, 10) do
+        IO.puts("  - #{gateway.id} status=#{gateway.status}")
       end
 
-      if length(pollers) > 10, do: IO.puts("  ... and #{length(pollers) - 10} more")
+      if length(gateways) > 10, do: IO.puts("  ... and #{length(gateways) - 10} more")
     rescue
-      e -> IO.puts("Poller error: #{inspect(e)}")
+      e -> IO.puts("Gateway error: #{inspect(e)}")
     end
 
     try do
@@ -129,14 +129,14 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   end
 
   @doc """
-  Show registered pollers for a specific tenant.
+  Show registered gateways for a specific tenant.
   """
-  def pollers_for_tenant(tenant_id) do
-    pollers = ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
-    IO.puts("Pollers for tenant #{tenant_id}: #{length(pollers)}")
+  def gateways_for_tenant(tenant_id) do
+    gateways = ServiceRadar.GatewayRegistry.find_gateways_for_tenant(tenant_id)
+    IO.puts("Gateways for tenant #{tenant_id}: #{length(gateways)}")
 
-    for poller <- pollers do
-      IO.puts("  - #{poller[:poller_id]} status=#{poller[:status]} node=#{poller[:node]}")
+    for gateway <- gateways do
+      IO.puts("  - #{gateway[:gateway_id]} status=#{gateway[:status]} node=#{gateway[:node]}")
     end
 
     :ok

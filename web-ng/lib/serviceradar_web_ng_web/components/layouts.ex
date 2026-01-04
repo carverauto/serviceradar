@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/services"}
                   label="Services"
                   icon="hero-cog-6-tooth"
-                  active={@current_path in ["/services", "/pollers"]}
+                  active={@current_path in ["/services", "/gateways"]}
                 />
               </li>
               <li>

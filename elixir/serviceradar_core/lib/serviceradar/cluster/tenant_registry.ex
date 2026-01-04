@@ -588,6 +588,58 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
       :error -> :error
     end
   end
+
+  # ============================================================================
+  # Convenience Functions for Gateways
+  # ============================================================================
+
+  @doc """
+  Registers a gateway in the tenant's registry.
+  """
+  @spec register_gateway(String.t(), String.t(), map()) ::
+          {:ok, pid()} | {:error, term()}
+  def register_gateway(tenant_id, gateway_id, metadata) do
+    full_metadata =
+      metadata
+      |> Map.put(:type, :gateway)
+      |> Map.put(:registered_at, DateTime.utc_now())
+      |> Map.put(:last_heartbeat, DateTime.utc_now())
+
+    register(tenant_id, {:gateway, gateway_id}, full_metadata)
+  end
+
+  @doc """
+  Finds all gateways for a tenant.
+  """
+  @spec find_gateways(String.t()) :: [map()]
+  def find_gateways(tenant_id) do
+    select_by_type(tenant_id, :gateway)
+    |> Enum.map(fn {key, pid, metadata} ->
+      Map.merge(metadata, %{key: key, pid: pid})
+    end)
+  end
+
+  @doc """
+  Finds available gateways for a tenant.
+  """
+  @spec find_available_gateways(String.t()) :: [map()]
+  def find_available_gateways(tenant_id) do
+    find_gateways(tenant_id)
+    |> Enum.filter(&(&1[:status] == :available))
+  end
+
+  @doc """
+  Updates heartbeat for a gateway.
+  """
+  @spec gateway_heartbeat(String.t(), String.t()) :: :ok | :error
+  def gateway_heartbeat(tenant_id, gateway_id) do
+    case update_value(tenant_id, {:gateway, gateway_id}, fn meta ->
+           %{meta | last_heartbeat: DateTime.utc_now()}
+         end) do
+      {_new, _old} -> :ok
+      :error -> :error
+    end
+  end
 end
 
 defmodule ServiceRadar.Cluster.TenantRegistry.TenantSupervisor do

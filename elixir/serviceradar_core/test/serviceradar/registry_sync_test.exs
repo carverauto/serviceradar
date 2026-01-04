@@ -10,13 +10,13 @@ defmodule ServiceRadar.RegistrySyncTest do
   setup_all do
     ensure_distribution!()
     ensure_apps_started()
-    start_registry(ServiceRadar.PollerRegistry)
+    start_registry(ServiceRadar.GatewayRegistry)
     start_registry(ServiceRadar.AgentRegistry)
 
     {:ok, peer, peer_node} = start_peer(:registry_peer)
     sync_code_paths(peer_node)
     ensure_apps_started_remote(peer_node)
-    start_registry_remote(peer_node, ServiceRadar.PollerRegistry)
+    start_registry_remote(peer_node, ServiceRadar.GatewayRegistry)
     start_registry_remote(peer_node, ServiceRadar.AgentRegistry)
     ensure_connected(peer_node)
     ensure_members(peer_node)
@@ -26,7 +26,7 @@ defmodule ServiceRadar.RegistrySyncTest do
     {:ok, peer_node: peer_node}
   end
 
-  test "poller registry syncs across nodes", %{peer_node: peer_node} do
+  test "gateway registry syncs across nodes", %{peer_node: peer_node} do
     key = {@tenant_id, @partition_id, Node.self()}
 
     metadata = %{
@@ -40,12 +40,12 @@ defmodule ServiceRadar.RegistrySyncTest do
       last_heartbeat: DateTime.utc_now()
     }
 
-    assert {:ok, _pid} = ServiceRadar.PollerRegistry.register(key, metadata)
+    assert {:ok, _pid} = ServiceRadar.GatewayRegistry.register(key, metadata)
 
     assert eventually(fn ->
              match?(
                [{_pid, _meta} | _],
-               lookup_remote(ServiceRadar.PollerRegistry, key, peer_node)
+               lookup_remote(ServiceRadar.GatewayRegistry, key, peer_node)
              )
            end)
   end
@@ -153,9 +153,9 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   defp ensure_members(peer_node) do
-    poller_members = [
-      {ServiceRadar.PollerRegistry, node()},
-      {ServiceRadar.PollerRegistry, peer_node}
+    gateway_members = [
+      {ServiceRadar.GatewayRegistry, node()},
+      {ServiceRadar.GatewayRegistry, peer_node}
     ]
 
     agent_members = [
@@ -163,7 +163,7 @@ defmodule ServiceRadar.RegistrySyncTest do
       {ServiceRadar.AgentRegistry, peer_node}
     ]
 
-    :ok = Horde.Cluster.set_members(ServiceRadar.PollerRegistry, poller_members)
+    :ok = Horde.Cluster.set_members(ServiceRadar.GatewayRegistry, gateway_members)
     :ok = Horde.Cluster.set_members(ServiceRadar.AgentRegistry, agent_members)
   end
 

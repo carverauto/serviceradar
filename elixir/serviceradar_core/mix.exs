@@ -139,7 +139,7 @@ defmodule ServiceRadarCore.MixProject do
           ServiceRadar.ClusterHealth
         ],
         Registry: [
-          ServiceRadar.PollerRegistry,
+          ServiceRadar.GatewayRegistry,
           ServiceRadar.AgentRegistry
         ],
         SPIFFE: [

@@ -539,7 +539,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   relationships do
-    belongs_to :poller, ServiceRadar.Infrastructure.Poller do
+    belongs_to :gateway, ServiceRadar.Infrastructure.Gateway do
       source_attribute :poller_id
       destination_attribute :id
       allow_nil? true

@@ -1,0 +1,94 @@
+# ServiceRadar Agent Gateway (Elixir)
+# Standalone release that joins the ERTS cluster for distributed monitoring
+# Receives status pushes from Go agents and forwards to core
+#
+# Build:
+#   docker build -f docker/compose/Dockerfile.agent-gateway -t serviceradar-agent-gateway .
+#
+# Run:
+#   docker run -e CLUSTER_HOSTS=serviceradar@core-host \
+#              -e GATEWAY_PARTITION_ID=partition-1 \
+#              serviceradar-agent-gateway
+
+FROM hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    iputils-ping \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy shared library first (dependency)
+COPY elixir/serviceradar_core ./elixir/serviceradar_core
+
+# Copy agent gateway source
+COPY elixir/serviceradar_agent_gateway ./elixir/serviceradar_agent_gateway
+
+WORKDIR /app/elixir/serviceradar_agent_gateway
+
+ENV MIX_ENV=prod
+
+# Install Hex and Rebar
+RUN mix local.hex --force && mix local.rebar --force
+
+# Get and compile dependencies
+RUN mix deps.get --only prod
+RUN mix deps.compile
+
+# Compile the application
+RUN mix compile
+
+# Build the release
+RUN mix release serviceradar_agent_gateway
+
+# =============================================================================
+# Runtime Stage
+# =============================================================================
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libncurses6 \
+    locales \
+    iputils-ping \
+    dnsutils \
+    curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+  && locale-gen
+
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# Create non-root user
+RUN useradd -m -s /bin/bash serviceradar
+
+WORKDIR /app
+
+# Copy release from build stage
+COPY --from=build /app/elixir/serviceradar_agent_gateway/_build/prod/rel/serviceradar_agent_gateway ./
+
+# Create directories for certs and logs
+RUN mkdir -p /etc/serviceradar/certs /var/log/serviceradar \
+  && chown -R serviceradar:serviceradar /app /etc/serviceradar /var/log/serviceradar
+
+USER serviceradar
+
+# Environment variables with defaults
+ENV GATEWAY_PARTITION_ID=default
+ENV GATEWAY_DOMAIN=default
+ENV CLUSTER_ENABLED=true
+ENV CLUSTER_STRATEGY=epmd
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -sf http://localhost:4369/epmd || exit 1
+
+# Start the release
+CMD ["bin/serviceradar_agent_gateway", "start"]

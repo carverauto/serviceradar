@@ -20,12 +20,16 @@ package snmp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+// ErrNilResultsChannel indicates the collector returned a nil results channel.
+var ErrNilResultsChannel = errors.New("collector returned nil results channel")
 
 // Check implements the checker interface by returning the overall status of all SNMP targets.
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
@@ -321,7 +325,11 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Msg("Initialized service status")
 
 	// Start processing results
-	go s.processResults(ctx, target.Name, collector, aggregator)
+	results := collector.GetResults()
+	if results == nil {
+		return ErrNilResultsChannel
+	}
+	go s.processResults(ctx, target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
@@ -329,9 +337,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 }
 
 // processResults handles the data points from a collector.
-func (s *SNMPService) processResults(ctx context.Context, targetName string, collector Collector, aggregator Aggregator) {
-	results := collector.GetResults()
-
+func (s *SNMPService) processResults(ctx context.Context, targetName string, results <-chan DataPoint, aggregator Aggregator) {
 	for {
 		select {
 		case <-ctx.Done():

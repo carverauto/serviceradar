@@ -42,10 +42,10 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
       end
 
     # Get node-type-specific info
-    {pollers, agents} =
+    {gateways, agents} =
       if is_connected do
         {
-          get_node_pollers(node_atom),
+          get_node_gateways(node_atom),
           get_node_agents(node_atom)
         }
       else
@@ -62,16 +62,17 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
      |> assign(:node_info, node_info)
      |> assign(:is_connected, is_connected)
      |> assign(:is_current, node_atom == Node.self())
-     |> assign(:pollers, pollers)
+     |> assign(:gateways, gateways)
      |> assign(:agents, agents)
      |> assign(:error, error)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure/nodes/#{node_name}"})}
   end
 
   defp detect_node_type(node_name) when is_binary(node_name) do
-    # Note: Agents are now Go-based and connect via gRPC, not ERTS
+    # Note: Go agents connect via gRPC to agent gateways, not ERTS
     cond do
       String.starts_with?(node_name, "serviceradar_core") -> :core
+      String.starts_with?(node_name, "serviceradar_agent_gateway") -> :gateway
       String.starts_with?(node_name, "serviceradar_poller") -> :poller
       String.starts_with?(node_name, "serviceradar_web") -> :web
       true -> :unknown
@@ -105,9 +106,9 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     end
   end
 
-  defp get_node_pollers(node) do
-    ServiceRadar.PollerRegistry.all_pollers()
-    |> Enum.filter(fn poller -> Map.get(poller, :node) == node end)
+  defp get_node_gateways(node) do
+    ServiceRadar.GatewayRegistry.all_gateways()
+    |> Enum.filter(fn gateway -> Map.get(gateway, :node) == node end)
   rescue
     _ -> []
   end
@@ -166,8 +167,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
           <.node_summary node_name={@node_name} node_type={@node_type} is_connected={@is_connected} />
           <.node_system_info :if={@node_info} node_info={@node_info} node={@node_name} />
           
-    <!-- Poller-specific info -->
-          <.pollers_on_node :if={@node_type == :poller && @pollers != []} pollers={@pollers} />
+    <!-- Gateway-specific info -->
+          <.gateways_on_node :if={@node_type == :gateway && @gateways != []} gateways={@gateways} />
           
     <!-- Agent-specific info -->
           <.agents_on_node :if={@node_type == :agent && @agents != []} agents={@agents} />
@@ -225,8 +226,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     {label, variant} =
       case assigns.type do
         :core -> {"Core", "primary"}
-        :poller -> {"Poller", "info"}
-        :agent -> {"Agent", "success"}
+        :gateway -> {"Gateway", "info"}
+        :poller -> {"Poller", "secondary"}
         :web -> {"Web", "warning"}
         _ -> {"Unknown", "ghost"}
       end
@@ -306,23 +307,23 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     """
   end
 
-  attr :pollers, :list, required: true
+  attr :gateways, :list, required: true
 
-  defp pollers_on_node(assigns) do
+  defp gateways_on_node(assigns) do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">Pollers on this Node</span>
-        <span class="ml-2 badge badge-info badge-sm">{length(@pollers)}</span>
+        <span class="text-sm font-semibold">Gateways on this Node</span>
+        <span class="ml-2 badge badge-info badge-sm">{length(@gateways)}</span>
       </div>
       <div class="divide-y divide-base-200">
-        <%= for poller <- @pollers do %>
+        <%= for gateway <- @gateways do %>
           <div class="px-4 py-3 flex items-center gap-4">
-            <.ui_badge variant="info" size="xs">{Map.get(poller, :status, :unknown)}</.ui_badge>
+            <.ui_badge variant="info" size="xs">{Map.get(gateway, :status, :unknown)}</.ui_badge>
             <div class="flex-1">
-              <span class="font-mono text-sm">{Map.get(poller, :partition_id, "default")}</span>
+              <span class="font-mono text-sm">{Map.get(gateway, :partition_id, "default")}</span>
             </div>
-            <.link navigate={~p"/pollers/#{format_poller_id(poller)}"} class="btn btn-ghost btn-xs">
+            <.link navigate={~p"/gateways/#{format_gateway_id(gateway)}"} class="btn btn-ghost btn-xs">
               View
             </.link>
           </div>
@@ -349,7 +350,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
               <span class="font-mono text-sm">{Map.get(agent, :agent_id, "unknown")}</span>
             </div>
             <.link
-              navigate={~p"/infrastructure/agents/#{Map.get(agent, :agent_id)}"}
+              navigate={~p"/agents/#{Map.get(agent, :agent_id)}"}
               class="btn btn-ghost btn-xs"
             >
               View
@@ -377,11 +378,22 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             ]
           }
 
-        :poller ->
-          # Derive from Ash resource
+        :gateway ->
           %{
-            description: ServiceRadar.Infrastructure.Poller.role_description(),
-            steps: ServiceRadar.Infrastructure.Poller.role_steps()
+            description:
+              "Agent Gateway nodes receive status pushes from Go agents deployed in customer networks via gRPC/mTLS. They forward monitoring data to the core cluster.",
+            steps: [
+              %{label: "RECEIVE", description: "Accept gRPC status pushes from Go agents"},
+              %{label: "PROCESS", description: "Validate and normalize status data"},
+              %{label: "FORWARD", description: "Route data to core cluster for storage"}
+            ]
+          }
+
+        :poller ->
+          # Derive from Ash resource (Gateway, formerly Poller)
+          %{
+            description: ServiceRadar.Infrastructure.Gateway.role_description(),
+            steps: ServiceRadar.Infrastructure.Gateway.role_steps()
           }
 
         :agent ->
@@ -442,8 +454,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   defp step_badge_class(2), do: "badge-primary"
   defp step_badge_class(_), do: "badge-ghost"
 
-  defp format_poller_id(poller) do
-    case Map.get(poller, :key) do
+  defp format_gateway_id(gateway) do
+    case Map.get(gateway, :key) do
       {_partition, node} when is_atom(node) -> Atom.to_string(node)
       key when is_atom(key) -> Atom.to_string(key)
       key when is_binary(key) -> key

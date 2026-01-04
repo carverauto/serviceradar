@@ -322,7 +322,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                       <td class="text-xs">{package.site || "-"}</td>
                       <td class="text-xs">
                         <%= if package.edge_site do %>
-                          <.link navigate={~p"/admin/edge-sites/#{package.edge_site.id}"} class="link link-primary">
+                          <.link
+                            navigate={~p"/admin/edge-sites/#{package.edge_site.id}"}
+                            class="link link-primary"
+                          >
                             {package.edge_site.name}
                           </.link>
                         <% else %>
@@ -531,7 +534,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                       <.icon name="hero-clipboard-document" class="size-3" /> Copy
                     </button>
                   </div>
-                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">serviceradar-cli enroll --token {@download_token}</code>
+                  <code class="font-mono text-xs break-all bg-base-300 p-2 rounded block">
+                    serviceradar-cli enroll --token {@download_token}
+                  </code>
                 </div>
               </div>
 
