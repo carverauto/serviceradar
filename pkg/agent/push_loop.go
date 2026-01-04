@@ -418,6 +418,12 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	// Update push interval if specified by gateway
 	if helloResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(helloResp.HeartbeatIntervalSec) * time.Second
+		if newInterval < time.Second {
+			newInterval = time.Second
+		}
+		if newInterval > time.Hour {
+			newInterval = time.Hour
+		}
 		if newInterval != p.getInterval() {
 			p.setInterval(newInterval)
 			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from gateway")
@@ -496,6 +502,12 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	// Update intervals from config response
 	if configResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second
+		if newInterval < time.Second {
+			newInterval = time.Second
+		}
+		if newInterval > time.Hour {
+			newInterval = time.Hour
+		}
 		if newInterval != p.getInterval() {
 			p.setInterval(newInterval)
 			p.logger.Info().Dur("interval", newInterval).Msg("Updated push interval from config")
@@ -596,6 +608,10 @@ const (
 
 // protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
+	if check == nil {
+		return nil
+	}
+
 	// Sanitize required fields coming from the gateway to avoid panics downstream.
 	// NOTE: Don't return nil here; callers may store the config without checking.
 	target := check.Target

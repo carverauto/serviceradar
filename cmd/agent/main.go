@@ -150,6 +150,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	// Start push loop in a goroutine
 	errChan := make(chan error, 1)

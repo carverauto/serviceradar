@@ -271,7 +271,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         }
 
         # Process each service status in the chunk
-        Enum.each(chunk.services, fn service ->
+        chunk.services
+        |> Enum.reject(&is_nil/1)
+        |> Enum.each(fn service ->
           process_service_status(service, metadata)
         end)
 

@@ -31,8 +31,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     cluster_info = load_cluster_info()
 
+    current_scope = socket.assigns[:current_scope]
+
     # Check if user is platform admin for tab visibility
-    is_platform_admin = Scope.platform_admin?(socket.assigns[:current_scope])
+    is_platform_admin =
+      case current_scope do
+        nil -> false
+        scope -> Scope.platform_admin?(scope)
+      end
 
     # Get tenant_id for scoping agents (only for non-platform admins)
     tenant_id = get_tenant_id(socket)
