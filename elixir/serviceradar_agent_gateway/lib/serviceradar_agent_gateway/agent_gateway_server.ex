@@ -196,7 +196,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition: request.partition,
-      source_ip: request.source_ip,
+      source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
       agent_timestamp: request.timestamp,
@@ -230,6 +230,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate once for all chunks
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
+    peer_ip = get_peer_ip(stream)
 
     {total_services, saw_final?} =
       Enum.reduce_while(request_stream, {0, false}, fn chunk, {acc, _saw_final?} ->
@@ -255,7 +256,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           agent_id: agent_id,
           gateway_id: gateway_id(),
           partition: chunk.partition,
-          source_ip: chunk.source_ip,
+          source_ip: peer_ip,
           kv_store_id: chunk.kv_store_id,
           timestamp: System.os_time(:second),
           agent_timestamp: chunk.timestamp,
@@ -379,5 +380,36 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     catch
       kind, reason -> {:error, {:extraction_failed, kind, inspect(reason)}}
     end
+  end
+
+  defp get_peer_ip(stream) do
+    try do
+      adapter = stream.adapter
+      payload = stream.payload
+
+      cond do
+        is_atom(adapter) and function_exported?(adapter, :get_peer, 1) ->
+          normalize_peer(adapter.get_peer(payload))
+
+        function_exported?(:cowboy_req, :peer, 1) ->
+          normalize_peer(:cowboy_req.peer(payload))
+
+        true ->
+          nil
+      end
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp normalize_peer({ip, _port}), do: ip_to_string(ip)
+  defp normalize_peer(ip) when is_tuple(ip), do: ip_to_string(ip)
+  defp normalize_peer(ip) when is_binary(ip), do: ip
+  defp normalize_peer(_), do: nil
+
+  defp ip_to_string(ip) do
+    ip
+    |> :inet.ntoa()
+    |> to_string()
   end
 end

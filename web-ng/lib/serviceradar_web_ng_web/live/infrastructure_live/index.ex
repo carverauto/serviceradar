@@ -92,7 +92,8 @@ def handle_info(:refresh, socket) do
     socket.assigns.gateways_cache
     |> Enum.reject(fn {_id, gw} ->
       last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
-      is_integer(last_ms) and max(now_ms - last_ms, 0) > @stale_threshold_ms
+      not is_integer(last_ms) or
+        max(now_ms - last_ms, 0) > @stale_threshold_ms
     end)
     |> Map.new()
 
@@ -100,7 +101,8 @@ def handle_info(:refresh, socket) do
     socket.assigns.agents_cache
     |> Enum.reject(fn {_id, agent} ->
       last_ms = agent_last_seen_ms(agent)
-      is_integer(last_ms) and max(now_ms - last_ms, 0) > @stale_threshold_ms
+      not is_integer(last_ms) or
+        max(now_ms - last_ms, 0) > @stale_threshold_ms
     end)
     |> Map.new()
 
