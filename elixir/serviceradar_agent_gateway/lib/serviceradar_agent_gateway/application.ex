@@ -108,15 +108,13 @@ defmodule ServiceRadarAgentGateway.Application do
        tenant_id: tenant_id,
        tenant_slug: tenant_slug},
 
-      # Registration worker - registers this gateway at the platform level
-      # (gateways serve all tenants, not tenant-scoped)
-      {ServiceRadar.Gateway.RegistrationWorker,
-       partition_id: partition_id,
-       gateway_id: gateway_id,
-       domain: domain,
-       entity_type: :gateway,
-       tenant_id: tenant_id,
-       tenant_slug: tenant_slug},
+    # Registration worker - registers this gateway in the distributed registry.
+    # Gateways are platform-level; tenant context is derived per-request via mTLS.
+    {ServiceRadar.Gateway.RegistrationWorker,
+     partition_id: partition_id,
+     gateway_id: gateway_id,
+     domain: domain,
+     entity_type: :gateway},
 
       # gRPC server that receives status pushes from Go agents
       {GRPC.Server.Supervisor,

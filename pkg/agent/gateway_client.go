@@ -286,11 +286,9 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 		return nil, ErrGatewayNotConnected
 	}
 
-	// Add timeout to prevent hanging if gateway is unresponsive
-	streamCtx, cancel := context.WithTimeout(ctx, defaultPushTimeout)
-	defer cancel()
-
-	stream, err := client.StreamStatus(streamCtx)
+	// For streaming, a fixed short timeout can cancel long chunk sequences.
+	// Prefer the caller context; higher-level code can set deadlines if desired.
+	stream, err := client.StreamStatus(ctx)
 	if err != nil {
 		g.markDisconnected()
 		return nil, fmt.Errorf("failed to create stream: %w", err)

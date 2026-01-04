@@ -246,7 +246,13 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   def handle_info(:health_check, state) do
     # Update registry heartbeat + status so the scheduler has accurate availability
     GatewayRegistry.update_value(state.tenant_id, state.gateway_id, fn meta ->
-      meta
+      base =
+        case meta do
+          m when is_map(m) -> m
+          _ -> %{partition_id: state.partition_id, domain: state.domain}
+        end
+
+      base
       |> Map.put(:last_heartbeat, DateTime.utc_now())
       |> Map.put(:status, registry_status(state.status))
     end)

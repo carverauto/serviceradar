@@ -85,17 +85,16 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 
 // Start implements the Service interface.
 func (s *SNMPService) Start(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.logger.Info().Int("target_count", len(s.config.Targets)).Msg("Starting SNMP Service")
 
+	s.mu.Lock()
 	if s.cancel != nil {
 		s.cancel()
 		s.cancel = nil
 		s.serviceCtx = nil
 	}
 	s.serviceCtx, s.cancel = context.WithCancel(ctx)
+	s.mu.Unlock()
 
 	// Initialize collectors for each target using indexing to avoid copying
 	for i := range s.config.Targets {
@@ -111,7 +110,10 @@ func (s *SNMPService) Start(ctx context.Context) error {
 		}
 	}
 
-	s.logger.Info().Int("collector_count", len(s.collectors)).Msg("SNMP Service started")
+	s.mu.RLock()
+	collectorCount := len(s.collectors)
+	s.mu.RUnlock()
+	s.logger.Info().Int("collector_count", collectorCount).Msg("SNMP Service started")
 
 	return nil
 }
@@ -152,13 +154,6 @@ func (s *SNMPService) Stop() error {
 
 // AddTarget implements the Service interface.
 func (s *SNMPService) AddTarget(ctx context.Context, target *Target) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.collectors[target.Name]; exists {
-		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
-	}
-
 	if err := s.initializeTarget(ctx, target); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
 	}
@@ -316,6 +311,14 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	s.logger.Info().Str("target_name", target.Name).Msg("Started collector for target")
 
 	// Store components
+	s.mu.Lock()
+	if _, exists := s.collectors[target.Name]; exists {
+		s.mu.Unlock()
+		if err := collector.Stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop duplicate collector")
+		}
+		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
+	}
 	s.collectors[target.Name] = collector
 	s.aggregators[target.Name] = aggregator
 
@@ -328,6 +331,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		HostName:  target.Name, // Target name for display
 		Target:    target,      // Include target configuration for internal use
 	}
+	s.mu.Unlock()
 
 	s.logger.Info().
 		Str("target_name", target.Name).

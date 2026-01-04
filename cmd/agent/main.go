@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -117,8 +118,13 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 		}
 	}
 
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if err := dec.Decode(&struct{}{}); err == nil {
+		return nil, fmt.Errorf("failed to parse config: trailing data")
 	}
 
 	return &cfg, nil
