@@ -94,25 +94,27 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     now_ms = System.system_time(:millisecond)
 
-    pruned_gateways_cache =
-      socket.assigns.gateways_cache
-      |> Enum.reject(fn {_id, gw} ->
-        last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
+  pruned_gateways_cache =
+    socket.assigns.gateways_cache
+    |> Enum.reject(fn {_id, gw} ->
+      last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
 
-        not is_integer(last_ms) or
-          max(now_ms - last_ms, 0) > @stale_threshold_ms
-      end)
-      |> Map.new()
+      delta_ms = if is_integer(last_ms), do: now_ms - last_ms, else: nil
 
-    pruned_agents_cache =
-      socket.assigns.agents_cache
-      |> Enum.reject(fn {_id, agent} ->
-        last_ms = agent_last_seen_ms(agent)
+      not is_integer(delta_ms) or delta_ms < 0 or delta_ms > @stale_threshold_ms
+    end)
+    |> Map.new()
 
-        not is_integer(last_ms) or
-          max(now_ms - last_ms, 0) > @stale_threshold_ms
-      end)
-      |> Map.new()
+  pruned_agents_cache =
+    socket.assigns.agents_cache
+    |> Enum.reject(fn {_id, agent} ->
+      last_ms = agent_last_seen_ms(agent)
+
+      delta_ms = if is_integer(last_ms), do: now_ms - last_ms, else: nil
+
+      not is_integer(delta_ms) or delta_ms < 0 or delta_ms > @stale_threshold_ms
+    end)
+    |> Map.new()
 
     gateways = compute_gateways(pruned_gateways_cache)
 
@@ -854,13 +856,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     cond do
       is_integer(last_seen_ms) ->
-        delta_ms = now_ms - last_seen_ms
-        delta_ms >= 0 and delta_ms < @stale_threshold_ms
+        delta_ms = max(now_ms - last_seen_ms, 0)
+        delta_ms < @stale_threshold_ms
 
       is_integer(agent[:last_seen_mono]) ->
         now_mono = System.monotonic_time(:millisecond)
-        delta_ms = now_mono - agent[:last_seen_mono]
-        delta_ms >= 0 and delta_ms < @stale_threshold_ms
+        delta_ms = max(now_mono - agent[:last_seen_mono], 0)
+        delta_ms < @stale_threshold_ms
 
       true ->
         false

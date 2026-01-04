@@ -151,7 +151,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	}()
 
 	// Create push loop
-	interval := time.Duration(cfg.PushInterval) * time.Second
+	interval := time.Duration(cfg.PushInterval)
 	if interval <= 0 {
 		// Let NewPushLoop apply its default interval
 		interval = 0
@@ -198,13 +198,20 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	select {
 	case sig := <-sigChan:
 		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
-		cancel()
-		pushLoop.Stop()
 
-		// Bound shutdown so the process can't hang forever.
+		// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
 		const shutdownTimeout = 10 * time.Second
+		shutdownDone := make(chan struct{})
+
+		go func() {
+			cancel()
+			pushLoop.Stop()
+			<-errChan
+			close(shutdownDone)
+		}()
+
 		select {
-		case <-errChan:
+		case <-shutdownDone:
 		case <-time.After(shutdownTimeout):
 			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
 		}
