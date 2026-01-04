@@ -42,6 +42,8 @@ var defaultConfig []byte
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
+var errConfigFileMissing = errors.New("config file not found")
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -103,7 +105,8 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 		if os.IsNotExist(err) {
 			if os.Getenv("SR_ALLOW_EMBEDDED_DEFAULT_CONFIG") != "true" {
 				return nil, fmt.Errorf(
-					"config file not found at %s (set SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=true to use embedded defaults)",
+					"%w at %s (set SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=true to use embedded defaults)",
+					errConfigFileMissing,
 					configPath,
 				)
 			}
