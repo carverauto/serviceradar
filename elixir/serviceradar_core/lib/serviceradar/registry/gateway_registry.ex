@@ -222,13 +222,9 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec all_gateways() :: [map()]
   def all_gateways do
-    # For admin, query Ash for all gateways in database
-    case Ash.read(ServiceRadar.Infrastructure.Gateway, authorize?: false) do
-      {:ok, gateways} -> gateways
-      _ -> []
-    end
-  rescue
-    _ -> []
+    # Runtime/admin view: return currently registered gateways across tenants.
+    # This is intentionally not a database listing.
+    ServiceRadar.GatewayTracker.list()
   end
 
   @doc """

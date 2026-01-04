@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"sync"
 	"time"
 
@@ -431,6 +432,8 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.stopCh:
+			return
 		case <-ticker.C:
 			// Keep waiting
 		}
@@ -444,6 +447,9 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			p.logger.Debug().Msg("Config poll loop stopping")
+			return
+		case <-p.stopCh:
+			p.logger.Debug().Msg("Config poll loop stopping due to Stop()")
 			return
 		case <-timer.C:
 			if p.gateway.IsConnected() && p.isEnrolled() {
@@ -591,7 +597,15 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Build address from target and port
 	address := target
 	if port > 0 {
-		address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
+		// If target looks like a URL, preserve it as a URL and set the port safely.
+		if parsed, err := url.Parse(target); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			host := parsed.Hostname()
+			parsed.Host = net.JoinHostPort(host, fmt.Sprintf("%d", port))
+			address = parsed.String()
+		} else {
+			// Plain host/IP target
+			address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
+		}
 	}
 
 	// Map proto check type to internal type

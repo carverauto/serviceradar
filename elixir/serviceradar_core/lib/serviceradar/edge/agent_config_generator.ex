@@ -240,19 +240,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
-    # Serialize to JSON for hashing
-    json_data =
-      case Jason.encode(sorted_checks) do
-        {:ok, json} ->
-          json
-
-        {:error, reason} ->
-          Logger.error("Failed to JSON-encode agent config for hashing: #{inspect(reason)}")
-          "[]"
-      end
+    # Serialize deterministically for hashing (works for any Erlang term).
+    bin = :erlang.term_to_binary(sorted_checks)
 
     # Compute SHA256 hash
-    hash = :crypto.hash(:sha256, json_data)
+    hash = :crypto.hash(:sha256, bin)
 
     # Return as hex string with "v" prefix
     "v" <> Base.encode16(hash, case: :lower)

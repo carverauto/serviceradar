@@ -95,15 +95,21 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 		if state == connectivity.Ready {
 			return nil // Already connected and ready
 		}
-		// Connection exists but isn't healthy; force reconnect.
-		_ = g.conn.Close()
+		// Connection exists but isn't healthy; force reconnect (close outside lock).
+		conn := g.conn
+		provider := g.securityProvider
 		g.conn = nil
 		g.client = nil
 		g.connected = false
-		if g.securityProvider != nil {
-			_ = g.securityProvider.Close()
-			g.securityProvider = nil
+		g.securityProvider = nil
+		g.mu.Unlock()
+		if conn != nil {
+			_ = conn.Close()
 		}
+		if provider != nil {
+			_ = provider.Close()
+		}
+		g.mu.Lock()
 	}
 
 	g.logger.Info().Str("addr", g.addr).Msg("Connecting to agent-gateway")

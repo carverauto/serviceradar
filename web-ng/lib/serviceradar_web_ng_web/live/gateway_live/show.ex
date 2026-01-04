@@ -30,7 +30,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   @impl true
   def handle_params(%{"gateway_id" => gateway_id}, _uri, socket) do
     # First check Horde registry for live gateway
-    all_gateways = ServiceRadar.GatewayRegistry.all_gateways()
+    tenant_id = socket.assigns.current_scope.tenant_id
+    all_gateways = ServiceRadar.GatewayRegistry.find_gateways_for_tenant(tenant_id)
 
     live_gateway =
       Enum.find(all_gateways, fn gateway ->

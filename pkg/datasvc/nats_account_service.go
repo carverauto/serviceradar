@@ -234,6 +234,12 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	}
 
 	s.mu.Lock()
+	if s.resolverConn != nil && s.resolverConn.IsConnected() {
+		existing := s.resolverConn
+		s.mu.Unlock()
+		_ = conn.Close()
+		return existing, nil
+	}
 	s.resolverConn = conn
 	s.mu.Unlock()
 	return conn, nil

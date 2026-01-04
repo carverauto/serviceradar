@@ -184,6 +184,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
+    partition =
+      case request.partition do
+        p when is_binary(p) and byte_size(p) > 0 and byte_size(p) <= 128 -> p
+        _ -> "default"
+      end
 
     Logger.info(
       "Received status push from agent #{agent_id}: #{service_count} services (tenant: #{tenant_slug})"
@@ -195,7 +200,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     metadata = %{
       agent_id: agent_id,
       gateway_id: gateway_id(),
-      partition: request.partition,
+      partition: partition,
       source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
