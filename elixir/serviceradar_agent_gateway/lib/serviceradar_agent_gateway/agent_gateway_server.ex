@@ -310,6 +310,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         chunk_index = chunk.chunk_index || 0
         total_chunks = chunk.total_chunks || 0
 
+        if total_chunks <= 0 do
+          raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks must be > 0"
+        end
+
+        if chunk_index < 0 or chunk_index >= total_chunks do
+          raise GRPC.RPCError, status: :invalid_argument, message: "invalid chunk_index"
+        end
+
         Logger.debug(
           "Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
         )
@@ -340,6 +348,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         end)
 
         if chunk.is_final do
+          if chunk_index != total_chunks - 1 do
+            raise GRPC.RPCError,
+              status: :invalid_argument,
+              message: "final chunk_index does not match total_chunks"
+          end
+
           record_push_metrics(agent_id, new_total)
           {:halt, {new_total, true, stream_agent_id}}
         else
