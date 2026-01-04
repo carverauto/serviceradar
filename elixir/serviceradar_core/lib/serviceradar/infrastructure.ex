@@ -14,6 +14,7 @@ defmodule ServiceRadar.Infrastructure do
   ## Resources
 
   - `ServiceRadar.Infrastructure.Gateway` - Gateway nodes (job orchestrators)
+  - `ServiceRadar.Infrastructure.Poller` - Poller nodes (check orchestrators)
   - `ServiceRadar.Infrastructure.Agent` - Go agents on monitored hosts
   - `ServiceRadar.Infrastructure.Checker` - Service check types
   - `ServiceRadar.Infrastructure.Partition` - Network partitions
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Infrastructure do
 
   resources do
     resource ServiceRadar.Infrastructure.Gateway
+    resource ServiceRadar.Infrastructure.Poller
     resource ServiceRadar.Infrastructure.Agent
     resource ServiceRadar.Infrastructure.Checker
     resource ServiceRadar.Infrastructure.Partition

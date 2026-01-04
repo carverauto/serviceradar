@@ -15,14 +15,14 @@ defmodule ServiceRadarWebNGWeb.PollerLiveTest do
       %{
         poller_id: poller_id,
         last_seen: ~U[2100-01-01 00:00:00Z],
-        status: "active",
+        status: "healthy",
         tenant_id: tenant_uuid
       }
     ])
 
     {:ok, _lv, html} = live(conn, ~p"/pollers?limit=10")
     assert html =~ poller_id
-    assert html =~ "active"
+    assert html =~ "healthy"
     assert html =~ "in:pollers"
   end
 end

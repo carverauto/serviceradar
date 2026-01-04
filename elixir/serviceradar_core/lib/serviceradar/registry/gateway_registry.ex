@@ -224,7 +224,7 @@ defmodule ServiceRadar.GatewayRegistry do
   def all_gateways do
     # Runtime/admin view: return currently registered gateways across tenants.
     # This is intentionally not a database listing.
-    ServiceRadar.GatewayTracker.list()
+    ServiceRadar.GatewayTracker.list_gateways()
   end
 
   @doc """

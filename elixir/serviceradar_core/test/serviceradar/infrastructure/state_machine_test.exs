@@ -27,10 +27,9 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       {:ok, poller} =
         Poller
         |> Ash.Changeset.for_create(:register, %{
-          id: "poller-#{System.unique_integer([:positive])}",
-          tenant_id: tenant_id
+          id: "poller-#{System.unique_integer([:positive])}"
         })
-        |> Ash.create(authorize?: false)
+        |> Ash.create(authorize?: false, tenant: tenant_id)
 
       assert poller.status == :healthy
       assert poller.is_healthy == true
@@ -116,10 +115,9 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     defp create_healthy_poller(tenant_id) do
       Poller
       |> Ash.Changeset.for_create(:register, %{
-        id: "poller-#{System.unique_integer([:positive])}",
-        tenant_id: tenant_id
+        id: "poller-#{System.unique_integer([:positive])}"
       })
-      |> Ash.create(authorize?: false)
+      |> Ash.create(authorize?: false, tenant: tenant_id)
     end
   end
 
