@@ -23,7 +23,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
       base "/pollers"
       get :by_id
       index :read
-      index :active
+      index :active, route: "/active"
       post :register
       patch :heartbeat, route: "/:id/heartbeat"
       patch :update, route: "/:id"
@@ -157,6 +157,16 @@ defmodule ServiceRadar.Infrastructure.Poller do
     update :degrade do
       description "Mark poller as degraded"
       argument :reason, :string
+      require_atomic? false
+
+      change transition_state(:degraded)
+      change set_attribute(:is_healthy, false)
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :degraded}
+    end
+
+    update :heartbeat_timeout do
+      description "Mark poller as degraded due to heartbeat timeout"
       require_atomic? false
 
       change transition_state(:degraded)
