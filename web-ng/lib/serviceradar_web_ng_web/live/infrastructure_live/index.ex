@@ -852,21 +852,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   defp agent_active?(agent, now_ms) do
     now_mono = System.monotonic_time(:millisecond)
 
-    cond do
-      is_integer(agent[:last_seen_mono]) ->
-        max(now_mono - agent[:last_seen_mono], 0) < @stale_threshold_ms
+    if is_integer(agent[:last_seen_mono]) do
+      max(now_mono - agent[:last_seen_mono], 0) < @stale_threshold_ms
+    else
+      last_seen_ms = agent_last_seen_ms(agent)
 
-      true ->
-        last_seen_ms = agent_last_seen_ms(agent)
+      delta_ms =
+        if is_integer(last_seen_ms) do
+          max(now_ms - last_seen_ms, 0)
+        else
+          nil
+        end
 
-        delta_ms =
-          if is_integer(last_seen_ms) do
-            max(now_ms - last_seen_ms, 0)
-          else
-            nil
-          end
-
-        is_integer(delta_ms) and delta_ms < @stale_threshold_ms
+      is_integer(delta_ms) and delta_ms < @stale_threshold_ms
     end
   end
 
