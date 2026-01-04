@@ -253,9 +253,10 @@ func (g *GatewayClient) IsConnected() bool {
 	switch g.conn.GetState() {
 	case connectivity.Ready, connectivity.Idle:
 		return true
-	default:
+	case connectivity.Connecting, connectivity.TransientFailure, connectivity.Shutdown:
 		return false
 	}
+	return false
 }
 
 // PushStatus sends a batch of service statuses to the gateway.

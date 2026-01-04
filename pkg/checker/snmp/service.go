@@ -120,7 +120,7 @@ func (s *SNMPService) Start(ctx context.Context) error {
 			Int("oid_count", len(target.OIDs)).
 			Msg("Initializing target")
 
-		if err := s.initializeTarget(ctx, target); err != nil {
+		if err := s.initializeTarget(target); err != nil {
 			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
 		}
 	}
@@ -169,7 +169,10 @@ func (s *SNMPService) Stop() error {
 
 // AddTarget implements the Service interface.
 func (s *SNMPService) AddTarget(ctx context.Context, target *Target) error {
-	if err := s.initializeTarget(ctx, target); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.initializeTarget(target); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
 	}
 
@@ -298,7 +301,7 @@ func jsonError(msg string) []byte {
 }
 
 // initializeTarget sets up collector and aggregator for a target.
-func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) error {
+func (s *SNMPService) initializeTarget(target *Target) error {
 	s.logger.Info().Str("target_name", target.Name).Msg("Creating collector for target")
 
 	// Create collector
@@ -322,7 +325,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	serviceCtx := s.serviceCtx
 	s.mu.RUnlock()
 	if serviceCtx == nil {
-		return errors.New("service not started")
+		return ErrServiceNotStarted
 	}
 
 	// Start collector with the service context so it stops on service shutdown.
