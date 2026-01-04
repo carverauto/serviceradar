@@ -247,7 +247,10 @@ func (g *GatewayClient) Disconnect() error {
 func (g *GatewayClient) IsConnected() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	return g.connected
+	if !g.connected || g.conn == nil {
+		return false
+	}
+	return g.conn.GetState() == connectivity.Ready
 }
 
 // PushStatus sends a batch of service statuses to the gateway.

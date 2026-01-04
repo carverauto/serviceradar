@@ -410,8 +410,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       |> to_string()
       |> String.trim()
 
-    if service_name == "" do
-      raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
+    cond do
+      service_name == "" ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
+
+      byte_size(service_name) > 255 ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_name is too long"
+
+      String.contains?(service_name, ["\n", "\r", "\t"]) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_name contains invalid characters"
+
+      true ->
+        :ok
     end
 
     message =

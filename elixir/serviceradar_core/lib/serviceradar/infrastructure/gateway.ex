@@ -229,16 +229,16 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     # State machine transition actions
     # Each action includes PublishStateChange to emit NATS events
 
-    update :activate do
-      description "Activate an inactive gateway"
-      require_atomic? false
+  update :activate do
+    description "Activate an inactive gateway"
+    require_atomic? false
 
-      change transition_state(:healthy)
-      change set_attribute(:is_healthy, true)
-      change set_attribute(:last_seen, &DateTime.utc_now/0)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
-    end
+    change transition_state(:activate)
+    change set_attribute(:is_healthy, true)
+    change set_attribute(:last_seen, &DateTime.utc_now/0)
+    change set_attribute(:updated_at, &DateTime.utc_now/0)
+    change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :healthy}
+  end
 
     update :degrade do
       description "Mark gateway as degraded (having issues)"

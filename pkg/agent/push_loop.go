@@ -679,7 +679,16 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	wantHTTPS := check.CheckType == "https"
 	checkerType := mapCheckType(check.CheckType)
 	if (checkerType == tcpCheckType || checkerType == grpcCheckType) && port == 0 {
-		return nil
+		// Allow "host:port" or URL targets that already include a port.
+		hasEmbeddedPort := false
+		if host, p, err := net.SplitHostPort(target); err == nil && host != "" && p != "" {
+			hasEmbeddedPort = true
+		} else if parsed, err := url.Parse(target); err == nil && parsed.Host != "" && parsed.Port() != "" {
+			hasEmbeddedPort = true
+		}
+		if !hasEmbeddedPort {
+			return nil
+		}
 	}
 	address := buildCheckAddress(target, port, checkerType, check.Path, wantHTTPS)
 	timeout := clampCheckTimeout(check.TimeoutSec)
