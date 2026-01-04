@@ -68,6 +68,9 @@ func run() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Ensure the agent package reports the same build version during enrollment.
+	agent.Version = Version
+
 	// Create logger from loaded config
 	logConfig := cfg.Logging
 	if logConfig == nil {
@@ -129,7 +132,7 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 	if err := dec.Decode(&struct{}{}); err == nil {
 		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
 	} else if !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	return &cfg, nil

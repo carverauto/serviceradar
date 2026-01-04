@@ -736,15 +736,17 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Convert to cache format
     all_agents
     |> Enum.reduce(%{}, fn agent, acc ->
-      Map.put(acc, agent.agent_id, %{
-        agent_id: agent.agent_id,
-        tenant_id: Map.get(agent, :tenant_id),
-        tenant_slug: Map.get(agent, :tenant_slug, "default"),
-        last_seen: Map.get(agent, :last_seen),
-        last_seen_mono: Map.get(agent, :last_seen_mono),
-        service_count: Map.get(agent, :service_count, 0),
-        partition: Map.get(agent, :partition),
-        source_ip: Map.get(agent, :source_ip)
+      agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
+
+      Map.put(acc, agent_id, %{
+        agent_id: agent_id,
+        tenant_id: Map.get(agent, :tenant_id) || Map.get(agent, "tenant_id"),
+        tenant_slug: Map.get(agent, :tenant_slug) || Map.get(agent, "tenant_slug") || "default",
+        last_seen: Map.get(agent, :last_seen) || Map.get(agent, "last_seen"),
+        last_seen_mono: Map.get(agent, :last_seen_mono) || Map.get(agent, "last_seen_mono"),
+        service_count: Map.get(agent, :service_count) || Map.get(agent, "service_count") || 0,
+        partition: Map.get(agent, :partition) || Map.get(agent, "partition"),
+        source_ip: Map.get(agent, :source_ip) || Map.get(agent, "source_ip")
       })
     end)
   end

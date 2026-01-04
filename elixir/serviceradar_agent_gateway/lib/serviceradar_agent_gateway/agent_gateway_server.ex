@@ -252,25 +252,29 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     processed_count =
       services
       |> Enum.reject(&is_nil/1)
-      |> Enum.reduce(0, fn service, acc ->
-        try do
-          process_service_status(service, metadata)
-          acc + 1
-        rescue
-          e in GRPC.RPCError ->
-            Logger.warning(
-              "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-            )
+      |> Enum.reduce(0, fn
+        %Monitoring.GatewayServiceStatus{} = service, acc ->
+          try do
+            process_service_status(service, metadata)
+            acc + 1
+          rescue
+            e in GRPC.RPCError ->
+              Logger.warning(
+                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
+              )
 
-            acc
+              acc
 
-          e ->
-            Logger.warning(
-              "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
-            )
+            e ->
+              Logger.warning(
+                "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+              )
 
-            acc
-        end
+              acc
+          end
+
+        _other, acc ->
+          acc
       end)
 
     if processed_count == 0 and service_count > 0 do
@@ -298,8 +302,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
-    {total_services, saw_final?, _stream_agent_id} =
-      Enum.reduce_while(request_stream, {0, false, nil}, fn chunk, {acc, _saw_final?, stream_agent_id} ->
+    {total_services, saw_final?, _stream_agent_id, _expected_idx, _pinned_total_chunks} =
+      Enum.reduce_while(request_stream, {0, false, nil, 0, nil}, fn chunk,
+                                                                 {acc, _saw_final?, stream_agent_id, expected_idx,
+                                                                  pinned_total_chunks} ->
         agent_id =
           case chunk.agent_id do
             nil ->
@@ -343,8 +349,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks must be > 0"
         end
 
+        pinned_total_chunks =
+          case pinned_total_chunks do
+            nil -> total_chunks
+            ^total_chunks -> total_chunks
+            _ -> raise GRPC.RPCError, status: :invalid_argument, message: "total_chunks changed mid-stream"
+          end
+
         if chunk_index < 0 or chunk_index >= total_chunks do
           raise GRPC.RPCError, status: :invalid_argument, message: "invalid chunk_index"
+        end
+
+        if chunk_index != expected_idx do
+          raise GRPC.RPCError, status: :invalid_argument, message: "unexpected chunk_index"
         end
 
         Logger.debug(
@@ -396,9 +413,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           end
 
           record_push_metrics(agent_id, new_total)
-          {:halt, {new_total, true, stream_agent_id}}
+          {:halt, {new_total, true, stream_agent_id, expected_idx + 1, pinned_total_chunks}}
         else
-          {:cont, {new_total, false, stream_agent_id}}
+          {:cont, {new_total, false, stream_agent_id, expected_idx + 1, pinned_total_chunks}}
         end
       end)
 
@@ -422,6 +439,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         _ -> ""
       end
 
+    service_type =
+      case service.service_type do
+        st when is_binary(st) -> String.trim(st)
+        _ -> ""
+      end
+
+    source =
+      case service.source do
+        src when is_binary(src) -> String.trim(src)
+        _ -> ""
+      end
+
     cond do
       service_name == "" ->
         raise GRPC.RPCError, status: :invalid_argument, message: "service_name is required"
@@ -431,6 +460,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
       String.contains?(service_name, ["\n", "\r", "\t"]) ->
         raise GRPC.RPCError, status: :invalid_argument, message: "service_name contains invalid characters"
+
+      byte_size(service_type) > 64 or String.contains?(service_type, ["\n", "\r", "\t"]) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "service_type is invalid"
+
+      byte_size(source) > 64 or String.contains?(source, ["\n", "\r", "\t"]) ->
+        raise GRPC.RPCError, status: :invalid_argument, message: "source is invalid"
 
       true ->
         :ok
@@ -458,16 +493,28 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         end
       end)
 
+    response_time =
+      case service.response_time do
+        rt when is_integer(rt) and rt >= 0 and rt <= 86_400_000 ->
+          rt
+
+        rt when is_integer(rt) and rt > 86_400_000 ->
+          86_400_000
+
+        _ ->
+          0
+      end
+
     status = %{
       service_name: service_name,
       available: service.available == true,
       message: message,
-      service_type: service.service_type,
-      response_time: service.response_time,
+      service_type: service_type,
+      response_time: response_time,
       agent_id: metadata.agent_id,
       gateway_id: metadata.gateway_id,
       partition: normalize_partition(service.partition || metadata.partition),
-      source: service.source,
+      source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
       tenant_id: metadata.tenant_id,
