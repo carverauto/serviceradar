@@ -685,6 +685,9 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 			hasEmbeddedPort = true
 		} else if parsed, err := url.Parse(target); err == nil && parsed.Host != "" && parsed.Port() != "" {
 			hasEmbeddedPort = true
+		} else if parsed, err := url.Parse("tcp://" + target); err == nil && parsed.Host != "" && parsed.Port() != "" {
+			// Handles "host:port/path" inputs without an explicit scheme.
+			hasEmbeddedPort = true
 		}
 		if !hasEmbeddedPort {
 			return nil

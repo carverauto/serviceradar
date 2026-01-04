@@ -249,26 +249,36 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
 
     # Process each service status
-    services
-    |> Enum.reject(&is_nil/1)
-    |> Enum.each(fn service ->
-      try do
-        process_service_status(service, metadata)
-      rescue
-        e in GRPC.RPCError ->
-          Logger.warning(
-            "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
-          )
+    processed_count =
+      services
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reduce(0, fn service, acc ->
+        try do
+          process_service_status(service, metadata)
+          acc + 1
+        rescue
+          e in GRPC.RPCError ->
+            Logger.warning(
+              "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
+            )
 
-        e ->
-          Logger.warning(
-            "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
-          )
-      end
-    end)
+            acc
+
+          e ->
+            Logger.warning(
+              "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+            )
+
+            acc
+        end
+      end)
+
+    if processed_count == 0 and service_count > 0 do
+      raise GRPC.RPCError, status: :invalid_argument, message: "no valid service statuses"
+    end
 
     # Record metrics
-    record_push_metrics(agent_id, service_count)
+    record_push_metrics(agent_id, processed_count)
 
     %Monitoring.GatewayStatusResponse{received: true}
   end
@@ -406,9 +416,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
     # NOT from the service message - this prevents spoofing
     service_name =
-      service.service_name
-      |> to_string()
-      |> String.trim()
+      case service.service_name do
+        name when is_binary(name) -> String.trim(name)
+        nil -> ""
+        _ -> ""
+      end
 
     cond do
       service_name == "" ->

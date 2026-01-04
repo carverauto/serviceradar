@@ -322,7 +322,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	serviceCtx := s.serviceCtx
 	s.mu.RUnlock()
 	if serviceCtx == nil {
-		serviceCtx = ctx
+		return errors.New("service not started")
 	}
 
 	// Start collector with the service context so it stops on service shutdown.
