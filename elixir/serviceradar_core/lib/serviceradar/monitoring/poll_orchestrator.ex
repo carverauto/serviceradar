@@ -307,14 +307,14 @@ defp dispatch_to_gateway(gateway, checks, schedule, poll_job) do
       gateway[:id] ||
       (if is_pid(gateway_pid), do: to_string(node(gateway_pid)), else: inspect(gateway[:key]))
 
-    if is_nil(gateway_pid) do
-      Logger.warning("Gateway #{gateway_id} has no PID in registry metadata")
-      {:error, :gateway_not_found}
-    else
-      Logger.debug(
-        "Dispatching #{length(checks)} checks to gateway #{gateway_id} " <>
-          "on node #{node(gateway_pid)} (job: #{poll_job.id})"
-      )
+  if is_nil(gateway_pid) do
+    Logger.warning("Gateway #{gateway_id} has no PID in registry metadata")
+    {:error, :gateway_not_found}
+  else
+    Logger.debug(
+      "Dispatching #{length(checks)} checks to gateway #{gateway_id} " <>
+        "on node #{node(gateway_pid)} (job: #{poll_job.id})"
+    )
 
     case GatewayProcess.execute_job(gateway_pid, job_payload) do
       {:ok, result} ->
@@ -325,15 +325,15 @@ defp dispatch_to_gateway(gateway, checks, schedule, poll_job) do
         Logger.warning("Gateway #{gateway_id} not found, will retry on next schedule")
         {:error, :gateway_not_found}
 
-        {:error, :busy} ->
-          Logger.warning("Gateway #{gateway_id} is busy")
-          {:error, :gateway_busy}
+      {:error, :busy} ->
+        Logger.warning("Gateway #{gateway_id} is busy")
+        {:error, :gateway_busy}
 
-        error ->
-          error
-      end
+      error ->
+        error
     end
   end
+end
 
   # Load service checks for the schedule
   defp load_checks(schedule) do

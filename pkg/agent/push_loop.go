@@ -684,8 +684,13 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 				address = target
 			}
 		} else {
-			// Plain host/IP target without port
-			address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
+			// Plain host/IP target without port.
+			// If target is a bracketed IPv6 literal (e.g. "[::1]"), strip brackets before JoinHostPort.
+			host := target
+			if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
+				host = host[1 : len(host)-1]
+			}
+			address = net.JoinHostPort(host, fmt.Sprintf("%d", port))
 		}
 	}
 

@@ -329,7 +329,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	if results == nil {
 		return ErrNilResultsChannel
 	}
-	go s.processResults(ctx, target.Name, results, aggregator)
+	go s.processResults(context.Background(), target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
