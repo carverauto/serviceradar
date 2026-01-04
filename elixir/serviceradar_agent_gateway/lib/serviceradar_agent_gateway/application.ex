@@ -98,7 +98,20 @@ defmodule ServiceRadarAgentGateway.Application do
 
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 
-    children = [
+    core_children =
+      [
+        pubsub_child(),
+        repo_child(),
+        tenant_registry_child(),
+        gateway_tracker_child(),
+        agent_tracker_child(),
+        cluster_supervisor_child()
+      ]
+      |> List.flatten()
+      |> Enum.reject(&is_nil/1)
+
+    gateway_children = [
+      ServiceRadarAgentGateway.AgentRegistryProxy,
       # Gateway-specific configuration store
       {ServiceRadarAgentGateway.Config,
        partition_id: partition_id,
@@ -108,13 +121,18 @@ defmodule ServiceRadarAgentGateway.Application do
        tenant_id: tenant_id,
        tenant_slug: tenant_slug},
 
-    # Registration worker - registers this gateway in the distributed registry.
-    # Gateways are platform-level; tenant context is derived per-request via mTLS.
-    {ServiceRadar.Gateway.RegistrationWorker,
-     partition_id: partition_id,
-     gateway_id: gateway_id,
-     domain: domain,
-     entity_type: :gateway},
+      # Registration worker - registers this gateway in the distributed registry.
+      # Gateways are platform-level; tenant context is derived per-request via mTLS.
+      {ServiceRadar.Gateway.RegistrationWorker,
+       partition_id: partition_id,
+       gateway_id: gateway_id,
+       domain: domain,
+       entity_type: :gateway},
+      # Register gateway for platform-wide visibility (Infrastructure UI).
+      {ServiceRadar.GatewayRegistrationWorker,
+       gateway_id: gateway_id,
+       partition: partition_id,
+       domain: domain},
 
       # gRPC server that receives status pushes from Go agents
       {GRPC.Server.Supervisor,
@@ -129,6 +147,8 @@ defmodule ServiceRadarAgentGateway.Application do
       # Task executor - executes polling tasks from the core
       ServiceRadarAgentGateway.TaskExecutor
     ]
+
+    children = core_children ++ gateway_children
 
     opts = [strategy: :one_for_one, name: ServiceRadarAgentGateway.Supervisor]
     Supervisor.start_link(children, opts)
@@ -193,20 +213,72 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
-defp generate_gateway_id do
-  hostname =
-    case :inet.gethostname() do
-      {:ok, name} -> List.to_string(name)
-      _ -> "unknown"
+  defp generate_gateway_id do
+    hostname =
+      case :inet.gethostname() do
+        {:ok, name} -> List.to_string(name)
+        _ -> "unknown"
+      end
+
+    suffix =
+      8
+      |> :crypto.strong_rand_bytes()
+      |> Base.encode16(case: :lower)
+
+    "gateway-#{hostname}-#{suffix}"
+  end
+
+  defp repo_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      if Process.whereis(ServiceRadar.Repo) do
+        nil
+      else
+        ServiceRadar.Repo
+      end
+    else
+      nil
     end
+  end
 
-  suffix =
-    8
-    |> :crypto.strong_rand_bytes()
-    |> Base.encode16(case: :lower)
+  defp pubsub_child do
+    if Process.whereis(ServiceRadar.PubSub) do
+      nil
+    else
+      {Phoenix.PubSub, name: ServiceRadar.PubSub}
+    end
+  end
 
-  "gateway-#{hostname}-#{suffix}"
-end
+  defp tenant_registry_child do
+    if Process.whereis(ServiceRadar.Cluster.TenantRegistry) do
+      nil
+    else
+      ServiceRadar.Cluster.TenantRegistry
+    end
+  end
+
+  defp gateway_tracker_child do
+    if Process.whereis(ServiceRadar.GatewayTracker) do
+      nil
+    else
+      ServiceRadar.GatewayTracker
+    end
+  end
+
+  defp agent_tracker_child do
+    if Process.whereis(ServiceRadar.AgentTracker) do
+      nil
+    else
+      ServiceRadar.AgentTracker
+    end
+  end
+
+  defp cluster_supervisor_child do
+    if Process.whereis(ServiceRadar.ClusterSupervisor) do
+      nil
+    else
+      ServiceRadar.ClusterSupervisor
+    end
+  end
 
   @allowed_capabilities %{
     "icmp" => :icmp,

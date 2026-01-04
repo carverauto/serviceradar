@@ -43,8 +43,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Get tenant_id for scoping agents (only for non-platform admins)
     tenant_id = get_tenant_id(socket)
 
-    # Load existing agents from tracker on mount (don't start with empty cache)
+    # Load existing gateways and agents from trackers on mount (don't start with empty cache)
+    initial_gateways_cache = load_initial_gateways_cache()
     initial_agents_cache = load_initial_agents_cache()
+
+    gateways = compute_gateways(initial_gateways_cache)
 
     connected_agents =
       compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
@@ -58,8 +61,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
      |> assign(:show_debug, false)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
      |> assign(:cluster_info, cluster_info)
-     |> assign(:gateways_cache, %{})
-     |> assign(:gateways, [])
+     |> assign(:gateways_cache, initial_gateways_cache)
+     |> assign(:gateways, gateways)
      |> assign(:agents_cache, initial_agents_cache)
      |> assign(:connected_agents, connected_agents)}
   end
@@ -110,6 +113,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       end)
       |> Map.new()
 
+    refreshed_gateways_cache =
+      merge_gateways_cache(pruned_gateways_cache, load_initial_gateways_cache())
+
     pruned_agents_cache =
       socket.assigns.agents_cache
       |> Enum.reject(fn {_id, agent} ->
@@ -118,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       end)
       |> Map.new()
 
-    gateways = compute_gateways(pruned_gateways_cache)
+    gateways = compute_gateways(refreshed_gateways_cache)
 
     connected_agents =
       compute_connected_agents(
@@ -130,7 +136,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_info, cluster_info)
-     |> assign(:gateways_cache, pruned_gateways_cache)
+     |> assign(:gateways_cache, refreshed_gateways_cache)
      |> assign(:agents_cache, pruned_agents_cache)
      |> assign(:gateways, gateways)
      |> assign(:connected_agents, connected_agents)}
@@ -223,7 +229,10 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_event("refresh", _params, socket) do
     cluster_info = load_cluster_info()
-    gateways = compute_gateways(socket.assigns.gateways_cache)
+    refreshed_gateways_cache =
+      merge_gateways_cache(socket.assigns.gateways_cache, load_initial_gateways_cache())
+
+    gateways = compute_gateways(refreshed_gateways_cache)
 
     connected_agents =
       compute_connected_agents(
@@ -235,6 +244,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways_cache, refreshed_gateways_cache)
      |> assign(:gateways, gateways)
      |> assign(:connected_agents, connected_agents)}
   end
@@ -709,6 +719,47 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     }
   end
 
+  # Load initial gateways from GatewayTracker across the cluster.
+  defp load_initial_gateways_cache do
+    [Node.self() | Node.list()]
+    |> Task.async_stream(
+      fn node ->
+        case :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_000) do
+          gateways when is_list(gateways) -> gateways
+          _ -> []
+        end
+      end,
+      timeout: 1_500,
+      on_timeout: :kill_task,
+      max_concurrency: 4
+    )
+    |> Enum.flat_map(fn
+      {:ok, gateways} -> gateways
+      _ -> []
+    end)
+    |> Enum.reduce(%{}, fn gateway, acc ->
+      gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
+
+      if is_binary(gateway_id) and gateway_id != "" do
+        incoming = %{
+          gateway_id: gateway_id,
+          node: Map.get(gateway, :node) || Map.get(gateway, "node") || Node.self(),
+          partition: Map.get(gateway, :partition) || Map.get(gateway, "partition") || "default",
+          domain: Map.get(gateway, :domain) || Map.get(gateway, "domain") || "default",
+          status: Map.get(gateway, :status) || Map.get(gateway, "status") || :available,
+          registered_at: Map.get(gateway, :registered_at) || Map.get(gateway, "registered_at"),
+          last_heartbeat: Map.get(gateway, :last_heartbeat) || Map.get(gateway, "last_heartbeat")
+        }
+
+        Map.update(acc, gateway_id, incoming, fn existing ->
+          prefer_gateway_entry(existing, incoming)
+        end)
+      else
+        acc
+      end
+    end)
+  end
+
   # Load initial agents from the AgentTracker on mount
   # This ensures we show existing agents immediately instead of waiting for PubSub
   # AgentTracker runs on gateway nodes, so we query all cluster nodes via RPC
@@ -774,6 +825,28 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       |> Map.put(:short_name, node_str |> String.split("@") |> List.first())
     end)
     |> Enum.sort_by(& &1.gateway_id)
+  end
+
+  defp merge_gateways_cache(existing_cache, incoming_cache) do
+    Map.merge(existing_cache, incoming_cache, fn _gateway_id, existing, incoming ->
+      prefer_gateway_entry(existing, incoming)
+    end)
+  end
+
+  defp prefer_gateway_entry(existing, incoming) do
+    existing_ms = parse_timestamp_to_ms(Map.get(existing, :last_heartbeat))
+    incoming_ms = parse_timestamp_to_ms(Map.get(incoming, :last_heartbeat))
+
+    cond do
+      is_integer(incoming_ms) and is_integer(existing_ms) and incoming_ms > existing_ms ->
+        Map.merge(existing, incoming)
+
+      is_integer(incoming_ms) and not is_integer(existing_ms) ->
+        Map.merge(existing, incoming)
+
+      true ->
+        Map.merge(incoming, existing)
+    end
   end
 
   # Parse various timestamp formats to milliseconds since epoch

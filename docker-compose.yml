@@ -452,12 +452,6 @@ services:
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
-      # Datasvc gRPC client configuration
-      - DATASVC_HOST=datasvc
-      - DATASVC_PORT=50057
-      - DATASVC_SSL=true
-      - DATASVC_CERT_DIR=/etc/serviceradar/certs
-      - DATASVC_CERT_NAME=gateway
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro

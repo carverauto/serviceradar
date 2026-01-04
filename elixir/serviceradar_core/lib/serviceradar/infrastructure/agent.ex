@@ -261,6 +261,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :gateway_sync do
+      description "Sync agent metadata from the agent-gateway"
+      accept [:name, :capabilities, :host, :port, :spiffe_identity, :metadata, :version, :type_id]
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :heartbeat do
       description "Update last_seen_time and health status (for connected agents)"
       accept [:is_healthy, :capabilities]

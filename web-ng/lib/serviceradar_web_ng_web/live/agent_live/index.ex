@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   LiveView for listing OCSF agents.
 
   Displays agents registered in the ocsf_agents table with filtering
-  and pagination via SRQL queries, plus live Horde-registered agents.
+  and pagination via SRQL queries, plus live registry agents.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -117,27 +117,25 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp load_live_agents(tenant_id) do
-    # Get all agents from Horde registry
-    ServiceRadar.AgentRegistry.all_agents()
-    |> Enum.filter(fn agent ->
-      # Filter by tenant_id if set, otherwise show nothing for security
-      agent_tenant = Map.get(agent, :tenant_id)
-      tenant_id != nil and to_string(agent_tenant) == to_string(tenant_id)
-    end)
-    |> Enum.map(fn agent ->
-      %{
-        agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
-        tenant_id: Map.get(agent, :tenant_id),
-        partition_id: Map.get(agent, :partition_id),
-        poller_node: Map.get(agent, :poller_node),
-        capabilities: Map.get(agent, :capabilities, []),
-        status: Map.get(agent, :status, :unknown),
-        connected_at: Map.get(agent, :connected_at),
-        last_heartbeat: Map.get(agent, :last_heartbeat),
-        spiffe_identity: Map.get(agent, :spiffe_identity)
-      }
-    end)
-    |> Enum.sort_by(& &1.agent_id)
+    if is_binary(tenant_id) and tenant_id != "" do
+      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+      |> Enum.map(fn agent ->
+        %{
+          agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
+          tenant_id: Map.get(agent, :tenant_id),
+          partition_id: Map.get(agent, :partition_id),
+          poller_node: Map.get(agent, :poller_node),
+          capabilities: Map.get(agent, :capabilities, []),
+          status: Map.get(agent, :status, :unknown),
+          connected_at: Map.get(agent, :connected_at),
+          last_heartbeat: Map.get(agent, :last_heartbeat),
+          spiffe_identity: Map.get(agent, :spiffe_identity)
+        }
+      end)
+      |> Enum.sort_by(& &1.agent_id)
+    else
+      []
+    end
   end
 
   @impl true
@@ -155,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               <span class="text-sm font-semibold">Live Agents</span>
               <span class="badge badge-sm badge-success">{length(@live_agents)} connected</span>
             </div>
-            <span class="text-xs text-base-content/50">Real-time Horde registry</span>
+            <span class="text-xs text-base-content/50">Real-time gateway registry</span>
           </div>
           <.live_agents_table id="live-agents" agents={@live_agents} />
         </.ui_panel>

@@ -183,6 +183,8 @@ defmodule ServiceRadar.Application do
         ServiceRadar.AgentTracker,
         # Identity cache for device lookups (ETS-based with TTL)
         ServiceRadar.Identity.IdentityCache,
+        # Preload tenant slug mappings for edge resolution
+        ServiceRadar.Cluster.TenantRegistryLoader,
         # DataService client for KV operations (used to push config to Go/Rust services)
         datasvc_client_child()
       ]
