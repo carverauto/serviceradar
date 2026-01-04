@@ -47,7 +47,7 @@ type PushLoop struct {
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
 
-	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled
+	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion
 }
 
 // Thread-safe accessors for shared state
@@ -68,6 +68,18 @@ func (p *PushLoop) getConfigPollInterval() time.Duration {
 	p.stateMu.RLock()
 	defer p.stateMu.RUnlock()
 	return p.configPollInterval
+}
+
+func (p *PushLoop) getConfigVersion() string {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.configVersion
+}
+
+func (p *PushLoop) setConfigVersion(v string) {
+	p.stateMu.Lock()
+	p.configVersion = v
+	p.stateMu.Unlock()
 }
 
 func (p *PushLoop) setConfigPollInterval(d time.Duration) {
@@ -226,8 +238,11 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 
 	// Collect from sweep services (SweepStatusProvider)
 	p.server.mu.RLock()
-	services := p.server.services
-	checkerConfs := p.server.checkerConfs
+	services := append([]Service(nil), p.server.services...)
+	checkerConfs := make(map[string]*CheckerConfig, len(p.server.checkerConfs))
+	for key, conf := range p.server.checkerConfs {
+		checkerConfs[key] = conf
+	}
 	p.server.mu.RUnlock()
 
 	for _, svc := range services {
@@ -354,7 +369,7 @@ func (p *PushLoop) enroll(ctx context.Context) {
 		AgentId:       p.server.config.AgentID,
 		Version:       Version, // Agent version from version.go
 		Capabilities:  getAgentCapabilities(),
-		ConfigVersion: p.configVersion,
+		ConfigVersion: p.getConfigVersion(),
 	}
 
 	// Send Hello
@@ -387,7 +402,7 @@ func (p *PushLoop) enroll(ctx context.Context) {
 		Msg("Successfully enrolled with gateway")
 
 	// Fetch initial config if outdated or not yet fetched
-	if helloResp.ConfigOutdated || p.configVersion == "" {
+	if helloResp.ConfigOutdated || p.getConfigVersion() == "" {
 		p.fetchAndApplyConfig(ctx)
 	}
 }
@@ -426,7 +441,7 @@ func (p *PushLoop) configPollLoop(ctx context.Context) {
 func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	configReq := &proto.AgentConfigRequest{
 		AgentId:       p.server.config.AgentID,
-		ConfigVersion: p.configVersion,
+		ConfigVersion: p.getConfigVersion(),
 	}
 
 	configResp, err := p.gateway.GetConfig(ctx, configReq)
@@ -437,7 +452,7 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 
 	// If config hasn't changed, nothing to do
 	if configResp.NotModified {
-		p.logger.Debug().Str("version", p.configVersion).Msg("Config not modified")
+		p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
 		return
 	}
 
@@ -462,9 +477,9 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	p.applyChecks(configResp.Checks)
 
 	// Update version
-	p.configVersion = configResp.ConfigVersion
+	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
-		Str("version", p.configVersion).
+		Str("version", p.getConfigVersion()).
 		Int("checks", len(configResp.Checks)).
 		Msg("Applied new config from gateway")
 }

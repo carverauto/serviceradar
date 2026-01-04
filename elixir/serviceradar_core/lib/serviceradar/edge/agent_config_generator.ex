@@ -221,15 +221,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp atom_to_check_type(other) when is_binary(other), do: other
 
   # Ensure all map keys are strings for proto compatibility
+  # Preserves original value types (numbers, booleans) instead of converting to strings
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn {k, v} ->
       key = if is_atom(k), do: Atom.to_string(k), else: to_string(k)
-      value = if is_map(v), do: stringify_keys(v), else: to_string(v)
-      {key, value}
+      {key, stringify_value(v)}
     end)
   end
 
   defp stringify_keys(other), do: other
+
+  defp stringify_value(v) when is_map(v), do: stringify_keys(v)
+  defp stringify_value(v) when is_list(v), do: Enum.map(v, &stringify_value/1)
+  defp stringify_value(v), do: v
 
   # Compute SHA256 hash of the config for versioning
   defp compute_version_hash(check_configs) do

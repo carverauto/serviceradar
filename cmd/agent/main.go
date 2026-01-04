@@ -40,6 +40,7 @@ import (
 var defaultConfig []byte
 
 // Version is set at build time via ldflags
+//
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
@@ -130,6 +131,11 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	if err := gatewayClient.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to gateway: %w", err)
 	}
+	defer func() {
+		if err := gatewayClient.Disconnect(); err != nil {
+			log.Warn().Err(err).Msg("Error disconnecting from gateway")
+		}
+	}()
 
 	// Step 1: Send Hello to register with gateway
 	hostname, _ := os.Hostname()

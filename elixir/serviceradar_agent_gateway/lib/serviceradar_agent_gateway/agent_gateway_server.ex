@@ -170,7 +170,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           Monitoring.GatewayStatusResponse.t()
   def push_status(request, stream) do
     agent_id = request.agent_id
-    service_count = length(request.services)
+    services = request.services || []
+    service_count = length(services)
 
     # Extract tenant from mTLS certificate (secure source of truth)
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
@@ -194,7 +195,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
 
     # Process each service status
-    Enum.each(request.services, fn service ->
+    Enum.each(services, fn service ->
       process_service_status(service, metadata)
     end)
 

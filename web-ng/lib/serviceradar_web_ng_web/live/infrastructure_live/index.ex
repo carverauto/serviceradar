@@ -156,29 +156,33 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     # Cache agent info from PubSub (comes from gateway nodes)
     agent_id = agent_info[:agent_id]
 
-    updated_cache =
-      Map.put(socket.assigns.agents_cache, agent_id, %{
-        agent_id: agent_id,
-        tenant_id: agent_info[:tenant_id],
-        tenant_slug: agent_info[:tenant_slug] || "default",
-        last_seen: agent_info[:last_seen] || DateTime.utc_now(),
-        last_seen_mono: System.monotonic_time(:millisecond),
-        service_count: agent_info[:service_count] || 0,
-        partition: agent_info[:partition],
-        source_ip: agent_info[:source_ip]
-      })
+    if is_nil(agent_id) or agent_id == "" do
+      {:noreply, socket}
+    else
+      updated_cache =
+        Map.put(socket.assigns.agents_cache, agent_id, %{
+          agent_id: agent_id,
+          tenant_id: agent_info[:tenant_id],
+          tenant_slug: agent_info[:tenant_slug] || "default",
+          last_seen: agent_info[:last_seen] || DateTime.utc_now(),
+          last_seen_mono: System.monotonic_time(:millisecond),
+          service_count: agent_info[:service_count] || 0,
+          partition: agent_info[:partition],
+          source_ip: agent_info[:source_ip]
+        })
 
-    connected_agents =
-      compute_connected_agents(
-        updated_cache,
-        socket.assigns.is_platform_admin,
-        socket.assigns.tenant_id
-      )
+      connected_agents =
+        compute_connected_agents(
+          updated_cache,
+          socket.assigns.is_platform_admin,
+          socket.assigns.tenant_id
+        )
 
-    {:noreply,
-     socket
-     |> assign(:agents_cache, updated_cache)
-     |> assign(:connected_agents, connected_agents)}
+      {:noreply,
+       socket
+       |> assign(:agents_cache, updated_cache)
+       |> assign(:connected_agents, connected_agents)}
+    end
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
