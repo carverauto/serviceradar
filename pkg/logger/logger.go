@@ -40,8 +40,10 @@ type LoggerInstance struct {
 var instance *LoggerInstance
 
 //nolint:gochecknoglobals // singleton pattern for logger initialization
-var initOnce sync.Once
-var initMu sync.Mutex
+var (
+	initOnce sync.Once
+	initMu   sync.Mutex
+)
 
 type Config struct {
 	Level      string     `json:"level" yaml:"level"`
@@ -57,13 +59,11 @@ func initDefaults() {
 		zerolog.TimeFieldFormat = time.RFC3339
 	})
 
+	initMu.Lock()
+	defer initMu.Unlock()
 	if instance == nil {
-		initMu.Lock()
-		defer initMu.Unlock()
-		if instance == nil {
-			instance = &LoggerInstance{
-				logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
-			}
+		instance = &LoggerInstance{
+			logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
 		}
 	}
 }

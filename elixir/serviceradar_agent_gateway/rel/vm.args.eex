@@ -1,50 +1,56 @@
-## ServiceRadar Poller VM Arguments
+## ServiceRadar Agent Gateway VM Arguments
 ##
-## This file configures the Erlang VM for edge deployments.
-## All settings focus on cluster connectivity, remote debugging, and reliability.
+## This file configures the Erlang VM for agent gateway nodes.
+## See: https://www.erlang.org/doc/man/erl.html
+
+## =============================================================================
+## Performance Tuning
+## =============================================================================
+
+## Increase async thread pool for better I/O performance
++A 64
+
+## Increase process limit for large clusters
++P 1000000
+
+## Increase port limit
++Q 65536
+
+## Increase atom limit
++t 5000000
+
+## Enable kernel polling for better network performance
++K true
+
+## Set scheduler bind type for better performance on multi-core
++sbt db
+
+## Increase distribution buffer size for large messages
++zdbbl 32768
+
+## Enable time warp mode for better time handling
++C multi_time_warp
+
+## Garbage collection settings
++hms 8192
++hmbs 512
 
 ## =============================================================================
 ## Cluster Connectivity
 ## =============================================================================
 
-## Increase net_kernel tick time for WAN/VPN connections
-## Default is 60s, increase for high-latency links
 -kernel net_ticktime 120
-
-## Allow connections from hidden nodes (for debugging shells)
 -kernel dist_auto_connect once
 
 ## =============================================================================
 ## Remote Debugging & Observability
 ## =============================================================================
 
-## Enable kernel logging for distribution events
 -kernel logger_level notice
-
-## Enable system monitoring (for observer)
 -kernel shell_history enabled
-
-## =============================================================================
-## Memory & Performance Tuning
-## =============================================================================
-
-## Use modern memory allocator strategies
-+MBas aobf
-
-## Carrier pool settings for reduced fragmentation
-+MBacul 0
 
 ## =============================================================================
 ## Crash Dump Location
 ## =============================================================================
 
-## Write crash dumps to a consistent location
 -env ERL_CRASH_DUMP /var/log/serviceradar/erl_crash.dump
-
-## =============================================================================
-## Heart (Watchdog)
-## =============================================================================
-
-## Enable heart for automatic restart on crash
-## Uncomment in production
-## -heart

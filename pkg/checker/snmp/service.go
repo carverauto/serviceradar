@@ -321,7 +321,8 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Msg("Initialized service status")
 
 	// Start processing results
-	go s.processResults(ctx, target.Name, collector, aggregator)
+	results := collector.GetResults()
+	go s.processResults(ctx, target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
@@ -329,9 +330,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 }
 
 // processResults handles the data points from a collector.
-func (s *SNMPService) processResults(ctx context.Context, targetName string, collector Collector, aggregator Aggregator) {
-	results := collector.GetResults()
-
+func (s *SNMPService) processResults(ctx context.Context, targetName string, results <-chan DataPoint, aggregator Aggregator) {
 	for {
 		select {
 		case <-ctx.Done():
