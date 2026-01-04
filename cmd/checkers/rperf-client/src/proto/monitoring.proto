@@ -39,6 +39,7 @@ message StatusRequest {
   string poller_id = 4; // Poller ID for traceability
   string details = 5;      // Additional details (e.g., process name)
   int32 port = 6;          // Port number for port checks
+  string gateway_id = 7;   // Gateway ID for traceability
 }
 
 message StatusResponse {
@@ -48,6 +49,8 @@ message StatusResponse {
   string service_type = 4;
   int64 response_time = 5; // Raw response time in nanoseconds
   string agent_id = 6;     // Agent ID for traceability
+  string poller_id = 7;    // Poller ID for traceability (legacy)
+  string gateway_id = 8;   // Gateway ID for traceability
 }
 
 message PollerStatusRequest {

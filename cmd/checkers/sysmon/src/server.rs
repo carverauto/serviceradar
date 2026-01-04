@@ -256,6 +256,7 @@ impl AgentService for SysmonService {
             response_time: response_time_ns,
             agent_id: req.agent_id,
             poller_id: req.poller_id,
+            gateway_id: req.gateway_id,
         }))
     }
 
@@ -299,6 +300,7 @@ impl AgentService for SysmonService {
             response_time: response_time_ns,
             agent_id: req.agent_id,
             poller_id: req.poller_id,
+            gateway_id: req.gateway_id,
             timestamp: now
                 .timestamp_nanos_opt()
                 .unwrap_or_else(|| now.timestamp() * 1_000_000_000),
