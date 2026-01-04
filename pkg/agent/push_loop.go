@@ -635,13 +635,17 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Build address from target and port
 	address := target
 	if port > 0 {
-		// If target looks like a URL, preserve it as a URL and set the port safely.
-		if parsed, err := url.Parse(target); err == nil && parsed.Scheme != "" && parsed.Host != "" {
-			host := parsed.Hostname()
-			parsed.Host = net.JoinHostPort(host, fmt.Sprintf("%d", port))
+		// If target is already host:port (or [ipv6]:port), don't append a second port.
+		if host, _, err := net.SplitHostPort(target); err == nil && host != "" {
+			address = target
+		} else if parsed, err := url.Parse(target); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+			// URL target: only set port if one isn't already present.
+			if parsed.Port() == "" {
+				parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))
+			}
 			address = parsed.String()
 		} else {
-			// Plain host/IP target
+			// Plain host/IP target without port
 			address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
 		}
 	}

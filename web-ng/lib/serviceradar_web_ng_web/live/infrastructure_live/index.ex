@@ -89,46 +89,48 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   @impl true
-def handle_info(:refresh, socket) do
-  cluster_info = load_cluster_info()
+  def handle_info(:refresh, socket) do
+    cluster_info = load_cluster_info()
 
-  now_ms = System.system_time(:millisecond)
+    now_ms = System.system_time(:millisecond)
 
-  pruned_gateways_cache =
-    socket.assigns.gateways_cache
-    |> Enum.reject(fn {_id, gw} ->
-      last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
-      not is_integer(last_ms) or
-        max(now_ms - last_ms, 0) > @stale_threshold_ms
-    end)
-    |> Map.new()
+    pruned_gateways_cache =
+      socket.assigns.gateways_cache
+      |> Enum.reject(fn {_id, gw} ->
+        last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
 
-  pruned_agents_cache =
-    socket.assigns.agents_cache
-    |> Enum.reject(fn {_id, agent} ->
-      last_ms = agent_last_seen_ms(agent)
-      not is_integer(last_ms) or
-        max(now_ms - last_ms, 0) > @stale_threshold_ms
-    end)
-    |> Map.new()
+        not is_integer(last_ms) or
+          max(now_ms - last_ms, 0) > @stale_threshold_ms
+      end)
+      |> Map.new()
 
-  gateways = compute_gateways(pruned_gateways_cache)
+    pruned_agents_cache =
+      socket.assigns.agents_cache
+      |> Enum.reject(fn {_id, agent} ->
+        last_ms = agent_last_seen_ms(agent)
 
-  connected_agents =
-    compute_connected_agents(
-      pruned_agents_cache,
-      socket.assigns.is_platform_admin,
-      socket.assigns.tenant_id
-    )
+        not is_integer(last_ms) or
+          max(now_ms - last_ms, 0) > @stale_threshold_ms
+      end)
+      |> Map.new()
 
-  {:noreply,
-   socket
-   |> assign(:cluster_info, cluster_info)
-   |> assign(:gateways_cache, pruned_gateways_cache)
-   |> assign(:agents_cache, pruned_agents_cache)
-   |> assign(:gateways, gateways)
-   |> assign(:connected_agents, connected_agents)}
-end
+    gateways = compute_gateways(pruned_gateways_cache)
+
+    connected_agents =
+      compute_connected_agents(
+        pruned_agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
+
+    {:noreply,
+     socket
+     |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways_cache, pruned_gateways_cache)
+     |> assign(:agents_cache, pruned_agents_cache)
+     |> assign(:gateways, gateways)
+     |> assign(:connected_agents, connected_agents)}
+  end
 
   def handle_info({:node_up, _node}, socket) do
     cluster_info = load_cluster_info()
@@ -691,9 +693,7 @@ end
   end
 
   defp node_param(node) do
-    node
-    |> to_string()
-    |> URI.encode_www_form()
+    to_string(node)
   end
 
   # Data Loading

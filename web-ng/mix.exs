@@ -96,7 +96,7 @@ defmodule ServiceRadarWebNG.MixProject do
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.migrate --quiet", "test"],
+      test: ["serviceradar.maybe_test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind serviceradar_web_ng", "esbuild serviceradar_web_ng"],
       "assets.deploy": [
