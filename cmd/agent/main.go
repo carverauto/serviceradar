@@ -44,6 +44,7 @@ var defaultConfig []byte
 var Version = "dev"
 
 var errConfigFileMissing = errors.New("config file not found")
+var errConfigTrailingData = errors.New("config has trailing data")
 
 func main() {
 	if err := run(); err != nil {
@@ -124,7 +125,7 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	if err := dec.Decode(&struct{}{}); err == nil {
-		return nil, fmt.Errorf("failed to parse config: trailing data")
+		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
 	}
 
 	return &cfg, nil
