@@ -318,8 +318,15 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		return fmt.Errorf("%w: %s", errFailedToCreateAggregator, target.Name)
 	}
 
-	// Start collector
-	if err := collector.Start(ctx); err != nil {
+	s.mu.RLock()
+	serviceCtx := s.serviceCtx
+	s.mu.RUnlock()
+	if serviceCtx == nil {
+		serviceCtx = ctx
+	}
+
+	// Start collector with the service context so it stops on service shutdown.
+	if err := collector.Start(serviceCtx); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
 	}
 
@@ -363,12 +370,6 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	s.mu.RLock()
-	serviceCtx := s.serviceCtx
-	s.mu.RUnlock()
-	if serviceCtx == nil {
-		serviceCtx = ctx
-	}
 	go s.processResults(serviceCtx, target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")

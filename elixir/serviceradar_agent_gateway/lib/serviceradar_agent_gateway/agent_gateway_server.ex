@@ -252,7 +252,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     services
     |> Enum.reject(&is_nil/1)
     |> Enum.each(fn service ->
-      process_service_status(service, metadata)
+      try do
+        process_service_status(service, metadata)
+      rescue
+        e in GRPC.RPCError ->
+          Logger.warning(
+            "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
+          )
+
+        e ->
+          Logger.warning(
+            "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+          )
+      end
     end)
 
     # Record metrics
@@ -351,7 +363,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
         # Process each service status in the chunk
         Enum.each(services, fn service ->
-          process_service_status(service, metadata)
+          try do
+            process_service_status(service, metadata)
+          rescue
+            e in GRPC.RPCError ->
+              Logger.warning(
+                "Dropping invalid service status from agent #{metadata.agent_id}: #{e.status} #{e.message}"
+              )
+
+            e ->
+              Logger.warning(
+                "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+              )
+          end
         end)
 
         if chunk.is_final do

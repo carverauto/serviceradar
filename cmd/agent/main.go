@@ -177,11 +177,6 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	if err := server.Start(pushCtx); err != nil {
 		return fmt.Errorf("failed to start agent services: %w", err)
 	}
-	defer func() {
-		if err := server.Stop(context.Background()); err != nil {
-			log.Error().Err(err).Msg("Error stopping agent services")
-		}
-	}()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -204,21 +199,42 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		shutdownDone := make(chan struct{})
 
 		go func() {
+			defer close(shutdownDone)
+
 			cancel()
 			pushLoop.Stop()
 			<-errChan
-			close(shutdownDone)
+
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer stopCancel()
+			if err := server.Stop(stopCtx); err != nil {
+				log.Error().Err(err).Msg("Error stopping agent services")
+			}
 		}()
+
+		timer := time.NewTimer(shutdownTimeout)
+		defer timer.Stop()
 
 		select {
 		case <-shutdownDone:
-		case <-time.After(shutdownTimeout):
+		case <-timer.C:
 			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
 		}
 
 	case err := <-errChan:
 		if err != nil && !errors.Is(err, context.Canceled) {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer stopCancel()
+			if stopErr := server.Stop(stopCtx); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Error stopping agent services")
+			}
 			return fmt.Errorf("push loop error: %w", err)
+		}
+
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if stopErr := server.Stop(stopCtx); stopErr != nil {
+			log.Error().Err(stopErr).Msg("Error stopping agent services")
 		}
 	}
 
