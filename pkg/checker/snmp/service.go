@@ -90,6 +90,11 @@ func (s *SNMPService) Start(ctx context.Context) error {
 
 	s.logger.Info().Int("target_count", len(s.config.Targets)).Msg("Starting SNMP Service")
 
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.serviceCtx, s.cancel = context.WithCancel(ctx)
+
 	// Initialize collectors for each target using indexing to avoid copying
 	for i := range s.config.Targets {
 		target := &s.config.Targets[i] // Get pointer to target
@@ -113,6 +118,10 @@ func (s *SNMPService) Start(ctx context.Context) error {
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	select {
 	case <-s.done:
@@ -329,7 +338,11 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	if results == nil {
 		return ErrNilResultsChannel
 	}
-	go s.processResults(context.Background(), target.Name, results, aggregator)
+	serviceCtx := s.serviceCtx
+	if serviceCtx == nil {
+		serviceCtx = ctx
+	}
+	go s.processResults(serviceCtx, target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 

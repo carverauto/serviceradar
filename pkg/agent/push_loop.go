@@ -406,6 +406,11 @@ func (p *PushLoop) getSourceIP() string {
 			if ip4 := ip.To4(); ip4 != nil {
 				return ip4.String()
 			}
+
+			// Fallback to IPv6 if no IPv4 is present (avoid empty source_ip on IPv6-only hosts)
+			if ip.IsGlobalUnicast() {
+				return ip.String()
+			}
 		}
 	}
 
