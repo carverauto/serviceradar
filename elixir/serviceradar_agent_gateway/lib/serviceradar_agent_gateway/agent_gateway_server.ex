@@ -59,7 +59,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @spec hello(Monitoring.AgentHelloRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.AgentHelloResponse.t()
   def hello(request, stream) do
-    agent_id = request.agent_id
+    agent_id =
+      case request.agent_id do
+        nil ->
+          ""
+
+        value ->
+          value
+          |> to_string()
+          |> String.trim()
+      end
+
+    if agent_id == "" do
+      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+    end
+
     version = request.version
     capabilities = request.capabilities || []
 
@@ -107,7 +121,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @spec get_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.AgentConfigResponse.t()
   def get_config(request, stream) do
-    agent_id = request.agent_id
+    agent_id =
+      case request.agent_id do
+        nil ->
+          ""
+
+        value ->
+          value
+          |> to_string()
+          |> String.trim()
+      end
+
+    if agent_id == "" do
+      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+    end
+
     config_version = request.config_version || ""
 
     Logger.debug("Agent config request: agent_id=#{agent_id}, version=#{config_version}")
@@ -172,7 +200,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @spec push_status(Monitoring.GatewayStatusRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.GatewayStatusResponse.t()
   def push_status(request, stream) do
-    agent_id = request.agent_id
+    agent_id =
+      case request.agent_id do
+        nil ->
+          ""
+
+        value ->
+          value
+          |> to_string()
+          |> String.trim()
+      end
+
+    if agent_id == "" do
+      raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+    end
+
     services = request.services || []
     service_count = length(services)
 
@@ -316,7 +358,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     message =
       service.message
       |> to_string()
-      |> String.slice(0, 4_096)
+      |> then(fn msg ->
+        if byte_size(msg) > 4_096 do
+          binary_part(msg, 0, 4_096)
+        else
+          msg
+        end
+      end)
 
     status = %{
       service_name: service_name,

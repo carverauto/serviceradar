@@ -92,6 +92,8 @@ func (s *SNMPService) Start(ctx context.Context) error {
 
 	if s.cancel != nil {
 		s.cancel()
+		s.cancel = nil
+		s.serviceCtx = nil
 	}
 	s.serviceCtx, s.cancel = context.WithCancel(ctx)
 
@@ -338,7 +340,9 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	if results == nil {
 		return ErrNilResultsChannel
 	}
+	s.mu.RLock()
 	serviceCtx := s.serviceCtx
+	s.mu.RUnlock()
 	if serviceCtx == nil {
 		serviceCtx = ctx
 	}

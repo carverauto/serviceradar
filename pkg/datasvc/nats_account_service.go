@@ -219,10 +219,10 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 
 	if conn != nil {
 		// Drain may block; do it asynchronously to avoid hanging resolver reconnection.
-		go func() {
+		go func(c *nats.Conn) {
 			drainDone := make(chan struct{})
 			go func() {
-				_ = conn.Drain()
+				_ = c.Drain()
 				close(drainDone)
 			}()
 
@@ -231,11 +231,11 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 
 			select {
 			case <-drainDone:
-				conn.Close()
+				c.Close()
 			case <-timer.C:
-				conn.Close()
+				c.Close()
 			}
-		}()
+		}(conn)
 	}
 
 	opts, err := buildResolverOptions(resolverSecurity, resolverCredsFile)

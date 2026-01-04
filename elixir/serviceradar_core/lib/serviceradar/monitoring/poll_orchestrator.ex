@@ -300,7 +300,26 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
     # Use the PID from Horde registry directly - this enables cross-node dispatch
     # The PID is location-transparent across the ERTS cluster
-    gateway_pid = gateway[:pid]
+    gateway_pid =
+      case gateway[:pid] do
+        pid when is_pid(pid) ->
+          pid
+
+        _ ->
+          tenant_id = schedule.tenant_id
+          gid = gateway[:gateway_id] || gateway[:id]
+
+          case {tenant_id, gid} do
+            {t, g} when not is_nil(t) and not is_nil(g) ->
+              case GatewayRegistry.lookup(t, g) do
+                [{pid, _meta}] when is_pid(pid) -> pid
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+      end
 
     gateway_id =
       gateway[:gateway_id] ||

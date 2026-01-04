@@ -200,6 +200,7 @@ func (g *GatewayClient) Disconnect() error {
 	var (
 		conn     *grpc.ClientConn
 		provider srgrpc.SecurityProvider
+		closeErr error
 	)
 
 	g.mu.Lock()
@@ -214,17 +215,19 @@ func (g *GatewayClient) Disconnect() error {
 	if conn != nil {
 		if err := conn.Close(); err != nil {
 			g.logger.Warn().Err(err).Msg("Error closing gateway connection")
+			closeErr = errors.Join(closeErr, err)
 		}
 	}
 
 	if provider != nil {
 		if err := provider.Close(); err != nil {
 			g.logger.Warn().Err(err).Msg("Error closing security provider")
+			closeErr = errors.Join(closeErr, err)
 		}
 	}
 
 	g.logger.Info().Msg("Disconnected from agent-gateway")
-	return nil
+	return closeErr
 }
 
 // IsConnected returns whether the client is currently connected.

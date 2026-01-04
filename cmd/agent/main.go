@@ -141,6 +141,21 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 
 	// Create push loop
 	interval := time.Duration(cfg.PushInterval) * time.Second
+	if interval <= 0 {
+		// Let NewPushLoop apply its default interval
+		interval = 0
+	} else {
+		// Safety bounds against misconfiguration
+		const (
+			minPushInterval = 1 * time.Second
+			maxPushInterval = 1 * time.Hour
+		)
+		if interval < minPushInterval {
+			interval = minPushInterval
+		} else if interval > maxPushInterval {
+			interval = maxPushInterval
+		}
+	}
 	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
 
 	// Create a cancellable context for the push loop

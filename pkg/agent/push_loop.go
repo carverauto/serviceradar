@@ -377,6 +377,11 @@ func (p *PushLoop) getSourceIP() string {
 		return ""
 	}
 
+	var (
+		publicIPv4 string
+		ipv6       string
+	)
+
 	for _, iface := range ifaces {
 		// Skip down interfaces and loopback
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
@@ -402,16 +407,30 @@ func (p *PushLoop) getSourceIP() string {
 				continue
 			}
 
-			// Prefer IPv4 addresses
+			// Prefer RFC1918 IPv4 addresses; fall back to any global unicast.
 			if ip4 := ip.To4(); ip4 != nil {
-				return ip4.String()
+				if ip4.IsPrivate() {
+					return ip4.String()
+				}
+				if publicIPv4 == "" && ip4.IsGlobalUnicast() {
+					publicIPv4 = ip4.String()
+				}
+				continue
 			}
 
 			// Fallback to IPv6 if no IPv4 is present (avoid empty source_ip on IPv6-only hosts)
-			if ip.IsGlobalUnicast() {
-				return ip.String()
+			if ipv6 == "" && ip.IsGlobalUnicast() {
+				ipv6 = ip.String()
 			}
 		}
+
+	}
+
+	if publicIPv4 != "" {
+		return publicIPv4
+	}
+	if ipv6 != "" {
+		return ipv6
 	}
 
 	p.logger.Debug().Msg("No suitable source IP found")
@@ -673,11 +692,29 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 
 	// Build address from target and port
 	address := target
+
+	// For HTTP checks, incorporate the optional path field.
+	if checkerType == httpCheckType && check.Path != "" {
+		// Normalize into a URL; if target has no scheme, assume http.
+		if parsed, err := url.Parse(target); err == nil {
+			if parsed.Scheme == "" {
+				if parsedURL, err := url.Parse("http://" + target); err == nil {
+					parsed = parsedURL
+				}
+			}
+			// Only override if target didn't already include a path.
+			if parsed.Path == "" || parsed.Path == "/" {
+				parsed.Path = check.Path
+			}
+			address = parsed.String()
+		}
+	}
+
 	if port > 0 {
 		// If target is already host:port (or [ipv6]:port), don't append a second port.
 		if host, _, err := net.SplitHostPort(target); err == nil && host != "" {
 			address = target
-		} else if parsed, err := url.Parse(target); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		} else if parsed, err := url.Parse(address); err == nil && parsed.Scheme != "" && parsed.Host != "" {
 			// URL target: only set port if one isn't already present.
 			if parsed.Port() == "" {
 				parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))

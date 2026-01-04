@@ -195,15 +195,20 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
-  defp generate_gateway_id do
-    hostname =
-      case :inet.gethostname() do
-        {:ok, name} -> List.to_string(name)
-        _ -> "unknown"
-      end
+defp generate_gateway_id do
+  hostname =
+    case :inet.gethostname() do
+      {:ok, name} -> List.to_string(name)
+      _ -> "unknown"
+    end
 
-    "gateway-#{hostname}-#{:rand.uniform(9999)}"
-  end
+  suffix =
+    8
+    |> :crypto.strong_rand_bytes()
+    |> Base.encode16(case: :lower)
+
+  "gateway-#{hostname}-#{suffix}"
+end
 
   @allowed_capabilities %{
     "icmp" => :icmp,
