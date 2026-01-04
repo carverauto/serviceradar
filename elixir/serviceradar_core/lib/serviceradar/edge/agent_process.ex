@@ -403,7 +403,8 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: request[:service_name] || "",
       service_type: request[:service_type] || "",
       agent_id: state.agent_id,
-      gateway_id: request[:gateway_id] || request[:poller_id] || "",
+      poller_id: request[:poller_id] || request[:gateway_id] || "",
+      gateway_id: request[:gateway_id] || "",
       details: request[:details] || "",
       port: request[:port] || 0
     }
@@ -455,7 +456,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: service_id,
       service_type: service_type,
       agent_id: state.agent_id,
-      gateway_id: "",
+      poller_id: "",
       details: target,
       port: 0
     }

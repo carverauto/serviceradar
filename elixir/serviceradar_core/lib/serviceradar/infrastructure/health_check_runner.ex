@@ -55,8 +55,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   use GenServer
 
   alias ServiceRadar.Infrastructure.HealthTracker
-  alias ServiceRadar.PollerRegistry
-  alias ServiceRadar.Edge.PollerProcess
+  alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Edge.GatewayProcess
 
   require Logger
 
@@ -446,48 +446,48 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   end
 
   defp execute_grpc_health_check(tenant_id, service) do
-    # Find a poller that can reach this agent
-    case find_poller_for_agent(tenant_id, service.agent_uid) do
-      {:ok, poller_id} ->
-        # Make gRPC call through the poller
-        # The poller will forward to the agent, which checks the service
-        call_poller_health_check(poller_id, service)
+    # Find a gateway that can reach this agent
+    case find_gateway_for_agent(tenant_id, service.agent_uid) do
+      {:ok, gateway_id} ->
+        # Make gRPC call through the gateway
+        # The gateway will forward to the agent, which checks the service
+        call_gateway_health_check(gateway_id, service)
 
-      {:error, :no_poller} ->
-        {:error, :no_poller_available}
+      {:error, :no_gateway} ->
+        {:error, :no_gateway_available}
     end
   end
 
   defp execute_grpc_get_results(tenant_id, service) do
-    case find_poller_for_agent(tenant_id, service.agent_uid) do
-      {:ok, poller_id} ->
-        call_poller_get_results(poller_id, service)
+    case find_gateway_for_agent(tenant_id, service.agent_uid) do
+      {:ok, gateway_id} ->
+        call_gateway_get_results(gateway_id, service)
 
-      {:error, :no_poller} ->
-        {:error, :no_poller_available}
+      {:error, :no_gateway} ->
+        {:error, :no_gateway_available}
     end
   end
 
-  defp find_poller_for_agent(tenant_id, _agent_uid) do
-    # Look up available pollers for this tenant
-    # The poller will find the appropriate agent
-    case PollerRegistry.find_available_pollers(tenant_id) do
-      [poller | _rest] ->
-        # For now, use first available poller
-        # TODO: Could be smarter about routing to the right poller based on agent_uid
-        poller_id = poller[:poller_id]
-        {:ok, poller_id}
+  defp find_gateway_for_agent(tenant_id, _agent_uid) do
+    # Look up available gateways for this tenant
+    # The gateway will find the appropriate agent
+    case GatewayRegistry.find_available_gateways(tenant_id) do
+      [gateway | _rest] ->
+        # For now, use first available gateway
+        # TODO: Could be smarter about routing to the right gateway based on agent_uid
+        gateway_id = gateway[:gateway_id]
+        {:ok, gateway_id}
 
       [] ->
-        {:error, :no_poller}
+        {:error, :no_gateway}
     end
   end
 
-  defp call_poller_health_check(poller_id, service) do
-    # Call the poller process to perform health check
-    # The poller will forward to the agent via gRPC
+  defp call_gateway_health_check(gateway_id, service) do
+    # Call the gateway process to perform health check
+    # The gateway will forward to the agent via gRPC
     try do
-      PollerProcess.health_check(poller_id, service)
+      GatewayProcess.health_check(gateway_id, service)
     catch
       :exit, {:timeout, _} ->
         {:error, :timeout}
@@ -497,9 +497,9 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     end
   end
 
-  defp call_poller_get_results(poller_id, service) do
+  defp call_gateway_get_results(gateway_id, service) do
     try do
-      PollerProcess.get_results(poller_id, service)
+      GatewayProcess.get_results(gateway_id, service)
     catch
       :exit, {:timeout, _} ->
         {:error, :timeout}

@@ -49,6 +49,8 @@ var (
 	ErrKVSPIFFEIDNotFound = errors.New("kv_spiffe_id not found in metadata")
 	// ErrAgentIDNotFound is returned when agent_id is missing from metadata.
 	ErrAgentIDNotFound = errors.New("agent_id not found in metadata")
+	// ErrGatewayAddrRequired is returned when gateway_addr is missing for agent bootstrap config.
+	ErrGatewayAddrRequired = errors.New("gateway_addr is required to generate agent bootstrap config")
 )
 
 // generateServiceConfig generates configuration files for the service based on:
@@ -195,49 +197,50 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 }
 
 // generateAgentConfig generates configuration for an agent service.
+// Per the SaaS connectivity spec, the bootstrap config is minimal:
+// - agent_id: Agent identifier
+// - gateway_addr: SaaS gateway endpoint
+// - gateway_security: mTLS configuration
+// All monitoring configuration is delivered via GetConfig after connection.
 func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Generating agent configuration")
+	b.logger.Debug().Msg("Generating minimal agent bootstrap configuration")
 
-	// Get KV address from metadata (datasvc_endpoint) or fall back to bootstrap config
-	kvEndpoint := b.cfg.KVEndpoint
-	if datasvcEndpoint, ok := metadata["datasvc_endpoint"].(string); ok && datasvcEndpoint != "" {
-		kvEndpoint = datasvcEndpoint
+	// Get gateway address from config or metadata
+	gatewayEndpoint := b.cfg.GatewayEndpoint
+	if gwAddr, ok := metadata["gateway_addr"].(string); ok && gwAddr != "" {
+		gatewayEndpoint = gwAddr
 	}
-	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
+	if gatewayEndpoint == "" {
+		return ErrGatewayAddrRequired
+	}
 
-	// Generate agent config JSON
+	// Generate minimal agent config JSON per SaaS connectivity spec
 	config := map[string]interface{}{
-		"agent_id":     b.pkg.ComponentID,
-		"label":        b.pkg.Label,
-		"component_id": b.pkg.ComponentID,
-		"parent_id":    b.pkg.ParentID, // Parent poller ID
+		// Agent identity
+		"agent_id": b.pkg.ComponentID,
 
-		// Service endpoints
-		"kv_address": kvAddr,
+		// Gateway connection (required) - all config delivered via GetConfig
+		"gateway_addr": gatewayEndpoint,
 
-		// SPIFFE configuration
-		"agent_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		// mTLS security configuration
+		"gateway_security": map[string]interface{}{
+			"mode":      "mtls",
+			"cert_file": filepath.Join(b.cfg.StoragePath, "certs/component.pem"),
+			"key_file":  filepath.Join(b.cfg.StoragePath, "certs/component-key.pem"),
+			"ca_file":   filepath.Join(b.cfg.StoragePath, "certs/ca-chain.pem"),
+		},
 
-		// SPIRE workload API (from parent poller)
-		"spire_workload_api_socket": "/run/spire/nested/workload/agent.sock",
-
-		// Storage paths
-		"data_dir":   filepath.Join(b.cfg.StoragePath, "agent"),
-		"config_dir": filepath.Join(b.cfg.StoragePath, "config"),
-
-		// Deployment info
+		// Deployment info (informational only)
 		"deployment_type": string(b.deploymentType),
-		"site":            b.pkg.Site,
 	}
 
-	// Merge any additional metadata
-	for k, v := range metadata {
-		if _, exists := config[k]; !exists {
-			config[k] = v
-		}
-	}
+	// NOTE: The following are NOT included in bootstrap config:
+	// - kv_address: Agents get config from gateway via GetConfig
+	// - checker configs: Delivered via GetConfig
+	// - sweep configs: Delivered via GetConfig
+	// - tenant_id/slug: Derived from mTLS cert during Hello
 
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
@@ -249,60 +252,52 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 
 	b.logger.Debug().
 		Str("agent_id", b.pkg.ComponentID).
-		Str("parent_id", b.pkg.ParentID).
-		Str("kv_address", kvAddr).
-		Msg("Generated agent configuration")
+		Str("gateway_addr", gatewayEndpoint).
+		Msg("Generated minimal agent bootstrap configuration")
 
 	return nil
 }
 
 // generateCheckerConfig generates configuration for a checker service.
+// Checkers connect to the local agent and receive their configuration
+// from the agent, which in turn gets it from the gateway via GetConfig.
+// The bootstrap config is minimal: checker_id + parent agent connection info.
 func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Generating checker configuration")
+	b.logger.Debug().Msg("Generating minimal checker bootstrap configuration")
 
-	// Parse checker-specific config from package
-	var checkerConfig map[string]interface{}
-	if b.pkg.CheckerConfigJSON != "" {
-		if err := json.Unmarshal([]byte(b.pkg.CheckerConfigJSON), &checkerConfig); err != nil {
-			return fmt.Errorf("unmarshal checker config: %w", err)
-		}
-	} else {
-		checkerConfig = make(map[string]interface{})
+	agentAddr := "localhost:50051"
+	if v, ok := metadata["agent_address"].(string); ok && v != "" {
+		agentAddr = v
 	}
 
-	// Generate checker config JSON
+	// Generate minimal checker config JSON
+	// Checkers connect to the local agent, which provides configuration
 	config := map[string]interface{}{
+		// Checker identity
 		"checker_id":   b.pkg.ComponentID,
 		"checker_kind": b.pkg.CheckerKind,
-		"label":        b.pkg.Label,
-		"component_id": b.pkg.ComponentID,
 		"parent_id":    b.pkg.ParentID, // Parent agent ID
 
-		// SPIFFE configuration
-		"checker_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		// Agent connection - checkers connect to the agent
+		"agent_address": agentAddr,
 
-		// SPIRE workload API
-		"spire_workload_api_socket": "/run/spire/workload/agent.sock",
+		// mTLS security configuration
+		"security": map[string]interface{}{
+			"mode":      "mtls",
+			"cert_file": filepath.Join(b.cfg.StoragePath, "certs/component.pem"),
+			"key_file":  filepath.Join(b.cfg.StoragePath, "certs/component-key.pem"),
+			"ca_file":   filepath.Join(b.cfg.StoragePath, "certs/ca-chain.pem"),
+		},
 
-		// Checker-specific configuration
-		"checker_config": checkerConfig,
-
-		// Storage paths
-		"data_dir": filepath.Join(b.cfg.StoragePath, "checker"),
-
-		// Deployment info
+		// Deployment info (informational only)
 		"deployment_type": string(b.deploymentType),
-		"site":            b.pkg.Site,
 	}
 
-	// Merge any additional metadata
-	for k, v := range metadata {
-		if _, exists := config[k]; !exists {
-			config[k] = v
-		}
-	}
+	// NOTE: Checker-specific configuration (targets, intervals, etc.)
+	// is delivered from the agent, which receives it via GetConfig
+	// from the gateway. No checker config is included in bootstrap.
 
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
@@ -316,7 +311,7 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		Str("checker_id", b.pkg.ComponentID).
 		Str("checker_kind", b.pkg.CheckerKind).
 		Str("parent_id", b.pkg.ParentID).
-		Msg("Generated checker configuration")
+		Msg("Generated minimal checker bootstrap configuration")
 
 	return nil
 }

@@ -1,17 +1,16 @@
 {
   "checkers_dir": "/etc/serviceradar/checkers",
-  "listen_addr": ":50051",
-  "service_type": "grpc",
-  "service_name": "AgentService",
   "agent_id": "default-agent",
   "agent_name": "127.0.0.1",
   "host_ip": "PLACEHOLDER_HOST_IP",
   "partition": "default",
-  "security": {
+  "gateway_addr": "agent-gateway:50052",
+  "push_interval": "30s",
+  "gateway_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "127.0.0.1",
-    "role": "agent",
+    "server_name": "agent-gateway",
+    "role": "client",
     "tls": {
       "cert_file": "agent.pem",
       "key_file": "agent-key.pem",

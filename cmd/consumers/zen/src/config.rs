@@ -362,6 +362,7 @@ mod tests {
             result_subject_suffix: None,
             decision_keys: Vec::new(),
             decision_groups: Vec::new(),
+            nats_creds_file: None,
             kv_bucket: String::new(),
             agent_id: String::new(),
             listen_addr: String::new(),

@@ -77,7 +77,8 @@ config :serviceradar_web_ng, :feature_flags, ash_srql_adapter: true
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 # Oban job processing configuration
-# Configured in serviceradar_core, but we add web-specific cron jobs here
+# web-ng only processes jobs, it does NOT schedule them
+# core-elx is the Oban coordinator and handles all scheduled/cron jobs
 config :serviceradar_core, Oban,
   repo: ServiceRadar.Repo,
   queues: [
@@ -95,11 +96,8 @@ config :serviceradar_core, Oban,
   ],
   plugins: [
     # Keep jobs for 7 days
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-    {Oban.Plugins.Cron,
-     crontab: [
-       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
-     ]}
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+    # No Cron plugin - core-elx handles all scheduled jobs
   ],
   peer: Oban.Peers.Database
 

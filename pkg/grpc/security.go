@@ -251,6 +251,9 @@ func normalizePaths(config *models.SecurityConfig, log logger.Logger) (certPath,
 		log.Info().Str("caFile", config.TLS.CAFile).Msg("ClientCAFile not specified, using CAFile for client verification")
 
 		clientCaPath = config.TLS.CAFile
+		if clientCaPath != "" && !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
+			clientCaPath = filepath.Join(config.CertDir, clientCaPath)
+		}
 	} else if !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
 		clientCaPath = filepath.Join(config.CertDir, clientCaPath)
 

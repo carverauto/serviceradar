@@ -46,7 +46,8 @@ defmodule ServiceRadarWebNG.Edge.EnrollmentToken do
     secret = Keyword.get(opts, :secret) || generate_secret()
 
     # Calculate expiry timestamp
-    expiry = DateTime.utc_now() |> DateTime.add(expiry_hours * 3600, :second) |> DateTime.to_unix()
+    expiry =
+      DateTime.utc_now() |> DateTime.add(expiry_hours * 3600, :second) |> DateTime.to_unix()
 
     # Build the token payload
     payload = %{

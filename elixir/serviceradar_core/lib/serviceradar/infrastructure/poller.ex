@@ -1,42 +1,9 @@
 defmodule ServiceRadar.Infrastructure.Poller do
   @moduledoc """
-  Poller resource for managing polling nodes.
+  Poller resource for managing poller nodes.
 
-  Pollers are job orchestrators - they do NOT perform checks directly.
-  They receive scheduled jobs (via AshOban), find available agents via
-  Horde registry, and dispatch work to agents via RPC.
-
-  ## Role
-
-  Pollers have a single, well-defined role in the monitoring architecture:
-  1. **Receive** - Accept scheduled monitoring jobs from AshOban scheduler
-  2. **Select** - Find available agents via Horde.Registry lookup
-  3. **Dispatch** - Execute RPC calls to agents to perform actual checks
-
-  Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
-  Pollers do not have capabilities - they only orchestrate work.
-
-  ## Status Values
-
-  - `active` - Poller is healthy and receiving jobs
-  - `degraded` - Poller has issues but is still operating
-  - `inactive` - Poller is offline or unresponsive
-  - `draining` - Poller is shutting down gracefully
+  Pollers orchestrate checks for agents and report health/status.
   """
-
-  @role_description "Pollers orchestrate monitoring jobs but do not perform checks directly. They receive scheduled jobs and dispatch work to available agents."
-
-  @role_steps [
-    %{key: "receive", label: "JOB", description: "Receive scheduled jobs"},
-    %{key: "select", label: "SELECT", description: "Find available agents"},
-    %{key: "dispatch", label: "DISPATCH", description: "RPC work to agents"}
-  ]
-
-  @doc "Returns the role description for pollers"
-  def role_description, do: @role_description
-
-  @doc "Returns the role steps that pollers perform"
-  def role_steps, do: @role_steps
 
   use Ash.Resource,
     domain: ServiceRadar.Infrastructure,
@@ -54,27 +21,12 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     routes do
       base "/pollers"
-
-      # Read operations
       get :by_id
       index :read
       index :active, route: "/active"
-
-      # Registration
       post :register
-
-      # State machine transitions
-      patch :activate, route: "/:id/activate"
-      patch :degrade, route: "/:id/degrade"
-      patch :go_offline, route: "/:id/offline"
-      patch :recover, route: "/:id/recover"
-      patch :restore_health, route: "/:id/restore"
-      patch :start_maintenance, route: "/:id/maintenance/start"
-      patch :end_maintenance, route: "/:id/maintenance/end"
-      patch :start_draining, route: "/:id/drain/start"
-      patch :finish_draining, route: "/:id/drain/finish"
-      patch :deactivate, route: "/:id/deactivate"
       patch :heartbeat, route: "/:id/heartbeat"
+      patch :update, route: "/:id"
     end
   end
 
@@ -91,30 +43,16 @@ defmodule ServiceRadar.Infrastructure.Poller do
     deprecated_states []
 
     transitions do
-      # Activation transitions
       transition :activate, from: :inactive, to: :healthy
-
-      # Health degradation
       transition :degrade, from: :healthy, to: :degraded
       transition :heartbeat_timeout, from: [:healthy, :degraded], to: :degraded
-
-      # Going offline
       transition :go_offline, from: [:healthy, :degraded, :draining], to: :offline
-      transition :lose_connection, from: [:healthy, :degraded], to: :offline
-
-      # Recovery
       transition :recover, from: [:degraded, :offline, :recovering], to: :recovering
       transition :restore_health, from: [:degraded, :recovering], to: :healthy
-
-      # Maintenance mode
       transition :start_maintenance, from: [:healthy, :degraded], to: :maintenance
       transition :end_maintenance, from: :maintenance, to: :healthy
-
-      # Graceful shutdown
       transition :start_draining, from: [:healthy, :degraded], to: :draining
       transition :finish_draining, from: :draining, to: :offline
-
-      # Deactivation
       transition :deactivate, from: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining], to: :inactive
     end
   end
@@ -122,8 +60,8 @@ defmodule ServiceRadar.Infrastructure.Poller do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_active, action: :active
-    define :list_by_partition, action: :by_partition, args: [:partition_slug]
-    define :list_by_partition_id, action: :by_partition_id, args: [:partition_id]
+    define :list_by_status, action: :by_status, args: [:status]
+    define :list_recent, action: :recently_seen
   end
 
   actions do
@@ -136,14 +74,16 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     read :active do
-      description "All active pollers"
+      description "All healthy pollers"
       filter expr(status == :healthy and is_healthy == true)
     end
 
     read :by_status do
       argument :status, :atom,
         allow_nil?: false,
-        constraints: [one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]]
+        constraints: [
+          one_of: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining, :inactive]
+        ]
 
       filter expr(status == ^arg(:status))
     end
@@ -151,30 +91,6 @@ defmodule ServiceRadar.Infrastructure.Poller do
     read :recently_seen do
       description "Pollers seen in the last 5 minutes"
       filter expr(last_seen > ago(5, :minute))
-    end
-
-    read :by_partition do
-      description "Find active pollers in a specific partition"
-      argument :partition_slug, :string, allow_nil?: false
-
-      filter expr(
-               status == :healthy and
-                 is_healthy == true and
-                 partition.slug == ^arg(:partition_slug)
-             )
-
-      prepare build(load: [:partition])
-    end
-
-    read :by_partition_id do
-      description "Find active pollers by partition UUID"
-      argument :partition_id, :uuid, allow_nil?: false
-
-      filter expr(
-               status == :healthy and
-                 is_healthy == true and
-                 partition_id == ^arg(:partition_id)
-             )
     end
 
     create :register do
@@ -186,7 +102,8 @@ defmodule ServiceRadar.Infrastructure.Poller do
         :registration_source,
         :spiffe_identity,
         :metadata,
-        :created_by
+        :created_by,
+        :partition_id
       ]
 
       change fn changeset, _context ->
@@ -214,8 +131,17 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
 
-    # State machine transition actions
-    # Each action includes PublishStateChange to emit NATS events
+    update :set_status do
+      description "Set poller status explicitly"
+      argument :status, :atom,
+        allow_nil?: false,
+        constraints: [
+          one_of: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining, :inactive]
+        ]
+
+      change set_attribute(:status, arg(:status))
+      change set_attribute(:updated_at, &DateTime.utc_now/0)
+    end
 
     update :activate do
       description "Activate an inactive poller"
@@ -229,7 +155,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :degrade do
-      description "Mark poller as degraded (having issues)"
+      description "Mark poller as degraded"
       argument :reason, :string
       require_atomic? false
 
@@ -260,18 +186,8 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
     end
 
-    update :lose_connection do
-      description "Mark poller as offline due to lost connection"
-      require_atomic? false
-
-      change transition_state(:offline)
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :offline}
-    end
-
     update :recover do
-      description "Start recovery process for degraded/offline poller"
+      description "Start recovery from degraded/offline"
       require_atomic? false
 
       change transition_state(:recovering)
@@ -291,7 +207,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :start_maintenance do
-      description "Put poller into maintenance mode"
+      description "Put poller into maintenance"
       require_atomic? false
 
       change transition_state(:maintenance)
@@ -300,7 +216,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :end_maintenance do
-      description "End maintenance mode, return to healthy"
+      description "End maintenance mode"
       require_atomic? false
 
       change transition_state(:healthy)
@@ -310,7 +226,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :start_draining do
-      description "Start graceful shutdown (draining)"
+      description "Start draining poller"
       require_atomic? false
 
       change transition_state(:draining)
@@ -319,7 +235,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :finish_draining do
-      description "Finish draining, go offline"
+      description "Finish draining and go offline"
       require_atomic? false
 
       change transition_state(:offline)
@@ -329,7 +245,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     end
 
     update :deactivate do
-      description "Deactivate a poller (admin action)"
+      description "Deactivate poller"
       require_atomic? false
 
       change transition_state(:inactive)
@@ -338,9 +254,8 @@ defmodule ServiceRadar.Infrastructure.Poller do
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :poller, new_state: :inactive}
     end
 
-    # Legacy compatibility aliases
     update :mark_unhealthy do
-      description "Mark poller as unhealthy (legacy - use degrade)"
+      description "Legacy: mark poller as unhealthy"
       require_atomic? false
 
       change transition_state(:degraded)
@@ -351,23 +266,24 @@ defmodule ServiceRadar.Infrastructure.Poller do
   end
 
   policies do
-    # Super admins can see all pollers across tenants
     bypass always() do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Tenant isolation: users can only see pollers in their tenant
     policy action_type(:read) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
 
-    # Allow create/update for pollers in user's tenant
-    policy action_type(:create) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+    policy action(:register) do
+      authorize_if expr(^actor(:role) in [:admin, :operator])
     end
 
-    policy action_type(:update) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+    policy action([:update, :heartbeat]) do
+      authorize_if expr(^actor(:role) in [:admin, :operator] and tenant_id == ^actor(:tenant_id))
+    end
+
+    policy action([:set_status, :mark_unhealthy, :deactivate]) do
+      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
   end
 
@@ -382,20 +298,20 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     attribute :component_id, :string do
       public? true
-      description "Component identifier for hierarchical organization"
+      description "Component identifier"
     end
 
     attribute :registration_source, :string do
       public? true
-      description "How the poller was registered (auto, manual, kubernetes)"
+      description "How the poller was registered"
     end
 
     attribute :status, :atom do
       allow_nil? false
       default :inactive
       public? true
-      constraints one_of: [:inactive, :healthy, :degraded, :offline, :recovering, :maintenance, :draining]
-      description "Current operational status (state machine managed)"
+      constraints one_of: [:healthy, :degraded, :offline, :recovering, :maintenance, :draining, :inactive]
+      description "Current operational status"
     end
 
     attribute :spiffe_identity, :string do
@@ -410,12 +326,12 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     attribute :first_seen, :utc_datetime do
       public? true
-      description "When poller was first seen online"
+      description "When poller first seen online"
     end
 
     attribute :last_seen, :utc_datetime do
       public? true
-      description "When poller was last seen online"
+      description "When poller last seen online"
     end
 
     attribute :metadata, :map do
@@ -452,14 +368,12 @@ defmodule ServiceRadar.Infrastructure.Poller do
       description "Last update time"
     end
 
-    # Multi-tenancy
     attribute :tenant_id, :uuid do
       allow_nil? false
       public? false
       description "Tenant this poller belongs to"
     end
 
-    # Partition assignment
     attribute :partition_id, :uuid do
       public? true
       description "Partition this poller is assigned to"
@@ -495,22 +409,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
                   status == :maintenance -> "purple"
                   status == :inactive -> "gray"
                   status == :offline -> "red"
-                  true -> "red"
-                end
-              )
-
-    calculate :status_label,
-              :string,
-              expr(
-                cond do
-                  status == :healthy -> "Healthy"
-                  status == :degraded -> "Degraded"
-                  status == :offline -> "Offline"
-                  status == :recovering -> "Recovering"
-                  status == :maintenance -> "Maintenance"
-                  status == :draining -> "Draining"
-                  status == :inactive -> "Inactive"
-                  true -> "Unknown"
+                  true -> "gray"
                 end
               )
 

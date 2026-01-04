@@ -29,18 +29,17 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 // Server represents the main agent server that handles checker coordination and service management.
+// In push-mode, the Server coordinates checkers and services, collecting their status
+// to be pushed to the gateway by PushLoop.
 type Server struct {
-	proto.UnimplementedAgentServiceServer
 	mu                 sync.RWMutex
 	checkers           map[string]checker.Checker
 	checkerConfs       map[string]*CheckerConfig
 	configDir          string
 	services           []Service
-	listenAddr         string
 	registry           checker.Registry
 	errChan            chan error
 	done               chan struct{}
@@ -90,12 +89,20 @@ type ServerConfig struct {
 	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
 	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
 	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
-	ListenAddr  string                 `json:"listen_addr"`
-	Security    *models.SecurityConfig `json:"security" hot:"rebuild"`
-	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
+	Security    *models.SecurityConfig `json:"security,omitempty"`   // Security config for checker connections
+	KVAddress   string                 `json:"kv_address,omitempty"` // Optional KV store address
 	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
 	CheckersDir string                 `json:"checkers_dir"`
 	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
+
+	// Gateway configuration for push-based architecture
+	GatewayAddr     string                 `json:"gateway_addr,omitempty"`     // Address of the agent-gateway to push status to
+	GatewaySecurity *models.SecurityConfig `json:"gateway_security,omitempty"` // Security config for gateway connection
+	PushInterval    Duration               `json:"push_interval,omitempty"`    // How often to push status (default: 30s)
+
+	// Multi-tenant configuration
+	TenantID   string `json:"tenant_id,omitempty"`   // Tenant UUID for multi-tenant routing
+	TenantSlug string `json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
 }
 
 // CheckerConnection represents a connection to an external checker service.

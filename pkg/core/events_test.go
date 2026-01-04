@@ -32,12 +32,21 @@ import (
 func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	jsServer := runJetStreamServer(t)
 	t.Cleanup(func() {
-		jsServer.Shutdown()
+		shutdownDone := make(chan struct{})
+		go func() {
+			jsServer.Shutdown()
+			close(shutdownDone)
+		}()
+
+		select {
+		case <-shutdownDone:
+		case <-time.After(2 * time.Second):
+		}
 	})
 
 	config := &models.CoreServiceConfig{
@@ -63,7 +72,7 @@ func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 		server.mu.RLock()
 		defer server.mu.RUnlock()
 		return server.natsConn != nil && server.natsConn.Status() == nats.CONNECTED
-	}, 5*time.Second, 50*time.Millisecond, "initial NATS connection not established")
+	}, 4*time.Second, 50*time.Millisecond, "initial NATS connection not established")
 
 	server.mu.RLock()
 	originalConn := server.natsConn
@@ -80,7 +89,7 @@ func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 		}
 
 		return server.natsConn.Status() == nats.CONNECTED
-	}, 15*time.Second, 100*time.Millisecond, "event publisher did not reinitialize after connection close")
+	}, 5*time.Second, 100*time.Millisecond, "event publisher did not reinitialize after connection close")
 
 	publishCtx, cancelPublish := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelPublish()

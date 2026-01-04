@@ -26,9 +26,25 @@ service AgentService {
   rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
 }
 
+// Deprecated: Use AgentGatewayService instead. PollerService will be removed in a future release.
 service PollerService {
   rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
   rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
+}
+
+// AgentGatewayService receives status pushes from agents.
+// Agents connect outbound to the gateway and push their status/results.
+service AgentGatewayService {
+  // Hello is called by the agent on startup to announce itself and enroll.
+  // The gateway validates the mTLS certificate and registers the agent.
+  rpc Hello(AgentHelloRequest) returns (AgentHelloResponse) {}
+  // GetConfig is called by the agent to fetch its configuration.
+  // Supports versioning - returns not_modified if config hasn't changed.
+  rpc GetConfig(AgentConfigRequest) returns (AgentConfigResponse) {}
+  // PushStatus sends a batch of service statuses from the agent to the gateway.
+  rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
+  // StreamStatus streams service status chunks for large payloads.
+  rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -39,19 +55,21 @@ message StatusRequest {
   string service_name = 1; // Type of service to check (process, port, dusk)
   string service_type = 2; // Type of service (process, port, grpc, etc)
   string agent_id = 3;     // Agent ID for traceability
-  string poller_id = 4;    // Poller ID for traceability
+  string poller_id = 4;    // Poller ID for traceability (legacy)
   string details = 5;      // Additional details (e.g., process name)
   int32 port = 6;          // Port number for port checks
+  string gateway_id = 7;   // Gateway ID for traceability
 }
 
 message ResultsRequest {
   string service_name = 1; // Name of the service to get results from
   string service_type = 2; // Type of service (grpc, etc)
   string agent_id = 3;     // Agent ID for traceability
-  string poller_id = 4;    // Poller ID for traceability
+  string poller_id = 4;    // Poller ID for traceability (legacy)
   string details = 5;      // Additional details
   string last_sequence = 6; // Last sequence received by poller
   SweepCompletionStatus completion_status = 7; // Completion status reported by poller
+  string gateway_id = 8;   // Gateway ID for traceability
 }
 
 message StatusResponse {
@@ -61,7 +79,8 @@ message StatusResponse {
   string service_type = 4;
   int64 response_time = 5;
   string agent_id = 6;
-  string poller_id = 7;
+  string poller_id = 7;    // Poller ID for traceability (legacy)
+  string gateway_id = 8;   // Gateway ID for traceability
 }
 
 message ResultsResponse {
@@ -71,11 +90,12 @@ message ResultsResponse {
   string service_type = 4;
   int64 response_time = 5;
   string agent_id = 6;
-  string poller_id = 7;
+  string poller_id = 7;    // Poller ID for traceability (legacy)
   int64 timestamp = 8;     // When results were generated
   string current_sequence = 9; // Current sequence of this response
   bool has_new_data = 10;     // Whether data changed since last_sequence
   SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
+  string gateway_id = 12;   // Gateway ID for traceability
 }
 
 message PollerStatusRequest {
@@ -154,4 +174,130 @@ message PollerStatusChunk {
   int32 chunk_index = 8;       // Order of this chunk
   int32 total_chunks = 9;      // Total number of chunks
   string kv_store_id = 10;     // KV store identifier this service is using
+}
+
+// GatewayStatusRequest is sent by agents to push their status to the gateway.
+message GatewayStatusRequest {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;       // Gateway receiving this status
+  string agent_id = 3;         // Agent sending this status
+  int64 timestamp = 4;
+  string partition = 5;        // Partition identifier
+  string source_ip = 6;        // Host IP where agent is running
+  string kv_store_id = 7;      // KV store identifier this agent is using
+  string tenant_id = 8;        // Tenant UUID for multi-tenant routing
+  string tenant_slug = 9;      // Tenant slug for NATS subject prefixing
+}
+
+// GatewayStatusResponse is the response from the gateway after receiving status.
+message GatewayStatusResponse {
+  bool received = 1;
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+message GatewayStatusChunk {
+  repeated GatewayServiceStatus services = 1;
+  string gateway_id = 2;
+  string agent_id = 3;
+  int64 timestamp = 4;
+  string partition = 5;
+  string source_ip = 6;
+  bool is_final = 7;           // Whether this is the last chunk
+  int32 chunk_index = 8;       // Order of this chunk
+  int32 total_chunks = 9;      // Total number of chunks
+  string kv_store_id = 10;     // KV store identifier this agent is using
+  string tenant_id = 11;       // Tenant UUID for multi-tenant routing
+  string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
+}
+
+// GatewayServiceStatus represents a single service status pushed by an agent.
+message GatewayServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  bytes message = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;         // Agent ID for traceability
+  string gateway_id = 7;       // Gateway ID for traceability
+  string partition = 8;        // Partition identifier
+  string source = 9;           // Source of the message: "status" or "results"
+  string kv_store_id = 10;     // KV store identifier this service is using
+  string tenant_id = 11;       // Tenant UUID for multi-tenant routing
+  string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
+}
+
+// ============================================================================
+// Agent Hello/Enrollment Messages
+// ============================================================================
+
+// AgentHelloRequest is sent by the agent on startup to announce itself.
+message AgentHelloRequest {
+  string agent_id = 1;              // Unique agent identifier (from bootstrap config)
+  string version = 2;               // Agent software version (e.g., "1.2.3")
+  repeated string capabilities = 3; // Agent capabilities (e.g., ["icmp", "tcp", "http", "sweep"])
+  string hostname = 4;              // Host machine name
+  string os = 5;                    // Operating system (e.g., "linux", "darwin", "windows")
+  string arch = 6;                  // Architecture (e.g., "amd64", "arm64")
+  string partition = 7;             // Partition/site identifier
+  string config_version = 8;        // Current config version hash (for config sync)
+  map<string, string> labels = 9;   // Optional labels/tags for grouping
+}
+
+// AgentHelloResponse is returned by the gateway after validating the agent.
+message AgentHelloResponse {
+  bool accepted = 1;                // Whether the agent was accepted
+  string agent_id = 2;              // Confirmed agent ID (may be assigned if not provided)
+  string message = 3;               // Human-readable status message
+  string gateway_id = 4;            // Gateway that accepted the connection
+  int64 server_time = 5;            // Server timestamp (for clock sync)
+  int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
+  bool config_outdated = 7;         // True if agent should fetch new config
+  string tenant_id = 8;             // Tenant UUID (extracted from mTLS cert)
+  string tenant_slug = 9;           // Tenant slug (extracted from mTLS cert)
+}
+
+// ============================================================================
+// Agent Configuration Messages
+// ============================================================================
+
+// AgentConfigRequest is sent by the agent to fetch its configuration.
+message AgentConfigRequest {
+  string agent_id = 1;              // Agent requesting config
+  string config_version = 2;        // Current config version hash (for cache validation)
+}
+
+// AgentConfigResponse contains the agent's configuration from the SaaS control plane.
+message AgentConfigResponse {
+  bool not_modified = 1;            // True if config_version matches current; config fields empty
+  string config_version = 2;        // New config version hash
+  int64 config_timestamp = 3;       // When config was last updated (unix timestamp)
+
+  // Agent settings
+  int32 heartbeat_interval_sec = 4; // How often to push status (seconds)
+  int32 config_poll_interval_sec = 5; // How often to check for config updates (seconds)
+
+  // Checks to perform
+  repeated AgentCheckConfig checks = 6;
+
+  // Optional: raw JSON config for extensibility
+  bytes config_json = 7;
+}
+
+// AgentCheckConfig defines a single check for the agent to perform.
+message AgentCheckConfig {
+  string check_id = 1;              // Unique check identifier
+  string check_type = 2;            // Type: "icmp", "tcp", "http", "grpc", "process", "sweep"
+  string name = 3;                  // Human-readable name
+  bool enabled = 4;                 // Whether check is active
+  int32 interval_sec = 5;           // Check interval in seconds
+  int32 timeout_sec = 6;            // Check timeout in seconds
+
+  // Target configuration (interpretation depends on check_type)
+  string target = 7;                // Target host/IP/URL
+  int32 port = 8;                   // Target port (for tcp, http, grpc)
+  string path = 9;                  // Path (for http checks)
+  string method = 10;               // HTTP method (for http checks)
+
+  // Additional settings as key-value pairs
+  map<string, string> settings = 11;
 }

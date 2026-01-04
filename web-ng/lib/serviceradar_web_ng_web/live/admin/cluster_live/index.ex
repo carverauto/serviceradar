@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
   import ServiceRadarWebNGWeb.AdminComponents
 
   alias ServiceRadar.Cluster.ClusterStatus
-  alias ServiceRadar.PollerRegistry
+  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
 
   @refresh_interval :timer.seconds(10)
@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
       |> assign(:page_title, "Cluster Dashboard")
       |> assign(:cluster_status, load_cluster_status())
       |> assign(:cluster_health, load_cluster_health())
-      |> assign(:pollers, load_pollers())
+      |> assign(:gateways, load_gateways())
       |> assign(:agents, load_agents())
       |> assign(:events, [])
 
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
      socket
      |> assign(:cluster_status, load_cluster_status())
      |> assign(:cluster_health, load_cluster_health())
-     |> assign(:pollers, load_pollers())
+     |> assign(:gateways, load_gateways())
      |> assign(:agents, load_agents())}
   end
 
@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
      socket
      |> assign(:cluster_status, load_cluster_status())
      |> assign(:cluster_health, load_cluster_health())
-     |> assign(:pollers, load_pollers())
+     |> assign(:gateways, load_gateways())
      |> assign(:agents, load_agents())}
   end
 
@@ -236,11 +236,11 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           </:header>
 
           <div class="overflow-x-auto">
-            <%= if @pollers == [] do %>
+            <%= if @gateways == [] do %>
               <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No pollers registered</div>
+                <div class="text-sm font-semibold text-base-content">No gateways registered</div>
                 <p class="mt-1 text-xs text-base-content/60">
-                  Deploy standalone poller releases to edge/bare metal/Docker/K8s to join the cluster.
+                  Deploy standalone gateway releases to edge/bare metal/Docker/K8s to join the cluster.
                 </p>
               </div>
             <% else %>
@@ -255,20 +255,20 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for poller <- @pollers do %>
+                  <%= for gateway <- @gateways do %>
                     <tr>
-                      <td class="font-mono text-xs">{Map.get(poller, :partition_id, "—")}</td>
-                      <td class="font-mono text-xs">{format_node(Map.get(poller, :node))}</td>
+                      <td class="font-mono text-xs">{Map.get(gateway, :partition_id, "—")}</td>
+                      <td class="font-mono text-xs">{format_node(Map.get(gateway, :node))}</td>
                       <td>
                         <div class="flex flex-wrap gap-1">
-                          <%= for cap <- Map.get(poller, :capabilities, []) do %>
+                          <%= for cap <- Map.get(gateway, :capabilities, []) do %>
                             <.ui_badge variant="ghost" size="xs">{cap}</.ui_badge>
                           <% end %>
                         </div>
                       </td>
-                      <td><.status_badge status={Map.get(poller, :status)} /></td>
+                      <td><.status_badge status={Map.get(gateway, :status)} /></td>
                       <td class="text-xs text-base-content/70">
-                        {format_timestamp(Map.get(poller, :last_heartbeat))}
+                        {format_timestamp(Map.get(gateway, :last_heartbeat))}
                       </td>
                     </tr>
                   <% end %>
@@ -493,8 +493,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
     _ -> %{poller_count: 0, agent_count: 0, status: :unknown}
   end
 
-  defp load_pollers do
-    PollerRegistry.all_pollers()
+  defp load_gateways do
+    GatewayRegistry.all_gateways()
   rescue
     _ -> []
   end

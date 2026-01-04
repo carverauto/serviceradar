@@ -176,7 +176,7 @@ defmodule ServiceRadar.ClusterHealth do
     connected_nodes = Node.list()
     node_count = length(connected_nodes) + 1
 
-    poller_count = safe_count(ServiceRadar.PollerRegistry)
+    poller_count = safe_count(ServiceRadar.GatewayRegistry)
     agent_count = safe_count(ServiceRadar.AgentRegistry)
     event_writer = get_event_writer_status()
 

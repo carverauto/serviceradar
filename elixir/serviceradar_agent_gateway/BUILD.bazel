@@ -1,0 +1,30 @@
+load("//build:mix_release.bzl", "mix_release")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "_build/**",
+            "deps/**",
+            "tmp/**",
+        ],
+    ),
+)
+
+mix_release(
+    name = "release_tar",
+    srcs = [":srcs"],
+    out = "serviceradar-agent-gateway-release.tar.gz",
+    src_dir = "elixir/serviceradar_agent_gateway",
+    run_assets = False,
+    extra_dirs = ["elixir/serviceradar_core"],
+    extra_dir_srcs = ["//elixir/serviceradar_core:srcs"],
+    hex_cache = select({
+        "//build:use_hex_cache": "//build:hex_cache",
+        "//conditions:default": None,
+    }),
+)

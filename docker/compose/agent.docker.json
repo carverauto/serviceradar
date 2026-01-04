@@ -1,33 +1,18 @@
 {
   "checkers_dir": "/etc/serviceradar/checkers",
-  "listen_addr": ":50051",
-  "service_type": "grpc",
-  "service_name": "AgentService",
   "agent_id": "docker-agent",
   "agent_name": "agent",
   "host_ip": "agent",
   "partition": "default",
-  "kv_address": "serviceradar-datasvc:50057",
-  "kv_security": {
+  "gateway_addr": "agent-gateway:50052",
+  "push_interval": "30s",
+  "gateway_security": {
     "mode": "spiffe",
     "cert_dir": "/etc/serviceradar/certs",
     "trust_domain": "carverauto.dev",
-    "server_spiffe_id": "spiffe://carverauto.dev/services/datasvc",
+    "server_spiffe_id": "spiffe://carverauto.dev/services/agent-gateway",
     "workload_socket": "unix:///run/spire/sockets/agent.sock",
-    "role": "agent"
-  },
-  "security": {
-    "mode": "spiffe",
-    "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "carverauto.dev",
-    "server_spiffe_id": "spiffe://carverauto.dev/services/agent",
-    "workload_socket": "unix:///run/spire/sockets/agent.sock",
-    "role": "agent",
-    "tls": {
-      "cert_file": "agent.pem",
-      "key_file": "agent-key.pem",
-      "ca_file": "root.pem"
-    }
+    "role": "client"
   },
   "logging": {
     "level": "info",

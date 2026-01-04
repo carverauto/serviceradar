@@ -20,12 +20,16 @@ package snmp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+// ErrNilResultsChannel indicates the collector returned a nil results channel.
+var ErrNilResultsChannel = errors.New("collector returned nil results channel")
 
 // Check implements the checker interface by returning the overall status of all SNMP targets.
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
@@ -81,10 +85,31 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 
 // Start implements the Service interface.
 func (s *SNMPService) Start(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.logger.Info().Int("target_count", len(s.config.Targets)).Msg("Starting SNMP Service")
+
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
+		s.serviceCtx = nil
+
+		// Ensure collectors from the previous run are stopped and cleared.
+		for name, c := range s.collectors {
+			if err := c.Stop(); err != nil {
+				s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector during restart")
+			}
+		}
+		s.collectors = make(map[string]Collector)
+		s.aggregators = make(map[string]Aggregator)
+		s.status = make(map[string]TargetStatus)
+	}
+	select {
+	case <-s.done:
+		s.done = make(chan struct{})
+	default:
+	}
+	s.serviceCtx, s.cancel = context.WithCancel(ctx)
+	s.mu.Unlock()
 
 	// Initialize collectors for each target using indexing to avoid copying
 	for i := range s.config.Targets {
@@ -95,12 +120,15 @@ func (s *SNMPService) Start(ctx context.Context) error {
 			Int("oid_count", len(target.OIDs)).
 			Msg("Initializing target")
 
-		if err := s.initializeTarget(ctx, target); err != nil {
+		if err := s.initializeTarget(target); err != nil {
 			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
 		}
 	}
 
-	s.logger.Info().Int("collector_count", len(s.collectors)).Msg("SNMP Service started")
+	s.mu.RLock()
+	collectorCount := len(s.collectors)
+	s.mu.RUnlock()
+	s.logger.Info().Int("collector_count", collectorCount).Msg("SNMP Service started")
 
 	return nil
 }
@@ -109,6 +137,10 @@ func (s *SNMPService) Start(ctx context.Context) error {
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+	}
 
 	select {
 	case <-s.done:
@@ -137,14 +169,10 @@ func (s *SNMPService) Stop() error {
 
 // AddTarget implements the Service interface.
 func (s *SNMPService) AddTarget(ctx context.Context, target *Target) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, exists := s.collectors[target.Name]; exists {
-		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-
-	if err := s.initializeTarget(ctx, target); err != nil {
+	if err := s.initializeTarget(target); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
 	}
 
@@ -273,7 +301,7 @@ func jsonError(msg string) []byte {
 }
 
 // initializeTarget sets up collector and aggregator for a target.
-func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) error {
+func (s *SNMPService) initializeTarget(target *Target) error {
 	s.logger.Info().Str("target_name", target.Name).Msg("Creating collector for target")
 
 	// Create collector
@@ -293,14 +321,38 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		return fmt.Errorf("%w: %s", errFailedToCreateAggregator, target.Name)
 	}
 
-	// Start collector
-	if err := collector.Start(ctx); err != nil {
+	s.mu.RLock()
+	serviceCtx := s.serviceCtx
+	s.mu.RUnlock()
+	if serviceCtx == nil {
+		return ErrServiceNotStarted
+	}
+
+	// Start collector with the service context so it stops on service shutdown.
+	if err := collector.Start(serviceCtx); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
 	}
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Started collector for target")
 
+	// Start processing results
+	results := collector.GetResults()
+	if results == nil {
+		if err := collector.Stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop collector after nil results channel")
+		}
+		return ErrNilResultsChannel
+	}
+
 	// Store components
+	s.mu.Lock()
+	if _, exists := s.collectors[target.Name]; exists {
+		s.mu.Unlock()
+		if err := collector.Stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop duplicate collector")
+		}
+		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
+	}
 	s.collectors[target.Name] = collector
 	s.aggregators[target.Name] = aggregator
 
@@ -313,6 +365,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		HostName:  target.Name, // Target name for display
 		Target:    target,      // Include target configuration for internal use
 	}
+	s.mu.Unlock()
 
 	s.logger.Info().
 		Str("target_name", target.Name).
@@ -320,8 +373,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	// Start processing results
-	go s.processResults(ctx, target.Name, collector, aggregator)
+	go s.processResults(serviceCtx, target.Name, results, aggregator)
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Successfully initialized target")
 
@@ -329,9 +381,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 }
 
 // processResults handles the data points from a collector.
-func (s *SNMPService) processResults(ctx context.Context, targetName string, collector Collector, aggregator Aggregator) {
-	results := collector.GetResults()
-
+func (s *SNMPService) processResults(ctx context.Context, targetName string, results <-chan DataPoint, aggregator Aggregator) {
 	for {
 		select {
 		case <-ctx.Done():

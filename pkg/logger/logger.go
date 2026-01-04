@@ -21,6 +21,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -38,6 +39,12 @@ type LoggerInstance struct {
 //nolint:gochecknoglobals // singleton pattern for logger state
 var instance *LoggerInstance
 
+//nolint:gochecknoglobals // singleton pattern for logger initialization
+var (
+	initOnce sync.Once
+	initMu   sync.Mutex
+)
+
 type Config struct {
 	Level      string     `json:"level" yaml:"level"`
 	Debug      bool       `json:"debug" yaml:"debug"`
@@ -48,8 +55,13 @@ type Config struct {
 
 // initDefaults initializes the default logger instance
 func initDefaults() {
-	if instance == nil {
+	initOnce.Do(func() {
 		zerolog.TimeFieldFormat = time.RFC3339
+	})
+
+	initMu.Lock()
+	defer initMu.Unlock()
+	if instance == nil {
 		instance = &LoggerInstance{
 			logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
 		}

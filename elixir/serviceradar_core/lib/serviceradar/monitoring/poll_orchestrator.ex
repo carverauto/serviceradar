@@ -65,8 +65,8 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   require Logger
 
   alias ServiceRadar.Monitoring.PollJob
-  alias ServiceRadar.PollerRegistry
-  alias ServiceRadar.Edge.PollerProcess
+  alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Edge.GatewayProcess
 
   @doc """
   Execute a polling schedule.
@@ -102,12 +102,12 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   # Execute schedule with a PollJob tracking state
   defp execute_with_job(job, schedule, checks) do
-    # Transition to dispatching while finding poller
+    # Transition to dispatching while finding gateway
     with {:ok, job} <- transition_to_dispatching(job),
-         {:ok, poller} <- find_poller(schedule),
-         {:ok, job} <- update_job_poller(job, poller),
+         {:ok, gateway} <- find_gateway(schedule),
+         {:ok, job} <- update_job_gateway(job, gateway),
          {:ok, job} <- transition_to_running(job),
-         {:ok, result} <- dispatch_to_poller(poller, checks, schedule, job) do
+         {:ok, result} <- dispatch_to_gateway(gateway, checks, schedule, job) do
       # Complete the job with results
       complete_job(job, result)
 
@@ -117,10 +117,10 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
       {:ok, result}
     else
-      {:error, :no_available_poller} ->
-        fail_job(job, "No available poller", "NO_POLLER")
-        Logger.warning("No available poller for schedule #{schedule.name}")
-        {:error, :no_available_poller}
+      {:error, :no_available_gateway} ->
+        fail_job(job, "No available gateway", "NO_GATEWAY")
+        Logger.warning("No available gateway for schedule #{schedule.name}")
+        {:error, :no_available_gateway}
 
       {:error, reason} = error ->
         fail_job(job, "Execution failed: #{inspect(reason)}", "EXECUTION_ERROR")
@@ -153,11 +153,11 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     |> Ash.update()
   end
 
-  defp update_job_poller(job, poller) do
-    poller_id = poller[:poller_id]
+  defp update_job_gateway(job, gateway) do
+    gateway_id = gateway[:gateway_id]
 
     job
-    |> Ash.Changeset.for_update(:update, %{poller_id: poller_id})
+    |> Ash.Changeset.for_update(:update, %{gateway_id: gateway_id})
     |> Ash.update()
   rescue
     # If update action doesn't exist, just return the job
@@ -207,18 +207,18 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     with {:ok, checks} <- load_checks(schedule),
          {:ok, poll_job} <- create_poll_job(schedule, checks),
          {:ok, poll_job} <- transition_to_dispatching(poll_job),
-         {:ok, poller} <- find_poller(schedule),
-         {:ok, poll_job} <- update_job_poller(poll_job, poller),
+         {:ok, gateway} <- find_gateway(schedule),
+         {:ok, poll_job} <- update_job_gateway(poll_job, gateway),
          {:ok, _poll_job} <- transition_to_running(poll_job) do
       # Dispatch async using PID from Horde for cross-node dispatch
       job_payload = build_job(checks, schedule, poll_job)
-      poller_pid = poller[:pid]
+      gateway_pid = gateway[:pid]
 
-      if is_nil(poller_pid) do
-        fail_job(poll_job, "Poller has no PID in registry", "DISPATCH_ERROR")
-        {:error, :poller_not_found}
+      if is_nil(gateway_pid) do
+        fail_job(poll_job, "Gateway has no PID in registry", "DISPATCH_ERROR")
+        {:error, :gateway_not_found}
       else
-        case PollerProcess.execute_job_async(poller_pid, job_payload) do
+        case GatewayProcess.execute_job_async(gateway_pid, job_payload) do
           {:ok, _async_id} ->
             Logger.info("Schedule #{schedule.name} dispatched async as job #{poll_job.id}")
             {:ok, poll_job.id}
@@ -239,58 +239,118 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     end
   end
 
-  # Find an available poller based on schedule assignment mode
-  defp find_poller(schedule) do
+  # Find an available gateway based on schedule assignment mode
+  defp find_gateway(schedule) do
     tenant_id = schedule.tenant_id
 
     case schedule.assignment_mode do
       :any ->
-        # Find any available poller for this tenant
-        case PollerRegistry.find_available_pollers(tenant_id) do
-          [] -> {:error, :no_available_poller}
-          pollers -> {:ok, Enum.random(pollers)}
+        # Find any available gateway for this tenant
+        case GatewayRegistry.find_available_gateways(tenant_id) do
+          [] -> {:error, :no_available_gateway}
+          gateways -> {:ok, Enum.random(gateways)}
         end
 
       :partition ->
-        # Find poller in specific partition
+        # Find gateway in specific partition
         partition_id = schedule.assigned_partition_id
 
         if is_nil(partition_id) do
           {:error, :no_partition_assigned}
         else
-          PollerRegistry.find_available_poller_for_partition(tenant_id, partition_id)
+          GatewayRegistry.find_available_gateway_for_partition(tenant_id, partition_id)
         end
 
       :domain ->
-        # Find poller in specific domain (e.g., site-a, datacenter-east)
+        # Find gateway in specific domain (e.g., site-a, datacenter-east)
         domain = schedule.assigned_domain
 
         if is_nil(domain) do
           {:error, :no_domain_assigned}
         else
-          PollerRegistry.find_available_poller_for_domain(tenant_id, domain)
+          GatewayRegistry.find_available_gateway_for_domain(tenant_id, domain)
         end
 
       :specific ->
-        # Use specifically assigned poller
-        poller_id = schedule.assigned_poller_id
+        # Use specifically assigned gateway
+        gateway_id = schedule.assigned_gateway_id
 
-        if is_nil(poller_id) do
-          {:error, :no_poller_assigned}
+        if is_nil(gateway_id) do
+          {:error, :no_gateway_assigned}
         else
-          case PollerRegistry.lookup(tenant_id, poller_id) do
+          case GatewayRegistry.lookup(tenant_id, gateway_id) do
             [{pid, metadata}] ->
               if metadata[:status] == :available do
                 # Include the PID in the returned metadata for cross-node dispatch
                 {:ok, Map.put(metadata, :pid, pid)}
               else
-                {:error, :poller_not_available}
+                {:error, :gateway_not_available}
               end
 
             [] ->
-              {:error, :poller_not_found}
+              {:error, :gateway_not_found}
           end
         end
+    end
+  end
+
+  # Dispatch job to gateway (legacy name preserved for now)
+  defp dispatch_to_gateway(gateway, checks, schedule, poll_job) do
+    job_payload = build_job(checks, schedule, poll_job)
+
+    # Use the PID from Horde registry directly - this enables cross-node dispatch
+    # The PID is location-transparent across the ERTS cluster
+    gateway_pid =
+      case gateway[:pid] do
+        pid when is_pid(pid) ->
+          pid
+
+        _ ->
+          tenant_id = schedule.tenant_id
+          gid = gateway[:gateway_id] || gateway[:id]
+
+          case {tenant_id, gid} do
+            {t, g} when not is_nil(t) and not is_nil(g) ->
+              case GatewayRegistry.lookup(t, g) do
+                [{pid, _meta}] when is_pid(pid) -> pid
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+      end
+
+    gateway_id =
+      gateway[:gateway_id] ||
+        gateway[:id] ||
+        (if is_pid(gateway_pid), do: to_string(node(gateway_pid)), else: inspect(gateway[:key]))
+
+    if is_nil(gateway_pid) do
+      Logger.warning("Gateway #{gateway_id} has no PID in registry metadata")
+      {:error, :gateway_not_found}
+    else
+      Logger.debug(
+        "Dispatching #{length(checks)} checks to gateway #{gateway_id} " <>
+          "on node #{node(gateway_pid)} (job: #{poll_job.id})"
+      )
+
+      case GatewayProcess.execute_job(gateway_pid, job_payload) do
+        {:ok, result} ->
+          process_results(result, schedule, poll_job)
+          {:ok, result}
+
+        {:error, :gateway_not_found} ->
+          Logger.warning("Gateway #{gateway_id} not found, will retry on next schedule")
+          {:error, :gateway_not_found}
+
+        {:error, :busy} ->
+          Logger.warning("Gateway #{gateway_id} is busy")
+          {:error, :gateway_busy}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -339,47 +399,8 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     }
   end
 
-  # Dispatch job to poller
-  # Uses the PID from Horde registry (via TenantRegistry) for cross-node dispatch
-  defp dispatch_to_poller(poller, checks, schedule, poll_job) do
-    job_payload = build_job(checks, schedule, poll_job)
-    poller_id = poller[:poller_id]
 
-    # Use the PID from Horde registry directly - this enables cross-node dispatch
-    # The PID is location-transparent across the ERTS cluster
-    poller_pid = poller[:pid]
-
-    if is_nil(poller_pid) do
-      Logger.warning("Poller #{poller_id} has no PID in registry metadata")
-      {:error, :poller_not_found}
-    else
-      Logger.debug(
-        "Dispatching #{length(checks)} checks to poller #{poller_id} " <>
-          "on node #{node(poller_pid)} (job: #{poll_job.id})"
-      )
-
-      case PollerProcess.execute_job(poller_pid, job_payload) do
-        {:ok, result} ->
-          # Process and possibly store results
-          process_results(result, schedule, poll_job)
-          {:ok, result}
-
-        {:error, :poller_not_found} ->
-          # Poller might have gone away, try another
-          Logger.warning("Poller #{poller_id} not found, will retry on next schedule")
-          {:error, :poller_not_found}
-
-        {:error, :busy} ->
-          Logger.warning("Poller #{poller_id} is busy")
-          {:error, :poller_busy}
-
-        error ->
-          error
-      end
-    end
-  end
-
-  # Build job payload for poller
+  # Build job payload for gateway
   defp build_job(checks, schedule, poll_job) do
     %{
       job_id: poll_job.id,

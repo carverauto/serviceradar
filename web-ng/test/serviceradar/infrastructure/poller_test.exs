@@ -44,7 +44,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert poller.id == "poller-test-001"
       assert poller.component_id == "component-001"
       assert poller.registration_source == "manual"
-      assert poller.status == "active"
+      assert poller.status == :healthy
       assert poller.is_healthy == true
       assert poller.tenant_id == tenant.id
     end
@@ -145,13 +145,13 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       {:ok, updated} =
         poller
-        |> Ash.Changeset.for_update(:set_status, %{status: "draining"},
+        |> Ash.Changeset.for_update(:set_status, %{status: :draining},
           actor: actor,
           tenant: tenant.id
         )
         |> Ash.update()
 
-      assert updated.status == "draining"
+      assert updated.status == :draining
     end
 
     test "admin can mark poller as unhealthy", %{tenant: tenant, poller: poller} do
@@ -163,7 +163,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
         |> Ash.update()
 
       assert updated.is_healthy == false
-      assert updated.status == "degraded"
+      assert updated.status == :degraded
     end
 
     test "admin can deactivate poller", %{tenant: tenant, poller: poller} do
@@ -174,7 +174,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
         |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
-      assert updated.status == "inactive"
+      assert updated.status == :inactive
       assert updated.is_healthy == false
     end
 
@@ -251,7 +251,7 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       {:ok, pollers} =
         Poller
-        |> Ash.Query.for_read(:by_status, %{status: "degraded"}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor, tenant: tenant.id)
         |> Ash.read()
 
       ids = Enum.map(pollers, & &1.id)

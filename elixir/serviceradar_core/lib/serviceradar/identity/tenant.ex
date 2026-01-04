@@ -28,6 +28,14 @@ defmodule ServiceRadar.Identity.Tenant do
   postgres do
     table "tenants"
     repo ServiceRadar.Repo
+
+    custom_indexes do
+      # Ensure only one platform tenant can exist
+      index [:is_platform_tenant],
+        unique: true,
+        where: "is_platform_tenant = true",
+        name: "tenants_unique_platform_tenant_index"
+    end
   end
 
   cloak do
@@ -386,6 +394,13 @@ defmodule ServiceRadar.Identity.Tenant do
       description "Current tenant status"
     end
 
+    attribute :is_platform_tenant, :boolean do
+      allow_nil? false
+      default false
+      public? true
+      description "Whether this is the platform tenant (only one allowed)"
+    end
+
     attribute :settings, :map do
       default %{}
       public? true
@@ -540,5 +555,9 @@ defmodule ServiceRadar.Identity.Tenant do
 
   identities do
     identity :unique_slug, [:slug]
+  end
+
+  validations do
+    validate ServiceRadar.Identity.Validations.UniquePlatformTenant
   end
 end

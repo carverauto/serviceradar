@@ -582,15 +582,15 @@ oci_load(
     repo_tags = ["ghcr.io/carverauto/serviceradar-core-elx:local"],
 )
 
-# elixir poller/agent --------------------------------------------------------
+# elixir agent-gateway -------------------------------------------------------
 
 genrule(
-    name = "poller_elx_release_rootfs_amd64",
-    srcs = ["//elixir/serviceradar_poller:release_tar"],
-    outs = ["poller_elx_release_rootfs_amd64.tar"],
+    name = "agent_gateway_release_rootfs_amd64",
+    srcs = ["//elixir/serviceradar_agent_gateway:release_tar"],
+    outs = ["agent_gateway_release_rootfs_amd64.tar"],
     cmd = """
 set -euo pipefail
-TAR=$(location //elixir/serviceradar_poller:release_tar)
+TAR=$(location //elixir/serviceradar_agent_gateway:release_tar)
 ROOT=$(@D)/rootfs
 rm -rf "$${ROOT}"
 mkdir -p "$${ROOT}/app"
@@ -600,10 +600,10 @@ tar -czf "$@" -C "$${ROOT}" .
 )
 
 oci_image(
-    name = "poller_elx_image_amd64",
+    name = "agent_gateway_image_amd64",
     base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
-    tars = [":poller_elx_release_rootfs_amd64"],
-    entrypoint = ["/app/bin/serviceradar_poller"],
+    tars = [":agent_gateway_release_rootfs_amd64"],
+    entrypoint = ["/app/bin/serviceradar_agent_gateway"],
     cmd = ["start"],
     env = {
         "HOME": "/app",
@@ -612,14 +612,14 @@ oci_image(
     },
     workdir = "/app",
     labels = {
-        "org.opencontainers.image.title": "serviceradar-poller-elx",
+        "org.opencontainers.image.title": "serviceradar-agent-gateway",
     },
 )
 
 oci_load(
-    name = "poller_elx_image_amd64_tar",
-    image = ":poller_elx_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-poller-elx:local"],
+    name = "agent_gateway_image_amd64_tar",
+    image = ":agent_gateway_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-agent-gateway:local"],
 )
 
 pkg_tar(

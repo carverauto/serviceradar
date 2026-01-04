@@ -47,6 +47,7 @@ impl AgentService for ZenAgentService {
             response_time: start.elapsed().as_nanos() as i64,
             agent_id: req.agent_id,
             poller_id: req.poller_id,
+            gateway_id: req.gateway_id,
         }))
     }
 
@@ -64,6 +65,7 @@ impl AgentService for ZenAgentService {
             response_time: start.elapsed().as_nanos() as i64,
             agent_id: req.agent_id,
             poller_id: req.poller_id,
+            gateway_id: req.gateway_id,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

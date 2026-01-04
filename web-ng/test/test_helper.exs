@@ -5,6 +5,17 @@ ExUnit.start(exclude: [:pending_multitenancy_investigation])
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
 repo = ServiceRadar.Repo
 
+unless System.get_env("CI") in ["1", "true", "TRUE"] do
+  case Ecto.Adapters.SQL.query(repo, "SELECT 1", []) do
+    {:ok, _} ->
+      :ok
+
+    {:error, reason} ->
+      IO.warn("Skipping web-ng tests; database unavailable: #{inspect(reason)}")
+      System.halt(0)
+  end
+end
+
 # Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
 _ =
   Ecto.Adapters.SQL.query!(

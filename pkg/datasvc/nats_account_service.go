@@ -107,15 +107,33 @@ func (s *NATSAccountServer) SetResolverPaths(operatorConfigPath, resolverBasePat
 // credsFile should point to a system-account .creds file authorized for $SYS updates.
 func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.SecurityConfig, credsFile string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.resolverURL = strings.TrimSpace(natsURL)
 	s.resolverSecurity = cloneSecurityConfig(security)
 	s.resolverCredsFile = strings.TrimSpace(credsFile)
 
-	if s.resolverConn != nil {
-		s.resolverConn.Close()
-		s.resolverConn = nil
+	conn := s.resolverConn
+	s.resolverConn = nil
+	s.mu.Unlock()
+
+	if conn != nil {
+		// Drain may block; do it asynchronously with a timeout.
+		go func(c *nats.Conn) {
+			drainErr := make(chan error, 1)
+			go func() { drainErr <- c.Drain() }()
+
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+
+			select {
+			case <-drainErr:
+				// drained (or errored) - close anyway
+			case <-timer.C:
+				// timed out - close anyway
+			}
+
+			c.Close()
+		}(conn)
 	}
 }
 
@@ -177,33 +195,87 @@ func extractMTLSIdentity(ctx context.Context) (string, error) {
 
 func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	resolverURL := s.resolverURL
+	var resolverSecurity *models.SecurityConfig
+	if s.resolverSecurity != nil {
+		resolverSecurity = cloneSecurityConfig(s.resolverSecurity)
+	}
+	resolverCredsFile := s.resolverCredsFile
 
-	if s.resolverURL == "" {
+	if resolverURL == "" {
+		s.mu.Unlock()
 		return nil, errResolverURLNotSet
 	}
 
 	if s.resolverConn != nil && s.resolverConn.IsConnected() {
-		return s.resolverConn, nil
+		conn := s.resolverConn
+		s.mu.Unlock()
+		return conn, nil
 	}
 
-	if s.resolverConn != nil {
-		s.resolverConn.Close()
-		s.resolverConn = nil
+	conn := s.resolverConn
+	s.resolverConn = nil
+	s.mu.Unlock()
+
+	if conn != nil {
+		// Drain may block; do it asynchronously to avoid hanging resolver reconnection.
+		go func(c *nats.Conn) {
+			drainDone := make(chan struct{})
+			go func() {
+				_ = c.Drain()
+				close(drainDone)
+			}()
+
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+
+			select {
+			case <-drainDone:
+				c.Close()
+			case <-timer.C:
+				c.Close()
+			}
+		}(conn)
 	}
 
-	opts, err := buildResolverOptions(s.resolverSecurity, s.resolverCredsFile)
-	if err != nil {
-		return nil, err
-	}
+	for {
+		opts, err := buildResolverOptions(resolverSecurity, resolverCredsFile)
+		if err != nil {
+			return nil, err
+		}
 
-	conn, err := nats.Connect(s.resolverURL, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connect resolver NATS: %w", err)
-	}
+		conn, err = nats.Connect(resolverURL, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("connect resolver NATS: %w", err)
+		}
 
-	s.resolverConn = conn
-	return conn, nil
+		s.mu.Lock()
+		// If resolver settings changed during dialing, discard this connection and retry.
+		if s.resolverURL != resolverURL || s.resolverCredsFile != resolverCredsFile {
+			s.mu.Unlock()
+			conn.Close()
+
+			s.mu.Lock()
+			resolverURL = s.resolverURL
+			if s.resolverSecurity != nil {
+				resolverSecurity = cloneSecurityConfig(s.resolverSecurity)
+			} else {
+				resolverSecurity = nil
+			}
+			resolverCredsFile = s.resolverCredsFile
+			s.mu.Unlock()
+			continue
+		}
+		if s.resolverConn != nil && s.resolverConn.IsConnected() {
+			existing := s.resolverConn
+			s.mu.Unlock()
+			conn.Close()
+			return existing, nil
+		}
+		s.resolverConn = conn
+		s.mu.Unlock()
+		return conn, nil
+	}
 }
 
 func buildResolverOptions(security *models.SecurityConfig, credsFile string) ([]nats.Option, error) {
@@ -376,6 +448,11 @@ func (s *NATSAccountServer) BootstrapOperator(
 		return nil, status.Errorf(codes.Internal, "failed to bootstrap operator: %v", err)
 	}
 
+	// Store original state for rollback on failure
+	originalOperator := s.operator
+	originalSigner := s.signer
+	originalSystemAccountSeed := s.systemAccountSeed
+
 	// Update the server state
 	s.operator = operator
 	s.signer = accounts.NewAccountSigner(operator)
@@ -388,8 +465,11 @@ func (s *NATSAccountServer) BootstrapOperator(
 	// Write operator config for NATS resolver (if paths are configured)
 	if s.operatorConfigPath != "" {
 		if err := s.writeOperatorConfigLocked(); err != nil {
-			log.Printf("Warning: failed to write operator config: %v", err)
-			// Don't fail bootstrap - config can be written later
+			// Rollback state on failure to maintain consistency
+			s.operator = originalOperator
+			s.signer = originalSigner
+			s.systemAccountSeed = originalSystemAccountSeed
+			return nil, status.Errorf(codes.Internal, "failed to write operator config: %v", err)
 		}
 	}
 

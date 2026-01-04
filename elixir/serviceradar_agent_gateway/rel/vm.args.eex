@@ -1,0 +1,56 @@
+## ServiceRadar Agent Gateway VM Arguments
+##
+## This file configures the Erlang VM for agent gateway nodes.
+## See: https://www.erlang.org/doc/man/erl.html
+
+## =============================================================================
+## Performance Tuning
+## =============================================================================
+
+## Increase async thread pool for better I/O performance
++A 64
+
+## Increase process limit for large clusters
++P 1000000
+
+## Increase port limit
++Q 65536
+
+## Increase atom limit
++t 5000000
+
+## Enable kernel polling for better network performance
++K true
+
+## Set scheduler bind type for better performance on multi-core
++sbt db
+
+## Increase distribution buffer size for large messages
++zdbbl 32768
+
+## Enable time warp mode for better time handling
++C multi_time_warp
+
+## Garbage collection settings
++hms 8192
++hmbs 512
+
+## =============================================================================
+## Cluster Connectivity
+## =============================================================================
+
+-kernel net_ticktime 120
+-kernel dist_auto_connect once
+
+## =============================================================================
+## Remote Debugging & Observability
+## =============================================================================
+
+-kernel logger_level notice
+-kernel shell_history enabled
+
+## =============================================================================
+## Crash Dump Location
+## =============================================================================
+
+-env ERL_CRASH_DUMP /var/log/serviceradar/erl_crash.dump

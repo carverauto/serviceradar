@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:agent_uid, nil)
      |> assign(:agent, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents"})
+     |> assign(:srql, %{enabled: false, page_path: "/agents"})
      |> assign(:checks, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
@@ -46,12 +46,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     all_agents = ServiceRadar.AgentRegistry.all_agents()
 
     Logger.debug(
-      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &(&1[:agent_id] || &1[:key])))}"
+      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &get_agent_id/1))}"
     )
 
     live_agent =
       Enum.find(all_agents, fn agent ->
-        (agent[:agent_id] || agent[:key]) == uid
+        get_agent_id(agent) == uid
       end)
 
     Logger.debug(
@@ -60,8 +60,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
     # Get poller node system info if live agent exists
     poller_node_info =
-      if live_agent && live_agent[:node] do
-        fetch_node_info(live_agent[:node])
+      if live_agent && Map.get(live_agent, :node) do
+        fetch_node_info(Map.get(live_agent, :node))
       else
         nil
       end
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:checks, checks)
      |> assign(:live_agent, live_agent)
      |> assign(:poller_node_info, poller_node_info)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/agents/#{uid}"})}
+     |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
   end
 
   defp format_node(nil), do: nil
@@ -272,9 +272,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         </div>
 
         <div :if={has_value?(@agent, "poller_id")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Poller</span>
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway</span>
           <.link
-            navigate={~p"/pollers/#{Map.get(@agent, "poller_id")}"}
+            navigate={~p"/gateways/#{Map.get(@agent, "poller_id")}"}
             class="text-sm font-mono link link-primary"
           >
             {Map.get(@agent, "poller_id")}
@@ -673,4 +673,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  # Safely extract agent ID from either Infrastructure.Agent structs or maps
+  # Structs use :uid, maps may use :agent_id or :key
+  defp get_agent_id(%ServiceRadar.Infrastructure.Agent{uid: uid}), do: uid
+
+  defp get_agent_id(agent) when is_map(agent) do
+    Map.get(agent, :uid) || Map.get(agent, :agent_id) || Map.get(agent, :key)
+  end
+
+  defp get_agent_id(_), do: nil
 end

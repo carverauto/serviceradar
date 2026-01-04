@@ -56,9 +56,9 @@ func TestDownloadPackageSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	b, err := NewBootstrapper(&Config{
-		Token:       token,
-		KVEndpoint:  "kv:50057",
-		ServiceType: models.EdgeOnboardingComponentTypePoller,
+		Token:           token,
+		GatewayEndpoint: "gateway:50052",
+		ServiceType:     models.EdgeOnboardingComponentTypePoller,
 	})
 	require.NoError(t, err)
 

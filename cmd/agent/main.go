@@ -17,30 +17,36 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
-
-	"google.golang.org/grpc"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
-	"github.com/carverauto/serviceradar/pkg/config"
-	cfgbootstrap "github.com/carverauto/serviceradar/pkg/config/bootstrap"
-	"github.com/carverauto/serviceradar/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 //go:embed config.json
 var defaultConfig []byte
 
-var (
-	errServiceDescriptorMissing = fmt.Errorf("service descriptor for agent missing")
-)
+// Version is set at build time via ldflags
+//
+//nolint:gochecknoglobals // Required for build-time ldflags injection
+var Version = "dev"
+
+var errConfigFileMissing = errors.New("config file not found")
+var errConfigTrailingData = errors.New("config has trailing data")
+var errShutdownTimeout = errors.New("shutdown timed out")
 
 func main() {
 	if err := run(); err != nil {
@@ -51,51 +57,23 @@ func main() {
 func run() error {
 	// Parse command line flags
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
-	_ = flag.String("onboarding-token", "", "Edge onboarding token (if provided, triggers edge onboarding)")
-	_ = flag.String("kv-endpoint", "", "KV service endpoint (required for edge onboarding)")
 	flag.Parse()
 
 	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
-	// Try edge onboarding first (checks env vars if flags not set)
-	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
-	if err != nil {
-		return fmt.Errorf("edge onboarding failed: %w", err)
-	}
-
-	// If onboarding was performed, use the generated config
-	if onboardingResult != nil {
-		*configPath = onboardingResult.ConfigPath
-		log.Printf("Using edge-onboarded configuration from: %s", *configPath)
-		log.Printf("SPIFFE ID: %s", onboardingResult.SPIFFEID)
-	}
-
-	var cfg agent.ServerConfig
-	desc, ok := config.ServiceDescriptorFor("agent")
-	if !ok {
-		return errServiceDescriptorMissing
-	}
-	bootstrapResult, err := cfgbootstrap.ServiceWithTemplateRegistration(ctx, desc, &cfg, defaultConfig, cfgbootstrap.ServiceOptions{
-		Role:         models.RoleAgent,
-		ConfigPath:   *configPath,
-		DisableWatch: true,
-		KeyContextFn: func(conf interface{}) config.KeyContext {
-			if agentCfg, ok := conf.(*agent.ServerConfig); ok {
-				return config.KeyContext{AgentID: agentCfg.AgentID}
-			}
-			return config.KeyContext{}
-		},
-	})
+	// Load configuration from file (no KV dependency)
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	defer func() { _ = bootstrapResult.Close() }()
 
-	// Step 2: Create logger from loaded config
+	// Ensure the agent package reports the same build version during enrollment.
+	agent.Version = Version
+
+	// Create logger from loaded config
 	logConfig := cfg.Logging
 	if logConfig == nil {
-		// Use default config if not specified
 		logConfig = &logger.Config{
 			Level:  "info",
 			Output: "stdout",
@@ -107,44 +85,162 @@ func run() error {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// Step 3: Create agent server with proper logger
-	if err := agent.SeedCheckerConfigsFromDisk(ctx, bootstrapResult.Manager(), &cfg, *configPath, agentLogger); err != nil {
-		agentLogger.Warn().Err(err).Msg("Failed to seed checker configs to KV")
-	}
-
-	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg, agentLogger)
+	// Create agent server
+	server, err := agent.NewServer(ctx, cfg.CheckersDir, cfg, agentLogger)
 	if err != nil {
 		if shutdownErr := lifecycle.ShutdownLogger(); shutdownErr != nil {
 			log.Printf("Failed to shutdown logger: %v", shutdownErr)
 		}
-
 		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// KV Watch: overlay and apply hot-reload on relevant changes
-	if cfg.AgentID != "" {
-		bootstrapResult.SetInstanceID(cfg.AgentID)
-	}
-	bootstrapResult.StartWatch(ctx, agentLogger, &cfg, func() {
-		server.UpdateConfig(&cfg)
-		server.RestartServices(ctx)
-	})
-
-	// Create server options
-	opts := &lifecycle.ServerOptions{
-		ListenAddr:        server.ListenAddr(),
-		ServiceName:       "AgentService",
-		Service:           server,
-		EnableHealthCheck: true,
-		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(s *grpc.Server) error {
-				proto.RegisterAgentServiceServer(s, server)
-				return nil
-			},
-		},
-		Security: server.SecurityConfig(),
+	// Gateway address is required - agents must push status to gateway
+	if cfg.GatewayAddr == "" {
+		return agent.ErrGatewayAddrRequired
 	}
 
-	// Run server with lifecycle management
-	return lifecycle.RunServer(ctx, opts)
+	return runPushMode(ctx, server, cfg, agentLogger)
+}
+
+// loadConfig loads agent configuration from file, falling back to embedded defaults.
+func loadConfig(configPath string) (*agent.ServerConfig, error) {
+	var cfg agent.ServerConfig
+
+	// Try to read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if os.Getenv("SR_ALLOW_EMBEDDED_DEFAULT_CONFIG") != "true" {
+				return nil, fmt.Errorf(
+					"%w at %s (set SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=true to use embedded defaults)",
+					errConfigFileMissing,
+					configPath,
+				)
+			}
+			// Fall back to embedded default config (explicitly allowed)
+			data = defaultConfig
+		} else {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	if err := dec.Decode(&struct{}{}); err == nil {
+		return nil, fmt.Errorf("failed to parse config: %w", errConfigTrailingData)
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// runPushMode runs the agent in push mode, pushing status to the gateway.
+func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerConfig, log logger.Logger) error {
+	log.Info().
+		Str("gateway_addr", cfg.GatewayAddr).
+		Str("agent_id", cfg.AgentID).
+		Msg("Starting agent in push mode")
+
+	// Create gateway client (PushLoop handles connect/enroll/config polling)
+	gatewayClient := agent.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
+	defer func() {
+		if err := gatewayClient.Disconnect(); err != nil {
+			log.Warn().Err(err).Msg("Error disconnecting from gateway")
+		}
+	}()
+
+	// Create push loop
+	interval := time.Duration(cfg.PushInterval)
+	if interval <= 0 {
+		// Let NewPushLoop apply its default interval
+		interval = 0
+	} else {
+		// Safety bounds against misconfiguration
+		const (
+			minPushInterval = 1 * time.Second
+			maxPushInterval = 1 * time.Hour
+		)
+		if interval < minPushInterval {
+			interval = minPushInterval
+		} else if interval > maxPushInterval {
+			interval = maxPushInterval
+		}
+	}
+	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
+
+	// Create a cancellable context for the push loop
+	pushCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start the server's services (checkers, sweep, etc.)
+	if err := server.Start(pushCtx); err != nil {
+		return fmt.Errorf("failed to start agent services: %w", err)
+	}
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
+
+	// Start push loop in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- pushLoop.Start(pushCtx)
+	}()
+
+	// Wait for shutdown signal or error
+	select {
+	case sig := <-sigChan:
+		log.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
+
+		// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
+		const shutdownTimeout = 10 * time.Second
+		shutdownDone := make(chan struct{})
+
+		go func() {
+			defer close(shutdownDone)
+
+			cancel()
+			pushLoop.Stop()
+			<-errChan
+
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer stopCancel()
+			if err := server.Stop(stopCtx); err != nil {
+				log.Error().Err(err).Msg("Error stopping agent services")
+			}
+		}()
+
+		timer := time.NewTimer(shutdownTimeout)
+		defer timer.Stop()
+
+		select {
+		case <-shutdownDone:
+		case <-timer.C:
+			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
+		}
+
+	case err := <-errChan:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer stopCancel()
+			if stopErr := server.Stop(stopCtx); stopErr != nil {
+				log.Error().Err(stopErr).Msg("Error stopping agent services")
+			}
+			return fmt.Errorf("push loop error: %w", err)
+		}
+
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		if stopErr := server.Stop(stopCtx); stopErr != nil {
+			log.Error().Err(stopErr).Msg("Error stopping agent services")
+		}
+	}
+
+	log.Info().Msg("Agent shutdown complete")
+	return nil
 }

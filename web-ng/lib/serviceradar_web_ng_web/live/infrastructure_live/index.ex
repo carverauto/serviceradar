@@ -1,9 +1,10 @@
 defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @moduledoc """
-  Consolidated LiveView for pollers and agents.
+  Infrastructure LiveView showing cluster nodes and agent gateways.
 
-  Shows both Horde-registered (live) and database-registered infrastructure
-  components in a unified view.
+  - Cluster Nodes: All ERTS nodes in the distributed cluster
+  - Agent Gateways: Elixir nodes that receive status pushes from Go agents
+  - Connected Agents: Go agents that have pushed status to gateways
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -11,150 +12,235 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias Phoenix.LiveView.JS
+  alias ServiceRadarWebNG.Accounts.Scope
+
+  # Cache agents and gateways locally since trackers use node-local ETS
+  # Data is synced via PubSub broadcasts from gateway nodes
+  @stale_threshold_ms :timer.minutes(2)
 
   @impl true
   def mount(_params, _session, socket) do
-    # Subscribe to cluster events for real-time updates
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "poller:registrations")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
 
       # Refresh every 30 seconds
       :timer.send_interval(:timer.seconds(30), self(), :refresh)
     end
 
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    cluster_info = load_cluster_info()
+
+    current_scope = socket.assigns[:current_scope]
+
+    # Check if user is platform admin for tab visibility
+    is_platform_admin =
+      case current_scope do
+        nil -> false
+        scope -> Scope.platform_admin?(scope)
+      end
+
+    # Get tenant_id for scoping agents (only for non-platform admins)
+    tenant_id = get_tenant_id(socket)
+
+    # Load existing agents from tracker on mount (don't start with empty cache)
+    initial_agents_cache = load_initial_agents_cache()
+
+    connected_agents =
+      compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
 
     {:ok,
      socket
      |> assign(:page_title, "Infrastructure")
-     |> assign(:active_tab, :overview)
+     |> assign(:active_tab, :agents)
+     |> assign(:is_platform_admin, is_platform_admin)
+     |> assign(:tenant_id, tenant_id)
      |> assign(:show_debug, false)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))
-     |> assign(:db_pollers, load_db_pollers(socket.assigns.current_scope))
-     |> assign(:db_agents, load_db_agents(socket.assigns.current_scope))}
+     |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways_cache, %{})
+     |> assign(:gateways, [])
+     |> assign(:agents_cache, initial_agents_cache)
+     |> assign(:connected_agents, connected_agents)}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
-    tab =
-      case params["tab"] do
-        "nodes" -> :nodes
-        "pollers" -> :pollers
-        "agents" -> :agents
-        _ -> :overview
-      end
+    is_platform_admin = socket.assigns.is_platform_admin
 
-    # Update page_path based on tab for breadcrumb navigation
-    page_path =
-      case tab do
-        :overview -> "/infrastructure"
-        :nodes -> "/infrastructure/nodes"
-        :pollers -> "/infrastructure/pollers"
-        :agents -> "/infrastructure/agents"
+    # Non-platform admins only see agents tab (other tabs are hidden)
+    # Platform admins can navigate to any tab
+    tab =
+      if is_platform_admin do
+        case params["tab"] do
+          "nodes" -> :nodes
+          "gateways" -> :gateways
+          "agents" -> :agents
+          _ -> :overview
+        end
+      else
+        :agents
       end
 
     {:noreply,
      socket
      |> assign(:active_tab, tab)
-     |> assign(:srql, %{enabled: false, page_path: page_path})}
+     |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    cluster_info = load_cluster_info()
+
+    now_ms = System.system_time(:millisecond)
+
+    pruned_gateways_cache =
+      socket.assigns.gateways_cache
+      |> Enum.reject(fn {_id, gw} ->
+        last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
+
+        delta_ms =
+          if is_integer(last_ms) do
+            max(now_ms - last_ms, 0)
+          else
+            nil
+          end
+
+        not is_integer(delta_ms) or delta_ms > @stale_threshold_ms
+      end)
+      |> Map.new()
+
+    pruned_agents_cache =
+      socket.assigns.agents_cache
+      |> Enum.reject(fn {_id, agent} ->
+        # Use the same staleness rules as the UI (wall clock first, monotonic fallback)
+        not agent_active?(agent, now_ms)
+      end)
+      |> Map.new()
+
+    gateways = compute_gateways(pruned_gateways_cache)
+
+    connected_agents =
+      compute_connected_agents(
+        pruned_agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
 
     {:noreply,
      socket
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))}
-  end
-
-  def handle_info({:agent_registered, _metadata}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
-  end
-
-  def handle_info({:agent_disconnected, _agent_id}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
-  end
-
-  def handle_info({:poller_registered, _metadata}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
-  end
-
-  def handle_info({:poller_disconnected, _poller_id}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
-  end
-
-  def handle_info({:poller_unregistered, _key}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-    {:noreply, assign(socket, :live_pollers, load_live_pollers(tenant_id))}
+     |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways_cache, pruned_gateways_cache)
+     |> assign(:agents_cache, pruned_agents_cache)
+     |> assign(:gateways, gateways)
+     |> assign(:connected_agents, connected_agents)}
   end
 
   def handle_info({:node_up, _node}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-
-    {:noreply,
-     socket
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))}
+    cluster_info = load_cluster_info()
+    {:noreply, assign(socket, :cluster_info, cluster_info)}
   end
 
   def handle_info({:node_down, _node}, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    cluster_info = load_cluster_info()
+    {:noreply, assign(socket, :cluster_info, cluster_info)}
+  end
+
+  def handle_info({:gateway_registered, gateway_info}, socket) do
+    # Cache gateway info from PubSub
+    gateway_id = gateway_info[:gateway_id]
+
+    if is_nil(gateway_id) or gateway_id == "" do
+      {:noreply, socket}
+    else
+      Logger.debug("[InfrastructureLive] Received gateway_registered: #{gateway_id}")
+
+      updated_cache =
+        Map.put(socket.assigns.gateways_cache, gateway_id, %{
+          gateway_id: gateway_id,
+          node: gateway_info[:node] || Node.self(),
+          partition: gateway_info[:partition] || "default",
+          domain: gateway_info[:domain] || "default",
+          status: gateway_info[:status] || :available,
+          registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
+          last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
+        })
+
+      gateways = compute_gateways(updated_cache)
+
+      {:noreply,
+       socket
+       |> assign(:gateways_cache, updated_cache)
+       |> assign(:gateways, gateways)}
+    end
+  end
+
+  def handle_info({:gateway_unregistered, gateway_id}, socket) do
+    updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_id)
+    gateways = compute_gateways(updated_cache)
 
     {:noreply,
      socket
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))}
+     |> assign(:gateways_cache, updated_cache)
+     |> assign(:gateways, gateways)}
+  end
+
+  def handle_info({:agent_status, agent_info}, socket) do
+    # Cache agent info from PubSub (comes from gateway nodes)
+    agent_id = agent_info[:agent_id]
+
+    if is_nil(agent_id) or agent_id == "" do
+      {:noreply, socket}
+    else
+      updated_cache =
+        Map.put(socket.assigns.agents_cache, agent_id, %{
+          agent_id: agent_id,
+          tenant_id: agent_info[:tenant_id],
+          tenant_slug: agent_info[:tenant_slug] || "default",
+          last_seen: agent_info[:last_seen] || DateTime.utc_now(),
+          last_seen_mono: System.monotonic_time(:millisecond),
+          service_count: agent_info[:service_count] || 0,
+          partition: agent_info[:partition],
+          source_ip: agent_info[:source_ip]
+        })
+
+      connected_agents =
+        compute_connected_agents(
+          updated_cache,
+          socket.assigns.is_platform_admin,
+          socket.assigns.tenant_id
+        )
+
+      {:noreply,
+       socket
+       |> assign(:agents_cache, updated_cache)
+       |> assign(:connected_agents, connected_agents)}
+    end
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
+    cluster_info = load_cluster_info()
+    gateways = compute_gateways(socket.assigns.gateways_cache)
+
+    connected_agents =
+      compute_connected_agents(
+        socket.assigns.agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_id
+      )
 
     {:noreply,
      socket
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))
-     |> assign(:db_pollers, load_db_pollers(socket.assigns.current_scope))
-     |> assign(:db_agents, load_db_agents(socket.assigns.current_scope))}
+     |> assign(:cluster_info, cluster_info)
+     |> assign(:gateways, gateways)
+     |> assign(:connected_agents, connected_agents)}
   end
 
   def handle_event("toggle_debug", _params, socket) do
     {:noreply, assign(socket, :show_debug, !socket.assigns.show_debug)}
-  end
-
-  def handle_event("force_sync", _params, socket) do
-    Logger.info("[Infrastructure] Forcing Horde sync...")
-    force_horde_sync()
-
-    # Wait a moment for sync then refresh
-    Process.sleep(500)
-
-    tenant_id = get_active_tenant_id(socket.assigns.current_scope)
-
-    {:noreply,
-     socket
-     |> assign(:cluster_info, load_cluster_info())
-     |> assign(:live_pollers, load_live_pollers(tenant_id))
-     |> assign(:live_agents, load_live_agents(tenant_id))
-     |> put_flash(:info, "Horde sync triggered - data should refresh")}
   end
 
   @impl true
@@ -164,13 +250,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       <div class="mx-auto max-w-7xl p-6 space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 class="text-2xl font-semibold text-base-content">Infrastructure</h1>
+            <h1 class="text-2xl font-semibold text-base-content">
+              {if @is_platform_admin, do: "Infrastructure", else: "Connected Agents"}
+            </h1>
             <p class="text-sm text-base-content/60">
-              Pollers and agents across the distributed cluster
+              <%= if @is_platform_admin do %>
+                Cluster nodes and agent gateways
+              <% else %>
+                Agents connected to your tenant
+              <% end %>
             </p>
           </div>
           <div class="flex items-center gap-2">
-            <.ui_button variant="ghost" size="sm" phx-click="toggle_debug">
+            <.ui_button :if={@is_platform_admin} variant="ghost" size="sm" phx-click="toggle_debug">
               <.icon name="hero-bug-ant" class="size-4" /> Debug
             </.ui_button>
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
@@ -179,15 +271,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           </div>
         </div>
         
-    <!-- Debug Panel -->
-        <div :if={@show_debug} class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-semibold">Cluster Debug Info</span>
-            <.ui_button variant="soft" size="xs" phx-click="force_sync">
-              Force Horde Sync
-            </.ui_button>
-          </div>
-
+    <!-- Debug Panel (platform admin only) -->
+        <div
+          :if={@is_platform_admin && @show_debug}
+          class="bg-base-200 rounded-lg p-4 space-y-3 border border-base-300"
+        >
+          <div class="text-sm font-semibold">Cluster Debug Info</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
             <div>
               <div class="text-base-content/60 mb-1">Current Node</div>
@@ -207,25 +296,11 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                 <% end %>
               </div>
             </div>
-            <div>
-              <div class="text-base-content/60 mb-1">Horde PollerRegistry</div>
-              <div class="bg-base-100 p-2 rounded">
-                <div>Members: {@cluster_info.poller_registry_members}</div>
-                <div>Count: {@cluster_info.poller_count}</div>
-              </div>
-            </div>
-            <div>
-              <div class="text-base-content/60 mb-1">Horde AgentRegistry</div>
-              <div class="bg-base-100 p-2 rounded">
-                <div>Members: {@cluster_info.agent_registry_members}</div>
-                <div>Count: {@cluster_info.agent_count}</div>
-              </div>
-            </div>
           </div>
         </div>
         
-    <!-- Summary Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <!-- Summary Cards (platform admin only) -->
+        <div :if={@is_platform_admin} class="grid grid-cols-2 md:grid-cols-3 gap-4">
           <.summary_card
             title="Cluster Nodes"
             value={length(@cluster_info.connected_nodes) + 1}
@@ -234,37 +309,23 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             href={~p"/infrastructure?tab=nodes"}
           />
           <.summary_card
-            title="Live Pollers"
-            value={length(@live_pollers)}
+            title="Agent Gateways"
+            value={length(@gateways)}
             icon="hero-cpu-chip"
             variant="info"
-            href={~p"/infrastructure?tab=pollers"}
+            href={~p"/infrastructure?tab=gateways"}
           />
           <.summary_card
-            title="Live Agents"
-            value={length(@live_agents)}
+            title="Connected Agents"
+            value={length(@connected_agents)}
             icon="hero-cube"
             variant="success"
             href={~p"/infrastructure?tab=agents"}
           />
-          <.summary_card
-            title="DB Pollers"
-            value={length(@db_pollers)}
-            icon="hero-circle-stack"
-            variant="ghost"
-            href={~p"/infrastructure?tab=pollers"}
-          />
-          <.summary_card
-            title="DB Agents"
-            value={length(@db_agents)}
-            icon="hero-archive-box"
-            variant="ghost"
-            href={~p"/infrastructure?tab=agents"}
-          />
         </div>
         
-    <!-- Tab Navigation -->
-        <div class="tabs tabs-box">
+    <!-- Tab Navigation (platform admin sees all tabs, others see only agents) -->
+        <div :if={@is_platform_admin} class="tabs tabs-box">
           <.link
             patch={~p"/infrastructure"}
             class={["tab", @active_tab == :overview && "tab-active"]}
@@ -278,47 +339,47 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             Nodes
           </.link>
           <.link
-            patch={~p"/infrastructure?tab=pollers"}
-            class={["tab", @active_tab == :pollers && "tab-active"]}
+            patch={~p"/infrastructure?tab=gateways"}
+            class={["tab", @active_tab == :gateways && "tab-active"]}
           >
-            Pollers
+            Agent Gateways
           </.link>
           <.link
             patch={~p"/infrastructure?tab=agents"}
             class={["tab", @active_tab == :agents && "tab-active"]}
           >
-            Agents
+            Connected Agents
           </.link>
         </div>
         
-    <!-- Tab Content -->
-        <div :if={@active_tab == :overview}>
+    <!-- Tab Content (overview, nodes, gateways only for platform admin) -->
+        <div :if={@is_platform_admin && @active_tab == :overview}>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Live Pollers -->
+            <!-- Agent Gateways -->
             <.ui_panel>
               <:header>
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-semibold">Live Pollers</span>
-                  <span class="badge badge-sm badge-info">{length(@live_pollers)}</span>
+                  <span class="text-sm font-semibold">Agent Gateways</span>
+                  <span class="badge badge-sm badge-info">{length(@gateways)}</span>
                 </div>
               </:header>
-              <.live_pollers_table pollers={@live_pollers} total_agents={length(@live_agents)} />
+              <.gateways_table gateways={@gateways} />
             </.ui_panel>
             
-    <!-- Live Agents -->
+    <!-- Connected Agents -->
             <.ui_panel>
               <:header>
                 <div class="flex items-center gap-2">
-                  <span class="text-sm font-semibold">Live Agents</span>
-                  <span class="badge badge-sm badge-success">{length(@live_agents)}</span>
+                  <span class="text-sm font-semibold">Connected Agents</span>
+                  <span class="badge badge-sm badge-success">{length(@connected_agents)}</span>
                 </div>
               </:header>
-              <.live_agents_table agents={@live_agents} />
+              <.agents_table agents={@connected_agents} />
             </.ui_panel>
           </div>
         </div>
 
-        <div :if={@active_tab == :nodes} class="space-y-6">
+        <div :if={@is_platform_admin && @active_tab == :nodes} class="space-y-6">
           <.ui_panel>
             <:header>
               <div class="flex items-center gap-2">
@@ -328,59 +389,32 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                 </span>
               </div>
             </:header>
-            <.cluster_nodes_table
-              cluster_info={@cluster_info}
-              live_pollers={@live_pollers}
-              live_agents={@live_agents}
-            />
+            <.cluster_nodes_table cluster_info={@cluster_info} />
           </.ui_panel>
         </div>
 
-        <div :if={@active_tab == :pollers} class="space-y-6">
+        <div :if={@is_platform_admin && @active_tab == :gateways} class="space-y-6">
           <.ui_panel>
             <:header>
               <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold">Live Pollers (Horde Registry)</span>
-                <span class="badge badge-sm badge-info">{length(@live_pollers)}</span>
+                <span class="text-sm font-semibold">Agent Gateways</span>
+                <span class="badge badge-sm badge-info">{length(@gateways)}</span>
               </div>
             </:header>
-            <.live_pollers_table
-              pollers={@live_pollers}
-              expanded={true}
-              total_agents={length(@live_agents)}
-            />
-          </.ui_panel>
-
-          <.ui_panel>
-            <:header>
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold">Registered Pollers (Database)</span>
-                <span class="badge badge-sm badge-ghost">{length(@db_pollers)}</span>
-              </div>
-            </:header>
-            <.db_pollers_table pollers={@db_pollers} />
+            <.gateways_table gateways={@gateways} expanded={true} />
           </.ui_panel>
         </div>
-
+        
+    <!-- Connected Agents tab (visible to all authenticated users) -->
         <div :if={@active_tab == :agents} class="space-y-6">
           <.ui_panel>
             <:header>
               <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold">Live Agents (Horde Registry)</span>
-                <span class="badge badge-sm badge-success">{length(@live_agents)}</span>
+                <span class="text-sm font-semibold">Connected Agents</span>
+                <span class="badge badge-sm badge-success">{length(@connected_agents)}</span>
               </div>
             </:header>
-            <.live_agents_table agents={@live_agents} expanded={true} />
-          </.ui_panel>
-
-          <.ui_panel>
-            <:header>
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold">Registered Agents (Database)</span>
-                <span class="badge badge-sm badge-ghost">{length(@db_agents)}</span>
-              </div>
-            </:header>
-            <.db_agents_table agents={@db_agents} />
+            <.agents_table agents={@connected_agents} expanded={true} />
           </.ui_panel>
         </div>
       </div>
@@ -449,44 +483,62 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     """
   end
 
-  attr :pollers, :list, required: true
+  attr :gateways, :list, required: true
   attr :expanded, :boolean, default: false
-  attr :total_agents, :integer, default: 0
 
-  defp live_pollers_table(assigns) do
+  defp gateways_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
       <table class="table table-sm">
         <thead>
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>
-            <th>Partition</th>
-            <th>Node</th>
-            <th :if={@expanded}>Available Agents</th>
-            <th :if={@expanded}>Last Heartbeat</th>
+            <th>Gateway ID</th>
+            <th :if={@expanded}>Partition</th>
+            <th :if={@expanded}>Node</th>
           </tr>
         </thead>
         <tbody>
-          <tr :if={@pollers == []}>
-            <td colspan={if @expanded, do: 5, else: 3} class="text-center text-base-content/60 py-6">
-              No live pollers connected
+          <tr :if={@gateways == []}>
+            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+              No agent gateways registered
             </td>
           </tr>
-          <%= for poller <- @pollers do %>
-            <tr
-              class="hover:bg-base-200/40 cursor-pointer"
-              phx-click={JS.navigate(~p"/pollers/#{extract_poller_id(poller)}")}
-            >
-              <td><.status_badge status={Map.get(poller, :status)} /></td>
-              <td class="font-mono text-xs">{Map.get(poller, :partition_id) || "default"}</td>
-              <td class="font-mono text-xs link link-primary">
-                {format_node(Map.get(poller, :node))}
+          <%= for gateway <- @gateways do %>
+            <tr class="hover:bg-base-200/40 cursor-pointer">
+              <td>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
+                  class="flex items-center gap-1.5"
+                >
+                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
+                  </span>
+                  <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
+                </.link>
               </td>
-              <td :if={@expanded} class="text-center">
-                <span class="badge badge-sm badge-success">{@total_agents}</span>
+              <td>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs block"
+                >
+                  {gateway.gateway_id}
+                </.link>
               </td>
-              <td :if={@expanded} class="font-mono text-xs">
-                {format_time(Map.get(poller, :last_heartbeat))}
+              <td :if={@expanded}>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs block"
+                >
+                  {gateway.partition}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs text-base-content/60 block"
+                >
+                  {gateway.short_name}
+                </.link>
               </td>
             </tr>
           <% end %>
@@ -499,7 +551,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   attr :agents, :list, required: true
   attr :expanded, :boolean, default: false
 
-  defp live_agents_table(assigns) do
+  defp agents_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
       <table class="table table-sm">
@@ -507,128 +559,45 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>
             <th>Agent ID</th>
-            <th>Partition</th>
-            <th :if={@expanded}>Poller</th>
-            <th :if={@expanded}>Capabilities</th>
-            <th>Heartbeat</th>
+            <th>Tenant</th>
+            <th :if={@expanded}>Last Seen</th>
+            <th :if={@expanded}>Services</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if @expanded, do: 6, else: 4} class="text-center text-base-content/60 py-6">
-              No live agents connected
+            <td colspan={if @expanded, do: 5, else: 3} class="text-center text-base-content/60 py-6">
+              No agents have pushed status yet
             </td>
           </tr>
           <%= for agent <- @agents do %>
-            <tr
-              class="hover:bg-base-200/40 cursor-pointer"
-              phx-click={JS.navigate(~p"/infrastructure/agents/#{agent.agent_id}")}
-            >
-              <td><.status_badge status={agent.status} /></td>
-              <td class="font-mono text-xs max-w-[10rem] truncate">{agent.agent_id}</td>
-              <td class="font-mono text-xs">{agent.partition_id || "default"}</td>
-              <td :if={@expanded} class="font-mono text-xs">{format_node(agent.poller_node)}</td>
-              <td :if={@expanded}>
-                <div class="flex flex-wrap gap-1">
-                  <%= for cap <- (agent.capabilities || []) |> Enum.take(3) do %>
-                    <span class="badge badge-xs badge-outline">{cap}</span>
-                  <% end %>
-                  <span :if={length(agent.capabilities || []) > 3} class="badge badge-xs badge-ghost">
-                    +{length(agent.capabilities) - 3}
+            <tr class="hover:bg-base-200/40 cursor-pointer">
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
+                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
                   </span>
-                </div>
-              </td>
-              <td class="font-mono text-xs">{format_time(agent.last_heartbeat)}</td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
-    """
-  end
-
-  attr :pollers, :list, required: true
-
-  defp db_pollers_table(assigns) do
-    ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
-        <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
-            <th>ID</th>
-            <th>Status</th>
-            <th>Partition</th>
-            <th>Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :if={@pollers == []}>
-            <td colspan="4" class="text-center text-base-content/60 py-6">
-              No pollers in database
-            </td>
-          </tr>
-          <%= for poller <- @pollers do %>
-            <tr class="hover:bg-base-200/40">
-              <td class="font-mono text-xs max-w-[10rem] truncate">
-                {Map.get(poller, "id") || Map.get(poller, "poller_id")}
+                  <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
+                </.link>
               </td>
               <td>
-                <.ui_badge
-                  variant={
-                    if Map.get(poller, "is_active") || Map.get(poller, "status") == "active",
-                      do: "success",
-                      else: "ghost"
-                  }
-                  size="xs"
-                >
-                  {Map.get(poller, "status") ||
-                    if Map.get(poller, "is_active"), do: "Active", else: "Inactive"}
-                </.ui_badge>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.agent_id}
+                </.link>
               </td>
-              <td class="font-mono text-xs">{Map.get(poller, "partition") || "—"}</td>
-              <td class="font-mono text-xs">{format_db_timestamp(Map.get(poller, "last_seen"))}</td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
-    """
-  end
-
-  attr :agents, :list, required: true
-
-  defp db_agents_table(assigns) do
-    ~H"""
-    <div class="overflow-x-auto">
-      <table class="table table-sm">
-        <thead>
-          <tr class="text-xs uppercase tracking-wide text-base-content/60">
-            <th>UID</th>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Poller</th>
-            <th>Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :if={@agents == []}>
-            <td colspan="5" class="text-center text-base-content/60 py-6">
-              No agents in database
-            </td>
-          </tr>
-          <%= for agent <- @agents do %>
-            <tr
-              class="hover:bg-base-200/40 cursor-pointer"
-              phx-click={JS.navigate(~p"/infrastructure/agents/#{Map.get(agent, "uid")}")}
-            >
-              <td class="font-mono text-xs max-w-[10rem] truncate">{Map.get(agent, "uid")}</td>
-              <td class="text-xs">{Map.get(agent, "name") || "—"}</td>
               <td>
-                <.ui_badge variant="ghost" size="xs">{Map.get(agent, "type") || "Unknown"}</.ui_badge>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.tenant_slug}
+                </.link>
               </td>
-              <td class="font-mono text-xs">{Map.get(agent, "poller_id") || "—"}</td>
-              <td class="font-mono text-xs">
-                {format_db_timestamp(Map.get(agent, "last_seen_time"))}
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {format_time(agent.last_seen)}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="text-xs block">
+                  {agent.service_count}
+                </.link>
               </td>
             </tr>
           <% end %>
@@ -639,24 +608,21 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   attr :cluster_info, :map, required: true
-  attr :live_pollers, :list, required: true
-  attr :live_agents, :list, required: true
 
   defp cluster_nodes_table(assigns) do
-    # Build list of all nodes with their details
     current_node = assigns.cluster_info.current_node
     connected_nodes = assigns.cluster_info.connected_nodes
 
     all_nodes =
       [current_node | connected_nodes]
       |> Enum.map(fn node ->
+        node_str = to_string(node)
+
         %{
           node: node,
           is_current: node == current_node,
-          type: detect_node_type(node),
-          status: if(node == current_node, do: :connected, else: :connected),
-          pollers: count_node_pollers(node, assigns.live_pollers),
-          agents: count_node_agents(node, assigns.live_agents)
+          type: detect_node_type(node_str),
+          short_name: node_str |> String.split("@") |> List.first()
         }
       end)
       |> Enum.sort_by(fn n -> {!n.is_current, to_string(n.node)} end)
@@ -671,44 +637,38 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
             <th>Status</th>
             <th>Node Name</th>
             <th>Type</th>
-            <th>Pollers</th>
-            <th>Agents</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@nodes == []}>
-            <td colspan="5" class="text-center text-base-content/60 py-6">
+            <td colspan="3" class="text-center text-base-content/60 py-6">
               No cluster nodes
             </td>
           </tr>
           <%= for node <- @nodes do %>
-            <tr
-              class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}
-              phx-click={JS.navigate(~p"/infrastructure/nodes/#{format_node_name(node.node)}")}
-            >
+            <tr class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
               <td>
-                <div class="flex items-center gap-1.5">
-                  <span class={"size-2 rounded-full #{if node.status == :connected, do: "bg-success", else: "bg-error"}"}>
-                  </span>
-                  <span class="text-xs">
-                    {if node.status == :connected, do: "Connected", else: "Disconnected"}
-                  </span>
-                </div>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}
+                  class="flex items-center gap-1.5"
+                >
+                  <span class="size-2 rounded-full bg-success"></span>
+                  <span class="text-xs">Connected</span>
+                </.link>
               </td>
               <td class="font-mono text-xs">
-                <div class="flex items-center gap-2">
-                  <span class="link link-primary">{format_node_name(node.node)}</span>
+                <.link
+                  navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}
+                  class="flex items-center gap-2"
+                >
+                  <span>{node.short_name}</span>
                   <span :if={node.is_current} class="badge badge-xs badge-primary">current</span>
-                </div>
+                </.link>
               </td>
-              <td><.node_type_badge type={node.type} /></td>
-              <td class="text-center">
-                <span :if={node.pollers > 0} class="badge badge-sm badge-info">{node.pollers}</span>
-                <span :if={node.pollers == 0} class="text-base-content/40">—</span>
-              </td>
-              <td class="text-center">
-                <span :if={node.agents > 0} class="badge badge-sm badge-success">{node.agents}</span>
-                <span :if={node.agents == 0} class="text-base-content/40">—</span>
+              <td>
+                <.link navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}>
+                  <.node_type_badge type={node.type} />
+                </.link>
               </td>
             </tr>
           <% end %>
@@ -724,8 +684,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     {label, variant} =
       case assigns.type do
         :core -> {"Core", "primary"}
-        :poller -> {"Poller", "info"}
-        :agent -> {"Agent", "success"}
+        :gateway -> {"Gateway", "info"}
         :web -> {"Web", "warning"}
         _ -> {"Unknown", "ghost"}
       end
@@ -737,262 +696,242 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     """
   end
 
-  attr :status, :atom, default: :unknown
-
-  defp status_badge(assigns) do
-    {label, variant} =
-      case assigns.status do
-        :available -> {"Available", "success"}
-        :connected -> {"Connected", "success"}
-        :busy -> {"Busy", "warning"}
-        :draining -> {"Draining", "warning"}
-        :unavailable -> {"Unavailable", "error"}
-        :disconnected -> {"Disconnected", "error"}
-        _ -> {"Unknown", "ghost"}
-      end
-
-    assigns = assign(assigns, label: label, variant: variant)
-
-    ~H"""
-    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
-    """
-  end
-
-  # Cluster Debug
-
-  defp load_cluster_info do
-    # TenantRegistry manages per-tenant Horde registries
-    # Count active tenant registries instead of calling Horde directly
-    tenant_registries =
-      try do
-        ServiceRadar.Cluster.TenantRegistry.list_registries() |> length()
-      rescue
-        _ -> 0
-      end
-
-    %{
-      current_node: Node.self(),
-      connected_nodes: Node.list(),
-      poller_registry_members: tenant_registries,
-      agent_registry_members: tenant_registries,
-      poller_count: ServiceRadar.PollerRegistry.count(),
-      agent_count: ServiceRadar.AgentRegistry.count()
-    }
-  rescue
-    _ ->
-      %{
-        current_node: Node.self(),
-        connected_nodes: Node.list(),
-        poller_registry_members: 0,
-        agent_registry_members: 0,
-        poller_count: 0,
-        agent_count: 0
-      }
-  end
-
-  defp force_horde_sync do
-    # Per-tenant registries use members: :auto and sync automatically
-    # Force sync is no longer needed with TenantRegistry architecture
-    Logger.info("[Infrastructure] Horde sync is automatic with per-tenant registries")
-    :ok
+  defp node_param(node) do
+    to_string(node)
   end
 
   # Data Loading
 
-  defp load_live_pollers(tenant_id) do
-    pollers =
-      if tenant_id do
-        ServiceRadar.PollerRegistry.find_pollers_for_tenant(tenant_id)
-      else
-        ServiceRadar.PollerRegistry.all_pollers()
-      end
-
-    Logger.debug("[Infrastructure] Horde pollers for tenant #{tenant_id}: #{length(pollers)}")
-
-    pollers
-    |> Enum.map(fn poller ->
-      %{
-        poller_id: Map.get(poller, :poller_id) || Map.get(poller, :key),
-        tenant_id: Map.get(poller, :tenant_id),
-        partition_id: Map.get(poller, :partition_id),
-        node: Map.get(poller, :node),
-        status: Map.get(poller, :status, :available),
-        agent_count: Map.get(poller, :agent_count, 0),
-        last_heartbeat: Map.get(poller, :last_heartbeat)
-      }
-    end)
-    |> Enum.sort_by(& &1.poller_id)
-  rescue
-    e ->
-      Logger.error("[Infrastructure] Error loading pollers: #{inspect(e)}")
-      []
+  defp load_cluster_info do
+    %{
+      current_node: Node.self(),
+      connected_nodes: Node.list()
+    }
   end
 
-  defp load_live_agents(tenant_id) do
-    agents =
-      if tenant_id do
-        ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
-      else
-        ServiceRadar.AgentRegistry.all_agents()
+  # Load initial agents from the AgentTracker on mount
+  # This ensures we show existing agents immediately instead of waiting for PubSub
+  # AgentTracker runs on gateway nodes, so we query all cluster nodes via RPC
+  defp load_initial_agents_cache do
+    # Query all nodes in the cluster for their agents using async_stream
+    # to prevent mount delays from slow or unresponsive nodes
+    all_agents =
+      [Node.self() | Node.list()]
+      |> Task.async_stream(
+        fn node ->
+          case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], 1_000) do
+            agents when is_list(agents) -> agents
+            _ -> []
+          end
+        end,
+        timeout: 1_500,
+        on_timeout: :kill_task,
+        max_concurrency: 4
+      )
+      |> Enum.flat_map(fn
+        {:ok, agents} -> agents
+        _ -> []
+      end)
+
+    # Convert to cache format
+    all_agents
+    |> Enum.reduce(%{}, fn agent, acc ->
+      agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
+
+      Map.put(acc, agent_id, %{
+        agent_id: agent_id,
+        tenant_id: Map.get(agent, :tenant_id) || Map.get(agent, "tenant_id"),
+        tenant_slug: Map.get(agent, :tenant_slug) || Map.get(agent, "tenant_slug") || "default",
+        last_seen: Map.get(agent, :last_seen) || Map.get(agent, "last_seen"),
+        last_seen_mono: Map.get(agent, :last_seen_mono) || Map.get(agent, "last_seen_mono"),
+        service_count: Map.get(agent, :service_count) || Map.get(agent, "service_count") || 0,
+        partition: Map.get(agent, :partition) || Map.get(agent, "partition"),
+        source_ip: Map.get(agent, :source_ip) || Map.get(agent, "source_ip")
+      })
+    end)
+  end
+
+  # Compute gateways from local cache with activity status
+  # Uses wall-clock time (system_time) for accurate distributed staleness detection
+  defp compute_gateways(gateways_cache) do
+    now_ms = System.system_time(:millisecond)
+
+    gateways_cache
+    |> Map.values()
+    |> Enum.map(fn gateway ->
+      last_heartbeat_ms = parse_timestamp_to_ms(Map.get(gateway, :last_heartbeat))
+
+      # Clamp delta to non-negative to handle clock skew
+      delta_ms =
+        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0), else: nil
+
+      active = is_integer(delta_ms) and delta_ms < @stale_threshold_ms
+      node_str = to_string(gateway.node)
+
+      gateway
+      |> Map.put(:active, active)
+      |> Map.put(:full_name, node_str)
+      |> Map.put(:short_name, node_str |> String.split("@") |> List.first())
+    end)
+    |> Enum.sort_by(& &1.gateway_id)
+  end
+
+  # Parse various timestamp formats to milliseconds since epoch
+  defp parse_timestamp_to_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
+
+  defp parse_timestamp_to_ms(%NaiveDateTime{} = ndt) do
+    ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+  end
+
+  defp parse_timestamp_to_ms(ts) when is_integer(ts) do
+    cond do
+      ts < 0 ->
+        nil
+
+      # nanoseconds since epoch
+      ts > 10_000_000_000_000_000 ->
+        div(ts, 1_000_000)
+
+      # microseconds since epoch
+      ts > 10_000_000_000_000 ->
+        div(ts, 1_000)
+
+      # milliseconds since epoch
+      ts > 10_000_000_000 ->
+        ts
+
+      # seconds since epoch
+      true ->
+        ts * 1_000
+    end
+  end
+
+  defp parse_timestamp_to_ms(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp parse_timestamp_to_ms(_), do: nil
+
+  # Get tenant info from socket assigns for scoping
+  # Returns {tenant_id, tenant_slug} tuple
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{active_tenant: %{id: id, slug: slug}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id, tenant: %{slug: slug}}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id}} when not is_nil(id) ->
+        {id, nil}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  # Compute connected agents from local cache with activity status
+  # Platform admins see all agents, regular users see only their tenant's agents
+  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_info) do
+    {tenant_id, tenant_slug} =
+      case tenant_info do
+        {id, slug} -> {id, slug}
+        id when is_binary(id) -> {id, nil}
+        _ -> {nil, nil}
       end
 
-    Logger.debug("[Infrastructure] Horde agents for tenant #{tenant_id}: #{length(agents)}")
+    # Use wall-clock time (system_time) for accurate distributed staleness detection
+    now_ms = System.system_time(:millisecond)
 
-    agents
+    agents_cache
+    |> Map.values()
+    |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
     |> Enum.map(fn agent ->
-      %{
-        agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
-        tenant_id: Map.get(agent, :tenant_id),
-        partition_id: Map.get(agent, :partition_id),
-        node: Map.get(agent, :node),
-        poller_node: Map.get(agent, :poller_node),
-        capabilities: Map.get(agent, :capabilities, []),
-        status: Map.get(agent, :status, :unknown),
-        connected_at: Map.get(agent, :connected_at),
-        last_heartbeat: Map.get(agent, :last_heartbeat)
-      }
+      Map.put(agent, :active, agent_active?(agent, now_ms))
     end)
     |> Enum.sort_by(& &1.agent_id)
-  rescue
-    e ->
-      Logger.error("[Infrastructure] Error loading agents: #{inspect(e)}")
-      []
   end
 
-  defp load_db_pollers(current_scope) do
-    query = "in:pollers limit:50"
+  defp agent_active?(agent, now_ms) do
+    last_seen_ms = agent_last_seen_ms(agent)
 
-    case srql_module().query(query, actor: build_actor(current_scope)) do
-      {:ok, %{"results" => results}} -> results
-      _ -> []
+    cond do
+      is_integer(last_seen_ms) ->
+        delta_ms = max(now_ms - last_seen_ms, 0)
+        delta_ms < @stale_threshold_ms
+
+      is_integer(agent[:last_seen_mono]) and is_nil(agent[:last_seen]) ->
+        now_mono = System.monotonic_time(:millisecond)
+        delta_ms = max(now_mono - agent[:last_seen_mono], 0)
+        delta_ms < @stale_threshold_ms
+
+      true ->
+        false
     end
-  rescue
-    _ -> []
   end
 
-  defp load_db_agents(current_scope) do
-    query = "in:agents limit:50"
+  defp agent_last_seen_ms(agent) do
+    case Map.get(agent, :last_seen) do
+      %DateTime{} = dt ->
+        DateTime.to_unix(dt, :millisecond)
 
-    case srql_module().query(query, actor: build_actor(current_scope)) do
-      {:ok, %{"results" => results}} -> results
-      _ -> []
-    end
-  rescue
-    _ -> []
-  end
+      %NaiveDateTime{} = ndt ->
+        ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
 
-  defp build_actor(current_scope) do
-    case current_scope do
-      %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
-        # Use active tenant if available, otherwise fall back to user's default
-        tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
+      ts when is_binary(ts) ->
+        parse_iso8601_ms(ts)
 
-        %{
-          id: user.id,
-          tenant_id: tenant_id,
-          role: user.role,
-          email: user.email
-        }
-
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          tenant_id: user.tenant_id,
-          role: user.role,
-          email: user.email
-        }
+      ts when is_integer(ts) ->
+        parse_timestamp_to_ms(ts)
 
       _ ->
         nil
     end
   end
 
-  # Get the active tenant ID from scope for Horde registry filtering
-  defp get_active_tenant_id(current_scope) do
-    case current_scope do
-      %{active_tenant: %{id: id}} -> to_string(id)
-      %{user: %{tenant_id: id}} -> to_string(id)
+  defp parse_iso8601_ms(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
       _ -> nil
     end
   end
 
-  # Formatters
+  defp agent_visible?(_agent, true, _tenant_id, _tenant_slug), do: true
 
-  defp extract_poller_id(poller) do
-    case Map.get(poller, :poller_id) || Map.get(poller, :key) do
-      {_partition, node} when is_atom(node) -> Atom.to_string(node)
-      id when is_atom(id) -> Atom.to_string(id)
-      id when is_binary(id) -> id
-      _ -> "unknown"
+  defp agent_visible?(agent, false, tenant_id, tenant_slug) do
+    # Match by tenant_id OR tenant_slug (agents may have one or both)
+    agent_tenant_id = Map.get(agent, :tenant_id)
+    agent_tenant_slug = Map.get(agent, :tenant_slug)
+
+    cond do
+      # Match by tenant_id if both have it
+      tenant_id != nil and agent_tenant_id != nil ->
+        to_string(agent_tenant_id) == to_string(tenant_id)
+
+      # Match by tenant_slug if both have it
+      tenant_slug != nil and agent_tenant_slug != nil ->
+        to_string(agent_tenant_slug) == to_string(tenant_slug)
+
+      # No match possible
+      true ->
+        false
     end
   end
-
-  defp format_node(nil), do: "—"
-
-  defp format_node(node) when is_atom(node),
-    do: node |> Atom.to_string() |> String.split("@") |> List.first()
-
-  defp format_node(node), do: to_string(node)
-
-  defp format_time(nil), do: "—"
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
-  defp format_time(_), do: "—"
-
-  defp format_db_timestamp(nil), do: "—"
-  defp format_db_timestamp(""), do: "—"
-
-  defp format_db_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-      _ -> ts
-    end
-  end
-
-  defp format_db_timestamp(_), do: "—"
-
-  defp format_node_name(node) when is_atom(node), do: Atom.to_string(node)
-  defp format_node_name(node), do: to_string(node)
 
   # Detect node type based on node name prefix
-  defp detect_node_type(node) when is_atom(node), do: detect_node_type(Atom.to_string(node))
-
   defp detect_node_type(node_str) when is_binary(node_str) do
-    # Note: Agents are now Go-based and connect via gRPC, not ERTS
     cond do
       String.starts_with?(node_str, "serviceradar_core") -> :core
-      String.starts_with?(node_str, "serviceradar_poller") -> :poller
+      String.starts_with?(node_str, "serviceradar_agent_gateway") -> :gateway
       String.starts_with?(node_str, "serviceradar_web") -> :web
       true -> :unknown
     end
   end
 
-  defp detect_node_type(_), do: :unknown
-
-  # Count pollers running on a specific node
-  defp count_node_pollers(node, pollers) do
-    Enum.count(pollers, fn poller ->
-      Map.get(poller, :node) == node
-    end)
-  end
-
-  # Count agents running on a specific node
-  defp count_node_agents(node, agents) do
-    node_str = to_string(node)
-
-    Enum.count(agents, fn agent ->
-      agent_node = Map.get(agent, :node)
-      poller_node = Map.get(agent, :poller_node)
-
-      # Check both :node (where agent runs) and :poller_node
-      # Compare as atoms and strings to handle any serialization differences
-      agent_node == node ||
-        poller_node == node ||
-        to_string(agent_node) == node_str ||
-        to_string(poller_node) == node_str
-    end)
-  end
-
-  defp srql_module do
-    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-  end
+  defp format_time(nil), do: "—"
+  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
+  defp format_time(_), do: "—"
 end

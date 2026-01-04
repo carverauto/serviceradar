@@ -35,8 +35,6 @@ var (
 	ErrTokenRequired = errors.New("onboarding token is required")
 	// ErrTokenOrPackageRequired is returned when neither token nor package path are provided.
 	ErrTokenOrPackageRequired = errors.New("onboarding token or package archive is required")
-	// ErrKVEndpointRequired is returned when no KV endpoint is provided (bootstrap config or integration).
-	ErrKVEndpointRequired = errors.New("KV endpoint is required")
 	// ErrCredentialRotationNotImplemented is returned when credential rotation is attempted.
 	ErrCredentialRotationNotImplemented = errors.New("not implemented: credential rotation")
 	// ErrRotationInfoNotImplemented is returned when rotation info is requested.
@@ -46,16 +44,30 @@ var (
 // Config contains all parameters needed for edge service onboarding.
 // This is the client-side configuration for edge services (poller, agent, checker)
 // to bootstrap themselves from an onboarding token.
+//
+// ## Minimal Bootstrap Configuration
+//
+// Per the SaaS connectivity spec, the on-disk bootstrap config only needs:
+// - GatewayEndpoint: Where to connect
+// - mTLS credentials: For authentication
+//
+// All monitoring configuration (checks, schedules, etc.) is delivered
+// dynamically via GetConfig after the agent connects to the gateway.
 type Config struct {
 	// Token is the onboarding/download token from the package
 	Token string
 
-	// CoreEndpoint is the Core service gRPC endpoint (optional: auto-discovered from package)
+	// GatewayEndpoint is the agent-gateway gRPC endpoint (required for SaaS mode)
+	// Format: "host:port" e.g., "gateway.serviceradar.cloud:50051"
+	// This is the only required endpoint - all config is delivered via GetConfig.
+	GatewayEndpoint string
+
+	// CoreEndpoint is the Core service gRPC endpoint (optional: legacy/on-prem use)
 	// Format: "host:port" e.g., "23.138.124.18:50052"
 	CoreEndpoint string
 
-	// KVEndpoint is the KV service (datasvc) gRPC endpoint
-	// This is a sticky/bootstrap config - must be provided as we need it to fetch dynamic config
+	// KVEndpoint is the KV service (datasvc) gRPC endpoint (optional: legacy/on-prem use)
+	// In SaaS mode, agents get configuration from gateway via GetConfig.
 	// Format: "host:port" e.g., "23.138.124.23:50057"
 	KVEndpoint string
 
@@ -117,6 +129,10 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper creates a new bootstrapper instance.
+//
+// For SaaS mode, only GatewayEndpoint is required - agents receive all
+// configuration dynamically via GetConfig after connecting.
+// For legacy/on-prem mode, KVEndpoint may still be used.
 func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 	if cfg == nil {
 		return nil, ErrConfigRequired
@@ -124,14 +140,18 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 
 	cfg.Token = strings.TrimSpace(cfg.Token)
 	cfg.PackagePath = strings.TrimSpace(cfg.PackagePath)
+	cfg.GatewayEndpoint = strings.TrimSpace(cfg.GatewayEndpoint)
 
 	if cfg.Token == "" && cfg.PackagePath == "" {
 		return nil, ErrTokenOrPackageRequired
 	}
 
-	if cfg.KVEndpoint == "" {
-		return nil, ErrKVEndpointRequired
+	if cfg.Token != "" && cfg.PackagePath == "" && cfg.GatewayEndpoint == "" {
+		return nil, ErrGatewayAddrRequired
 	}
+
+	// Note: KVEndpoint is no longer required for SaaS mode.
+	// Agents connect to GatewayEndpoint and receive config via GetConfig.
 
 	log := cfg.Logger
 	if log == nil {
@@ -281,7 +301,12 @@ func (b *Bootstrapper) GetAllConfigs() map[string][]byte {
 	return result
 }
 
-// GetCoreEndpoint returns the Core service endpoint.
+// GetGatewayEndpoint returns the Gateway service endpoint (primary for SaaS mode).
+func (b *Bootstrapper) GetGatewayEndpoint() string {
+	return b.cfg.GatewayEndpoint
+}
+
+// GetCoreEndpoint returns the Core service endpoint (legacy/on-prem use).
 func (b *Bootstrapper) GetCoreEndpoint() string {
 	if b.cfg.CoreEndpoint != "" {
 		return b.cfg.CoreEndpoint
@@ -290,7 +315,8 @@ func (b *Bootstrapper) GetCoreEndpoint() string {
 	return ""
 }
 
-// GetKVEndpoint returns the KV service endpoint.
+// GetKVEndpoint returns the KV service endpoint (legacy/on-prem use).
+// In SaaS mode, agents receive config from gateway via GetConfig instead.
 func (b *Bootstrapper) GetKVEndpoint() string {
 	return b.cfg.KVEndpoint
 }

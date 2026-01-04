@@ -14,14 +14,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
-      id: "pollers",
-      label: "Pollers",
-      route: "/pollers",
+      id: "gateways",
+      label: "Gateways",
+      route: "/gateways",
       default_time: "",
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
-      default_filter_field: "poller_id",
-      filter_fields: ["poller_id", "status", "component_id", "registration_source"],
+      default_filter_field: "id",
+      filter_fields: ["id", "status", "component_id", "registration_source"],
       downsample: false
     },
     %{

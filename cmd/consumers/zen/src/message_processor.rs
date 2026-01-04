@@ -131,6 +131,7 @@ mod tests {
                     format: MessageFormat::OtelMetrics,
                 },
             ],
+            nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),
             listen_addr: "0.0.0.0:50055".to_string(),

@@ -12,7 +12,7 @@ defmodule ServiceRadar.TenantIsolationTest do
   """
   use ServiceRadarWebNG.DataCase, async: false
 
-  # TODO: Investigate multi-tenancy filtering with `global? true`
+  # Pending: investigate multi-tenancy filtering with `global? true`.
   # The Inventory and Infrastructure resources use global? true which
   # may affect how tenant filtering works. These tests need to be
   # updated once the multitenancy behavior is clarified.

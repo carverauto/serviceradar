@@ -29,16 +29,24 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     * `package` - The OnboardingPackage struct
     * `bundle_pem` - The decrypted certificate bundle PEM
-    * `join_token` - The decrypted join token
+    * `join_token` - The decrypted join token (reserved for future use)
     * `opts` - Additional options:
-      * `:core_address` - Core service address (default: from config)
-      * `:nats_url` - NATS server URL (default: from config)
+      * `:gateway_addr` - Gateway service address (default: from config)
 
   ## Returns
 
     * `{:ok, tarball_binary}` - The gzipped tarball as binary
     * `{:error, reason}` - If bundle creation fails
 
+  ## Bootstrap Configuration
+
+  The generated config contains only minimal bootstrap settings:
+  - `agent_id` - Component identifier
+  - `gateway_addr` - SaaS gateway endpoint
+  - `gateway_security` - mTLS credentials
+
+  All monitoring configuration (checks, schedules, etc.) is delivered
+  dynamically via the `GetConfig` gRPC call after the agent connects.
   """
   @spec create_tarball(OnboardingPackage.t(), String.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
@@ -162,52 +170,27 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp parse_bundle_pem(_), do: {"", "", ""}
 
-  defp generate_config_yaml(package, join_token, opts) do
-    core_address = Keyword.get(opts, :core_address, default_core_address())
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+  defp generate_config_yaml(package, _join_token, opts) do
+    gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
 
-    component_type = to_string(package.component_type)
-
+    # Minimal bootstrap configuration per spec:
+    # Only SaaS endpoint + mTLS credentials. All monitoring config
+    # is delivered dynamically via GetConfig after agent connects.
     config = %{
-      "component_id" => package.component_id || package.id,
-      "component_type" => component_type,
-      "join_token" => join_token,
-      "core" => %{
-        "address" => core_address
-      },
-      "nats" => %{
-        "url" => nats_url
-      },
-      "tls" => %{
+      # Agent identity
+      "agent_id" => package.component_id || package.id,
+
+      # Gateway connection (required)
+      "gateway_addr" => gateway_addr,
+
+      # mTLS security configuration
+      "gateway_security" => %{
+        "mode" => "mtls",
         "cert_file" => "/etc/serviceradar/certs/component.pem",
         "key_file" => "/etc/serviceradar/certs/component-key.pem",
         "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
       }
     }
-
-    # Add component-specific config
-    config =
-      case package.component_type do
-        :poller ->
-          Map.put(config, "poller", %{
-            "partition_id" => package.site || "default"
-          })
-
-        :agent ->
-          Map.put(config, "agent", %{
-            "poller_id" => package.poller_id
-          })
-
-        :checker ->
-          config
-          |> Map.put("checker", %{
-            "kind" => package.checker_kind,
-            "config" => package.checker_config_json || %{}
-          })
-
-        _ ->
-          config
-      end
 
     # Convert to YAML
     encode_yaml(config)
@@ -386,6 +369,21 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     **Package ID:** #{package.id}
     **Created:** #{format_datetime(package.created_at)}
 
+    ## Architecture
+
+    This package contains a **minimal bootstrap configuration**. The agent connects
+    to the ServiceRadar gateway using mTLS, then receives all monitoring configuration
+    dynamically via the `GetConfig` gRPC call.
+
+    **Bootstrap config includes:**
+    - Gateway endpoint address
+    - mTLS certificates for secure connection
+
+    **Delivered via GetConfig:**
+    - Monitoring checks and schedules
+    - Sweep configurations
+    - Tenant-specific settings
+
     ## Quick Start
 
     ### Docker (Recommended)
@@ -429,7 +427,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     - `certs/component.pem` - Component TLS certificate
     - `certs/component-key.pem` - Component private key (keep secure!)
     - `certs/ca-chain.pem` - CA certificate chain for verification
-    - `config/config.yaml` - Component configuration
+    - `config/config.yaml` - Minimal bootstrap configuration
     - `install.sh` - Automated installer script
     - `kubernetes/` - Kubernetes manifests for k8s deployment
 
@@ -437,7 +435,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     - The private key (`component-key.pem`) should be kept secure
     - Certificates are valid for 365 days from creation
-    - The join token expires after 24 hours
+    - All connections use mTLS (mutual TLS) for authentication
 
     ## Support
 
@@ -572,33 +570,31 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     """
   end
 
-  defp generate_k8s_configmap(package, join_token, namespace, opts) do
+  defp generate_k8s_configmap(package, _join_token, namespace, opts) do
     component_type = to_string(package.component_type)
     component_id = package.component_id || package.id
-    core_address = Keyword.get(opts, :core_address, default_core_address())
-    nats_url = Keyword.get(opts, :nats_url, default_nats_url())
+    gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
 
+    # Minimal bootstrap configuration per spec:
+    # Only SaaS endpoint + mTLS credentials. All monitoring config
+    # is delivered dynamically via GetConfig after agent connects.
     config_yaml = """
-    component_id: "#{component_id}"
-    component_type: "#{component_type}"
-    join_token: "#{join_token}"
-    core:
-      address: "#{core_address}"
-    nats:
-      url: "#{nats_url}"
-    tls:
+    # Minimal bootstrap config - monitoring settings delivered via GetConfig
+    agent_id: "#{component_id}"
+    gateway_addr: "#{gateway_addr}"
+    gateway_security:
+      mode: "mtls"
       cert_file: "/etc/serviceradar/certs/tls.crt"
       key_file: "/etc/serviceradar/certs/tls.key"
       ca_file: "/etc/serviceradar/certs/ca.crt"
     """
 
-    # Add component-specific config
-    config_yaml = config_yaml <> component_specific_k8s_config(package)
-
     config_b64 = Base.encode64(config_yaml)
 
     """
     # ServiceRadar Edge Component - Configuration
+    # Note: This is a minimal bootstrap config. All monitoring configuration
+    # (checks, schedules, etc.) is delivered via GetConfig after connection.
     apiVersion: v1
     kind: ConfigMap
     metadata:
@@ -611,35 +607,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     binaryData:
       config.yaml: #{config_b64}
     """
-  end
-
-  defp component_specific_k8s_config(package) do
-    case package.component_type do
-      :poller ->
-        """
-        poller:
-          partition_id: "#{package.site || "default"}"
-        """
-
-      :agent ->
-        """
-        agent:
-          poller_id: "#{package.poller_id || ""}"
-        """
-
-      :checker ->
-        checker_config =
-          if package.checker_config_json, do: inspect(package.checker_config_json), else: "{}"
-
-        """
-        checker:
-          kind: "#{package.checker_kind || ""}"
-          config: #{checker_config}
-        """
-
-      _ ->
-        ""
-    end
   end
 
   defp generate_k8s_deployment(package, namespace, image_tag) do
@@ -762,11 +729,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Application.get_env(:serviceradar_web_ng, :base_url, "https://app.serviceradar.cloud")
   end
 
-  defp default_core_address do
-    Application.get_env(:serviceradar_web_ng, :core_address, "core.serviceradar.cloud:50052")
-  end
-
-  defp default_nats_url do
-    Application.get_env(:serviceradar_web_ng, :nats_url, "nats://nats.serviceradar.cloud:4222")
+  defp default_gateway_addr do
+    Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50052")
   end
 end
