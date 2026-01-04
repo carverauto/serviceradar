@@ -198,8 +198,19 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 		conn := s.resolverConn
 		s.resolverConn = nil
 		go func() {
-			_ = conn.Drain()
-			conn.Close()
+			drainDone := make(chan struct{})
+			go func() {
+				_ = conn.Drain()
+				close(drainDone)
+			}()
+
+			select {
+			case <-drainDone:
+				conn.Close()
+			case <-time.After(5 * time.Second):
+				// Ensure we don't leak goroutines/resources if Drain hangs.
+				conn.Close()
+			}
 		}()
 	}
 

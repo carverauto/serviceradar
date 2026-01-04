@@ -49,6 +49,8 @@ var (
 	ErrKVSPIFFEIDNotFound = errors.New("kv_spiffe_id not found in metadata")
 	// ErrAgentIDNotFound is returned when agent_id is missing from metadata.
 	ErrAgentIDNotFound = errors.New("agent_id not found in metadata")
+	// ErrGatewayEndpointRequired is returned when gateway_endpoint is missing for agent bootstrap config.
+	ErrGatewayEndpointRequired = errors.New("gateway endpoint is required to generate agent bootstrap config")
 )
 
 // generateServiceConfig generates configuration files for the service based on:
@@ -209,6 +211,9 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 	gatewayEndpoint := b.cfg.GatewayEndpoint
 	if gwAddr, ok := metadata["gateway_addr"].(string); ok && gwAddr != "" {
 		gatewayEndpoint = gwAddr
+	}
+	if gatewayEndpoint == "" {
+		return ErrGatewayEndpointRequired
 	}
 
 	// Generate minimal agent config JSON per SaaS connectivity spec

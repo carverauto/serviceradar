@@ -556,6 +556,14 @@ const (
 
 // protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
+	// Validate required fields coming from the gateway to avoid unusable configs.
+	if check.Target == "" {
+		return nil
+	}
+	if check.Port < 0 || check.Port > 65535 {
+		return nil
+	}
+
 	// Build address from target and port
 	address := check.Target
 	if check.Port > 0 {

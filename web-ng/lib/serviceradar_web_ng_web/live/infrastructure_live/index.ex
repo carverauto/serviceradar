@@ -83,25 +83,44 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   end
 
   @impl true
-  def handle_info(:refresh, socket) do
-    cluster_info = load_cluster_info()
+def handle_info(:refresh, socket) do
+  cluster_info = load_cluster_info()
 
-    # Update activity status based on last_seen_mono
-    gateways = compute_gateways(socket.assigns.gateways_cache)
+  now_ms = System.system_time(:millisecond)
 
-    connected_agents =
-      compute_connected_agents(
-        socket.assigns.agents_cache,
-        socket.assigns.is_platform_admin,
-        socket.assigns.tenant_id
-      )
+  pruned_gateways_cache =
+    socket.assigns.gateways_cache
+    |> Enum.reject(fn {_id, gw} ->
+      last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
+      is_integer(last_ms) and max(now_ms - last_ms, 0) > @stale_threshold_ms
+    end)
+    |> Map.new()
 
-    {:noreply,
-     socket
-     |> assign(:cluster_info, cluster_info)
-     |> assign(:gateways, gateways)
-     |> assign(:connected_agents, connected_agents)}
-  end
+  pruned_agents_cache =
+    socket.assigns.agents_cache
+    |> Enum.reject(fn {_id, agent} ->
+      last_ms = agent_last_seen_ms(agent)
+      is_integer(last_ms) and max(now_ms - last_ms, 0) > @stale_threshold_ms
+    end)
+    |> Map.new()
+
+  gateways = compute_gateways(pruned_gateways_cache)
+
+  connected_agents =
+    compute_connected_agents(
+      pruned_agents_cache,
+      socket.assigns.is_platform_admin,
+      socket.assigns.tenant_id
+    )
+
+  {:noreply,
+   socket
+   |> assign(:cluster_info, cluster_info)
+   |> assign(:gateways_cache, pruned_gateways_cache)
+   |> assign(:agents_cache, pruned_agents_cache)
+   |> assign(:gateways, gateways)
+   |> assign(:connected_agents, connected_agents)}
+end
 
   def handle_info({:node_up, _node}, socket) do
     cluster_info = load_cluster_info()
