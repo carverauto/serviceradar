@@ -107,17 +107,17 @@ func (s *NATSAccountServer) SetResolverPaths(operatorConfigPath, resolverBasePat
 // credsFile should point to a system-account .creds file authorized for $SYS updates.
 func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.SecurityConfig, credsFile string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	s.resolverURL = strings.TrimSpace(natsURL)
 	s.resolverSecurity = cloneSecurityConfig(security)
 	s.resolverCredsFile = strings.TrimSpace(credsFile)
 
-	if s.resolverConn != nil {
-		// Drain may block; do it asynchronously to avoid hanging resolver updates.
-		conn := s.resolverConn
-		s.resolverConn = nil
+	conn := s.resolverConn
+	s.resolverConn = nil
+	s.mu.Unlock()
 
+	if conn != nil {
+		// Drain may block; do it asynchronously to avoid hanging resolver updates.
 		go func() {
 			_ = conn.Drain()
 			conn.Close()
@@ -183,50 +183,59 @@ func extractMTLSIdentity(ctx context.Context) (string, error) {
 
 func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	resolverURL := s.resolverURL
+	resolverSecurity := s.resolverSecurity
+	resolverCredsFile := s.resolverCredsFile
 
-	if s.resolverURL == "" {
+	if resolverURL == "" {
+		s.mu.Unlock()
 		return nil, errResolverURLNotSet
 	}
 
 	if s.resolverConn != nil && s.resolverConn.IsConnected() {
-		return s.resolverConn, nil
+		conn := s.resolverConn
+		s.mu.Unlock()
+		return conn, nil
 	}
 
-	if s.resolverConn != nil {
+	conn := s.resolverConn
+	s.resolverConn = nil
+	s.mu.Unlock()
+
+	if conn != nil {
 		// Drain may block; do it asynchronously to avoid hanging resolver reconnection.
-		conn := s.resolverConn
-		s.resolverConn = nil
 		go func() {
 			drainDone := make(chan struct{})
-		go func() {
-			_ = conn.Drain()
-			close(drainDone)
+			go func() {
+				_ = conn.Drain()
+				close(drainDone)
+			}()
+
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+
+			select {
+			case <-drainDone:
+				conn.Close()
+			case <-timer.C:
+				conn.Close()
+			}
 		}()
-
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
-
-		select {
-		case <-drainDone:
-			conn.Close()
-		case <-timer.C:
-			conn.Close()
-		}
-	}()
 	}
 
-	opts, err := buildResolverOptions(s.resolverSecurity, s.resolverCredsFile)
+	opts, err := buildResolverOptions(resolverSecurity, resolverCredsFile)
 	if err != nil {
 		return nil, err
 	}
 
-	conn, err := nats.Connect(s.resolverURL, opts...)
+	conn, err = nats.Connect(resolverURL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("connect resolver NATS: %w", err)
 	}
 
+	s.mu.Lock()
 	s.resolverConn = conn
+	s.mu.Unlock()
 	return conn, nil
 }
 

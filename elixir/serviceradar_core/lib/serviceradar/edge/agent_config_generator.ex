@@ -241,15 +241,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
     # Serialize to JSON for hashing
-  json_data =
-    case Jason.encode(sorted_checks) do
-      {:ok, json} ->
-        json
+    json_data =
+      case Jason.encode(sorted_checks) do
+        {:ok, json} ->
+          json
 
-      {:error, reason} ->
-        Logger.error("Failed to JSON-encode agent config for hashing: #{inspect(reason)}")
-        "[]"
-    end
+        {:error, reason} ->
+          Logger.error("Failed to JSON-encode agent config for hashing: #{inspect(reason)}")
+          "[]"
+      end
 
     # Compute SHA256 hash
     hash = :crypto.hash(:sha256, json_data)

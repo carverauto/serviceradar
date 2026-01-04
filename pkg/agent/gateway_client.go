@@ -90,8 +90,20 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 		return ErrGatewayAddrRequired
 	}
 
-	if g.connected && g.conn != nil {
-		return nil // Already connected
+	if g.conn != nil && g.connected {
+		state := g.conn.GetState()
+		if state == connectivity.Ready {
+			return nil // Already connected and ready
+		}
+		// Connection exists but isn't healthy; force reconnect.
+		_ = g.conn.Close()
+		g.conn = nil
+		g.client = nil
+		g.connected = false
+		if g.securityProvider != nil {
+			_ = g.securityProvider.Close()
+			g.securityProvider = nil
+		}
 	}
 
 	g.logger.Info().Str("addr", g.addr).Msg("Connecting to agent-gateway")

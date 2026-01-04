@@ -81,9 +81,9 @@ defmodule ServiceRadar.Edge.GatewayProcess do
     end
   end
 
-def execute_job_async(gateway, job) when is_pid(gateway) do
-  GenServer.call(gateway, {:execute_job_async, job}, 30_000)
-end
+  def execute_job_async(gateway, job) when is_pid(gateway) do
+    GenServer.call(gateway, {:execute_job_async, job}, 30_000)
+  end
 
   @doc """
   Get the current status of this gateway.
