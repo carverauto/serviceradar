@@ -578,17 +578,20 @@ const (
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 	// Sanitize required fields coming from the gateway to avoid panics downstream.
 	// NOTE: Don't return nil here; callers may store the config without checking.
-	if check.Target == "" {
-		check.Target = "localhost"
+	target := check.Target
+	if target == "" {
+		target = "localhost"
 	}
-	if check.Port < 0 || check.Port > 65535 {
-		check.Port = 0
+
+	port := check.Port
+	if port < 0 || port > 65535 {
+		port = 0
 	}
 
 	// Build address from target and port
-	address := check.Target
-	if check.Port > 0 {
-		address = net.JoinHostPort(check.Target, fmt.Sprintf("%d", check.Port))
+	address := target
+	if port > 0 {
+		address = net.JoinHostPort(target, fmt.Sprintf("%d", port))
 	}
 
 	// Map proto check type to internal type
