@@ -46,8 +46,9 @@ type PushLoop struct {
 	configVersion      string        // Current config version for polling
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
+	started            bool          // Whether Start has been invoked
 
-	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion
+	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 }
 
 // Thread-safe accessors for shared state
@@ -133,6 +134,10 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	// Ensure done is closed when Start exits (only once)
 	defer p.doneOnce.Do(func() { close(p.done) })
 
+	p.stateMu.Lock()
+	p.started = true
+	p.stateMu.Unlock()
+
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
 
 	// Initial connection and enrollment attempt
@@ -174,6 +179,13 @@ func (p *PushLoop) Start(ctx context.Context) error {
 // Closes done channel if Start() was never called to prevent deadlock.
 func (p *PushLoop) Stop() {
 	p.stopOnce.Do(func() { close(p.stopCh) })
+	p.stateMu.RLock()
+	started := p.started
+	p.stateMu.RUnlock()
+	if !started {
+		p.doneOnce.Do(func() { close(p.done) })
+		return
+	}
 	<-p.done
 }
 
@@ -512,13 +524,21 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 			continue
 		}
 
+		// Require a stable map key for server.checkerConfs.
+		if check.Name == "" {
+			continue
+		}
+
 		seenChecks[check.Name] = true
 
 		// Convert proto check to CheckerConfig
 		checkerConf := protoCheckToCheckerConfig(check)
+		if checkerConf == nil {
+			continue
+		}
 
 		// Check if this config already exists and is unchanged
-		if existing, exists := p.server.checkerConfs[check.Name]; exists {
+		if existing, exists := p.server.checkerConfs[check.Name]; exists && existing != nil {
 			if existing.Type == checkerConf.Type &&
 				existing.Address == checkerConf.Address &&
 				existing.Timeout == checkerConf.Timeout {
@@ -556,12 +576,13 @@ const (
 
 // protoCheckToCheckerConfig converts a proto AgentCheckConfig to a CheckerConfig.
 func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
-	// Validate required fields coming from the gateway to avoid unusable configs.
+	// Sanitize required fields coming from the gateway to avoid panics downstream.
+	// NOTE: Don't return nil here; callers may store the config without checking.
 	if check.Target == "" {
-		return nil
+		check.Target = "localhost"
 	}
 	if check.Port < 0 || check.Port > 65535 {
-		return nil
+		check.Port = 0
 	}
 
 	// Build address from target and port

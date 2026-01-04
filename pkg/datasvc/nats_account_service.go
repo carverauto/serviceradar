@@ -199,19 +199,21 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 		s.resolverConn = nil
 		go func() {
 			drainDone := make(chan struct{})
-			go func() {
-				_ = conn.Drain()
-				close(drainDone)
-			}()
-
-			select {
-			case <-drainDone:
-				conn.Close()
-			case <-time.After(5 * time.Second):
-				// Ensure we don't leak goroutines/resources if Drain hangs.
-				conn.Close()
-			}
+		go func() {
+			_ = conn.Drain()
+			close(drainDone)
 		}()
+
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-drainDone:
+			conn.Close()
+		case <-timer.C:
+			conn.Close()
+		}
+	}()
 	}
 
 	opts, err := buildResolverOptions(s.resolverSecurity, s.resolverCredsFile)

@@ -140,9 +140,14 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 
 	cfg.Token = strings.TrimSpace(cfg.Token)
 	cfg.PackagePath = strings.TrimSpace(cfg.PackagePath)
+	cfg.GatewayEndpoint = strings.TrimSpace(cfg.GatewayEndpoint)
 
 	if cfg.Token == "" && cfg.PackagePath == "" {
 		return nil, ErrTokenOrPackageRequired
+	}
+
+	if cfg.Token != "" && cfg.PackagePath == "" && cfg.GatewayEndpoint == "" {
+		return nil, ErrGatewayAddrRequired
 	}
 
 	// Note: KVEndpoint is no longer required for SaaS mode.

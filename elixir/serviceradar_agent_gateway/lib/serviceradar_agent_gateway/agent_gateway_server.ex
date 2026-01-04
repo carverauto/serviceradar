@@ -231,54 +231,57 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # Extract tenant from mTLS certificate once for all chunks
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
 
-    total_services =
-      Enum.reduce_while(request_stream, 0, fn chunk, acc ->
+    {total_services, saw_final?} =
+      Enum.reduce_while(request_stream, {0, false}, fn chunk, {acc, _saw_final?} ->
         agent_id = chunk.agent_id
         service_count = length(chunk.services)
         new_total = acc + service_count
 
         if new_total > @max_services_per_request do
-          {:halt,
-           raise(GRPC.RPCError,
-             status: :resource_exhausted,
-             message:
-               "too many service statuses in one stream (max: #{@max_services_per_request})"
-           )}
+          raise GRPC.RPCError,
+            status: :resource_exhausted,
+            message:
+              "too many service statuses in one stream (max: #{@max_services_per_request})"
+        end
+
+        Logger.debug(
+          "Received chunk #{chunk.chunk_index + 1}/#{chunk.total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
+        )
+
+        # Extract metadata from chunk including tenant context from mTLS cert
+        # Use server's gateway_id() instead of client-provided chunk.gateway_id
+        # to prevent spoofing and ensure correct data attribution
+        metadata = %{
+          agent_id: agent_id,
+          gateway_id: gateway_id(),
+          partition: chunk.partition,
+          source_ip: chunk.source_ip,
+          kv_store_id: chunk.kv_store_id,
+          timestamp: System.os_time(:second),
+          agent_timestamp: chunk.timestamp,
+          chunk_index: chunk.chunk_index,
+          total_chunks: chunk.total_chunks,
+          is_final: chunk.is_final,
+          tenant_id: tenant_id,
+          tenant_slug: tenant_slug
+        }
+
+        # Process each service status in the chunk
+        Enum.each(chunk.services, fn service ->
+          process_service_status(service, metadata)
+        end)
+
+        if chunk.is_final do
+          record_push_metrics(agent_id, new_total)
+          {:halt, {new_total, true}}
         else
-          Logger.debug(
-            "Received chunk #{chunk.chunk_index + 1}/#{chunk.total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
-          )
-
-          # Extract metadata from chunk including tenant context from mTLS cert
-          # Use server's gateway_id() instead of client-provided chunk.gateway_id
-          # to prevent spoofing and ensure correct data attribution
-          metadata = %{
-            agent_id: agent_id,
-            gateway_id: gateway_id(),
-            partition: chunk.partition,
-            source_ip: chunk.source_ip,
-            kv_store_id: chunk.kv_store_id,
-            timestamp: System.os_time(:second),
-            agent_timestamp: chunk.timestamp,
-            chunk_index: chunk.chunk_index,
-            total_chunks: chunk.total_chunks,
-            is_final: chunk.is_final,
-            tenant_id: tenant_id,
-            tenant_slug: tenant_slug
-          }
-
-          # Process each service status in the chunk
-          Enum.each(chunk.services, fn service ->
-            process_service_status(service, metadata)
-          end)
-
-          if chunk.is_final do
-            record_push_metrics(agent_id, new_total)
-          end
-
-          {:cont, new_total}
+          {:cont, {new_total, false}}
         end
       end)
+
+    if not saw_final? do
+      raise GRPC.RPCError, status: :invalid_argument, message: "stream ended without final chunk"
+    end
 
     Logger.info("Completed streaming status reception: #{total_services} total services")
 

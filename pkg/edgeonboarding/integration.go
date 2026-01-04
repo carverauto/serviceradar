@@ -64,14 +64,11 @@ type IntegrationResult struct {
 // - nil if traditional config should be used
 // - error if onboarding was attempted but failed
 //
-// For SaaS mode, only GATEWAY_ENDPOINT is required. For legacy mode, KV_ENDPOINT may be used.
+// For SaaS mode, only GATEWAY_ADDR is required. For legacy mode, KV_ENDPOINT may be used.
 func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponentType, log logger.Logger) (*IntegrationResult, error) {
 	// Check for onboarding token from environment or flags
 	token := strings.TrimSpace(os.Getenv("ONBOARDING_TOKEN"))
-	gatewayEndpoint := firstNonEmpty(
-		strings.TrimSpace(os.Getenv("GATEWAY_ENDPOINT")),
-		strings.TrimSpace(os.Getenv("GATEWAY_ADDR")),
-	)
+	gatewayEndpoint := strings.TrimSpace(os.Getenv("GATEWAY_ADDR"))
 	kvEndpoint := strings.TrimSpace(os.Getenv("KV_ENDPOINT"))
 	packageID := strings.TrimSpace(os.Getenv("EDGE_PACKAGE_ID"))
 	coreAPIURL := strings.TrimSpace(os.Getenv("CORE_API_URL"))
@@ -97,7 +94,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	log.Info().
 		Str("component_type", string(componentType)).
 		Bool("offline_package", packagePath != "").
-		Bool("has_gateway_endpoint", gatewayEndpoint != "").
+		Bool("has_gateway_addr", gatewayEndpoint != "").
 		Msg("Onboarding token detected - starting edge onboarding")
 
 	// Note: KVEndpoint is no longer required for SaaS mode.
