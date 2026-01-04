@@ -496,7 +496,7 @@ end
             <tr class="hover:bg-base-200/40 cursor-pointer">
               <td>
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
                   class="flex items-center gap-1.5"
                 >
                   <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
@@ -506,7 +506,7 @@ end
               </td>
               <td>
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
                   class="font-mono text-xs block"
                 >
                   {gateway.gateway_id}
@@ -514,7 +514,7 @@ end
               </td>
               <td :if={@expanded}>
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
                   class="font-mono text-xs block"
                 >
                   {gateway.partition}
@@ -522,7 +522,7 @@ end
               </td>
               <td :if={@expanded}>
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{gateway.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(gateway.node)}"}
                   class="font-mono text-xs text-base-content/60 block"
                 >
                   {gateway.short_name}
@@ -637,7 +637,7 @@ end
             <tr class={["hover:bg-base-200/40 cursor-pointer", node.is_current && "bg-primary/5"]}>
               <td>
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{node.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}
                   class="flex items-center gap-1.5"
                 >
                   <span class="size-2 rounded-full bg-success"></span>
@@ -646,7 +646,7 @@ end
               </td>
               <td class="font-mono text-xs">
                 <.link
-                  navigate={~p"/infrastructure/nodes/#{node.node}"}
+                  navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}
                   class="flex items-center gap-2"
                 >
                   <span>{node.short_name}</span>
@@ -654,7 +654,7 @@ end
                 </.link>
               </td>
               <td>
-                <.link navigate={~p"/infrastructure/nodes/#{node.node}"}>
+                <.link navigate={~p"/infrastructure/nodes/#{node_param(node.node)}"}>
                   <.node_type_badge type={node.type} />
                 </.link>
               </td>
@@ -682,6 +682,12 @@ end
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
+  end
+
+  defp node_param(node) do
+    node
+    |> to_string()
+    |> URI.encode_www_form()
   end
 
   # Data Loading

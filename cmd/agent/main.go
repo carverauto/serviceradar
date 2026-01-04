@@ -26,14 +26,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 //go:embed config.json
@@ -124,75 +122,16 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		Str("agent_id", cfg.AgentID).
 		Msg("Starting agent in push mode")
 
-	// Create gateway client
+	// Create gateway client (PushLoop handles connect/enroll/config polling)
 	gatewayClient := agent.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
-
-	// Connect to gateway
-	if err := gatewayClient.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to gateway: %w", err)
-	}
 	defer func() {
 		if err := gatewayClient.Disconnect(); err != nil {
 			log.Warn().Err(err).Msg("Error disconnecting from gateway")
 		}
 	}()
 
-	// Step 1: Send Hello to register with gateway
-	hostname, _ := os.Hostname()
-	helloReq := &proto.AgentHelloRequest{
-		AgentId:       cfg.AgentID,
-		Version:       Version,
-		Capabilities:  getAgentCapabilities(server),
-		Hostname:      hostname,
-		Os:            runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		Partition:     cfg.Partition,
-		ConfigVersion: "", // Empty on first connect, will be populated after GetConfig
-	}
-
-	helloResp, err := gatewayClient.Hello(ctx, helloReq)
-	if err != nil {
-		return fmt.Errorf("failed to enroll agent: %w", err)
-	}
-
-	// Update config with tenant info from gateway if not already set
-	if cfg.TenantID == "" && helloResp.TenantId != "" {
-		cfg.TenantID = helloResp.TenantId
-	}
-	if cfg.TenantSlug == "" && helloResp.TenantSlug != "" {
-		cfg.TenantSlug = helloResp.TenantSlug
-	}
-
-	// Step 2: Get configuration from gateway
-	configReq := &proto.AgentConfigRequest{
-		AgentId:       cfg.AgentID,
-		ConfigVersion: "", // Empty to get full config
-	}
-
-	configResp, err := gatewayClient.GetConfig(ctx, configReq)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get config from gateway, using local config")
-		// Continue with local config - this is not fatal
-	} else if !configResp.NotModified {
-		// TODO: Apply config from gateway (checks, intervals, etc.)
-		// For now, just use the heartbeat interval from the config
-		log.Info().
-			Str("config_version", configResp.ConfigVersion).
-			Int("checks_count", len(configResp.Checks)).
-			Msg("Received configuration from gateway")
-	}
-
-	// Determine push interval (prefer gateway config, fall back to local)
-	pushInterval := time.Duration(cfg.PushInterval)
-	if helloResp.HeartbeatIntervalSec > 0 {
-		pushInterval = time.Duration(helloResp.HeartbeatIntervalSec) * time.Second
-	}
-	if pushInterval <= 0 {
-		pushInterval = 30 * time.Second
-	}
-
 	// Create push loop
-	pushLoop := agent.NewPushLoop(server, gatewayClient, pushInterval, log)
+	pushLoop := agent.NewPushLoop(server, gatewayClient, time.Duration(cfg.PushInterval), log)
 
 	// Create a cancellable context for the push loop
 	pushCtx, cancel := context.WithCancel(ctx)

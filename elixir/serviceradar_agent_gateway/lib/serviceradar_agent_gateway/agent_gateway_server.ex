@@ -184,11 +184,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
-    partition =
-      case request.partition do
-        p when is_binary(p) and byte_size(p) > 0 and byte_size(p) <= 128 -> p
-        _ -> "default"
-      end
+    partition = normalize_partition(request.partition)
 
     Logger.info(
       "Received status push from agent #{agent_id}: #{service_count} services (tenant: #{tenant_slug})"
@@ -254,13 +250,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           "Received chunk #{chunk.chunk_index + 1}/#{chunk.total_chunks} from agent #{agent_id} (tenant: #{tenant_slug})"
         )
 
+        partition = normalize_partition(chunk.partition)
+
         # Extract metadata from chunk including tenant context from mTLS cert
         # Use server's gateway_id() instead of client-provided chunk.gateway_id
         # to prevent spoofing and ensure correct data attribution
         metadata = %{
           agent_id: agent_id,
           gateway_id: gateway_id(),
-          partition: chunk.partition,
+          partition: partition,
           source_ip: peer_ip,
           kv_store_id: chunk.kv_store_id,
           timestamp: System.os_time(:second),
@@ -325,6 +323,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         )
     end
   end
+
+  defp normalize_partition(partition) when is_binary(partition) do
+    partition = String.trim(partition)
+
+    if byte_size(partition) > 0 and byte_size(partition) <= 128 and
+         not String.contains?(partition, ["\n", "\r", "\t"]) do
+      partition
+    else
+      "default"
+    end
+  end
+
+  defp normalize_partition(_partition), do: "default"
 
   # Record metrics for the push operation
   defp record_push_metrics(agent_id, service_count) do

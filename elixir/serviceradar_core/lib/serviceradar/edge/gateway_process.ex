@@ -275,7 +275,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
-      status: :idle
+      status: :available
     }
 
     GatewayRegistry.register_gateway(state.gateway_id, gateway_info)

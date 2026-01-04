@@ -49,7 +49,9 @@ type PushLoop struct {
 	enrolled           bool          // Whether we've successfully enrolled
 	started            bool          // Whether Start has been invoked
 
-	stateMu sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
+	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
+	cancelMu sync.Mutex
+	cancel   context.CancelFunc
 }
 
 // Thread-safe accessors for shared state
@@ -135,6 +137,12 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	// Ensure done is closed when Start exits (only once)
 	defer p.doneOnce.Do(func() { close(p.done) })
 
+	runCtx, cancel := context.WithCancel(ctx)
+	p.cancelMu.Lock()
+	p.cancel = cancel
+	p.cancelMu.Unlock()
+	defer cancel()
+
 	p.stateMu.Lock()
 	p.started = true
 	p.stateMu.Unlock()
@@ -142,15 +150,15 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
 
 	// Initial connection and enrollment attempt
-	if err := p.gateway.Connect(ctx); err != nil {
+	if err := p.gateway.Connect(runCtx); err != nil {
 		p.logger.Warn().Err(err).Msg("Initial gateway connection failed, will retry")
 	} else {
 		// Connected, try to enroll
-		p.enroll(ctx)
+		p.enroll(runCtx)
 	}
 
 	// Start config polling in a separate goroutine
-	go p.configPollLoop(ctx)
+	go p.configPollLoop(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick
@@ -158,9 +166,9 @@ func (p *PushLoop) Start(ctx context.Context) error {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			p.logger.Info().Msg("Push loop stopping due to context cancellation")
-			return ctx.Err()
+			return runCtx.Err()
 
 		case <-p.stopCh:
 			p.logger.Info().Msg("Push loop stopping due to Stop()")
@@ -169,7 +177,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 		case <-timer.C:
 			// Only push when enrolled (enrollment can happen later via reconnect)
 			if p.isEnrolled() {
-				p.pushStatus(ctx)
+				p.pushStatus(runCtx)
 			}
 			timer.Reset(p.getInterval())
 		}
@@ -180,6 +188,12 @@ func (p *PushLoop) Start(ctx context.Context) error {
 // Closes done channel if Start() was never called to prevent deadlock.
 func (p *PushLoop) Stop() {
 	p.stopOnce.Do(func() { close(p.stopCh) })
+	p.cancelMu.Lock()
+	if p.cancel != nil {
+		p.cancel()
+	}
+	p.cancelMu.Unlock()
+
 	p.stateMu.RLock()
 	started := p.started
 	p.stateMu.RUnlock()

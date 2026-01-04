@@ -186,13 +186,21 @@ defmodule ServiceRadar.Infrastructure.Gateway do
         :registration_source,
         :spiffe_identity,
         :metadata,
-        :created_by
+        :created_by,
+        :partition_id
       ]
 
-      change fn changeset, _context ->
+      change fn changeset, context ->
         now = DateTime.utc_now()
+        actor = context.actor
+        tenant_id = if is_map(actor), do: Map.get(actor, :tenant_id)
+        partition_id =
+          Ash.Changeset.get_attribute(changeset, :partition_id) ||
+            "00000000-0000-0000-0000-000000000000"
 
         changeset
+        |> Ash.Changeset.change_attribute(:tenant_id, tenant_id)
+        |> Ash.Changeset.change_attribute(:partition_id, partition_id)
         |> Ash.Changeset.change_attribute(:first_registered, now)
         |> Ash.Changeset.change_attribute(:first_seen, now)
         |> Ash.Changeset.change_attribute(:last_seen, now)
