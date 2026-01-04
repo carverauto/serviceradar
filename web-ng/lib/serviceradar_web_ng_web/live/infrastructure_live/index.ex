@@ -854,11 +854,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     cond do
       is_integer(last_seen_ms) ->
-        max(now_ms - last_seen_ms, 0) < @stale_threshold_ms
+        delta_ms = now_ms - last_seen_ms
+        delta_ms >= 0 and delta_ms < @stale_threshold_ms
 
       is_integer(agent[:last_seen_mono]) ->
         now_mono = System.monotonic_time(:millisecond)
-        max(now_mono - agent[:last_seen_mono], 0) < @stale_threshold_ms
+        delta_ms = now_mono - agent[:last_seen_mono]
+        delta_ms >= 0 and delta_ms < @stale_threshold_ms
 
       true ->
         false

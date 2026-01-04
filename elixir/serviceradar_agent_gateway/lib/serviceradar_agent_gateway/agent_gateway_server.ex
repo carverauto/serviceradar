@@ -171,7 +171,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           config_timestamp: config.config_timestamp,
           heartbeat_interval_sec: config.heartbeat_interval_sec,
           config_poll_interval_sec: config.config_poll_interval_sec,
-          checks: proto_checks
+          checks: proto_checks,
+          config_json: config.config_json
         }
 
       {:error, reason} ->

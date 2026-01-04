@@ -721,18 +721,17 @@ func applyHTTPPath(target, checkerType, path string, wantHTTPS bool) string {
 	}
 
 	parsed, err := url.Parse(target)
-	if err != nil {
-		return target
-	}
-		if parsed.Scheme == "" {
-			scheme := "http://"
-			if wantHTTPS {
-				scheme = "https://"
-			}
-			if parsedURL, err := url.Parse(scheme + target); err == nil {
-				parsed = parsedURL
-			}
+	if err != nil || parsed.Scheme == "" {
+		scheme := "http://"
+		if wantHTTPS {
+			scheme = "https://"
 		}
+		if parsedURL, err := url.Parse(scheme + target); err == nil {
+			parsed = parsedURL
+		} else if err != nil {
+			return target
+		}
+	}
 	// Only override if target didn't already include a path.
 	if parsed.Path == "" || parsed.Path == "/" {
 		parsed.Path = path

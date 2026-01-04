@@ -46,6 +46,7 @@ var Version = "dev"
 
 var errConfigFileMissing = errors.New("config file not found")
 var errConfigTrailingData = errors.New("config has trailing data")
+var errShutdownTimeout = errors.New("shutdown timed out")
 
 func main() {
 	if err := run(); err != nil {
@@ -205,7 +206,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		select {
 		case <-errChan:
 		case <-time.After(shutdownTimeout):
-			return fmt.Errorf("shutdown timed out after %s", shutdownTimeout)
+			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
 		}
 
 	case err := <-errChan:

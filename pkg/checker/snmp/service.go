@@ -92,6 +92,16 @@ func (s *SNMPService) Start(ctx context.Context) error {
 		s.cancel()
 		s.cancel = nil
 		s.serviceCtx = nil
+
+		// Ensure collectors from the previous run are stopped and cleared.
+		for name, c := range s.collectors {
+			if err := c.Stop(); err != nil {
+				s.logger.Warn().Err(err).Str("target_name", name).Msg("Failed to stop collector during restart")
+			}
+		}
+		s.collectors = make(map[string]Collector)
+		s.aggregators = make(map[string]Aggregator)
+		s.status = make(map[string]TargetStatus)
 	}
 	select {
 	case <-s.done:
@@ -315,6 +325,15 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 
 	s.logger.Info().Str("target_name", target.Name).Msg("Started collector for target")
 
+	// Start processing results
+	results := collector.GetResults()
+	if results == nil {
+		if err := collector.Stop(); err != nil {
+			s.logger.Warn().Err(err).Str("target_name", target.Name).Msg("Failed to stop collector after nil results channel")
+		}
+		return ErrNilResultsChannel
+	}
+
 	// Store components
 	s.mu.Lock()
 	if _, exists := s.collectors[target.Name]; exists {
@@ -344,11 +363,6 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Str("host_name", target.Name).
 		Msg("Initialized service status")
 
-	// Start processing results
-	results := collector.GetResults()
-	if results == nil {
-		return ErrNilResultsChannel
-	}
 	s.mu.RLock()
 	serviceCtx := s.serviceCtx
 	s.mu.RUnlock()
