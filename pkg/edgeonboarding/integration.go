@@ -91,7 +91,7 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 	log.Info().
 		Str("component_type", string(componentType)).
 		Bool("offline_package", packagePath != "").
-		Str("gateway_endpoint", gatewayEndpoint).
+		Bool("has_gateway_endpoint", gatewayEndpoint != "").
 		Msg("Onboarding token detected - starting edge onboarding")
 
 	// Note: KVEndpoint is no longer required for SaaS mode.

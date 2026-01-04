@@ -365,8 +365,10 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	}
 
 	// Update server config with tenant info from gateway
+	p.server.mu.Lock()
 	p.server.config.TenantID = helloResp.TenantId
 	p.server.config.TenantSlug = helloResp.TenantSlug
+	p.server.mu.Unlock()
 
 	// Update push interval if specified by gateway
 	if helloResp.HeartbeatIntervalSec > 0 {

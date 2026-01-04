@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	srgrpc "github.com/carverauto/serviceradar/pkg/grpc"
@@ -45,6 +46,8 @@ var (
 	ErrSecurityRequired = errors.New("security configuration required: set SR_ALLOW_INSECURE=true for development")
 	// ErrNoChunksToSend indicates no valid status chunks were provided for streaming.
 	ErrNoChunksToSend = errors.New("no status chunks to send")
+	// ErrConnectionShutdown indicates the gRPC connection entered shutdown state.
+	ErrConnectionShutdown = errors.New("connection shutdown")
 )
 
 const (
@@ -101,12 +104,33 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	connectCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
 	defer cancel()
 
-	// TODO: Migrate to grpc.NewClient when ready - requires testing lazy connection semantics
-	// Add WithBlock to ensure connection is established before returning
-	//nolint:staticcheck // SA1019: grpc.DialContext and WithBlock are deprecated but supported through 1.x
-	conn, err := grpc.DialContext(connectCtx, g.addr, append(opts, grpc.WithBlock())...)
+	conn, err := grpc.NewClient(g.addr, opts...)
 	if err != nil {
+		if g.securityProvider != nil {
+			_ = g.securityProvider.Close()
+			g.securityProvider = nil
+		}
 		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
+	}
+
+	conn.Connect()
+	for state := conn.GetState(); state != connectivity.Ready; state = conn.GetState() {
+		if state == connectivity.Shutdown {
+			_ = conn.Close()
+			if g.securityProvider != nil {
+				_ = g.securityProvider.Close()
+				g.securityProvider = nil
+			}
+			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, ErrConnectionShutdown)
+		}
+		if !conn.WaitForStateChange(connectCtx, state) {
+			_ = conn.Close()
+			if g.securityProvider != nil {
+				_ = g.securityProvider.Close()
+				g.securityProvider = nil
+			}
+			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, connectCtx.Err())
+		}
 	}
 
 	g.conn = conn

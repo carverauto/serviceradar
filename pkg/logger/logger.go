@@ -54,10 +54,14 @@ type Config struct {
 func initDefaults() {
 	initOnce.Do(func() {
 		zerolog.TimeFieldFormat = time.RFC3339
+	})
+
+	// `initOnce` prevents re-running global defaults, but `instance` may be reset in tests.
+	if instance == nil {
 		instance = &LoggerInstance{
 			logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
 		}
-	})
+	}
 }
 
 func Init(ctx context.Context, config *Config) error {

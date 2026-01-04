@@ -116,25 +116,30 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   def handle_info({:gateway_registered, gateway_info}, socket) do
     # Cache gateway info from PubSub
     gateway_id = gateway_info[:gateway_id]
-    Logger.debug("[InfrastructureLive] Received gateway_registered: #{gateway_id}")
 
-    updated_cache =
-      Map.put(socket.assigns.gateways_cache, gateway_id, %{
-        gateway_id: gateway_id,
-        node: gateway_info[:node] || Node.self(),
-        partition: gateway_info[:partition] || "default",
-        domain: gateway_info[:domain] || "default",
-        status: gateway_info[:status] || :available,
-        registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
-        last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
-      })
+    if is_nil(gateway_id) or gateway_id == "" do
+      {:noreply, socket}
+    else
+      Logger.debug("[InfrastructureLive] Received gateway_registered: #{gateway_id}")
 
-    gateways = compute_gateways(updated_cache)
+      updated_cache =
+        Map.put(socket.assigns.gateways_cache, gateway_id, %{
+          gateway_id: gateway_id,
+          node: gateway_info[:node] || Node.self(),
+          partition: gateway_info[:partition] || "default",
+          domain: gateway_info[:domain] || "default",
+          status: gateway_info[:status] || :available,
+          registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
+          last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
+        })
 
-    {:noreply,
-     socket
-     |> assign(:gateways_cache, updated_cache)
-     |> assign(:gateways, gateways)}
+      gateways = compute_gateways(updated_cache)
+
+      {:noreply,
+       socket
+       |> assign(:gateways_cache, updated_cache)
+       |> assign(:gateways, gateways)}
+    end
   end
 
   def handle_info({:gateway_unregistered, gateway_id}, socket) do

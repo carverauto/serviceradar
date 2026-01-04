@@ -730,6 +730,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp default_gateway_addr do
-    Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50051")
+    Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50052")
   end
 end
