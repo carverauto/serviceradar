@@ -295,13 +295,17 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Dispatch job to gateway (legacy name preserved for now)
-  defp dispatch_to_gateway(gateway, checks, schedule, poll_job) do
-    job_payload = build_job(checks, schedule, poll_job)
-    gateway_id = gateway[:gateway_id]
+defp dispatch_to_gateway(gateway, checks, schedule, poll_job) do
+  job_payload = build_job(checks, schedule, poll_job)
 
-    # Use the PID from Horde registry directly - this enables cross-node dispatch
-    # The PID is location-transparent across the ERTS cluster
-    gateway_pid = gateway[:pid]
+  # Use the PID from Horde registry directly - this enables cross-node dispatch
+  # The PID is location-transparent across the ERTS cluster
+  gateway_pid = gateway[:pid]
+
+  gateway_id =
+    gateway[:gateway_id] ||
+      gateway[:id] ||
+      (if is_pid(gateway_pid), do: to_string(node(gateway_pid)), else: inspect(gateway[:key]))
 
     if is_nil(gateway_pid) do
       Logger.warning("Gateway #{gateway_id} has no PID in registry metadata")
@@ -312,16 +316,14 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
           "on node #{node(gateway_pid)} (job: #{poll_job.id})"
       )
 
-      case GatewayProcess.execute_job(gateway_pid, job_payload) do
-        {:ok, result} ->
-          # Process and possibly store results
-          process_results(result, schedule, poll_job)
-          {:ok, result}
+    case GatewayProcess.execute_job(gateway_pid, job_payload) do
+      {:ok, result} ->
+        process_results(result, schedule, poll_job)
+        {:ok, result}
 
-        {:error, :gateway_not_found} ->
-          # Gateway might have gone away, try another
-          Logger.warning("Gateway #{gateway_id} not found, will retry on next schedule")
-          {:error, :gateway_not_found}
+      {:error, :gateway_not_found} ->
+        Logger.warning("Gateway #{gateway_id} not found, will retry on next schedule")
+        {:error, :gateway_not_found}
 
         {:error, :busy} ->
           Logger.warning("Gateway #{gateway_id} is busy")

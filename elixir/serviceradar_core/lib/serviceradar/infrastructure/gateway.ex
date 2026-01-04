@@ -373,11 +373,12 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
 
-    # Allow create/update for gateways in user's tenant
-    policy action_type(:create) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+    # Registration: tenant_id is injected by the action change, so authorize via actor context.
+    policy action(:register) do
+      authorize_if expr(not is_nil(^actor(:tenant_id)))
     end
 
+    # Allow updates for gateways in user's tenant
     policy action_type(:update) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end

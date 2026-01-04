@@ -117,24 +117,23 @@ func (s *NATSAccountServer) SetResolverClient(natsURL string, security *models.S
 	s.mu.Unlock()
 
 	if conn != nil {
-		// Drain may block; do it asynchronously with a timeout to avoid goroutine leaks.
-		go func() {
-			drainDone := make(chan struct{})
-			go func() {
-				_ = conn.Drain()
-				close(drainDone)
-			}()
+		// Drain may block; do it asynchronously with a timeout.
+		go func(c *nats.Conn) {
+			drainErr := make(chan error, 1)
+			go func() { drainErr <- c.Drain() }()
 
 			timer := time.NewTimer(5 * time.Second)
 			defer timer.Stop()
 
 			select {
-			case <-drainDone:
-				conn.Close()
+			case <-drainErr:
+				// drained (or errored) - close anyway
 			case <-timer.C:
-				conn.Close()
+				// timed out - close anyway
 			}
-		}()
+
+			c.Close()
+		}(conn)
 	}
 }
 
@@ -250,6 +249,12 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	}
 
 	s.mu.Lock()
+	// If resolver settings changed during dialing, discard this connection.
+	if s.resolverURL != resolverURL || s.resolverCredsFile != resolverCredsFile {
+		s.mu.Unlock()
+		conn.Close()
+		return s.getResolverConn()
+	}
 	if s.resolverConn != nil && s.resolverConn.IsConnected() {
 		existing := s.resolverConn
 		s.mu.Unlock()

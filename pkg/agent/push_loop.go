@@ -308,11 +308,15 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 
 // getCheckerStatus gets the status of a configured checker.
 func (p *PushLoop) getCheckerStatus(ctx context.Context, name string, conf *CheckerConfig) *proto.GatewayServiceStatus {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	p.server.mu.RUnlock()
+
 	// Create a status request to get the checker status
 	req := &proto.StatusRequest{
 		ServiceName: name,
 		ServiceType: conf.Type,
-		AgentId:     p.server.config.AgentID,
+		AgentId:     agentID,
 	}
 
 	// Use the server's GetStatus method to get the checker status
@@ -331,19 +335,27 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		return nil
 	}
 
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	tenantID := p.server.config.TenantID
+	tenantSlug := p.server.config.TenantSlug
+	p.server.mu.RUnlock()
+
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
 		Available:    resp.Available,
 		Message:      resp.Message,
 		ServiceType:  serviceType,
 		ResponseTime: resp.ResponseTime,
-		AgentId:      p.server.config.AgentID,
+		AgentId:      agentID,
 		GatewayId:    "", // Will be set by gateway
-		Partition:    p.server.config.Partition,
+		Partition:    partition,
 		Source:       "status",
-		KvStoreId:    p.server.config.KVAddress,
-		TenantId:     p.server.config.TenantID,
-		TenantSlug:   p.server.config.TenantSlug,
+		KvStoreId:    kvStoreID,
+		TenantId:     tenantID,
+		TenantSlug:   tenantSlug,
 	}
 }
 

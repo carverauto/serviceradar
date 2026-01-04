@@ -873,6 +873,9 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       ts when is_binary(ts) ->
         parse_iso8601_ms(ts)
 
+      ts when is_integer(ts) ->
+        parse_timestamp_to_ms(ts)
+
       _ ->
         nil
     end
