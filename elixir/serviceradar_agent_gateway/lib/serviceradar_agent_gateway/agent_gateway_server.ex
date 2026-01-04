@@ -42,6 +42,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
 
+  # Maximum services per push request to prevent resource exhaustion
+  @max_services_per_request 5_000
+
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
     node() |> Atom.to_string()
@@ -173,6 +176,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     services = request.services || []
     service_count = length(services)
 
+    if service_count > @max_services_per_request do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "too many service statuses in one request (max: #{@max_services_per_request})"
+    end
+
     # Extract tenant from mTLS certificate (secure source of truth)
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
 
@@ -189,13 +198,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition: request.partition,
       source_ip: request.source_ip,
       kv_store_id: request.kv_store_id,
-      timestamp: request.timestamp,
+      timestamp: System.os_time(:second),
+      agent_timestamp: request.timestamp,
       tenant_id: tenant_id,
       tenant_slug: tenant_slug
     }
 
     # Process each service status
-    Enum.each(services, fn service ->
+    services
+    |> Enum.reject(&is_nil/1)
+    |> Enum.each(fn service ->
       process_service_status(service, metadata)
     end)
 

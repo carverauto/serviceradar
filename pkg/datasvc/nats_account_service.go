@@ -194,10 +194,13 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 	}
 
 	if s.resolverConn != nil {
-		// Drain then close to ensure the underlying connection is released
-		_ = s.resolverConn.Drain()
-		s.resolverConn.Close()
+		// Drain may block; do it asynchronously to avoid hanging resolver reconnection.
+		conn := s.resolverConn
 		s.resolverConn = nil
+		go func() {
+			_ = conn.Drain()
+			conn.Close()
+		}()
 	}
 
 	opts, err := buildResolverOptions(s.resolverSecurity, s.resolverCredsFile)

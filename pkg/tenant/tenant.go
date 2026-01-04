@@ -257,9 +257,10 @@ func decodePEM(pemData []byte) []byte {
 	for {
 		block, r := pem.Decode(rest)
 		if block == nil {
-			// If we decoded PEM blocks but none were CERTIFICATE, signal failure.
+			// If we decoded PEM blocks but none were CERTIFICATE, fall back to original bytes
+			// so downstream parsing fails deterministically.
 			if sawPEM {
-				return nil
+				return pemData
 			}
 			// Not PEM, return as-is (might be DER)
 			return pemData

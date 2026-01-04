@@ -232,11 +232,6 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		}
 	}
 
-	// Disconnect from gateway
-	if err := gatewayClient.Disconnect(); err != nil {
-		log.Warn().Err(err).Msg("Error disconnecting from gateway")
-	}
-
 	log.Info().Msg("Agent shutdown complete")
 	return nil
 }

@@ -174,7 +174,6 @@ func (p *PushLoop) Start(ctx context.Context) error {
 // Closes done channel if Start() was never called to prevent deadlock.
 func (p *PushLoop) Stop() {
 	p.stopOnce.Do(func() { close(p.stopCh) })
-	p.doneOnce.Do(func() { close(p.done) })
 	<-p.done
 }
 
@@ -241,7 +240,11 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 	services := append([]Service(nil), p.server.services...)
 	checkerConfs := make(map[string]*CheckerConfig, len(p.server.checkerConfs))
 	for key, conf := range p.server.checkerConfs {
-		checkerConfs[key] = conf
+		if conf == nil {
+			continue
+		}
+		c := *conf // snapshot by value to avoid races on shared pointers
+		checkerConfs[key] = &c
 	}
 	p.server.mu.RUnlock()
 
@@ -410,11 +413,13 @@ func (p *PushLoop) enroll(ctx context.Context) {
 // configPollLoop periodically polls for config updates.
 func (p *PushLoop) configPollLoop(ctx context.Context) {
 	// Wait for initial enrollment before polling
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for !p.isEnrolled() {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-ticker.C:
 			// Keep waiting
 		}
 	}
