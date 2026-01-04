@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   visible when actively managing the platform, not when switched to a
   regular tenant context.
   """
-  def platform_admin?(%__MODULE__{
+  def platform_admin?(%{
         user: %{role: :super_admin},
         active_tenant: %{is_platform_tenant: true}
       }),

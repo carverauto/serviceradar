@@ -1,5 +1,8 @@
 defmodule Mix.Tasks.Serviceradar.MaybeTest do
   use Mix.Task
+  @moduledoc """
+  Runs web-ng tests only when the database is reachable.
+  """
 
   @shortdoc "Run DB-backed tests when the database is available"
 

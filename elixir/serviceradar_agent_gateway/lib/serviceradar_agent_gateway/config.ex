@@ -160,8 +160,21 @@ defmodule ServiceRadarAgentGateway.Config do
     # Get tenant info from environment or certificate
     # System is always multi-tenant - default tenant is used if none specified
     {tenant_id, tenant_slug} = resolve_tenant_info(opts)
-    tenant_slug = tenant_slug || "default"
-    tenant_id = tenant_id || "00000000-0000-0000-0000-000000000000"
+    tenant_id = if tenant_id == "", do: nil, else: tenant_id
+    tenant_slug = if tenant_slug == "", do: nil, else: tenant_slug
+
+    {tenant_id, tenant_slug} =
+      if is_nil(tenant_id) do
+        allow_default? = System.get_env("GATEWAY_ALLOW_DEFAULT_TENANT", "false") == "true"
+
+        if allow_default? do
+          {"00000000-0000-0000-0000-000000000000", tenant_slug || "default"}
+        else
+          raise "tenant_id is required for agent gateway (set GATEWAY_TENANT_ID or provide mTLS certs; for local dev set GATEWAY_ALLOW_DEFAULT_TENANT=true)"
+        end
+      else
+        {tenant_id, tenant_slug || "default"}
+      end
 
     # Build NATS prefix
     nats_prefix = tenant_slug

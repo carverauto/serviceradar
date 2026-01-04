@@ -236,7 +236,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {total_services, saw_final?} =
       Enum.reduce_while(request_stream, {0, false}, fn chunk, {acc, _saw_final?} ->
         agent_id = chunk.agent_id
-        service_count = length(chunk.services)
+        services = chunk.services || []
+        service_count = length(services)
         new_total = acc + service_count
 
         if new_total > @max_services_per_request do
@@ -271,7 +272,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         }
 
         # Process each service status in the chunk
-        (chunk.services || [])
+        services
         |> Enum.reject(&is_nil/1)
         |> Enum.each(fn service ->
           process_service_status(service, metadata)

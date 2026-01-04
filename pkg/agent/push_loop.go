@@ -524,6 +524,16 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 
 	if configResp.ConfigPollIntervalSec > 0 {
 		newPollInterval := time.Duration(configResp.ConfigPollIntervalSec) * time.Second
+		// Safety bounds to avoid gateway/agent overload or "never poll" configurations.
+		const (
+			minConfigPollInterval = 5 * time.Second
+			maxConfigPollInterval = 24 * time.Hour
+		)
+		if newPollInterval < minConfigPollInterval {
+			newPollInterval = minConfigPollInterval
+		} else if newPollInterval > maxConfigPollInterval {
+			newPollInterval = maxConfigPollInterval
+		}
 		if newPollInterval != p.getConfigPollInterval() {
 			p.setConfigPollInterval(newPollInterval)
 			p.logger.Info().Dur("interval", newPollInterval).Msg("Updated config poll interval")

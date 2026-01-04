@@ -283,7 +283,9 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   defp registry_status(:idle), do: :available
   defp registry_status(:executing), do: :busy
-  defp registry_status(_), do: :available
+  defp registry_status(:draining), do: :draining
+  defp registry_status(:unavailable), do: :unavailable
+  defp registry_status(_), do: :unavailable
 
   defp execute_job_impl(job, state) do
     checks = job[:checks] || []
