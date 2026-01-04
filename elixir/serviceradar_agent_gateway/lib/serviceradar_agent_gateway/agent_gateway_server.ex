@@ -275,9 +275,23 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {tenant_id, tenant_slug} = extract_tenant_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
-    {total_services, saw_final?} =
-      Enum.reduce_while(request_stream, {0, false}, fn chunk, {acc, _saw_final?} ->
-        agent_id = chunk.agent_id
+    {total_services, saw_final?, _stream_agent_id} =
+      Enum.reduce_while(request_stream, {0, false, nil}, fn chunk, {acc, _saw_final?, stream_agent_id} ->
+        agent_id =
+          chunk.agent_id
+          |> to_string()
+          |> String.trim()
+
+        if agent_id == "" do
+          raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
+        end
+
+        stream_agent_id =
+          case stream_agent_id do
+            nil -> agent_id
+            ^agent_id -> agent_id
+            _ -> raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
+          end
         services =
           chunk.services
           |> List.wrap()
@@ -327,9 +341,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
         if chunk.is_final do
           record_push_metrics(agent_id, new_total)
-          {:halt, {new_total, true}}
+          {:halt, {new_total, true, stream_agent_id}}
         else
-          {:cont, {new_total, false}}
+          {:cont, {new_total, false, stream_agent_id}}
         end
       end)
 

@@ -83,38 +83,43 @@ func NewGatewayClient(addr string, security *models.SecurityConfig, log logger.L
 
 // Connect establishes a connection to the gateway.
 func (g *GatewayClient) Connect(ctx context.Context) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	var (
+		staleConn     *grpc.ClientConn
+		staleProvider srgrpc.SecurityProvider
+	)
 
+	g.mu.Lock()
 	if g.addr == "" {
+		g.mu.Unlock()
 		return ErrGatewayAddrRequired
 	}
 
 	if g.conn != nil && g.connected {
-		state := g.conn.GetState()
-		if state == connectivity.Ready {
+		if g.conn.GetState() == connectivity.Ready {
+			g.mu.Unlock()
 			return nil // Already connected and ready
 		}
-		// Connection exists but isn't healthy; force reconnect (close outside lock).
-		conn := g.conn
-		provider := g.securityProvider
+		// Connection exists but isn't healthy; force reconnect.
+		staleConn = g.conn
+		staleProvider = g.securityProvider
 		g.conn = nil
 		g.client = nil
 		g.connected = false
 		g.securityProvider = nil
-		g.mu.Unlock()
-		if conn != nil {
-			_ = conn.Close()
-		}
-		if provider != nil {
-			_ = provider.Close()
-		}
-		g.mu.Lock()
+	}
+
+	g.mu.Unlock()
+
+	if staleConn != nil {
+		_ = staleConn.Close()
+	}
+	if staleProvider != nil {
+		_ = staleProvider.Close()
 	}
 
 	g.logger.Info().Str("addr", g.addr).Msg("Connecting to agent-gateway")
 
-	opts, err := g.buildDialOptions(ctx)
+	opts, provider, err := g.buildDialOptions(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to build dial options: %w", err)
 	}
@@ -124,9 +129,8 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 
 	conn, err := grpc.NewClient(g.addr, opts...)
 	if err != nil {
-		if g.securityProvider != nil {
-			_ = g.securityProvider.Close()
-			g.securityProvider = nil
+		if provider != nil {
+			_ = provider.Close()
 		}
 		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
 	}
@@ -135,26 +139,35 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	for state := conn.GetState(); state != connectivity.Ready; state = conn.GetState() {
 		if state == connectivity.Shutdown {
 			_ = conn.Close()
-			if g.securityProvider != nil {
-				_ = g.securityProvider.Close()
-				g.securityProvider = nil
+			if provider != nil {
+				_ = provider.Close()
 			}
 			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, ErrConnectionShutdown)
 		}
 		if !conn.WaitForStateChange(connectCtx, state) {
 			_ = conn.Close()
-			if g.securityProvider != nil {
-				_ = g.securityProvider.Close()
-				g.securityProvider = nil
+			if provider != nil {
+				_ = provider.Close()
 			}
 			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, connectCtx.Err())
 		}
 	}
 
+	g.mu.Lock()
+	if g.conn != nil && g.connected && g.conn.GetState() == connectivity.Ready {
+		g.mu.Unlock()
+		_ = conn.Close()
+		if provider != nil {
+			_ = provider.Close()
+		}
+		return nil
+	}
 	g.conn = conn
 	g.client = proto.NewAgentGatewayServiceClient(conn)
 	g.connected = true
 	g.reconnectDelay = defaultReconnectDelay // Reset backoff on successful connection
+	g.securityProvider = provider
+	g.mu.Unlock()
 
 	g.logger.Info().Str("addr", g.addr).Msg("Connected to agent-gateway")
 
@@ -162,37 +175,37 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 }
 
 // buildDialOptions constructs gRPC dial options based on security configuration.
-func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption, error) {
+func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption, srgrpc.SecurityProvider, error) {
 	var opts []grpc.DialOption
 
 	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {
 		// Create security provider using the standard pattern
 		provider, err := srgrpc.NewSecurityProvider(ctx, g.security, g.logger)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create security provider: %w", err)
+			return nil, nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
 
 		// Get client credentials from the provider
 		creds, err := provider.GetClientCredentials(ctx)
 		if err != nil {
 			_ = provider.Close()
-			return nil, fmt.Errorf("failed to get client credentials: %w", err)
+			return nil, nil, fmt.Errorf("failed to get client credentials: %w", err)
 		}
 
-		g.securityProvider = provider
 		opts = append(opts, creds)
+		return opts, provider, nil
 	} else {
 		// Insecure connections require explicit opt-in via environment variable
 		// to prevent accidental plaintext gRPC in production deployments
 		if os.Getenv("SR_ALLOW_INSECURE") != "true" {
-			return nil, ErrSecurityRequired
+			return nil, nil, ErrSecurityRequired
 		}
 
 		g.logger.Warn().Msg("Using insecure connection to gateway (SR_ALLOW_INSECURE=true)")
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	return opts, nil
+	return opts, nil, nil
 }
 
 // Disconnect closes the connection to the gateway.

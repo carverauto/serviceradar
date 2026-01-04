@@ -423,7 +423,6 @@ func (p *PushLoop) getSourceIP() string {
 				ipv6 = ip.String()
 			}
 		}
-
 	}
 
 	if publicIPv4 != "" {
@@ -675,87 +674,12 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 		return nil
 	}
 
-	// Sanitize required fields coming from the gateway to avoid panics downstream.
-	// NOTE: Don't return nil here; callers may store the config without checking.
-	target := check.Target
-	if target == "" {
-		target = "localhost"
-	}
-
-	port := check.Port
-	if port < 0 || port > 65535 {
-		port = 0
-	}
-
-	// Map proto check type to internal type
+	target := normalizeCheckTarget(check.Target)
+	port := normalizeCheckPort(check.Port)
+	wantHTTPS := check.CheckType == "https"
 	checkerType := mapCheckType(check.CheckType)
-
-	// Build address from target and port
-	address := target
-
-	// For HTTP checks, incorporate the optional path field.
-	if checkerType == httpCheckType && check.Path != "" {
-		// Normalize into a URL; if target has no scheme, assume http.
-		if parsed, err := url.Parse(target); err == nil {
-			if parsed.Scheme == "" {
-				if parsedURL, err := url.Parse("http://" + target); err == nil {
-					parsed = parsedURL
-				}
-			}
-			// Only override if target didn't already include a path.
-			if parsed.Path == "" || parsed.Path == "/" {
-				parsed.Path = check.Path
-			}
-			address = parsed.String()
-		}
-	}
-
-	if port > 0 {
-		// If target is already host:port (or [ipv6]:port), don't append a second port.
-		if host, _, err := net.SplitHostPort(target); err == nil && host != "" {
-			address = target
-		} else if parsed, err := url.Parse(address); err == nil && parsed.Scheme != "" && parsed.Host != "" {
-			// URL target: only set port if one isn't already present.
-			if parsed.Port() == "" {
-				parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))
-			}
-			address = parsed.String()
-		} else if parsed, err := url.Parse(target); err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.Path != "" {
-			// Path-like target (e.g., "example.com/path"): for HTTP checks, normalize into a URL and apply port.
-			if checkerType == httpCheckType {
-				if parsedURL, err := url.Parse("http://" + target); err == nil && parsedURL.Host != "" {
-					if parsedURL.Port() == "" {
-						parsedURL.Host = net.JoinHostPort(parsedURL.Hostname(), fmt.Sprintf("%d", port))
-					}
-					address = parsedURL.String()
-				} else {
-					address = target
-				}
-			} else {
-				address = target
-			}
-		} else {
-			// Plain host/IP target without port.
-			// If target is a bracketed IPv6 literal (e.g. "[::1]"), strip brackets before JoinHostPort.
-			host := target
-			if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
-				host = host[1 : len(host)-1]
-			}
-			address = net.JoinHostPort(host, fmt.Sprintf("%d", port))
-		}
-	}
-
-	// Validate and default timeout to prevent issues with zero/negative values and duration overflow.
-	timeoutSec := int64(check.TimeoutSec)
-	var timeout time.Duration
-	if timeoutSec <= 0 {
-		timeout = defaultCheckTimeout
-	} else {
-		timeout = time.Duration(timeoutSec) * time.Second
-		if timeout > maxCheckTimeout {
-			timeout = maxCheckTimeout
-		}
-	}
+	address := buildCheckAddress(target, port, checkerType, check.Path, wantHTTPS)
+	timeout := clampCheckTimeout(check.TimeoutSec)
 
 	return &CheckerConfig{
 		Name:    check.Name,
@@ -764,6 +688,128 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 		Timeout: Duration(timeout),
 		// Additional fields from settings if needed
 	}
+}
+
+func normalizeCheckTarget(target string) string {
+	if target == "" {
+		return "localhost"
+	}
+	return target
+}
+
+func normalizeCheckPort(port int32) int32 {
+	if port < 0 || port > 65535 {
+		return 0
+	}
+	return port
+}
+
+func buildCheckAddress(target string, port int32, checkerType, path string, wantHTTPS bool) string {
+	address := applyHTTPPath(target, checkerType, path, wantHTTPS)
+	if port > 0 {
+		return applyPort(address, target, port, checkerType, wantHTTPS)
+	}
+	return address
+}
+
+func applyHTTPPath(target, checkerType, path string, wantHTTPS bool) string {
+	if checkerType != httpCheckType || path == "" {
+		return target
+	}
+
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+		if parsed.Scheme == "" {
+			scheme := "http://"
+			if wantHTTPS {
+				scheme = "https://"
+			}
+			if parsedURL, err := url.Parse(scheme + target); err == nil {
+				parsed = parsedURL
+			}
+		}
+	// Only override if target didn't already include a path.
+	if parsed.Path == "" || parsed.Path == "/" {
+		parsed.Path = path
+	}
+	return parsed.String()
+}
+
+func applyPort(address, target string, port int32, checkerType string, wantHTTPS bool) string {
+	// If target is already host:port (or [ipv6]:port), don't append a second port.
+	if host, _, err := net.SplitHostPort(target); err == nil && host != "" {
+		return target
+	}
+
+	if updated, ok := applyPortToURL(address, port); ok {
+		return updated
+	}
+
+	if isPathLikeTarget(target) {
+		return applyPortToPathLike(target, port, checkerType, wantHTTPS)
+	}
+
+	return joinHostPort(target, port)
+}
+
+func applyPortToURL(address string, port int32) (string, bool) {
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", false
+	}
+	if parsed.Port() == "" {
+		parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))
+	}
+	return parsed.String(), true
+}
+
+func isPathLikeTarget(target string) bool {
+	parsed, err := url.Parse(target)
+	return err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.Path != ""
+}
+
+func applyPortToPathLike(target string, port int32, checkerType string, wantHTTPS bool) string {
+	// Path-like target (e.g., "example.com/path"): for HTTP checks, normalize into a URL and apply port.
+	if checkerType != httpCheckType {
+		return target
+	}
+	scheme := "http://"
+	if wantHTTPS {
+		scheme = "https://"
+	}
+	parsedURL, err := url.Parse(scheme + target)
+	if err != nil || parsedURL.Host == "" {
+		return target
+	}
+	if parsedURL.Port() == "" {
+		parsedURL.Host = net.JoinHostPort(parsedURL.Hostname(), fmt.Sprintf("%d", port))
+	}
+	return parsedURL.String()
+}
+
+func joinHostPort(target string, port int32) string {
+	// Plain host/IP target without port.
+	// If target is a bracketed IPv6 literal (e.g. "[::1]"), strip brackets before JoinHostPort.
+	host := target
+	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		host = host[1 : len(host)-1]
+	}
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+func clampCheckTimeout(timeoutSec int32) time.Duration {
+	// Validate and default timeout to prevent issues with zero/negative values and duration overflow.
+	sec := int64(timeoutSec)
+	if sec <= 0 {
+		return defaultCheckTimeout
+	}
+	timeout := time.Duration(sec) * time.Second
+	if timeout > maxCheckTimeout {
+		return maxCheckTimeout
+	}
+	return timeout
 }
 
 // mapCheckType maps proto check types to internal checker types.

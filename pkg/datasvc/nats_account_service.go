@@ -238,32 +238,44 @@ func (s *NATSAccountServer) getResolverConn() (*nats.Conn, error) {
 		}(conn)
 	}
 
-	opts, err := buildResolverOptions(resolverSecurity, resolverCredsFile)
-	if err != nil {
-		return nil, err
-	}
+	for {
+		opts, err := buildResolverOptions(resolverSecurity, resolverCredsFile)
+		if err != nil {
+			return nil, err
+		}
 
-	conn, err = nats.Connect(resolverURL, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("connect resolver NATS: %w", err)
-	}
+		conn, err = nats.Connect(resolverURL, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("connect resolver NATS: %w", err)
+		}
 
-	s.mu.Lock()
-	// If resolver settings changed during dialing, discard this connection.
-	if s.resolverURL != resolverURL || s.resolverCredsFile != resolverCredsFile {
+		s.mu.Lock()
+		// If resolver settings changed during dialing, discard this connection and retry.
+		if s.resolverURL != resolverURL || s.resolverCredsFile != resolverCredsFile {
+			s.mu.Unlock()
+			conn.Close()
+
+			s.mu.Lock()
+			resolverURL = s.resolverURL
+			if s.resolverSecurity != nil {
+				resolverSecurity = cloneSecurityConfig(s.resolverSecurity)
+			} else {
+				resolverSecurity = nil
+			}
+			resolverCredsFile = s.resolverCredsFile
+			s.mu.Unlock()
+			continue
+		}
+		if s.resolverConn != nil && s.resolverConn.IsConnected() {
+			existing := s.resolverConn
+			s.mu.Unlock()
+			conn.Close()
+			return existing, nil
+		}
+		s.resolverConn = conn
 		s.mu.Unlock()
-		conn.Close()
-		return s.getResolverConn()
+		return conn, nil
 	}
-	if s.resolverConn != nil && s.resolverConn.IsConnected() {
-		existing := s.resolverConn
-		s.mu.Unlock()
-		conn.Close()
-		return existing, nil
-	}
-	s.resolverConn = conn
-	s.mu.Unlock()
-	return conn, nil
 }
 
 func buildResolverOptions(security *models.SecurityConfig, credsFile string) ([]nats.Option, error) {
