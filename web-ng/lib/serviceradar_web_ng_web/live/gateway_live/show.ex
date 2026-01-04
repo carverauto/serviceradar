@@ -73,12 +73,19 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
     # Fall back to SRQL database query
     db_gateway =
-      case srql_module().query("in:gateways id:\"#{escape_value(gateway_id)}\" limit:1") do
-        {:ok, %{"results" => [gateway | _]}} when is_map(gateway) ->
-          Map.put(gateway, "_source", "database")
+      if tenant_id do
+        query =
+          "in:gateways id:\"#{escape_value(gateway_id)}\" tenant_id:\"#{escape_value(tenant_id)}\" limit:1"
 
-        _ ->
-          nil
+        case srql_module().query(query) do
+          {:ok, %{"results" => [gateway | _]}} when is_map(gateway) ->
+            Map.put(gateway, "_source", "database")
+
+          _ ->
+            nil
+        end
+      else
+        nil
       end
 
     # Prefer Horde data over database

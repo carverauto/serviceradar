@@ -101,7 +101,13 @@ func loadConfig(configPath string) (*agent.ServerConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Fall back to embedded default config
+			if os.Getenv("SR_ALLOW_EMBEDDED_DEFAULT_CONFIG") != "true" {
+				return nil, fmt.Errorf(
+					"config file not found at %s (set SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=true to use embedded defaults)",
+					configPath,
+				)
+			}
+			// Fall back to embedded default config (explicitly allowed)
 			data = defaultConfig
 		} else {
 			return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -131,7 +137,8 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	}()
 
 	// Create push loop
-	pushLoop := agent.NewPushLoop(server, gatewayClient, time.Duration(cfg.PushInterval), log)
+	interval := time.Duration(cfg.PushInterval) * time.Second
+	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
 
 	// Create a cancellable context for the push loop
 	pushCtx, cancel := context.WithCancel(ctx)

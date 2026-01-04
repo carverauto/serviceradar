@@ -160,8 +160,35 @@ defmodule ServiceRadarAgentGateway.Config do
     # Get tenant info from environment or certificate
     # System is always multi-tenant - default tenant is used if none specified
     {tenant_id, tenant_slug} = resolve_tenant_info(opts)
-    tenant_id = if tenant_id == "", do: nil, else: tenant_id
-    tenant_slug = if tenant_slug == "", do: nil, else: tenant_slug
+    tenant_id =
+      case tenant_id do
+        nil ->
+          nil
+
+        value ->
+          value
+          |> to_string()
+          |> String.trim()
+          |> case do
+            "" -> nil
+            id -> id
+          end
+      end
+
+    tenant_slug =
+      case tenant_slug do
+        nil ->
+          nil
+
+        value ->
+          value
+          |> to_string()
+          |> String.trim()
+          |> case do
+            "" -> nil
+            slug -> slug
+          end
+      end
 
     {tenant_id, tenant_slug} =
       if is_nil(tenant_id) do
@@ -173,6 +200,10 @@ defmodule ServiceRadarAgentGateway.Config do
           raise "tenant_id is required for agent gateway (set GATEWAY_TENANT_ID or provide mTLS certs; for local dev set GATEWAY_ALLOW_DEFAULT_TENANT=true)"
         end
       else
+        if not Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, tenant_id) do
+          raise "invalid tenant_id format for agent gateway"
+        end
+
         {tenant_id, tenant_slug || "default"}
       end
 

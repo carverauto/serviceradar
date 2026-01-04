@@ -526,7 +526,7 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		newPollInterval := time.Duration(configResp.ConfigPollIntervalSec) * time.Second
 		// Safety bounds to avoid gateway/agent overload or "never poll" configurations.
 		const (
-			minConfigPollInterval = 5 * time.Second
+			minConfigPollInterval = 30 * time.Second
 			maxConfigPollInterval = 24 * time.Hour
 		)
 		if newPollInterval < minConfigPollInterval {
@@ -654,6 +654,9 @@ func protoCheckToCheckerConfig(check *proto.AgentCheckConfig) *CheckerConfig {
 				parsed.Host = net.JoinHostPort(parsed.Hostname(), fmt.Sprintf("%d", port))
 			}
 			address = parsed.String()
+		} else if parsed, err := url.Parse(target); err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.Path != "" {
+			// Path-like target (e.g., "example.com/path") — don't corrupt it with JoinHostPort.
+			address = target
 		} else {
 			// Plain host/IP target without port
 			address = net.JoinHostPort(target, fmt.Sprintf("%d", port))

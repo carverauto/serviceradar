@@ -777,6 +777,15 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
   end
 
+  defp parse_timestamp_to_ms(ts) when is_integer(ts) do
+    # Heuristic: treat large values as milliseconds, smaller as seconds.
+    if ts > 10_000_000_000 do
+      ts
+    else
+      ts * 1_000
+    end
+  end
+
   defp parse_timestamp_to_ms(ts) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
       {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
