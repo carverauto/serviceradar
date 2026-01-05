@@ -39,7 +39,6 @@ var (
 // Config defines the configuration for the sync service including sources, logging, and OTEL settings.
 type Config struct {
 	Sources           map[string]*models.SourceConfig `json:"sources" hot:"rebuild"`           // integration configs
-	KVAddress         string                          `json:"kv_address"`                      // KV gRPC server address (optional)
 	ListenAddr        string                          `json:"listen_addr"`                     // gRPC listen address
 	PollInterval      models.Duration                 `json:"poll_interval" hot:"reload"`      // Polling interval
 	DiscoveryInterval models.Duration                 `json:"discovery_interval" hot:"reload"` // Fetch cadence

@@ -89,9 +89,8 @@ func TestNetboxIntegration_Fetch_FollowsPagination(t *testing.T) {
 		Logger: logger.NewTestLogger(),
 	}
 
-	data, events, err := integ.Fetch(context.Background())
+	events, err := integ.Fetch(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, data)
 	require.Len(t, events, 75)
 
 	mu.Lock()
@@ -222,9 +221,8 @@ func TestNetboxIntegration_Fetch_ReturnsErrorOnPaginationFailure(t *testing.T) {
 		Logger: logger.NewTestLogger(),
 	}
 
-	data, events, err := integ.Fetch(context.Background())
+	events, err := integ.Fetch(context.Background())
 	require.Error(t, err)
-	require.Nil(t, data)
 	require.Nil(t, events)
 }
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ServiceRadar Sync package (`serviceradar-sync`) is a standalone service responsible for polling external data sources, transforming the data, and synchronizing it with the ServiceRadar Key-Value (KV) store. It acts as the primary mechanism for populating ServiceRadar with device and asset information from third-party systems like Armis and Netbox.
+The ServiceRadar Sync package (`serviceradar-sync`) is a standalone service responsible for polling external data sources, transforming the data, and pushing device updates through the ServiceRadar agent/agent-gateway pipeline. It acts as the primary mechanism for populating ServiceRadar with device and asset information from third-party systems like Armis and Netbox.
 
 The service operates on a configurable polling interval. On each poll, it concurrently fetches data from all configured sources. For certain integrations, like Armis, it can also perform advanced two-way synchronization, such as enriching the source system with data collected by ServiceRadar.
 
@@ -20,19 +20,19 @@ Here is a complete example demonstrating the configuration for both Armis (with 
 
 ```json
 {
-  "kv_address": "localhost:8443",
-  "poll_interval": "10m",
-  "security": {
+  "listen_addr": "0.0.0.0:50054",
+  "gateway_addr": "agent-gateway:50051",
+  "gateway_security": {
     "cert_dir": "/etc/serviceradar/tls",
     "cert_file": "sync.crt",
     "key_file": "sync.key",
     "ca_file": "ca.crt"
   },
+  "poll_interval": "10m",
   "sources": {
     "armis_prod": {
       "type": "armis",
       "endpoint": "https://my-armis-instance.armis.com",
-      "prefix": "devices/armis/",
       "poll_interval": "15m",
       "batch_size": 500,
       "insecure_skip_verify": false,
@@ -57,7 +57,6 @@ Here is a complete example demonstrating the configuration for both Armis (with 
     "netbox_dc1": {
       "type": "netbox",
       "endpoint": "https://netbox.example.com",
-      "prefix": "devices/netbox/",
       "credentials": {
         "api_token": "your-netbox-api-token",
         "expand_subnets": "false"
@@ -69,12 +68,17 @@ Here is a complete example demonstrating the configuration for both Armis (with 
 
 ### Top-Level Configuration
 
-| Key              | Type     | Description                                                                                             | Required |
-| ---------------- | -------- | ------------------------------------------------------------------------------------------------------- | -------- |
-| `kv_address`     | `string` | The gRPC address (e.g., `host:port`) of the ServiceRadar KV store.                                      | **Yes**  |
-| `poll_interval`  | `string` | The interval at which to poll all sources. Uses Go's `time.ParseDuration` format (e.g., "5m", "1h").    | No       |
-| `security`       | `object` | Configuration for mTLS when communicating with the KV store. See the [Security](#security-mtls) section. | No       |
-| `sources`        | `object` | A map of one or more data sources to synchronize. The key is a user-defined name for the source.        | **Yes**  |
+| Key                  | Type     | Description                                                                                               | Required |
+| -------------------- | -------- | --------------------------------------------------------------------------------------------------------- | -------- |
+| `listen_addr`         | `string` | The gRPC listen address for the sync service (e.g., `0.0.0.0:50054`).                                     | **Yes**  |
+| `gateway_addr`        | `string` | The gRPC address of the ServiceRadar agent-gateway used for push mode (e.g., `host:port`).                | **Yes**  |
+| `gateway_security`    | `object` | Configuration for mTLS when communicating with the agent-gateway. See the [Security](#security-mtls) section. | No       |
+| `poll_interval`       | `string` | The interval at which to poll all sources. Uses Go's `time.ParseDuration` format (e.g., "5m", "1h").      | No       |
+| `discovery_interval`  | `string` | The interval at which to refresh device discovery results. Uses Go's `time.ParseDuration` format.        | No       |
+| `update_interval`     | `string` | The interval at which to push external updates (if enabled). Uses Go's `time.ParseDuration` format.       | No       |
+| `security`            | `object` | Configuration for mTLS when serving inbound gRPC (if enabled). See the [Security](#security-mtls) section. | No       |
+| `logging`             | `object` | Logging configuration for the sync service.                                                               | No       |
+| `sources`             | `object` | A map of one or more data sources to synchronize. The key is a user-defined name for the source.          | **Yes**  |
 
 ### Source Configuration
 
@@ -84,7 +88,7 @@ Each entry in the `sources` map defines a connection to an external system.
 | ---------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
 | `type`                 | `string`  | The type of integration to use. Supported values are `armis` and `netbox`.                                                                                                                                      | **Yes**  |
 | `endpoint`             | `string`  | The base URL for the source's API.                                                                                                                                                                                | **Yes**  |
-| `prefix`               | `string`  | A string to prepend to every key written to the KV store from this source. **Must end with a `/`**.                                                                                                           | **Yes**  |
+| `prefix`               | `string`  | Optional namespace prefix for device identifiers emitted by this source.                                                                                                                                         | No       |
 | `insecure_skip_verify` | `boolean` | If `true`, the HTTP client will skip TLS certificate verification. Use with caution.                                                                                                                              | No       |
 | `credentials`          | `object`  | A map of strings containing authentication tokens, keys, and other integration-specific settings.                                                                                                                | **Yes**  |
 | `queries`              | `array`   | (Armis only) An array of AQL queries to run against the Armis API to fetch devices.                                                                                                                               | **Yes**  |
@@ -96,7 +100,7 @@ Each entry in the `sources` map defines a connection to an external system.
 
 ## Armis Integration (`type: "armis"`)
 
-The Armis integration fetches device information based on one or more Armis Query Language (AQL) queries. It then creates a network sweep configuration for ServiceRadar agents to scan these devices.
+The Armis integration fetches device information based on one or more Armis Query Language (AQL) queries and emits updates for the agent/agent-gateway pipeline.
 
 ### Core Configuration
 
@@ -138,7 +142,7 @@ The Netbox integration fetches all devices with a primary IP address from a Netb
 
 ## Security (mTLS)
 
-If your ServiceRadar KV store is protected by mTLS, you must provide the `security` block in your configuration.
+If your agent-gateway or sync gRPC server is protected by mTLS, you must provide the `gateway_security` or `security` block in your configuration.
 
 | Key         | Type     | Description                                                                     |
 | ----------- | -------- | ------------------------------------------------------------------------------- |

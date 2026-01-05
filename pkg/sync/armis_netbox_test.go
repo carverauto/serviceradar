@@ -37,11 +37,6 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 	defer ctrl.Finish()
 
 	// Mock dependencies
-	mockKVClient := NewMockKVClient(ctrl)
-	mockKVClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
-	mockKVClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
-	mockGRPCClient := NewMockGRPCClient(ctrl)
-
 	// Create test config with both Armis and NetBox sources
 	config := &Config{
 		AgentID:           "test-agent",
@@ -68,9 +63,7 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 
 	// Create service with mocked integrations
 	service := &SimpleSyncService{
-		config:     *config,
-		kvClient:   mockKVClient,
-		grpcClient: mockGRPCClient,
+		config: *config,
 		sources: map[string]Integration{
 			"armis":  mockArmisIntegration,
 			"netbox": mockNetBoxIntegration,
@@ -232,10 +225,6 @@ func TestGetResultsWithArmisAndNetBox(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	// Mock dependencies
-	mockKVClient := NewMockKVClient(ctrl)
-	mockGRPCClient := NewMockGRPCClient(ctrl)
-
 	// Create test config
 	config := &Config{
 		AgentID:  "test-agent",
@@ -252,9 +241,7 @@ func TestGetResultsWithArmisAndNetBox(t *testing.T) {
 
 	// Create service
 	service := &SimpleSyncService{
-		config:     *config,
-		kvClient:   mockKVClient,
-		grpcClient: mockGRPCClient,
+		config: *config,
 		resultsStore: &StreamingResultsStore{
 			results: make(map[string][]*models.DeviceUpdate),
 		},

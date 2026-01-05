@@ -17,7 +17,6 @@
 package sync
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -45,10 +43,6 @@ const (
 	testOperationDelay = 5 * time.Millisecond
 	testWaitTimeout    = 250 * time.Millisecond
 )
-
-func expectNoopBatchGet(kv *MockKVClient) {
-	kv.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
-}
 
 func TestSafeIntToInt32(t *testing.T) {
 	tests := []struct {
@@ -138,21 +132,10 @@ func TestNewSimpleSyncService(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-
-			mockKV := NewMockKVClient(ctrl)
-			expectNoopBatchGet(mockKV)
-			mockGRPC := NewMockGRPCClient(ctrl)
 			registry := make(map[string]IntegrationFactory)
 			log := logger.NewTestLogger()
 
-			// Set expectation for Close() if we expect success
-			if !tt.expectError {
-				mockGRPC.EXPECT().Close().Return(nil)
-			}
-
-			service, err := NewSimpleSyncService(ctx, tt.config, mockKV, registry, mockGRPC, log)
+			service, err := NewSimpleSyncService(ctx, tt.config, registry, log)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -175,9 +158,6 @@ func TestNewSimpleSyncService(t *testing.T) {
 func TestSimpleSyncService_Stop(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	config := &Config{
 		AgentID:           "test-agent",
 		PollerID:          "test-poller",
@@ -193,15 +173,10 @@ func TestSimpleSyncService_Stop(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	err = service.Stop(ctx)
@@ -211,9 +186,6 @@ func TestSimpleSyncService_Stop(t *testing.T) {
 func TestSimpleSyncService_GetStatus(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	config := &Config{
 		AgentID:           "test-agent",
 		PollerID:          "test-poller",
@@ -229,16 +201,11 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()
@@ -268,9 +235,6 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 func TestSimpleSyncService_GetResults(t *testing.T) {
 	ctx := context.Background()
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	config := &Config{
 		AgentID:           "test-agent",
 		PollerID:          "test-poller",
@@ -286,17 +250,11 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()
@@ -354,206 +312,6 @@ func TestSimpleSyncService_GetResults(t *testing.T) {
 	assert.Equal(t, "device-2", resultDevices[1].DeviceID)
 }
 
-func TestSimpleSyncService_writeToKV(t *testing.T) {
-	ctx := context.Background()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		DiscoveryInterval: models.Duration(time.Minute),
-		UpdateInterval:    models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"test-source": {
-				Type:     "test",
-				Endpoint: "test",
-				AgentID:  "test-agent",
-				Prefix:   "test-prefix",
-			},
-		},
-		ListenAddr: "localhost:0",
-	}
-
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
-	registry := make(map[string]IntegrationFactory)
-
-	log := logger.NewTestLogger()
-
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
-	require.NoError(t, err)
-
-	defer func() { _ = service.Stop(context.Background()) }()
-
-	data := map[string][]byte{
-		"key1": []byte("value1"),
-		"key2": []byte("value2"),
-	}
-
-	mockKV.EXPECT().PutMany(
-		ctx, gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-			if len(req.Entries) != 2 {
-				t.Fatalf("expected 2 entries, got %d", len(req.Entries))
-			}
-
-			expectedEntries := map[string][]byte{
-				"test-prefix/key1": []byte("value1"),
-				"test-prefix/key2": []byte("value2"),
-			}
-
-			for _, entry := range req.Entries {
-				expectedValue, exists := expectedEntries[entry.Key]
-
-				if !exists || !bytes.Equal(entry.Value, expectedValue) {
-					t.Fatalf("unexpected entry: key=%s, value=%s", entry.Key, string(entry.Value))
-				}
-			}
-
-			return &proto.PutManyResponse{}, nil
-		})
-
-	err = service.writeToKV(ctx, "test-source", data)
-	assert.NoError(t, err)
-}
-
-func TestSimpleSyncService_writeToKV_WithDefaultPrefix(t *testing.T) {
-	ctx := context.Background()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		DiscoveryInterval: models.Duration(time.Minute),
-		UpdateInterval:    models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"test-source": {
-				Type:     "test",
-				Endpoint: "test",
-				AgentID:  "test-agent",
-				Prefix:   "", // Testing default prefix behavior
-			},
-		},
-		ListenAddr: "localhost:0",
-	}
-
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
-	registry := make(map[string]IntegrationFactory)
-
-	log := logger.NewTestLogger()
-
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
-	require.NoError(t, err)
-
-	defer func() { _ = service.Stop(context.Background()) }()
-
-	data := map[string][]byte{
-		"key1": []byte("value1"),
-	}
-
-	expectedPrefix := "agents/test-agent/checkers/sweep"
-
-	mockKV.EXPECT().PutMany(ctx, gomock.Any(), gomock.Any()).
-		DoAndReturn(func(
-			_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-			if len(req.Entries) != 1 || req.Entries[0].Key != expectedPrefix+"/key1" {
-				t.Fatalf("unexpected entry: key=%s", req.Entries[0].Key)
-			}
-
-			return &proto.PutManyResponse{}, nil
-		})
-
-	err = service.writeToKV(ctx, "test-source", data)
-	assert.NoError(t, err)
-}
-
-func TestSimpleSyncService_writeToKV_EmptyData(t *testing.T) {
-	ctx := context.Background()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		DiscoveryInterval: models.Duration(time.Minute),
-		UpdateInterval:    models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"test": {
-				Type:     "test",
-				Endpoint: "test",
-				Prefix:   "test",
-			},
-		},
-		ListenAddr: "localhost:0",
-	}
-
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
-	registry := make(map[string]IntegrationFactory)
-
-	log := logger.NewTestLogger()
-
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
-	require.NoError(t, err)
-
-	defer func() { _ = service.Stop(context.Background()) }()
-
-	err = service.writeToKV(ctx, "test-source", map[string][]byte{})
-	assert.NoError(t, err)
-}
-
-func TestSimpleSyncService_writeToKV_NilKVClient(t *testing.T) {
-	ctx := context.Background()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		DiscoveryInterval: models.Duration(time.Minute),
-		UpdateInterval:    models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"test": {
-				Type:     "test",
-				Endpoint: "test",
-				Prefix:   "test",
-			},
-		},
-		ListenAddr: "localhost:0",
-	}
-
-	registry := make(map[string]IntegrationFactory)
-	log := logger.NewTestLogger()
-
-	service, err := NewSimpleSyncService(ctx, config, nil, registry, nil, log)
-	require.NoError(t, err)
-
-	defer func() { _ = service.Stop(context.Background()) }()
-
-	data := map[string][]byte{
-		"key1": []byte("value1"),
-	}
-
-	err = service.writeToKV(ctx, "test-source", data)
-	assert.NoError(t, err)
-}
-
 // Removed TestSimpleSyncService_shouldProceedWithUpdates and TestSimpleSyncService_markSweepOperations
 // as the sweep timing logic was removed
 
@@ -578,17 +336,11 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()
@@ -631,17 +383,11 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()
@@ -711,16 +457,11 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 		ListenAddr: "localhost:0",
 	}
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	registry := make(map[string]IntegrationFactory)
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSimpleSyncService(ctx, config, mockKV, registry, mockGRPC, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()
@@ -825,18 +566,9 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockKV := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKV)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockGRPC.EXPECT().Close().Return(nil)
-
 	// Create a mock integration that returns devices with various IPs
 	mockIntegration := NewMockIntegration(ctrl)
 	mockIntegration.EXPECT().Fetch(gomock.Any()).Return(
-		map[string][]byte{
-			"device1": []byte(`{"id": "device1"}`),
-			"device2": []byte(`{"id": "device2"}`),
-		},
 		[]*models.DeviceUpdate{
 			{IP: "192.168.1.100", Source: models.DiscoverySourceNetbox}, // Should be filtered for netbox
 			{IP: "10.0.0.50", Source: models.DiscoverySourceNetbox},     // Should be filtered for netbox
@@ -866,15 +598,10 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 		UpdateInterval:    models.Duration(5 * time.Minute),
 	}
 
-	// Expect KV writes only for non-blacklisted devices
-	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(&proto.PutManyResponse{}, nil).AnyTimes()
-
 	service, err := NewSimpleSyncService(
 		context.Background(),
 		config,
-		mockKV,
 		registry,
-		mockGRPC,
 		logger.NewTestLogger(),
 	)
 	require.NoError(t, err)
@@ -907,12 +634,6 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockKVClient := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKVClient)
-
-	mockGRPCClient := NewMockGRPCClient(ctrl)
-	mockGRPCClient.EXPECT().Close().Return(nil)
-
 	mockIntegration := NewMockIntegration(ctrl)
 
 	log := logger.NewTestLogger()
@@ -939,7 +660,7 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	service, err := NewSimpleSyncService(ctx, config, mockKVClient, registry, mockGRPCClient, log)
+	service, err := NewSimpleSyncService(ctx, config, registry, log)
 	require.NoError(t, err)
 
 	defer func() { _ = service.Stop(context.Background()) }()

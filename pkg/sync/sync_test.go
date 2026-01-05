@@ -25,66 +25,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc"
-
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
-	"github.com/carverauto/serviceradar/proto"
 )
-
-const (
-	testServer = "test-server"
-)
-
-// Mock implementation for proto.KVServiceClient
-type mockProtoKVClient struct{}
-
-func (*mockProtoKVClient) Put(_ context.Context, _ *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-	return &proto.PutResponse{}, nil
-}
-
-func (*mockProtoKVClient) PutMany(_ context.Context, _ *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-	return &proto.PutManyResponse{}, nil
-}
-
-func (*mockProtoKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
-	return &proto.GetResponse{}, nil
-}
-
-func (*mockProtoKVClient) BatchGet(_ context.Context, _ *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-	return &proto.BatchGetResponse{}, nil
-}
-
-func (*mockProtoKVClient) Update(_ context.Context, _ *proto.UpdateRequest, _ ...grpc.CallOption) (*proto.UpdateResponse, error) {
-	return &proto.UpdateResponse{}, nil
-}
-
-func (*mockProtoKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
-	return &proto.DeleteResponse{}, nil
-}
-
-func (*mockProtoKVClient) PutIfAbsent(_ context.Context, _ *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-	return &proto.PutResponse{}, nil
-}
-
-func (*mockProtoKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, nil
-}
-
-func (*mockProtoKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
-	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
-}
-
-func (*mockProtoKVClient) ListKeys(_ context.Context, _ *proto.ListKeysRequest, _ ...grpc.CallOption) (*proto.ListKeysResponse, error) {
-	return &proto.ListKeysResponse{}, nil
-}
 
 func TestNew(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	ctx := context.Background()
 	config := &Config{
 		AgentID:           "test-agent",
@@ -100,14 +46,10 @@ func TestNew(t *testing.T) {
 			},
 		},
 	}
-	kvClient := NewMockKVClient(ctrl)
-	kvClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
-	kvClient.EXPECT().BatchGet(gomock.Any(), gomock.Any()).Return(&proto.BatchGetResponse{}, nil).AnyTimes()
-	grpcClient := NewMockGRPCClient(ctrl)
 	registry := make(map[string]IntegrationFactory)
 	log := logger.NewTestLogger()
 
-	service, err := New(ctx, config, kvClient, registry, grpcClient, log)
+	service, err := New(ctx, config, registry, log)
 
 	require.NoError(t, err)
 	assert.NotNil(t, service)
@@ -140,96 +82,8 @@ func TestNewDefault(t *testing.T) {
 	assert.NotNil(t, service)
 }
 
-func TestNewWithGRPC_NoKVAddress(t *testing.T) {
-	ctx := context.Background()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		ListenAddr:        ":8080",
-		KVAddress:         "",
-		DiscoveryInterval: models.Duration(60 * time.Second),
-		UpdateInterval:    models.Duration(300 * time.Second),
-		Sources: map[string]*models.SourceConfig{
-			"test-source": {
-				Type:     "armis",
-				AgentID:  "test-agent",
-				Endpoint: "http://example.com",
-			},
-		},
-	}
-	log := logger.NewTestLogger()
-
-	service, err := NewWithGRPC(ctx, config, log)
-
-	require.NoError(t, err)
-	assert.NotNil(t, service)
-}
-
-func TestSetupGRPCClient_EmptyAddress(t *testing.T) {
-	ctx := context.Background()
-
-	config := &Config{KVAddress: ""}
-	log := logger.NewTestLogger()
-
-	kvClient, grpcClient, err := setupGRPCClient(ctx, config, log)
-
-	require.NoError(t, err)
-	assert.Nil(t, kvClient)
-	assert.Nil(t, grpcClient)
-}
-
-func TestGetServerName(t *testing.T) {
-	tests := []struct {
-		name     string
-		config   *Config
-		expected string
-	}{
-		{
-			name: "with security config",
-			config: &Config{
-				Security: &models.SecurityConfig{
-					ServerName: testServer,
-				},
-			},
-			expected: testServer,
-		},
-		{
-			name:     "without security config",
-			config:   &Config{},
-			expected: "",
-		},
-		{
-			name: "nil security config",
-			config: &Config{
-				Security: nil,
-			},
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getServerName(tt.config)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestDefaultIntegrationRegistry(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Create a mock that satisfies proto.KVServiceClient interface
-	kvClient := &mockProtoKVClient{}
-	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := testServer
-
-	// Mock gRPC connection
-	conn := &grpc.ClientConn{}
-	grpcClient.EXPECT().GetConnection().Return(conn).AnyTimes()
-
-	registry := defaultIntegrationRegistry(kvClient, grpcClient, serverName)
+	registry := defaultIntegrationRegistry()
 
 	assert.Contains(t, registry, integrationTypeArmis)
 	assert.Contains(t, registry, integrationTypeNetbox)
@@ -263,14 +117,7 @@ func TestDefaultIntegrationRegistry(t *testing.T) {
 }
 
 func TestNewArmisIntegration(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	ctx := context.Background()
-	kvClient := &mockProtoKVClient{}
-
-	conn := &grpc.ClientConn{}
-	serverName := testServer
 
 	tests := []struct {
 		name     string
@@ -336,18 +183,14 @@ func TestNewArmisIntegration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logger.NewTestLogger()
-			integration := NewArmisIntegration(ctx, tt.config, kvClient, conn, serverName, log)
+			integration := NewArmisIntegration(ctx, tt.config, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.expected, integration.PageSize)
 			assert.Equal(t, tt.config, integration.Config)
-			assert.Equal(t, kvClient, integration.KVClient)
-			assert.Equal(t, conn, integration.GRPCConn)
-			assert.Equal(t, serverName, integration.ServerName)
 			assert.NotNil(t, integration.HTTPClient)
 			assert.NotNil(t, integration.TokenProvider)
 			assert.NotNil(t, integration.DeviceFetcher)
-			assert.NotNil(t, integration.KVWriter)
 			assert.Nil(t, integration.SweeperConfig) // SweeperConfig should be nil - agent's file config is authoritative
 
 			// Check if status updates are enabled
@@ -362,15 +205,7 @@ func TestNewArmisIntegration(t *testing.T) {
 }
 
 func TestNewNetboxIntegration(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	ctx := context.Background()
-
-	kvClient := &mockProtoKVClient{}
-	conn := &grpc.ClientConn{}
-
-	serverName := testServer
 
 	tests := []struct {
 		name   string
@@ -410,13 +245,10 @@ func TestNewNetboxIntegration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			log := logger.NewTestLogger()
-			integration := NewNetboxIntegration(ctx, tt.config, kvClient, conn, serverName, log)
+			integration := NewNetboxIntegration(ctx, tt.config, log)
 
 			assert.NotNil(t, integration)
 			assert.Equal(t, tt.config, integration.Config)
-			assert.Equal(t, kvClient, integration.KvClient)
-			assert.Equal(t, conn, integration.GrpcConn)
-			assert.Equal(t, serverName, integration.ServerName)
 			assert.False(t, integration.ExpandSubnets, "ExpandSubnets should always be false in NewNetboxIntegration")
 
 			// SRQL querier removed from Go implementation
@@ -426,18 +258,7 @@ func TestNewNetboxIntegration(t *testing.T) {
 }
 
 func TestNetboxIntegrationFactory(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	kvClient := &mockProtoKVClient{}
-	grpcClient := NewMockGRPCClient(ctrl)
-	serverName := testServer
-
-	// Mock gRPC connection
-	conn := &grpc.ClientConn{}
-	grpcClient.EXPECT().GetConnection().Return(conn).AnyTimes()
-
-	registry := defaultIntegrationRegistry(kvClient, grpcClient, serverName)
+	registry := defaultIntegrationRegistry()
 	ctx := context.Background()
 
 	t.Run("expand subnets enabled", func(t *testing.T) {
@@ -476,9 +297,6 @@ func TestNetboxIntegrationFactory(t *testing.T) {
 // SRQL adapters removed from Go implementation; related adapter tests deleted.
 
 func TestCreateSimpleSyncService(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	ctx := context.Background()
 	config := &Config{
 		AgentID:           "test-agent",
@@ -494,21 +312,12 @@ func TestCreateSimpleSyncService(t *testing.T) {
 			},
 		},
 	}
-	kvClient := NewMockKVClient(ctrl)
-	grpcClient := NewMockGRPCClient(ctrl)
 	log := logger.NewTestLogger()
-
-	// Mock gRPC connection
-	conn := &grpc.ClientConn{}
-	grpcClient.EXPECT().GetConnection().Return(conn).AnyTimes()
-
-	service, err := createSimpleSyncService(ctx, config, kvClient, grpcClient, log)
+	service, err := createSimpleSyncService(ctx, config, log)
 
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 	assert.Equal(t, config.AgentID, service.config.AgentID)
-	assert.Equal(t, kvClient, service.kvClient)
-	assert.Equal(t, grpcClient, service.grpcClient)
 	assert.NotNil(t, service.registry)
 	assert.Contains(t, service.registry, integrationTypeArmis)
 	assert.Contains(t, service.registry, integrationTypeNetbox)
@@ -639,28 +448,15 @@ func TestSweepConfigDefaults(t *testing.T) {
 
 // Benchmark tests
 func BenchmarkDefaultIntegrationRegistry(b *testing.B) {
-	ctrl := gomock.NewController(b)
-	defer ctrl.Finish()
-
-	kvClient := &mockProtoKVClient{}
-	grpcClient := NewMockGRPCClient(ctrl)
-	conn := &grpc.ClientConn{}
-	grpcClient.EXPECT().GetConnection().Return(conn).AnyTimes()
-
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		_ = defaultIntegrationRegistry(kvClient, grpcClient, testServer)
+		_ = defaultIntegrationRegistry()
 	}
 }
 
 func BenchmarkNewArmisIntegration(b *testing.B) {
-	ctrl := gomock.NewController(b)
-	defer ctrl.Finish()
-
 	ctx := context.Background()
-	kvClient := &mockProtoKVClient{}
-	conn := &grpc.ClientConn{}
 	config := &models.SourceConfig{
 		Type:    integrationTypeArmis,
 		AgentID: "test-agent",
@@ -673,7 +469,7 @@ func BenchmarkNewArmisIntegration(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		log := logger.NewTestLogger()
-		_ = NewArmisIntegration(ctx, config, kvClient, conn, testServer, log)
+		_ = NewArmisIntegration(ctx, config, log)
 	}
 }
 

@@ -38,8 +38,6 @@ import (
 )
 
 const (
-	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
-	MaxBatchSize      = 500
 	syncServiceName   = "sync"
 	syncServiceType   = "sync"
 	syncResultsSource = "results"
@@ -74,10 +72,8 @@ type SimpleSyncService struct {
 	proto.UnimplementedAgentServiceServer
 
 	config     Config
-	kvClient   KVClient
 	sources    map[string]Integration
 	registry   map[string]IntegrationFactory
-	grpcClient GRPCClient
 	grpcServer *grpc.Server
 
 	// Simplified results storage
@@ -110,6 +106,9 @@ type SimpleSyncService struct {
 	gatewayTenantSlug string
 	gatewayMu         sync.RWMutex
 
+	configMu      sync.RWMutex
+	configVersion string
+
 	// Hot-reload support
 	discoveryTicker   *time.Ticker
 	armisUpdateTicker *time.Ticker
@@ -120,21 +119,17 @@ type SimpleSyncService struct {
 func NewSimpleSyncService(
 	ctx context.Context,
 	config *Config,
-	kvClient KVClient,
 	registry map[string]IntegrationFactory,
-	grpcClient GRPCClient,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
-	return NewSimpleSyncServiceWithMetrics(ctx, config, kvClient, registry, grpcClient, NewInMemoryMetrics(log), log)
+	return NewSimpleSyncServiceWithMetrics(ctx, config, registry, NewInMemoryMetrics(log), log)
 }
 
 // NewSimpleSyncServiceWithMetrics creates a new simplified sync service with custom metrics
 func NewSimpleSyncServiceWithMetrics(
 	ctx context.Context,
 	config *Config,
-	kvClient KVClient,
 	registry map[string]IntegrationFactory,
-	grpcClient GRPCClient,
 	metrics Metrics,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
@@ -145,11 +140,9 @@ func NewSimpleSyncServiceWithMetrics(
 	serviceCtx, cancel := context.WithCancel(ctx)
 
 	s := &SimpleSyncService{
-		config:     *config,
-		kvClient:   kvClient,
-		sources:    make(map[string]Integration),
-		registry:   registry,
-		grpcClient: grpcClient,
+		config:   *config,
+		sources:  make(map[string]Integration),
+		registry: registry,
 		resultsStore: &StreamingResultsStore{
 			results: make(map[string][]*models.DeviceUpdate),
 		},
@@ -212,6 +205,13 @@ func (s *SimpleSyncService) launchTask(_ context.Context, taskName string, task 
 // Start begins the simple interval-based discovery and Armis update cycles
 func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting simplified sync service")
+
+	if err := s.bootstrapGatewayConfig(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to bootstrap sync config from gateway")
+		if len(s.sources) == 0 {
+			return err
+		}
+	}
 
 	// Start discovery/update timers
 	s.discoveryTicker = time.NewTicker(s.discoveryInterval)
@@ -278,13 +278,6 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 		s.logger.Info().Msg("gRPC server stopped")
 	}
 
-	if s.grpcClient != nil {
-		if err := s.grpcClient.Close(); err != nil {
-			s.logger.Error().Err(err).Msg("Error closing gRPC client")
-			return err
-		}
-	}
-
 	if s.gatewayClient != nil {
 		if err := s.gatewayClient.Disconnect(); err != nil {
 			s.logger.Error().Err(err).Msg("Error disconnecting gateway client")
@@ -325,7 +318,7 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 	s.config = *newCfg
 }
 
-// runDiscovery executes discovery for all integrations and immediately writes to KV
+// runDiscovery executes discovery for all integrations and stores results in memory.
 func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	start := time.Now()
 	s.logger.Info().
@@ -343,7 +336,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		sourceStart := time.Now()
 
 		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
-		kvData, devices, err := integration.Fetch(ctx)
+		devices, err := integration.Fetch(ctx)
 		if err != nil {
 			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
 			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
@@ -353,23 +346,14 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		}
 
 		// Apply source-specific network blacklist filtering if configured
-		devices, kvData = s.applySourceBlacklist(sourceName, devices, kvData)
-
-		// Immediately write device data to KV store
-		if err := s.writeToKV(ctx, sourceName, kvData); err != nil {
-			s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to write to KV")
-			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("KV write for source %s: %w", sourceName, err))
-		} else {
-			s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
-		}
+		devices = s.applySourceBlacklist(sourceName, devices)
+		s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
 
 		allDeviceUpdates[sourceName] = devices
 
 		s.logger.Info().
 			Str("source", sourceName).
 			Int("devices_discovered", len(devices)).
-			Int("kv_entries_written", len(kvData)).
 			Msg("Discovery completed for source")
 	}
 
@@ -470,56 +454,6 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	if len(updateErrors) > 0 {
 		return fmt.Errorf("armis updates completed with %d errors: %w", len(updateErrors), errors.Join(updateErrors...))
 	}
-
-	return nil
-}
-
-// writeToKV writes device data to the KV store
-func (s *SimpleSyncService) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) error {
-	if s.kvClient == nil || len(data) == 0 {
-		return nil
-	}
-
-	source := s.config.Sources[sourceName]
-
-	prefix := source.Prefix
-	if prefix == "" {
-		prefix = fmt.Sprintf("agents/%s/checkers/sweep", source.AgentID)
-	}
-
-	entries := make([]*proto.KeyValueEntry, 0, len(data))
-
-	for key, value := range data {
-		fullKey := fmt.Sprintf("%s/%s", prefix, key)
-		entries = append(entries, &proto.KeyValueEntry{
-			Key:   fullKey,
-			Value: value,
-		})
-	}
-
-	const maxBatchSize = MaxBatchSize
-
-	for i := 0; i < len(entries); i += maxBatchSize {
-		end := i + maxBatchSize
-		if end > len(entries) {
-			end = len(entries)
-		}
-
-		batch := entries[i:end]
-		if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: batch}); err != nil {
-			s.logger.Error().Err(err).
-				Str("source", sourceName).
-				Int("batch_size", len(batch)).
-				Msg("Failed to write batch to KV")
-
-			return err
-		}
-	}
-
-	s.logger.Info().
-		Str("source", sourceName).
-		Int("entries_written", len(entries)).
-		Msg("Successfully wrote entries to KV")
 
 	return nil
 }
@@ -676,10 +610,11 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 	}
 
 	req := &proto.AgentHelloRequest{
-		AgentId:      s.config.AgentID,
-		Version:      "",
-		Capabilities: []string{"sync"},
-		Partition:    s.config.Partition,
+		AgentId:       s.config.AgentID,
+		Version:       "",
+		Capabilities:  []string{"sync"},
+		Partition:     s.config.Partition,
+		ConfigVersion: s.getConfigVersion(),
 	}
 
 	resp, err := s.gatewayClient.Hello(ctx, req)
@@ -699,6 +634,92 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 	atomic.StoreInt32(&s.gatewayEnrolled, 1)
 
 	return nil
+}
+
+type gatewaySyncConfig struct {
+	SyncServiceID string                          `json:"sync_service_id"`
+	ComponentID   string                          `json:"component_id"`
+	Scope         string                          `json:"scope"`
+	Sources       map[string]*models.SourceConfig `json:"sources"`
+}
+
+func (s *SimpleSyncService) bootstrapGatewayConfig(ctx context.Context) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	if err := s.ensureGatewayConnected(ctx); err != nil {
+		return err
+	}
+
+	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		return err
+	}
+
+	return s.fetchAndApplyConfig(ctx)
+}
+
+func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	configReq := &proto.AgentConfigRequest{
+		AgentId:       s.config.AgentID,
+		ConfigVersion: s.getConfigVersion(),
+	}
+
+	configCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	configResp, err := s.gatewayClient.GetConfig(configCtx, configReq)
+	if err != nil {
+		return err
+	}
+
+	if configResp.NotModified {
+		s.logger.Debug().Str("version", s.getConfigVersion()).Msg("Sync config not modified")
+		return nil
+	}
+
+	if len(configResp.ConfigJson) == 0 {
+		s.logger.Warn().Msg("Gateway returned empty sync config payload")
+		return nil
+	}
+
+	var payload gatewaySyncConfig
+	if err := json.Unmarshal(configResp.ConfigJson, &payload); err != nil {
+		return fmt.Errorf("failed to parse sync config payload: %w", err)
+	}
+
+	if len(payload.Sources) == 0 {
+		s.logger.Warn().Msg("Gateway sync config contained no sources")
+		return nil
+	}
+
+	updatedCfg := s.config
+	updatedCfg.Sources = payload.Sources
+	s.UpdateConfig(&updatedCfg)
+	s.setConfigVersion(configResp.ConfigVersion)
+
+	s.logger.Info().
+		Str("config_version", configResp.ConfigVersion).
+		Int("source_count", len(payload.Sources)).
+		Msg("Applied sync config from gateway")
+
+	return nil
+}
+
+func (s *SimpleSyncService) getConfigVersion() string {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+	return s.configVersion
+}
+
+func (s *SimpleSyncService) setConfigVersion(version string) {
+	s.configMu.Lock()
+	s.configVersion = version
+	s.configMu.Unlock()
 }
 
 func (s *SimpleSyncService) tenantInfo() (string, string) {
@@ -789,7 +810,7 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 			GatewayId:    "",
 			Partition:    s.config.Partition,
 			Source:       syncResultsSource,
-			KvStoreId:    s.config.KVAddress,
+			KvStoreId:    "",
 			TenantId:     tenantID,
 			TenantSlug:   tenantSlug,
 		}
@@ -803,7 +824,7 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 			IsFinal:     chunk.IsFinal,
 			ChunkIndex:  chunk.ChunkIndex,
 			TotalChunks: chunk.TotalChunks,
-			KvStoreId:   s.config.KVAddress,
+			KvStoreId:   "",
 			TenantId:    tenantID,
 			TenantSlug:  tenantSlug,
 		})
@@ -1000,20 +1021,20 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 	}
 }
 
-// applySourceBlacklist applies source-specific network blacklist filtering to devices and KV data
+// applySourceBlacklist applies source-specific network blacklist filtering to devices.
 func (s *SimpleSyncService) applySourceBlacklist(
 	sourceName string,
 	devices []*models.DeviceUpdate,
-	kvData map[string][]byte) (filteredDevices []*models.DeviceUpdate, filteredKVData map[string][]byte) {
+) (filteredDevices []*models.DeviceUpdate) {
 	sourceConfig := s.config.Sources[sourceName]
 	if sourceConfig == nil || len(sourceConfig.NetworkBlacklist) == 0 {
-		return devices, kvData
+		return devices
 	}
 
 	networkBlacklist, err := NewNetworkBlacklist(sourceConfig.NetworkBlacklist, s.logger)
 	if err != nil {
 		s.logger.Error().Err(err).Str("source", sourceName).Msg("Failed to create network blacklist for source")
-		return devices, kvData
+		return devices
 	}
 
 	originalCount := len(devices)
@@ -1026,20 +1047,7 @@ func (s *SimpleSyncService) applySourceBlacklist(
 			Int("remaining_count", len(filteredDevices)).
 			Msg("Applied source-specific network blacklist filtering to devices")
 	}
-
-	// Also filter KV data to remove blacklisted entries
-	originalKVCount := len(kvData)
-	filteredKVData = networkBlacklist.FilterKVData(kvData, filteredDevices)
-
-	if kvFilteredCount := originalKVCount - len(filteredKVData); kvFilteredCount > 0 {
-		s.logger.Info().
-			Str("source", sourceName).
-			Int("filtered_count", kvFilteredCount).
-			Int("remaining_count", len(filteredKVData)).
-			Msg("Applied source-specific network blacklist filtering to KV data")
-	}
-
-	return filteredDevices, filteredKVData
+	return filteredDevices
 }
 
 // createIntegration creates a single integration instance

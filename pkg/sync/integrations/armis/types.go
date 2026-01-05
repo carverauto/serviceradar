@@ -20,11 +20,8 @@ package armis
 import (
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 // SweepResult represents a network sweep result
@@ -44,17 +41,12 @@ type ArmisIntegration struct {
 	// and is not yet a full integration.
 	SweeperConfig *models.SweepConfig
 	Config        *models.SourceConfig
-	KVClient      proto.KVServiceClient
-	DataClient    proto.DataServiceClient
-	GRPCConn      *grpc.ClientConn
-	ServerName    string
 	PageSize      int // Number of devices to fetch per page
 
 	// Interface implementations
 	HTTPClient    HTTPClient
 	TokenProvider TokenProvider
 	DeviceFetcher DeviceFetcher
-	KVWriter      KVWriter
 
 	// Interfaces for querying sweep results and updating Armis devices
 	SweepQuerier    SRQLQuerier
@@ -120,14 +112,5 @@ type DeviceWithMetadata struct {
 type DefaultArmisIntegration struct {
 	Config     *models.SourceConfig
 	HTTPClient HTTPClient
-	Logger     logger.Logger
-}
-
-// DefaultKVWriter provides the default implementation for KVWriter.
-type DefaultKVWriter struct {
-	KVClient   proto.KVServiceClient
-	DataClient proto.DataServiceClient
-	ServerName string
-	AgentID    string
 	Logger     logger.Logger
 }
