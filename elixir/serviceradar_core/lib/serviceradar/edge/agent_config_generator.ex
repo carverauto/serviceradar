@@ -153,12 +153,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Load service checks assigned to this agent from the database
   defp load_agent_checks(agent_id, tenant_id) do
     try do
+      actor = %{
+        id: "system",
+        email: "gateway@serviceradar",
+        role: :admin,
+        tenant_id: tenant_id
+      }
+
       # Query for enabled checks assigned to this agent
       checks =
         ServiceCheck
-        |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id})
+        |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id},
+          actor: actor,
+          tenant: tenant_id
+        )
         |> Ash.Query.filter(enabled == true)
-        |> Ash.read!(tenant: tenant_id)
+        |> Ash.read!()
 
       Logger.debug("Loaded #{length(checks)} checks for agent #{agent_id}")
       {:ok, checks}

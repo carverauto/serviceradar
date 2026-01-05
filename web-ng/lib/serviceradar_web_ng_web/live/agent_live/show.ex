@@ -42,17 +42,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   @impl true
   def handle_params(%{"uid" => uid}, _uri, socket) do
-    # First check Horde registry for live agent
-    all_agents = ServiceRadar.AgentRegistry.all_agents()
+    # Load database record first (source of truth for tenant_id)
+    db_agent =
+      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1") do
+        {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
+          Map.put(agent, "_source", "database")
 
-    Logger.debug(
-      "[AgentShow] All agents in Horde: #{inspect(Enum.map(all_agents, &get_agent_id/1))}"
-    )
+        _ ->
+          nil
+      end
 
-    live_agent =
-      Enum.find(all_agents, fn agent ->
-        get_agent_id(agent) == uid
-      end)
+    tenant_id = agent_tenant_id(db_agent, socket.assigns.current_scope)
+    live_agent = lookup_registry_agent(tenant_id, uid)
 
     Logger.debug(
       "[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}"
@@ -66,10 +67,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         nil
       end
 
-    # Convert Horde data to agent map format (string keys for consistency)
+    # Convert registry data to agent map format (string keys for consistency)
     horde_agent =
       if live_agent do
-        %{
+        base = %{
           "uid" => uid,
           "agent_id" => Map.get(live_agent, :agent_id, uid),
           "status" => to_string(Map.get(live_agent, :status, :connected)),
@@ -81,24 +82,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           "last_heartbeat" => Map.get(live_agent, :last_heartbeat),
           "connected_at" => Map.get(live_agent, :connected_at),
           "spiffe_identity" => Map.get(live_agent, :spiffe_identity),
-          "pid" => inspect(Map.get(live_agent, :pid)),
-          "_source" => "horde"
+          "_source" => "registry"
         }
+
+        case Map.get(live_agent, :pid) do
+          pid when is_pid(pid) -> Map.put(base, "pid", inspect(pid))
+          _ -> base
+        end
       else
         nil
       end
 
-    # Fall back to SRQL database query
-    db_agent =
-      case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1") do
-        {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
-          Map.put(agent, "_source", "database")
-
-        _ ->
-          nil
-      end
-
-    # Prefer Horde data (live) over database (may be stale)
+    # Prefer registry data (live) over database (may be stale)
     # Merge if both exist to get the most complete picture
     {agent, error} =
       case {horde_agent, db_agent} do
@@ -128,6 +123,36 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:live_agent, live_agent)
      |> assign(:poller_node_info, poller_node_info)
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
+  end
+
+  defp agent_tenant_id(db_agent, current_scope) do
+    cond do
+      is_map(db_agent) && Map.has_key?(db_agent, "tenant_id") ->
+        Map.get(db_agent, "tenant_id")
+
+      match?(%{active_tenant: %{id: _}}, current_scope) ->
+        current_scope.active_tenant.id
+
+      match?(%{user: %{tenant_id: _}}, current_scope) ->
+        current_scope.user.tenant_id
+
+      true ->
+        nil
+    end
+  end
+
+  defp lookup_registry_agent(nil, _uid), do: nil
+
+  defp lookup_registry_agent(tenant_id, uid) do
+    case ServiceRadar.AgentRegistry.lookup(tenant_id, uid) do
+      [{pid, metadata} | _] ->
+        metadata
+        |> Map.put(:pid, pid)
+        |> Map.put(:agent_id, uid)
+
+      [] ->
+        nil
+    end
   end
 
   defp format_node(nil), do: nil
@@ -207,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           >
             <span class="size-2.5 rounded-full bg-success animate-pulse"></span>
             <span class="text-sm text-success font-medium">Live Agent</span>
-            <span class="text-xs text-base-content/60">Connected to cluster via Horde registry</span>
+            <span class="text-xs text-base-content/60">Connected via gateway registry</span>
           </div>
           <div
             :if={!@live_agent && Map.get(@agent, "_source") == "database"}
@@ -673,14 +698,4 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
-
-  # Safely extract agent ID from either Infrastructure.Agent structs or maps
-  # Structs use :uid, maps may use :agent_id or :key
-  defp get_agent_id(%ServiceRadar.Infrastructure.Agent{uid: uid}), do: uid
-
-  defp get_agent_id(agent) when is_map(agent) do
-    Map.get(agent, :uid) || Map.get(agent, :agent_id) || Map.get(agent, :key)
-  end
-
-  defp get_agent_id(_), do: nil
 end

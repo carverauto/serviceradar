@@ -18,7 +18,16 @@ defmodule ServiceRadarAgentGateway.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :ssl, :crypto, :public_key],
+      extra_applications: [
+        :logger,
+        :ssl,
+        :crypto,
+        :public_key,
+        :phoenix_pubsub,
+        :horde,
+        :grpc,
+        :ranch
+      ],
       mod: {ServiceRadarAgentGateway.Application, []}
     ]
   end
@@ -58,7 +67,6 @@ defmodule ServiceRadarAgentGateway.MixProject do
         include_executables_for: [:unix],
         applications: [
           runtime_tools: :permanent,
-          serviceradar_core: :permanent,
           serviceradar_agent_gateway: :permanent
         ],
         steps: [:assemble, :tar],

@@ -28,7 +28,7 @@ ORG_UNIT="Docker"
 
 # Default tenant for development (creates a "default" tenant CA)
 DEFAULT_TENANT_SLUG="${DEFAULT_TENANT_SLUG:-default}"
-DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-partition-1}"
+DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-default}"
 
 # Create certificate directory
 mkdir -p "$CERT_DIR"
