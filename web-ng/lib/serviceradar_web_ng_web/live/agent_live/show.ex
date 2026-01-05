@@ -698,14 +698,4 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
-
-  # Safely extract agent ID from either Infrastructure.Agent structs or maps
-  # Structs use :uid, maps may use :agent_id or :key
-  defp get_agent_id(%ServiceRadar.Infrastructure.Agent{uid: uid}), do: uid
-
-  defp get_agent_id(agent) when is_map(agent) do
-    Map.get(agent, :uid) || Map.get(agent, :agent_id) || Map.get(agent, :key)
-  end
-
-  defp get_agent_id(_), do: nil
 end

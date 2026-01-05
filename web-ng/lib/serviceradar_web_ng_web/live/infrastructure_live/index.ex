@@ -229,6 +229,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   @impl true
   def handle_event("refresh", _params, socket) do
     cluster_info = load_cluster_info()
+
     refreshed_gateways_cache =
       merge_gateways_cache(socket.assigns.gateways_cache, load_initial_gateways_cache())
 
