@@ -146,7 +146,6 @@ func TestNewSimpleSyncService(t *testing.T) {
 				assert.Equal(t, tt.config.AgentID, service.config.AgentID)
 				assert.Equal(t, tt.config.PollerID, service.config.PollerID)
 				assert.NotNil(t, service.resultsStore)
-				assert.NotNil(t, service.resultsStore.results)
 			}
 		})
 	}
@@ -229,86 +228,7 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 	assert.InEpsilon(t, time.Now().Unix(), healthData["timestamp"].(float64), 1e-5)
 }
 
-func TestSimpleSyncService_GetResults(t *testing.T) {
-	ctx := context.Background()
-
-	config := &Config{
-		AgentID:           "test-agent",
-		PollerID:          "test-poller",
-		DiscoveryInterval: models.Duration(time.Minute),
-		UpdateInterval:    models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"test": {
-				Type:     "test",
-				Endpoint: "test",
-				Prefix:   "test",
-			},
-		},
-		ListenAddr: "localhost:0",
-	}
-
-	registry := make(map[string]IntegrationFactory)
-
-	log := logger.NewTestLogger()
-
-	service, err := NewSimpleSyncService(ctx, config, registry, log)
-	require.NoError(t, err)
-
-	defer func() { _ = service.Stop(context.Background()) }()
-
-	devices := []*models.DeviceUpdate{
-		{
-			DeviceID:    "device-1",
-			IP:          "192.168.1.1",
-			Source:      models.DiscoverySourceIntegration,
-			AgentID:     "test-agent",
-			PollerID:    "test-poller",
-			Timestamp:   time.Now(),
-			IsAvailable: true,
-			Confidence:  100,
-		},
-		{
-			DeviceID:    "device-2",
-			IP:          "192.168.1.2",
-			Source:      models.DiscoverySourceIntegration,
-			AgentID:     "test-agent",
-			PollerID:    "test-poller",
-			Timestamp:   time.Now(),
-			IsAvailable: true,
-			Confidence:  100,
-		},
-	}
-
-	service.resultsStore.mu.Lock()
-	service.resultsStore.results["test-source"] = devices
-	service.resultsStore.updated = time.Now()
-	service.resultsStore.mu.Unlock()
-
-	req := &proto.ResultsRequest{
-		ServiceName: "test-service",
-		ServiceType: "sync",
-		PollerId:    "test-poller",
-	}
-
-	resp, err := service.GetResults(ctx, req)
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
-	assert.True(t, resp.Available)
-	assert.Equal(t, "test-agent", resp.AgentId)
-	assert.Equal(t, "test-service", resp.ServiceName)
-	assert.Equal(t, "sync", resp.ServiceType)
-	assert.Equal(t, "test-poller", resp.PollerId)
-	assert.True(t, resp.HasNewData)
-
-	var resultDevices []*models.DeviceUpdate
-
-	err = json.Unmarshal(resp.Data, &resultDevices)
-	require.NoError(t, err)
-	assert.Len(t, resultDevices, 2)
-	assert.Equal(t, "device-1", resultDevices[0].DeviceID)
-	assert.Equal(t, "device-2", resultDevices[1].DeviceID)
-}
-
+// Removed TestSimpleSyncService_GetResults - GetResults is deprecated (pull-based polling)
 // Removed TestSimpleSyncService_shouldProceedWithUpdates and TestSimpleSyncService_markSweepOperations
 // as the sweep timing logic was removed
 
@@ -677,13 +597,11 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 
 	// Run discovery
 	ctx := context.Background()
-	err = service.runDiscovery(ctx)
-	require.NoError(t, err)
+	allDeviceUpdates, discoveryErrors := service.runDiscoveryForIntegrations(ctx, "", "", service.sources)
+	require.Empty(t, discoveryErrors)
 
 	// Verify that results were filtered
-	service.resultsStore.mu.RLock()
-	results := service.resultsStore.results["netbox"]
-	service.resultsStore.mu.RUnlock()
+	results := allDeviceUpdates["netbox"]
 
 	// Should only have devices that passed the blacklist filter
 	assert.Len(t, results, 2, "Should have 2 devices after blacklist filtering")

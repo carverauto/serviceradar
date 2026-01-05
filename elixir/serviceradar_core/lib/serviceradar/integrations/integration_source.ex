@@ -2,8 +2,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   @moduledoc """
   Configuration for external data source integrations (Armis, SNMP, etc.).
 
-  This resource stores integration configuration in Postgres. Sync services
-  retrieve configuration via GetConfig and push results through agent-gateway.
+  This resource stores integration configuration in Postgres. Agents retrieve
+  configuration via GetConfig and push results through agent-gateway.
 
   ## Source Types
 
@@ -17,8 +17,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   1. Admin creates/edits source config via UI
   2. Config is saved to Postgres
-  3. Sync services fetch configuration via GetConfig
-  4. Sync services push device updates through agent-gateway to core
+  3. Agents fetch configuration via GetConfig
+  4. Agents push device updates through agent-gateway to core
   """
 
   use Ash.Resource,
@@ -82,7 +82,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :endpoint,
         :agent_id,
         :poller_id,
-        :sync_service_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -111,7 +110,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
-      change &validate_sync_service_assignment/2
+      change &validate_agent_availability/2
 
       change after_action(fn changeset, record, _context ->
                publish_integration_event(record, :create, changeset)
@@ -127,7 +126,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :endpoint,
         :agent_id,
         :poller_id,
-        :sync_service_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -155,8 +153,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
-      change &validate_sync_service_assignment/2
-
+      change &validate_agent_availability/2
       change after_action(fn changeset, record, _context ->
                publish_integration_event(record, :update, changeset)
                {:ok, record}
@@ -166,7 +163,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     update :enable do
       require_atomic? false
       change set_attribute(:enabled, true)
-      change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
                publish_integration_event(record, :enable, %{})
@@ -177,7 +173,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     update :disable do
       require_atomic? false
       change set_attribute(:enabled, false)
-      change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
                publish_integration_event(record, :disable, %{})
@@ -297,11 +292,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     attribute :poller_id, :string do
       public? true
       description "Poller to assign this source to"
-    end
-
-    attribute :sync_service_id, :uuid do
-      public? true
-      description "Sync service that processes this source"
     end
 
     attribute :partition, :string do
@@ -478,65 +468,37 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
-  relationships do
-    belongs_to :sync_service, ServiceRadar.Integrations.SyncService do
-      attribute_type :uuid
-      source_attribute :sync_service_id
-      allow_nil? true
-    end
-  end
+  alias ServiceRadar.Infrastructure.Agent
 
-  alias ServiceRadar.Integrations.SyncService
-
-  defp validate_sync_service_assignment(changeset, _context) do
-    action = changeset.action && changeset.action.name
-    sync_service_id = Ash.Changeset.get_attribute(changeset, :sync_service_id)
-    sync_service_change =
-      case Ash.Changeset.fetch_change(changeset, :sync_service_id) do
-        {:ok, _value} -> true
-        :error -> false
-      end
+  defp validate_agent_availability(changeset, _context) do
     tenant_id = changeset.tenant || Ash.Changeset.get_attribute(changeset, :tenant_id)
 
-    cond do
-      action == :create and is_nil(sync_service_id) ->
-        Ash.Changeset.add_error(changeset,
-          field: :sync_service_id,
-          message: "sync service is required"
-        )
-
-      action in [:update, :enable, :disable] and not sync_service_change ->
-        changeset
-
-      is_nil(sync_service_id) ->
-        Ash.Changeset.add_error(changeset,
-          field: :sync_service_id,
-          message: "sync service is required"
-        )
-
-      true ->
-        validate_sync_service(changeset, sync_service_id, tenant_id)
-    end
-  end
-
-  defp validate_sync_service(changeset, sync_service_id, tenant_id) do
-    case Ash.get(SyncService, sync_service_id, tenant: nil, authorize?: false) do
-      {:ok, service} ->
-        if service.is_platform_sync or to_string(service.tenant_id) == to_string(tenant_id) do
-          changeset
-        else
+    if is_nil(tenant_id) do
+      Ash.Changeset.add_error(changeset,
+        field: :tenant_id,
+        message: "tenant is required"
+      )
+    else
+      Agent
+      |> Ash.Query.for_read(:connected)
+      |> Ash.Query.limit(1)
+      |> Ash.read(tenant: tenant_id, authorize?: false)
+      |> case do
+        {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
+        {:ok, results} when is_list(results) and results != [] -> changeset
+        _ ->
           Ash.Changeset.add_error(changeset,
-            field: :sync_service_id,
-            message: "sync service does not belong to tenant"
+            field: :agent_id,
+            message: "install and register an agent before adding integrations"
           )
-        end
-
-      {:error, _reason} ->
-        Ash.Changeset.add_error(changeset,
-          field: :sync_service_id,
-          message: "sync service not found"
-        )
+      end
     end
+  rescue
+    _ ->
+      Ash.Changeset.add_error(changeset,
+        field: :agent_id,
+        message: "install and register an agent before adding integrations"
+      )
   end
 
   defp publish_integration_event(record, action, changeset) do

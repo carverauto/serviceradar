@@ -186,10 +186,10 @@ func TestNormalizeServerSPIFFEID(t *testing.T) {
 	})
 
 	t.Run("missingSchemeWithoutLeadingSlash", func(t *testing.T) {
-		raw := "ns/demo/sa/serviceradar-sync"
+		raw := "ns/demo/sa/serviceradar-agent"
 		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
 		require.NoError(t, err)
-		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sync", id.String())
+		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent", id.String())
 	})
 
 	t.Run("missingSchemeWithoutTrustDomain", func(t *testing.T) {

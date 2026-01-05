@@ -1087,48 +1087,6 @@ oci_load(
 )
 
 pkg_tar(
-    name = "sync_layer_amd64",
-    files = {
-        "//cmd/sync:sync": "usr/local/bin/serviceradar-sync",
-        "//docker/compose:entrypoint-sync.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:sync.docker.json": "etc/serviceradar/sync.json",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-sync": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "etc/serviceradar/sync.json": "0644",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "sync_image_amd64",
-    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
-    tars = [":common_tools_amd64", ":sync_layer_amd64"],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-sync"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50058/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-sync",
-    },
-)
-
-oci_load(
-    name = "sync_image_amd64_tar",
-    image = ":sync_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-sync:local"],
-)
-
-pkg_tar(
     name = "faker_layer_amd64",
     files = {
         "//cmd/faker:faker": "usr/local/bin/serviceradar-faker",

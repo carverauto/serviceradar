@@ -61,7 +61,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if c.ListenAddr == "" {
+	if c.ListenAddr == "" && c.GatewayAddr == "" {
 		return errListenAddrRequired
 	}
 

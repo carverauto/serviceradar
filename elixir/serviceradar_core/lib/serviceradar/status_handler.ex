@@ -10,7 +10,6 @@ defmodule ServiceRadar.StatusHandler do
   require Logger
 
   alias ServiceRadar.Inventory.SyncIngestor
-  alias ServiceRadar.Integrations.SyncService
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -33,8 +32,6 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(%{service_type: "sync"} = status) do
-    _ = update_sync_service_heartbeat(status)
-
     case status do
       %{source: "results"} ->
         tenant_id = status[:tenant_id]
@@ -58,59 +55,6 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(_status), do: :ok
-
-  defp update_sync_service_heartbeat(status) do
-    if not repo_enabled?() do
-      :ok
-    else
-      tenant_id = status[:tenant_id]
-      component_id = status[:agent_id]
-
-      if is_binary(tenant_id) and tenant_id != "" and is_binary(component_id) and component_id != "" do
-        update_sync_service_record(tenant_id, component_id, status)
-      else
-        :ok
-      end
-    end
-  end
-
-  defp update_sync_service_record(tenant_id, component_id, status) do
-    require Ash.Query
-
-    query =
-      SyncService
-      |> Ash.Query.for_read(:read, %{}, tenant: nil, authorize?: false)
-      |> Ash.Query.filter(component_id == ^component_id and tenant_id == ^tenant_id)
-      |> Ash.Query.limit(1)
-
-    case Ash.read_one(query, authorize?: false) do
-      {:ok, nil} ->
-        :ok
-
-      {:ok, service} ->
-        availability = Map.get(status, :available, true)
-        new_status = if availability, do: :online, else: :degraded
-
-        service
-        |> Ash.Changeset.for_update(:update, %{
-          last_heartbeat_at: DateTime.utc_now(),
-          status: new_status
-        }, tenant: tenant_id, authorize?: false)
-        |> Ash.update(authorize?: false)
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp repo_enabled? do
-    Application.get_env(:serviceradar_core, :repo_enabled, true) &&
-      Process.whereis(ServiceRadar.Repo)
-  end
 
   defp decode_results(nil), do: {:ok, []}
 

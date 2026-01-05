@@ -59,7 +59,7 @@ defmodule ServiceRadar.Integrations.EventPublisher do
       "source_type" => source.source_type && Atom.to_string(source.source_type),
       "endpoint" => source.endpoint,
       "enabled" => source.enabled,
-      "sync_service_id" => source.sync_service_id && to_string(source.sync_service_id),
+      "agent_id" => source.agent_id,
       "tenant_id" => to_string(source.tenant_id),
       "tenant_slug" => tenant_slug,
       "partition" => source.partition

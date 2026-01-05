@@ -17,7 +17,6 @@
 package sync
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	proto "github.com/carverauto/serviceradar/proto"
 )
 
 // TestArmisNetBoxStreamResults tests that both Armis and NetBox data is properly chunked for streaming.
@@ -68,10 +66,8 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 			"armis":  mockArmisIntegration,
 			"netbox": mockNetBoxIntegration,
 		},
-		resultsStore: &StreamingResultsStore{
-			results: make(map[string][]*models.DeviceUpdate),
-		},
-		logger: logger.NewTestLogger(),
+		resultsStore: &StreamingResultsStore{},
+		logger:       logger.NewTestLogger(),
 	}
 
 	// Set up test data
@@ -133,14 +129,11 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		},
 	}
 
-	// Simulate discovery storing results
-	service.resultsStore.mu.Lock()
-	service.resultsStore.results["armis"] = armisDevices
-	service.resultsStore.results["netbox"] = netboxDevices
-	service.resultsStore.updated = time.Now()
-	service.resultsStore.mu.Unlock()
-
-	allDevices := service.collectDeviceUpdates(service.resultsStore.results)
+	allDeviceUpdates := map[string][]*models.DeviceUpdate{
+		"armis":  armisDevices,
+		"netbox": netboxDevices,
+	}
+	allDevices := service.collectDeviceUpdates(allDeviceUpdates)
 	chunks, err := service.buildResultsChunks(allDevices, "seq-1")
 	require.NoError(t, err)
 	require.Len(t, chunks, 1, "Expected 1 chunk")
@@ -196,99 +189,4 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 
 	assert.Equal(t, 2, armisCount, "Should have 2 Armis devices")
 	assert.Equal(t, 2, netboxCount, "Should have 2 NetBox devices")
-}
-
-// TestGetResultsWithArmisAndNetBox tests the legacy GetResults method with both sources
-func TestGetResultsWithArmisAndNetBox(t *testing.T) {
-	ctx := context.Background()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Create test config
-	config := &Config{
-		AgentID:  "test-agent",
-		PollerID: "test-poller",
-		Sources: map[string]*models.SourceConfig{
-			"armis": {
-				Type: "armis",
-			},
-			"netbox": {
-				Type: "netbox",
-			},
-		},
-	}
-
-	// Create service
-	service := &SimpleSyncService{
-		config: *config,
-		resultsStore: &StreamingResultsStore{
-			results: make(map[string][]*models.DeviceUpdate),
-		},
-		logger: logger.NewTestLogger(),
-	}
-
-	// Set up test data
-	armisDevice := &models.DeviceUpdate{
-		DeviceID:    "test:192.168.1.1",
-		Source:      models.DiscoverySourceArmis,
-		IP:          "192.168.1.1",
-		IsAvailable: true,
-		Metadata: map[string]string{
-			"integration_type": "armis",
-		},
-	}
-
-	netboxDevice := &models.DeviceUpdate{
-		DeviceID:    "test:10.0.0.1",
-		Source:      models.DiscoverySourceNetbox,
-		IP:          "10.0.0.1",
-		IsAvailable: false,
-		Metadata: map[string]string{
-			"integration_type": "netbox",
-		},
-	}
-
-	// Store results
-	service.resultsStore.mu.Lock()
-	service.resultsStore.results["armis"] = []*models.DeviceUpdate{armisDevice}
-	service.resultsStore.results["netbox"] = []*models.DeviceUpdate{netboxDevice}
-	service.resultsStore.updated = time.Now()
-	service.resultsStore.mu.Unlock()
-
-	// Call GetResults
-	req := &proto.ResultsRequest{
-		ServiceName: "test-service",
-		ServiceType: "sync",
-		PollerId:    "test-poller",
-	}
-
-	resp, err := service.GetResults(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	// Unmarshal response
-	var devices []*models.DeviceUpdate
-
-	err = json.Unmarshal(resp.Data, &devices)
-	require.NoError(t, err)
-
-	// Should have both devices
-	assert.Len(t, devices, 2, "Should have devices from both sources")
-
-	// Verify both sources are represented
-	hasArmis := false
-	hasNetBox := false
-
-	for _, device := range devices {
-		switch source := string(device.Source); source {
-		case string(models.DiscoverySourceArmis):
-			hasArmis = true
-		case string(models.DiscoverySourceNetbox):
-			hasNetBox = true
-		}
-	}
-
-	assert.True(t, hasArmis, "Should have Armis device")
-	assert.True(t, hasNetBox, "Should have NetBox device")
 }

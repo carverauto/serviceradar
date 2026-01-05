@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
@@ -49,6 +50,23 @@ func New(
 // NewDefault provides a production-ready constructor with default settings
 func NewDefault(ctx context.Context, config *Config, log logger.Logger) (*SimpleSyncService, error) {
 	return createSimpleSyncService(ctx, config, log)
+}
+
+// NewEmbedded creates a sync service that shares an existing gateway client (agent-embedded mode).
+func NewEmbedded(
+	ctx context.Context,
+	config *Config,
+	gatewayClient *agentgateway.GatewayClient,
+	log logger.Logger,
+) (*SimpleSyncService, error) {
+	return NewSimpleSyncServiceWithMetrics(
+		ctx,
+		config,
+		defaultIntegrationRegistry(),
+		NewInMemoryMetrics(log),
+		log,
+		gatewayClient,
+	)
 }
 
 // createSimpleSyncService creates a new SimpleSyncService instance with the provided dependencies

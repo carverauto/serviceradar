@@ -48,7 +48,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_services_per_request 5_000
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
-  @agent_gateway_component_types [:agent, :sync]
+  @agent_gateway_component_types [:agent]
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -87,21 +87,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
-    {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
+    {tenant_info, _component_type} = resolve_component_type!(tenant_info, agent_id)
     enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(tenant_info, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
 
-    case component_type do
-      :sync ->
-        Logger.info(
-          "Sync hello received: sync_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
-        )
-
-      _ ->
-        ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
-        ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
-    end
+    ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
+    ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
 
     # Registration is stored in the tenant registry and DB; acceptance remains cert-based.
 
@@ -163,134 +155,74 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
     enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
 
-    case component_type do
-      :sync ->
-        Logger.info(
-          "Sync config request received: sync_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
+    Logger.info(
+      "Config request received: component_type=#{component_type}, agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
+    )
+
+    # Generate config from database using the config generator
+    case core_call(AgentGatewaySync, :get_config_if_changed, [
+           agent_id,
+           tenant_info.tenant_id,
+           config_version
+         ]) do
+      {:error, :core_unavailable} ->
+        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+
+      {:ok, :not_modified} ->
+        Logger.debug(
+          "Agent config not modified: agent_id=#{agent_id}, version=#{config_version}"
         )
 
-        case core_call(AgentGatewaySync, :get_sync_config_if_changed, [
-               agent_id,
-               tenant_info.tenant_id,
-               config_version
-             ]) do
-          {:error, :core_unavailable} ->
-            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+        %Monitoring.AgentConfigResponse{
+          not_modified: true,
+          config_version: config_version
+        }
 
-          {:ok, :not_modified} ->
-            %Monitoring.AgentConfigResponse{
-              not_modified: true,
-              config_version: config_version
-            }
+      {:ok, {:ok, config}} ->
+        Logger.info(
+          "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
+        )
 
-          {:ok, {:ok, config}} ->
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: config.config_version,
-              config_timestamp: config.config_timestamp,
-              heartbeat_interval_sec: config.heartbeat_interval_sec,
-              config_poll_interval_sec: config.config_poll_interval_sec,
-              checks: [],
-              config_json: config.config_json
-            }
+        # Convert checks to proto format
+        proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
 
-          {:ok, {:error, reason}} ->
-            Logger.warning(
-              "Failed to generate config for sync #{agent_id}: #{inspect(reason)}, returning empty config"
-            )
+        config_json = Map.get(config, :config_json, <<>>)
 
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: "v0-sync-error",
-              config_timestamp: System.os_time(:second),
-              heartbeat_interval_sec: @default_heartbeat_interval_sec,
-              config_poll_interval_sec: 300,
-              checks: [],
-              config_json: <<>>
-            }
+        %Monitoring.AgentConfigResponse{
+          not_modified: false,
+          config_version: config.config_version,
+          config_timestamp: config.config_timestamp,
+          heartbeat_interval_sec: config.heartbeat_interval_sec,
+          config_poll_interval_sec: config.config_poll_interval_sec,
+          checks: proto_checks,
+          config_json: config_json
+        }
 
-          {:ok, other} ->
-            Logger.warning(
-              "Unexpected sync config response for #{agent_id}: #{inspect(other)}"
-            )
+      {:ok, {:error, reason}} ->
+        Logger.warning(
+          "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
+        )
 
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: "v0-sync-error",
-              config_timestamp: System.os_time(:second),
-              heartbeat_interval_sec: @default_heartbeat_interval_sec,
-              config_poll_interval_sec: 300,
-              checks: [],
-              config_json: <<>>
-            }
-        end
+        %Monitoring.AgentConfigResponse{
+          not_modified: false,
+          config_version: "v0-error",
+          config_timestamp: System.os_time(:second),
+          heartbeat_interval_sec: @default_heartbeat_interval_sec,
+          config_poll_interval_sec: 300,
+          checks: []
+        }
 
-      _ ->
-        # Generate config from database using the config generator
-        case core_call(AgentGatewaySync, :get_config_if_changed, [
-               agent_id,
-               tenant_info.tenant_id,
-               config_version
-             ]) do
-          {:error, :core_unavailable} ->
-            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+      {:ok, other} ->
+        Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
 
-          {:ok, :not_modified} ->
-            Logger.debug(
-              "Agent config not modified: agent_id=#{agent_id}, version=#{config_version}"
-            )
-
-            %Monitoring.AgentConfigResponse{
-              not_modified: true,
-              config_version: config_version
-            }
-
-          {:ok, {:ok, config}} ->
-            Logger.info(
-              "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
-            )
-
-            # Convert checks to proto format
-            proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
-
-            config_json = Map.get(config, :config_json, <<>>)
-
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: config.config_version,
-              config_timestamp: config.config_timestamp,
-              heartbeat_interval_sec: config.heartbeat_interval_sec,
-              config_poll_interval_sec: config.config_poll_interval_sec,
-              checks: proto_checks,
-              config_json: config_json
-            }
-
-          {:ok, {:error, reason}} ->
-            Logger.warning(
-              "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
-            )
-
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: "v0-error",
-              config_timestamp: System.os_time(:second),
-              heartbeat_interval_sec: @default_heartbeat_interval_sec,
-              config_poll_interval_sec: 300,
-              checks: []
-            }
-
-          {:ok, other} ->
-            Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
-
-            %Monitoring.AgentConfigResponse{
-              not_modified: false,
-              config_version: "v0-error",
-              config_timestamp: System.os_time(:second),
-              heartbeat_interval_sec: @default_heartbeat_interval_sec,
-              config_poll_interval_sec: 300,
-              checks: []
-            }
-        end
+        %Monitoring.AgentConfigResponse{
+          not_modified: false,
+          config_version: "v0-error",
+          config_timestamp: System.os_time(:second),
+          heartbeat_interval_sec: @default_heartbeat_interval_sec,
+          config_poll_interval_sec: 300,
+          checks: []
+        }
     end
   end
 

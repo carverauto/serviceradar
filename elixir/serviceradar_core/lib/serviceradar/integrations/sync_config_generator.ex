@@ -1,25 +1,24 @@
 defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   @moduledoc """
-  Builds sync service configuration payloads from IntegrationSource data.
+  Builds sync configuration payloads for agents from IntegrationSource data.
   """
 
-  require Logger
   require Ash.Query
 
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Identity.Tenant
-  alias ServiceRadar.Integrations.{IntegrationSource, SyncService}
+  alias ServiceRadar.Integrations.IntegrationSource
 
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
 
   @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
-  def get_config_if_changed(component_id, tenant_id, config_version) do
-    case generate_config(component_id, tenant_id) do
-      {:ok, config} ->
-        encoded = Jason.encode!(config)
-        version = hash_config(config)
+  def get_config_if_changed(agent_id, tenant_id, config_version) do
+    case build_payload(agent_id, tenant_id) do
+      {:ok, payload} ->
+        encoded = Jason.encode!(payload)
+        version = hash_config(payload)
 
         if version == config_version do
           :not_modified
@@ -39,76 +38,25 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     end
   end
 
-  defp generate_config(component_id, tenant_id) do
-    with {:ok, sync_service} <- fetch_sync_service(component_id),
-         :ok <- validate_sync_service_scope(sync_service, tenant_id),
-         {:ok, sources} <- load_sources(sync_service, tenant_id) do
+  @spec build_payload(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def build_payload(agent_id, tenant_id) do
+    with {:ok, sources} <- load_sources(agent_id, tenant_id) do
       {:ok,
        %{
-         "sync_service_id" => to_string(sync_service.id),
-         "component_id" => sync_service.component_id,
-         "scope" => scope_for(sync_service),
-         "sources" => build_sources_payload(sources, sync_service.is_platform_sync)
+         "agent_id" => agent_id,
+         "tenant_id" => tenant_id,
+         "sources" => build_sources_payload(sources)
        }}
     end
   end
 
-  defp fetch_sync_service(component_id) do
-    query =
-      SyncService
-      |> Ash.Query.for_read(:read, %{}, tenant: nil, authorize?: false)
-      |> Ash.Query.filter(component_id == ^component_id)
-      |> Ash.Query.limit(1)
-
-    case Ash.read_one(query, authorize?: false) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, service} -> {:ok, service}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp validate_sync_service_scope(sync_service, tenant_id) do
-    cond do
-      sync_service.is_platform_sync and sync_service.tenant_id == tenant_id ->
-        :ok
-
-      not sync_service.is_platform_sync and sync_service.tenant_id == tenant_id ->
-        :ok
-
-      sync_service.is_platform_sync ->
-        Logger.warning(
-          "Platform sync service tenant mismatch",
-          sync_service_id: sync_service.id,
-          tenant_id: tenant_id
-        )
-
-        {:error, :tenant_mismatch}
-
-      true ->
-        Logger.warning(
-          "Sync service tenant mismatch",
-          sync_service_id: sync_service.id,
-          tenant_id: tenant_id
-        )
-
-        {:error, :tenant_mismatch}
-    end
-  end
-
-  defp load_sources(sync_service, tenant_id) do
+  defp load_sources(agent_id, tenant_id) do
     query =
       IntegrationSource
-      |> Ash.Query.for_read(:read, %{}, tenant: nil, authorize?: false)
-      |> Ash.Query.filter(enabled == true and sync_service_id == ^sync_service.id)
+      |> Ash.Query.for_read(:read, %{}, tenant: tenant_id, authorize?: false)
+      |> Ash.Query.filter(enabled == true and agent_id == ^agent_id)
       |> Ash.Query.load(:credentials)
       |> Ash.Query.sort(name: :asc)
-
-    query =
-      if sync_service.is_platform_sync do
-        query
-      else
-        Ash.Query.filter(query, tenant_id == ^tenant_id)
-      end
 
     case Ash.read(query, authorize?: false) do
       {:ok, sources} -> {:ok, sources}
@@ -116,22 +64,12 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     end
   end
 
-  defp build_sources_payload(sources, platform?) do
+  defp build_sources_payload(sources) do
     Enum.reduce(sources, %{}, fn source, acc ->
       tenant_slug = lookup_tenant_slug(to_string(source.tenant_id))
-      source_key = build_source_key(source, tenant_slug, platform?)
+      source_key = source.name || to_string(source.id)
       Map.put(acc, source_key, source_payload(source, tenant_slug))
     end)
-  end
-
-  defp build_source_key(source, tenant_slug, true) do
-    tenant_prefix = tenant_slug || to_string(source.tenant_id)
-    source_name = source.name || to_string(source.id)
-    "#{tenant_prefix}/#{source_name}"
-  end
-
-  defp build_source_key(source, _tenant_slug, false) do
-    source.name || to_string(source.id)
   end
 
   defp source_payload(source, tenant_slug) do
@@ -156,14 +94,10 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "batch_size" => get_setting(source.settings, "batch_size"),
       "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
       "tenant_id" => to_string(source.tenant_id),
-      "tenant_slug" => tenant_slug,
-      "sync_service_id" => source.sync_service_id && to_string(source.sync_service_id)
+      "tenant_slug" => tenant_slug
     }
     |> compact_map()
   end
-
-  defp scope_for(%{is_platform_sync: true}), do: "platform"
-  defp scope_for(_), do: "tenant"
 
   defp first_custom_field(fields) when is_list(fields) do
     case fields do
@@ -263,5 +197,4 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   end
 
   defp get_setting(_, _key), do: nil
-
 end

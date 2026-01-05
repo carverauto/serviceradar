@@ -396,7 +396,7 @@ setup_mtls_certificates() {
     local components="core"
 
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-        components="$components,web,nats,kv,sync"
+        components="$components,web,nats,kv"
     fi
 
     # If NATS Edge mode is selected, we need a separate cert for the leaf node connection.
@@ -470,7 +470,7 @@ show_post_install_info() {
 
     local components=()
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-        components+=("core" "nats" "kv" "sync" "web")
+        components+=("core" "nats" "kv" "web")
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
         components+=("poller")
@@ -534,7 +534,7 @@ prompt_scenario() {
         header "Select Components to Install"
         echo -e "${COLOR_CYAN}Please choose the components you want to install (you can select multiple):${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  1) All-in-One (all components)${COLOR_RESET}"
-        echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv, sync)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
 
@@ -973,7 +973,7 @@ main() {
     prompt_nats_mode
 
     # Install main components
-    core_packages=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-sync")
+    core_packages=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -991,7 +991,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"

@@ -374,7 +374,6 @@ sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
 sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
 sudo firewall-cmd --permanent --add-port=50053/tcp   # Poller
 sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
-sudo firewall-cmd --permanent --add-port=50058/tcp   # serviceradar-sync
 sudo firewall-cmd --reload
 ```
 

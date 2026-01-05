@@ -398,6 +398,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     end
   end
 
+
   defp package_to_json(package) do
     Map.merge(
       package_core_fields(package),

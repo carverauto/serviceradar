@@ -11,12 +11,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
 
   @impl true
   def mount(_params, _session, socket) do
     tenant_id = get_tenant_id(socket)
     partitions = list_partitions(tenant_id)
+    sync_agent_available = sync_agent_available?(tenant_id)
 
     socket =
       socket
@@ -24,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       |> assign(:sources, list_sources(tenant_id))
       |> assign(:partitions, partitions)
       |> assign(:partition_options, build_partition_options(partitions))
+      |> assign(:sync_agent_available, sync_agent_available)
       |> assign(:show_create_modal, false)
       |> assign(:show_edit_modal, false)
       |> assign(:show_details_modal, false)
@@ -42,7 +45,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp apply_action(socket, :index, _params), do: socket
-  defp apply_action(socket, :new, _params), do: assign(socket, :show_create_modal, true)
+  defp apply_action(socket, :new, _params) do
+    tenant_id = get_tenant_id(socket)
+
+    if sync_agent_available?(tenant_id) do
+      assign(socket, :show_create_modal, true)
+    else
+      socket
+      |> put_flash(:error, "Install and register an agent before adding integrations.")
+      |> push_navigate(to: ~p"/admin/integrations")
+    end
+  end
 
   defp apply_action(socket, :show, %{"id" => id}) do
     tenant_id = get_tenant_id(socket)
@@ -81,10 +94,16 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   def handle_event("open_create_modal", _params, socket) do
     tenant_id = get_tenant_id(socket)
 
-    {:noreply,
-     socket
-     |> assign(:show_create_modal, true)
-     |> assign(:create_form, build_create_form(tenant_id))}
+    if sync_agent_available?(tenant_id) do
+      {:noreply,
+       socket
+       |> assign(:show_create_modal, true)
+       |> assign(:create_form, build_create_form(tenant_id))}
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "Install and register an agent before adding integrations.")}
+    end
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -133,6 +152,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
+    if not sync_agent_available?(tenant_id) do
+      {:noreply,
+       socket
+       |> put_flash(:error, "Install and register an agent before adding integrations.")}
+    else
     # Add tenant_id to params
     params = Map.put(params, "tenant_id", tenant_id)
 
@@ -157,6 +181,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
          socket
          |> assign(:create_form, to_form(form))
          |> put_flash(:error, "Failed to create integration source")}
+    end
     end
   end
 
@@ -269,16 +294,26 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </p>
           </div>
           <div class="flex flex-col items-end gap-2">
-            <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
+            <.ui_button
+              variant="primary"
+              size="sm"
+              phx-click="open_create_modal"
+              disabled={not @sync_agent_available}
+            >
               <.icon name="hero-plus" class="size-4" /> New Source
             </.ui_button>
             <.ui_button
               variant="outline"
               size="sm"
-              navigate={~p"/admin/edge-packages/new?component_type=sync"}
+              navigate={~p"/admin/edge-packages/new?component_type=agent"}
             >
-              <.icon name="hero-link" class="size-4" /> Add Edge Sync Service
+              <.icon name="hero-link" class="size-4" /> Add Edge Agent
             </.ui_button>
+            <%= if not @sync_agent_available do %>
+              <p class="text-xs text-base-content/60">
+                Register an agent before adding integrations.
+              </p>
+            <% end %>
           </div>
         </div>
 
@@ -815,6 +850,20 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     end
   rescue
     _ -> []
+  end
+
+  defp sync_agent_available?(tenant_id) do
+    Agent
+    |> Ash.Query.for_read(:connected)
+    |> Ash.Query.limit(1)
+    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> case do
+      {:ok, %Ash.Page.Keyset{results: results}} -> results != []
+      {:ok, results} when is_list(results) -> results != []
+      _ -> false
+    end
+  rescue
+    _ -> false
   end
 
   defp maybe_filter_enabled(query, %{enabled: value}) when is_boolean(value) do

@@ -62,19 +62,16 @@ curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=0"
 curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=100"
 ```
 
-## Using with Sync Service
+## Using with Embedded Sync (Agent)
 
-Configure your sync service to point to the faker service:
+Configure an Armis integration source to point to the faker service:
 
 ```json
 {
-  "sources": [
-    {
+  "sources": {
+    "faker-test": {
       "type": "armis",
-      "name": "faker-test",
-      "endpoint": "http://faker:8080",  // or http://localhost:8080
-      "agent_id": "test-agent",
-      "poller_id": "test-poller",
+      "endpoint": "http://faker:8080",
       "partition": "test",
       "credentials": {
         "username": "test",
@@ -89,7 +86,7 @@ Configure your sync service to point to the faker service:
       ],
       "page_size": 1000
     }
-  ]
+  }
 }
 ```
 
@@ -107,8 +104,8 @@ The faker service is designed to help reproduce issues with large datasets:
 To reproduce the sweep.json malformation issue:
 
 1. Start the faker service
-2. Configure sync service to use faker as Armis endpoint
-3. Run sync service to fetch all 25,000 devices
+2. Configure the embedded sync runtime (via Integrations UI) to use faker as the Armis endpoint
+3. Ensure the agent is running so it can fetch all 25,000 devices
 4. Monitor KV store writes for malformed sweep.json
 5. Check agent's ability to read the sweep configuration
 

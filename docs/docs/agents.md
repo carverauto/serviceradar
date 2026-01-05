@@ -5,7 +5,7 @@ title: Agents & Demo Operations
 
 # Agents & Demo Operations
 
-This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → sync → core) and the backing CNPG/Timescale telemetry database.
+This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → agent w/ embedded sync → core) and the backing CNPG/Timescale telemetry database.
 
 ## Rebuilding the SPIRE CNPG cluster (TimescaleDB + AGE)
 
@@ -194,10 +194,10 @@ kubectl exec -n demo deploy/serviceradar-faker -- ls /var/lib/serviceradar/faker
 
 This clears the CNPG-backed telemetry tables and repopulates them with a fresh discovery crawl from the faker service.
 
-1. **Quiesce sync** – stop new writes while we clear the tables:
+1. **Quiesce embedded sync** – stop new writes while we clear the tables:
 
    ```bash
-   kubectl scale deployment/serviceradar-sync -n demo --replicas=0
+   kubectl scale deployment/serviceradar-agent -n demo --replicas=0
    ```
 
 2. **Flush the telemetry tables** – use the toolbox pod’s `cnpg-sql` helper so credentials and TLS bundles are wired automatically:
@@ -233,14 +233,14 @@ This clears the CNPG-backed telemetry tables and repopulates them with a fresh d
    SQL
    ```
 
-5. **Resume discovery** – start the sync pipeline again:
+5. **Resume discovery** – start the embedded sync pipeline again:
 
    ```bash
-   kubectl scale deployment/serviceradar-sync -n demo --replicas=1
-   kubectl logs deployment/serviceradar-sync -n demo --tail 50
+   kubectl scale deployment/serviceradar-agent -n demo --replicas=1
+   kubectl logs deployment/serviceradar-agent -n demo --tail 50
    ```
 
-Once the sync pod reports “Completed streaming results”, poll `/api/stats` and the `/api/devices` endpoints to confirm the registry reflects the rebuilt CNPG rows.
+Once the agent logs report “Completed streaming results”, poll `/api/stats` and the `/api/devices` endpoints to confirm the registry reflects the rebuilt CNPG rows.
 
 ## Monitoring Non-Canonical Sweep Data
 
@@ -297,7 +297,6 @@ Once the sync pod reports “Completed streaming results”, poll `/api/stats` a
 
   ```
   config/core.json
-  config/sync.json
   config/poller.json
   config/agent.json
   config/flowgger.toml
@@ -451,7 +450,7 @@ What the script does:
 - Reapplies `k8s/demo/base/spire` to recreate the CNPG cluster and SPIRE dependencies
 - Waits for `cnpg-{0,1,2}` to become Ready and confirms the custom `serviceradar-cnpg` image is running
 - Runs `cnpg-migrate` (with the superuser secret mounted) to seed the telemetry schema
-- Restarts `serviceradar-core`, `serviceradar-sync`, and the writers so they reconnect to the new database
+- Restarts `serviceradar-core`, `serviceradar-agent`, and the writers so they reconnect to the new database
 
 After the reset:
 

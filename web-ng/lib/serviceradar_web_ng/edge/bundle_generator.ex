@@ -98,14 +98,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   def docker_install_command(package, download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     image_tag = Keyword.get(opts, :image_tag, "latest")
+    component_type = effective_component_type(package.component_type)
 
     """
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
-    docker run -d --name serviceradar-#{package.component_type} \\
+    docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
       -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{package.component_type}:#{image_tag}
+      ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
     """
     |> String.trim()
   end
@@ -180,7 +181,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp generate_config_json(package, _join_token, opts) do
     gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
     cert_dir = "/etc/serviceradar/certs"
 
@@ -203,17 +204,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       "gateway_security" => gateway_security
     }
 
-    config =
-      case component_type do
-        "sync" -> Map.put(config, "listen_addr", default_sync_listen_addr())
-        _ -> config
-      end
-
     Jason.encode!(config, pretty: true)
   end
 
   defp generate_install_script(package, _opts) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
 
     """
     #!/bin/bash
@@ -376,7 +371,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_readme(package) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
 
     """
     # ServiceRadar Edge Package
@@ -522,7 +517,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
 
     # Base64 encode the certificate data
@@ -552,7 +547,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_k8s_configmap(package, _join_token, namespace, opts) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
 
     # Minimal bootstrap config - monitoring settings delivered via GetConfig
@@ -582,7 +577,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_k8s_deployment(package, namespace, image_tag) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
     grpc_port = grpc_port_for_component(component_type)
 
@@ -714,26 +709,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     end
   end
 
-  defp default_sync_listen_addr do
-    Application.get_env(:serviceradar_web_ng, :sync_listen_addr, ":50058")
-  end
-
-  defp grpc_port_for_component("sync") do
-    parse_listen_port(default_sync_listen_addr())
-  end
-
   defp grpc_port_for_component(_), do: 50_051
 
-  defp parse_listen_port(listen_addr) when is_binary(listen_addr) do
-    parts = String.split(listen_addr, ":")
-
-    case List.last(parts) do
-      nil -> 50_051
-      port ->
-        case Integer.parse(port) do
-          {value, ""} -> value
-          _ -> 50_051
-        end
+  defp effective_component_type(component_type) do
+    case to_string(component_type) do
+      "sync" -> "agent"
+      other -> other
     end
   end
 end

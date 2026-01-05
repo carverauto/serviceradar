@@ -98,7 +98,6 @@ Each component's port can be customized in its respective configuration file:
 | Core Service | `/etc/serviceradar/core.json` |
 | Poller | `/etc/serviceradar/poller.json` |
 | KV Store | `/etc/serviceradar/datasvc.json` |
-| Sync Service | `/etc/serviceradar/sync.json` |
 | Web UI | `/etc/serviceradar/web-ng.env` |
 | SNMP Checker | `/etc/serviceradar/checkers/snmp.json` |
 | Dusk Checker | `/etc/serviceradar/checkers/dusk.json` |

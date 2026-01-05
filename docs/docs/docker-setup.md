@@ -83,7 +83,6 @@ ServiceRadar consists of these main components:
 ### Supporting Services
 - **NATS**: Message bus and event streaming
 - **KV**: Key-value store for configuration
-- **Sync**: Device discovery synchronization
 - **DB Event Writer**: NATS to database bridge
 
 ### Monitoring Services
@@ -653,7 +652,7 @@ graph TD
     D --> F[kv]
     E --> G[web]
     G --> H[nginx]
-    F --> I[sync]
+    F --> I[agent]
     D --> J[db-event-writer]
 ```
 

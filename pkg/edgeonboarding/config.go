@@ -56,7 +56,7 @@ var (
 )
 
 // generateServiceConfig generates configuration files for the service based on:
-	// - Component type (poller, agent, checker, sync)
+// - Component type (poller, agent, checker; sync packages map to agent bootstrap config)
 	// - Deployment type (docker, kubernetes, bare-metal)
 	// - Package metadata (contains service-specific config from KV)
 func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
@@ -271,68 +271,24 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 	return nil
 }
 
-// generateSyncConfig generates configuration for a sync service.
-// The bootstrap config is minimal: agent_id, listen_addr, and gateway connection.
-// Full integration configs are delivered via GetConfig after enrollment.
+// generateSyncConfig generates bootstrap configuration for legacy sync packages.
+// Sync is now embedded in the agent, so this emits the agent bootstrap config.
 func (b *Bootstrapper) generateSyncConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Generating minimal sync bootstrap configuration")
+	b.logger.Debug().Msg("Generating agent bootstrap configuration for sync package")
 
-	gatewayEndpoint := b.cfg.GatewayEndpoint
-	if gwAddr, ok := metadata["gateway_addr"].(string); ok && gwAddr != "" {
-		gatewayEndpoint = gwAddr
-	}
-	if gatewayEndpoint == "" {
-		return ErrGatewayAddrRequired
+	if err := b.generateAgentConfig(ctx, metadata); err != nil {
+		return err
 	}
 
-	listenAddr := ":50058"
-	if addr, ok := metadata["listen_addr"].(string); ok && addr != "" {
-		listenAddr = addr
+	if configJSON, ok := b.generatedConfigs["agent.json"]; ok {
+		b.generatedConfigs["sync.json"] = configJSON
 	}
-
-	serverName := gatewayServerName(gatewayEndpoint, metadata)
-
-	config := map[string]interface{}{
-		// Sync identity (agent_id used in gateway Hello)
-		"agent_id": b.pkg.ComponentID,
-
-		// gRPC server listen address
-		"listen_addr": listenAddr,
-
-		// Gateway connection (required) - all config delivered via GetConfig
-		"gateway_addr": gatewayEndpoint,
-
-		// mTLS security configuration
-		"gateway_security": map[string]interface{}{
-			"mode":        "mtls",
-			"cert_dir":    filepath.Join(b.cfg.StoragePath, "certs"),
-			"server_name": serverName,
-			"role":        "sync",
-			"tls": map[string]interface{}{
-				"cert_file":      "component.pem",
-				"key_file":       "component-key.pem",
-				"ca_file":        "ca-chain.pem",
-				"client_ca_file": "ca-chain.pem",
-			},
-		},
-
-		// Deployment info (informational only)
-		"deployment_type": string(b.deploymentType),
-	}
-
-	configJSON, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal sync config: %w", err)
-	}
-
-	b.generatedConfigs["sync.json"] = configJSON
 
 	b.logger.Debug().
 		Str("sync_id", b.pkg.ComponentID).
-		Str("gateway_addr", gatewayEndpoint).
-		Msg("Generated minimal sync bootstrap configuration")
+		Msg("Generated agent bootstrap configuration for sync package")
 
 	return nil
 }

@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-// Package agent pkg/agent/gateway_client.go
-package agent
+// Package agentgateway pkg/agentgateway/gateway_client.go
+package agentgateway
 
 import (
 	"context"

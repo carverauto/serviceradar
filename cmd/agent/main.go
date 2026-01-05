@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
@@ -96,7 +97,7 @@ func run() error {
 
 	// Gateway address is required - agents must push status to gateway
 	if cfg.GatewayAddr == "" {
-		return agent.ErrGatewayAddrRequired
+		return agentgateway.ErrGatewayAddrRequired
 	}
 
 	return runPushMode(ctx, server, cfg, agentLogger)
@@ -146,7 +147,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 		Msg("Starting agent in push mode")
 
 	// Create gateway client (PushLoop handles connect/enroll/config polling)
-	gatewayClient := agent.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
+	gatewayClient := agentgateway.NewGatewayClient(cfg.GatewayAddr, cfg.GatewaySecurity, log)
 	defer func() {
 		if err := gatewayClient.Disconnect(); err != nil {
 			log.Warn().Err(err).Msg("Error disconnecting from gateway")

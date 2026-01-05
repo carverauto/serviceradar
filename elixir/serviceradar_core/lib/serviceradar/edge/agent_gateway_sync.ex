@@ -13,7 +13,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Integrations.SyncConfigGenerator
 
   @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -23,12 +22,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       tenant_id,
       config_version
     )
-  end
-
-  @spec get_sync_config_if_changed(String.t(), String.t(), String.t()) ::
-          :not_modified | {:ok, map()} | {:error, term()}
-  def get_sync_config_if_changed(component_id, tenant_id, config_version) do
-    SyncConfigGenerator.get_config_if_changed(component_id, tenant_id, config_version)
   end
 
   @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}

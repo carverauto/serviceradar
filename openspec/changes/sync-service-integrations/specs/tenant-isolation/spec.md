@@ -1,4 +1,7 @@
-## ADDED Requirements
+# Tenant Isolation
+
+## MODIFIED Requirements
+
 ### Requirement: Platform Tenant Identifier
 The system SHALL create a non-nil, random UUID as the platform tenant ID during bootstrap and persist it for platform service identity mapping.
 
@@ -18,25 +21,19 @@ The system SHALL create a non-nil, random UUID as the platform tenant ID during 
 - **THEN** the platform tenant ID is rejected as invalid
 
 ### Requirement: Platform Service mTLS Identities
-Platform services SHALL use mTLS identities that map to the platform tenant and are distinguishable from tenant-scoped identities.
+Platform services SHALL use mTLS identities that map to the platform tenant and are distinguishable from tenant-scoped identities. Sync is not a platform service.
 
-#### Scenario: Agent-gateway recognizes platform sync identity
-- **GIVEN** a sync service presents platform service credentials
+#### Scenario: Agent-gateway recognizes platform identity
+- **GIVEN** a platform service presents platform credentials
 - **WHEN** agent-gateway validates the mTLS identity
 - **THEN** the service is classified as platform-level
 - **AND** the platform tenant ID is associated with the connection
 
-#### Scenario: Tenant service cannot assume platform identity
-- **GIVEN** a tenant-scoped service certificate
-- **WHEN** it attempts to use platform-only operations
+#### Scenario: Platform identity cannot request tenant sync config
+- **GIVEN** a platform identity connection
+- **WHEN** it attempts to request tenant sync configuration
 - **THEN** agent-gateway rejects the request
-- **AND** logs the tenant identity and attempted operation
-
-#### Scenario: Platform sync certificate issued with stable identifier
-- **GIVEN** the platform tenant exists
-- **WHEN** platform bootstrap runs
-- **THEN** a platform sync certificate is issued
-- **AND** the component identifier remains stable across restarts
+- **AND** logs the platform identity and attempted operation
 
 ### Requirement: mTLS-Derived Tenant Identity
 The system SHALL derive tenant_id exclusively from the mTLS certificate identity and MUST NOT accept tenant identifiers supplied by clients.

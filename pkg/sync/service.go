@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	agentpkg "github.com/carverauto/serviceradar/pkg/agent"
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -47,7 +47,8 @@ const (
 )
 
 var (
-	errTaskPanic = errors.New("panic in sync task")
+	errTaskPanic          = errors.New("panic in sync task")
+	errGatewayNotEnrolled = errors.New("gateway enrollment pending")
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -63,11 +64,12 @@ func safeIntToInt32(val int) int32 {
 	return int32(val)
 }
 
-// StreamingResultsStore holds discovery results for streaming
+// StreamingResultsStore tracks discovery counts for status reporting.
 type StreamingResultsStore struct {
-	mu      sync.RWMutex
-	results map[string][]*models.DeviceUpdate
-	updated time.Time
+	mu          sync.RWMutex
+	deviceCount int
+	sourceCount int
+	updated     time.Time
 }
 
 // SimpleSyncService manages discovery and serves results via streaming gRPC interface
@@ -103,11 +105,12 @@ type SimpleSyncService struct {
 	logger logger.Logger
 
 	// Gateway push support (push-first architecture)
-	gatewayClient     *agentpkg.GatewayClient
-	gatewayEnrolled   int32
-	gatewayTenantID   string
-	gatewayTenantSlug string
-	gatewayMu         sync.RWMutex
+	gatewayClient       *agentgateway.GatewayClient
+	gatewayEnrolled     int32
+	gatewayTenantID     string
+	gatewayTenantSlug   string
+	sharedGatewayClient bool
+	gatewayMu           sync.RWMutex
 
 	configMu           sync.RWMutex
 	configVersion      string
@@ -135,7 +138,7 @@ func NewSimpleSyncService(
 	registry map[string]IntegrationFactory,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
-	return NewSimpleSyncServiceWithMetrics(ctx, config, registry, NewInMemoryMetrics(log), log)
+	return NewSimpleSyncServiceWithMetrics(ctx, config, registry, NewInMemoryMetrics(log), log, nil)
 }
 
 // NewSimpleSyncServiceWithMetrics creates a new simplified sync service with custom metrics
@@ -145,6 +148,7 @@ func NewSimpleSyncServiceWithMetrics(
 	registry map[string]IntegrationFactory,
 	metrics Metrics,
 	log logger.Logger,
+	gatewayClient *agentgateway.GatewayClient,
 ) (*SimpleSyncService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -153,12 +157,10 @@ func NewSimpleSyncServiceWithMetrics(
 	serviceCtx, cancel := context.WithCancel(ctx)
 
 	s := &SimpleSyncService{
-		config:   *config,
-		sources:  make(map[string]Integration),
-		registry: registry,
-		resultsStore: &StreamingResultsStore{
-			results: make(map[string][]*models.DeviceUpdate),
-		},
+		config:              *config,
+		sources:             make(map[string]Integration),
+		registry:            registry,
+		resultsStore:        &StreamingResultsStore{},
 		discoveryInterval:   time.Duration(config.DiscoveryInterval),
 		armisUpdateInterval: time.Duration(config.UpdateInterval),
 		ctx:                 serviceCtx,
@@ -175,12 +177,15 @@ func NewSimpleSyncServiceWithMetrics(
 		heartbeatInterval:   defaultHeartbeatInterval,
 	}
 
-	if config.GatewayAddr != "" {
+	if gatewayClient != nil {
+		s.gatewayClient = gatewayClient
+		s.sharedGatewayClient = true
+	} else if config.GatewayAddr != "" {
 		gatewaySecurity := config.GatewaySecurity
 		if gatewaySecurity == nil {
 			gatewaySecurity = config.Security
 		}
-		s.gatewayClient = agentpkg.NewGatewayClient(config.GatewayAddr, gatewaySecurity, log)
+		s.gatewayClient = agentgateway.NewGatewayClient(config.GatewayAddr, gatewaySecurity, log)
 	}
 
 	s.initializeIntegrations(ctx)
@@ -226,9 +231,13 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting simplified sync service")
 
 	if err := s.bootstrapGatewayConfig(ctx); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to bootstrap sync config from gateway")
-		if len(s.sources) == 0 {
-			return err
+		if errors.Is(err, errGatewayNotEnrolled) {
+			s.logger.Debug().Msg("Gateway enrollment pending; sync config bootstrap deferred")
+		} else {
+			s.logger.Error().Err(err).Msg("Failed to bootstrap sync config from gateway")
+			if len(s.sources) == 0 {
+				return err
+			}
 		}
 	}
 
@@ -301,13 +310,53 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 		s.logger.Info().Msg("gRPC server stopped")
 	}
 
-	if s.gatewayClient != nil {
+	if s.gatewayClient != nil && !s.sharedGatewayClient {
 		if err := s.gatewayClient.Disconnect(); err != nil {
 			s.logger.Error().Err(err).Msg("Error disconnecting gateway client")
 			return err
 		}
 	}
 
+	return nil
+}
+
+// MarkGatewayEnrolled marks the shared gateway client as enrolled and stores tenant identity.
+func (s *SimpleSyncService) MarkGatewayEnrolled(tenantID, tenantSlug string) {
+	if s.gatewayClient == nil {
+		return
+	}
+
+	s.gatewayMu.Lock()
+	s.gatewayTenantID = tenantID
+	s.gatewayTenantSlug = tenantSlug
+	s.gatewayMu.Unlock()
+
+	atomic.StoreInt32(&s.gatewayEnrolled, 1)
+}
+
+// MarkGatewayUnenrolled clears the enrollment flag for shared gateway clients.
+func (s *SimpleSyncService) MarkGatewayUnenrolled() {
+	if s.gatewayClient == nil {
+		return
+	}
+
+	atomic.StoreInt32(&s.gatewayEnrolled, 0)
+}
+
+// ApplyConfigPayload updates sources and scheduling from a JSON payload.
+func (s *SimpleSyncService) ApplyConfigPayload(payloadJSON []byte, configVersion string) error {
+	if len(payloadJSON) == 0 {
+		s.logger.Warn().Msg("Sync config payload empty; clearing sources")
+		s.applyConfigPayload(&gatewaySyncPayload{}, configVersion)
+		return nil
+	}
+
+	var payload gatewaySyncPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return fmt.Errorf("failed to parse sync config payload: %w", err)
+	}
+
+	s.applyConfigPayload(&payload, configVersion)
 	return nil
 }
 
@@ -322,14 +371,11 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 	intervalsChanged := (newDisc != s.discoveryInterval) || (newUpd != s.armisUpdateInterval)
 	s.discoveryInterval = newDisc
 	s.armisUpdateInterval = newUpd
-	// Rebuild integrations if sources changed
-	// For simplicity, rebuild from registry factories using new config
-	if len(newCfg.Sources) > 0 {
-		s.sources = make(map[string]Integration)
-		for name, src := range newCfg.Sources {
-			if f, ok := s.registry[src.Type]; ok {
-				s.sources[name] = s.createIntegration(s.ctx, src, f)
-			}
+	// Rebuild integrations even when sources are cleared.
+	s.sources = make(map[string]Integration)
+	for name, src := range newCfg.Sources {
+		if f, ok := s.registry[src.Type]; ok {
+			s.sources[name] = s.createIntegration(s.ctx, src, f)
 		}
 	}
 	if intervalsChanged {
@@ -504,8 +550,11 @@ func (s *SimpleSyncService) logDiscoveredDevices(tenantID string, allDeviceUpdat
 }
 
 func (s *SimpleSyncService) updateResultsStore(allDeviceUpdates map[string][]*models.DeviceUpdate) {
+	deviceCount := countDevices(allDeviceUpdates)
+	sourceCount := len(allDeviceUpdates)
 	s.resultsStore.mu.Lock()
-	s.resultsStore.results = allDeviceUpdates
+	s.resultsStore.deviceCount = deviceCount
+	s.resultsStore.sourceCount = sourceCount
 	s.resultsStore.updated = time.Now()
 	s.resultsStore.mu.Unlock()
 }
@@ -516,8 +565,11 @@ func (s *SimpleSyncService) updateTenantResults(tenantID string, allDeviceUpdate
 	}
 
 	store := s.tenantResultsStore(tenantID)
+	deviceCount := countDevices(allDeviceUpdates)
+	sourceCount := len(allDeviceUpdates)
 	store.mu.Lock()
-	store.results = allDeviceUpdates
+	store.deviceCount = deviceCount
+	store.sourceCount = sourceCount
 	store.updated = time.Now()
 	store.mu.Unlock()
 }
@@ -553,10 +605,8 @@ func (s *SimpleSyncService) aggregateStatus() (int, int, int64) {
 			continue
 		}
 		store.mu.RLock()
-		totalSources += len(store.results)
-		for _, devices := range store.results {
-			totalDevices += len(devices)
-		}
+		totalSources += store.sourceCount
+		totalDevices += store.deviceCount
 		if updated := store.updated.Unix(); updated > lastUpdated {
 			lastUpdated = updated
 		}
@@ -573,12 +623,7 @@ func statusFromStore(store *StreamingResultsStore) (int, int, int64) {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
-	deviceCount := 0
-	for _, devices := range store.results {
-		deviceCount += len(devices)
-	}
-
-	return deviceCount, len(store.results), store.updated.Unix()
+	return store.deviceCount, store.sourceCount, store.updated.Unix()
 }
 
 func countDevices(allDeviceUpdates map[string][]*models.DeviceUpdate) int {
@@ -735,6 +780,10 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 		return nil
 	}
 
+	if s.sharedGatewayClient {
+		return errGatewayNotEnrolled
+	}
+
 	req := &proto.AgentHelloRequest{
 		AgentId:       s.config.AgentID,
 		Version:       "",
@@ -766,11 +815,43 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 	return nil
 }
 
-type gatewaySyncConfig struct {
-	SyncServiceID string                          `json:"sync_service_id"`
-	ComponentID   string                          `json:"component_id"`
-	Scope         string                          `json:"scope"`
-	Sources       map[string]*models.SourceConfig `json:"sources"`
+type gatewaySyncPayload struct {
+	AgentID  string                          `json:"agent_id,omitempty"`
+	TenantID string                          `json:"tenant_id,omitempty"`
+	Scope    string                          `json:"scope,omitempty"`
+	Sources  map[string]*models.SourceConfig `json:"sources"`
+}
+
+func (s *SimpleSyncService) applyConfigPayload(payload *gatewaySyncPayload, configVersion string) {
+	if payload == nil {
+		return
+	}
+
+	sources := payload.Sources
+	if sources == nil {
+		sources = map[string]*models.SourceConfig{}
+	}
+
+	updatedCfg := s.config
+	if payload.AgentID != "" {
+		updatedCfg.AgentID = payload.AgentID
+	}
+	if payload.TenantID != "" {
+		updatedCfg.TenantID = payload.TenantID
+	}
+	updatedCfg.Sources = sources
+
+	scope := payload.Scope
+	if scope == "" {
+		scope = "tenant"
+	}
+
+	s.UpdateConfig(&updatedCfg)
+	s.setTenantSources(sources, scope)
+
+	if configVersion != "" {
+		s.setConfigVersion(configVersion)
+	}
 }
 
 func (s *SimpleSyncService) bootstrapGatewayConfig(ctx context.Context) error {
@@ -783,6 +864,9 @@ func (s *SimpleSyncService) bootstrapGatewayConfig(ctx context.Context) error {
 	}
 
 	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		if errors.Is(err, errGatewayNotEnrolled) {
+			return nil
+		}
 		return err
 	}
 
@@ -799,6 +883,9 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 	}
 
 	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		if errors.Is(err, errGatewayNotEnrolled) {
+			return nil
+		}
 		return err
 	}
 
@@ -830,29 +917,30 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 
 	if len(configResp.ConfigJson) == 0 {
 		s.logger.Warn().Msg("Gateway returned empty sync config payload")
+		s.applyConfigPayload(&gatewaySyncPayload{}, configResp.ConfigVersion)
 		return nil
 	}
 
-	var payload gatewaySyncConfig
+	var payload gatewaySyncPayload
 	if err := json.Unmarshal(configResp.ConfigJson, &payload); err != nil {
 		return fmt.Errorf("failed to parse sync config payload: %w", err)
 	}
 
-	if len(payload.Sources) == 0 {
-		s.logger.Warn().Msg("Gateway sync config contained no sources")
-		return nil
+	s.applyConfigPayload(&payload, configResp.ConfigVersion)
+
+	sourceCount := 0
+	if payload.Sources != nil {
+		sourceCount = len(payload.Sources)
 	}
 
-	updatedCfg := s.config
-	updatedCfg.Sources = payload.Sources
-	s.UpdateConfig(&updatedCfg)
-	s.setTenantSources(payload.Sources, payload.Scope)
-	s.setConfigVersion(configResp.ConfigVersion)
-
-	s.logger.Info().
-		Str("config_version", configResp.ConfigVersion).
-		Int("source_count", len(payload.Sources)).
-		Msg("Applied sync config from gateway")
+	if sourceCount == 0 {
+		s.logger.Warn().Msg("Gateway sync config contained no sources; clearing active sources")
+	} else {
+		s.logger.Info().
+			Str("config_version", configResp.ConfigVersion).
+			Int("source_count", sourceCount).
+			Msg("Applied sync config from gateway")
+	}
 
 	return nil
 }
@@ -869,7 +957,11 @@ func (s *SimpleSyncService) configPollLoop(ctx context.Context) error {
 			return s.ctx.Err()
 		case <-timer.C:
 			if err := s.fetchAndApplyConfig(ctx); err != nil {
-				s.logger.Error().Err(err).Msg("Failed to refresh sync config from gateway")
+				if errors.Is(err, errGatewayNotEnrolled) {
+					s.logger.Debug().Msg("Sync config poll deferred; gateway enrollment pending")
+				} else {
+					s.logger.Error().Err(err).Msg("Failed to refresh sync config from gateway")
+				}
 			}
 			timer.Reset(s.getConfigPollInterval())
 		}
@@ -1261,9 +1353,7 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 		}
 
 		tenantIntegrations[tenantID] = integrations
-		tenantResults[tenantID] = &StreamingResultsStore{
-			results: make(map[string][]*models.DeviceUpdate),
-		}
+		tenantResults[tenantID] = &StreamingResultsStore{}
 	}
 
 	s.tenantMu.Lock()
@@ -1363,7 +1453,7 @@ func (s *SimpleSyncService) tenantResultsStore(tenantID string) *StreamingResult
 	if store != nil {
 		return store
 	}
-	store = &StreamingResultsStore{results: make(map[string][]*models.DeviceUpdate)}
+	store = &StreamingResultsStore{}
 	if s.tenantResults == nil {
 		s.tenantResults = make(map[string]*StreamingResultsStore)
 	}

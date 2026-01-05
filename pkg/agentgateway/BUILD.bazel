@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "agentgateway",
+    srcs = ["gateway_client.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/agentgateway",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/grpc",
+        "//pkg/logger",
+        "//pkg/models",
+        "//proto",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//connectivity",
+        "@org_golang_google_grpc//credentials/insecure",
+    ],
+)
