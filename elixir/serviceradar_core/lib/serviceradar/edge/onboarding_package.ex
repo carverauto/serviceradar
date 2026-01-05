@@ -143,6 +143,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       ]
     end
 
+    update :update_metadata do
+      description "Update metadata fields for the package"
+      accept [:metadata_json]
+    end
+
     update :deliver do
       description "Mark package as delivered (downloaded)"
       require_atomic? false
@@ -215,7 +220,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     # Operators can also deliver and update tokens
-    policy action([:deliver, :update_tokens]) do
+    policy action([:deliver, :update_tokens, :update_metadata]) do
       authorize_if actor_attribute_equals(:role, :admin)
       authorize_if actor_attribute_equals(:role, :operator)
     end

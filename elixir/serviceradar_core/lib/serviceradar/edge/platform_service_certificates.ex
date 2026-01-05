@@ -11,6 +11,8 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
 
   @default_partition_id "platform"
   @default_sync_component_id "platform-sync"
+  @default_gateway_addr "agent-gateway:50052"
+  @default_sync_listen_addr ":50058"
 
   @spec platform_sync_component_id() :: String.t()
   def platform_sync_component_id do
@@ -30,7 +32,8 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       :sync,
       component_id,
       label: "Platform Sync Service",
-      partition_id: @default_partition_id
+      partition_id: @default_partition_id,
+      metadata: platform_sync_metadata()
     )
   end
 
@@ -40,31 +43,46 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       when is_binary(tenant_id) and is_binary(component_id) do
     label = Keyword.get(opts, :label, "Platform #{component_type} Service")
     partition_id = Keyword.get(opts, :partition_id, @default_partition_id)
+    metadata = platform_metadata(Keyword.get(opts, :metadata, %{}))
 
     case find_existing_package(tenant_id, component_type, component_id) do
       {:ok, package} ->
         if package.status in [:revoked, :expired, :deleted] do
-          create_platform_package(tenant_id, component_type, component_id, label, partition_id)
+          create_platform_package(
+            tenant_id,
+            component_type,
+            component_id,
+            label,
+            partition_id,
+            metadata
+          )
         else
-          {:ok, package}
+          maybe_update_metadata(tenant_id, package, metadata)
         end
 
       :not_found ->
-        create_platform_package(tenant_id, component_type, component_id, label, partition_id)
+        create_platform_package(
+          tenant_id,
+          component_type,
+          component_id,
+          label,
+          partition_id,
+          metadata
+        )
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp create_platform_package(tenant_id, component_type, component_id, label, partition_id) do
+  defp create_platform_package(tenant_id, component_type, component_id, label, partition_id, metadata) do
     attrs = %{
       label: label,
       component_id: component_id,
       component_type: component_type,
       security_mode: :mtls,
       site: partition_id,
-      metadata_json: %{"platform_service" => true}
+      metadata_json: metadata
     }
 
     case OnboardingPackages.create_with_tenant_cert(attrs,
@@ -104,5 +122,63 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp maybe_update_metadata(tenant_id, package, metadata) do
+    existing = package.metadata_json || %{}
+    merged = existing |> Map.merge(metadata) |> Map.put("platform_service", true)
+
+    if merged == existing do
+      {:ok, package}
+    else
+      package
+      |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged},
+        tenant: tenant_id,
+        authorize?: false
+      )
+      |> Ash.update()
+    end
+  end
+
+  defp platform_metadata(extra) do
+    extra = extra || %{}
+
+    %{"platform_service" => true}
+    |> Map.merge(extra)
+    |> Map.put("platform_service", true)
+  end
+
+  defp platform_sync_metadata do
+    gateway_addr =
+      config_value(:gateway_addr, "SERVICERADAR_GATEWAY_ADDR", @default_gateway_addr)
+
+    listen_addr =
+      config_value(:sync_listen_addr, "SERVICERADAR_SYNC_LISTEN_ADDR", @default_sync_listen_addr)
+
+    gateway_server_name = config_value(:gateway_server_name, "SERVICERADAR_GATEWAY_SERVER_NAME", nil)
+
+    metadata = %{
+      "gateway_addr" => gateway_addr,
+      "listen_addr" => listen_addr
+    }
+
+    if is_binary(gateway_server_name) and String.trim(gateway_server_name) != "" do
+      Map.put(metadata, "gateway_server_name", String.trim(gateway_server_name))
+    else
+      metadata
+  end
+
+  defp config_value(key, env_var, fallback) do
+    value = Application.get_env(:serviceradar_core, key, System.get_env(env_var) || fallback)
+
+    case value do
+      nil ->
+        fallback
+
+      value ->
+        trimmed = String.trim(to_string(value))
+        if trimmed == "", do: fallback, else: trimmed
+    end
+  end
+end
 
 end

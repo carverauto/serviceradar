@@ -38,7 +38,7 @@ defmodule ServiceRadar.StatusHandler do
       case decode_results(status[:message]) do
         {:ok, updates} ->
           actor = system_actor(tenant_id)
-          SyncIngestor.ingest_updates(updates, tenant_id, actor: actor)
+          sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
 
         {:error, reason} ->
           {:error, {:invalid_sync_results, reason}}
@@ -69,5 +69,9 @@ defmodule ServiceRadar.StatusHandler do
       role: :admin,
       tenant_id: tenant_id
     }
+  end
+
+  defp sync_ingestor do
+    Application.get_env(:serviceradar_core, :sync_ingestor, SyncIngestor)
   end
 end

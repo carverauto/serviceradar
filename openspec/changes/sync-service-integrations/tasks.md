@@ -17,8 +17,8 @@
 - [x] 3.1 Generate and persist random platform tenant UUID on first boot
 - [x] 3.2 Issue platform service mTLS certs with stable identifiers
 - [x] 3.3 Auto-create SaaS sync service record with is_platform_sync: true at bootstrap
-- [ ] 3.4 Generate minimal sync bootstrap config during platform bootstrap
-- [ ] 3.5 Add tests for bootstrap tenant + sync service creation
+- [x] 3.4 Generate minimal sync bootstrap config during platform bootstrap
+- [x] 3.5 Add tests for bootstrap tenant + sync service creation
 
 ## 4. Proto & gRPC Changes
 - [ ] 4.1 Confirm sync pushes results via StreamStatus with ResultsChunk-compatible semantics
@@ -40,7 +40,7 @@
 - [x] 6.2 Validate tenant scope using mTLS identity and request metadata
 - [x] 6.3 Route sync updates through DIRE for canonical device records
 - [ ] 6.4 Persist optional discovered_devices staging records (if needed) (out of scope)
-- [ ] 6.5 Add tests for sync ingestion path
+- [x] 6.5 Add tests for sync ingestion path
 
 ## 7. Sweep Config Generation
 - [ ] 7.1 Add build_sweep_config/2 to AgentConfigGenerator (out of scope)
@@ -73,7 +73,7 @@
 
 ## 11. Testing & Documentation
 - [ ] 11.1 Add integration tests for full device discovery → DIRE → inventory flow
-- [ ] 11.2 Add tests for sync service onboarding and tenant isolation
+- [x] 11.2 Add tests for sync service onboarding and tenant isolation
 - [ ] 11.3 Validate results streaming chunking behavior and gRPC size limits against legacy core + sync
 - [ ] 11.4 Update architecture docs with new data flow
 - [ ] 11.5 Add API documentation for sync results streaming (ResultsRequest/ResultsChunk)
