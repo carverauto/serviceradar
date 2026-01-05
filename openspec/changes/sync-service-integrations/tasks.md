@@ -30,8 +30,8 @@
 ## 5. Sync Service Runtime (Go)
 - [x] 5.1 Remove datasvc/KV clients and config code
 - [x] 5.2 Implement Hello + GetConfig bootstrap against agent-gateway
-- [ ] 5.3 Maintain per-tenant config cache and run per-tenant sync loops
-- [ ] 5.4 Push device updates to agent-gateway via StreamStatus with ResultsChunk-compatible chunking
+- [x] 5.3 Maintain per-tenant config cache and run per-tenant sync loops
+- [x] 5.4 Push device updates to agent-gateway via StreamStatus with ResultsChunk-compatible chunking
 - [x] 5.5 Build sync GetConfig payloads from IntegrationSource data (per tenant)
 
 ## 6. Device Ingestion + DIRE

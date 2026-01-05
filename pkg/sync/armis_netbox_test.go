@@ -28,10 +28,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
-// TestArmisNetBoxStreamResults tests that both Armis and NetBox data is properly streamed through StreamResults
+// TestArmisNetBoxStreamResults tests that both Armis and NetBox data is properly chunked for streaming.
 func TestArmisNetBoxStreamResults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -140,31 +139,11 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 	service.resultsStore.updated = time.Now()
 	service.resultsStore.mu.Unlock()
 
-	// Create a mock stream to capture results
-	mockStream := NewMockAgentService_StreamResultsServer[*proto.ResultsChunk](ctrl)
-
-	var capturedChunks []*proto.ResultsChunk
-
-	mockStream.EXPECT().Send(gomock.Any()).DoAndReturn(func(chunk *proto.ResultsChunk) error {
-		capturedChunks = append(capturedChunks, chunk)
-		return nil
-	}).Times(1) // Expecting 1 chunk for 4 devices
-
-	// Create request
-	req := &proto.ResultsRequest{
-		ServiceName: "test-service",
-		ServiceType: "sync",
-		AgentId:     "test-agent",
-		PollerId:    "test-poller",
-	}
-
-	// Call StreamResults
-	err := service.StreamResults(req, mockStream)
+	allDevices := service.collectDeviceUpdates(service.resultsStore.results)
+	chunks, err := service.buildResultsChunks(allDevices, "seq-1")
 	require.NoError(t, err)
-
-	// Verify results
-	require.Len(t, capturedChunks, 1, "Expected 1 chunk")
-	chunk := capturedChunks[0]
+	require.Len(t, chunks, 1, "Expected 1 chunk")
+	chunk := chunks[0]
 
 	// Unmarshal the chunk data
 	var receivedDevices []*models.DeviceUpdate

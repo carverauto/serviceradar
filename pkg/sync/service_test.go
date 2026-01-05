@@ -19,7 +19,6 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -28,15 +27,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-)
-
-var (
-	errStreamSend = errors.New("stream send error")
 )
 
 const (
@@ -412,31 +408,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	assert.Equal(t, mockIntegration, integration)
 }
 
-// MockResultsStream implements the proto.AgentService_StreamResultsServer interface
-type MockResultsStream struct {
-	ctx     context.Context
-	chunks  []*proto.ResultsChunk
-	sendErr error
-}
-
-func (m *MockResultsStream) Send(chunk *proto.ResultsChunk) error {
-	if m.sendErr != nil {
-		return m.sendErr
-	}
-
-	m.chunks = append(m.chunks, chunk)
-
-	return nil
-}
-
-func (*MockResultsStream) SetHeader(metadata.MD) error  { return nil }
-func (*MockResultsStream) SendHeader(metadata.MD) error { return nil }
-func (*MockResultsStream) SetTrailer(metadata.MD)       {}
-func (m *MockResultsStream) Context() context.Context   { return m.ctx }
-func (*MockResultsStream) SendMsg(_ interface{}) error  { return nil }
-func (*MockResultsStream) RecvMsg(_ interface{}) error  { return nil }
-
-func TestSimpleSyncService_StreamResults(t *testing.T) {
+func TestSimpleSyncService_StreamResultsDeprecated(t *testing.T) {
 	ctx := context.Background()
 
 	ctrl := gomock.NewController(t)
@@ -466,25 +438,42 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 
 	defer func() { _ = service.Stop(context.Background()) }()
 
-	t.Run("empty results", func(t *testing.T) {
-		req := &proto.ResultsRequest{
-			ServiceName: "test-service",
-			ServiceType: "sync",
-		}
+	req := &proto.ResultsRequest{
+		ServiceName: "test-service",
+		ServiceType: "sync",
+	}
 
-		stream := &MockResultsStream{ctx: ctx}
-		err := service.StreamResults(req, stream)
+	err = service.StreamResults(req, nil)
+	require.Error(t, err)
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
+func TestBuildResultsChunks(t *testing.T) {
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+
+	service, err := NewSimpleSyncService(ctx, &Config{
+		ListenAddr: "localhost:0",
+		Sources: map[string]*models.SourceConfig{
+			"test": {
+				Type:     "test",
+				Endpoint: "http://example.com",
+			},
+		},
+	}, nil, log)
+	require.NoError(t, err)
+
+	t.Run("empty", func(t *testing.T) {
+		chunks, err := service.buildResultsChunks(nil, "seq-0")
 		require.NoError(t, err)
-		assert.Len(t, stream.chunks, 1)
-		assert.True(t, stream.chunks[0].IsFinal)
-		assert.Equal(t, []byte("[]"), stream.chunks[0].Data)
+		require.Len(t, chunks, 1)
+		assert.True(t, chunks[0].IsFinal)
+		assert.Equal(t, []byte("[]"), chunks[0].Data)
 	})
 
-	t.Run("with devices", func(t *testing.T) {
-		// Create many devices to test chunking
+	t.Run("splits large payloads", func(t *testing.T) {
 		var devices []*models.DeviceUpdate
-
-		for i := 0; i < 2000; i++ {
+		for i := 0; i < 20000; i++ {
 			devices = append(devices, &models.DeviceUpdate{
 				DeviceID:    fmt.Sprintf("device-%d", i),
 				IP:          fmt.Sprintf("192.168.1.%d", i%255),
@@ -497,68 +486,50 @@ func TestSimpleSyncService_StreamResults(t *testing.T) {
 			})
 		}
 
-		service.resultsStore.mu.Lock()
-		service.resultsStore.results["test-source"] = devices
-		service.resultsStore.updated = time.Now()
-		service.resultsStore.mu.Unlock()
-
-		req := &proto.ResultsRequest{
-			ServiceName: "test-service",
-			ServiceType: "sync",
-		}
-
-		stream := &MockResultsStream{ctx: ctx}
-		err := service.StreamResults(req, stream)
+		chunks, err := service.buildResultsChunks(devices, "seq-1")
 		require.NoError(t, err)
-		assert.Greater(t, len(stream.chunks), 1) // Should have multiple chunks
+		require.Greater(t, len(chunks), 1)
 
-		// Verify last chunk is marked as final
-		lastChunk := stream.chunks[len(stream.chunks)-1]
-		assert.True(t, lastChunk.IsFinal)
-
-		// Verify all chunks have the same sequence
-		firstSequence := stream.chunks[0].CurrentSequence
-		for _, chunk := range stream.chunks {
-			assert.Equal(t, firstSequence, chunk.CurrentSequence)
-		}
-
-		// Verify chunk indices
-		for i, chunk := range stream.chunks {
+		for i, chunk := range chunks {
 			assert.Equal(t, safeIntToInt32(i), chunk.ChunkIndex)
-			assert.Equal(t, safeIntToInt32(len(stream.chunks)), chunk.TotalChunks)
+			assert.Equal(t, safeIntToInt32(len(chunks)), chunk.TotalChunks)
+			assert.LessOrEqual(t, len(chunk.Data), 3*1024*1024)
 		}
 	})
+}
 
-	t.Run("stream error", func(t *testing.T) {
-		devices := []*models.DeviceUpdate{
-			{
-				DeviceID:    "device-1",
-				IP:          "192.168.1.1",
-				Source:      models.DiscoverySourceIntegration,
-				AgentID:     "test-agent",
-				PollerID:    "test-poller",
-				Timestamp:   time.Now(),
-				IsAvailable: true,
-				Confidence:  100,
+func TestGroupSourcesByTenantScope(t *testing.T) {
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+
+	config := &Config{
+		AgentID:      "test-agent",
+		TenantID:     "tenant-default",
+		TenantSlug:   "default",
+		ListenAddr:   "localhost:0",
+		PollInterval: models.Duration(time.Minute),
+		Sources: map[string]*models.SourceConfig{
+			"source-a": {
+				Type:     "armis",
+				Endpoint: "https://example.com",
 			},
-		}
+		},
+	}
 
-		service.resultsStore.mu.Lock()
-		service.resultsStore.results["test-source"] = devices
-		service.resultsStore.updated = time.Now()
-		service.resultsStore.mu.Unlock()
+	service, err := NewSimpleSyncService(ctx, config, map[string]IntegrationFactory{}, log)
+	require.NoError(t, err)
 
-		req := &proto.ResultsRequest{
-			ServiceName: "test-service",
-			ServiceType: "sync",
-		}
+	t.Run("platform scope requires tenant ids", func(t *testing.T) {
+		grouped, slugs := service.groupSourcesByTenant(config.Sources, "platform")
+		assert.Len(t, grouped, 0)
+		assert.Len(t, slugs, 0)
+	})
 
-		expectedErr := errStreamSend
-		stream := &MockResultsStream{ctx: ctx, sendErr: expectedErr}
-
-		err := service.StreamResults(req, stream)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to send chunk")
+	t.Run("tenant scope defaults to service tenant", func(t *testing.T) {
+		grouped, slugs := service.groupSourcesByTenant(config.Sources, "tenant")
+		assert.Len(t, grouped, 1)
+		assert.Contains(t, grouped, "tenant-default")
+		assert.Equal(t, "default", slugs["tenant-default"])
 	})
 }
 

@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -38,9 +37,10 @@ import (
 )
 
 const (
-	syncServiceName   = "sync"
-	syncServiceType   = "sync"
-	syncResultsSource = "results"
+	syncServiceName           = "sync"
+	syncServiceType           = "sync"
+	syncResultsSource         = "results"
+	defaultConfigPollInterval = 5 * time.Minute
 )
 
 var (
@@ -106,8 +106,16 @@ type SimpleSyncService struct {
 	gatewayTenantSlug string
 	gatewayMu         sync.RWMutex
 
-	configMu      sync.RWMutex
-	configVersion string
+	configMu           sync.RWMutex
+	configVersion      string
+	configPollMu       sync.RWMutex
+	configPollInterval time.Duration
+
+	tenantMu           sync.RWMutex
+	tenantSources      map[string]map[string]*models.SourceConfig
+	tenantIntegrations map[string]map[string]Integration
+	tenantSlugs        map[string]string
+	tenantResults      map[string]*StreamingResultsStore
 
 	// Hot-reload support
 	discoveryTicker   *time.Ticker
@@ -154,6 +162,11 @@ func NewSimpleSyncServiceWithMetrics(
 		metrics:             metrics,
 		logger:              log,
 		reloadChan:          make(chan struct{}, 1),
+		tenantSources:       make(map[string]map[string]*models.SourceConfig),
+		tenantIntegrations:  make(map[string]map[string]Integration),
+		tenantSlugs:         make(map[string]string),
+		tenantResults:       make(map[string]*StreamingResultsStore),
+		configPollInterval:  defaultConfigPollInterval,
 	}
 
 	if config.GatewayAddr != "" {
@@ -221,6 +234,9 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 
 	// Run initial discovery immediately
 	s.launchTask(ctx, "discovery", s.runDiscovery)
+	if s.gatewayClient != nil {
+		s.launchTask(ctx, "config poll", s.configPollLoop)
+	}
 
 	for {
 		select {
@@ -325,100 +341,245 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		Time("started_at", start).
 		Msg("Starting discovery cycle")
 
-	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
+	tenantIntegrations := s.snapshotTenantIntegrations()
+	if len(tenantIntegrations) == 0 {
+		allDeviceUpdates, discoveryErrors := s.runDiscoveryForIntegrations(ctx, "", "", s.sources)
+		s.updateResultsStore(allDeviceUpdates)
+
+		if err := s.pushResultsForTenant(ctx, "", "", allDeviceUpdates); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to push sync results to gateway")
+		}
+
+		totalDevices := countDevices(allDeviceUpdates)
+		s.metrics.RecordActiveIntegrations(len(s.sources))
+		s.metrics.RecordTotalDevicesDiscovered(totalDevices)
+
+		s.logger.Info().
+			Int("total_devices", totalDevices).
+			Int("sources", len(allDeviceUpdates)).
+			Msg("Discovery cycle completed")
+
+		if len(discoveryErrors) > 0 {
+			return fmt.Errorf("discovery completed with %d errors: %w", len(discoveryErrors), errors.Join(discoveryErrors...))
+		}
+
+		return nil
+	}
 
 	var discoveryErrors []error
+	totalSources := 0
+	totalDevices := 0
 
-	for sourceName, integration := range s.sources {
-		s.logger.Info().Str("source", sourceName).Msg("Running discovery for source")
-		s.metrics.RecordDiscoveryAttempt(sourceName)
+	for tenantID, integrations := range tenantIntegrations {
+		tenantSlug := s.tenantSlugFor(tenantID)
+		tenantUpdates, tenantErrors := s.runDiscoveryForIntegrations(ctx, tenantID, tenantSlug, integrations)
+		if len(tenantErrors) > 0 {
+			discoveryErrors = append(discoveryErrors, tenantErrors...)
+		}
 
-		sourceStart := time.Now()
-
-		// Fetch devices from integration. `devices` is now `[]*models.DeviceUpdate`.
-		devices, err := integration.Fetch(ctx)
-		if err != nil {
-			s.logger.Error().Err(err).Str("source", sourceName).Msg("Discovery failed for source")
-			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
-
+		if len(tenantUpdates) == 0 {
 			continue
 		}
 
-		// Apply source-specific network blacklist filtering if configured
-		devices = s.applySourceBlacklist(sourceName, devices)
-		s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
+		totalSources += len(integrations)
+		s.updateTenantResults(tenantID, tenantUpdates)
 
-		allDeviceUpdates[sourceName] = devices
+		for _, devices := range tenantUpdates {
+			totalDevices += len(devices)
+		}
 
-		s.logger.Info().
-			Str("source", sourceName).
-			Int("devices_discovered", len(devices)).
-			Msg("Discovery completed for source")
-	}
-
-	// iterate through allDeviceUpdates and print the device names
-	for sourceName, devices := range allDeviceUpdates {
-		s.logger.Debug().
-			Str("source", sourceName).
-			Int("device_count", len(devices)).
-			Msg("Devices discovered in source")
-
-		for _, device := range devices {
-			logEvent := s.logger.Debug().
-				Str("source", sourceName).
-				Str("device_ip", device.IP)
-
-			// Add hostname if available
-			if device.Hostname != nil && *device.Hostname != "" {
-				logEvent = logEvent.Str("device_name", *device.Hostname)
-			}
-
-			// Add query label if present in metadata (primarily for Armis)
-			if queryLabel, ok := device.Metadata["query_label"]; ok && queryLabel != "" {
-				logEvent = logEvent.Str("query_label", queryLabel)
-			}
-
-			// Add integration type if present
-			if integrationType, ok := device.Metadata["integration_type"]; ok && integrationType != "" {
-				logEvent = logEvent.Str("integration_type", integrationType)
-			}
-
-			logEvent.Msg("Discovered device")
+		if err := s.pushResultsForTenant(ctx, tenantID, tenantSlug, tenantUpdates); err != nil {
+			s.logger.Error().Err(err).
+				Str("tenant_id", tenantID).
+				Msg("Failed to push sync results for tenant")
 		}
 	}
 
-	// Store results for GetResults calls
-	s.resultsStore.mu.Lock()
-	s.resultsStore.results = allDeviceUpdates
-	s.resultsStore.updated = time.Now()
-	s.resultsStore.mu.Unlock()
-
-	if err := s.pushResults(ctx, allDeviceUpdates); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to push sync results to gateway")
-	}
-
-	var totalDevices int
-
-	for _, devices := range allDeviceUpdates {
-		totalDevices += len(devices)
-	}
-
-	// Record overall metrics
-	s.metrics.RecordActiveIntegrations(len(s.sources))
+	s.metrics.RecordActiveIntegrations(totalSources)
 	s.metrics.RecordTotalDevicesDiscovered(totalDevices)
 
 	s.logger.Info().
 		Int("total_devices", totalDevices).
-		Int("sources", len(allDeviceUpdates)).
+		Int("sources", totalSources).
+		Int("tenants", len(tenantIntegrations)).
 		Msg("Discovery cycle completed")
 
-	// Return aggregated errors if any occurred
 	if len(discoveryErrors) > 0 {
 		return fmt.Errorf("discovery completed with %d errors: %w", len(discoveryErrors), errors.Join(discoveryErrors...))
 	}
 
 	return nil
+}
+
+func (s *SimpleSyncService) runDiscoveryForIntegrations(
+	ctx context.Context,
+	tenantID string,
+	tenantSlug string,
+	integrations map[string]Integration,
+) (map[string][]*models.DeviceUpdate, []error) {
+	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
+	var discoveryErrors []error
+
+	for sourceName, integration := range integrations {
+		logEvent := s.logger.Info().Str("source", sourceName)
+		if tenantID != "" {
+			logEvent = logEvent.Str("tenant_id", tenantID)
+		}
+		logEvent.Msg("Running discovery for source")
+
+		s.metrics.RecordDiscoveryAttempt(sourceName)
+
+		sourceStart := time.Now()
+		devices, err := integration.Fetch(ctx)
+		if err != nil {
+			s.logger.Error().Err(err).
+				Str("source", sourceName).
+				Str("tenant_id", tenantID).
+				Msg("Discovery failed for source")
+			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
+			continue
+		}
+
+		if tenantID != "" {
+			devices = s.applyTenantSourceBlacklist(tenantID, sourceName, devices)
+		} else {
+			devices = s.applySourceBlacklist(sourceName, devices)
+		}
+
+		s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
+		allDeviceUpdates[sourceName] = devices
+
+		s.logger.Info().
+			Str("source", sourceName).
+			Str("tenant_id", tenantID).
+			Str("tenant_slug", tenantSlug).
+			Int("devices_discovered", len(devices)).
+			Msg("Discovery completed for source")
+	}
+
+	s.logDiscoveredDevices(tenantID, allDeviceUpdates)
+
+	return allDeviceUpdates, discoveryErrors
+}
+
+func (s *SimpleSyncService) logDiscoveredDevices(tenantID string, allDeviceUpdates map[string][]*models.DeviceUpdate) {
+	for sourceName, devices := range allDeviceUpdates {
+		logEvent := s.logger.Debug().
+			Str("source", sourceName).
+			Int("device_count", len(devices))
+		if tenantID != "" {
+			logEvent = logEvent.Str("tenant_id", tenantID)
+		}
+		logEvent.Msg("Devices discovered in source")
+
+		for _, device := range devices {
+			entry := s.logger.Debug().
+				Str("source", sourceName).
+				Str("device_ip", device.IP)
+			if tenantID != "" {
+				entry = entry.Str("tenant_id", tenantID)
+			}
+
+			if device.Hostname != nil && *device.Hostname != "" {
+				entry = entry.Str("device_name", *device.Hostname)
+			}
+			if queryLabel, ok := device.Metadata["query_label"]; ok && queryLabel != "" {
+				entry = entry.Str("query_label", queryLabel)
+			}
+			if integrationType, ok := device.Metadata["integration_type"]; ok && integrationType != "" {
+				entry = entry.Str("integration_type", integrationType)
+			}
+
+			entry.Msg("Discovered device")
+		}
+	}
+}
+
+func (s *SimpleSyncService) updateResultsStore(allDeviceUpdates map[string][]*models.DeviceUpdate) {
+	s.resultsStore.mu.Lock()
+	s.resultsStore.results = allDeviceUpdates
+	s.resultsStore.updated = time.Now()
+	s.resultsStore.mu.Unlock()
+}
+
+func (s *SimpleSyncService) updateTenantResults(tenantID string, allDeviceUpdates map[string][]*models.DeviceUpdate) {
+	if tenantID == "" {
+		return
+	}
+
+	store := s.tenantResultsStore(tenantID)
+	store.mu.Lock()
+	store.results = allDeviceUpdates
+	store.updated = time.Now()
+	store.mu.Unlock()
+}
+
+func (s *SimpleSyncService) aggregateStatus() (int, int, int64) {
+	s.tenantMu.RLock()
+	tenantCount := len(s.tenantResults)
+	if tenantCount == 0 {
+		s.tenantMu.RUnlock()
+		return statusFromStore(s.resultsStore)
+	}
+	if tenantCount == 1 {
+		var store *StreamingResultsStore
+		for _, sstore := range s.tenantResults {
+			store = sstore
+			break
+		}
+		s.tenantMu.RUnlock()
+		return statusFromStore(store)
+	}
+	stores := make([]*StreamingResultsStore, 0, tenantCount)
+	for _, store := range s.tenantResults {
+		stores = append(stores, store)
+	}
+	s.tenantMu.RUnlock()
+
+	totalDevices := 0
+	totalSources := 0
+	lastUpdated := int64(0)
+
+	for _, store := range stores {
+		if store == nil {
+			continue
+		}
+		store.mu.RLock()
+		totalSources += len(store.results)
+		for _, devices := range store.results {
+			totalDevices += len(devices)
+		}
+		if updated := store.updated.Unix(); updated > lastUpdated {
+			lastUpdated = updated
+		}
+		store.mu.RUnlock()
+	}
+
+	return totalDevices, totalSources, lastUpdated
+}
+
+func statusFromStore(store *StreamingResultsStore) (int, int, int64) {
+	if store == nil {
+		return 0, 0, 0
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	deviceCount := 0
+	for _, devices := range store.results {
+		deviceCount += len(devices)
+	}
+
+	return deviceCount, len(store.results), store.updated.Unix()
+}
+
+func countDevices(allDeviceUpdates map[string][]*models.DeviceUpdate) int {
+	total := 0
+	for _, devices := range allDeviceUpdates {
+		total += len(devices)
+	}
+	return total
 }
 
 // runArmisUpdates queries SRQL and updates Armis with device availability
@@ -433,18 +594,12 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	s.logger.Info().Msg("Starting Armis update cycle")
 
 	var updateErrors []error
-
-	for sourceName, integration := range s.sources {
-		s.metrics.RecordReconciliationAttempt(sourceName)
-
-		sourceStart := time.Now()
-
-		if err := integration.Reconcile(ctx); err != nil {
-			s.logger.Error().Err(err).Str("source", sourceName).Msg("Armis update failed for source")
-			s.metrics.RecordReconciliationFailure(sourceName, err, time.Since(sourceStart))
-			updateErrors = append(updateErrors, fmt.Errorf("reconcile source %s: %w", sourceName, err))
-		} else {
-			s.metrics.RecordReconciliationSuccess(sourceName, 0, time.Since(sourceStart)) // updateCount will be 0 for now
+	tenantIntegrations := s.snapshotTenantIntegrations()
+	if len(tenantIntegrations) == 0 {
+		updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, "", s.sources)...)
+	} else {
+		for tenantID, integrations := range tenantIntegrations {
+			updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, tenantID, integrations)...)
 		}
 	}
 
@@ -458,22 +613,42 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	return nil
 }
 
+func (s *SimpleSyncService) runArmisUpdatesForIntegrations(
+	ctx context.Context,
+	tenantID string,
+	integrations map[string]Integration,
+) []error {
+	var updateErrors []error
+
+	for sourceName, integration := range integrations {
+		s.metrics.RecordReconciliationAttempt(sourceName)
+
+		sourceStart := time.Now()
+
+		if err := integration.Reconcile(ctx); err != nil {
+			s.logger.Error().Err(err).
+				Str("source", sourceName).
+				Str("tenant_id", tenantID).
+				Msg("Armis update failed for source")
+			s.metrics.RecordReconciliationFailure(sourceName, err, time.Since(sourceStart))
+			updateErrors = append(updateErrors, fmt.Errorf("reconcile source %s: %w", sourceName, err))
+		} else {
+			s.metrics.RecordReconciliationSuccess(sourceName, 0, time.Since(sourceStart))
+		}
+	}
+
+	return updateErrors
+}
+
 // GetStatus implements simple health check
 func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	s.resultsStore.mu.RLock()
-	defer s.resultsStore.mu.RUnlock()
-
-	var deviceCount int
-
-	for _, devices := range s.resultsStore.results {
-		deviceCount += len(devices)
-	}
+	deviceCount, sourceCount, lastUpdated := s.aggregateStatus()
 
 	healthData := map[string]interface{}{
 		"status":         "healthy",
-		"sources":        len(s.resultsStore.results),
+		"sources":        sourceCount,
 		"devices":        deviceCount,
-		"last_discovery": s.resultsStore.updated.Unix(),
+		"last_discovery": lastUpdated,
 		"timestamp":      time.Now().Unix(),
 	}
 
@@ -493,63 +668,7 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 
 // GetResults implements legacy non-streaming interface for backward compatibility
 func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
-	s.resultsStore.mu.RLock()
-	defer s.resultsStore.mu.RUnlock()
-
-	var allDeviceUpdates []*models.DeviceUpdate
-
-	s.logger.Debug().
-		Int("total_sources", len(s.resultsStore.results)).
-		Msg("SYNC DEBUG: GetResults called")
-
-	for sourceName, devices := range s.resultsStore.results {
-		s.logger.Debug().
-			Str("source_name", sourceName).
-			Int("device_count", len(devices)).
-			Msg("SYNC DEBUG: Source devices")
-
-		if len(devices) > 0 {
-			s.logger.Debug().
-				Str("source_name", sourceName).
-				Str("sample_device_ip", devices[0].IP).
-				Str("sample_device_source", string(devices[0].Source)).
-				Int("sample_device_metadata_keys", len(devices[0].Metadata)).
-				Msg("SYNC DEBUG: Sample device summary")
-		}
-
-		allDeviceUpdates = append(allDeviceUpdates, devices...)
-	}
-
-	s.logger.Debug().
-		Int("total_device_updates", len(allDeviceUpdates)).
-		Msg("SYNC DEBUG: About to marshal DeviceUpdate array")
-
-	resultsJSON, err := json.Marshal(allDeviceUpdates)
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Int("device_count", len(allDeviceUpdates)).
-			Msg("SYNC DEBUG: Failed to marshal DeviceUpdate array")
-
-		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
-	}
-
-	s.logger.Debug().
-		Int("json_bytes", len(resultsJSON)).
-		Int("device_count", len(allDeviceUpdates)).
-		Msg("SYNC DEBUG: Successfully marshaled DeviceUpdate array")
-
-	return &proto.ResultsResponse{
-		Available:       true,
-		Data:            resultsJSON,
-		ServiceName:     req.ServiceName,
-		ServiceType:     syncServiceType, // Always return "sync" as service type regardless of request
-		AgentId:         s.config.AgentID,
-		PollerId:        req.PollerId,
-		Timestamp:       time.Now().Unix(),
-		CurrentSequence: fmt.Sprintf("%d", s.resultsStore.updated.Unix()),
-		HasNewData:      true,
-	}, nil
+	return nil, status.Errorf(codes.Unimplemented, "sync pull results are deprecated")
 }
 
 // GetServiceMetrics returns current service metrics for monitoring
@@ -664,6 +783,14 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 		return nil
 	}
 
+	if err := s.ensureGatewayConnected(ctx); err != nil {
+		return err
+	}
+
+	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		return err
+	}
+
 	configReq := &proto.AgentConfigRequest{
 		AgentId:       s.config.AgentID,
 		ConfigVersion: s.getConfigVersion(),
@@ -680,6 +807,10 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 	if configResp.NotModified {
 		s.logger.Debug().Str("version", s.getConfigVersion()).Msg("Sync config not modified")
 		return nil
+	}
+
+	if configResp.ConfigPollIntervalSec > 0 {
+		s.setConfigPollInterval(time.Duration(configResp.ConfigPollIntervalSec) * time.Second)
 	}
 
 	if len(configResp.ConfigJson) == 0 {
@@ -700,6 +831,7 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 	updatedCfg := s.config
 	updatedCfg.Sources = payload.Sources
 	s.UpdateConfig(&updatedCfg)
+	s.setTenantSources(payload.Sources, payload.Scope)
 	s.setConfigVersion(configResp.ConfigVersion)
 
 	s.logger.Info().
@@ -708,6 +840,53 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 		Msg("Applied sync config from gateway")
 
 	return nil
+}
+
+func (s *SimpleSyncService) configPollLoop(ctx context.Context) error {
+	timer := time.NewTimer(s.getConfigPollInterval())
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case <-timer.C:
+			if err := s.fetchAndApplyConfig(ctx); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to refresh sync config from gateway")
+			}
+			timer.Reset(s.getConfigPollInterval())
+		}
+	}
+}
+
+func (s *SimpleSyncService) getConfigPollInterval() time.Duration {
+	s.configPollMu.RLock()
+	defer s.configPollMu.RUnlock()
+	if s.configPollInterval <= 0 {
+		return defaultConfigPollInterval
+	}
+	return s.configPollInterval
+}
+
+func (s *SimpleSyncService) setConfigPollInterval(interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+
+	const minInterval = 30 * time.Second
+	const maxInterval = 24 * time.Hour
+
+	if interval < minInterval {
+		interval = minInterval
+	} else if interval > maxInterval {
+		interval = maxInterval
+	}
+
+	s.configPollMu.Lock()
+	s.configPollInterval = interval
+	s.configPollMu.Unlock()
 }
 
 func (s *SimpleSyncService) getConfigVersion() string {
@@ -739,9 +918,7 @@ func (s *SimpleSyncService) buildResultsChunks(
 	allDeviceUpdates []*models.DeviceUpdate,
 	sequence string,
 ) ([]*proto.ResultsChunk, error) {
-	// Calculate chunk size to keep each chunk under ~1MB
-	const maxChunkSize = 1024 * 1024 // 1MB
-	const avgDeviceSize = 768        // DeviceUpdate is a bit larger, adjust estimate
+	const maxChunkSize = 3 * 1024 * 1024 // 3MB, keep under default 4MB gRPC limit
 
 	if len(allDeviceUpdates) == 0 {
 		return []*proto.ResultsChunk{{
@@ -754,35 +931,47 @@ func (s *SimpleSyncService) buildResultsChunks(
 		}}, nil
 	}
 
-	chunkDeviceCount := maxChunkSize / avgDeviceSize
-	if chunkDeviceCount <= 0 {
-		chunkDeviceCount = 1
+	var payloads [][]byte
+	var current []*models.DeviceUpdate
+	var currentData []byte
+
+	for _, device := range allDeviceUpdates {
+		candidate := append(current, device)
+		data, err := json.Marshal(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal chunk candidate: %w", err)
+		}
+
+		if len(data) > maxChunkSize && len(current) > 0 {
+			payloads = append(payloads, currentData)
+			current = []*models.DeviceUpdate{device}
+			currentData, err = json.Marshal(current)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal chunk: %w", err)
+			}
+			continue
+		}
+
+		current = candidate
+		currentData = data
 	}
 
-	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
+	if len(current) > 0 {
+		payloads = append(payloads, currentData)
+	}
+
+	totalChunks := len(payloads)
 	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
+	timestamp := time.Now().Unix()
 
-	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-		start := chunkIndex * chunkDeviceCount
-		end := start + chunkDeviceCount
-
-		if end > len(allDeviceUpdates) {
-			end = len(allDeviceUpdates)
-		}
-
-		chunkDevices := allDeviceUpdates[start:end]
-		chunkData, err := json.Marshal(chunkDevices)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal chunk: %w", err)
-		}
-
+	for chunkIndex, payload := range payloads {
 		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            chunkData,
+			Data:            payload,
 			IsFinal:         chunkIndex == totalChunks-1,
 			ChunkIndex:      safeIntToInt32(chunkIndex),
 			TotalChunks:     safeIntToInt32(totalChunks),
 			CurrentSequence: sequence,
-			Timestamp:       time.Now().Unix(),
+			Timestamp:       timestamp,
 		})
 	}
 
@@ -791,8 +980,9 @@ func (s *SimpleSyncService) buildResultsChunks(
 
 func (s *SimpleSyncService) buildGatewayStatusChunks(
 	chunks []*proto.ResultsChunk,
+	tenantID string,
+	tenantSlug string,
 ) []*proto.GatewayStatusChunk {
-	tenantID, tenantSlug := s.tenantInfo()
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
@@ -833,8 +1023,10 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 	return statusChunks
 }
 
-func (s *SimpleSyncService) pushResults(
+func (s *SimpleSyncService) pushResultsForTenant(
 	ctx context.Context,
+	tenantID string,
+	tenantSlug string,
 	allDeviceUpdates map[string][]*models.DeviceUpdate,
 ) error {
 	if s.gatewayClient == nil {
@@ -849,18 +1041,25 @@ func (s *SimpleSyncService) pushResults(
 		return err
 	}
 
-	updates := s.collectDeviceUpdates(allDeviceUpdates)
+	tenantID, tenantSlug = s.resolveTenantInfo(tenantID, tenantSlug)
+	if tenantID == "" {
+		s.logger.Warn().Msg("Skipping sync results push without tenant id")
+		return nil
+	}
 
-	s.resultsStore.mu.RLock()
-	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
-	s.resultsStore.mu.RUnlock()
+	updates := s.collectDeviceUpdates(allDeviceUpdates)
+	if len(updates) == 0 {
+		return nil
+	}
+
+	sequence := s.tenantSequence(tenantID)
 
 	chunks, err := s.buildResultsChunks(updates, sequence)
 	if err != nil {
 		return err
 	}
 
-	statusChunks := s.buildGatewayStatusChunks(chunks)
+	statusChunks := s.buildGatewayStatusChunks(chunks, tenantID, tenantSlug)
 	if len(statusChunks) == 0 {
 		return nil
 	}
@@ -872,119 +1071,27 @@ func (s *SimpleSyncService) pushResults(
 	return err
 }
 
-// sendEmptyResultsChunk sends an empty chunk when there are no device updates
-func (s *SimpleSyncService) sendEmptyResultsChunk(stream proto.AgentService_StreamResultsServer) error {
-	s.logger.Warn().Msg("StreamResults - no device updates to send, sending empty array")
-	// Send empty final chunk
-	return stream.Send(&proto.ResultsChunk{
-		Data:            []byte("[]"),
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: fmt.Sprintf("%d", s.resultsStore.updated.Unix()),
-		Timestamp:       time.Now().Unix(),
-	})
+func (s *SimpleSyncService) resolveTenantInfo(tenantID, tenantSlug string) (string, string) {
+	if tenantID != "" || tenantSlug != "" {
+		return tenantID, tenantSlug
+	}
+
+	return s.tenantInfo()
 }
 
-// sendDeviceChunks splits device updates into chunks and sends them to the client
-func (s *SimpleSyncService) sendDeviceChunks(
-	allDeviceUpdates []*models.DeviceUpdate,
-	stream proto.AgentService_StreamResultsServer,
-) error {
-	// Calculate chunk size to keep each chunk under ~1MB
-	const maxChunkSize = 1024 * 1024 // 1MB
-
-	const avgDeviceSize = 768 // DeviceUpdate is a bit larger, adjust estimate
-
-	chunkDeviceCount := maxChunkSize / avgDeviceSize
-	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
-	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
-
-	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-		if err := s.sendSingleChunk(allDeviceUpdates, chunkIndex, chunkDeviceCount, totalChunks, sequence, stream); err != nil {
-			return err
-		}
+func (s *SimpleSyncService) tenantSequence(tenantID string) string {
+	if tenantID == "" {
+		s.resultsStore.mu.RLock()
+		sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
+		s.resultsStore.mu.RUnlock()
+		return sequence
 	}
 
-	s.logger.Info().
-		Int("total_devices", len(allDeviceUpdates)).
-		Int("total_chunks", totalChunks).
-		Str("sequence", sequence).
-		Msg("Completed streaming results")
-
-	return nil
-}
-
-// sendSingleChunk prepares and sends a single chunk of device updates
-func (s *SimpleSyncService) sendSingleChunk(
-	allDeviceUpdates []*models.DeviceUpdate,
-	chunkIndex, chunkDeviceCount, totalChunks int,
-	sequence string,
-	stream proto.AgentService_StreamResultsServer,
-) error {
-	start := chunkIndex * chunkDeviceCount
-	end := start + chunkDeviceCount
-
-	if end > len(allDeviceUpdates) {
-		end = len(allDeviceUpdates)
-	}
-
-	chunkDevices := allDeviceUpdates[start:end]
-
-	chunkData, err := json.Marshal(chunkDevices)
-	if err != nil {
-		s.logger.Error().
-			Err(err).
-			Int("chunk_index", chunkIndex).
-			Int("device_count", len(chunkDevices)).
-			Msg("SYNC DEBUG: Failed to marshal chunk")
-
-		return status.Errorf(codes.Internal, "failed to marshal chunk: %v", err)
-	}
-
-	s.logger.Debug().
-		Int("chunk_index", chunkIndex).
-		Int("chunk_bytes", len(chunkData)).
-		Int("device_count", len(chunkDevices)).
-		Msg("SYNC DEBUG: Successfully marshaled chunk")
-
-	if len(chunkDevices) > 0 {
-		sample := chunkDevices[0]
-		s.logger.Debug().
-			Int("chunk_index", chunkIndex).
-			Str("sample_device_ip", sample.IP).
-			Str("sample_device_source", string(sample.Source)).
-			Int("sample_device_metadata_keys", len(sample.Metadata)).
-			Msg("SYNC DEBUG: Sample device summary in chunk")
-	}
-
-	chunk := &proto.ResultsChunk{
-		Data:            chunkData,
-		IsFinal:         chunkIndex == totalChunks-1,
-		ChunkIndex:      safeIntToInt32(chunkIndex),
-		TotalChunks:     safeIntToInt32(totalChunks),
-		CurrentSequence: sequence,
-		Timestamp:       time.Now().Unix(),
-	}
-
-	s.logger.Info().
-		Int("chunk_index", chunkIndex).
-		Int("chunk_data_size", len(chunkData)).
-		Bool("is_final", chunk.IsFinal).
-		Msg("StreamResults - sending chunk to poller")
-
-	if err := stream.Send(chunk); err != nil {
-		if errors.Is(err, io.EOF) {
-			s.logger.Info().Msg("StreamResults - client closed stream")
-			return nil
-		}
-
-		s.logger.Error().Err(err).Msg("StreamResults - failed to send chunk")
-
-		return status.Errorf(codes.Internal, "failed to send chunk: %v", err)
-	}
-
-	return nil
+	store := s.tenantResultsStore(tenantID)
+	store.mu.RLock()
+	sequence := fmt.Sprintf("%d", store.updated.Unix())
+	store.mu.RUnlock()
+	return sequence
 }
 
 // StreamResults implements streaming interface for large datasets
@@ -996,16 +1103,7 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 		Str("poller_id", req.PollerId).
 		Msg("StreamResults called - sync service received request")
 
-	s.resultsStore.mu.RLock()
-	defer s.resultsStore.mu.RUnlock()
-
-	allDeviceUpdates := s.collectDeviceUpdates(s.resultsStore.results)
-
-	if len(allDeviceUpdates) == 0 {
-		return s.sendEmptyResultsChunk(stream)
-	}
-
-	return s.sendDeviceChunks(allDeviceUpdates, stream)
+	return status.Errorf(codes.Unimplemented, "sync pull results are deprecated")
 }
 
 // initializeIntegrations creates integrations for all configured sources
@@ -1019,6 +1117,141 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 
 		s.sources[name] = s.createIntegration(ctx, src, factory)
 	}
+}
+
+func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceConfig, scope string) {
+	grouped, slugs := s.groupSourcesByTenant(sources, scope)
+	tenantIntegrations := make(map[string]map[string]Integration, len(grouped))
+	tenantResults := make(map[string]*StreamingResultsStore, len(grouped))
+
+	for tenantID, sourceMap := range grouped {
+		integrations := make(map[string]Integration, len(sourceMap))
+		for name, src := range sourceMap {
+			factory, ok := s.registry[src.Type]
+			if !ok {
+				s.logger.Warn().
+					Str("source_type", src.Type).
+					Str("tenant_id", tenantID).
+					Msg("Unknown source type for tenant")
+				continue
+			}
+
+			integrations[name] = s.createIntegration(s.ctx, src, factory)
+		}
+
+		if len(integrations) == 0 {
+			continue
+		}
+
+		tenantIntegrations[tenantID] = integrations
+		tenantResults[tenantID] = &StreamingResultsStore{
+			results: make(map[string][]*models.DeviceUpdate),
+		}
+	}
+
+	s.tenantMu.Lock()
+	s.tenantSources = grouped
+	s.tenantIntegrations = tenantIntegrations
+	s.tenantSlugs = slugs
+	s.tenantResults = tenantResults
+	s.tenantMu.Unlock()
+}
+
+func (s *SimpleSyncService) groupSourcesByTenant(
+	sources map[string]*models.SourceConfig,
+	scope string,
+) (map[string]map[string]*models.SourceConfig, map[string]string) {
+	grouped := make(map[string]map[string]*models.SourceConfig)
+	slugs := make(map[string]string)
+	defaultTenantID, defaultTenantSlug := s.tenantInfo()
+	allowDefaultTenant := scope != "platform"
+
+	for name, src := range sources {
+		if src == nil {
+			continue
+		}
+
+		tenantID := src.TenantID
+		tenantSlug := src.TenantSlug
+
+		if tenantID == "" && allowDefaultTenant {
+			tenantID = defaultTenantID
+		}
+		if tenantSlug == "" && allowDefaultTenant {
+			tenantSlug = defaultTenantSlug
+		}
+
+		if tenantID == "" {
+			s.logger.Warn().
+				Str("source", name).
+				Msg("Skipping source without tenant_id")
+			continue
+		}
+
+		if grouped[tenantID] == nil {
+			grouped[tenantID] = make(map[string]*models.SourceConfig)
+		}
+
+		grouped[tenantID][name] = src
+
+		if tenantSlug != "" && slugs[tenantID] == "" {
+			slugs[tenantID] = tenantSlug
+		}
+	}
+
+	return grouped, slugs
+}
+
+func (s *SimpleSyncService) snapshotTenantIntegrations() map[string]map[string]Integration {
+	s.tenantMu.RLock()
+	defer s.tenantMu.RUnlock()
+
+	if len(s.tenantIntegrations) == 0 {
+		return nil
+	}
+
+	snapshot := make(map[string]map[string]Integration, len(s.tenantIntegrations))
+	for tenantID, integrations := range s.tenantIntegrations {
+		if len(integrations) == 0 {
+			continue
+		}
+
+		inner := make(map[string]Integration, len(integrations))
+		for name, integration := range integrations {
+			inner[name] = integration
+		}
+		snapshot[tenantID] = inner
+	}
+
+	return snapshot
+}
+
+func (s *SimpleSyncService) tenantSlugFor(tenantID string) string {
+	s.tenantMu.RLock()
+	defer s.tenantMu.RUnlock()
+	return s.tenantSlugs[tenantID]
+}
+
+func (s *SimpleSyncService) tenantResultsStore(tenantID string) *StreamingResultsStore {
+	s.tenantMu.RLock()
+	store := s.tenantResults[tenantID]
+	s.tenantMu.RUnlock()
+	if store != nil {
+		return store
+	}
+
+	s.tenantMu.Lock()
+	defer s.tenantMu.Unlock()
+	store = s.tenantResults[tenantID]
+	if store != nil {
+		return store
+	}
+	store = &StreamingResultsStore{results: make(map[string][]*models.DeviceUpdate)}
+	if s.tenantResults == nil {
+		s.tenantResults = make(map[string]*StreamingResultsStore)
+	}
+	s.tenantResults[tenantID] = store
+	return store
 }
 
 // applySourceBlacklist applies source-specific network blacklist filtering to devices.
@@ -1047,6 +1280,44 @@ func (s *SimpleSyncService) applySourceBlacklist(
 			Int("remaining_count", len(filteredDevices)).
 			Msg("Applied source-specific network blacklist filtering to devices")
 	}
+	return filteredDevices
+}
+
+func (s *SimpleSyncService) applyTenantSourceBlacklist(
+	tenantID string,
+	sourceName string,
+	devices []*models.DeviceUpdate,
+) (filteredDevices []*models.DeviceUpdate) {
+	s.tenantMu.RLock()
+	tenantSources := s.tenantSources[tenantID]
+	sourceConfig := tenantSources[sourceName]
+	s.tenantMu.RUnlock()
+
+	if sourceConfig == nil || len(sourceConfig.NetworkBlacklist) == 0 {
+		return devices
+	}
+
+	networkBlacklist, err := NewNetworkBlacklist(sourceConfig.NetworkBlacklist, s.logger)
+	if err != nil {
+		s.logger.Error().Err(err).
+			Str("source", sourceName).
+			Str("tenant_id", tenantID).
+			Msg("Failed to create network blacklist for tenant source")
+		return devices
+	}
+
+	originalCount := len(devices)
+	filteredDevices = networkBlacklist.FilterDevices(devices)
+
+	if filteredCount := originalCount - len(filteredDevices); filteredCount > 0 {
+		s.logger.Info().
+			Str("source", sourceName).
+			Str("tenant_id", tenantID).
+			Int("filtered_count", filteredCount).
+			Int("remaining_count", len(filteredDevices)).
+			Msg("Applied tenant source network blacklist filtering to devices")
+	}
+
 	return filteredDevices
 }
 
