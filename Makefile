@@ -199,6 +199,39 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
 	@cd web-ng && mix precommit
 
+.PHONY: test-integration
+test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
+	@echo "$(COLOR_BOLD)Running serviceradar_core integration tests$(COLOR_RESET)"
+	@set -eu; \
+	ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
+	db_url="$${SERVICERADAR_TEST_DATABASE_URL:-$${SRQL_TEST_DATABASE_URL:-}}"; \
+	if [ -z "$${db_url}" ]; then \
+	  if [ -n "$${CNPG_HOST:-}" ] || [ -n "$${CNPG_PASSWORD:-}" ]; then \
+	    db_host="$${CNPG_HOST:-localhost}"; \
+	    db_port="$${CNPG_PORT:-5455}"; \
+	    db_name="$${SERVICERADAR_TEST_DATABASE:-$${CNPG_DATABASE:-serviceradar}}"; \
+	    db_user="$${CNPG_USERNAME:-serviceradar}"; \
+	    db_pass="$${CNPG_PASSWORD:-}"; \
+	    db_sslmode="$${CNPG_SSL_MODE:-verify-full}"; \
+	    if [ -z "$${db_pass}" ]; then \
+	      echo "CNPG_PASSWORD is required to build the test DSN." >&2; \
+	      exit 1; \
+	    fi; \
+	    db_url="postgres://$${db_user}:$${db_pass}@$${db_host}:$${db_port}/$${db_name}?sslmode=$${db_sslmode}"; \
+	    export CNPG_TLS_SERVER_NAME="$${CNPG_TLS_SERVER_NAME:-$${db_host}}"; \
+	  fi; \
+	fi; \
+	if [ -z "$${db_url}" ]; then \
+	  echo "Set SERVICERADAR_TEST_DATABASE_URL, SRQL_TEST_DATABASE_URL, or CNPG_* env vars." >&2; \
+	  exit 1; \
+	fi; \
+	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
+	cd elixir/serviceradar_core; \
+	MIX_ENV=test mix deps.get; \
+	MIX_ENV=test mix ecto.migrate; \
+	MIX_ENV=test mix test --include integration --no-start
+
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"

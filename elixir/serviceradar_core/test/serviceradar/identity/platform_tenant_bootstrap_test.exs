@@ -15,7 +15,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrapTest do
   @zero_uuid "00000000-0000-0000-0000-000000000000"
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:serviceradar_core)
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 

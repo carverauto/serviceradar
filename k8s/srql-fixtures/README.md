@@ -44,10 +44,19 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 
 ### Access from CI
 
-- Set `SRQL_TEST_DATABASE_URL` (or `SRQL_TEST_DATABASE_URL_FILE`) to the app DSN, e.g., `postgres://srql:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture`.
-- Set `SRQL_TEST_ADMIN_URL` (or `SRQL_TEST_ADMIN_URL_FILE`) to the admin DSN, e.g., `postgres://srql_hydra:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/postgres`. The test harness uses the admin connection to drop/re-create `srql_fixture` before every run.
+- The fixture enforces TLS (`hostnossl` connections are rejected). Use `sslmode=require` (encryption only) or `sslmode=verify-full` with the CA certificate.
+- Set `SRQL_TEST_DATABASE_URL` (or `SRQL_TEST_DATABASE_URL_FILE`) to the app DSN, e.g., `postgres://srql:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture?sslmode=verify-full`.
+- Set `SRQL_TEST_ADMIN_URL` (or `SRQL_TEST_ADMIN_URL_FILE`) to the admin DSN, e.g., `postgres://srql_hydra:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/postgres?sslmode=verify-full`. The test harness uses the admin connection to drop/re-create `srql_fixture` before every run.
+- Export the CA cert for strict verification (used by Rust + Elixir tests):
+
+```bash
+kubectl -n srql-fixtures get secret srql-fixture-ca \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
+export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
+export SRQL_TEST_DATABASE_CA_CERT=/tmp/srql-fixture-ca.crt
+```
 - **BuildBuddy**: Mount both DSNs into the executor pods (for example under `/var/run/secrets/srql-fixture`) and export them with `--action_env=SRQL_TEST_DATABASE_URL_FILE=/var/run/secrets/.../database_url` and `--action_env=SRQL_TEST_ADMIN_URL_FILE=...`.
-- **GitHub custom runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Add the DSNs as runner secrets (or files).
+- **GitHub custom runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Add the DSNs + CA cert path as runner secrets (or files).
 
 ### Maintenance
 

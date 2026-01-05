@@ -260,8 +260,10 @@ Ecto.Adapters.SQL.query!(ServiceRadar.Repo, "SELECT 1", [])
 mix test --no-start
 
 # Run integration tests (requires database)
-mix ecto.create && mix ecto.migrate
-mix test --include integration
+# Provide a DSN (prefers SERVICERADAR_TEST_DATABASE_URL, falls back to SRQL_TEST_DATABASE_URL)
+export SERVICERADAR_TEST_DATABASE_URL="postgres://user:pass@host:5432/serviceradar_test?sslmode=disable"
+mix ecto.migrate
+mix test --include integration --no-start
 ```
 
 ## License

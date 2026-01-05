@@ -14,7 +14,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   alias ServiceRadar.Integrations.{IntegrationSource, SyncConfigGenerator}
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:serviceradar_core)
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 

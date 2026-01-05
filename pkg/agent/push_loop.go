@@ -112,8 +112,11 @@ func (p *PushLoop) setEnrolled(v bool) {
 	p.stateMu.Unlock()
 }
 
-// Default config poll interval (5 minutes)
-const defaultConfigPollInterval = 5 * time.Minute
+// Default intervals
+const (
+	defaultPushInterval       = 30 * time.Second
+	defaultConfigPollInterval = 5 * time.Minute
+)
 
 // Check type constants for goconst compliance
 const (

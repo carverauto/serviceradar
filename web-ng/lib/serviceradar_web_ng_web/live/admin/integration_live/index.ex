@@ -165,36 +165,36 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
-    if not sync_agent_available?(tenant_id) do
+    if sync_agent_available?(tenant_id) do
+      # Add tenant_id to params
+      params = Map.put(params, "tenant_id", tenant_id)
+
+      # Handle credentials JSON if provided
+      params = parse_credentials_json(params)
+
+      form =
+        socket.assigns.create_form.source
+        |> AshPhoenix.Form.validate(params)
+
+      case AshPhoenix.Form.submit(form, params: params, actor: actor) do
+        {:ok, _source} ->
+          {:noreply,
+           socket
+           |> assign(:show_create_modal, false)
+           |> assign(:sources, list_sources(tenant_id))
+           |> assign(:create_form, build_create_form(tenant_id))
+           |> put_flash(:info, "Integration source created successfully")}
+
+        {:error, form} ->
+          {:noreply,
+           socket
+           |> assign(:create_form, to_form(form))
+           |> put_flash(:error, "Failed to create integration source")}
+      end
+    else
       {:noreply,
        socket
        |> put_flash(:error, "Install and register an agent before adding integrations.")}
-    else
-    # Add tenant_id to params
-    params = Map.put(params, "tenant_id", tenant_id)
-
-    # Handle credentials JSON if provided
-    params = parse_credentials_json(params)
-
-    form =
-      socket.assigns.create_form.source
-      |> AshPhoenix.Form.validate(params)
-
-    case AshPhoenix.Form.submit(form, params: params, actor: actor) do
-      {:ok, _source} ->
-        {:noreply,
-         socket
-         |> assign(:show_create_modal, false)
-         |> assign(:sources, list_sources(tenant_id))
-         |> assign(:create_form, build_create_form(tenant_id))
-         |> put_flash(:info, "Integration source created successfully")}
-
-      {:error, form} ->
-        {:noreply,
-         socket
-         |> assign(:create_form, to_form(form))
-         |> put_flash(:error, "Failed to create integration source")}
-    end
     end
   end
 

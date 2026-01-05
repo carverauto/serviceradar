@@ -12,7 +12,7 @@ defmodule ServiceRadar.StatusHandlerIntegrationTest do
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:serviceradar_core)
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 
