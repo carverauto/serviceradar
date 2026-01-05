@@ -60,7 +60,7 @@ serde_json = { version = "~0.8", optional = true }
 may = { version = "~0.3", optional = true }
 toml = "0.5"
 time = { version = "0.3", features = ["parsing", "formatting"] }
-time-tz = "0.3"
+time-tz = "2.0"
 tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = { workspace = true }
 prost = { workspace = true }
