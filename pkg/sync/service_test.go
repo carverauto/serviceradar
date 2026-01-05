@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -498,6 +499,101 @@ func TestBuildResultsChunks(t *testing.T) {
 	})
 }
 
+func TestBuildGatewayStatusChunks(t *testing.T) {
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+
+	service, err := NewSimpleSyncService(ctx, &Config{
+		ListenAddr: "localhost:0",
+		Sources: map[string]*models.SourceConfig{
+			"test": {
+				Type:     "test",
+				Endpoint: "http://example.com",
+			},
+		},
+	}, nil, log)
+	require.NoError(t, err)
+
+	payload := []byte(`[{"device_id":"dev-1"}]`)
+	chunk := &proto.ResultsChunk{
+		Data:            payload,
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: "seq-42",
+		Timestamp:       12345,
+	}
+
+	statusChunks := service.buildGatewayStatusChunks([]*proto.ResultsChunk{chunk}, "tenant-1", "tenant-slug")
+	require.Len(t, statusChunks, 1)
+
+	statusChunk := statusChunks[0]
+	require.Len(t, statusChunk.Services, 1)
+
+	serviceStatus := statusChunk.Services[0]
+	assert.Equal(t, syncServiceName, serviceStatus.ServiceName)
+	assert.Equal(t, syncServiceType, serviceStatus.ServiceType)
+	assert.Equal(t, syncResultsSource, serviceStatus.Source)
+	assert.Equal(t, payload, serviceStatus.Message)
+	assert.Equal(t, "tenant-1", serviceStatus.TenantId)
+	assert.Equal(t, "tenant-slug", serviceStatus.TenantSlug)
+	assert.Equal(t, chunk.Timestamp, statusChunk.Timestamp)
+	assert.Equal(t, chunk.ChunkIndex, statusChunk.ChunkIndex)
+	assert.Equal(t, chunk.TotalChunks, statusChunk.TotalChunks)
+	assert.True(t, statusChunk.IsFinal)
+}
+
+func TestBuildResultsChunksSizeBudget(t *testing.T) {
+	ctx := context.Background()
+	log := logger.NewTestLogger()
+
+	service, err := NewSimpleSyncService(ctx, &Config{
+		ListenAddr: "localhost:0",
+		Sources: map[string]*models.SourceConfig{
+			"test": {
+				Type:     "test",
+				Endpoint: "http://example.com",
+			},
+		},
+	}, nil, log)
+	require.NoError(t, err)
+
+	const maxChunkSize = 3 * 1024 * 1024
+	largeValue := strings.Repeat("a", 1024*1024)
+
+	var devices []*models.DeviceUpdate
+	for i := 0; i < 6; i++ {
+		devices = append(devices, &models.DeviceUpdate{
+			DeviceID:    fmt.Sprintf("device-%d", i),
+			IP:          fmt.Sprintf("10.0.0.%d", i+1),
+			Source:      models.DiscoverySourceIntegration,
+			AgentID:     "test-agent",
+			PollerID:    "test-poller",
+			Timestamp:   time.Now(),
+			IsAvailable: true,
+			Confidence:  100,
+			Metadata: map[string]string{
+				"blob": fmt.Sprintf("%s-%d", largeValue, i),
+			},
+		})
+	}
+
+	chunks, err := service.buildResultsChunks(devices, "seq-blob")
+	require.NoError(t, err)
+	require.Greater(t, len(chunks), 1)
+
+	var decodedCount int
+	for _, chunk := range chunks {
+		require.LessOrEqual(t, len(chunk.Data), maxChunkSize)
+
+		var updates []*models.DeviceUpdate
+		require.NoError(t, json.Unmarshal(chunk.Data, &updates))
+		decodedCount += len(updates)
+	}
+
+	assert.Equal(t, len(devices), decodedCount)
+}
+
 func TestGroupSourcesByTenantScope(t *testing.T) {
 	ctx := context.Background()
 	log := logger.NewTestLogger()
@@ -521,8 +617,8 @@ func TestGroupSourcesByTenantScope(t *testing.T) {
 
 	t.Run("platform scope requires tenant ids", func(t *testing.T) {
 		grouped, slugs := service.groupSourcesByTenant(config.Sources, "platform")
-		assert.Len(t, grouped, 0)
-		assert.Len(t, slugs, 0)
+		assert.Empty(t, grouped)
+		assert.Empty(t, slugs)
 	})
 
 	t.Run("tenant scope defaults to service tenant", func(t *testing.T) {

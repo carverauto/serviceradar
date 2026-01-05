@@ -165,6 +165,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       Map.put(metadata, "gateway_server_name", String.trim(gateway_server_name))
     else
       metadata
+    end
   end
 
   defp config_value(key, env_var, fallback) do
@@ -179,6 +180,4 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
         if trimmed == "", do: fallback, else: trimmed
     end
   end
-end
-
 end

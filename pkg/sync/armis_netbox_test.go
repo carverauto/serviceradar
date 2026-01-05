@@ -28,6 +28,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	proto "github.com/carverauto/serviceradar/proto"
 )
 
 // TestArmisNetBoxStreamResults tests that both Armis and NetBox data is properly chunked for streaming.

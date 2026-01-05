@@ -762,7 +762,6 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
 	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
 	assert.Equal(t, "test_query_2", events[1].Metadata["query_label"])
-
 }
 
 func TestDeviceAggregatorAggregatesByID(t *testing.T) {

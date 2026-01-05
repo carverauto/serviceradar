@@ -50,6 +50,58 @@ const (
 	testErrorStopTimeout    = 1 * time.Second
 )
 
+// testServiceWithMocks creates a test sync service with two mock integrations.
+func testServiceWithMocks(
+	t *testing.T,
+	ctrl *gomock.Controller,
+) (*SimpleSyncService, *MockIntegration, *MockIntegration) {
+	t.Helper()
+
+	mockInt1 := NewMockIntegration(ctrl)
+	mockInt2 := NewMockIntegration(ctrl)
+
+	s, err := NewSimpleSyncService(
+		context.Background(),
+		&Config{
+			AgentID:           "test-agent",
+			PollerID:          "test-poller",
+			DiscoveryInterval: models.Duration(time.Minute),
+			UpdateInterval:    models.Duration(time.Minute),
+			ListenAddr:        ":50051",
+			Sources: map[string]*models.SourceConfig{
+				"source1": {
+					Type:     "test1",
+					Endpoint: "http://test1",
+					AgentID:  "test-agent",
+				},
+				"source2": {
+					Type:     "test2",
+					Endpoint: "http://test2",
+					AgentID:  "test-agent",
+				},
+			},
+		},
+		map[string]IntegrationFactory{
+			"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+				return mockInt1
+			},
+			"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+				return mockInt2
+			},
+		},
+		logger.NewTestLogger(),
+	)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		if err := s.Stop(context.Background()); err != nil {
+			t.Logf("Failed to stop service: %v", err)
+		}
+	})
+
+	return s, mockInt1, mockInt2
+}
+
 // TestRunDiscoveryErrorAggregation validates that runDiscovery properly aggregates errors
 func TestRunDiscoveryErrorAggregation(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -101,53 +153,11 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockInt1 := NewMockIntegration(ctrl)
-			mockInt2 := NewMockIntegration(ctrl)
+			s, mockInt1, mockInt2 := testServiceWithMocks(t, ctrl)
 
-			s, err := NewSimpleSyncService(
-				context.Background(),
-				&Config{
-					AgentID:           "test-agent",
-					PollerID:          "test-poller",
-					DiscoveryInterval: models.Duration(time.Minute),
-					UpdateInterval:    models.Duration(time.Minute),
-					ListenAddr:        ":50051",
-					Sources: map[string]*models.SourceConfig{
-						"source1": {
-							Type:     "test1",
-							Endpoint: "http://test1",
-							AgentID:  "test-agent",
-						},
-						"source2": {
-							Type:     "test2",
-							Endpoint: "http://test2",
-							AgentID:  "test-agent",
-						},
-					},
-				},
-				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt1
-					},
-					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt2
-					},
-				},
-				logger.NewTestLogger(),
-			)
-			require.NoError(t, err)
-
-			defer func() {
-				if err := s.Stop(context.Background()); err != nil {
-					t.Logf("Failed to stop service: %v", err)
-				}
-			}()
-
-			// Setup mocks
 			tt.setupMocks(mockInt1, mockInt2)
 
-			// Run discovery
-			err = s.runDiscovery(context.Background())
+			err := s.runDiscovery(context.Background())
 
 			if tt.errorCount > 0 {
 				require.Error(t, err)
@@ -201,56 +211,11 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockInt1 := NewMockIntegration(ctrl)
-			mockInt2 := NewMockIntegration(ctrl)
+			s, mockInt1, mockInt2 := testServiceWithMocks(t, ctrl)
 
-			s, err := NewSimpleSyncService(
-				context.Background(),
-				&Config{
-					AgentID:           "test-agent",
-					PollerID:          "test-poller",
-					DiscoveryInterval: models.Duration(time.Minute),
-					UpdateInterval:    models.Duration(time.Minute),
-					ListenAddr:        ":50051",
-					Sources: map[string]*models.SourceConfig{
-						"source1": {
-							Type:     "test1",
-							Endpoint: "http://test1",
-							AgentID:  "test-agent",
-						},
-						"source2": {
-							Type:     "test2",
-							Endpoint: "http://test2",
-							AgentID:  "test-agent",
-						},
-					},
-				},
-				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt1
-					},
-					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt2
-					},
-				},
-				logger.NewTestLogger(),
-			)
-
-			require.NoError(t, err)
-
-			defer func() {
-				if err := s.Stop(context.Background()); err != nil {
-					t.Logf("Failed to stop service: %v", err)
-				}
-			}()
-
-			// Sweep timing logic removed - updates proceed immediately
-
-			// Setup mocks
 			tt.setupMocks(mockInt1, mockInt2)
 
-			// Run armis updates
-			err = s.runArmisUpdates(context.Background())
+			err := s.runArmisUpdates(context.Background())
 
 			if tt.errorCount > 0 {
 				require.Error(t, err)

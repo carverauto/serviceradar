@@ -6,6 +6,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   - Pollers for heartbeat timeouts (last_seen)
   - Agents for reachability (last_seen_time)
   - Checkers for consecutive failures
+  - Sync services for heartbeat timeouts (last_heartbeat_at)
   - Cross-references Horde registry state with database state
 
   Uses Ash actions with PublishStateChange to record health events.
@@ -26,6 +27,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
         poller_timeout: 120_000,
         # Agent heartbeat timeout (default: 5 minutes)
         agent_timeout: 300_000,
+        # Sync heartbeat timeout (default: 2 minutes)
+        sync_timeout: 120_000,
         # Consecutive failures before marking checker as failing
         checker_failure_threshold: 3,
         # Enable distributed mode with leader election (default: true)
@@ -44,6 +47,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Infrastructure.{Poller, Agent, Checker}
+  alias ServiceRadar.Integrations.SyncService
 
   require Logger
 
@@ -51,11 +55,13 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   @default_poller_timeout :timer.minutes(2)
   @default_agent_timeout :timer.minutes(5)
   @default_checker_failure_threshold 3
+  @default_sync_timeout :timer.minutes(2)
 
   defstruct [
     :check_interval,
     :poller_timeout,
     :agent_timeout,
+    :sync_timeout,
     :checker_failure_threshold,
     :last_check,
     :check_timer,
@@ -110,6 +116,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       poller_timeout: Keyword.get(merged_opts, :poller_timeout, @default_poller_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
+      sync_timeout: Keyword.get(merged_opts, :sync_timeout, @default_sync_timeout),
       checker_failure_threshold: Keyword.get(merged_opts, :checker_failure_threshold, @default_checker_failure_threshold),
       distributed: distributed,
       is_leader: false,
@@ -136,6 +143,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       check_interval: state.check_interval,
       poller_timeout: state.poller_timeout,
       agent_timeout: state.agent_timeout,
+      sync_timeout: state.sync_timeout,
       checker_failure_threshold: state.checker_failure_threshold,
       last_check: state.last_check,
       is_leader: state.is_leader,
@@ -229,6 +237,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       Task.async(fn -> check_pollers(state) end),
       Task.async(fn -> check_agents(state) end),
       Task.async(fn -> check_checkers(state) end),
+      Task.async(fn -> check_sync_services(state) end),
       Task.async(fn -> reconcile_horde_state() end)
     ]
 
@@ -408,6 +417,55 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
       {:error, reason} ->
         Logger.error("Failed to transition checker #{checker.id}: #{inspect(reason)}")
+    end
+  end
+
+  defp check_sync_services(state) do
+    timeout_threshold = DateTime.add(DateTime.utc_now(), -state.sync_timeout, :millisecond)
+
+    case list_stale_sync_services(timeout_threshold) do
+      {:ok, services} ->
+        Enum.each(services, fn service ->
+          handle_stale_sync_service(service)
+        end)
+
+        length(services)
+
+      {:error, reason} ->
+        Logger.error("Failed to check sync services: #{inspect(reason)}")
+        0
+    end
+  end
+
+  defp list_stale_sync_services(timeout_threshold) do
+    require Ash.Query
+
+    SyncService
+    |> Ash.Query.for_read(:read, %{}, tenant: nil, authorize?: false)
+    |> Ash.Query.filter(
+      status in [:online, :degraded] and
+        (is_nil(last_heartbeat_at) or last_heartbeat_at < ^timeout_threshold)
+    )
+    |> Ash.read(authorize?: false)
+  end
+
+  defp handle_stale_sync_service(sync_service) do
+    Logger.info("Sync service #{sync_service.component_id} heartbeat timeout, marking offline")
+
+    sync_service
+    |> Ash.Changeset.for_update(:update, %{status: :offline},
+      tenant: sync_service.tenant_id,
+      authorize?: false
+    )
+    |> Ash.update(authorize?: false)
+    |> case do
+      {:ok, _updated} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to mark sync service #{sync_service.component_id} offline: #{inspect(reason)}"
+        )
     end
   end
 

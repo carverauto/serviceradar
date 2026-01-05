@@ -722,17 +722,17 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     parse_listen_port(default_sync_listen_addr())
   end
 
-  defp grpc_port_for_component(_), do: 50051
+  defp grpc_port_for_component(_), do: 50_051
 
   defp parse_listen_port(listen_addr) when is_binary(listen_addr) do
     parts = String.split(listen_addr, ":")
 
     case List.last(parts) do
-      nil -> 50051
+      nil -> 50_051
       port ->
         case Integer.parse(port) do
           {value, ""} -> value
-          _ -> 50051
+          _ -> 50_051
         end
     end
   end

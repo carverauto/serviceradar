@@ -768,7 +768,6 @@ func (a *ArmisIntegration) processDevices(
 			allIPs:    allIPs,
 			event:     event,
 		})
-
 	}
 
 	for _, ctxDevice := range contexts {

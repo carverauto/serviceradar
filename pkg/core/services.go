@@ -713,7 +713,7 @@ func (s *Server) createServiceRecords(
 	}
 
 	// For sync services, clear the details after discovery processing to avoid storing large payloads
-	if apiService.Type == "sync" {
+	if apiService.Type == syncServiceType {
 		serviceStatus.Details = []byte(`{"status":"processed"}`)
 	}
 

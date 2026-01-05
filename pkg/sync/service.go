@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,7 +41,9 @@ const (
 	syncServiceName           = "sync"
 	syncServiceType           = "sync"
 	syncResultsSource         = "results"
+	syncStatusSource          = "status"
 	defaultConfigPollInterval = 5 * time.Minute
+	defaultHeartbeatInterval  = 30 * time.Second
 )
 
 var (
@@ -110,6 +113,8 @@ type SimpleSyncService struct {
 	configVersion      string
 	configPollMu       sync.RWMutex
 	configPollInterval time.Duration
+	heartbeatMu        sync.RWMutex
+	heartbeatInterval  time.Duration
 
 	tenantMu           sync.RWMutex
 	tenantSources      map[string]map[string]*models.SourceConfig
@@ -167,6 +172,7 @@ func NewSimpleSyncServiceWithMetrics(
 		tenantSlugs:         make(map[string]string),
 		tenantResults:       make(map[string]*StreamingResultsStore),
 		configPollInterval:  defaultConfigPollInterval,
+		heartbeatInterval:   defaultHeartbeatInterval,
 	}
 
 	if config.GatewayAddr != "" {
@@ -236,6 +242,7 @@ func (s *SimpleSyncService) Start(ctx context.Context) error {
 	s.launchTask(ctx, "discovery", s.runDiscovery)
 	if s.gatewayClient != nil {
 		s.launchTask(ctx, "config poll", s.configPollLoop)
+		s.launchTask(ctx, "heartbeat", s.heartbeatLoop)
 	}
 
 	for {
@@ -741,6 +748,10 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 		return err
 	}
 
+	if resp.HeartbeatIntervalSec > 0 {
+		s.setHeartbeatInterval(time.Duration(resp.HeartbeatIntervalSec) * time.Second)
+	}
+
 	s.gatewayMu.Lock()
 	if s.gatewayTenantID == "" && resp.TenantId != "" {
 		s.gatewayTenantID = resp.TenantId
@@ -813,6 +824,10 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 		s.setConfigPollInterval(time.Duration(configResp.ConfigPollIntervalSec) * time.Second)
 	}
 
+	if configResp.HeartbeatIntervalSec > 0 {
+		s.setHeartbeatInterval(time.Duration(configResp.HeartbeatIntervalSec) * time.Second)
+	}
+
 	if len(configResp.ConfigJson) == 0 {
 		s.logger.Warn().Msg("Gateway returned empty sync config payload")
 		return nil
@@ -861,6 +876,29 @@ func (s *SimpleSyncService) configPollLoop(ctx context.Context) error {
 	}
 }
 
+func (s *SimpleSyncService) heartbeatLoop(ctx context.Context) error {
+	if err := s.pushHeartbeat(ctx); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to push sync heartbeat")
+	}
+
+	timer := time.NewTimer(s.getHeartbeatInterval())
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case <-timer.C:
+			if err := s.pushHeartbeat(ctx); err != nil {
+				s.logger.Error().Err(err).Msg("Failed to push sync heartbeat")
+			}
+			timer.Reset(s.getHeartbeatInterval())
+		}
+	}
+}
+
 func (s *SimpleSyncService) getConfigPollInterval() time.Duration {
 	s.configPollMu.RLock()
 	defer s.configPollMu.RUnlock()
@@ -887,6 +925,34 @@ func (s *SimpleSyncService) setConfigPollInterval(interval time.Duration) {
 	s.configPollMu.Lock()
 	s.configPollInterval = interval
 	s.configPollMu.Unlock()
+}
+
+func (s *SimpleSyncService) getHeartbeatInterval() time.Duration {
+	s.heartbeatMu.RLock()
+	defer s.heartbeatMu.RUnlock()
+	if s.heartbeatInterval <= 0 {
+		return defaultHeartbeatInterval
+	}
+	return s.heartbeatInterval
+}
+
+func (s *SimpleSyncService) setHeartbeatInterval(interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+
+	const minInterval = 10 * time.Second
+	const maxInterval = 10 * time.Minute
+
+	if interval < minInterval {
+		interval = minInterval
+	} else if interval > maxInterval {
+		interval = maxInterval
+	}
+
+	s.heartbeatMu.Lock()
+	s.heartbeatInterval = interval
+	s.heartbeatMu.Unlock()
 }
 
 func (s *SimpleSyncService) getConfigVersion() string {
@@ -936,7 +1002,7 @@ func (s *SimpleSyncService) buildResultsChunks(
 	var currentData []byte
 
 	for _, device := range allDeviceUpdates {
-		candidate := append(current, device)
+		candidate := append(slices.Clone(current), device)
 		data, err := json.Marshal(candidate)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal chunk candidate: %w", err)
@@ -1068,6 +1134,57 @@ func (s *SimpleSyncService) pushResultsForTenant(
 	defer cancel()
 
 	_, err = s.gatewayClient.StreamStatus(pushCtx, statusChunks)
+	return err
+}
+
+func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	if err := s.ensureGatewayConnected(ctx); err != nil {
+		return err
+	}
+
+	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		return err
+	}
+
+	tenantID, tenantSlug := s.resolveTenantInfo("", "")
+	if tenantID == "" {
+		s.logger.Warn().Msg("Skipping sync heartbeat push without tenant id")
+		return nil
+	}
+
+	status := &proto.GatewayServiceStatus{
+		ServiceName:  syncServiceName,
+		Available:    true,
+		Message:      nil,
+		ServiceType:  syncServiceType,
+		ResponseTime: 0,
+		AgentId:      s.config.AgentID,
+		GatewayId:    "",
+		Partition:    s.config.Partition,
+		Source:       syncStatusSource,
+		KvStoreId:    "",
+		TenantId:     tenantID,
+		TenantSlug:   tenantSlug,
+	}
+
+	request := &proto.GatewayStatusRequest{
+		Services:   []*proto.GatewayServiceStatus{status},
+		GatewayId:  "",
+		AgentId:    s.config.AgentID,
+		Timestamp:  time.Now().Unix(),
+		Partition:  s.config.Partition,
+		TenantId:   tenantID,
+		TenantSlug: tenantSlug,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	_, err := s.gatewayClient.PushStatus(pushCtx, request)
 	return err
 }
 

@@ -21,7 +21,7 @@
 - [x] 3.5 Add tests for bootstrap tenant + sync service creation
 
 ## 4. Proto & gRPC Changes
-- [ ] 4.1 Confirm sync pushes results via StreamStatus with ResultsChunk-compatible semantics
+- [x] 4.1 Confirm sync pushes results via StreamStatus with ResultsChunk-compatible semantics
 - [ ] 4.2 Add SweepConfig message to proto
 - [ ] 4.3 Add sweep field to AgentConfigResponse
 - [ ] 4.4 Generate Go protobuf stubs
@@ -58,8 +58,8 @@
 - [ ] 8.5 Add tests for agent sweep config application (out of scope)
 
 ## 9. Sync Service Onboarding + UI
-- [ ] 9.1 Implement heartbeat tracking (update last_heartbeat_at)
-- [ ] 9.2 Add status computation (online if heartbeat < 2 min, offline otherwise)
+- [x] 9.1 Implement heartbeat tracking (update last_heartbeat_at)
+- [x] 9.2 Add status computation (online if heartbeat < 2 min, offline otherwise)
 - [ ] 9.3 Add on-prem sync service onboarding endpoint in web-ng
 - [x] 9.4 Generate minimal sync bootstrap config during edge onboarding
 - [x] 9.5 Add "Add Edge Sync Service" button under "+ New Source" in Integrations UI
@@ -67,13 +67,13 @@
 
 ## 10. KV Deprecation
 - [ ] 10.1 Add feature flag for "sweep config from GetConfig" vs "sweep.json from KV" (out of scope)
-- [ ] 10.2 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
-- [ ] 10.3 Update documentation for new device discovery flow
+- [x] 10.2 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
+- [x] 10.3 Update documentation for new device discovery flow
 - [ ] 10.4 Add migration guide for customers using on-prem sync
 
 ## 11. Testing & Documentation
 - [ ] 11.1 Add integration tests for full device discovery → DIRE → inventory flow
 - [x] 11.2 Add tests for sync service onboarding and tenant isolation
-- [ ] 11.3 Validate results streaming chunking behavior and gRPC size limits against legacy core + sync
-- [ ] 11.4 Update architecture docs with new data flow
-- [ ] 11.5 Add API documentation for sync results streaming (ResultsRequest/ResultsChunk)
+- [x] 11.3 Validate results streaming chunking behavior and gRPC size limits against legacy core + sync
+- [x] 11.4 Update architecture docs with new data flow
+- [x] 11.5 Add API documentation for sync results streaming (ResultsRequest/ResultsChunk)

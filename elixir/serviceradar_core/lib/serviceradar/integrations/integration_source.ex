@@ -2,9 +2,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   @moduledoc """
   Configuration for external data source integrations (Armis, SNMP, etc.).
 
-  This resource stores integration configuration in Postgres. When configs
-  are created or updated, they are pushed to the datasvc KV store for
-  consumption by Go/Rust services.
+  This resource stores integration configuration in Postgres. Sync services
+  retrieve configuration via GetConfig and push results through agent-gateway.
 
   ## Source Types
 
@@ -18,8 +17,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   1. Admin creates/edits source config via UI
   2. Config is saved to Postgres
-  3. After-save hook pushes config to datasvc KV
-  4. Go/Rust services read config from datasvc on their poll interval
+  3. Sync services fetch configuration via GetConfig
+  4. Sync services push device updates through agent-gateway to core
   """
 
   use Ash.Resource,
@@ -114,9 +113,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       change &validate_sync_service_assignment/2
 
-      # Sync to datasvc after create
       change after_action(fn changeset, record, _context ->
-               sync_to_datasvc(record)
                publish_integration_event(record, :create, changeset)
                {:ok, record}
              end)
@@ -160,9 +157,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       change &validate_sync_service_assignment/2
 
-      # Sync to datasvc after update
       change after_action(fn changeset, record, _context ->
-               sync_to_datasvc(record)
                publish_integration_event(record, :update, changeset)
                {:ok, record}
              end)
@@ -174,7 +169,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
-               sync_to_datasvc(record)
                publish_integration_event(record, :enable, %{})
                {:ok, record}
              end)
@@ -186,8 +180,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
-               # Remove from datasvc when disabled
-               remove_from_datasvc(record)
                publish_integration_event(record, :disable, %{})
                {:ok, record}
              end)
@@ -237,12 +229,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
     destroy :delete do
       require_atomic? false
-
-      # Remove from datasvc before delete
-      change before_action(fn changeset, _context ->
-               remove_from_datasvc(changeset.data)
-               changeset
-             end)
 
       change after_action(fn changeset, record, _context ->
                publish_integration_event(record, :delete, changeset)
@@ -500,36 +486,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
   end
 
-  # Private helper functions for datasvc sync via Oban
-
   alias ServiceRadar.Integrations.SyncService
-  alias ServiceRadar.Integrations.Workers.SyncToDataSvcWorker
-
-  defp sync_to_datasvc(record) do
-    # Enqueue Oban job for reliable sync with retries
-    case SyncToDataSvcWorker.enqueue(record.id, :put) do
-      {:ok, _job} ->
-        require Logger
-        Logger.debug("Enqueued datasvc sync for integration source #{record.name}")
-
-      {:error, reason} ->
-        require Logger
-        Logger.error("Failed to enqueue datasvc sync for #{record.name}: #{inspect(reason)}")
-    end
-  end
-
-  defp remove_from_datasvc(record) do
-    # Enqueue Oban job for reliable deletion with retries
-    case SyncToDataSvcWorker.enqueue(record.id, :delete) do
-      {:ok, _job} ->
-        require Logger
-        Logger.debug("Enqueued datasvc delete for integration source #{record.name}")
-
-      {:error, reason} ->
-        require Logger
-        Logger.error("Failed to enqueue datasvc delete for #{record.name}: #{inspect(reason)}")
-    end
-  end
 
   defp validate_sync_service_assignment(changeset, _context) do
     action = changeset.action && changeset.action.name
