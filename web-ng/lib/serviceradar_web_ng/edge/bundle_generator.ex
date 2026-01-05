@@ -740,4 +740,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp default_gateway_addr do
     Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50052")
   end
+
+  defp gateway_server_name(gateway_addr) when is_binary(gateway_addr) do
+    case String.split(gateway_addr, ":") do
+      [host, _port] -> host
+      [host] -> host
+      _ -> gateway_addr
+    end
+  end
+
+  defp default_sync_listen_addr do
+    Application.get_env(:serviceradar_web_ng, :sync_listen_addr, ":50058")
+  end
 end
