@@ -2,7 +2,7 @@
 
 ## Summary
 
-Unify sync service onboarding with a multi-tenant runtime that integrates with the agent/agent-gateway pipeline. The platform sync service authenticates via mTLS, bootstraps with Hello + GetConfig, processes per-tenant integration configs from Ash, and forwards device updates through agent-gateway to core-elx and DIRE. Edge sync deployments remain tenant-locked by mTLS identity. The sync service no longer uses datasvc/KV. All device updates reuse existing AgentGatewayService push RPCs with ResultsChunk-compatible chunking (no new sync-specific RPCs). Sync ships with a minimal bootstrap config generated at onboarding; full config arrives over gRPC.
+Unify sync service onboarding with a multi-tenant runtime that integrates with the agent/agent-gateway pipeline. The platform sync service authenticates via mTLS, bootstraps with Hello + GetConfig, processes per-tenant integration configs from Ash, and forwards device updates through agent-gateway to core-elx and DIRE. Edge sync deployments remain tenant-locked by mTLS identity. The sync service no longer uses datasvc/KV. All device updates reuse existing AgentGatewayService push RPCs with ResultsChunk-compatible chunking (no new sync-specific RPCs). Sync ships with a minimal bootstrap config generated at onboarding; full config arrives over gRPC. Sync pull results APIs are deprecated; push is the only supported flow.
 
 ## Motivation
 
@@ -18,7 +18,7 @@ The proposed changes:
 2. Platform sync processes per-tenant integration configs; edge sync is tenant-restricted.
 3. Device updates flow through agent -> agent-gateway -> core-elx -> DIRE for canonical records.
 4. Sync no longer depends on datasvc/KV for configuration or state.
-5. Sync results reuse existing AgentGatewayService StreamStatus push RPCs with ResultsChunk-compatible chunking (no new RPCs).
+5. Sync results reuse existing AgentGatewayService StreamStatus push RPCs with ResultsChunk-compatible chunking (no new RPCs); pull results APIs are deprecated.
 6. Platform bootstrap creates a random platform tenant UUID and platform service mTLS identities.
 7. Onboarding generates a minimal sync config; the UI includes an "Add Edge Sync Service" action near "New Source".
 
@@ -33,6 +33,7 @@ The proposed changes:
 - mTLS identity classification for platform vs tenant sync services
 - Platform bootstrap enhancements (random platform tenant UUID + platform certs)
 - UI gating and sync service assignment for integrations
+- Deprecation of sync pull results APIs (StreamResults/GetResults)
 
 ### Out of Scope
 - New integration adapters (Armis/NetBox/Faker behavior changes)
