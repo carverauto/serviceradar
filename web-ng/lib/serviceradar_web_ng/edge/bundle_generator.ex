@@ -41,12 +41,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   ## Bootstrap Configuration
 
   The generated config contains only minimal bootstrap settings:
-  - `agent_id` - Component identifier
+  - `component_id` - Component identifier
   - `gateway_addr` - SaaS gateway endpoint
   - `gateway_security` - mTLS credentials
 
   All monitoring configuration (checks, schedules, etc.) is delivered
-  dynamically via the `GetConfig` gRPC call after the agent connects.
+  dynamically via the `GetConfig` gRPC call after the component connects.
   """
   @spec create_tarball(OnboardingPackage.t(), String.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
@@ -172,28 +172,36 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp generate_config_yaml(package, _join_token, opts) do
     gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
+    component_type = to_string(package.component_type)
+    component_id = package.component_id || package.id
+    cert_dir = "/etc/serviceradar/certs"
 
-    # Minimal bootstrap configuration per spec:
-    # Only SaaS endpoint + mTLS credentials. All monitoring config
-    # is delivered dynamically via GetConfig after agent connects.
-    config = %{
-      # Agent identity
-      "agent_id" => package.component_id || package.id,
-
-      # Gateway connection (required)
-      "gateway_addr" => gateway_addr,
-
-      # mTLS security configuration
-      "gateway_security" => %{
-        "mode" => "mtls",
-        "cert_file" => "/etc/serviceradar/certs/component.pem",
-        "key_file" => "/etc/serviceradar/certs/component-key.pem",
-        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+    gateway_security = %{
+      "mode" => "mtls",
+      "cert_dir" => cert_dir,
+      "server_name" => gateway_server_name(gateway_addr),
+      "role" => component_type,
+      "tls" => %{
+        "cert_file" => "component.pem",
+        "key_file" => "component-key.pem",
+        "ca_file" => "ca-chain.pem",
+        "client_ca_file" => "ca-chain.pem"
       }
     }
 
-    # Convert to YAML
-    encode_yaml(config)
+    config = %{
+      "agent_id" => component_id,
+      "gateway_addr" => gateway_addr,
+      "gateway_security" => gateway_security
+    }
+
+    config =
+      case component_type do
+        "sync" -> Map.put(config, "listen_addr", default_sync_listen_addr())
+        _ -> config
+      end
+
+    Jason.encode!(config, pretty: true)
   end
 
   defp generate_install_script(package, _opts) do

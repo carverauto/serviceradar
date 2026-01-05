@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -49,14 +51,14 @@ var (
 	ErrKVSPIFFEIDNotFound = errors.New("kv_spiffe_id not found in metadata")
 	// ErrAgentIDNotFound is returned when agent_id is missing from metadata.
 	ErrAgentIDNotFound = errors.New("agent_id not found in metadata")
-	// ErrGatewayAddrRequired is returned when gateway_addr is missing for agent bootstrap config.
-	ErrGatewayAddrRequired = errors.New("gateway_addr is required to generate agent bootstrap config")
+	// ErrGatewayAddrRequired is returned when gateway_addr is missing for agent/sync bootstrap config.
+	ErrGatewayAddrRequired = errors.New("gateway_addr is required to generate bootstrap config")
 )
 
 // generateServiceConfig generates configuration files for the service based on:
-// - Component type (poller, agent, checker)
-// - Deployment type (docker, kubernetes, bare-metal)
-// - Package metadata (contains service-specific config from KV)
+	// - Component type (poller, agent, checker, sync)
+	// - Deployment type (docker, kubernetes, bare-metal)
+	// - Package metadata (contains service-specific config from KV)
 func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 	b.logger.Info().
 		Str("component_type", string(b.pkg.ComponentType)).
@@ -77,6 +79,8 @@ func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 		return b.generateAgentConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.generateCheckerConfig(ctx, metadata)
+	case models.EdgeOnboardingComponentTypeSync:
+		return b.generateSyncConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeNone:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	default:
@@ -258,6 +262,72 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 	return nil
 }
 
+// generateSyncConfig generates configuration for a sync service.
+// The bootstrap config is minimal: agent_id, listen_addr, and gateway connection.
+// Full integration configs are delivered via GetConfig after enrollment.
+func (b *Bootstrapper) generateSyncConfig(ctx context.Context, metadata map[string]interface{}) error {
+	_ = ctx
+
+	b.logger.Debug().Msg("Generating minimal sync bootstrap configuration")
+
+	gatewayEndpoint := b.cfg.GatewayEndpoint
+	if gwAddr, ok := metadata["gateway_addr"].(string); ok && gwAddr != "" {
+		gatewayEndpoint = gwAddr
+	}
+	if gatewayEndpoint == "" {
+		return ErrGatewayAddrRequired
+	}
+
+	listenAddr := ":50058"
+	if addr, ok := metadata["listen_addr"].(string); ok && addr != "" {
+		listenAddr = addr
+	}
+
+	serverName := gatewayServerName(gatewayEndpoint, metadata)
+
+	config := map[string]interface{}{
+		// Sync identity (agent_id used in gateway Hello)
+		"agent_id": b.pkg.ComponentID,
+
+		// gRPC server listen address
+		"listen_addr": listenAddr,
+
+		// Gateway connection (required) - all config delivered via GetConfig
+		"gateway_addr": gatewayEndpoint,
+
+		// mTLS security configuration
+		"gateway_security": map[string]interface{}{
+			"mode":        "mtls",
+			"cert_dir":    filepath.Join(b.cfg.StoragePath, "certs"),
+			"server_name": serverName,
+			"role":        "sync",
+			"tls": map[string]interface{}{
+				"cert_file":      "component.pem",
+				"key_file":       "component-key.pem",
+				"ca_file":        "ca-chain.pem",
+				"client_ca_file": "ca-chain.pem",
+			},
+		},
+
+		// Deployment info (informational only)
+		"deployment_type": string(b.deploymentType),
+	}
+
+	configJSON, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal sync config: %w", err)
+	}
+
+	b.generatedConfigs["sync.json"] = configJSON
+
+	b.logger.Debug().
+		Str("sync_id", b.pkg.ComponentID).
+		Str("gateway_addr", gatewayEndpoint).
+		Msg("Generated minimal sync bootstrap configuration")
+
+	return nil
+}
+
 // generateCheckerConfig generates configuration for a checker service.
 // Checkers connect to the local agent and receive their configuration
 // from the agent, which in turn gets it from the gateway via GetConfig.
@@ -314,4 +384,17 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		Msg("Generated minimal checker bootstrap configuration")
 
 	return nil
+}
+
+func gatewayServerName(gatewayEndpoint string, metadata map[string]interface{}) string {
+	if v, ok := metadata["gateway_server_name"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+
+	host, _, err := net.SplitHostPort(gatewayEndpoint)
+	if err == nil && host != "" {
+		return host
+	}
+
+	return gatewayEndpoint
 }

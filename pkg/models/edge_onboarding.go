@@ -24,6 +24,7 @@ const (
 	EdgeOnboardingComponentTypePoller  EdgeOnboardingComponentType = "poller"
 	EdgeOnboardingComponentTypeAgent   EdgeOnboardingComponentType = "agent"
 	EdgeOnboardingComponentTypeChecker EdgeOnboardingComponentType = "checker"
+	EdgeOnboardingComponentTypeSync    EdgeOnboardingComponentType = "sync"
 	EdgeOnboardingComponentTypeNone    EdgeOnboardingComponentType = ""
 )
 

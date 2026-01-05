@@ -45,7 +45,7 @@ func main() {
 	ctx := context.Background()
 
 	// Try edge onboarding first (checks env vars if flags not set)
-	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeAgent, nil)
+	onboardingResult, err := edgeonboarding.TryOnboard(ctx, models.EdgeOnboardingComponentTypeSync, nil)
 	if err != nil {
 		log.Fatalf("Edge onboarding failed: %v", err)
 	}

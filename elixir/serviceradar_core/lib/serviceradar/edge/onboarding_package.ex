@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   - `:poller` - Polling service component
   - `:agent` - Agent component
   - `:checker` - Checker component
+  - `:sync` - Sync service component
 
   ## Security Modes
 
@@ -238,13 +239,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :component_type, :atom do
       default :poller
       public? true
-      constraints one_of: [:poller, :agent, :checker]
+      constraints one_of: [:poller, :agent, :checker, :sync]
       description "Type of component being onboarded"
     end
 
     attribute :parent_type, :atom do
       public? true
-      constraints one_of: [:poller, :agent, :checker]
+      constraints one_of: [:poller, :agent, :checker, :sync]
       description "Parent component type (for hierarchical components)"
     end
 

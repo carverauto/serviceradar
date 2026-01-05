@@ -26,6 +26,7 @@ fn test_component_type_as_str() {
     assert_eq!(ComponentType::Poller.as_str(), "poller");
     assert_eq!(ComponentType::Agent.as_str(), "agent");
     assert_eq!(ComponentType::Checker.as_str(), "checker");
+    assert_eq!(ComponentType::Sync.as_str(), "sync");
 }
 
 #[test]
@@ -33,6 +34,7 @@ fn test_component_type_config_filename() {
     assert_eq!(ComponentType::Poller.config_filename(), "poller.json");
     assert_eq!(ComponentType::Agent.config_filename(), "agent.json");
     assert_eq!(ComponentType::Checker.config_filename(), "checker.json");
+    assert_eq!(ComponentType::Sync.config_filename(), "sync.json");
 }
 
 #[test]

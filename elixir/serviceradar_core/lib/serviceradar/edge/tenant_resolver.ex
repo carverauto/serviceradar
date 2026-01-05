@@ -396,6 +396,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
           "poller" -> :poller
           "agent" -> :agent
           "checker" -> :checker
+          "sync" -> :sync
           _ -> nil
         end
 

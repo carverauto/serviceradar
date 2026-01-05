@@ -38,7 +38,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   ## Options
 
     * `:status` - List of status atoms to filter by (e.g., [:issued, :delivered])
-    * `:component_type` - List of component types to filter by (e.g., [:poller, :checker])
+    * `:component_type` - List of component types to filter by (e.g., [:poller, :checker, :sync])
     * `:poller_id` - Filter by poller_id
     * `:component_id` - Filter by component_id
     * `:parent_id` - Filter by parent_id
@@ -467,7 +467,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
     * `tenant_id` - The tenant UUID
     * `component_id` - Unique component identifier
-    * `component_type` - :poller, :agent, or :checker
+    * `component_type` - :poller, :agent, :checker, or :sync
     * `partition_id` - Network partition identifier (default: "default")
     * `opts` - Additional options:
       * `:validity_days` - Certificate validity (default: 365)

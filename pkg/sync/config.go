@@ -57,7 +57,9 @@ type Config struct {
 
 func (c *Config) Validate() error {
 	if len(c.Sources) == 0 {
-		return errMissingSources
+		if c.GatewayAddr == "" {
+			return errMissingSources
+		}
 	}
 
 	if c.ListenAddr == "" {
