@@ -723,41 +723,59 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   defp load_initial_gateways_cache do
     [Node.self() | Node.list()]
     |> Task.async_stream(
-      fn node ->
-        case :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_000) do
-          gateways when is_list(gateways) -> gateways
-          _ -> []
-        end
-      end,
+      &fetch_gateways_from_node/1,
       timeout: 1_500,
       on_timeout: :kill_task,
       max_concurrency: 4
     )
-    |> Enum.flat_map(fn
-      {:ok, gateways} -> gateways
-      _ -> []
-    end)
-    |> Enum.reduce(%{}, fn gateway, acc ->
-      gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
+    |> Enum.flat_map(&unwrap_gateway_result/1)
+    |> Enum.reduce(%{}, &put_gateway_entry/2)
+  end
 
-      if is_binary(gateway_id) and gateway_id != "" do
-        incoming = %{
-          gateway_id: gateway_id,
-          node: Map.get(gateway, :node) || Map.get(gateway, "node") || Node.self(),
-          partition: Map.get(gateway, :partition) || Map.get(gateway, "partition") || "default",
-          domain: Map.get(gateway, :domain) || Map.get(gateway, "domain") || "default",
-          status: Map.get(gateway, :status) || Map.get(gateway, "status") || :available,
-          registered_at: Map.get(gateway, :registered_at) || Map.get(gateway, "registered_at"),
-          last_heartbeat: Map.get(gateway, :last_heartbeat) || Map.get(gateway, "last_heartbeat")
-        }
+  defp fetch_gateways_from_node(node) do
+    case :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_000) do
+      gateways when is_list(gateways) -> gateways
+      _ -> []
+    end
+  end
+
+  defp unwrap_gateway_result({:ok, gateways}) when is_list(gateways), do: gateways
+  defp unwrap_gateway_result(_), do: []
+
+  defp put_gateway_entry(gateway, acc) do
+    case gateway_id_from(gateway) do
+      nil ->
+        acc
+
+      gateway_id ->
+        incoming = normalize_gateway_entry(gateway, gateway_id)
 
         Map.update(acc, gateway_id, incoming, fn existing ->
           prefer_gateway_entry(existing, incoming)
         end)
-      else
-        acc
-      end
-    end)
+    end
+  end
+
+  defp gateway_id_from(gateway) do
+    gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
+
+    if is_binary(gateway_id) and gateway_id != "", do: gateway_id, else: nil
+  end
+
+  defp normalize_gateway_entry(gateway, gateway_id) do
+    %{
+      gateway_id: gateway_id,
+      node: fetch_gateway_field(gateway, :node, "node", Node.self()),
+      partition: fetch_gateway_field(gateway, :partition, "partition", "default"),
+      domain: fetch_gateway_field(gateway, :domain, "domain", "default"),
+      status: fetch_gateway_field(gateway, :status, "status", :available),
+      registered_at: fetch_gateway_field(gateway, :registered_at, "registered_at", nil),
+      last_heartbeat: fetch_gateway_field(gateway, :last_heartbeat, "last_heartbeat", nil)
+    }
+  end
+
+  defp fetch_gateway_field(gateway, atom_key, string_key, default) do
+    Map.get(gateway, atom_key) || Map.get(gateway, string_key) || default
   end
 
   # Load initial agents from the AgentTracker on mount
