@@ -131,7 +131,7 @@ func selectComponents(cfg *CmdConfig) []string {
 	}
 
 	return append([]string{
-		"core", "agent", "poller", "kv", "sync", "nats", "web",
+		"core", "agent", "poller", "kv", "nats", "web",
 		"sysmon", "snmp", "rperf", "rperf-checker",
 	}, defaultServices()...)
 }

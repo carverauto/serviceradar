@@ -14,7 +14,7 @@ Use this runbook to bring a macOS arm64 or Linux sysmon-osx checker online again
 ADMIN_PASS=$(docker exec serviceradar-core-mtls cat /etc/serviceradar/certs/admin-password)
 API_KEY=$(docker exec serviceradar-core-mtls cat /etc/serviceradar/certs/api-key)
 
-# Get a bearer token from core via nginx (localhost)
+# Get a bearer token from core via caddy (localhost)
 ACCESS_TOKEN=$(curl -s http://localhost/api/auth/login \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASS}\"}" \

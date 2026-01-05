@@ -22,13 +22,13 @@
 - [x] 4.1 Confirm agent-embedded sync pushes results via StreamStatus with ResultsChunk semantics
 - [x] 4.2 Add integration source payloads to Agent GetConfig (agent-scoped)
 - [x] 4.3 Remove sync-specific Hello/GetConfig fields (if any)
-- [ ] 4.4 Regenerate protobuf stubs (Go/Elixir) if changed
+- [x] 4.4 Regenerate protobuf stubs (Go/Elixir) if changed
 
 ## 5. Agent Runtime (Go)
 - [x] 5.1 Embed sync runtime into agent binary
 - [x] 5.2 Implement per-agent sync loop + config cache
 - [x] 5.3 Push device updates via StreamStatus with chunking
-- [ ] 5.4 Remove standalone sync service binary/deployments/config docs
+- [x] 5.4 Remove standalone sync service binary/deployments/config docs
 - [x] 5.5 Remove datasvc/KV clients and config code from sync runtime
 
 ## 6. Device Ingestion + DIRE
@@ -43,13 +43,13 @@
 - [x] 7.2 Replace "Add Edge Sync Service" UI with "Add Edge Agent" onboarding
 - [x] 7.3 Remove edge sync onboarding endpoint `/api/admin/edge-packages/sync`
 - [x] 7.4 Update edge onboarding bundles to include agent sync bootstrap config
-- [ ] 7.5 Add agent selector + status in Integrations UI (if multiple agents)
+- [x] 7.5 Add agent selector + status in Integrations UI (if multiple agents)
 
 ## 8. KV Deprecation
 - [x] 8.1 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
 - [x] 8.2 Update documentation for new device discovery flow
-- [ ] 8.3 Add migration guide for customers moving from standalone sync to agent-embedded sync
+- [x] 8.3 Add migration guide for customers moving from standalone sync to agent-embedded sync
 
 ## 9. Testing & Documentation
-- [ ] 9.1 Add integration tests for full device discovery → DIRE → inventory flow (agent-embedded sync)
-- [ ] 9.2 Update architecture + sync docs for agent-embedded sync
+- [x] 9.1 Add integration tests for full device discovery → DIRE → inventory flow (agent-embedded sync)
+- [x] 9.2 Update architecture + sync docs for agent-embedded sync

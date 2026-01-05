@@ -22,7 +22,7 @@ The following table lists the primary ServiceRadar components and their default 
 | DB Event Writer   | 50041        | gRPC/TCP    | Writes events to the CNPG/Timescale DB   |
 | Mapper            | 50056        | gRPC/TCP    | Network Discovery and Mapper Service     |
 | Web UI (web-ng)   | 4000         | HTTP/TCP    | Phoenix LiveView interface (reverse proxy recommended) |
-| Nginx             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
+| Caddy             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
 
 ## Storage and Configuration
 
@@ -31,7 +31,6 @@ The following table lists the primary ServiceRadar components and their default 
 | CNPG / Timescale  | 5432         | TCP      | Unified Postgres/Timescale telemetry store |
 | KV Store           | 50057        | gRPC/TCP | Key-value store for dynamic configuration |
 | NATS JetStream     | 4222         | TCP      | Messaging and KV storage (localhost only) |
-| Sync Service       | 50058        | gRPC/TCP | Integration with external data sources    |
 
 ## Checker Components
 
@@ -62,7 +61,7 @@ The following table lists the primary ServiceRadar components and their default 
 ### Security Recommendations
 
 - **NATS JetStream** (port 4222) is configured by default to listen only on localhost (`127.0.0.1`) for security reasons. Only expose this externally if absolutely necessary.
-- **Web-NG UI** (port 4000) should not be directly exposed to the internet. Use a reverse proxy (Caddy/Nginx) for TLS termination.
+- **Web-NG UI** (port 4000) should not be directly exposed to the internet. Use Caddy (or your ingress proxy) for TLS termination.
 - When using mTLS security, ensure certificates are correctly deployed to each component.
 
 ### Firewall Configuration
@@ -103,7 +102,7 @@ Each component's port can be customized in its respective configuration file:
 | Dusk Checker | `/etc/serviceradar/checkers/dusk.json` |
 | rperf Checker | `/etc/serviceradar/checkers/rperf.json` |
 | NATS Server | `/etc/nats/nats-server.conf` |
-| Nginx | `/etc/nginx/conf.d/serviceradar-web-ng.conf` |
+| Caddy | `/etc/caddy/Caddyfile` |
 
 ## Next Steps
 

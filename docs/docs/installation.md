@@ -196,14 +196,14 @@ sudo ufw allow 80/tcp     # For web interface
 sudo ufw allow 50054/tcp  # For serviceradar-datasvc gRPC service
 ```
 
-> **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Next.js service (port 3000) is also not exposed externally as Nginx (port 80) proxies requests to it.
+> **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Web-NG service (port 4000) is also not exposed externally as Caddy (port 80) proxies requests to it.
 
 ### SELinux Configuration (if enabled)
 
 If you have SELinux enabled on your Debian/Ubuntu system:
 
 ```bash
-# Allow HTTP connections (for Nginx)
+# Allow HTTP connections (for Caddy)
 sudo setsebool -P httpd_can_network_connect 1
 
 # Configure port types
@@ -235,7 +235,7 @@ sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.
 # Enable CodeReady Builder repository (Oracle Linux only)
 sudo dnf config-manager --set-enabled ol9_codeready_builder
 
-# Note: Node.js/Nginx are only required for the legacy Next.js UI.
+# Note: Node.js and the legacy web package are only required for the deprecated Next.js UI.
 # The Phoenix web-ng UI does not require them.
 ```
 
@@ -377,7 +377,7 @@ sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
 sudo firewall-cmd --reload
 ```
 
-> **Security Note:** Port 4222 (NATS) is not included in the firewall rules as the NATS Server is configured to listen only on 127.0.0.1 (localhost) by default. Port 3000 (Next.js) is also not exposed externally as Nginx (port 80) proxies requests to it.
+> **Security Note:** Port 4222 (NATS) is not included in the firewall rules as the NATS Server is configured to listen only on 127.0.0.1 (localhost) by default. Port 4000 (Web-NG) is also not exposed externally as Caddy (port 80) proxies requests to it.
 
 #### SELinux Configuration
 
@@ -387,7 +387,7 @@ The installation should configure SELinux automatically. If you encounter issues
 # Check SELinux status
 getenforce
 
-# Allow HTTP connections (for Nginx)
+# Allow HTTP connections (for Caddy)
 sudo setsebool -P httpd_can_network_connect 1
 
 # Configure port types
@@ -408,7 +408,7 @@ sudo systemctl status serviceradar-core
 sudo systemctl status serviceradar-web-ng
 
 # Check reverse proxy (optional)
-sudo systemctl status nginx
+sudo systemctl status caddy
 
 # Check agent (on monitored host)
 sudo systemctl status serviceradar-agent
@@ -445,7 +445,7 @@ sudo journalctl -xeu serviceradar-core
 sudo journalctl -xeu serviceradar-web-ng
 
 # Check reverse proxy logs (optional)
-sudo cat /var/log/nginx/error.log
+sudo journalctl -xeu caddy
 
 # Check NATS Server logs (if installed)
 sudo cat /var/log/nats/nats.log
@@ -472,20 +472,20 @@ sudo ausearch -m avc --start recent
 sudo setenforce 0
 
 # Create a custom policy module
-sudo ausearch -m avc -c nginx 2>&1 | audit2allow -M serviceradar-nginx
-sudo semodule -i serviceradar-nginx.pp
+sudo ausearch -m avc -c caddy 2>&1 | audit2allow -M serviceradar-caddy
+sudo semodule -i serviceradar-caddy.pp
 ```
 
-### Nginx Connection Issues
+### Caddy Connection Issues
 
-If Nginx can't connect to the backend services:
+If Caddy can't connect to the backend services:
 
 ```bash
 # Test direct connection to API
 curl http://localhost:8090/api/status
 
-# Test direct connection to Next.js
-curl http://localhost:3000
+# Test direct connection to Web-NG
+curl http://localhost:4000
 
 # Check API key
 sudo cat /etc/serviceradar/api.env

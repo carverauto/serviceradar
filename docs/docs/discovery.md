@@ -33,14 +33,14 @@ For Docker deployments, edit `docker/compose/mapper.docker.json` and restart the
 ## Discovery Types
 
 - **Mapper SNMP Discovery** - Mapper-driven SNMP walks that populate inventory, interface, and topology data. Tune jobs in `/etc/serviceradar/mapper.json` and monitor results with SRQL on `device_updates` and `discovered_interfaces`.
-- **Inventory Imports** - External sources such as NetBox or CMDB exports. Feed them through the Sync service and let DIRE reconcile devices into the canonical inventory.
-- **Sweep Jobs (Legacy)** - Pull-based sweeps are deprecated in the push-first architecture. New discovery flows should use Sync and Mapper outputs instead.
+- **Inventory Imports** - External sources such as NetBox or CMDB exports. Feed them through the embedded sync runtime (agent) and let DIRE reconcile devices into the canonical inventory.
+- **Sweep Jobs (Legacy)** - Pull-based sweeps are deprecated in the push-first architecture. New discovery flows should use sync and Mapper outputs instead.
 
 ## Creating Jobs
 
 1. Configure integrations in the UI under **Integrations -> New Source** for each tenant.
-2. Onboard a sync service (platform or edge) and ensure it can reach agent-gateway over mTLS.
-3. Core delivers source configs via `GetConfig`, and the sync service streams device updates back through agent-gateway.
+2. Onboard a sync-capable agent and ensure it can reach agent-gateway over mTLS.
+3. Core delivers source configs via `GetConfig`, and the agent streams device updates back through agent-gateway.
 
 ## Reviewing Results
 
@@ -51,5 +51,5 @@ For Docker deployments, edit `docker/compose/mapper.docker.json` and restart the
 ## Best Practices
 
 - Whitelist management networks and respect change windows - discovery traffic can look suspicious to IDS tools.
-- Keep integration sources scoped per tenant and validate mTLS identity before onboarding edge sync services.
-- Combine Sync, Mapper, and OTEL signals to build full-stack visibility from day one.
+- Keep integration sources scoped per tenant and validate mTLS identity before onboarding edge agents.
+- Combine sync, Mapper, and OTEL signals to build full-stack visibility from day one.

@@ -32,7 +32,6 @@ const (
 	componentTypePoller  = "poller"
 	componentTypeAgent   = "agent"
 	componentTypeChecker = "checker"
-	componentTypeSync    = "sync"
 )
 
 type edgePackageView struct {
@@ -890,7 +889,7 @@ func normalizeComponentType(raw string) (string, error) {
 		value = componentTypePoller
 	}
 	switch value {
-	case componentTypePoller, componentTypeAgent, componentTypeChecker, componentTypeSync:
+	case componentTypePoller, componentTypeAgent, componentTypeChecker:
 		return value, nil
 	default:
 		trimmed := strings.TrimSpace(raw)

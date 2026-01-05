@@ -182,5 +182,5 @@ Currently, ServiceRadar does not provide a UI for viewing active sessions. If yo
 
 ## Next Steps
 
-- Learn more about [ServiceRadar Sync Service](./sync.md)
+- Learn more about the [Sync runtime (embedded in agent)](./sync.md)
 - Set up [TLS Security](./tls-security.md) for secure communications

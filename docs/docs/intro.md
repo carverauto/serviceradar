@@ -22,7 +22,7 @@ ServiceRadar offers:
 - User authentication with local login support
 - JWT-based session management
 - KV Store for dynamic configuration
-- External system integration via Sync service
+- External system integration via embedded sync runtime (agent)
 - API key authentication for internal communications
 
 :::tip What you'll need
@@ -39,9 +39,9 @@ ServiceRadar consists of several main components:
 1. **Agent** - Runs on monitored hosts, provides service status through gRPC
 2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
-4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
+4. **Web UI** - Provides a modern dashboard interface with Caddy as a reverse proxy
 5. **KV Store** - Provides dynamic configuration capabilities using NATS JetStream
-6. **Sync Service** - Integrates with external inventory and security systems
+6. **Embedded Sync Runtime** - Integrates with external inventory and security systems via the agent
 7. **SRQL Service** - OCaml query engine behind `/api/query` for unified analytics across devices, events, and telemetry
 
 For a detailed explanation of the architecture, please see the [Architecture](./architecture.md) page.
@@ -56,7 +56,7 @@ ServiceRadar is designed with security in mind:
 4. **API Key Authentication** - Secure API access for the web interface
 5. **Role-Based Access** - Different components have different security roles
 6. **CORS Configuration** - Control which domains can access your API
-7. **Nginx Reverse Proxy** - Secure web access with configurable firewall rules
+7. **Caddy Reverse Proxy** - Secure web access with configurable firewall rules
 
 For more details, see the [TLS Security](./tls-security.md) and [Authentication Configuration](./auth-configuration.md) documentation.
 
@@ -75,7 +75,7 @@ Navigate through our documentation to get ServiceRadar up and running:
 4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
 5. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
 6. **[KV Store Configuration](./kv-configuration.md)** - Configure dynamic configuration store
-7. **[Sync Service Configuration](./sync.md)** - Integrate with external systems
+7. **[Sync Runtime Configuration](./sync.md)** - Integrate with external systems
 
 ### Advanced Topics
 8. **[Architecture](./architecture.md)** - Understand the system architecture

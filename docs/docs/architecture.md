@@ -189,7 +189,7 @@ The Web UI provides a modern dashboard interface that:
 - Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
 - Supports responsive design for mobile and desktop
 
-### Edge Proxy (Ingress/Caddy/Nginx)
+### Edge Proxy (Ingress/Caddy)
 
 The edge proxy terminates TLS and routes user traffic:
 
@@ -313,15 +313,15 @@ sequenceDiagram
 
 - Web-NG issues and validates JWTs; expose `https://<web-host>/auth/jwks.json` when external validators need the public keys.
 - JWTs are issued with short expirations; the Web UI rotates them server-side using the refresh token flow.
-- Downstream services (agents and sync services) continue to use mTLS and service credentials.
+- Downstream agents (including the embedded sync runtime) continue to use mTLS and service credentials.
 
 ## Sync Discovery Flow (Push-First)
 
-Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs in a push-first mode:
+Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs in a push-first mode inside the agent:
 
 - Tenant-specific integration sources are configured in the Web UI and stored in Core (Ash).
-- Sync enrolls with agent-gateway via mTLS and fetches config via `GetConfig`.
-- Device updates are streamed back to agent-gateway with ResultsChunk-compatible `StreamStatus` payloads.
+- Agents enroll with agent-gateway via mTLS and fetch config via `GetConfig`.
+- Embedded sync updates are streamed back to agent-gateway with ResultsChunk-compatible `StreamStatus` payloads.
 - Core routes updates through DIRE before writing canonical inventory records.
 
 ```mermaid
@@ -329,8 +329,8 @@ graph TD
     UI[Integrations UI] --> Core[(Core / Ash)]
     Core -->|GetConfig| Gateway[Agent-Gateway]
 
-    Sync[Sync Service] -->|Hello + GetConfig| Gateway
-    Sync -->|StreamStatus (chunked results)| Gateway
+    AgentSync[Agent + Embedded Sync] -->|Hello + GetConfig| Gateway
+    AgentSync -->|StreamStatus (chunked results)| Gateway
 
     Gateway --> Core
     Core --> DIRE[DIRE]
@@ -354,7 +354,6 @@ graph LR
     GatewayServer --> AgentServer1[Host 1<br/>Agent]
     GatewayServer --> AgentServer2[Host 2<br/>Agent]
     GatewayServer --> AgentServerN[Host N<br/>Agent]
-    GatewayServer --> SyncService[Sync Service]
 ```
 
 ### Minimal Deployment
@@ -366,7 +365,6 @@ graph LR
     Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Gateway]
     CombinedServer --> AgentServer1[Host 1<br/>Agent]
     CombinedServer --> AgentServer2[Host 2<br/>Agent]
-    CombinedServer --> SyncService[Sync Service]
 ```
 
 ### High Availability Deployment
@@ -389,8 +387,6 @@ graph TD
     Gateway1 --> Agent2[Agent 2]
     Gateway2 --> Agent1
     Gateway2 --> Agent2
-    Gateway1 --> SyncA[Sync Service A]
-    Gateway2 --> SyncB[Sync Service B]
 ```
 
 ## Network Requirements
@@ -402,7 +398,7 @@ ServiceRadar uses the following network ports:
 | Component | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
 | Agent | 50051 | gRPC/TCP | Service status queries |
-| Agent-Gateway | 50052 | gRPC/TCP | Agent + sync push ingestion |
+| Agent-Gateway | 50052 | gRPC/TCP | Agent push ingestion (including sync results) |
 | Core | 50052 | gRPC/TCP | Core gRPC API |
 | Core | 8090 | HTTP/TCP | API (internal) |
 | Web UI | 80/443 | HTTP(S)/TCP | User interface |

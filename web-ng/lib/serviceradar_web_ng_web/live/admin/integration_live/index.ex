@@ -18,6 +18,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   def mount(_params, _session, socket) do
     tenant_id = get_tenant_id(socket)
     partitions = list_partitions(tenant_id)
+    agents = list_agents(tenant_id)
+    agent_index = build_agent_index(agents)
+    agent_options = build_agent_options(agents)
     sync_agent_available = sync_agent_available?(tenant_id)
 
     socket =
@@ -26,6 +29,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       |> assign(:sources, list_sources(tenant_id))
       |> assign(:partitions, partitions)
       |> assign(:partition_options, build_partition_options(partitions))
+      |> assign(:agents, agents)
+      |> assign(:agent_index, agent_index)
+      |> assign(:agent_options, agent_options)
       |> assign(:sync_agent_available, sync_agent_available)
       |> assign(:show_create_modal, false)
       |> assign(:show_edit_modal, false)
@@ -95,10 +101,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     tenant_id = get_tenant_id(socket)
 
     if sync_agent_available?(tenant_id) do
+      agents = list_agents(tenant_id)
+      agent_index = build_agent_index(agents)
+      agent_options = build_agent_options(agents)
+
       {:noreply,
        socket
        |> assign(:show_create_modal, true)
-       |> assign(:create_form, build_create_form(tenant_id))}
+       |> assign(:create_form, build_create_form(tenant_id))
+       |> assign(:agents, agents)
+       |> assign(:agent_index, agent_index)
+       |> assign(:agent_options, agent_options)}
     else
       {:noreply,
        socket
@@ -365,6 +378,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                     <th>Name</th>
                     <th>Type</th>
                     <th>Partition</th>
+                    <th>Agent</th>
                     <th>Endpoint</th>
                     <th>Status</th>
                     <th>Last Sync</th>
@@ -385,6 +399,23 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                       </td>
                       <td class="text-xs text-base-content/70">
                         {source.partition || "-"}
+                      </td>
+                      <td class="text-xs text-base-content/70">
+                        <%= if source.agent_id && source.agent_id != "" do %>
+                          <% agent = Map.get(@agent_index, source.agent_id) %>
+                          <div class="font-medium">
+                            {agent_display_name(agent, source.agent_id)}
+                          </div>
+                          <div class="mt-1">
+                            <%= if agent do %>
+                              <.agent_status_badge agent={agent} />
+                            <% else %>
+                              <.ui_badge variant="ghost" size="xs">Unknown</.ui_badge>
+                            <% end %>
+                          </div>
+                        <% else %>
+                          <span class="text-xs text-base-content/60">Auto-assign</span>
+                        <% end %>
                       </td>
                       <td class="text-xs text-base-content/70 max-w-[200px] truncate">
                         {source.endpoint}
@@ -434,14 +465,20 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         :if={@show_create_modal}
         form={@create_form}
         partition_options={@partition_options}
+        agent_options={@agent_options}
       />
       <.edit_modal
         :if={@show_edit_modal}
         form={@edit_form}
         source={@selected_source}
         partition_options={@partition_options}
+        agent_options={@agent_options}
       />
-      <.details_modal :if={@show_details_modal} source={@selected_source} />
+      <.details_modal
+        :if={@show_details_modal}
+        source={@selected_source}
+        agent_index={@agent_index}
+      />
     </Layouts.app>
     """
   end
@@ -510,9 +547,10 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
           <.input
             field={@form[:agent_id]}
-            type="text"
-            label="Agent ID (Optional)"
-            placeholder="Agent to assign this source to"
+            type="select"
+            label="Agent"
+            options={@agent_options}
+            prompt="Auto-assign to any connected agent"
           />
 
           <.input
@@ -601,7 +639,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             prompt="Select a partition..."
           />
 
-          <.input field={@form[:agent_id]} type="text" label="Agent ID (Optional)" />
+          <.input
+            field={@form[:agent_id]}
+            type="select"
+            label="Agent"
+            options={@agent_options}
+            prompt="Auto-assign to any connected agent"
+          />
           <.input field={@form[:poller_id]} type="text" label="Poller ID (Optional)" />
 
           <.input
@@ -687,10 +731,18 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </div>
           <% end %>
 
-          <%= if @source.agent_id do %>
+          <%= if @source.agent_id && @source.agent_id != "" do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Agent ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.agent_id}</code>
+              <% agent = Map.get(@agent_index, @source.agent_id) %>
+              <div class="flex flex-col gap-2">
+                <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.agent_id}</code>
+                <%= if agent do %>
+                  <.agent_status_badge agent={agent} />
+                <% else %>
+                  <.ui_badge variant="ghost" size="xs">Unknown</.ui_badge>
+                <% end %>
+              </div>
             </div>
           <% end %>
 
@@ -830,6 +882,33 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     default_option ++ partition_options
   end
 
+  defp list_agents(tenant_id) do
+    Agent
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.sort([:name, :uid])
+    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> case do
+      {:ok, %Ash.Page.Keyset{results: results}} -> results
+      {:ok, results} when is_list(results) -> results
+      _ -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp build_agent_options(agents) do
+    agents
+    |> Enum.map(fn agent ->
+      label = "#{agent_display_name(agent, agent.uid)} - #{agent_status_label(agent)}"
+      {label, agent.uid}
+    end)
+    |> Enum.sort_by(&elem(&1, 0))
+  end
+
+  defp build_agent_index(agents) do
+    Map.new(agents, fn agent -> {agent.uid, agent} end)
+  end
+
   defp list_sources(tenant_id, filters \\ %{}) do
     opts = [tenant: tenant_id]
 
@@ -896,7 +975,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               params
           end
 
-        params
+        normalize_optional_params(params)
       end
     )
     |> to_form()
@@ -904,8 +983,27 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp build_edit_form(source) do
     source
-    |> AshPhoenix.Form.for_update(:update, domain: Integrations)
+    |> AshPhoenix.Form.for_update(:update,
+      domain: Integrations,
+      transform_params: fn _form, params, _action ->
+        normalize_optional_params(params)
+      end
+    )
     |> to_form()
+  end
+
+  defp normalize_optional_params(params) do
+    params
+    |> normalize_blank_param("agent_id")
+    |> normalize_blank_param("poller_id")
+    |> normalize_blank_param("partition")
+  end
+
+  defp normalize_blank_param(params, key) do
+    case Map.get(params, key) do
+      "" -> Map.put(params, key, nil)
+      _ -> params
+    end
   end
 
   defp parse_credentials_json(params) do
@@ -926,6 +1024,43 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
       _ -> default_tenant_id()
     end
+  end
+
+  defp agent_display_name(nil, fallback), do: fallback || "Unknown"
+  defp agent_display_name(agent, _fallback), do: agent.name || agent.uid
+
+  defp agent_status_label(agent) do
+    cond do
+      agent.status == :connected and agent.is_healthy -> "Connected"
+      agent.status == :connected -> "Unhealthy"
+      agent.status == :degraded -> "Degraded"
+      agent.status == :disconnected -> "Disconnected"
+      agent.status == :unavailable -> "Unavailable"
+      agent.status == :connecting -> "Connecting"
+      true -> "Unknown"
+    end
+  end
+
+  defp agent_status_variant(agent) do
+    cond do
+      agent.status == :connected and agent.is_healthy -> "success"
+      agent.status == :connected -> "warning"
+      agent.status == :degraded -> "warning"
+      agent.status == :disconnected -> "error"
+      agent.status == :unavailable -> "error"
+      agent.status == :connecting -> "info"
+      true -> "ghost"
+    end
+  end
+
+  defp agent_status_badge(assigns) do
+    variant = agent_status_variant(assigns.agent)
+    label = agent_status_label(assigns.agent)
+    assigns = assign(assigns, :variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
   end
 
   defp default_tenant_id do
