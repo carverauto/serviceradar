@@ -29,7 +29,7 @@ The proposed changes:
 - Per-tenant integration config delivery via GetConfig
 - Go sync service updates for Hello + GetConfig and per-tenant loops
 - Agent/agent-gateway ingestion of sync device updates
-- DIRE processing of sync updates into canonical device records
+- DIRE processing of sync updates into canonical device records (source of truth)
 - mTLS identity classification for platform vs tenant sync services
 - Platform bootstrap enhancements (random platform tenant UUID + platform certs)
 - UI gating and sync service assignment for integrations
@@ -39,6 +39,7 @@ The proposed changes:
 - New integration adapters (Armis/NetBox/Faker behavior changes)
 - NATS integration (covered by separate proposal)
 - Agent local config file format changes beyond GetConfig payloads
+- DiscoveredDevice staging and SweepConfig generation (superseded by DIRE as source of truth)
 
 ## Dependencies
 

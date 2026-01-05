@@ -7,9 +7,9 @@
 
 ## 2. Core Ash Resources
 - [x] 2.1 Create SyncService Ash resource with attributes: component_id, name, service_type (:saas/:on_prem), endpoint, status, is_platform_sync, capabilities, last_heartbeat_at, tenant_id
-- [ ] 2.2 Create DiscoveredDevice Ash resource with: device_id, source_type, ip_addresses, mac_addresses, hostname, device_type, raw_data, agent_uid, integration_source_id, tenant_id
+- [ ] 2.2 Create DiscoveredDevice Ash resource with: device_id, source_type, ip_addresses, mac_addresses, hostname, device_type, raw_data, agent_uid, integration_source_id, tenant_id (out of scope; DIRE is source of truth)
 - [x] 2.3 Add sync_service_id foreign key to IntegrationSource with belongs_to relationship
-- [ ] 2.4 Create database migrations for sync_services and discovered_devices tables
+- [ ] 2.4 Create database migrations for sync_services and discovered_devices tables (out of scope; no discovered_devices)
 - [x] 2.5 Add migration to add sync_service_id column to integration_sources
 - [x] 2.6 Emit IntegrationSource create/update events to OCSF events pipeline
 
@@ -36,26 +36,26 @@
 - [x] 5.5 Build sync GetConfig payloads from IntegrationSource data (per tenant)
 
 ## 6. Device Ingestion + DIRE
-- [ ] 6.1 Ingest sync results from StreamStatus chunks in agent-gateway/core pipeline
-- [ ] 6.2 Validate tenant scope using mTLS identity and request metadata
-- [ ] 6.3 Route sync updates through DIRE for canonical device records
-- [ ] 6.4 Persist optional discovered_devices staging records (if needed)
+- [x] 6.1 Ingest sync results from StreamStatus chunks in agent-gateway/core pipeline
+- [x] 6.2 Validate tenant scope using mTLS identity and request metadata
+- [x] 6.3 Route sync updates through DIRE for canonical device records
+- [ ] 6.4 Persist optional discovered_devices staging records (if needed) (out of scope)
 - [ ] 6.5 Add tests for sync ingestion path
 
 ## 7. Sweep Config Generation
-- [ ] 7.1 Add build_sweep_config/2 to AgentConfigGenerator
-- [ ] 7.2 Query DiscoveredDevice or canonical device inventory to build sweep targets
-- [ ] 7.3 Extract networks from device IPs (compute CIDR ranges)
-- [ ] 7.4 Build device_targets list with ports from source data
-- [ ] 7.5 Include sweep config in GetConfig response
-- [ ] 7.6 Add tests for sweep config generation
+- [ ] 7.1 Add build_sweep_config/2 to AgentConfigGenerator (out of scope)
+- [ ] 7.2 Query DiscoveredDevice or canonical device inventory to build sweep targets (out of scope)
+- [ ] 7.3 Extract networks from device IPs (compute CIDR ranges) (out of scope)
+- [ ] 7.4 Build device_targets list with ports from source data (out of scope)
+- [ ] 7.5 Include sweep config in GetConfig response (out of scope)
+- [ ] 7.6 Add tests for sweep config generation (out of scope)
 
 ## 8. Agent Sweep Config Application
-- [ ] 8.1 Add sweep config handling to Go agent's fetchAndApplyConfig
-- [ ] 8.2 Update SweepService to accept config from GetConfig (not just sweep.json)
-- [ ] 8.3 Add fallback to sweep.json for backward compatibility
-- [ ] 8.4 Remove KV dependency from agent sweep config path
-- [ ] 8.5 Add tests for agent sweep config application
+- [ ] 8.1 Add sweep config handling to Go agent's fetchAndApplyConfig (out of scope)
+- [ ] 8.2 Update SweepService to accept config from GetConfig (not just sweep.json) (out of scope)
+- [ ] 8.3 Add fallback to sweep.json for backward compatibility (out of scope)
+- [ ] 8.4 Remove KV dependency from agent sweep config path (out of scope)
+- [ ] 8.5 Add tests for agent sweep config application (out of scope)
 
 ## 9. Sync Service Onboarding + UI
 - [ ] 9.1 Implement heartbeat tracking (update last_heartbeat_at)
@@ -66,7 +66,7 @@
 - [ ] 9.6 Add sync service selector + status to Integrations UI
 
 ## 10. KV Deprecation
-- [ ] 10.1 Add feature flag for "sweep config from GetConfig" vs "sweep.json from KV"
+- [ ] 10.1 Add feature flag for "sweep config from GetConfig" vs "sweep.json from KV" (out of scope)
 - [ ] 10.2 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
 - [ ] 10.3 Update documentation for new device discovery flow
 - [ ] 10.4 Add migration guide for customers using on-prem sync

@@ -548,6 +548,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp process_service_status(service, metadata) do
     # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
     # NOT from the service message - this prevents spoofing
+    enforce_tenant_scope!(service, metadata)
+
     service_name =
       case service.service_name do
         name when is_binary(name) -> String.trim(name)
@@ -640,6 +642,51 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         Logger.warning(
           "Failed to process status for service #{service.service_name}: #{inspect(reason)}"
         )
+    end
+  end
+
+  defp enforce_tenant_scope!(service, metadata) do
+    tenant_id = Map.get(metadata, :tenant_id)
+    tenant_slug = Map.get(metadata, :tenant_slug)
+
+    if not (is_binary(tenant_id) and tenant_id != "") do
+      raise GRPC.RPCError, status: :unauthenticated, message: "tenant identity missing"
+    end
+
+    service_tenant_id =
+      case service.tenant_id do
+        value when is_binary(value) ->
+          value
+          |> String.trim()
+          |> case do
+            "" -> nil
+            trimmed -> trimmed
+          end
+
+        _ ->
+          nil
+      end
+
+    if service_tenant_id != nil and service_tenant_id != tenant_id do
+      raise GRPC.RPCError, status: :permission_denied, message: "tenant_id mismatch"
+    end
+
+    service_tenant_slug =
+      case service.tenant_slug do
+        value when is_binary(value) ->
+          value
+          |> String.trim()
+          |> case do
+            "" -> nil
+            trimmed -> trimmed
+          end
+
+        _ ->
+          nil
+      end
+
+    if service_tenant_slug != nil and service_tenant_slug != tenant_slug do
+      raise GRPC.RPCError, status: :permission_denied, message: "tenant_slug mismatch"
     end
   end
 
