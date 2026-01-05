@@ -127,6 +127,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   defp ensure_platform_sync_service!(tenant_id) do
     sync_name = "Platform Sync"
+    component_id = ServiceRadar.Edge.PlatformServiceCertificates.platform_sync_component_id()
     actor = system_actor(tenant_id)
 
     query =
@@ -136,7 +137,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
     case Ash.read(query, authorize?: false) do
       {:ok, []} ->
-        create_platform_sync_service!(tenant_id, sync_name, actor)
+        create_platform_sync_service!(tenant_id, sync_name, component_id, actor)
 
       {:ok, [_service]} ->
         :ok
@@ -157,8 +158,9 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
     end
   end
 
-  defp create_platform_sync_service!(tenant_id, sync_name, actor) do
+  defp create_platform_sync_service!(tenant_id, sync_name, component_id, actor) do
     attrs = %{
+      component_id: component_id,
       name: sync_name,
       service_type: :saas,
       status: :offline,

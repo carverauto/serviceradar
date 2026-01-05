@@ -28,6 +28,31 @@ The sync service SHALL process integrations in a tenant-scoped manner, where pla
 - **THEN** agent-gateway returns only tenant-A configs
 - **AND** any request for tenant-B configs is denied
 
+### Requirement: Sync GetConfig Includes Integration Sources
+Sync GetConfig responses SHALL be populated from IntegrationSource records created in the UI, including integration settings required by sync runtimes.
+
+#### Scenario: UI integration source appears in sync config
+- **GIVEN** a tenant admin creates an integration source (e.g., Armis or NetBox)
+- **WHEN** the sync service calls GetConfig
+- **THEN** the response includes that integration source for the tenant
+- **AND** the payload includes integration settings required for discovery
+- **AND** credentials remain encrypted at rest and are only provided to the sync service at runtime
+
+#### Scenario: Sync config delivered as JSON payload
+- **GIVEN** a sync service requests configuration
+- **WHEN** the agent-gateway responds
+- **THEN** integration configuration is returned via `config_json`
+- **AND** the sync service deserializes the JSON payload into its in-memory config
+
+### Requirement: Integration Source Events Stored as OCSF
+Integration source lifecycle events SHALL be recorded in the OCSF events table with origin metadata.
+
+#### Scenario: Integration source creation emits OCSF event
+- **GIVEN** a tenant admin creates an integration source
+- **WHEN** the record is stored
+- **THEN** an event is published to the events pipeline
+- **AND** the event is stored in `ocsf_events` with tenant metadata, origin service, and source identifiers
+
 ### Requirement: Sync Device Updates Flow Through Agent Pipeline
 Device updates produced by the sync service SHALL be forwarded through agent -> agent-gateway -> core-elx and processed by DIRE before device records are written.
 

@@ -83,6 +83,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :endpoint,
         :agent_id,
         :poller_id,
+        :sync_service_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -111,9 +112,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
+      change &validate_sync_service_assignment/2
+
       # Sync to datasvc after create
       change after_action(fn changeset, record, _context ->
                sync_to_datasvc(record)
+               publish_integration_event(record, :create, changeset)
                {:ok, record}
              end)
     end
@@ -126,6 +130,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :endpoint,
         :agent_id,
         :poller_id,
+        :sync_service_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -153,9 +158,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
+      change &validate_sync_service_assignment/2
+
       # Sync to datasvc after update
       change after_action(fn changeset, record, _context ->
                sync_to_datasvc(record)
+               publish_integration_event(record, :update, changeset)
                {:ok, record}
              end)
     end
@@ -163,9 +171,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     update :enable do
       require_atomic? false
       change set_attribute(:enabled, true)
+      change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
                sync_to_datasvc(record)
+               publish_integration_event(record, :enable, %{})
                {:ok, record}
              end)
     end
@@ -173,10 +183,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     update :disable do
       require_atomic? false
       change set_attribute(:enabled, false)
+      change &validate_sync_service_assignment/2
 
       change after_action(fn _changeset, record, _context ->
                # Remove from datasvc when disabled
                remove_from_datasvc(record)
+               publish_integration_event(record, :disable, %{})
                {:ok, record}
              end)
     end
@@ -230,6 +242,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change before_action(fn changeset, _context ->
                remove_from_datasvc(changeset.data)
                changeset
+             end)
+
+      change after_action(fn changeset, record, _context ->
+               publish_integration_event(record, :delete, changeset)
+               {:ok, record}
              end)
     end
   end
@@ -294,6 +311,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     attribute :poller_id, :string do
       public? true
       description "Poller to assign this source to"
+    end
+
+    attribute :sync_service_id, :uuid do
+      public? true
+      description "Sync service that processes this source"
     end
 
     attribute :partition, :string do
@@ -470,8 +492,17 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
+  relationships do
+    belongs_to :sync_service, ServiceRadar.Integrations.SyncService do
+      attribute_type :uuid
+      source_attribute :sync_service_id
+      allow_nil? true
+    end
+  end
+
   # Private helper functions for datasvc sync via Oban
 
+  alias ServiceRadar.Integrations.SyncService
   alias ServiceRadar.Integrations.Workers.SyncToDataSvcWorker
 
   defp sync_to_datasvc(record) do
@@ -498,5 +529,68 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         require Logger
         Logger.error("Failed to enqueue datasvc delete for #{record.name}: #{inspect(reason)}")
     end
+  end
+
+  defp validate_sync_service_assignment(changeset, _context) do
+    action = changeset.action && changeset.action.name
+    sync_service_id = Ash.Changeset.get_attribute(changeset, :sync_service_id)
+    sync_service_change =
+      case Ash.Changeset.fetch_change(changeset, :sync_service_id) do
+        {:ok, _value} -> true
+        :error -> false
+      end
+    tenant_id = changeset.tenant || Ash.Changeset.get_attribute(changeset, :tenant_id)
+
+    cond do
+      action == :create and is_nil(sync_service_id) ->
+        Ash.Changeset.add_error(changeset,
+          field: :sync_service_id,
+          message: "sync service is required"
+        )
+
+      action in [:update, :enable, :disable] and not sync_service_change ->
+        changeset
+
+      is_nil(sync_service_id) ->
+        Ash.Changeset.add_error(changeset,
+          field: :sync_service_id,
+          message: "sync service is required"
+        )
+
+      true ->
+        validate_sync_service(changeset, sync_service_id, tenant_id)
+    end
+  end
+
+  defp validate_sync_service(changeset, sync_service_id, tenant_id) do
+    case Ash.get(SyncService, sync_service_id, tenant: nil, authorize?: false) do
+      {:ok, service} ->
+        if service.is_platform_sync or to_string(service.tenant_id) == to_string(tenant_id) do
+          changeset
+        else
+          Ash.Changeset.add_error(changeset,
+            field: :sync_service_id,
+            message: "sync service does not belong to tenant"
+          )
+        end
+
+      {:error, _reason} ->
+        Ash.Changeset.add_error(changeset,
+          field: :sync_service_id,
+          message: "sync service not found"
+        )
+    end
+  end
+
+  defp publish_integration_event(record, action, changeset) do
+    actor = Map.get(changeset, :context, %{}) |> Map.get(:actor)
+
+    Task.start(fn ->
+      _ = ServiceRadar.Integrations.EventPublisher.publish_integration_source_event(
+        record,
+        action,
+        actor: actor
+      )
+    end)
   end
 end

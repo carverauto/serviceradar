@@ -12,6 +12,15 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   @default_partition_id "platform"
   @default_sync_component_id "platform-sync"
 
+  @spec platform_sync_component_id() :: String.t()
+  def platform_sync_component_id do
+    Application.get_env(
+      :serviceradar_core,
+      :platform_sync_component_id,
+      System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || @default_sync_component_id
+    )
+  end
+
   @spec ensure_platform_sync_certificate(String.t()) :: {:ok, OnboardingPackage.t()} | {:error, term()}
   def ensure_platform_sync_certificate(tenant_id) when is_binary(tenant_id) do
     component_id = platform_sync_component_id()
@@ -96,11 +105,4 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     end
   end
 
-  defp platform_sync_component_id do
-    Application.get_env(
-      :serviceradar_core,
-      :platform_sync_component_id,
-      System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || @default_sync_component_id
-    )
-  end
 end

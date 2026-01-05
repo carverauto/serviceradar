@@ -171,23 +171,60 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           "Sync config request received: sync_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
         )
 
-        sync_version = "v0-sync-empty"
+        case core_call(AgentGatewaySync, :get_sync_config_if_changed, [
+               agent_id,
+               tenant_info.tenant_id,
+               config_version
+             ]) do
+          {:error, :core_unavailable} ->
+            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
-        if config_version == sync_version do
-          %Monitoring.AgentConfigResponse{
-            not_modified: true,
-            config_version: sync_version
-          }
-        else
-          %Monitoring.AgentConfigResponse{
-            not_modified: false,
-            config_version: sync_version,
-            config_timestamp: System.os_time(:second),
-            heartbeat_interval_sec: @default_heartbeat_interval_sec,
-            config_poll_interval_sec: 300,
-            checks: [],
-            config_json: <<>>
-          }
+          {:ok, :not_modified} ->
+            %Monitoring.AgentConfigResponse{
+              not_modified: true,
+              config_version: config_version
+            }
+
+          {:ok, {:ok, config}} ->
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: config.config_version,
+              config_timestamp: config.config_timestamp,
+              heartbeat_interval_sec: config.heartbeat_interval_sec,
+              config_poll_interval_sec: config.config_poll_interval_sec,
+              checks: [],
+              config_json: config.config_json
+            }
+
+          {:ok, {:error, reason}} ->
+            Logger.warning(
+              "Failed to generate config for sync #{agent_id}: #{inspect(reason)}, returning empty config"
+            )
+
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: "v0-sync-error",
+              config_timestamp: System.os_time(:second),
+              heartbeat_interval_sec: @default_heartbeat_interval_sec,
+              config_poll_interval_sec: 300,
+              checks: [],
+              config_json: <<>>
+            }
+
+          {:ok, other} ->
+            Logger.warning(
+              "Unexpected sync config response for #{agent_id}: #{inspect(other)}"
+            )
+
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: "v0-sync-error",
+              config_timestamp: System.os_time(:second),
+              heartbeat_interval_sec: @default_heartbeat_interval_sec,
+              config_poll_interval_sec: 300,
+              checks: [],
+              config_json: <<>>
+            }
         end
 
       _ ->

@@ -45,6 +45,7 @@ defmodule ServiceRadar.Integrations.SyncService do
 
     create :create do
       accept [
+        :component_id,
         :name,
         :service_type,
         :endpoint,
@@ -75,6 +76,12 @@ defmodule ServiceRadar.Integrations.SyncService do
 
   attributes do
     uuid_primary_key :id
+
+    attribute :component_id, :string do
+      allow_nil? false
+      constraints min_length: 1, max_length: 255
+      description "Stable sync service identifier (matches onboarding component_id)"
+    end
 
     attribute :name, :string do
       allow_nil? false
@@ -116,6 +123,7 @@ defmodule ServiceRadar.Integrations.SyncService do
 
   identities do
     identity :unique_platform_sync, [:tenant_id], where: expr(is_platform_sync == true)
+    identity :unique_component_id, [:tenant_id, :component_id]
   end
 
   policies do

@@ -6,11 +6,12 @@
 - [x] 1.5 Reject zero UUID for platform tenant identity and require explicit gateway tenant_id
 
 ## 2. Core Ash Resources
-- [ ] 2.1 Create SyncService Ash resource with attributes: name, service_type (:saas/:on_prem), endpoint, status, is_platform_sync, capabilities, last_heartbeat_at, tenant_id
+- [x] 2.1 Create SyncService Ash resource with attributes: component_id, name, service_type (:saas/:on_prem), endpoint, status, is_platform_sync, capabilities, last_heartbeat_at, tenant_id
 - [ ] 2.2 Create DiscoveredDevice Ash resource with: device_id, source_type, ip_addresses, mac_addresses, hostname, device_type, raw_data, agent_uid, integration_source_id, tenant_id
-- [ ] 2.3 Add sync_service_id foreign key to IntegrationSource with belongs_to relationship
+- [x] 2.3 Add sync_service_id foreign key to IntegrationSource with belongs_to relationship
 - [ ] 2.4 Create database migrations for sync_services and discovered_devices tables
-- [ ] 2.5 Add migration to add sync_service_id column to integration_sources
+- [x] 2.5 Add migration to add sync_service_id column to integration_sources
+- [x] 2.6 Emit IntegrationSource create/update events to OCSF events pipeline
 
 ## 3. Platform Bootstrap
 - [x] 3.1 Generate and persist random platform tenant UUID on first boot
@@ -31,6 +32,7 @@
 - [ ] 5.2 Implement Hello + GetConfig bootstrap against agent-gateway
 - [ ] 5.3 Maintain per-tenant config cache and run per-tenant sync loops
 - [ ] 5.4 Push device updates to agent-gateway via StreamStatus with ResultsChunk-compatible chunking
+- [x] 5.5 Build sync GetConfig payloads from IntegrationSource data (per tenant)
 
 ## 6. Device Ingestion + DIRE
 - [ ] 6.1 Ingest sync results from StreamStatus chunks in agent-gateway/core pipeline
