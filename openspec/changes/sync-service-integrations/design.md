@@ -63,6 +63,20 @@ Problems:
 
 ## Key Components
 
+### 0. Identity Classification (mTLS vs SPIFFE)
+
+- **SPIFFE SAN present**: treated as platform identity (in-cluster), component type
+  is derived from SPIFFE (`agent`, `sync`, etc.) and must be authorized by the
+  receiving service.
+- **SPIFFE SAN missing**: treated as tenant edge identity (mTLS-only). Tenant
+  slug, partition, and component_id are derived from CN and component type is
+  unspecified. Authorization relies on component_id + tenant_id scoping.
+- **Reserved platform slug**: platform tenant uses a reserved slug (default:
+  `platform`), allowing platform identities to be recognized even when running
+  with non-SPIFFE mTLS outside the cluster.
+- **Zero-trust**: tenant_id is derived solely from the mTLS certificate chain
+  and CN/SPIFFE fields; client-supplied tenant identifiers are ignored.
+
 ### 1. SyncService Ash Resource
 
 Track onboarded sync services, including platform vs edge classification:

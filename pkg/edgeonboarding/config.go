@@ -220,6 +220,9 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 		return ErrGatewayAddrRequired
 	}
 
+	certDir := filepath.Join(b.cfg.StoragePath, "certs")
+	serverName := gatewayServerName(gatewayEndpoint, metadata)
+
 	// Generate minimal agent config JSON per SaaS connectivity spec
 	config := map[string]interface{}{
 		// Agent identity
@@ -230,10 +233,16 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 
 		// mTLS security configuration
 		"gateway_security": map[string]interface{}{
-			"mode":      "mtls",
-			"cert_file": filepath.Join(b.cfg.StoragePath, "certs/component.pem"),
-			"key_file":  filepath.Join(b.cfg.StoragePath, "certs/component-key.pem"),
-			"ca_file":   filepath.Join(b.cfg.StoragePath, "certs/ca-chain.pem"),
+			"mode":        "mtls",
+			"cert_dir":    certDir,
+			"server_name": serverName,
+			"role":        "agent",
+			"tls": map[string]interface{}{
+				"cert_file":      "component.pem",
+				"key_file":       "component-key.pem",
+				"ca_file":        "ca-chain.pem",
+				"client_ca_file": "ca-chain.pem",
+			},
 		},
 
 		// Deployment info (informational only)

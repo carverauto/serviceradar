@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   @moduledoc """
   LiveView for managing integration sources (Armis, SNMP, etc.).
 
-  Integration sources are stored in Postgres and synced to datasvc KV
-  for consumption by Go/Rust services.
+  Integration sources are stored in Postgres and delivered to sync services
+  via gateway-config updates.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -268,9 +268,18 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               Manage data source integrations (Armis, SNMP, Syslog, etc.)
             </p>
           </div>
-          <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
-            <.icon name="hero-plus" class="size-4" /> New Source
-          </.ui_button>
+          <div class="flex flex-col items-end gap-2">
+            <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
+              <.icon name="hero-plus" class="size-4" /> New Source
+            </.ui_button>
+            <.ui_button
+              variant="outline"
+              size="sm"
+              navigate={~p"/admin/edge-packages/new?component_type=sync"}
+            >
+              <.icon name="hero-link" class="size-4" /> Add Edge Sync Service
+            </.ui_button>
+          </div>
         </div>
 
         <.ui_panel>

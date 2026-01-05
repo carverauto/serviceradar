@@ -112,6 +112,7 @@ func (p *MTLSProvider) setCredentialNeeds() error {
 		models.RoleKVStore:     {true, true},  // Client to NATS, Server for gRPC
 		models.RoleDataService: {true, true},  // Client to NATS, Server for gRPC
 		models.RoleChecker:     {true, true},  // Client to KV/telemetry, Server for Poller/Agent
+		models.RoleSync:        {true, true},  // Client to gateway, optional server for health
 	}
 
 	needs, ok := roleNeeds[p.config.Role]

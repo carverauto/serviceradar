@@ -1,7 +1,9 @@
 ## 1. Protocol + Identity
 - [ ] 1.1 Extend agent/agent-gateway Hello/GetConfig to identify sync services and service class
-- [ ] 1.2 Define mTLS identity classification for platform vs tenant services (SPIFFE/CN rules)
-- [ ] 1.3 Enforce tenant scoping in agent/agent-gateway based on mTLS identity
+- [x] 1.2 Define mTLS identity classification for platform vs tenant services (SPIFFE/CN rules)
+- [x] 1.3 Enforce tenant scoping in agent/agent-gateway based on mTLS identity
+- [x] 1.4 Reserve platform tenant slug and validate platform/non-platform usage
+- [x] 1.5 Reject zero UUID for platform tenant identity and require explicit gateway tenant_id
 
 ## 2. Core Ash Resources
 - [ ] 2.1 Create SyncService Ash resource with attributes: name, service_type (:saas/:on_prem), endpoint, status, is_platform_sync, capabilities, last_heartbeat_at, tenant_id
@@ -53,13 +55,12 @@
 - [ ] 8.5 Add tests for agent sweep config application
 
 ## 9. Sync Service Onboarding + UI
-- [ ] 9.1 Add SyncServiceHello RPC for on-prem sync registration
-- [ ] 9.2 Implement heartbeat tracking (update last_heartbeat_at)
-- [ ] 9.3 Add status computation (online if heartbeat < 2 min, offline otherwise)
-- [ ] 9.4 Add on-prem sync service onboarding endpoint in web-ng
-- [ ] 9.5 Generate minimal sync bootstrap config during edge onboarding
-- [ ] 9.6 Add "Add Edge Sync Service" button under "+ New Source" in Integrations UI
-- [ ] 9.7 Add sync service selector + status to Integrations UI
+- [ ] 9.1 Implement heartbeat tracking (update last_heartbeat_at)
+- [ ] 9.2 Add status computation (online if heartbeat < 2 min, offline otherwise)
+- [ ] 9.3 Add on-prem sync service onboarding endpoint in web-ng
+- [x] 9.4 Generate minimal sync bootstrap config during edge onboarding
+- [x] 9.5 Add "Add Edge Sync Service" button under "+ New Source" in Integrations UI
+- [ ] 9.6 Add sync service selector + status to Integrations UI
 
 ## 10. KV Deprecation
 - [ ] 10.1 Add feature flag for "sweep config from GetConfig" vs "sweep.json from KV"

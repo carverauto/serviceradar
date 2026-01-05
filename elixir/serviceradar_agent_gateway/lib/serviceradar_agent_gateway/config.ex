@@ -200,19 +200,17 @@ defmodule ServiceRadarAgentGateway.Config do
 
     {tenant_id, tenant_slug} =
       if is_nil(tenant_id) do
-        allow_default? = System.get_env("GATEWAY_ALLOW_DEFAULT_TENANT", "false") == "true"
-
-        if allow_default? do
-          {"00000000-0000-0000-0000-000000000000", tenant_slug || "default"}
-        else
-          raise "tenant_id is required for agent gateway (set GATEWAY_TENANT_ID or provide mTLS certs; for local dev set GATEWAY_ALLOW_DEFAULT_TENANT=true)"
-        end
+        raise "tenant_id is required for agent gateway (set GATEWAY_TENANT_ID or SERVICERADAR_PLATFORM_TENANT_ID)"
       else
         if not Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, tenant_id) do
           raise "invalid tenant_id format for agent gateway"
         end
 
-        {tenant_id, tenant_slug || "default"}
+        if tenant_id == "00000000-0000-0000-0000-000000000000" do
+          raise "invalid tenant_id for agent gateway: platform tenant must not be the zero UUID"
+        end
+
+        {tenant_id, tenant_slug || platform_tenant_slug()}
       end
 
     # Build NATS prefix
@@ -276,8 +274,17 @@ defmodule ServiceRadarAgentGateway.Config do
       {tenant_id, tenant_slug}
     else
       # Priority 2: Environment variables
-      env_tenant_id = System.get_env("GATEWAY_TENANT_ID") || System.get_env("POLLER_TENANT_ID")
-      env_tenant_slug = System.get_env("GATEWAY_TENANT_SLUG") || System.get_env("POLLER_TENANT_SLUG")
+      env_tenant_id =
+        System.get_env("GATEWAY_TENANT_ID") ||
+          System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
+          System.get_env("PLATFORM_TENANT_ID") ||
+          System.get_env("POLLER_TENANT_ID")
+
+      env_tenant_slug =
+        System.get_env("GATEWAY_TENANT_SLUG") ||
+          System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
+          System.get_env("PLATFORM_TENANT_SLUG") ||
+          System.get_env("POLLER_TENANT_SLUG")
 
       if env_tenant_id || env_tenant_slug do
         {env_tenant_id, env_tenant_slug}
@@ -359,5 +366,9 @@ defmodule ServiceRadarAgentGateway.Config do
       _ ->
         {:error, :invalid_cn_format}
     end
+  end
+
+  defp platform_tenant_slug do
+    Application.get_env(:serviceradar_core, :platform_tenant_slug, "platform")
   end
 end

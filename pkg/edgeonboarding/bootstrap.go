@@ -42,7 +42,7 @@ var (
 )
 
 // Config contains all parameters needed for edge service onboarding.
-// This is the client-side configuration for edge services (poller, agent, checker)
+// This is the client-side configuration for edge services (poller, agent, checker, sync)
 // to bootstrap themselves from an onboarding token.
 //
 // ## Minimal Bootstrap Configuration

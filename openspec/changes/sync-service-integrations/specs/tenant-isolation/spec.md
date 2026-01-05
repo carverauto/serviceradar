@@ -12,6 +12,11 @@ The system SHALL create a non-nil, random UUID as the platform tenant ID during 
 - **WHEN** services restart
 - **THEN** the same platform tenant UUID is reused
 
+#### Scenario: Zero UUID is rejected for platform tenant
+- **GIVEN** a platform tenant identifier of `00000000-0000-0000-0000-000000000000`
+- **WHEN** platform services initialize
+- **THEN** the platform tenant ID is rejected as invalid
+
 ### Requirement: Platform Service mTLS Identities
 Platform services SHALL use mTLS identities that map to the platform tenant and are distinguishable from tenant-scoped identities.
 
@@ -26,3 +31,25 @@ Platform services SHALL use mTLS identities that map to the platform tenant and 
 - **WHEN** it attempts to use platform-only operations
 - **THEN** agent-gateway rejects the request
 - **AND** logs the tenant identity and attempted operation
+
+### Requirement: mTLS-Derived Tenant Identity
+The system SHALL derive tenant_id exclusively from the mTLS certificate identity and MUST NOT accept tenant identifiers supplied by clients.
+
+#### Scenario: Tenant ID resolved from mTLS
+- **GIVEN** a service connects with a valid mTLS certificate
+- **WHEN** the service calls agent-gateway
+- **THEN** the tenant_id is resolved from the certificate identity
+- **AND** any tenant_id fields in the request are ignored
+
+### Requirement: Reserved Platform Tenant Slug
+The platform tenant SHALL use a reserved slug (default: `platform`), and no non-platform tenant may use that slug.
+
+#### Scenario: Reserved slug blocked for non-platform tenant
+- **GIVEN** a tenant creation request with the reserved slug
+- **WHEN** the tenant is not marked as platform
+- **THEN** the request is rejected with a slug validation error
+
+#### Scenario: Platform tenant uses reserved slug
+- **GIVEN** a platform tenant
+- **WHEN** it is created or updated
+- **THEN** its slug matches the reserved platform slug

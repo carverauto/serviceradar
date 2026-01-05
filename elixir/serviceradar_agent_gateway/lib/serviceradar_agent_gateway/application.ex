@@ -127,7 +127,8 @@ defmodule ServiceRadarAgentGateway.Application do
        partition_id: partition_id,
        gateway_id: gateway_id,
        domain: domain,
-       entity_type: :gateway},
+       entity_type: :gateway,
+       tenant_id: tenant_id},
       # Register gateway for platform-wide visibility (Infrastructure UI).
       {ServiceRadar.GatewayRegistrationWorker,
        gateway_id: gateway_id,

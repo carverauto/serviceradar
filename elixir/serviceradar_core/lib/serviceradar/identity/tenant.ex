@@ -559,5 +559,6 @@ defmodule ServiceRadar.Identity.Tenant do
 
   validations do
     validate ServiceRadar.Identity.Validations.UniquePlatformTenant
+    validate ServiceRadar.Identity.Validations.ReservedTenantSlug
   end
 end

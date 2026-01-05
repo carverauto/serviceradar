@@ -50,6 +50,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_services_per_request 5_000
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
+  @agent_gateway_component_types [:agent, :sync]
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -88,6 +89,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(tenant_info, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
 
@@ -151,6 +153,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate for authorization
     tenant_info = extract_tenant_from_stream(stream)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
 
     # Generate config from database using the config generator
     case core_call(AgentGatewaySync, :get_config_if_changed, [
@@ -252,6 +255,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition = resolve_partition(tenant_info, request.partition)
 
     refresh_agent_heartbeat(tenant_info, agent_id, partition, request, stream)
@@ -355,6 +359,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             ^agent_id -> agent_id
             _ -> raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
           end
+
+        enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
         services =
           chunk.services
           |> List.wrap()
@@ -619,6 +625,44 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       end
 
     normalize_partition(tenant_partition || request_partition)
+  end
+
+  defp enforce_component_identity!(tenant_info, component_id, allowed_types) do
+    cert_component_id =
+      case tenant_info do
+        %{component_id: value} when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    if cert_component_id == "" do
+      Logger.warning("Component identity missing from client certificate")
+      raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
+
+    if component_id != cert_component_id do
+      Logger.warning(
+        "Component identity mismatch: request=#{component_id} cert=#{cert_component_id}"
+      )
+
+      raise GRPC.RPCError, status: :permission_denied, message: "component_id mismatch"
+    end
+
+    component_type = Map.get(tenant_info, :component_type)
+
+    cond do
+      is_nil(component_type) ->
+        :ok
+
+      component_type in allowed_types ->
+        :ok
+
+      true ->
+        Logger.warning(
+          "Component type not authorized: component_type=#{inspect(component_type)} allowed=#{inspect(allowed_types)}"
+        )
+
+        raise GRPC.RPCError, status: :permission_denied, message: "component_type not authorized"
+    end
   end
 
   defp ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream) do

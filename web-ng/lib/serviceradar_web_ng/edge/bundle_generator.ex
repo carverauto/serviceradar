@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   ## Bootstrap Configuration
 
   The generated config contains only minimal bootstrap settings:
-  - `component_id` - Component identifier
+  - `agent_id` - Component identifier used for gateway enrollment
   - `gateway_addr` - SaaS gateway endpoint
   - `gateway_security` - mTLS credentials
 
@@ -57,11 +57,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     {cert_pem, key_pem, ca_chain_pem} = parse_bundle_pem(bundle_pem)
 
     # Build the file list for the tarball
+    config_yaml = generate_config_yaml(package, join_token, opts)
+    config_json = generate_config_json(package, join_token, opts)
+
     files = [
       {"#{package_dir}/certs/component.pem", cert_pem},
       {"#{package_dir}/certs/component-key.pem", key_pem},
       {"#{package_dir}/certs/ca-chain.pem", ca_chain_pem},
-      {"#{package_dir}/config/config.yaml", generate_config_yaml(package, join_token, opts)},
+      {"#{package_dir}/config/config.yaml", config_yaml},
+      {"#{package_dir}/config/config.json", config_json},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
       {"#{package_dir}/README.md", generate_readme(package)}
       | generate_kubernetes_files(
@@ -170,7 +174,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp parse_bundle_pem(_), do: {"", "", ""}
 
-  defp generate_config_yaml(package, _join_token, opts) do
+  defp generate_config_yaml(package, join_token, opts) do
+    generate_config_json(package, join_token, opts)
+  end
+
+  defp generate_config_json(package, _join_token, opts) do
     gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
     component_type = to_string(package.component_type)
     component_id = package.component_id || package.id
@@ -379,13 +387,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     ## Architecture
 
-    This package contains a **minimal bootstrap configuration**. The agent connects
+    This package contains a **minimal bootstrap configuration**. The component connects
     to the ServiceRadar gateway using mTLS, then receives all monitoring configuration
     dynamically via the `GetConfig` gRPC call.
 
     **Bootstrap config includes:**
     - Gateway endpoint address
     - mTLS certificates for secure connection
+    - Both `config.yaml` and `config.json` (same content for YAML/JSON parsers)
 
     **Delivered via GetConfig:**
     - Monitoring checks and schedules
@@ -473,42 +482,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     end
   end
 
-  defp encode_yaml(map) do
-    # Simple YAML encoder for our config structure
-    # For production, consider using a proper YAML library
-    do_encode_yaml(map, 0)
-  end
-
-  defp do_encode_yaml(map, indent) when is_map(map) do
-    prefix = String.duplicate("  ", indent)
-
-    Enum.map_join(map, "\n", fn {key, value} ->
-      "#{prefix}#{key}: #{encode_yaml_value(value, indent)}"
-    end)
-  end
-
-  defp encode_yaml_value(value, _indent) when is_binary(value), do: "\"#{value}\""
-  defp encode_yaml_value(value, _indent) when is_number(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_boolean(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_nil(value), do: "null"
-
-  defp encode_yaml_value(value, indent) when is_map(value) do
-    if map_size(value) == 0 do
-      "{}"
-    else
-      "\n" <> do_encode_yaml(value, indent + 1)
-    end
-  end
-
-  defp encode_yaml_value(value, _indent) when is_list(value) do
-    if value == [] do
-      "[]"
-    else
-      # Simple list encoding
-      "[" <> Enum.map_join(value, ", ", &inspect/1) <> "]"
-    end
-  end
-
   # Kubernetes manifest generation
 
   defp generate_kubernetes_files(
@@ -581,23 +554,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp generate_k8s_configmap(package, _join_token, namespace, opts) do
     component_type = to_string(package.component_type)
     component_id = package.component_id || package.id
-    gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
 
-    # Minimal bootstrap configuration per spec:
-    # Only SaaS endpoint + mTLS credentials. All monitoring config
-    # is delivered dynamically via GetConfig after agent connects.
-    config_yaml = """
     # Minimal bootstrap config - monitoring settings delivered via GetConfig
-    agent_id: "#{component_id}"
-    gateway_addr: "#{gateway_addr}"
-    gateway_security:
-      mode: "mtls"
-      cert_file: "/etc/serviceradar/certs/tls.crt"
-      key_file: "/etc/serviceradar/certs/tls.key"
-      ca_file: "/etc/serviceradar/certs/ca.crt"
-    """
+    config_yaml = generate_config_yaml(package, nil, opts)
+    config_json = generate_config_json(package, nil, opts)
 
     config_b64 = Base.encode64(config_yaml)
+    config_json_b64 = Base.encode64(config_json)
 
     """
     # ServiceRadar Edge Component - Configuration
@@ -614,12 +577,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         app.kubernetes.io/part-of: serviceradar
     binaryData:
       config.yaml: #{config_b64}
+      config.json: #{config_json_b64}
     """
   end
 
   defp generate_k8s_deployment(package, namespace, image_tag) do
     component_type = to_string(package.component_type)
     component_id = package.component_id || package.id
+    grpc_port = grpc_port_for_component(component_type)
 
     """
     # ServiceRadar Edge Component - Deployment
@@ -654,7 +619,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
                 - /etc/serviceradar/config/config.yaml
               ports:
                 - name: grpc
-                  containerPort: 50051
+                  containerPort: #{grpc_port}
                   protocol: TCP
                 - name: metrics
                   containerPort: 9090
@@ -680,12 +645,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
                   memory: 256Mi
               livenessProbe:
                 grpc:
-                  port: 50051
+                  port: #{grpc_port}
                 initialDelaySeconds: 10
                 periodSeconds: 30
               readinessProbe:
                 grpc:
-                  port: 50051
+                  port: #{grpc_port}
                 initialDelaySeconds: 5
                 periodSeconds: 10
               securityContext:
@@ -751,5 +716,24 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp default_sync_listen_addr do
     Application.get_env(:serviceradar_web_ng, :sync_listen_addr, ":50058")
+  end
+
+  defp grpc_port_for_component("sync") do
+    parse_listen_port(default_sync_listen_addr())
+  end
+
+  defp grpc_port_for_component(_), do: 50051
+
+  defp parse_listen_port(listen_addr) when is_binary(listen_addr) do
+    parts = String.split(listen_addr, ":")
+
+    case List.last(parts) do
+      nil -> 50051
+      port ->
+        case Integer.parse(port) do
+          {value, ""} -> value
+          _ -> 50051
+        end
+    end
   end
 end
