@@ -1,5 +1,5 @@
 ## 1. Protocol + Identity
-- [ ] 1.1 Extend agent/agent-gateway Hello/GetConfig to identify sync services and service class
+- [x] 1.1 Extend agent/agent-gateway Hello/GetConfig to identify sync services and service class
 - [x] 1.2 Define mTLS identity classification for platform vs tenant services (SPIFFE/CN rules)
 - [x] 1.3 Enforce tenant scoping in agent/agent-gateway based on mTLS identity
 - [x] 1.4 Reserve platform tenant slug and validate platform/non-platform usage
@@ -13,9 +13,9 @@
 - [ ] 2.5 Add migration to add sync_service_id column to integration_sources
 
 ## 3. Platform Bootstrap
-- [ ] 3.1 Generate and persist random platform tenant UUID on first boot
-- [ ] 3.2 Issue platform service mTLS certs with stable identifiers
-- [ ] 3.3 Auto-create SaaS sync service record with is_platform_sync: true at bootstrap
+- [x] 3.1 Generate and persist random platform tenant UUID on first boot
+- [x] 3.2 Issue platform service mTLS certs with stable identifiers
+- [x] 3.3 Auto-create SaaS sync service record with is_platform_sync: true at bootstrap
 - [ ] 3.4 Generate minimal sync bootstrap config during platform bootstrap
 - [ ] 3.5 Add tests for bootstrap tenant + sync service creation
 

@@ -32,6 +32,12 @@ Platform services SHALL use mTLS identities that map to the platform tenant and 
 - **THEN** agent-gateway rejects the request
 - **AND** logs the tenant identity and attempted operation
 
+#### Scenario: Platform sync certificate issued with stable identifier
+- **GIVEN** the platform tenant exists
+- **WHEN** platform bootstrap runs
+- **THEN** a platform sync certificate is issued
+- **AND** the component identifier remains stable across restarts
+
 ### Requirement: mTLS-Derived Tenant Identity
 The system SHALL derive tenant_id exclusively from the mTLS certificate identity and MUST NOT accept tenant identifiers supplied by clients.
 

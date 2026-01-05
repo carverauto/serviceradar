@@ -89,12 +89,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
+    {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
     enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(tenant_info, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
 
-    ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
-    ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
+    case component_type do
+      :sync ->
+        Logger.info(
+          "Sync hello received: sync_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
+        )
+
+      _ ->
+        ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
+        ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
+    end
 
     # Registration is stored in the tenant registry and DB; acceptance remains cert-based.
 
@@ -153,70 +162,100 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate for authorization
     tenant_info = extract_tenant_from_stream(stream)
+    {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
     enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
 
-    # Generate config from database using the config generator
-    case core_call(AgentGatewaySync, :get_config_if_changed, [
-           agent_id,
-           tenant_info.tenant_id,
-           config_version
-         ]) do
-      {:error, :core_unavailable} ->
-        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
-
-      {:ok, :not_modified} ->
-        Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
-
-        %Monitoring.AgentConfigResponse{
-          not_modified: true,
-          config_version: config_version
-        }
-
-      {:ok, {:ok, config}} ->
+    case component_type do
+      :sync ->
         Logger.info(
-          "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
+          "Sync config request received: sync_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
         )
 
-        # Convert checks to proto format
-        proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
+        sync_version = "v0-sync-empty"
 
-        config_json = Map.get(config, :config_json, <<>>)
+        if config_version == sync_version do
+          %Monitoring.AgentConfigResponse{
+            not_modified: true,
+            config_version: sync_version
+          }
+        else
+          %Monitoring.AgentConfigResponse{
+            not_modified: false,
+            config_version: sync_version,
+            config_timestamp: System.os_time(:second),
+            heartbeat_interval_sec: @default_heartbeat_interval_sec,
+            config_poll_interval_sec: 300,
+            checks: [],
+            config_json: <<>>
+          }
+        end
 
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: config.config_version,
-          config_timestamp: config.config_timestamp,
-          heartbeat_interval_sec: config.heartbeat_interval_sec,
-          config_poll_interval_sec: config.config_poll_interval_sec,
-          checks: proto_checks,
-          config_json: config_json
-        }
+      _ ->
+        # Generate config from database using the config generator
+        case core_call(AgentGatewaySync, :get_config_if_changed, [
+               agent_id,
+               tenant_info.tenant_id,
+               config_version
+             ]) do
+          {:error, :core_unavailable} ->
+            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
-      {:ok, {:error, reason}} ->
-        Logger.warning(
-          "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
-        )
+          {:ok, :not_modified} ->
+            Logger.debug(
+              "Agent config not modified: agent_id=#{agent_id}, version=#{config_version}"
+            )
 
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: "v0-error",
-          config_timestamp: System.os_time(:second),
-          heartbeat_interval_sec: @default_heartbeat_interval_sec,
-          config_poll_interval_sec: 300,
-          checks: []
-        }
+            %Monitoring.AgentConfigResponse{
+              not_modified: true,
+              config_version: config_version
+            }
 
-      {:ok, other} ->
-        Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
+          {:ok, {:ok, config}} ->
+            Logger.info(
+              "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
+            )
 
-        %Monitoring.AgentConfigResponse{
-          not_modified: false,
-          config_version: "v0-error",
-          config_timestamp: System.os_time(:second),
-          heartbeat_interval_sec: @default_heartbeat_interval_sec,
-          config_poll_interval_sec: 300,
-          checks: []
-        }
+            # Convert checks to proto format
+            proto_checks = ServiceRadar.Edge.AgentConfigGenerator.to_proto_checks(config.checks)
+
+            config_json = Map.get(config, :config_json, <<>>)
+
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: config.config_version,
+              config_timestamp: config.config_timestamp,
+              heartbeat_interval_sec: config.heartbeat_interval_sec,
+              config_poll_interval_sec: config.config_poll_interval_sec,
+              checks: proto_checks,
+              config_json: config_json
+            }
+
+          {:ok, {:error, reason}} ->
+            Logger.warning(
+              "Failed to generate config for agent #{agent_id}: #{inspect(reason)}, returning empty config"
+            )
+
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: "v0-error",
+              config_timestamp: System.os_time(:second),
+              heartbeat_interval_sec: @default_heartbeat_interval_sec,
+              config_poll_interval_sec: 300,
+              checks: []
+            }
+
+          {:ok, other} ->
+            Logger.warning("Unexpected config response for agent #{agent_id}: #{inspect(other)}")
+
+            %Monitoring.AgentConfigResponse{
+              not_modified: false,
+              config_version: "v0-error",
+              config_timestamp: System.os_time(:second),
+              heartbeat_interval_sec: @default_heartbeat_interval_sec,
+              config_poll_interval_sec: 300,
+              checks: []
+            }
+        end
     end
   end
 
@@ -625,6 +664,39 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       end
 
     normalize_partition(tenant_partition || request_partition)
+  end
+
+  defp resolve_component_type!(tenant_info, component_id) do
+    case Map.get(tenant_info, :component_type) do
+      component_type when is_atom(component_type) ->
+        {tenant_info, component_type}
+
+      _ ->
+        case core_call(AgentGatewaySync, :component_type_for_component_id, [
+               component_id,
+               tenant_info.tenant_id
+             ]) do
+          {:error, :core_unavailable} ->
+            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+
+          {:ok, {:ok, component_type}} when is_atom(component_type) ->
+            {Map.put(tenant_info, :component_type, component_type), component_type}
+
+          {:ok, {:error, :not_found}} ->
+            Logger.warning(
+              "Component type not found for component_id=#{component_id} tenant=#{tenant_info.tenant_slug}"
+            )
+
+            raise GRPC.RPCError, status: :permission_denied, message: "component not enrolled"
+
+          {:ok, {:error, reason}} ->
+            Logger.warning(
+              "Component type lookup failed for component_id=#{component_id}: #{inspect(reason)}"
+            )
+
+            raise GRPC.RPCError, status: :unavailable, message: "component type lookup failed"
+        end
+    end
   end
 
   defp enforce_component_identity!(tenant_info, component_id, allowed_types) do

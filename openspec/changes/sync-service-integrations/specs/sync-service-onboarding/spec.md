@@ -28,7 +28,7 @@ Customers must be able to onboard their own on-prem sync services.
 #### Scenario: On-prem sync service registers via Hello RPC
 
 Given an on-prem sync service has valid mTLS credentials
-When the sync service calls the SyncServiceHello RPC
+When the sync service calls the AgentGatewayService.Hello RPC
 Then a SyncService record is created with service_type=:on_prem
 And the tenant_id is set from the certificate
 And the sync service appears in the UI

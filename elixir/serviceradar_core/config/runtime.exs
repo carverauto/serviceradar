@@ -51,6 +51,11 @@ if config_env() == :prod do
 
   config :serviceradar_core, :platform_tenant_slug, platform_tenant_slug
 
+  platform_sync_component_id =
+    System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
+
+  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

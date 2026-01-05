@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.{Device, IdentityReconciler}
 
   @spec ingest_updates([map()], String.t(), keyword()) :: :ok | {:error, term()}
-  def ingest_updates(updates, tenant_id, opts \ []) do
+  def ingest_updates(updates, tenant_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, system_actor(tenant_id))
 
     updates

@@ -11,5 +11,6 @@ defmodule ServiceRadar.Integrations do
 
   resources do
     resource ServiceRadar.Integrations.IntegrationSource
+    resource ServiceRadar.Integrations.SyncService
   end
 end

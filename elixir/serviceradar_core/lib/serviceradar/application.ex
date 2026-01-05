@@ -56,6 +56,9 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
 
+        # Platform tenant bootstrap (requires repo + Ash)
+        ServiceRadar.Identity.PlatformTenantBootstrap,
+
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
