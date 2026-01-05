@@ -9,7 +9,7 @@ Discovered devices must be stored in CNPG instead of KV store.
 #### Scenario: Sync service sends discovered devices
 
 Given a sync service has discovered devices from an integration
-When the sync service calls SyncDevices RPC
+When the sync service streams results via StreamStatus
 Then the devices are stored in the discovered_devices table
 And each device is associated with the integration_source_id
 And the tenant_id is set for multi-tenant isolation

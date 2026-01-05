@@ -48,6 +48,11 @@ type Config struct {
 	PollerID          string                          `json:"poller_id"`
 	Security          *models.SecurityConfig          `json:"security" hot:"rebuild"`
 	Logging           *logger.Config                  `json:"logging"`
+	GatewayAddr       string                          `json:"gateway_addr"`          // Agent-gateway address for push mode
+	GatewaySecurity   *models.SecurityConfig          `json:"gateway_security"`      // mTLS config for gateway connection
+	TenantID          string                          `json:"tenant_id,omitempty"`   // Tenant UUID for routing
+	TenantSlug        string                          `json:"tenant_slug,omitempty"` // Tenant slug for routing
+	Partition         string                          `json:"partition,omitempty"`   // Partition identifier
 }
 
 func (c *Config) Validate() error {
@@ -79,6 +84,14 @@ func (c *Config) Validate() error {
 
 	if c.Security != nil {
 		c.normalizeCertPaths(c.Security)
+	}
+
+	if c.GatewaySecurity != nil {
+		c.normalizeCertPaths(c.GatewaySecurity)
+	}
+
+	if c.Partition == "" {
+		c.Partition = "default"
 	}
 
 	return nil

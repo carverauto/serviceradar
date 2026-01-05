@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	agentpkg "github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -38,7 +39,10 @@ import (
 
 const (
 	// MaxBatchSize defines the maximum number of entries to write to KV in a single batch
-	MaxBatchSize = 500
+	MaxBatchSize      = 500
+	syncServiceName   = "sync"
+	syncServiceType   = "sync"
+	syncResultsSource = "results"
 )
 
 var (
@@ -99,6 +103,13 @@ type SimpleSyncService struct {
 
 	logger logger.Logger
 
+	// Gateway push support (push-first architecture)
+	gatewayClient     *agentpkg.GatewayClient
+	gatewayEnrolled   int32
+	gatewayTenantID   string
+	gatewayTenantSlug string
+	gatewayMu         sync.RWMutex
+
 	// Hot-reload support
 	discoveryTicker   *time.Ticker
 	armisUpdateTicker *time.Ticker
@@ -150,6 +161,14 @@ func NewSimpleSyncServiceWithMetrics(
 		metrics:             metrics,
 		logger:              log,
 		reloadChan:          make(chan struct{}, 1),
+	}
+
+	if config.GatewayAddr != "" {
+		gatewaySecurity := config.GatewaySecurity
+		if gatewaySecurity == nil {
+			gatewaySecurity = config.Security
+		}
+		s.gatewayClient = agentpkg.NewGatewayClient(config.GatewayAddr, gatewaySecurity, log)
 	}
 
 	s.initializeIntegrations(ctx)
@@ -262,6 +281,13 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 	if s.grpcClient != nil {
 		if err := s.grpcClient.Close(); err != nil {
 			s.logger.Error().Err(err).Msg("Error closing gRPC client")
+			return err
+		}
+	}
+
+	if s.gatewayClient != nil {
+		if err := s.gatewayClient.Disconnect(); err != nil {
+			s.logger.Error().Err(err).Msg("Error disconnecting gateway client")
 			return err
 		}
 	}
@@ -383,6 +409,10 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 	s.resultsStore.results = allDeviceUpdates
 	s.resultsStore.updated = time.Now()
 	s.resultsStore.mu.Unlock()
+
+	if err := s.pushResults(ctx, allDeviceUpdates); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to push sync results to gateway")
+	}
 
 	var totalDevices int
 
@@ -523,7 +553,7 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 		AgentId:     s.config.AgentID,
 		Message:     healthJSON,
 		ServiceName: req.ServiceName,
-		ServiceType: "sync", // Always return "sync" as service type regardless of request
+		ServiceType: syncServiceType, // Always return "sync" as service type regardless of request
 	}, nil
 }
 
@@ -579,7 +609,7 @@ func (s *SimpleSyncService) GetResults(_ context.Context, req *proto.ResultsRequ
 		Available:       true,
 		Data:            resultsJSON,
 		ServiceName:     req.ServiceName,
-		ServiceType:     "sync", // Always return "sync" as service type regardless of request
+		ServiceType:     syncServiceType, // Always return "sync" as service type regardless of request
 		AgentId:         s.config.AgentID,
 		PollerId:        req.PollerId,
 		Timestamp:       time.Now().Unix(),
@@ -594,10 +624,10 @@ func (s *SimpleSyncService) GetServiceMetrics() map[string]interface{} {
 }
 
 // collectDeviceUpdates gathers all device updates from the results store
-func (s *SimpleSyncService) collectDeviceUpdates() []*models.DeviceUpdate {
+func (s *SimpleSyncService) collectDeviceUpdates(results map[string][]*models.DeviceUpdate) []*models.DeviceUpdate {
 	var allDeviceUpdates []*models.DeviceUpdate
 
-	for sourceName, devices := range s.resultsStore.results {
+	for sourceName, devices := range results {
 		s.logger.Info().
 			Str("source_name", sourceName).
 			Int("device_count", len(devices)).
@@ -622,6 +652,203 @@ func (s *SimpleSyncService) collectDeviceUpdates() []*models.DeviceUpdate {
 		Msg("StreamResults - total devices to stream")
 
 	return allDeviceUpdates
+}
+
+func (s *SimpleSyncService) ensureGatewayConnected(ctx context.Context) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	if s.gatewayClient.IsConnected() {
+		return nil
+	}
+
+	return s.gatewayClient.Connect(ctx)
+}
+
+func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	if atomic.LoadInt32(&s.gatewayEnrolled) == 1 {
+		return nil
+	}
+
+	req := &proto.AgentHelloRequest{
+		AgentId:      s.config.AgentID,
+		Version:      "",
+		Capabilities: []string{"sync"},
+		Partition:    s.config.Partition,
+	}
+
+	resp, err := s.gatewayClient.Hello(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	s.gatewayMu.Lock()
+	if s.gatewayTenantID == "" && resp.TenantId != "" {
+		s.gatewayTenantID = resp.TenantId
+	}
+	if s.gatewayTenantSlug == "" && resp.TenantSlug != "" {
+		s.gatewayTenantSlug = resp.TenantSlug
+	}
+	s.gatewayMu.Unlock()
+
+	atomic.StoreInt32(&s.gatewayEnrolled, 1)
+
+	return nil
+}
+
+func (s *SimpleSyncService) tenantInfo() (string, string) {
+	s.gatewayMu.RLock()
+	tenantID := s.gatewayTenantID
+	tenantSlug := s.gatewayTenantSlug
+	s.gatewayMu.RUnlock()
+
+	if tenantID != "" || tenantSlug != "" {
+		return tenantID, tenantSlug
+	}
+
+	return s.config.TenantID, s.config.TenantSlug
+}
+
+func (s *SimpleSyncService) buildResultsChunks(
+	allDeviceUpdates []*models.DeviceUpdate,
+	sequence string,
+) ([]*proto.ResultsChunk, error) {
+	// Calculate chunk size to keep each chunk under ~1MB
+	const maxChunkSize = 1024 * 1024 // 1MB
+	const avgDeviceSize = 768        // DeviceUpdate is a bit larger, adjust estimate
+
+	if len(allDeviceUpdates) == 0 {
+		return []*proto.ResultsChunk{{
+			Data:            []byte("[]"),
+			IsFinal:         true,
+			ChunkIndex:      0,
+			TotalChunks:     1,
+			CurrentSequence: sequence,
+			Timestamp:       time.Now().Unix(),
+		}}, nil
+	}
+
+	chunkDeviceCount := maxChunkSize / avgDeviceSize
+	if chunkDeviceCount <= 0 {
+		chunkDeviceCount = 1
+	}
+
+	totalChunks := (len(allDeviceUpdates) + chunkDeviceCount - 1) / chunkDeviceCount
+	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
+
+	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
+		start := chunkIndex * chunkDeviceCount
+		end := start + chunkDeviceCount
+
+		if end > len(allDeviceUpdates) {
+			end = len(allDeviceUpdates)
+		}
+
+		chunkDevices := allDeviceUpdates[start:end]
+		chunkData, err := json.Marshal(chunkDevices)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal chunk: %w", err)
+		}
+
+		chunks = append(chunks, &proto.ResultsChunk{
+			Data:            chunkData,
+			IsFinal:         chunkIndex == totalChunks-1,
+			ChunkIndex:      safeIntToInt32(chunkIndex),
+			TotalChunks:     safeIntToInt32(totalChunks),
+			CurrentSequence: sequence,
+			Timestamp:       time.Now().Unix(),
+		})
+	}
+
+	return chunks, nil
+}
+
+func (s *SimpleSyncService) buildGatewayStatusChunks(
+	chunks []*proto.ResultsChunk,
+) []*proto.GatewayStatusChunk {
+	tenantID, tenantSlug := s.tenantInfo()
+	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
+
+	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+
+		status := &proto.GatewayServiceStatus{
+			ServiceName:  syncServiceName,
+			Available:    true,
+			Message:      chunk.Data,
+			ServiceType:  syncServiceType,
+			ResponseTime: 0,
+			AgentId:      s.config.AgentID,
+			GatewayId:    "",
+			Partition:    s.config.Partition,
+			Source:       syncResultsSource,
+			KvStoreId:    s.config.KVAddress,
+			TenantId:     tenantID,
+			TenantSlug:   tenantSlug,
+		}
+
+		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
+			Services:    []*proto.GatewayServiceStatus{status},
+			GatewayId:   "",
+			AgentId:     s.config.AgentID,
+			Timestamp:   chunk.Timestamp,
+			Partition:   s.config.Partition,
+			IsFinal:     chunk.IsFinal,
+			ChunkIndex:  chunk.ChunkIndex,
+			TotalChunks: chunk.TotalChunks,
+			KvStoreId:   s.config.KVAddress,
+			TenantId:    tenantID,
+			TenantSlug:  tenantSlug,
+		})
+	}
+
+	return statusChunks
+}
+
+func (s *SimpleSyncService) pushResults(
+	ctx context.Context,
+	allDeviceUpdates map[string][]*models.DeviceUpdate,
+) error {
+	if s.gatewayClient == nil {
+		return nil
+	}
+
+	if err := s.ensureGatewayConnected(ctx); err != nil {
+		return err
+	}
+
+	if err := s.ensureGatewayEnrolled(ctx); err != nil {
+		return err
+	}
+
+	updates := s.collectDeviceUpdates(allDeviceUpdates)
+
+	s.resultsStore.mu.RLock()
+	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
+	s.resultsStore.mu.RUnlock()
+
+	chunks, err := s.buildResultsChunks(updates, sequence)
+	if err != nil {
+		return err
+	}
+
+	statusChunks := s.buildGatewayStatusChunks(chunks)
+	if len(statusChunks) == 0 {
+		return nil
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = s.gatewayClient.StreamStatus(pushCtx, statusChunks)
+	return err
 }
 
 // sendEmptyResultsChunk sends an empty chunk when there are no device updates
@@ -751,7 +978,7 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 	s.resultsStore.mu.RLock()
 	defer s.resultsStore.mu.RUnlock()
 
-	allDeviceUpdates := s.collectDeviceUpdates()
+	allDeviceUpdates := s.collectDeviceUpdates(s.resultsStore.results)
 
 	if len(allDeviceUpdates) == 0 {
 		return s.sendEmptyResultsChunk(stream)

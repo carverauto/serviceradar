@@ -48,6 +48,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Maximum services per push request to prevent resource exhaustion
   @max_services_per_request 5_000
+  @max_status_message_bytes 4_096
+  @max_results_message_bytes 15 * 1024 * 1024
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -517,13 +519,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         _ ->
           ""
       end
-      |> then(fn msg ->
-        if byte_size(msg) > 4_096 do
-          binary_part(msg, 0, 4_096)
-        else
-          msg
-        end
-      end)
+      |> normalize_message(source)
 
     response_time =
       case service.response_time do
@@ -573,6 +569,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition
     else
       "default"
+    end
+  end
+
+  defp normalize_message(msg, source) do
+    max_bytes =
+      case source do
+        "results" -> @max_results_message_bytes
+        _ -> @max_status_message_bytes
+      end
+
+    if byte_size(msg) > max_bytes do
+      if source == "results" do
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "results payload exceeds max size"
+      else
+        binary_part(msg, 0, @max_status_message_bytes)
+      end
+    else
+      msg
     end
   end
 
