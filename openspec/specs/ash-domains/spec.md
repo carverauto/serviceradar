@@ -28,10 +28,10 @@ The system SHALL provide an Inventory domain managing devices, interfaces, and d
 - **AND** the source: option SHALL be used for column name mapping
 
 ### Requirement: Infrastructure Domain
-The system SHALL provide an Infrastructure domain managing pollers, agents, checkers, and partitions.
+The system SHALL provide an Infrastructure domain managing gateways, agents, checkers, and partitions.
 
 #### Scenario: Infrastructure resource relationships
-- **WHEN** a Poller is queried with agents preloaded
+- **WHEN** a Gateway is queried with agents preloaded
 - **THEN** the system SHALL return associated Agent records
 - **AND** the relationship SHALL respect tenant and partition boundaries
 
@@ -65,6 +65,6 @@ Resources in overlapping IP space partitions SHALL support partition-aware autho
 
 #### Scenario: Partition isolation
 - **GIVEN** a user with access to partition P1
-- **WHEN** the user queries for pollers
-- **THEN** only pollers in partition P1 or global pollers (partition_id = nil) SHALL be returned
+- **WHEN** the user queries for gateways
+- **THEN** only gateways in partition P1 or global gateways (partition_id = nil) SHALL be returned
 

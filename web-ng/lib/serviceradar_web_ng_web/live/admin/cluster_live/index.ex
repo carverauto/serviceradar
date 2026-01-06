@@ -19,7 +19,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
      Processes are registered as `{partition_id, device_id}` tuples to support
      overlapping IP space across partitions.
 
-  3. **Standalone Releases**: Pollers and agents are separate Elixir releases that
+  3. **Standalone Releases**: Gateways and agents are separate Elixir releases that
      can be deployed to edge/bare metal/Docker/K8s. They join the ERTS cluster
      via libcluster and register their processes in Horde.
 
@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             icon="hero-server-stack"
           />
           <.health_card
-            title="Pollers"
+            title="Gateways"
             value={@cluster_health.gateway_count}
             variant="info"
             icon="hero-cpu-chip"
@@ -224,11 +224,11 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           </div>
         </.ui_panel>
         
-    <!-- Poller Registry -->
+    <!-- Gateway Registry -->
         <.ui_panel>
           <:header>
             <div>
-              <div class="text-sm font-semibold">Pollers</div>
+              <div class="text-sm font-semibold">Gateways</div>
               <p class="text-xs text-base-content/60">
                 {@cluster_health.gateway_count} standalone Elixir gateway(s) in the distributed cluster
               </p>
@@ -302,7 +302,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Agent ID</th>
-                    <th>Poller Node</th>
+                    <th>Gateway Node</th>
                     <th>Capabilities</th>
                     <th>Status</th>
                     <th>Connected At</th>

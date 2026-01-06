@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               Partition
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Poller Node
+              Gateway Node
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
@@ -316,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               Type
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Poller
+              Gateway
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities

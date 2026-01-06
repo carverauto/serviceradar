@@ -144,8 +144,8 @@ rpc TriggerProfiling(TriggerProfilingRequest) returns (TriggerProfilingResponse)
 // with service_type = "profiler"
 ```
 
-### Poller Integration
-The Poller triggers profiling and collects results:
+### Gateway Integration
+The gateway triggers profiling and collects results:
 
 ```go
 // 1. Detect CPU spike and identify PID

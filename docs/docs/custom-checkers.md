@@ -6,8 +6,8 @@ title: Creating a Custom Checker Plugin
 # Building Custom Checkers
 
 ServiceRadar treats checkers as independent gRPC services that hang off an
-agent. The poller asks the agent for status, the agent proxies the request to
-each checker, and the poller forwards the aggregated responses to core. Core
+agent. The gateway asks the agent for status, the agent proxies the request to
+each checker, and the gateway forwards the aggregated responses to core. Core
 adds device metadata automatically so the UI can light up as soon as a checker
 starts returning data.
 
@@ -18,8 +18,8 @@ flowchart LR
     subgraph Monitored_Site
         Checker["Checker<br/>(monitoring.AgentService)"] --> Agent
     end
-    Agent -->|gRPC AgentService| Poller
-    Poller -->|ReportStatus / StreamStatus| Core
+    Agent -->|gRPC AgentService| Gateway
+    Gateway -->|ReportStatus / StreamStatus| Core
     Core -->|DeviceUpdate| DeviceRegistry
     Core -->|REST & GraphQL| WebUI
 ```
@@ -30,10 +30,10 @@ flowchart LR
 - **Agent** (`pkg/agent/server.go`) – Maintains checker connections via the
   registry in `pkg/agent/registry.go`, adds security, and returns a unified
   `StatusResponse`.
-- **Poller** (`pkg/poller/poller.go`) – Reads `poller.json`, executes each
-  check via `AgentService.GetStatus`, wraps the payload with poller/agent ids,
+- **Gateway** (`pkg/gateway/gateway.go`) – Reads `gateway.json`, executes each
+  check via `AgentService.GetStatus`, wraps the payload with gateway/agent ids,
   and ships everything to core.
-- **Core** (`pkg/core/pollers.go`) – Calls `processServicePayload`, which now
+- **Core** (`pkg/core/gateways.go`) – Calls `processServicePayload`, which now
   invokes `ensureServiceDevice` to register devices for any checker that reports
   a host IP. Core fans out to the device registry and metrics stores so the UI
   and SRQL can query the data.
@@ -42,23 +42,23 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    Poller->>Agent: GetStatus(service_name, service_type, details)
+    Gateway->>Agent: GetStatus(service_name, service_type, details)
     Agent->>Checker: GetStatus(...)
     Checker-->>Agent: StatusResponse{message, available}
-    Agent-->>Poller: ServiceStatus(message, agent_id, source="getStatus")
-    Poller->>Core: ReportStatus(ServiceStatus[])
+    Agent-->>Gateway: ServiceStatus(message, agent_id, source="getStatus")
+    Gateway->>Core: ReportStatus(ServiceStatus[])
     Core->>DeviceRegistry: ProcessDeviceUpdate(checker metadata)
     Core-->>UI: /api/devices/.../sysmon
 ```
 
-> The `details` field from `poller.json` is passed verbatim to the agent and on
+> The `details` field from `gateway.json` is passed verbatim to the agent and on
 > to the checker. For gRPC checkers it must be `host:port`.
 
 ## Checker Responsibilities
 
 1. **Implement the gRPC surface**  
    Use `proto/monitoring.proto` and register an `AgentService` in your `main`.
-   The poller only calls `GetStatus`, but implement `GetResults`/`StreamResults`
+   The gateway only calls `GetStatus`, but implement `GetResults`/`StreamResults`
    if you need paginated or chunked results.
 
 2. **Respond quickly & always populate host identity**  
@@ -94,7 +94,7 @@ sequenceDiagram
 ## Agent & Registry Overview
 
 - The agent loads checker configs from `CheckersDir` and/or KV (see
-  `pkg/agent/server.go:1432`). For gRPC checks the poller-provided `details`
+  `pkg/agent/server.go:1432`). For gRPC checks the gateway-provided `details`
   value is sufficient—you do not need an extra config file.
 - Service types are registered in `pkg/agent/registry.go`. Most new checkers can
   use the existing `"grpc"` entry. Register a new type only if you need a
@@ -103,9 +103,9 @@ sequenceDiagram
   retries, and health checks. It creates a single gRPC channel and reuses it for
   subsequent calls.
 
-## Poller Behaviour
+## Gateway Behaviour
 
-- `poller.json` defines agents and checks. A minimal gRPC checker entry looks
+- `gateway.json` defines agents and checks. A minimal gRPC checker entry looks
   like:
 
   ```json
@@ -116,24 +116,24 @@ sequenceDiagram
   }
   ```
 
-- `AgentPoller.ExecuteChecks` (`pkg/poller/agent_poller.go:52`) fans out across
+- `AgentGateway.ExecuteChecks` (`pkg/gateway/agent_gateway.go:52`) fans out across
   checks, calling `AgentService.GetStatus` in parallel and attaching the agent
   name when the checker does not return an `agent_id`.
-- Before reporting to core, `poller.enhanceServicePayload`
-  (`pkg/poller/poller.go:680`) wraps the raw checker JSON inside an envelope
-  that records the poller id, agent id, and partition. Core depends on that.
+- Before reporting to core, `gateway.enhanceServicePayload`
+  (`pkg/gateway/gateway.go:680`) wraps the raw checker JSON inside an envelope
+  that records the gateway id, agent id, and partition. Core depends on that.
 
 ## Core Ingestion Path
 
-- `ReportStatus` (`pkg/core/pollers.go:803`) receives the batched
+- `ReportStatus` (`pkg/core/gateways.go:803`) receives the batched
   `ServiceStatus` messages.
-- `processServicePayload` (`pkg/core/metrics.go:797`) peels off the poller
+- `processServicePayload` (`pkg/core/metrics.go:797`) peels off the gateway
   envelope. Right after parsing it calls `ensureServiceDevice`, which:
   - Extracts the host IP/hostname with `extractCheckerHostIdentity`.
   - Emits a `DiscoverySourceSelfReported` `DeviceUpdate` tagged with
-    `checker_service`, `collector_agent_id`, and `collector_poller_id`.
-  - Relies on the poller-provided agent id (the poller now fills it in
-    automatically `pkg/poller/agent_poller.go:233`).
+    `checker_service`, `collector_agent_id`, and `collector_gateway_id`.
+  - Relies on the gateway-provided agent id (the gateway now fills it in
+    automatically `pkg/gateway/agent_gateway.go:233`).
 - Type-specific handlers (`processSysmonMetrics`, SNMP, ICMP, etc.) can still
   add richer metric objects; the device registration happens independently.
 
@@ -151,7 +151,7 @@ sequenceDiagram
      `service_type`, `response_time`.
 
 3. **Optional: implement `GetResults` / `StreamResults`** if the checker needs
-   to return large datasets. The poller uses `results_interval` in `poller.json`
+   to return large datasets. The gateway uses `results_interval` in `gateway.json`
    to schedule those calls.
 
 4. **Provide a health probe**
@@ -170,13 +170,13 @@ sequenceDiagram
 
 ## Configuring the Pipeline
 
-1. **Update the poller** – Add the checker entry to each agent section in
-   `poller.json`. Restart or hot-reload the poller (`systemctl reload
-   serviceradar-poller`).
+1. **Update the gateway** – Add the checker entry to each agent section in
+   `gateway.json`. Restart or hot-reload the gateway (`systemctl reload
+   serviceradar-agent-gateway`).
 2. **Confirm agent connectivity** – `docker compose logs agent` or
    `journalctl -u serviceradar-agent` should show “Connecting to checker
    service” without errors.
-3. **Verify poller reports** – `docker compose logs poller | grep service_name`
+3. **Verify gateway reports** – `docker compose logs gateway | grep service_name`
    should show the checker in each polling cycle.
 4. **Check core ingestion** – `docker compose logs core | grep checker` should
    include “checker device through device registry” warnings only if the checker
@@ -186,13 +186,13 @@ sequenceDiagram
 
 - Unit tests:
   - `go test ./pkg/agent/...` exercises the registry and checker wiring.
-  - `go test ./pkg/poller/...` ensures the poller packets embed metadata.
+  - `go test ./pkg/gateway/...` ensures the gateway packets embed metadata.
   - `go test ./pkg/core/...` covers `ensureServiceDevice` and payload parsing.
 - Manual smoke test:
   1. Launch the checker locally.
   2. Run the agent with the checker configured and use `grpcurl` against
      `GetStatus`.
-  3. Start the poller and core (Docker compose or binaries).
+  3. Start the gateway and core (Docker compose or binaries).
   4. Load `/api/devices/<partition:ip>` in the UI or call
      `/api/devices/<id>/sysmon/cpu`.
 
@@ -205,7 +205,7 @@ sequenceDiagram
 - **Health check failures** – If the checker does not implement gRPC health,
   add a case to `pkg/agent/registry.go` to set `grpcServiceCheckName` to
   `monitoring.AgentService`, or implement the health service.
-- **Stale data warnings** – Poller caches checker health for a short window. If
+- **Stale data warnings** – Gateway caches checker health for a short window. If
   `GetStatus` is expensive, increase the checker’s own sampling interval and
   return cached metrics quickly.
 
@@ -219,5 +219,5 @@ sequenceDiagram
   the new core-side device registration path—no extra integration needed.
 
 With this flow, new checker authors can focus solely on their collector logic
-and JSON payloads. The agent, poller, and core layers handle transport, device
+and JSON payloads. The agent, gateway, and core layers handle transport, device
 registration, and UI surfacing without additional plumbing.

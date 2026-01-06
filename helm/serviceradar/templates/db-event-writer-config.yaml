@@ -18,9 +18,9 @@ data:
       "stream_name": "events",
       "consumer_name": "db-event-writer",
       "agent_id": "k8s-db-event-writer",
-      "poller_id": "k8s-poller",
+      "gateway_id": "k8s-gateway",
       "streams": [
-        { "subject": "events.poller.health", "table": "events" },
+        { "subject": "events.gateway.health", "table": "events" },
         { "subject": "events.syslog.processed", "table": "events" },
         { "subject": "events.snmp.processed", "table": "events" },
         { "subject": "events.otel.logs", "table": "logs" },

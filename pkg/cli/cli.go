@@ -999,7 +999,7 @@ func writeGatewayConfig(gatewayFile string, config *GatewayConfig) error {
 
 	fmt.Printf("Successfully updated %s\n", gatewayFile)
 	fmt.Println("Remember to restart the ServiceRadar gateway service:")
-	fmt.Println("  systemctl restart serviceradar-gateway")
+	fmt.Println("  systemctl restart serviceradar-agent-gateway")
 
 	return nil
 }

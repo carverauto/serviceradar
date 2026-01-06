@@ -64,7 +64,7 @@ use std::path::PathBuf;
 /// Component type for edge onboarding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComponentType {
-    Poller,
+    Gateway,
     Agent,
     Checker,
     Sync,
@@ -73,7 +73,7 @@ pub enum ComponentType {
 impl ComponentType {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ComponentType::Poller => "poller",
+            ComponentType::Gateway => "gateway",
             ComponentType::Agent => "agent",
             ComponentType::Checker => "checker",
             ComponentType::Sync => "sync",
@@ -82,7 +82,7 @@ impl ComponentType {
 
     pub fn config_filename(&self) -> &'static str {
         match self {
-            ComponentType::Poller => "poller.json",
+            ComponentType::Gateway => "gateway.json",
             ComponentType::Agent => "agent.json",
             ComponentType::Checker => "checker.json",
             ComponentType::Sync => "sync.json",

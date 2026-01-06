@@ -21,7 +21,7 @@ Follow the prompts to select your desired components and optional checkers.
 For automated deployments, use the following options:
 
 ### All-in-One Installation
-Installs all components (`serviceradar-agent`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-poller`, `serviceradar-web-ng`, plus optional checkers).
+Installs all components (`serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-web-ng`, plus optional checkers).
 
 ```bash
 # Without checkers
@@ -42,15 +42,15 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/in
 curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --core --non-interactive --checkers=dusk-checker
 ```
 
-### Poller Installation
-Installs the poller component (`serviceradar-poller`, plus optional checkers).
+### Gateway Installation
+Installs the gateway component (`serviceradar-agent-gateway`, plus optional checkers).
 
 ```bash
 # Without checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --poller --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --gateway --non-interactive
 
 # With checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --poller --non-interactive --checkers=rperf,snmp
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --gateway --non-interactive --checkers=rperf,snmp
 ```
 
 ### Agent Installation
@@ -68,8 +68,8 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/in
 You can combine installation scenarios by specifying multiple flags:
 
 ```bash
-# Example: Poller + Agent with checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --poller --agent --non-interactive --checkers=rperf,snmp
+# Example: Gateway + Agent with checkers
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --gateway --agent --non-interactive --checkers=rperf,snmp
 ```
 
 ## Available Checkers
@@ -90,12 +90,12 @@ Note: The Phoenix `web-ng` UI is the active frontend. The legacy Next.js build i
 ```bash
 # Download components
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng_1.0.52.deb
 
 # Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb serviceradar-core_1.0.52.deb serviceradar-web-ng_1.0.52.deb
+sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb serviceradar-core_1.0.52.deb serviceradar-web-ng_1.0.52.deb
 ```
 
 ## Architecture Overview
@@ -103,8 +103,8 @@ sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb servic
 ServiceRadar uses a distributed architecture with four main components:
 
 1. **Agent**: Runs on monitored hosts, provides service status through gRPC
-2. **Poller**: Coordinates monitoring activities, can run anywhere in your network
-3. **Core Service**: Receives reports from pollers, provides API, and sends alerts
+2. **Gateway**: Orchestrates monitoring activities, can run anywhere in your network
+3. **Core Service**: Receives reports from gateways, provides API, and sends alerts
 4. **Web-NG UI**: Provides the Phoenix LiveView dashboard (optionally fronted by a reverse proxy)
 
 ## Configuration

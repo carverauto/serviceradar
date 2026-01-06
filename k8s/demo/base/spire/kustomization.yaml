@@ -23,7 +23,6 @@ resources:
   - agent-daemonset.yaml
   - cnpg-cluster.yaml
   - spire-clusterspiffeid-core.yaml
-  - spire-clusterspiffeid-poller.yaml
   - spire-clusterspiffeid-serviceradar-agent.yaml
   - spire-clusterspiffeid-datasvc.yaml
   - spire-clusterspiffeid-zen.yaml

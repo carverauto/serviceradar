@@ -40,7 +40,7 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 |--------|----------|-----------|
 | `ServiceRadar.Identity` | `serviceradar_core` | Tenant, User, ApiToken |
 | `ServiceRadar.Inventory` | `serviceradar_core` | Device, DeviceGroup, Interface |
-| `ServiceRadar.Infrastructure` | `serviceradar_core` | Partition, Poller, Agent, Checker |
+| `ServiceRadar.Infrastructure` | `serviceradar_core` | Partition, Gateway, Agent, Checker |
 | `ServiceRadar.Monitoring` | `serviceradar_core` | PollingSchedule, ServiceCheck, Alert, Event |
 | `ServiceRadar.Edge` | `serviceradar_core` | OnboardingPackage, OnboardingEvent |
 

@@ -68,8 +68,8 @@ For detailed installation options and component-specific deployments, see [INSTA
 ServiceRadar (SR) uses a distributed architecture with four main components:
 
 1. **Agent** - Runs on monitored hosts, provides service status through gRPC
-2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
-3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
+2. **Gateway** - Orchestrates monitoring activities, can run anywhere in your network
+3. **Core Service** - Receives reports from gateways, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
 ## Kubernetes / Helm Deployment
@@ -132,7 +132,7 @@ ServiceRadar provides a complete Docker Compose stack with mTLS security, automa
 - **Database** - PostgreSQL with TimescaleDB (metrics) and Apache AGE (graph topology)
 - **Core API** - Main ServiceRadar API and business logic
 - **Web UI** - Phoenix LiveView dashboard served through the Caddy edge proxy
-- **Agent & Poller** - Distributed monitoring services
+- **Agent & Gateway** - Distributed monitoring services
 - **Observability** - OTEL collector, syslog (flowgger), SNMP traps
 - **Network Discovery** - SNMP/LLDP network mapping
 

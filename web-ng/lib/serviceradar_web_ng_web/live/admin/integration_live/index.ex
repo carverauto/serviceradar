@@ -558,7 +558,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             field={@form[:gateway_id]}
             type="text"
             label="Gateway ID (Optional)"
-            placeholder="Poller to assign this source to"
+            placeholder="Gateway to assign this source to"
           />
 
           <.input

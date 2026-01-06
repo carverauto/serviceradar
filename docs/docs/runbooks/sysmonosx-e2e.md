@@ -24,12 +24,12 @@ macOS host collectors running on the laptop.
    git checkout main   # or whichever branch you're testing
    ```
 2. **Ensure Docker daemon is up** (amd64 host with internet access to GHCR).
-3. **Poller configuration**
+3. **Gateway configuration**
    - We already added a `sysmon-osx` gRPC entry that defaults to `host.docker.internal:50110`.
-   - For a remote server, **override that hostname** so the poller reaches back to the Mac. Two options:
-     - Copy `docker/compose/poller.docker.json` to a temp file and replace the `details` value with `<laptop-ip>:50110`, then mount it via an override file.
-     - Or use an environment override: create `docker/compose/poller.override.json` with just the modified check.
-   - If you also run packaging installers outside of Compose, update `packaging/poller/config/poller.json` similarly (pointing to the Mac IP).
+   - For a remote server, **override that hostname** so the gateway reaches back to the Mac. Two options:
+     - Copy `docker/compose/gateway.docker.json` to a temp file and replace the `details` value with `<laptop-ip>:50110`, then mount it via an override file.
+     - Or use an environment override: create `docker/compose/gateway.override.json` with just the modified check.
+   - If you also run packaging installers outside of Compose, update `packaging/gateway/config/gateway.json` similarly (pointing to the Mac IP).
 4. **Bring the stack up (amd64 images)**
    ```bash
    docker compose --profile testing up -d
@@ -37,25 +37,25 @@ macOS host collectors running on the laptop.
    *(Compose v2 automatically reads `docker-compose.yml`; use `docker compose` syntax if available, otherwise `docker-compose` works as well.)*
 5. **Validate services**
    - `docker compose ps`
-   - `docker compose logs -f core poller agent`
+   - `docker compose logs -f core gateway agent`
 6. **Confirm gRPC connectivity to the laptop**
    ```bash
-   docker compose exec poller \
+   docker compose exec gateway \
      grpcurl -plaintext <laptop-ip>:50110 grpc.health.v1.Health/Check
    ```
    You should see `{"status":"SERVING"}`.
 
 ## 3. End-to-End Test Flow
 
-1. **Watch poller logs on the Linux server**
+1. **Watch gateway logs on the Linux server**
    ```bash
-   docker compose logs -f poller | grep sysmon-osx
+   docker compose logs -f gateway | grep sysmon-osx
    ```
    Expect poll attempts and frequency payloads.
 2. **Inspect core metrics**
    - CNPG/Timescale (from the Linux server):\
      `docker compose exec cnpg psql -U postgres -d telemetry -c "SELECT * FROM cpu_metrics ORDER BY timestamp DESC LIMIT 5"`
-   - Core API (if exposed) at `http://localhost:8090` -> `/pollers/.../sysmon/cpu`.
+   - Core API (if exposed) at `http://localhost:8090` -> `/gateways/.../sysmon/cpu`.
 3. **Cross-check macOS checker**
    - `log show --predicate 'process == "serviceradar-sysmon-osx"' --last 5m`
    - Inspect `/var/log/serviceradar/sysmon-osx.log` and `.err.log` for IOReport or frequency sampling details.

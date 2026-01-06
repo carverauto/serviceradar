@@ -24,7 +24,7 @@ VERSION="1.0.52"
 RELEASE_TAG="1.0.52"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
-POLLER_CONFIG="/etc/serviceradar/poller.json"
+GATEWAY_CONFIG="/etc/serviceradar/gateway.json"
 SR_CERT_DIR="/etc/serviceradar/certs"
 DAYS_VALID=3650
 
@@ -33,9 +33,9 @@ INTERACTIVE=true
 CHECKERS=""
 INSTALL_ALL=false
 INSTALL_CORE=false
-INSTALL_POLLER=false
+INSTALL_GATEWAY=false
 INSTALL_AGENT=false
-UPDATE_POLLER_CONFIG=true
+UPDATE_GATEWAY_CONFIG=true
 SKIP_CHECKER_PROMPTS=false
 INSTALLED_CHECKERS=()
 SERVICE_IPS=""
@@ -165,16 +165,16 @@ parse_args() {
                 INSTALL_CORE=true
                 shift
                 ;;
-            --poller)
-                INSTALL_POLLER=true
+            --gateway)
+                INSTALL_GATEWAY=true
                 shift
                 ;;
             --agent)
                 INSTALL_AGENT=true
                 shift
                 ;;
-            --no-update-poller-config)
-                UPDATE_POLLER_CONFIG=false
+            --no-update-gateway-config)
+                UPDATE_GATEWAY_CONFIG=false
                 shift
                 ;;
             --skip-checker-prompts)
@@ -231,7 +231,7 @@ install_dependencies() {
             log "Installing libcap2-bin for agent..."
             apt-get install -y libcap2-bin || error "Failed to install libcap2-bin"
         fi
-        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_GATEWAY" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Ensuring systemd is installed..."
             apt-get install -y systemd || error "Failed to install systemd"
         fi
@@ -253,7 +253,7 @@ install_dependencies() {
             log "Installing libcap and related packages for agent..."
             $PKG_MANAGER install -y libcap systemd-devel gcc || error "Failed to install libcap or related packages"
         fi
-        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_GATEWAY" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Ensuring systemd is installed..."
             $PKG_MANAGER install -y systemd || error "Failed to install systemd"
         fi
@@ -406,8 +406,8 @@ setup_mtls_certificates() {
         components="$components,nats-leaf"
     fi
 
-    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
-        components="$components,poller"
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_GATEWAY" = "true" ]; then
+        components="$components,gateway"
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
         components="$components,agent"
@@ -472,8 +472,8 @@ show_post_install_info() {
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
         components+=("core" "nats" "kv" "web")
     fi
-    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
-        components+=("poller")
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_GATEWAY" = "true" ]; then
+        components+=("gateway")
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
         components+=("agent")
@@ -535,7 +535,7 @@ prompt_scenario() {
         echo -e "${COLOR_CYAN}Please choose the components you want to install (you can select multiple):${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  1) All-in-One (all components)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv)${COLOR_RESET}"
-        echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  3) Gateway (gateway)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
 
         local choices=""
@@ -550,7 +550,7 @@ prompt_scenario() {
                     INSTALL_CORE=true
                     ;;
                 3)
-                    INSTALL_POLLER=true
+                    INSTALL_GATEWAY=true
                     ;;
                 4)
                     INSTALL_AGENT=true
@@ -562,15 +562,15 @@ prompt_scenario() {
         done
         echo
 
-        if [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
+        if [ "$INSTALL_GATEWAY" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
             local update_choice=""
-            read_with_timeout "${COLOR_CYAN}Would you like to automatically update the poller configuration after installing checkers? (y/n) [y]:${COLOR_RESET}" "y" update_choice $PROMPT_TIMEOUT
+            read_with_timeout "${COLOR_CYAN}Would you like to automatically update the gateway configuration after installing checkers? (y/n) [y]:${COLOR_RESET}" "y" update_choice $PROMPT_TIMEOUT
 
             if [ "$update_choice" = "n" ] || [ "$update_choice" = "N" ]; then
-                UPDATE_POLLER_CONFIG=false
-                log "Poller configuration updates disabled"
+                UPDATE_GATEWAY_CONFIG=false
+                log "Gateway configuration updates disabled"
             else
-                log "Poller configuration will be updated automatically"
+                log "Gateway configuration will be updated automatically"
             fi
 
             local skip_choice=""
@@ -581,7 +581,7 @@ prompt_scenario() {
                 log "Using recommended checker defaults (sysmon and snmp will be installed)"
             fi
         else
-            UPDATE_POLLER_CONFIG=false
+            UPDATE_GATEWAY_CONFIG=false
         fi
 
         # Prompt for IP addresses
@@ -594,46 +594,46 @@ prompt_scenario() {
     fi
 }
 
-# Update the poller configuration
-update_poller_config_for_checker() {
+# Update the gateway configuration
+update_gateway_config_for_checker() {
     local checker_type="$1"
 
-    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
+    if [ "$UPDATE_GATEWAY_CONFIG" != "true" ]; then
         return
     fi
 
-    if [ ! -f "$POLLER_CONFIG" ]; then
-        log "Poller configuration file not found at $POLLER_CONFIG, skipping update"
+    if [ ! -f "$GATEWAY_CONFIG" ]; then
+        log "Gateway configuration file not found at $GATEWAY_CONFIG, skipping update"
         return
     fi
 
-    log "Enabling ${COLOR_YELLOW}${checker_type}${COLOR_RESET} in poller configuration..."
+    log "Enabling ${COLOR_YELLOW}${checker_type}${COLOR_RESET} in gateway configuration..."
 
-    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --type="$checker_type"; then
-        success "Successfully updated poller configuration for $checker_type"
+    if /usr/local/bin/serviceradar update-gateway --file="$GATEWAY_CONFIG" --type="$checker_type"; then
+        success "Successfully updated gateway configuration for $checker_type"
     else
-        log "Failed to update poller configuration for $checker_type"
+        log "Failed to update gateway configuration for $checker_type"
     fi
 }
 
 # Enable all standard checkers
 enable_all_checkers() {
-    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
+    if [ "$UPDATE_GATEWAY_CONFIG" != "true" ]; then
         return
     fi
 
-    if [ ! -f "$POLLER_CONFIG" ]; then
-        log "Poller configuration file not found at $POLLER_CONFIG"
+    if [ ! -f "$GATEWAY_CONFIG" ]; then
+        log "Gateway configuration file not found at $GATEWAY_CONFIG"
         return
     fi
 
-    header "Enabling All Checkers in Poller Configuration"
-    log "Configuring poller to use all installed checkers..."
+    header "Enabling All Checkers in Gateway Configuration"
+    log "Configuring gateway to use all installed checkers..."
 
-    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --enable-all; then
-        success "Successfully enabled all checkers in poller configuration"
+    if /usr/local/bin/serviceradar update-gateway --file="$GATEWAY_CONFIG" --enable-all; then
+        success "Successfully enabled all checkers in gateway configuration"
     else
-        log "Failed to enable all checkers in poller configuration"
+        log "Failed to enable all checkers in gateway configuration"
     fi
 }
 
@@ -807,14 +807,14 @@ install_optional_checkers() {
 
     install_packages "${checker_packages[@]}"
 
-    if [ "$UPDATE_POLLER_CONFIG" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ]; then
-        header "Updating Poller Configuration"
+    if [ "$UPDATE_GATEWAY_CONFIG" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ]; then
+        header "Updating Gateway Configuration"
 
         if [ ${#INSTALLED_CHECKERS[@]} -ge 3 ]; then
             enable_all_checkers
         else
             for checker_type in "${INSTALLED_CHECKERS[@]}"; do
-                update_poller_config_for_checker "$checker_type"
+                update_gateway_config_for_checker "$checker_type"
             done
         fi
     fi
@@ -930,15 +930,15 @@ main() {
 
     if [ "$INSTALL_ALL" = "true" ]; then
         INSTALL_CORE=true
-        INSTALL_POLLER=true
+        INSTALL_GATEWAY=true
         INSTALL_AGENT=true
     fi
 
-    if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
+    if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_GATEWAY" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
         if [ "$INTERACTIVE" = "true" ]; then
             prompt_scenario
         else
-            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
+            error "No installation scenario specified. Use --all, --core, --gateway, or --agent."
         fi
     fi
 
@@ -974,15 +974,15 @@ main() {
 
     # Install main components
     core_packages=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc")
-    poller_packages=("serviceradar-poller")
+    gateway_packages=("serviceradar-agent-gateway")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
 
     if [ "$INSTALL_CORE" = "true" ]; then
         packages_to_install+=("${core_packages[@]}")
     fi
-    if [ "$INSTALL_POLLER" = "true" ]; then
-        packages_to_install+=("${poller_packages[@]}")
+    if [ "$INSTALL_GATEWAY" = "true" ]; then
+        packages_to_install+=("${gateway_packages[@]}")
     fi
     if [ "$INSTALL_AGENT" = "true" ]; then
         packages_to_install+=("${agent_packages[@]}")
@@ -991,7 +991,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-datasvc" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-agent-gateway" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"
@@ -1026,11 +1026,11 @@ main() {
         info "Core API: ${COLOR_YELLOW}http://${local_ip}/swagger${COLOR_RESET}"
     fi
 
-    if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
-        info "${COLOR_YELLOW}Note:${COLOR_RESET} You installed checkers but disabled automatic poller configuration."
-        info "To manually enable the checkers in your poller configuration, run:"
+    if [ "$INSTALL_GATEWAY" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_GATEWAY_CONFIG" = "false" ]; then
+        info "${COLOR_YELLOW}Note:${COLOR_RESET} You installed checkers but disabled automatic gateway configuration."
+        info "To manually enable the checkers in your gateway configuration, run:"
         for checker_type in "${INSTALLED_CHECKERS[@]}"; do
-            info "  ${COLOR_YELLOW}serviceradar update-poller --file=${POLLER_CONFIG} --type=${checker_type}${COLOR_RESET}"
+            info "  ${COLOR_YELLOW}serviceradar update-gateway --file=${GATEWAY_CONFIG} --type=${checker_type}${COLOR_RESET}"
         done
     fi
 

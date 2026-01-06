@@ -37,8 +37,8 @@ ServiceRadar offers:
 ServiceRadar consists of several main components:
 
 1. **Agent** - Runs on monitored hosts, provides service status through gRPC
-2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
-3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
+2. **Gateway** - Orchestrates monitoring activities, can run anywhere in your network
+3. **Core Service** - Receives reports from gateways, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Caddy as a reverse proxy
 5. **KV Store** - Provides dynamic configuration capabilities using NATS JetStream
 6. **Embedded Sync Runtime** - Integrates with external inventory and security systems via the agent

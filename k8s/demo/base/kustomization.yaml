@@ -10,7 +10,6 @@ resources:
 - serviceradar-core.yaml
 - serviceradar-web-ng.yaml
 - serviceradar-agent.yaml
-- serviceradar-poller.yaml
 - serviceradar-snmp-checker.yaml
 - serviceradar-db-event-writer.yaml
 - serviceradar-zen.yaml

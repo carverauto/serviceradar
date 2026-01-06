@@ -29,11 +29,11 @@ graph TB
 
     subgraph Infrastructure["Infrastructure Domain"]
         Partition[Partition]
-        Poller[Poller]
+        Gateway[Gateway]
         Agent[Agent]
         Checker[Checker]
-        Poller -->|belongs_to| Partition
-        Agent -->|belongs_to| Poller
+        Gateway -->|belongs_to| Partition
+        Agent -->|belongs_to| Gateway
         Checker -->|belongs_to| Agent
     end
 
@@ -55,7 +55,7 @@ graph TB
 
     %% Cross-domain relationships
     Device -.->|tenant_id| Tenant
-    Poller -.->|tenant_id| Tenant
+    Gateway -.->|tenant_id| Tenant
     Alert -.->|tenant_id| Tenant
     OnboardingPackage -.->|tenant_id| Tenant
 ```
@@ -107,7 +107,7 @@ Monitoring infrastructure components.
 | Resource | Description | Key Actions |
 |----------|-------------|-------------|
 | `Partition` | Network segments (CIDR ranges) | `create`, `update`, `validate_cidr` |
-| `Poller` | Poll coordinators | `register`, `heartbeat`, `mark_available` |
+| `Gateway` | Job coordinators | `register`, `heartbeat`, `mark_available` |
 | `Agent` | Monitoring agents | `register`, `update_status`, `connect`, `disconnect` |
 | `Checker` | Check implementations | `create`, `enable`, `disable` |
 
@@ -175,7 +175,7 @@ elixir/serviceradar_core/
 │   ├── infrastructure.ex     # Infrastructure domain
 │   ├── infrastructure/
 │   │   ├── partition.ex
-│   │   ├── poller.ex
+│   │   ├── gateway.ex
 │   │   ├── agent.ex
 │   │   └── checker.ex
 │   ├── monitoring.ex         # Monitoring domain

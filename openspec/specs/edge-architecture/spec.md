@@ -21,17 +21,17 @@ Edge components (agents, checkers) deployed in customer networks SHALL NOT join 
 
 #### Scenario: Edge communicates via gRPC only
 - **WHEN** an agent needs to report data to the platform
-- **THEN** it waits for poller to initiate gRPC connection
+- **THEN** it waits for gateway to initiate gRPC connection
 - **AND** responds to gRPC requests with collected data
 - **AND** no Erlang distribution protocol is used
 
-### Requirement: Poller-Initiated Communication
+### Requirement: Gateway-Initiated Communication
 
-Pollers deployed in the platform Kubernetes cluster SHALL initiate all connections to edge agents. Edge agents SHALL NOT initiate connections to platform services.
+Gateways deployed in the platform Kubernetes cluster SHALL initiate all connections to edge agents. Edge agents SHALL NOT initiate connections to platform services.
 
-#### Scenario: Poller polls agent on schedule
-- **WHEN** a poller is assigned an agent
-- **THEN** the poller initiates gRPC connection to agent endpoint
+#### Scenario: Gateway polls agent on schedule
+- **WHEN** a gateway is assigned an agent
+- **THEN** the gateway initiates gRPC connection to agent endpoint
 - **AND** requests current monitoring data
 - **AND** agent responds with collected metrics
 
@@ -39,20 +39,20 @@ Pollers deployed in the platform Kubernetes cluster SHALL initiate all connectio
 - **WHEN** an edge agent starts up
 - **THEN** the agent's connection details are configured via onboarding
 - **AND** the platform knows agent endpoint from onboarding registration
-- **AND** assigned poller queries platform for agent list
+- **AND** assigned gateway queries platform for agent list
 
 #### Scenario: Agent unreachable handling
-- **WHEN** a poller cannot reach an agent via gRPC
-- **THEN** the poller retries with exponential backoff
+- **WHEN** a gateway cannot reach an agent via gRPC
+- **THEN** the gateway retries with exponential backoff
 - **AND** marks agent as unreachable after timeout
 - **AND** alerts are generated for unreachable agents
 
 ### Requirement: Internal ERTS Cluster
 
-Platform services (core, pollers, web-ng) running in Kubernetes SHALL form an ERTS Erlang cluster for distributed coordination. This cluster SHALL NOT include edge components.
+Platform services (core, gateways, web-ng) running in Kubernetes SHALL form an ERTS Erlang cluster for distributed coordination. This cluster SHALL NOT include edge components.
 
-#### Scenario: Horde registry for pollers
-- **WHEN** pollers need to coordinate work distribution
+#### Scenario: Horde registry for gateways
+- **WHEN** gateways need to coordinate work distribution
 - **THEN** they use Horde distributed registry
 - **AND** only platform nodes participate in Horde
 
@@ -64,20 +64,20 @@ Platform services (core, pollers, web-ng) running in Kubernetes SHALL form an ER
 #### Scenario: Phoenix PubSub for real-time updates
 - **WHEN** real-time updates need to broadcast
 - **THEN** Phoenix PubSub uses ERTS cluster
-- **AND** web-ng receives updates from core/pollers
+- **AND** web-ng receives updates from core/gateways
 
 ### Requirement: mTLS Agent Authentication
 
 Edge agents SHALL authenticate using mTLS client certificates. Certificates SHALL encode tenant identity for multi-tenant isolation.
 
 #### Scenario: Agent presents tenant certificate
-- **WHEN** a poller connects to an agent
-- **THEN** mTLS handshake requires client certificate from poller
-- **AND** agent verifies poller certificate is from platform CA
+- **WHEN** a gateway connects to an agent
+- **THEN** mTLS handshake requires client certificate from gateway
+- **AND** agent verifies gateway certificate is from platform CA
 
-#### Scenario: Poller verifies agent tenant
-- **WHEN** a poller receives data from an agent
-- **THEN** the poller extracts tenant ID from agent certificate
+#### Scenario: Gateway verifies agent tenant
+- **WHEN** a gateway receives data from an agent
+- **THEN** the gateway extracts tenant ID from agent certificate
 - **AND** verifies agent belongs to expected tenant
 - **AND** rejects cross-tenant data
 

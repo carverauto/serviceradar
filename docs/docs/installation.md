@@ -16,11 +16,11 @@ ServiceRadar components are distributed as Debian packages for Ubuntu/Debian sys
 Install these components on your monitored host:
 
 ```bash
-# Download and install agent and poller components
+# Download and install agent and gateway components
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
 
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb
+sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb
 ```
 
 On a separate machine (recommended) or the same host for the core service:
@@ -139,11 +139,11 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/ser
 sudo dpkg -i serviceradar-agent_1.0.52.deb
 ```
 
-2. **On monitoring host** (install the poller):
+2. **On monitoring host** (install the gateway):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb
-sudo dpkg -i serviceradar-poller_1.0.52.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
+sudo dpkg -i serviceradar-agent-gateway_1.0.52.deb
 ```
 
 3. **On core host** (install the core service):
@@ -161,8 +161,8 @@ After installation, verify the services are running:
 # Check agent status
 systemctl status serviceradar-agent
 
-# Check poller status
-systemctl status serviceradar-poller
+# Check gateway status
+systemctl status serviceradar-agent-gateway
 
 # Check core status
 systemctl status serviceradar-core
@@ -181,12 +181,12 @@ If you're using UFW (Ubuntu's Uncomplicated Firewall), add these rules:
 ```bash
 # On agent hosts
 sudo ufw allow 50051/tcp  # For agent gRPC server
-sudo ufw allow 50080/tcp  # For SNMP (poller) checker (if applicable)
+sudo ufw allow 50080/tcp  # For SNMP (gateway) checker (if applicable)
 sudo ufw allow 50081/tcp  # For RPerf checker (if applicable)
 sudo ufw allow 50082/tcp  # For Dusk checker (if applicable)
 
 # On core host
-sudo ufw allow 50052/tcp  # For poller connections
+sudo ufw allow 50052/tcp  # For gateway connections
 sudo ufw allow 8090/tcp   # For API (internal use)
 
 # If running web UI
@@ -249,7 +249,7 @@ Download the latest ServiceRadar RPM packages from the releases page:
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 #### 2. Install Core Service
@@ -268,13 +268,13 @@ The web UI provides a dashboard interface:
 sudo dnf install -y ./serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 ```
 
-#### 4. Install Agent and Poller
+#### 4. Install Agent and Gateway
 
 On each monitored host:
 
 ```bash
 sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 ### Distributed Setup
@@ -288,11 +288,11 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/ser
 sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
 ```
 
-2. **On monitoring host** (install the poller):
+2. **On monitoring host** (install the gateway):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 3. **On core host** (install the core service):
@@ -372,7 +372,7 @@ sudo firewall-cmd --permanent --add-port=80/tcp      # Web UI
 sudo firewall-cmd --permanent --add-port=8090/tcp    # Core API
 sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
 sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
-sudo firewall-cmd --permanent --add-port=50053/tcp   # Poller
+sudo firewall-cmd --permanent --add-port=50053/tcp   # Gateway
 sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
 sudo firewall-cmd --reload
 ```
@@ -413,8 +413,8 @@ sudo systemctl status caddy
 # Check agent (on monitored host)
 sudo systemctl status serviceradar-agent
 
-# Check poller (on monitored host)
-sudo systemctl status serviceradar-poller
+# Check gateway (on monitored host)
+sudo systemctl status serviceradar-agent-gateway
 
 # Check NATS Server (if installed)
 sudo systemctl status nats
@@ -516,14 +516,14 @@ If needed, you can uninstall ServiceRadar components:
 
 #### Debian/Ubuntu:
 ```bash
-sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
+sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
 sudo apt remove -y serviceradar-nats serviceradar-datasvc
 sudo apt remove -y nats-server
 ```
 
 #### RHEL/Oracle Linux:
 ```bash
-sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
+sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
 sudo dnf remove -y serviceradar-nats serviceradar-datasvc
 sudo dnf remove -y nats-server
 ```

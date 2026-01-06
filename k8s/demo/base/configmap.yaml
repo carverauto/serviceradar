@@ -80,14 +80,14 @@ data:
           }
         },
         "alert_threshold": "5m",
-        "known_pollers": [
-          "k8s-poller",
-          "docker-poller"
+        "known_gateways": [
+          "k8s-gateway",
+          "docker-gateway"
         ],
         "metrics": {
           "enabled": true,
           "retention": 100,
-          "max_pollers": 10000
+          "max_gateways": 10000
         },
         "features": {
           "use_log_digest": true,
@@ -139,14 +139,14 @@ data:
             "unix:group:root"
           ],
           "default_metadata": {
-            "poller": {
+            "gateway": {
               "core_address": "serviceradar-core:50052",
               "core_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core",
               "kv_address": "serviceradar-datasvc:50057",
               "kv_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-datasvc",
               "spire_upstream_address": "spire-server.$(SERVICERADAR_NAMESPACE).svc.cluster.local",
               "spire_upstream_port": "8081",
-              "spire_parent_id": "spiffe://carverauto.dev/ns/edge/poller-nested-spire",
+              "spire_parent_id": "spiffe://carverauto.dev/ns/edge/gateway-nested-spire",
               "agent_address": "agent:50051",
               "agent_spiffe_id": "spiffe://carverauto.dev/services/agent",
               "nested_spire_wait_attempts": "120",
@@ -161,7 +161,7 @@ data:
           },
           "join_token_ttl": "15m",
           "download_token_ttl": "10m",
-          "poller_id_prefix": "edge"
+          "gateway_id_prefix": "edge"
         },
         "cors": {
           "allowed_origins": ["*"],
@@ -240,98 +240,6 @@ data:
           "retry_delay": "1s"
         }
       }
-    poller.json: |
-      {
-        "agents": {
-          "k8s-agent": {
-              "address": "serviceradar-agent:50051",
-              "security": {
-                "mode": "spiffe",
-                "cert_dir": "/etc/serviceradar/certs",
-                "role": "poller",
-                "trust_domain": "carverauto.dev",
-                "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-agent",
-                "workload_socket": "unix:/run/spire/sockets/agent.sock",
-                "tls": {
-                  "cert_file": "poller.pem",
-                  "key_file": "poller-key.pem",
-                  "ca_file": "root.pem",
-                  "client_ca_file": "root.pem"
-                }
-              },
-            "checks": [
-              { "service_type": "process", "service_name": "serviceradar-agent", "details": "serviceradar-agent" },
-              { "service_type": "port",    "service_name": "SSH",               "details": "serviceradar-agent:22" },
-              { "service_type": "icmp",    "service_name": "ping",              "details": "8.8.8.8" },
-              { "service_type": "sweep",   "service_name": "network_sweep",     "details": "", "results_interval": "5m" },
-              { "service_type": "grpc",    "service_name": "rperf-checker",     "details": "serviceradar-rperf:50081" },
-              { "service_type": "grpc",    "service_name": "mapper",            "details": "serviceradar-mapper:50056" },
-              { "service_type": "grpc",    "service_name": "db-event-writer",   "details": "serviceradar-db-event-writer:50041" },
-              { "service_type": "grpc",    "service_name": "zen",               "details": "serviceradar-zen:50040" },
-              { "service_type": "grpc",    "service_name": "trapd",             "details": "serviceradar-trapd:50043" },
-              { "service_type": "grpc",    "service_name": "flowgger",          "details": "serviceradar-flowgger:50044" },
-              { "service_type": "grpc",    "service_name": "kv",                "details": "serviceradar-datasvc:50057" }
-            ]
-          }
-        },
-        "core_address": "serviceradar-core:50052",
-        "core_security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "server_name": "",
-          "role": "poller",
-          "trust_domain": "carverauto.dev",
-          "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "poller.pem",
-            "key_file": "poller-key.pem",
-            "ca_file": "root.pem"
-          }
-        },
-        "listen_addr": ":50053",
-        "poll_interval": "30s",
-        "poller_id": "k8s-poller",
-        "partition": "default",
-        "source_ip": "poller",
-        "service_name": "PollerService",
-        "service_type": "grpc",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "carverauto.dev",
-          "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "poller.pem",
-            "key_file": "poller-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "logging": {
-          "level": "info",
-          "debug": false,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
-            "service_name": "serviceradar-poller",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {},
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/poller.pem",
-              "key_file": "/etc/serviceradar/certs/poller-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-otel"
-            }
-          }
-        }
-      }
-  
     agent.json: |
       {
         "checkers_dir": "/etc/serviceradar/checkers",
@@ -432,7 +340,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-mapper",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -453,7 +361,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-rperf-checker",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -474,7 +382,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-flowgger",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -495,7 +403,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-zen",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -516,7 +424,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-db-event-writer",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -537,7 +445,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-trapd",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -693,7 +601,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "carverauto.dev",
           "server_spiffe_id": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-snmp-checker",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -948,17 +856,6 @@ data:
           },
           {
             user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-            permissions: {
-              publish: {
-                allow: [">"]
-              }
-              subscribe: {
-                allow: [">"]
-              }
-            }
-          },
-          {
-            user: "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: [">"]
@@ -1276,7 +1173,6 @@ data:
         "rbac": {
           "roles": [
             {"identity": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-core", "role": "writer"},
-            {"identity": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-poller", "role": "reader"},
             {"identity": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-mapper", "role": "reader"},
             {"identity": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-snmp-checker", "role": "writer"},
             {"identity": "spiffe://carverauto.dev/ns/$(SERVICERADAR_NAMESPACE)/sa/serviceradar-db-event-writer", "role": "reader"},

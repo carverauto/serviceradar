@@ -280,7 +280,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   <thead>
                     <tr class="text-xs uppercase tracking-wide text-base-content/60">
                       <th>Agent ID</th>
-                      <th>Poller</th>
+                      <th>Gateway</th>
                       <th>Status</th>
                     </tr>
                   </thead>

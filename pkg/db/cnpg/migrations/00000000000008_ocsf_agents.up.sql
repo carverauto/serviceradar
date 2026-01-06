@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS ocsf_agents (
     policies            JSONB,            -- Applied policies array [{name, uid, version}]
 
     -- ServiceRadar Extensions
-    poller_id           TEXT,             -- Parent poller reference
+    gateway_id           TEXT,             -- Parent gateway reference
     capabilities        TEXT[],           -- Registered checker capabilities (icmp, snmp, sysmon, etc.)
     ip                  TEXT,             -- Agent IP address
     first_seen_time     TIMESTAMPTZ,      -- When agent first registered
@@ -45,7 +45,7 @@ COMMENT ON COLUMN ocsf_agents.type_id IS 'OCSF agent type: 0=Unknown, 1=EDR, 4=P
 COMMENT ON COLUMN ocsf_agents.capabilities IS 'Checker capabilities this agent supports (icmp, snmp, sysmon, rperf, etc.)';
 
 -- Indexes for ocsf_agents
-CREATE INDEX IF NOT EXISTS idx_ocsf_agents_poller_id ON ocsf_agents (poller_id);
+CREATE INDEX IF NOT EXISTS idx_ocsf_agents_gateway_id ON ocsf_agents (gateway_id);
 CREATE INDEX IF NOT EXISTS idx_ocsf_agents_type_id ON ocsf_agents (type_id);
 CREATE INDEX IF NOT EXISTS idx_ocsf_agents_last_seen ON ocsf_agents (last_seen_time);
 CREATE INDEX IF NOT EXISTS idx_ocsf_agents_ip ON ocsf_agents (ip);

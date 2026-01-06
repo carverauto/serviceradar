@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ================================
 CREATE TABLE IF NOT EXISTS timeseries_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     agent_id            TEXT,
     metric_name         TEXT              NOT NULL,
     metric_type         TEXT              NOT NULL,
@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_timeseries_metrics_device_time ON timeseries_metr
 
 CREATE TABLE IF NOT EXISTS cpu_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     agent_id            TEXT,
     host_id             TEXT,
     core_id             INTEGER,
@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_cpu_metrics_device_time ON cpu_metrics (device_id
 
 CREATE TABLE IF NOT EXISTS cpu_cluster_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     host_id             TEXT,
     cluster             TEXT,
@@ -68,7 +68,7 @@ SELECT create_hypertable('cpu_cluster_metrics','timestamp', if_not_exists => TRU
 
 CREATE TABLE IF NOT EXISTS disk_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     host_id             TEXT,
     mount_point         TEXT,
@@ -86,7 +86,7 @@ SELECT create_hypertable('disk_metrics','timestamp', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS memory_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     host_id             TEXT,
     total_bytes         BIGINT,
@@ -102,7 +102,7 @@ SELECT create_hypertable('memory_metrics','timestamp', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS process_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     host_id             TEXT,
     pid                 INTEGER,
@@ -120,7 +120,7 @@ SELECT create_hypertable('process_metrics','timestamp', if_not_exists => TRUE);
 
 CREATE TABLE IF NOT EXISTS netflow_metrics (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     device_id           TEXT,
     flow_direction      TEXT,
@@ -145,7 +145,7 @@ SELECT create_hypertable('netflow_metrics','timestamp', if_not_exists => TRUE);
 -- ================================
 CREATE TABLE IF NOT EXISTS sweep_host_states (
     host_ip             TEXT              NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     agent_id            TEXT              NOT NULL,
     partition           TEXT              NOT NULL,
     network_cidr        TEXT,
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS sweep_host_states (
     first_seen          TIMESTAMPTZ,
     metadata            JSONB,
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    PRIMARY KEY (host_ip, poller_id, partition, last_sweep_time)
+    PRIMARY KEY (host_ip, gateway_id, partition, last_sweep_time)
 );
 SELECT create_hypertable('sweep_host_states','last_sweep_time', if_not_exists => TRUE);
 -- DISABLED: SELECT add_retention_policy('sweep_host_states', INTERVAL '3 days', if_not_exists => TRUE);
@@ -169,7 +169,7 @@ SELECT create_hypertable('sweep_host_states','last_sweep_time', if_not_exists =>
 CREATE TABLE IF NOT EXISTS discovered_interfaces (
     timestamp           TIMESTAMPTZ       NOT NULL,
     agent_id            TEXT,
-    poller_id           TEXT,
+    gateway_id           TEXT,
     device_ip           TEXT,
     device_id           TEXT,
     if_index            INTEGER,
@@ -190,7 +190,7 @@ SELECT create_hypertable('discovered_interfaces','timestamp', if_not_exists => T
 CREATE TABLE IF NOT EXISTS topology_discovery_events (
     timestamp                TIMESTAMPTZ   NOT NULL,
     agent_id                 TEXT,
-    poller_id                TEXT,
+    gateway_id                TEXT,
     local_device_ip          TEXT,
     local_device_id          TEXT,
     local_if_index           INTEGER,
@@ -217,7 +217,7 @@ SELECT create_hypertable('topology_discovery_events','timestamp', if_not_exists 
 CREATE TABLE IF NOT EXISTS device_updates (
     observed_at         TIMESTAMPTZ       NOT NULL,
     agent_id            TEXT              NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     partition           TEXT              NOT NULL,
     device_id           TEXT              NOT NULL,
     discovery_source    TEXT              NOT NULL,
@@ -279,7 +279,7 @@ CREATE TABLE IF NOT EXISTS ocsf_devices (
     agent_list          JSONB,            -- [{uid, name, type, type_id, version, vendor_name}]
 
     -- ServiceRadar-specific fields
-    poller_id           TEXT,             -- Reporting poller
+    gateway_id           TEXT,             -- Reporting gateway
     agent_id            TEXT,             -- Reporting agent
     discovery_sources   TEXT[],           -- Sources that discovered this device
     is_available        BOOLEAN,          -- Device availability status
@@ -300,10 +300,10 @@ CREATE INDEX IF NOT EXISTS idx_ocsf_devices_os_gin ON ocsf_devices USING gin (os
 CREATE INDEX IF NOT EXISTS idx_ocsf_devices_metadata_gin ON ocsf_devices USING gin (metadata);
 
 -- ================================
--- Registry tables (pollers, agents, checkers)
+-- Registry tables (gateways, agents, checkers)
 -- ================================
-CREATE TABLE IF NOT EXISTS pollers (
-    poller_id           TEXT              PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS gateways (
+    gateway_id           TEXT              PRIMARY KEY,
     component_id        TEXT              DEFAULT '',
     registration_source TEXT              DEFAULT 'implicit',
     status              TEXT              DEFAULT 'active',
@@ -318,11 +318,11 @@ CREATE TABLE IF NOT EXISTS pollers (
     checker_count       INTEGER           DEFAULT 0,
     updated_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_pollers_last_seen ON pollers (last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_gateways_last_seen ON gateways (last_seen DESC);
 
 CREATE TABLE IF NOT EXISTS agents (
     agent_id            TEXT              PRIMARY KEY,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     component_id        TEXT              DEFAULT '',
     registration_source TEXT              DEFAULT 'implicit',
     status              TEXT              DEFAULT 'active',
@@ -335,12 +335,12 @@ CREATE TABLE IF NOT EXISTS agents (
     checker_count       INTEGER           DEFAULT 0,
     updated_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_agents_poller ON agents (poller_id);
+CREATE INDEX IF NOT EXISTS idx_agents_gateway ON agents (gateway_id);
 
 CREATE TABLE IF NOT EXISTS checkers (
     checker_id          TEXT              PRIMARY KEY,
     agent_id            TEXT              NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     checker_kind        TEXT              NOT NULL,
     component_id        TEXT              DEFAULT '',
     registration_source TEXT              DEFAULT 'implicit',
@@ -354,7 +354,7 @@ CREATE TABLE IF NOT EXISTS checkers (
     updated_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_checkers_agent ON checkers (agent_id);
-CREATE INDEX IF NOT EXISTS idx_checkers_poller ON checkers (poller_id);
+CREATE INDEX IF NOT EXISTS idx_checkers_gateway ON checkers (gateway_id);
 
 CREATE TABLE IF NOT EXISTS service_registration_events (
     event_id            TEXT              NOT NULL,
@@ -372,21 +372,21 @@ SELECT create_hypertable('service_registration_events','timestamp', if_not_exist
 -- DISABLED: SELECT add_retention_policy('service_registration_events', INTERVAL '90 days', if_not_exists => TRUE);
 
 -- ================================
--- Poller/service history
+-- Gateway/service history
 -- ================================
-CREATE TABLE IF NOT EXISTS poller_history (
+CREATE TABLE IF NOT EXISTS gateway_history (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     is_healthy          BOOLEAN           NOT NULL,
     created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
-SELECT create_hypertable('poller_history','timestamp', if_not_exists => TRUE);
--- DISABLED: SELECT add_retention_policy('poller_history', INTERVAL '7 days', if_not_exists => TRUE);
-CREATE INDEX IF NOT EXISTS idx_poller_history_id_time ON poller_history (poller_id, timestamp DESC);
+SELECT create_hypertable('gateway_history','timestamp', if_not_exists => TRUE);
+-- DISABLED: SELECT add_retention_policy('gateway_history', INTERVAL '7 days', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS idx_gateway_history_id_time ON gateway_history (gateway_id, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS service_status (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     agent_id            TEXT,
     service_name        TEXT              NOT NULL,
     service_type        TEXT,
@@ -398,11 +398,11 @@ CREATE TABLE IF NOT EXISTS service_status (
 );
 SELECT create_hypertable('service_status','timestamp', if_not_exists => TRUE);
 -- DISABLED: SELECT add_retention_policy('service_status', INTERVAL '3 days', if_not_exists => TRUE);
-CREATE INDEX IF NOT EXISTS idx_service_status_identity ON service_status (poller_id, service_name, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_service_status_identity ON service_status (gateway_id, service_name, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS services (
     timestamp           TIMESTAMPTZ       NOT NULL,
-    poller_id           TEXT              NOT NULL,
+    gateway_id           TEXT              NOT NULL,
     agent_id            TEXT,
     service_name        TEXT              NOT NULL,
     service_type        TEXT,
@@ -420,10 +420,10 @@ CREATE TABLE IF NOT EXISTS edge_onboarding_packages (
     package_id             UUID             PRIMARY KEY,
     label                  TEXT             NOT NULL,
     component_id           TEXT             DEFAULT '',
-    component_type         TEXT             DEFAULT 'poller',
+    component_type         TEXT             DEFAULT 'gateway',
     parent_type            TEXT             DEFAULT '',
     parent_id              TEXT             DEFAULT '',
-    poller_id              TEXT,
+    gateway_id              TEXT,
     site                   TEXT,
     status                 TEXT             DEFAULT 'pending',
     security_mode          TEXT             DEFAULT 'spire',
@@ -535,14 +535,14 @@ CREATE INDEX IF NOT EXISTS idx_events_subject ON events (subject);
 
 CREATE TABLE IF NOT EXISTS rperf_metrics (
     timestamp      TIMESTAMPTZ   NOT NULL,
-    poller_id      TEXT          NOT NULL,
+    gateway_id      TEXT          NOT NULL,
     service_name   TEXT          NOT NULL,
     message        TEXT,
     created_at     TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 SELECT create_hypertable('rperf_metrics','timestamp', if_not_exists => TRUE);
 -- DISABLED: SELECT add_retention_policy('rperf_metrics', INTERVAL '3 days', if_not_exists => TRUE);
-CREATE INDEX IF NOT EXISTS idx_rperf_metrics_poller_time ON rperf_metrics (poller_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_rperf_metrics_gateway_time ON rperf_metrics (gateway_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_rperf_metrics_service ON rperf_metrics (service_name);
 
 CREATE TABLE IF NOT EXISTS users (

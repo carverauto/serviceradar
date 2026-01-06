@@ -20,7 +20,7 @@ The NetBox connector keeps ServiceRadar's registry synchronized with your source
 ## How Data Flows
 
 - Devices and VMs become registry entries tagged with `source=netbox`.
-- Prefixes and IP addresses translate into sweep jobs, which pollers pick up automatically (see [Discovery Guide](./discovery.md)).
+- Prefixes and IP addresses translate into sweep jobs, which gateways pick up automatically (see [Discovery Guide](./discovery.md)).
 - Site, tenant, and device-role metadata convert into labels that surface in SRQL and dashboards.
 
 ## Advanced Options

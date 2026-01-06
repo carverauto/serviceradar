@@ -37,7 +37,6 @@ data:
             "carverauto-cluster" = {
               service_account_allow_list = [
                 "demo:spire-agent",
-                "demo:serviceradar-poller",
               ]
             }
           }

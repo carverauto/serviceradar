@@ -208,7 +208,7 @@ The system SHALL create a TimescaleDB continuous aggregate (`services_availabili
 #### Scenario: CAGG counts unique service instances
 - **GIVEN** multiple status reports for the same service within a bucket
 - **WHEN** the CAGG aggregates the data
-- **THEN** unique services are identified by (poller_id, agent_id, service_name) and counted once per availability state.
+- **THEN** unique services are identified by (gateway_id, agent_id, service_name) and counted once per availability state.
 
 #### Scenario: CAGG groups by service type
 - **GIVEN** services of different types (http, grpc, tcp, etc.)

@@ -12,10 +12,10 @@ The MCP server MUST treat structured tool parameters that represent scalar strin
 - **THEN** the query compares `device_id` to a single bound value representing the entire input value
 - **AND** the query structure is not modified by the input (no additional boolean conditions are introduced)
 
-#### Scenario: Poller ID input cannot escape its filter
-- **GIVEN** a request that filters by `poller_id` via a structured parameter (not a raw SRQL filter string)
+#### Scenario: Gateway ID input cannot escape its filter
+- **GIVEN** a request that filters by `gateway_id` via a structured parameter (not a raw SRQL filter string)
 - **WHEN** the MCP server constructs the SRQL query
-- **THEN** `poller_id` is represented as a bound value and cannot terminate or extend the filter expression
+- **THEN** `gateway_id` is represented as a bound value and cannot terminate or extend the filter expression
 
 ### Requirement: MCP uses centralized parameter binding for scalar values
 The MCP server MUST implement and use a single internal parameter binding mechanism for structured scalar values across all tools and shared query builders.
@@ -29,7 +29,7 @@ The MCP server MUST implement and use a single internal parameter binding mechan
 Tools that accept free-form SRQL strings MUST explicitly label the parameter as raw SRQL input (for example `query` or `filter`) and MUST document that the value is passed through. Tools that accept structured scalar parameters MUST NOT interpret those parameters as SRQL fragments.
 
 #### Scenario: Structured parameters are not treated as raw SRQL
-- **GIVEN** a tool that accepts `device_id` or `poller_id` as a structured parameter
+- **GIVEN** a tool that accepts `device_id` or `gateway_id` as a structured parameter
 - **WHEN** the parameter contains SRQL operators
 - **THEN** the parameter is treated as a literal value, not parsed as SRQL syntax
 

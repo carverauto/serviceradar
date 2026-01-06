@@ -5,7 +5,7 @@
 
 ## Overview
 
-This document provides operational guidance for working with ServiceRadar agents, pollers, and checkers. It covers authentication, credential management, building images, and deploying to Kubernetes.
+This document provides operational guidance for working with ServiceRadar agents, gateways, and checkers. It covers authentication, credential management, building images, and deploying to Kubernetes.
 
 ---
 
@@ -284,7 +284,7 @@ kubectl get deployment -n demo
 ### Listing All Agents
 
 ```bash
-# Get all agents with their pollers
+# Get all agents with their gateways
 curl -H "Authorization: Bearer $JWT_TOKEN" \
   http://23.138.124.18:8090/api/admin/agents | jq
 ```
@@ -294,25 +294,25 @@ curl -H "Authorization: Bearer $JWT_TOKEN" \
 [
   {
     "agent_id": "k8s-agent",
-    "poller_id": "k8s-poller",
+    "gateway_id": "k8s-gateway",
     "last_seen": "2025-11-01T22:24:39Z",
     "service_types": ["port", "grpc", "sweep", "icmp", "process", "sync"]
   },
   {
     "agent_id": "k8s-demo-datasvc",
-    "poller_id": "k8s-demo-datasvc",
+    "gateway_id": "k8s-demo-datasvc",
     "last_seen": "2025-11-01T22:24:25Z",
     "service_types": ["datasvc"]
   }
 ]
 ```
 
-### Listing Agents by Poller
+### Listing Agents by Gateway
 
 ```bash
-# Get agents for specific poller
+# Get agents for specific gateway
 curl -H "Authorization: Bearer $JWT_TOKEN" \
-  http://23.138.124.18:8090/api/admin/pollers/k8s-poller/agents | jq
+  http://23.138.124.18:8090/api/admin/gateways/k8s-gateway/agents | jq
 ```
 
 ### Checking DataSvc Instances
@@ -410,7 +410,7 @@ kubectl logs -n demo deployment/serviceradar-core --tail=100 | grep "Status repo
 # Check services table directly
 kubectl exec -n demo deployment/clickhouse-server -- \
   clickhouse-client --query \
-  "SELECT agent_id, poller_id, MAX(timestamp) as last_seen, groupArray(DISTINCT service_type) as types FROM table(services) WHERE agent_id != '' GROUP BY agent_id, poller_id ORDER BY last_seen DESC"
+  "SELECT agent_id, gateway_id, MAX(timestamp) as last_seen, groupArray(DISTINCT service_type) as types FROM table(services) WHERE agent_id != '' GROUP BY agent_id, gateway_id ORDER BY last_seen DESC"
 
 # Check API response
 curl -H "Authorization: Bearer $JWT_TOKEN" \

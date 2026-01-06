@@ -14,7 +14,7 @@ You are helping users construct ServiceRadar Query Language (SRQL) queries. SRQL
 ### Entity Types (always plural)
 This is the definitive list of queryable entities based on the SRQL grammar:
 
-**Working Core Entities:** `devices`, `logs`, `interfaces`, `pollers`, `events`
+**Working Core Entities:** `devices`, `logs`, `interfaces`, `gateways`, `events`
 
 **Working Metrics Entities:** `cpu_metrics`, `disk_metrics`, `memory_metrics`, `snmp_metrics`
 
@@ -28,7 +28,7 @@ This table provides the ground truth for how system components map to queryable 
 | Service / Component | Description | SRQL Entity | Status |
 | :--- | :--- | :--- | :--- |
 | `serviceradar-agent` | Runs on monitored hosts to collect data. | `cpu_metrics`, `disk_metrics`, `memory_metrics` | ✅ Working |
-| `serviceradar-poller`| Polls agents and other services for status. | `pollers` | ✅ Working |
+| `serviceradar-agent-gateway`| Orchestrates agent/checker status reporting. | `gateways` | ✅ Working |
 | `flowgger` | **Syslog server** that ingests syslog. | `events` | ✅ Working |
 | `OTEL Collector` | Ingests OpenTelemetry data. | `logs` | ✅ Working |
 | (Generic SNMP Polling) | Collects metrics via SNMP GET requests. | `snmp_metrics` | ✅ Working |
@@ -214,7 +214,7 @@ SHOW events WHERE severity = 'Low' OR severity = 'High' ORDER BY _tp_time DESC L
 SHOW logs WHERE severity_text = 'ERROR' ORDER BY _tp_time DESC LIMIT 10
 
 -- System monitoring
-SHOW pollers WHERE is_healthy = true
+SHOW gateways WHERE is_healthy = true
 
 -- Streaming queries
 STREAM * FROM devices WHERE is_available = false

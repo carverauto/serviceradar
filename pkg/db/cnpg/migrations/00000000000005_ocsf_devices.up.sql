@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS ocsf_devices (
     agent_list          JSONB,            -- [{uid, name, type, type_id, version, vendor_name}]
 
     -- ServiceRadar-specific fields
-    poller_id           TEXT,             -- Reporting poller
+    gateway_id           TEXT,             -- Reporting gateway
     agent_id            TEXT,             -- Reporting agent
     discovery_sources   TEXT[],           -- Sources that discovered this device
     is_available        BOOLEAN,          -- Device availability status

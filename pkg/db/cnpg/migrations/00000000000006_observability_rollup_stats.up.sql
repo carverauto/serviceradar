@@ -96,10 +96,10 @@ WITH (timescaledb.continuous) AS
 SELECT
     time_bucket('5 minutes', timestamp) AS bucket,
     service_type,
-    -- Count unique service instances (identified by poller_id, agent_id, service_name)
-    COUNT(DISTINCT (poller_id, COALESCE(agent_id, ''), service_name)) AS total_count,
-    COUNT(DISTINCT (poller_id, COALESCE(agent_id, ''), service_name)) FILTER (WHERE available = true) AS available_count,
-    COUNT(DISTINCT (poller_id, COALESCE(agent_id, ''), service_name)) FILTER (WHERE available = false) AS unavailable_count
+    -- Count unique service instances (identified by gateway_id, agent_id, service_name)
+    COUNT(DISTINCT (gateway_id, COALESCE(agent_id, ''), service_name)) AS total_count,
+    COUNT(DISTINCT (gateway_id, COALESCE(agent_id, ''), service_name)) FILTER (WHERE available = true) AS available_count,
+    COUNT(DISTINCT (gateway_id, COALESCE(agent_id, ''), service_name)) FILTER (WHERE available = false) AS unavailable_count
 FROM service_status
 GROUP BY bucket, service_type
 WITH NO DATA;
@@ -121,7 +121,7 @@ ON services_availability_5m (service_type, bucket DESC);
 
 COMMENT ON MATERIALIZED VIEW services_availability_5m IS
 'Pre-computed service availability counts in 5-minute buckets.
-Unique services are identified by (poller_id, agent_id, service_name) tuple.
+Unique services are identified by (gateway_id, agent_id, service_name) tuple.
 Counts are broken down by service_type for filtering.';
 
 -- ============================================================================

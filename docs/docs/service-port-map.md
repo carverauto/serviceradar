@@ -15,8 +15,8 @@ The following table lists the primary ServiceRadar components and their default 
 |-------------------|--------------|-------------|------------------------------------------|
 | Agent             | 50051        | gRPC/TCP    | Service status collection and reporting  |
 | Core Service API  | 8090         | HTTP/TCP    | API for Web UI and external integrations |
-| Core Service gRPC | 50052        | gRPC/TCP    | Communication with Pollers               |
-| Poller            | 50053        | gRPC/TCP    | Coordination of monitoring activities    |
+| Core Service gRPC | 50052        | gRPC/TCP    | Communication with Gateways              |
+| Gateway           | 50052        | gRPC/TCP    | Coordination of monitoring activities    |
 | Device Manager    | 50059        | gRPC/TCP    | Device management and configuration      |
 | Zen Service       | 50040        | gRPC/TCP    | Zen service for device management        |
 | DB Event Writer   | 50041        | gRPC/TCP    | Writes events to the CNPG/Timescale DB   |
@@ -73,7 +73,7 @@ For a typical installation with components on different hosts, the following por
 sudo ufw allow 50051/tcp  # For agent gRPC server
 
 # On Core host
-sudo ufw allow 50052/tcp  # For poller connections
+sudo ufw allow 50052/tcp  # For gateway connections
 sudo ufw allow 8090/tcp   # For API (internal use)
 sudo ufw allow 80/tcp     # For web interface (or 443 for HTTPS)
 
@@ -95,7 +95,7 @@ Each component's port can be customized in its respective configuration file:
 |-----------|-------------------|
 | Agent | `/etc/serviceradar/agent.json` |
 | Core Service | `/etc/serviceradar/core.json` |
-| Poller | `/etc/serviceradar/poller.json` |
+| Gateway | `/etc/serviceradar/agent-gateway.env` |
 | KV Store | `/etc/serviceradar/datasvc.json` |
 | Web UI | `/etc/serviceradar/web-ng.env` |
 | SNMP Checker | `/etc/serviceradar/checkers/snmp.json` |

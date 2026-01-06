@@ -21,7 +21,7 @@ else
   PROJECTS=(
     "elixir/serviceradar_core"
     "elixir/serviceradar_core_elx"
-    "elixir/serviceradar_poller"
+    "elixir/serviceradar_agent_gateway"
     "web-ng"
   )
 fi

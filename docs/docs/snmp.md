@@ -6,17 +6,17 @@ title: SNMP Ingest Guide
 
 Simple Network Management Protocol (SNMP) polling remains the fastest way to populate ServiceRadar with device inventory and health metrics. Use this guide alongside the detailed [Device Configuration Reference](./device-configuration.md#snmp-configuration) to standardize credentials, access, and polling strategy.
 
-## Prepare Pollers
+## Prepare Gateways
 
-1. Ensure each poller can reach monitored devices on UDP 161 (and UDP 162 if you plan to receive traps).
-2. Store SNMP communities or v3 credentials in the KV store so pollers can refresh secrets without redeploys. Follow the [KV configuration](./kv-configuration.md) examples for encrypted values.
+1. Ensure each gateway can reach monitored devices on UDP 161 (and UDP 162 if you plan to receive traps).
+2. Store SNMP communities or v3 credentials in the KV store so gateways can refresh secrets without redeploys. Follow the [KV configuration](./kv-configuration.md) examples for encrypted values.
 3. Map device targets to the correct SNMP profile inside the registry. The [sync runtime guide](./sync.md) explains how to seed profiles programmatically.
 
 ## Define Credentials
 
 - **SNMPv2c** – use unique read-only community strings per device class; avoid `public` or `private`.
 - **SNMPv3** – prefer `authPriv` with SHA-256 and AES-256 where devices allow. Record usernames, auth passwords, and privacy keys in KV.
-- Rotate secrets quarterly and update the registry via the embedded sync runtime to prevent stale poller configs.
+- Rotate secrets quarterly and update the registry via the embedded sync runtime to prevent stale gateway configs.
 
 ## Build Polling Plans
 
@@ -63,6 +63,6 @@ These and the syslog-focused rules share the same GoRules/zen runtime. A Web UI 
 
 ## Validate Collection
 
-- Use `serviceradarctl poller check` to run ad-hoc queries against new devices.
+- Use `serviceradarctl gateway check` to run ad-hoc queries against new devices.
 - Inspect SRQL queries such as `SELECT * FROM snmp.interfaces WHERE device = '<hostname>' LIMIT 10;` to verify ingestion.
 - Set up baseline alerts once metrics stabilize—see the [Troubleshooting Guide](./troubleshooting-guide.md#snmp) for common failure modes.

@@ -3,7 +3,6 @@
 {{- $trustDomain := .Values.spire.trustDomain }}
 {{- $entries := list
   (dict "name" "serviceradar-core" "label" "serviceradar-core" "sa" (.Values.spire.coreServiceAccount | default "serviceradar-core") "admin" true)
-  (dict "name" "serviceradar-poller" "label" "serviceradar-poller" "sa" (.Values.spire.pollerServiceAccount | default "serviceradar-poller"))
   (dict "name" "serviceradar-datasvc" "label" "serviceradar-datasvc" "sa" (.Values.spire.datasvcServiceAccount | default "serviceradar-datasvc"))
   (dict "name" "serviceradar-agent" "label" "serviceradar-agent" "sa" (.Values.spire.serviceradarAgentServiceAccount | default "serviceradar-agent"))
   (dict "name" "serviceradar-otel" "label" "serviceradar-otel" "sa" (.Values.spire.otelServiceAccount | default "serviceradar-otel"))
@@ -32,29 +31,5 @@ spec:
   podSelector:
     matchLabels:
       app: {{ .label }}
-{{- end }}
-{{- if and .Values.spire.nestedPoller .Values.spire.nestedPoller.enabled }}
-{{- $nestedSpiffe := default (printf "spiffe://%s/ns/%s/poller-nested-spire" $trustDomain $ns) .Values.spire.nestedPoller.spiffeID }}
----
-apiVersion: spire.spiffe.io/v1alpha1
-kind: ClusterSPIFFEID
-metadata:
-  name: {{ printf "serviceradar-poller-nested-%s" $ns }}
-spec:
-  spiffeIDTemplate: {{ $nestedSpiffe }}
-  admin: true
-  downstream: true
-  namespaceSelector:
-    matchLabels:
-      kubernetes.io/metadata.name: {{ $ns }}
-  podSelector:
-    matchLabels:
-      app: serviceradar-poller
-  workloadSelectorTemplates:
-    - k8s:container-name:{{ default "poller-nested-spire" .Values.spire.nestedPoller.containerName }}
-    - unix:uid:0
-    - unix:gid:0
-    - unix:user:root
-    - unix:path:/opt/spire/bin/spire-server
 {{- end }}
 {{- end }}

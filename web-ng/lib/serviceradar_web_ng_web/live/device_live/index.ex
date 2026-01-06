@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     Metrics
                   </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Gateway</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>

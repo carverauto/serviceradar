@@ -1,10 +1,12 @@
 ## 1. Implementation
-- [ ] 1.1 Inventory poller references across code, configs, docs, and tests.
-- [ ] 1.2 Remove poller resources, registrations, and runtime lookups in Elixir core; replace with gateway/agent equivalents where required.
-- [ ] 1.2.1 Move gateway persistence to dedicated `gateways` table and add migration/backfill.
+- [x] 1.1 Inventory poller references across code, configs, docs, and tests.
+- [x] 1.2 Remove poller resources, registrations, and runtime lookups in Elixir core; replace with gateway/agent equivalents where required.
+- [x] 1.2.1 Move gateway persistence to dedicated `gateways` table and add migration/backfill.
 - [ ] 1.3 Remove poller UI pages, SRQL mappings, and test fixtures in web-ng.
-- [ ] 1.4 Remove poller Docker compose services, configs, and image targets.
-- [ ] 1.5 Remove Go/Rust poller artifacts and build/test targets if no longer used.
-- [ ] 1.6 Update docs and runbooks to remove poller references.
-- [ ] 1.7 Update OpenSpec deltas and ensure specs reflect gateway/agent architecture.
+- [ ] 1.3.1 Regenerate web-ng migrations/resource snapshots to remove poller tables if still used.
+- [x] 1.4 Remove poller Docker compose services, configs, and image targets.
+- [ ] 1.5 Remove Go/Rust poller artifacts and build/test targets if no longer used (excluding UBNT mapper poller).
+- [x] 1.5.1 Retain UBNT poller for discovery/mapper engine.
+- [x] 1.6 Update docs and runbooks to remove poller references (excluding Swagger/OpenAPI and generated SBOM artifacts).
+- [x] 1.7 Update OpenSpec deltas and ensure specs reflect gateway/agent architecture.
 - [ ] 1.8 Run `make lint`, `make test`, and `mix precommit` (web-ng) after updates.

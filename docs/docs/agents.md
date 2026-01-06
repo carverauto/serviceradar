@@ -245,7 +245,7 @@ Once the agent logs report “Completed streaming results”, poll `/api/stats` 
 ## Monitoring Non-Canonical Sweep Data
 
 - The core stats aggregator now publishes OTEL gauges under `serviceradar.core.device_stats` (`core_device_stats_skipped_non_canonical`, `core_device_stats_raw_records`, etc.). Point your collector at those gauges to alert when `skipped_non_canonical` climbs above zero.
-- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure pollers continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
+- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure gateways continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
 - Webhook integrations receive a `Non-canonical devices filtered from stats` warning the moment the skip counter increases. The payload includes `raw_records`, `processed_records`, the total filtered count, and the timestamp of the snapshot that triggered the alert.
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
@@ -297,7 +297,7 @@ Once the agent logs report “Completed streaming results”, poll `/api/stats` 
 
   ```
   config/core.json
-  config/poller.json
+  config/gateways/<gateway-id>.json
   config/agent.json
   config/flowgger.toml
   config/otel.toml
@@ -528,7 +528,7 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
 
 ## Common Error Notes
 
-- `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.
+- `rpc error: code = Unimplemented desc =` – emitted by core when the gateway is stopped; safe to ignore while the pipeline is paused.
 - `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the queue and replaying new discovery data resolves it.
 - `cnpg device_updates batch: invalid input syntax for type json` – indicates a writer emitted malformed metadata. Inspect the offending payload (`db.UpdateDevice.METADATA`) and patch the producer before replaying.
 - `ERROR: duplicate key value violates unique constraint "unified_devices_pkey"` – normally caused by reusing the same `device_id` + `_merged_into` metadata after a reset. Run the pipeline reset above to clear stale rows, then replay once so the merge helper can rebuild the canonical view cleanly.
@@ -579,9 +579,9 @@ Once you have the offending query, correlate it with the Go/UI call site and eit
 kubectl exec -n demo deploy/serviceradar-tools -- \
   cnpg-sql "SELECT COUNT(*) FROM unified_devices"
 
-# Count devices per poller (helpful when validating faker replays)
+# Count devices per gateway (helpful when validating faker replays)
 kubectl exec -n demo deploy/serviceradar-tools -- \
-  cnpg-sql "SELECT poller_id, COUNT(*) FROM unified_devices GROUP BY poller_id ORDER BY count DESC"
+  cnpg-sql "SELECT gateway_id, COUNT(*) FROM unified_devices GROUP BY gateway_id ORDER BY count DESC"
 
 # Port-forward CNPG locally and run migrations from your laptop
 kubectl port-forward -n demo svc/cnpg-rw 55432:5432 &

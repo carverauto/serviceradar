@@ -60,22 +60,22 @@ if not token:
     raise SystemExit("missing access token in login response")
 print(token)' <<<"$LOGIN_JSON")"
 
-log "Fetching poller inventory"
-POLLERS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
+log "Fetching gateway inventory"
+GATEWAYS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
 set -euo pipefail
 curl -fsS -H "Authorization: Bearer $TOKEN" \
-     http://serviceradar-core:8090/api/pollers
+     http://serviceradar-core:8090/api/gateways
 ')"
 
-POLL_ID="$(python3 -c 'import json,sys
+GATEWAY_ID="$(python3 -c 'import json,sys
 data=json.load(sys.stdin)
 if not isinstance(data, list) or not data:
-    raise SystemExit("no pollers returned from /api/pollers")
-poller=data[0]
-poller_id=poller.get("poller_id")
-if not poller_id:
-    raise SystemExit("poller entry missing poller_id")
-print(poller_id)' <<<"$POLLERS_JSON")"
+    raise SystemExit("no gateways returned from /api/gateways")
+gateway=data[0]
+gateway_id=gateway.get("gateway_id")
+if not gateway_id:
+    raise SystemExit("gateway entry missing gateway_id")
+print(gateway_id)' <<<"$GATEWAYS_JSON")"
 
 log "Validating /api/devices response"
 DEVICES_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
@@ -96,13 +96,13 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
      "http://serviceradar-core:8090/api/services/tree"
 ')"
 
-POLL_ID="$POLL_ID" python3 -c 'import json,sys,os
+GATEWAY_ID="$GATEWAY_ID" python3 -c 'import json,sys,os
 data=json.load(sys.stdin)
-poller_id=os.environ.get("POLL_ID")
+gateway_id=os.environ.get("GATEWAY_ID")
 if not isinstance(data, list) or not data:
     raise SystemExit("service registry tree is empty")
-if poller_id and all(node.get("poller_id") != poller_id for node in data):
-    raise SystemExit("poller ID not present in service registry tree")' <<<"$REGISTRY_JSON" >/dev/null
+if gateway_id and all(node.get("gateway_id") != gateway_id for node in data):
+    raise SystemExit("gateway ID not present in service registry tree")' <<<"$REGISTRY_JSON" >/dev/null
 
 log "Inspecting device metrics status"
 METRICS_STATUS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '

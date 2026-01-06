@@ -33,7 +33,7 @@ flowchart TB
         end
 
         subgraph Monitoring["Monitoring Layer"]
-            POLLER[Poller<br/>:50053]
+            GATEWAY[Gateway<br/>:50052]
             AGENT[In-Cluster Agent<br/>:50051]
         end
 
@@ -64,13 +64,13 @@ flowchart TB
     WEB -->|SRQL queries| SRQL
 
     %% Edge agent flow - gRPC only, no ERTS
-    GA1 -->|gRPC mTLS :50051| POLLER
-    GA2 -->|gRPC mTLS :50051| POLLER
-    GAN -->|gRPC mTLS :50051| POLLER
+    GA1 -->|gRPC mTLS :50052| GATEWAY
+    GA2 -->|gRPC mTLS :50052| GATEWAY
+    GAN -->|gRPC mTLS :50052| GATEWAY
 
     %% Internal monitoring
-    POLLER --> CORE
-    POLLER <--> AGENT
+    GATEWAY --> CORE
+    GATEWAY <--> AGENT
 
     %% Data flow
     CORE --> CNPG
@@ -89,7 +89,7 @@ flowchart TB
 **Traffic flow summary:**
 - **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
 - **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
-- **Edge agents** (Go binaries) connect via gRPC mTLS to the Poller on port 50051
+- **Edge agents** (Go binaries) connect via gRPC mTLS to the Gateway on port 50052
 - **NATS JetStream** provides pub/sub messaging and KV storage for all services
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
 
@@ -101,13 +101,13 @@ Edge agents are **Go binaries** that run on monitored hosts outside the Kubernet
 |----------|-------|
 | **Runtime** | Go binary (not Erlang/BEAM) |
 | **Protocol** | gRPC with mTLS only |
-| **Port** | 50051 (outbound to Poller) |
+| **Port** | 50052 (outbound to Gateway) |
 | **Identity** | Tenant-specific X.509 certificates |
 | **ERTS Access** | None (cannot join ERTS cluster) |
 
 **Security boundaries:**
 - Edge agents **cannot** join the ERTS cluster (they are not Erlang nodes)
-- Edge agents **cannot** execute RPC calls on Core or Poller nodes
+- Edge agents **cannot** execute RPC calls on Core or Gateway nodes
 - Edge agents **cannot** access Horde registries or enumerate other tenants' agents
 - Edge agents **cannot** connect to the database directly
 
@@ -119,7 +119,7 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 
 - **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3x100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
 
-- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
+- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Gateway 0.5 CPU / 2Gi (if deployed), Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
 
 - **Identity plane**: SPIRE server (StatefulSet) and daemonset agents must be running; services expect the workload socket at `/run/spire/sockets/agent.sock` and SPIFFE IDs derived from `spire.trustDomain` in `values.yaml`.
 
@@ -132,7 +132,7 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 The Agent runs on each host you want to monitor and is responsible for:
 
 - Collecting service status information (process status, port availability, etc.)
-- Exposing a gRPC service on port 50051 for Pollers to query
+- Exposing a gRPC service on port 50051 for Gateways to query
 - Supporting various checker types (process, port, SNMP, etc.)
 - Running with minimal privileges for security
 
@@ -142,19 +142,19 @@ The Agent runs on each host you want to monitor and is responsible for:
 - Supports dynamic loading of checker plugins
 - Can run on constrained hardware with minimal resource usage
 
-### Poller (Monitoring Coordinator)
+### Gateway (Monitoring Coordinator)
 
-The Poller coordinates monitoring activities and is responsible for:
+The Gateway coordinates monitoring activities and is responsible for:
 
 - Querying multiple Agents at configurable intervals
 - Aggregating status data from Agents
 - Reporting status to the Core Service
-- Performing direct checks (HTTP, ICMP, etc.)
+- Dispatching check work to Agents and Checkers
 - Supporting network sweeps and discovery
 
 **Technical Details:**
-- Runs on port 50053 for gRPC communications
-- Stateless design allows multiple Pollers for high availability
+- Runs on port 50052 for gRPC communications
+- Stateless design allows multiple Gateways for high availability
 - Configurable polling intervals for different check types
 - Supports both pull-based (query) and push-based (events) monitoring
 
@@ -162,14 +162,14 @@ The Poller coordinates monitoring activities and is responsible for:
 
 The Core Service is the central component that:
 
-- Receives and processes reports from Pollers
+- Receives and processes reports from Gateways
 - Provides an internal control-plane API on port 8090
 - Triggers alerts based on configurable thresholds
 - Stores historical monitoring data
 - Manages webhook notifications
 
 **Technical Details:**
-- Exposes a gRPC service on port 50052 for Poller connections
+- Exposes a gRPC service on port 50052 for Gateway connections
 - Provides a RESTful API on port 8090 for internal services
 - Uses role-based security model
 - Implements webhook templating for flexible notifications
@@ -198,7 +198,7 @@ The edge proxy terminates TLS and routes user traffic:
 
 ### SPIFFE Identity Plane
 
-Core, Poller, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
+Core, Gateway, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
 stack that ships with the demo kustomization and Helm chart. The SPIRE server
 StatefulSet now embeds the upstream controller manager to reconcile
 `ClusterSPIFFEID` resources and keep workload certificates synchronized. For a
@@ -216,12 +216,12 @@ The SRQL microservice executes ServiceRadar Query Language requests:
 
 ## Device Identity Canonicalization
 
-Modern environments discover the same device from multiple angles - Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
+Modern environments discover the same device from multiple angles - Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Gateways learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
 
 To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
 
 - **Canonical selection**: When Armis or NetBox provide a strong identifier, the registry prefers the most recent `_tp_time` entry for that identifier and treats it as the source of truth (the canonical `device_id`).
-- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Poller results land on the device the UI already knows about.
+- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Gateway results land on the device the UI already knows about.
 - **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
 
 **Note:** KV is NOT used for device identity resolution. CNPG (PostgreSQL) is the authoritative source for identity via the `device_identifiers` table. The IdentityEngine in `pkg/registry` uses strong identifiers (Armis ID, MAC, etc.) to generate deterministic `sr:` UUIDs and stores mappings in CNPG with an in-memory cache for performance.
@@ -255,8 +255,8 @@ SweepCheck[Network Sweep]
         AG --> SweepCheck
     end
     
-    subgraph "Poller Service"
-        PL[Poller<br/>Role: Client+Server<br/>:50053]
+    subgraph "Gateway Service"
+        GW[Gateway<br/>Role: Client+Server<br/>:50052]
     end
     
     subgraph "Core Service"
@@ -268,12 +268,12 @@ SweepCheck[Network Sweep]
         CL --> API
     end
     
-    %% Client connections from Poller
-    PL -->|mTLS Client| AG
-    PL -->|mTLS Client| CL
+    %% Client connections from Gateway
+    GW -->|mTLS Client| AG
+    GW -->|mTLS Client| CL
     
-    %% Server connections to Poller
-    HC1[Health Checks] -->|mTLS Client| PL
+    %% Server connections to Gateway
+    HC1[Health Checks] -->|mTLS Client| GW
     
     classDef server fill:#e1f5fe,stroke:#01579b
     classDef client fill:#f3e5f5,stroke:#4a148c

@@ -42,15 +42,15 @@ ServiceRadar is an opensource network management and observability platform that
 
 ### Background
 
-ServiceRadar was designed for network operators small or large, designed to work under cloud-native paradigms. This means that it can easily run in container environments, centralized management of a distributed configuration management system where you have one place to manage a fleet of agents/pollers/checkers, and a hands-off approach to securing microservices using mTLS and SPIFFE.
+ServiceRadar was designed for network operators small or large, designed to work under cloud-native paradigms. This means that it can easily run in container environments, centralized management of a distributed configuration management system where you have one place to manage a fleet of agents/gateways/checkers, and a hands-off approach to securing microservices using mTLS and SPIFFE.
 
 ServiceRadar offers traditional network management functionality and features, such as log ingestion, metrics collection, event management, along with a roadmap to support newer NMS technologies like streaming telemetry (gNMI).
 
 ### Actors
 
-serviceradar-core: Core API services -- authentication, device registry, service coordination. The Core is also our monolithic gRPC API service and accepts unary or streaming gRPC connections, and can re-assemble chunked streams received from the poller for large messages.
-serviceradar-agent: Agents provide minimal functionality (TCP/ICMP scanning) and primarily serve as a pass-through between the pollers and the checkers, designed for multi-tenancy and overlapping IP space challenges.
-serviceradar-poller: Pollers ask the agents to collect data from checkers and forwards to the core, using unary or streaming gRPC calls and has built-in chunking for large payloads.
+serviceradar-core: Core API services -- authentication, device registry, service coordination. The Core is also our monolithic gRPC API service and accepts unary or streaming gRPC connections, and can re-assemble chunked streams received from the gateway for large messages.
+serviceradar-agent: Agents provide minimal functionality (TCP/ICMP scanning) and primarily serve as a pass-through between the gateways and the checkers, designed for multi-tenancy and overlapping IP space challenges.
+serviceradar-agent-gateway: Gateways ask the agents to collect data from checkers and forwards to the core, using unary or streaming gRPC calls and has built-in chunking for large payloads.
 serviceradar-edge-proxy: Edge proxy (Caddy/Nginx/Ingress) terminates TLS and routes `/api/*` to the Core API and `/api/query` to Web-NG/SRQL.
 serviceradar-mapper: Network discovery/mapper service, uses SNMP/CDP/LLDP and API to interrogate network devices, mapping interfaces to devices and adding newly discovered devices.
 serviceradar-nats: NATS JetStream offers message broker and KV services. Hub/Leaf configurations are fully supported at this time, allowing network operators to easily position message brokers in the edge or compartmented networks for ETL or aggregation functions.
@@ -60,8 +60,8 @@ serviceradar-otel: lightweight OTEL processor, receives OTEL logs, traces, and m
 serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are turned into CloudEvents and placed into a new NATS JetStream stream to be processed by database consumers.
 serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into the CNPG database. Scales horizontally due to use of subscription queue groups in NATS JetStream.
 serviceradar-flowgger: SYSLOG/Gelf receiver, receives messages and places them on NATS JetStream stream for processing by serviceradar-zen.
-serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/poller and forwarded to the Core and stored in the CNPG database.
-serviceradar-snmp-checker: Periodically polls SNMP OIDs to collect metrics, data is collected through agent/poller system and forwarded to the Core, then saved in the database.
+serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/gateway and forwarded to the Core and stored in the CNPG database.
+serviceradar-snmp-checker: Periodically polls SNMP OIDs to collect metrics, data is collected through agent/gateway system and forwarded to the Core, then saved in the database.
 serviceradar-srql: ServiceRadar Query Language (SRQL) is our API and SQL translator that provides an intuitive key-based query language for retrieving data from the database. Used to create composable dashboards in web-ui.
 serviceradar-tools: Utility container/image service that is pre-configured with mTLS certificates and other configuration items needed to easily connect to and manage NATS JetStream and CNPG, and also includes the serviceradar-cli tool, where users can easily generate new bcrypt strings for local-auth users.
 serviceradar-trapd: SNMP trap receiver, receives SNMP traps and forwards to NATS JetStream message broker for processing.
@@ -163,7 +163,7 @@ Core CNCF Integrations:
 
 Ecosystem Impact:
 
-ServiceRadar's agent/poller/checker architecture addresses the "last mile" problem in cloud-native monitoring - efficiently collecting network telemetry from containerized and VM workloads across multi-tenant environments. By supporting both traditional protocols (SNMP, syslog) and modern streaming telemetry (gNMI), ServiceRadar bridges legacy network infrastructure with cloud-native observability stacks.
+ServiceRadar's agent/gateway/checker architecture addresses the "last mile" problem in cloud-native monitoring - efficiently collecting network telemetry from containerized and VM workloads across multi-tenant environments. By supporting both traditional protocols (SNMP, syslog) and modern streaming telemetry (gNMI), ServiceRadar bridges legacy network infrastructure with cloud-native observability stacks.
 
 Key Differentiators in CNCF Ecosystem:
 

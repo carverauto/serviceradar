@@ -25,7 +25,7 @@ flowchart TB
 
         subgraph Core["Core Services"]
             CORE[Core Service]
-            POLLER[Poller]
+            GATEWAY[Gateway]
             REG[Agent Registry]
         end
 
@@ -35,9 +35,9 @@ flowchart TB
         end
     end
 
-    GA -->|gRPC + mTLS| POLLER
+    GA -->|gRPC + mTLS| GATEWAY
     MTLS -.->|Verify| GA
-    POLLER --> CORE
+    GATEWAY --> CORE
     CORE --> REG
     REG --> HORDE
     CORE --> PG
@@ -49,15 +49,15 @@ flowchart TB
 
 | Zone | Components | Network Access |
 |------|------------|----------------|
-| Edge | Go Agents | gRPC to Poller only (port 50051) |
-| Internal | Core, Poller, Web | ERTS cluster + internal services |
+| Edge | Go Agents | gRPC to Gateway only (port 50052) |
+| Internal | Core, Gateway, Web | ERTS cluster + internal services |
 | Data | PostgreSQL, NATS | Internal only |
 
 **Firewall Requirements:**
 
 | From | To | Port | Allow |
 |------|-----|------|-------|
-| Edge | Poller | 50051 | Yes (gRPC) |
+| Edge | Gateway | 50052 | Yes (gRPC) |
 | Edge | Core | 8090 | No |
 | Edge | PostgreSQL | 5432 | No |
 | Edge | ERTS | 4369, 9100-9155 | No |
@@ -122,12 +122,12 @@ flowchart LR
 
     subgraph Workloads["Workloads"]
         CORE[Core<br/>spiffe://...core/...]
-        POLLER[Poller<br/>spiffe://...poller/...]
+        GATEWAY[Gateway<br/>spiffe://...gateway/...]
         AGENT[Agent<br/>spiffe://...agent/...]
     end
 
     CA -->|Issue Certs| CORE
-    CA -->|Issue Certs| POLLER
+    CA -->|Issue Certs| GATEWAY
     CA -->|Issue Certs| AGENT
 ```
 
@@ -138,7 +138,7 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 
 **Node Types:**
 - `core` - Core service nodes
-- `poller` - Poller nodes
+- `gateway` - Gateway nodes
 - `agent` - Edge agents
 
 ## Security Properties

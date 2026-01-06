@@ -5,7 +5,7 @@ title: Edge Agents
 
 # Edge Agents
 
-Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with Pollers via gRPC with mTLS for secure, tenant-isolated monitoring.
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with Gateways via gRPC with mTLS for secure, tenant-isolated monitoring.
 
 ## Architecture
 
@@ -18,15 +18,15 @@ flowchart LR
     end
 
     subgraph Cluster["Kubernetes Cluster"]
-        PL[Poller<br/>:50053]
+        GW[Gateway<br/>:50052]
         CORE[Core Service]
         REG[Agent Registry]
     end
 
-    GA1 -->|gRPC mTLS :50051| PL
-    GA2 -->|gRPC mTLS :50051| PL
-    GA3 -->|gRPC mTLS :50051| PL
-    PL --> CORE
+    GA1 -->|gRPC mTLS :50052| GW
+    GA2 -->|gRPC mTLS :50052| GW
+    GA3 -->|gRPC mTLS :50052| GW
+    GW --> CORE
     CORE --> REG
 ```
 
@@ -44,7 +44,7 @@ Edge agents use a secure, isolated communication model:
 ### What Edge Agents CANNOT Do
 
 - Join the ERTS cluster (they are Go binaries, not Erlang nodes)
-- Execute RPC calls on Core or Poller nodes
+- Execute RPC calls on Core or Gateway nodes
 - Access Horde registries or enumerate other tenants' agents
 - Connect to the database directly
 - Access internal APIs without proper mTLS certificates
@@ -104,7 +104,7 @@ Create the agent configuration file (`/etc/serviceradar/agent.json`):
 {
   "agent_id": "agent-edge-01",
   "listen_addr": ":50051",
-  "poller_address": "poller.example.com:50053",
+  "gateway_addr": "agent-gateway.example.com:50052",
   "tls": {
     "cert_file": "/etc/serviceradar/certs/svid.pem",
     "key_file": "/etc/serviceradar/certs/svid-key.pem",
@@ -145,14 +145,14 @@ sudo systemctl enable --now serviceradar-agent
 
 | Direction | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
-| Outbound | 50051 | TCP | gRPC to Poller |
+| Outbound | 50052 | TCP | gRPC to Gateway |
 | Inbound | - | - | No inbound required |
 
 ### Core Network (Kubernetes Cluster)
 
 | Direction | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
-| Inbound | 50051 | TCP | gRPC from Edge Agents |
+| Inbound | 50052 | TCP | gRPC from Edge Agents |
 
 ### Blocked by Design
 
@@ -172,21 +172,21 @@ Edge agents report health status via the gRPC connection:
 ```mermaid
 sequenceDiagram
     participant Agent as Go Agent
-    participant Poller as Poller
+    participant Gateway as Gateway
     participant Core as Core Service
     participant Registry as Agent Registry
 
-    Agent->>Poller: gRPC Connect (mTLS)
-    Poller->>Core: PATCH /api/v2/agents/:uid (establish_connection)
+    Agent->>Gateway: gRPC Connect (mTLS)
+    Gateway->>Core: PATCH /api/v2/agents/:uid (establish_connection)
     Core->>Registry: Update agent status
 
     loop Every 30s
-        Agent->>Poller: Heartbeat
-        Poller->>Core: PATCH /api/v2/agents/:uid (heartbeat)
+        Agent->>Gateway: Heartbeat
+        Gateway->>Core: PATCH /api/v2/agents/:uid (heartbeat)
     end
 
-    Agent--xPoller: Connection Lost
-    Poller->>Core: PATCH /api/v2/agents/:uid (lose_connection)
+    Agent--xGateway: Connection Lost
+    Gateway->>Core: PATCH /api/v2/agents/:uid (lose_connection)
     Core->>Registry: Mark agent disconnected
 ```
 
@@ -212,7 +212,7 @@ journalctl -u serviceradar-agent -f
 grpcurl -cert /etc/serviceradar/certs/svid.pem \
         -key /etc/serviceradar/certs/svid-key.pem \
         -cacert /etc/serviceradar/certs/bundle.pem \
-        poller.example.com:50053 list
+        agent-gateway.example.com:50052 list
 ```
 
 ### Certificate Issues

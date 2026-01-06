@@ -14,7 +14,7 @@ The system SHALL generate a unique intermediate CA for each tenant, signed by th
 - **AND** the CA certificate and key are stored securely
 
 #### Scenario: Tenant CA used for edge certificates
-- **WHEN** an edge component (agent, poller, checker) is onboarded for a tenant
+- **WHEN** an edge component (agent, gateway, checker) is onboarded for a tenant
 - **THEN** the component certificate is signed by that tenant's intermediate CA
 - **AND** the certificate CN includes the tenant ID (e.g., `agent-001.tenant-12345.serviceradar`)
 
@@ -23,12 +23,12 @@ The system SHALL generate a unique intermediate CA for each tenant, signed by th
 Edge components SHALL validate that connecting peers have certificates from the same tenant CA.
 
 #### Scenario: Same-tenant connection accepted
-- **WHEN** agent with tenant-A certificate connects to poller with tenant-A certificate
+- **WHEN** agent with tenant-A certificate connects to gateway with tenant-A certificate
 - **THEN** the mTLS handshake succeeds
 - **AND** the connection is established
 
 #### Scenario: Cross-tenant connection rejected
-- **WHEN** agent with tenant-A certificate attempts to connect to poller with tenant-B certificate
+- **WHEN** agent with tenant-A certificate attempts to connect to gateway with tenant-B certificate
 - **THEN** the mTLS handshake fails
 - **AND** the connection is rejected with certificate validation error
 
@@ -71,9 +71,9 @@ The onboarding system SHALL generate download packages containing tenant-specifi
 
 All NATS messages from edge components SHALL use tenant-prefixed channel names.
 
-#### Scenario: Poller heartbeat uses tenant prefix
-- **WHEN** poller publishes heartbeat message
-- **THEN** message is published to `<tenant-id>.pollers.heartbeat`
+#### Scenario: Gateway heartbeat uses tenant prefix
+- **WHEN** gateway publishes heartbeat message
+- **THEN** message is published to `<tenant-id>.gateways.heartbeat`
 - **AND** only subscribers with matching tenant prefix receive the message
 
 #### Scenario: Agent status uses tenant prefix
@@ -81,7 +81,7 @@ All NATS messages from edge components SHALL use tenant-prefixed channel names.
 - **THEN** message is published to `<tenant-id>.agents.status`
 
 #### Scenario: Job dispatch uses tenant prefix
-- **WHEN** poller dispatches job to agent
+- **WHEN** gateway dispatches job to agent
 - **THEN** message is published to `<tenant-id>.jobs.<agent-id>`
 
 ### Requirement: Platform Admin Access

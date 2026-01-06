@@ -58,22 +58,22 @@ device
 |> Ash.update()
 ```
 
-### Poller/Agent Operations
+### Gateway/Agent Operations
 
 **Before:**
 ```elixir
-Infrastructure.register_poller(attrs)
-Infrastructure.get_agents_for_poller(poller_id)
+Infrastructure.register_gateway(attrs)
+Infrastructure.get_agents_for_gateway(gateway_id)
 ```
 
 **After:**
 ```elixir
-ServiceRadar.Infrastructure.Poller
+ServiceRadar.Infrastructure.Gateway
 |> Ash.Changeset.for_create(:register, attrs, actor: system_actor)
 |> Ash.create()
 
 ServiceRadar.Infrastructure.Agent
-|> Ash.Query.for_read(:by_poller, %{poller_id: poller_id}, actor: actor)
+|> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway_id}, actor: actor)
 |> Ash.read()
 ```
 
@@ -88,7 +88,7 @@ ServiceRadar.Infrastructure.Agent
 
 Run migrations:
 ```bash
-mix ecto.migrate
+mix ash.migrate
 ```
 
 ### Data Migrations
@@ -112,7 +112,7 @@ New versioned API at `/api/v2`:
 | Old Endpoint | New Endpoint | Notes |
 |--------------|--------------|-------|
 | `GET /api/devices` | `GET /api/v2/devices` | JSON:API format |
-| `GET /api/pollers` | `GET /api/v2/pollers` | JSON:API format |
+| `GET /api/gateways` | `GET /api/v2/gateways` | JSON:API format |
 | `GET /api/alerts` | `GET /api/v2/alerts` | JSON:API format |
 
 ### SRQL Queries
@@ -225,10 +225,10 @@ end
 
 ```elixir
 defmodule ServiceRadarWebNG.Infrastructure do
-  def list_pollers(opts \\ []) do
+  def list_gateways(opts \\ []) do
     actor = Keyword.get(opts, :actor)
 
-    ServiceRadar.Infrastructure.Poller
+    ServiceRadar.Infrastructure.Gateway
     |> Ash.Query.for_read(:list, %{}, actor: actor)
     |> Ash.read()
   end
