@@ -56,9 +56,6 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
 
-        # Platform tenant bootstrap (requires repo + Ash)
-        ServiceRadar.Identity.PlatformTenantBootstrap,
-
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
@@ -98,11 +95,14 @@ defmodule ServiceRadar.Application do
         # Health check registrar (subscribes to agent events, auto-registers services)
         health_check_registrar_child(),
 
-        # Service heartbeat (self-reporting for Elixir services)
-        service_heartbeat_child(),
-
         # Horde registries (always started for registration support)
         registry_children(),
+
+        # Platform tenant bootstrap (requires repo + Ash + TenantRegistry ETS)
+        ServiceRadar.Identity.PlatformTenantBootstrap,
+
+        # Service heartbeat (self-reporting for Elixir services)
+        service_heartbeat_child(),
 
         # SPIFFE certificate expiry monitoring
         cert_monitor_child(),

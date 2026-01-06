@@ -1,3 +1,4 @@
+use anyhow::Context;
 use axum::{
     body::{self, Body},
     http::{self, Request, StatusCode},
@@ -11,8 +12,9 @@ use serde_json::Value;
 use srql::{config::AppConfig, query::QueryRequest, server::Server};
 use std::{
     env,
-    fs,
+    fs::{self, File},
     future::Future,
+    io::BufReader,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Once,

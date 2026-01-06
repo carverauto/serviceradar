@@ -76,6 +76,13 @@ defmodule ServiceRadar.Identity.Tenant do
       change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
     end
 
+    create :create_platform do
+      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
+      change set_attribute(:is_platform_tenant, true)
+      change ServiceRadar.Identity.Changes.GenerateSlug
+      change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+    end
+
     update :update do
       accept [:name, :contact_email, :contact_name, :settings]
     end

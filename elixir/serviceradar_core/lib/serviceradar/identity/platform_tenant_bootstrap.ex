@@ -60,10 +60,9 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   defp create_platform_tenant!(platform_slug) do
     changeset =
       Tenant
-      |> Ash.Changeset.for_create(:create, %{name: "Platform", slug: platform_slug},
+      |> Ash.Changeset.for_create(:create_platform, %{name: "Platform", slug: platform_slug},
         authorize?: false
       )
-      |> Ash.Changeset.force_change_attribute(:is_platform_tenant, true)
 
     case Ash.create(changeset, authorize?: false) do
       {:ok, tenant} ->
@@ -98,6 +97,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   defp set_platform_tenant_id!(tenant_id, tenant_slug) do
     Application.put_env(:serviceradar_core, :platform_tenant_id, tenant_id)
+    maybe_set_default_tenant_id(tenant_id)
 
     Logger.info(
       "[PlatformTenantBootstrap] Platform tenant resolved: #{tenant_slug} (#{tenant_id})"
@@ -111,6 +111,14 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   defp repo_enabled? do
     Application.get_env(:serviceradar_core, :repo_enabled, true) &&
       Process.whereis(ServiceRadar.Repo)
+  end
+
+  defp maybe_set_default_tenant_id(platform_tenant_id) do
+    default_tenant_id = Application.get_env(:serviceradar_core, :default_tenant_id, @zero_uuid)
+
+    if is_nil(default_tenant_id) or default_tenant_id == @zero_uuid do
+      Application.put_env(:serviceradar_core, :default_tenant_id, platform_tenant_id)
+    end
   end
 
 end

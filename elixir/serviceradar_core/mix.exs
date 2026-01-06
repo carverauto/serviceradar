@@ -78,7 +78,7 @@ defmodule ServiceRadarCore.MixProject do
       # Utilities
       {:jason, "~> 1.4"},
       {:elixir_uuid, "~> 1.2"},
-      {:file_system, "~> 0.2"},
+      {:file_system, "~> 1.0"},
 
       # Policy SAT solver for Ash policies
       {:simple_sat, "~> 0.1"},

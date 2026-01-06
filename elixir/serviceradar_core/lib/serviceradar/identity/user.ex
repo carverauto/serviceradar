@@ -117,7 +117,7 @@ defmodule ServiceRadar.Identity.User do
       end
 
       upsert? true
-      upsert_identity :unique_email
+      upsert_identity :unique_email_per_tenant
       upsert_fields [:email]
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
@@ -456,6 +456,5 @@ defmodule ServiceRadar.Identity.User do
 
   identities do
     identity :unique_email_per_tenant, [:tenant_id, :email]
-    identity :unique_email, [:email]
   end
 end
