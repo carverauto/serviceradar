@@ -21,7 +21,7 @@ FORCE_CERT_REGEN="${FORCE_CERT_REGEN:-false}"
 
 # Check if ALL certificates exist - including checker and other services
 if [ "$FORCE_CERT_REGEN" != "true" ] && [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && \
-   [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && [ -f "$CERT_DIR/sync.pem" ] && \
+   [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && \
    [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
    [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
    [ -f "$CERT_DIR/snmp-checker.pem" ] && [ -f "$CERT_DIR/mapper.pem" ] && \
@@ -117,7 +117,6 @@ EOF
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:serviceradar-core,DNS:localhost,IP:127.0.0.1,IP:172.28.0.3"
 generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:localhost,IP:127.0.0.1,IP:172.28.0.4"
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
-generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:serviceradar-sync,DNS:localhost,IP:127.0.0.1,IP:172.28.0.6"
 generate_cert "otel" "otel.serviceradar" "DNS:otel,DNS:serviceradar-otel,DNS:localhost,IP:127.0.0.1,IP:172.28.0.7"
 generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:serviceradar-flowgger,DNS:localhost,IP:127.0.0.1,IP:172.28.0.8"
 generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:serviceradar-trapd,DNS:localhost,IP:127.0.0.1,IP:172.28.0.9"

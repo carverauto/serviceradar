@@ -8,27 +8,42 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
   @shortdoc "Run DB-backed tests when the database is available"
 
   def run(args) do
-    require_db? =
+    run_db_tests? =
       System.get_env("SERVICERADAR_REQUIRE_DB_TESTS") in ["1", "true", "TRUE"] or
         System.get_env("CI") in ["1", "true", "TRUE"]
 
-    repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
-    hostname = repo_config[:hostname] || "localhost"
-    port = repo_config[:port] || 5432
+    if run_db_tests? do
+      repo_config = Application.get_env(:serviceradar_core, ServiceRadar.Repo, [])
+      hostname = repo_config[:hostname] || "localhost"
+      port = repo_config[:port] || 5432
 
-    if db_reachable?(hostname, port) do
-      Mix.Task.run("app.start")
-      Mix.Task.run("ecto.migrate", ["--quiet"])
-      Mix.Tasks.Test.run(args)
-    else
-      message =
-        "Skipping web-ng tests; database unavailable at #{hostname}:#{port}"
-
-      if require_db? do
-        Mix.raise(message)
+      if db_reachable?(hostname, port) do
+        Mix.Task.run("app.start")
+        maybe_migrate()
+        Mix.Tasks.Test.run(args)
       else
-        Mix.shell().info(message)
+        message =
+          "Skipping web-ng tests; database unavailable at #{hostname}:#{port}"
+
+        Mix.raise(message)
       end
+    else
+      Mix.shell().info("Skipping web-ng tests; set SERVICERADAR_REQUIRE_DB_TESTS=1 to enable")
+    end
+  end
+
+  defp maybe_migrate do
+    repo = ServiceRadar.Repo
+
+    case Ecto.Adapters.SQL.query(repo, "SELECT to_regclass('public.user_tokens')", []) do
+      {:ok, %{rows: [[nil]]}} ->
+        Mix.Task.run("ecto.migrate", ["--quiet"])
+
+      {:ok, _} ->
+        Mix.shell().info("Skipping ecto.migrate; schema already present")
+
+      {:error, reason} ->
+        Mix.shell().info("Skipping ecto.migrate; probe failed: #{inspect(reason)}")
     end
   end
 

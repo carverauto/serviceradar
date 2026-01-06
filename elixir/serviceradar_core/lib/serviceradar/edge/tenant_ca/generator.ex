@@ -151,7 +151,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   - `tenant_ca` - The TenantCA record (with decrypted private key)
   - `component_id` - Unique identifier for the component
-  - `component_type` - :poller, :agent, or :checker
+  - `component_type` - :poller, :agent, :checker, or :sync
   - `partition_id` - Network partition identifier
   - `opts` - Additional options
 

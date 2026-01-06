@@ -12,7 +12,7 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 |--------------|----------------------------------------------------------------------------------------------|--------------------|
 | Core API     | Accepts poller reports, exposes the public API, and fans out notifications.                  | `deploy/serviceradar-core` |
 | Poller       | Coordinates health checks against agents and external targets.                               | `deploy/serviceradar-poller` |
-| Sync         | Ingests metadata from external systems (e.g., NetBox, Armis) and keeps the registry current. | `deploy/serviceradar-sync` |
+| Agent        | Runs checkers and the embedded sync integrations; forwards status to the gateway.            | `deploy/serviceradar-agent` |
 | Registry     | Stores canonical device inventory and service relationships.                                 | `statefulset/serviceradar-registry` |
 | Data Service | Provides dynamic configuration (KV) and Object Store via NATS JetStream.                     | `statefulset/serviceradar-datasvc` |
 | Web UI       | Serves dashboards and embeds SRQL explorers.                                                 | `deploy/serviceradar-web-ng` |
@@ -33,7 +33,7 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 
 ## Operational Tips
 
-- Use `kubectl get pods -n demo` to verify rollouts. Most deployments support at least two replicas; scale `serviceradar-sync` during heavy reconciliation.
+- Use `kubectl get pods -n demo` to verify rollouts. Most deployments support at least two replicas; scale `serviceradar-agent` during heavy reconciliation.
 - Persistent stores (`registry`, `kv`, `cnpg`, `faker`) rely on PVCs; confirm volume mounts before recycling pods.
 - The demo namespace is designed for experimentation. When you need a clean slate, follow the runbooks in `agents.md` to reset Faker, truncate the CNPG hypertables, and rebuild materialized views.
 

@@ -83,6 +83,9 @@ defmodule ServiceRadar.Application do
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
+        # Status handler for agent-gateway push results
+        status_handler_child(),
+
         # Infrastructure state monitor (heartbeat timeouts, health checks)
         state_monitor_child(),
 
@@ -92,11 +95,14 @@ defmodule ServiceRadar.Application do
         # Health check registrar (subscribes to agent events, auto-registers services)
         health_check_registrar_child(),
 
-        # Service heartbeat (self-reporting for Elixir services)
-        service_heartbeat_child(),
-
         # Horde registries (always started for registration support)
         registry_children(),
+
+        # Platform tenant bootstrap (requires repo + Ash + TenantRegistry ETS)
+        ServiceRadar.Identity.PlatformTenantBootstrap,
+
+        # Service heartbeat (self-reporting for Elixir services)
+        service_heartbeat_child(),
 
         # SPIFFE certificate expiry monitoring
         cert_monitor_child(),
@@ -190,6 +196,14 @@ defmodule ServiceRadar.Application do
       ]
     else
       []
+    end
+  end
+
+  defp status_handler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.StatusHandler
+    else
+      nil
     end
   end
 

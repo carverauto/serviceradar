@@ -39,15 +39,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Edge.TenantResolver
-  alias ServiceRadarAgentGateway.AgentRegistryProxy
-  alias ServiceRadarAgentGateway.Config
-  alias ServiceRadarAgentGateway.StatusProcessor
+  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, StatusProcessor, TenantScope}
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
 
   # Maximum services per push request to prevent resource exhaustion
   @max_services_per_request 5_000
+  @max_status_message_bytes 4_096
+  @max_results_message_bytes 15 * 1024 * 1024
+  @agent_gateway_component_types [:agent]
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -86,6 +87,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
+    {tenant_info, _component_type} = resolve_component_type!(tenant_info, agent_id)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition_id = resolve_partition(tenant_info, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
 
@@ -149,6 +152,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate for authorization
     tenant_info = extract_tenant_from_stream(stream)
+    {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
+
+    Logger.info(
+      "Config request received: component_type=#{component_type}, agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
+    )
 
     # Generate config from database using the config generator
     case core_call(AgentGatewaySync, :get_config_if_changed, [
@@ -160,7 +169,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
       {:ok, :not_modified} ->
-        Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
+        Logger.debug(
+          "Agent config not modified: agent_id=#{agent_id}, version=#{config_version}"
+        )
 
         %Monitoring.AgentConfigResponse{
           not_modified: true,
@@ -250,6 +261,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Extract tenant from mTLS certificate (secure source of truth)
     tenant_info = extract_tenant_from_stream(stream)
+    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
     partition = resolve_partition(tenant_info, request.partition)
 
     refresh_agent_heartbeat(tenant_info, agent_id, partition, request, stream)
@@ -353,6 +365,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             ^agent_id -> agent_id
             _ -> raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
           end
+
+        enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
         services =
           chunk.services
           |> List.wrap()
@@ -464,6 +478,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp process_service_status(service, metadata) do
     # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
     # NOT from the service message - this prevents spoofing
+    TenantScope.validate_service_tenant!(service, metadata)
+
     service_name =
       case service.service_name do
         name when is_binary(name) -> String.trim(name)
@@ -517,13 +533,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         _ ->
           ""
       end
-      |> then(fn msg ->
-        if byte_size(msg) > 4_096 do
-          binary_part(msg, 0, 4_096)
-        else
-          msg
-        end
-      end)
+      |> normalize_message(source)
 
     response_time =
       case service.response_time do
@@ -576,6 +586,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  defp normalize_message(msg, source) do
+    max_bytes =
+      case source do
+        "results" -> @max_results_message_bytes
+        _ -> @max_status_message_bytes
+      end
+
+    if byte_size(msg) > max_bytes do
+      if source == "results" do
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "results payload exceeds max size"
+      else
+        binary_part(msg, 0, @max_status_message_bytes)
+      end
+    else
+      msg
+    end
+  end
+
   defp normalize_partition(_partition), do: "default"
 
   # Record metrics for the push operation
@@ -603,6 +633,77 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       end
 
     normalize_partition(tenant_partition || request_partition)
+  end
+
+  defp resolve_component_type!(tenant_info, component_id) do
+    case Map.get(tenant_info, :component_type) do
+      component_type when is_atom(component_type) ->
+        {tenant_info, component_type}
+
+      _ ->
+        case core_call(AgentGatewaySync, :component_type_for_component_id, [
+               component_id,
+               tenant_info.tenant_id
+             ]) do
+          {:error, :core_unavailable} ->
+            raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+
+          {:ok, {:ok, component_type}} when is_atom(component_type) ->
+            {Map.put(tenant_info, :component_type, component_type), component_type}
+
+          {:ok, {:error, :not_found}} ->
+            Logger.warning(
+              "Component type not found for component_id=#{component_id} tenant=#{tenant_info.tenant_slug}"
+            )
+
+            raise GRPC.RPCError, status: :permission_denied, message: "component not enrolled"
+
+          {:ok, {:error, reason}} ->
+            Logger.warning(
+              "Component type lookup failed for component_id=#{component_id}: #{inspect(reason)}"
+            )
+
+            raise GRPC.RPCError, status: :unavailable, message: "component type lookup failed"
+        end
+    end
+  end
+
+  defp enforce_component_identity!(tenant_info, component_id, allowed_types) do
+    cert_component_id =
+      case tenant_info do
+        %{component_id: value} when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    if cert_component_id == "" do
+      Logger.warning("Component identity missing from client certificate")
+      raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
+
+    if component_id != cert_component_id do
+      Logger.warning(
+        "Component identity mismatch: request=#{component_id} cert=#{cert_component_id}"
+      )
+
+      raise GRPC.RPCError, status: :permission_denied, message: "component_id mismatch"
+    end
+
+    component_type = Map.get(tenant_info, :component_type)
+
+    cond do
+      is_nil(component_type) ->
+        :ok
+
+      component_type in allowed_types ->
+        :ok
+
+      true ->
+        Logger.warning(
+          "Component type not authorized: component_type=#{inspect(component_type)} allowed=#{inspect(allowed_types)}"
+        )
+
+        raise GRPC.RPCError, status: :permission_denied, message: "component_type not authorized"
+    end
   end
 
   defp ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream) do

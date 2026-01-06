@@ -2,9 +2,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   @moduledoc """
   Configuration for external data source integrations (Armis, SNMP, etc.).
 
-  This resource stores integration configuration in Postgres. When configs
-  are created or updated, they are pushed to the datasvc KV store for
-  consumption by Go/Rust services.
+  This resource stores integration configuration in Postgres. Agents retrieve
+  configuration via GetConfig and push results through agent-gateway.
 
   ## Source Types
 
@@ -18,8 +17,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   1. Admin creates/edits source config via UI
   2. Config is saved to Postgres
-  3. After-save hook pushes config to datasvc KV
-  4. Go/Rust services read config from datasvc on their poll interval
+  3. Agents fetch configuration via GetConfig
+  4. Agents push device updates through agent-gateway to core
   """
 
   use Ash.Resource,
@@ -111,9 +110,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
-      # Sync to datasvc after create
+      change &validate_agent_availability/2
+
       change after_action(fn changeset, record, _context ->
-               sync_to_datasvc(record)
+               publish_integration_event(record, :create, changeset)
                {:ok, record}
              end)
     end
@@ -153,9 +153,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         end
       end
 
-      # Sync to datasvc after update
+      change &validate_agent_availability/2
       change after_action(fn changeset, record, _context ->
-               sync_to_datasvc(record)
+               publish_integration_event(record, :update, changeset)
                {:ok, record}
              end)
     end
@@ -165,7 +165,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change set_attribute(:enabled, true)
 
       change after_action(fn _changeset, record, _context ->
-               sync_to_datasvc(record)
+               publish_integration_event(record, :enable, %{})
                {:ok, record}
              end)
     end
@@ -175,8 +175,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change set_attribute(:enabled, false)
 
       change after_action(fn _changeset, record, _context ->
-               # Remove from datasvc when disabled
-               remove_from_datasvc(record)
+               publish_integration_event(record, :disable, %{})
                {:ok, record}
              end)
     end
@@ -226,10 +225,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     destroy :delete do
       require_atomic? false
 
-      # Remove from datasvc before delete
-      change before_action(fn changeset, _context ->
-               remove_from_datasvc(changeset.data)
-               changeset
+      change after_action(fn changeset, record, _context ->
+               publish_integration_event(record, :delete, changeset)
+               {:ok, record}
              end)
     end
   end
@@ -470,33 +468,48 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
-  # Private helper functions for datasvc sync via Oban
+  alias ServiceRadar.Infrastructure.Agent
 
-  alias ServiceRadar.Integrations.Workers.SyncToDataSvcWorker
+  defp validate_agent_availability(changeset, _context) do
+    tenant_id = changeset.tenant || Ash.Changeset.get_attribute(changeset, :tenant_id)
 
-  defp sync_to_datasvc(record) do
-    # Enqueue Oban job for reliable sync with retries
-    case SyncToDataSvcWorker.enqueue(record.id, :put) do
-      {:ok, _job} ->
-        require Logger
-        Logger.debug("Enqueued datasvc sync for integration source #{record.name}")
-
-      {:error, reason} ->
-        require Logger
-        Logger.error("Failed to enqueue datasvc sync for #{record.name}: #{inspect(reason)}")
+    if is_nil(tenant_id) do
+      Ash.Changeset.add_error(changeset,
+        field: :tenant_id,
+        message: "tenant is required"
+      )
+    else
+      Agent
+      |> Ash.Query.for_read(:connected)
+      |> Ash.Query.limit(1)
+      |> Ash.read(tenant: tenant_id, authorize?: false)
+      |> case do
+        {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
+        {:ok, results} when is_list(results) and results != [] -> changeset
+        _ ->
+          Ash.Changeset.add_error(changeset,
+            field: :agent_id,
+            message: "install and register an agent before adding integrations"
+          )
+      end
     end
+  rescue
+    _ ->
+      Ash.Changeset.add_error(changeset,
+        field: :agent_id,
+        message: "install and register an agent before adding integrations"
+      )
   end
 
-  defp remove_from_datasvc(record) do
-    # Enqueue Oban job for reliable deletion with retries
-    case SyncToDataSvcWorker.enqueue(record.id, :delete) do
-      {:ok, _job} ->
-        require Logger
-        Logger.debug("Enqueued datasvc delete for integration source #{record.name}")
+  defp publish_integration_event(record, action, changeset) do
+    actor = Map.get(changeset, :context, %{}) |> Map.get(:actor)
 
-      {:error, reason} ->
-        require Logger
-        Logger.error("Failed to enqueue datasvc delete for #{record.name}: #{inspect(reason)}")
-    end
+    Task.start(fn ->
+      _ = ServiceRadar.Integrations.EventPublisher.publish_integration_source_event(
+        record,
+        action,
+        actor: actor
+      )
+    end)
   end
 end

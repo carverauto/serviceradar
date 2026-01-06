@@ -25,25 +25,10 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
-//go:generate mockgen -destination=mock_sync.go -package=sync github.com/carverauto/serviceradar/pkg/sync KVClient,GRPCClient,Integration,SRQLQuerier
+//go:generate mockgen -destination=mock_sync.go -package=sync github.com/carverauto/serviceradar/pkg/sync GRPCClient,Integration,SRQLQuerier
 //go:generate mockgen -destination=mock_proto.go -package=sync github.com/carverauto/serviceradar/proto AgentService_StreamResultsServer
-
-// KVClient defines the interface for interacting with the KV store.
-type KVClient interface {
-	Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
-	PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
-	PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error)
-	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
-	BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error)
-	Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error)
-	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
-	Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error)
-	Info(ctx context.Context, in *proto.InfoRequest, opts ...grpc.CallOption) (*proto.InfoResponse, error)
-	ListKeys(ctx context.Context, in *proto.ListKeysRequest, opts ...grpc.CallOption) (*proto.ListKeysResponse, error)
-}
 
 // GRPCClient defines the interface for gRPC client management.
 type GRPCClient interface {
@@ -53,9 +38,9 @@ type GRPCClient interface {
 
 // Integration defines the interface for fetching data from external sources and reconciling state.
 type Integration interface {
-	// Fetch performs discovery operations, returning KV data for caching and sweep results for agents.
+	// Fetch performs discovery operations and returns device updates for ingestion.
 	// This method should focus purely on data discovery and should not perform any state reconciliation.
-	Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error)
+	Fetch(ctx context.Context) ([]*models.DeviceUpdate, error)
 
 	// Reconcile performs state reconciliation operations such as updating external systems
 	// with current device availability status and handling device retractions.

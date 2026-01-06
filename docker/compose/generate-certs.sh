@@ -313,11 +313,10 @@ EOF
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
-generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
-generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:serviceradar-sync,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -392,6 +391,9 @@ echo "=== Generating tenant-scoped component certificates ==="
 
 # Default tenant agent
 generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "agent-001" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
+
+# Docker Compose dev agent (matches docker/compose/agent.mtls.json)
+generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "docker-agent" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
 
 # Default tenant poller
 generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "poller-001" "$DEFAULT_PARTITION_ID" "DNS:poller,DNS:poller-elx,DNS:poller-elx-t2"

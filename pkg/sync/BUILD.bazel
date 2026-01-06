@@ -18,6 +18,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/sync",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/agentgateway",
         "//pkg/identitymap",
         "//pkg/grpc",
         "//pkg/logger",

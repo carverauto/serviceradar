@@ -104,7 +104,6 @@ The following container images have dedicated SBOMs:
 - `serviceradar-mapper`
 - `serviceradar-datasvc`
 - `serviceradar-poller`
-- `serviceradar-sync`
 - `serviceradar-flowgger`
 - `serviceradar-trapd`
 - `serviceradar-otel`

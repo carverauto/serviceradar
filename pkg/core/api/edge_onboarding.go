@@ -378,7 +378,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 			parentType = models.EdgeOnboardingComponentTypePoller
 		case models.EdgeOnboardingComponentTypeChecker:
 			parentType = models.EdgeOnboardingComponentTypeAgent
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeNone:
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			// no parent inference required
 		}
 	}

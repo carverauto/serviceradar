@@ -9,7 +9,6 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
-{{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 {{- $mapperSA := .Values.spire.mapperServiceAccount | default "serviceradar-mapper" -}}
 {{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
@@ -338,11 +337,6 @@ data:
                 "details": "",
                 "results_interval": "2m"
               },
-              {
-                "service_type": "grpc",
-                "service_name": "sync",
-                "results_interval": "5m"
-              }
             ]
           }
         },
@@ -489,27 +483,6 @@ data:
   external.json: |
       {
         "enabled": true
-      }
-  
-  sync-checker.json: |
-      {
-        "name": "sync",
-        "type": "grpc",
-        "address": "serviceradar-sync:50058",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$syncSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        }
       }
   
   mapper-checker.json: |
@@ -1155,88 +1128,6 @@ data:
         }
       }
   
-  sync.json: |
-      {
-        "kv_address": "serviceradar-datasvc:50057",
-        "listen_addr": ":50058",
-        "poll_interval": "5m",
-        "discovery_interval": "5m",
-        "update_interval": "5m",
-        "agent_id": "k8s-agent",
-        "poller_id": "k8s-poller",
-        "nats_url": "tls://serviceradar-nats:4222",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{ $trustDomain }}",
-          "server_spiffe_id": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $datasvcSA }}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "sync.pem",
-            "key_file": "sync-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "nats_security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "server_name": "nats.serviceradar",
-          "role": "poller",
-          "tls": {
-            "cert_file": "sync.pem",
-            "key_file": "sync-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "sources": {
-          "armis": {
-            "type": "armis",
-            "endpoint": "http://serviceradar-faker:8080",
-            "prefix": "armis/",
-            "poll_interval": "5m",
-            "sweep_interval": "5m",
-            "agent_id": "k8s-agent",
-            "poller_id": "k8s-poller",
-            "partition": "default",
-            "credentials": {
-              "username": "${kv:secrets/armis/username}",
-              "password": "${kv:secrets/armis/password}"
-            },
-            "page_size": 1000,
-            "network_blacklist": [],
-            "queries": [
-              {
-                "label": "all_devices",
-                "query": "in:devices",
-                "sweep_modes": ["icmp"]
-              }
-            ]
-          }
-        },
-        "logging": {
-          "level": "debug",
-          "debug": true,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
-            "service_name": "serviceradar-sync",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {},
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/sync.pem",
-              "key_file": "/etc/serviceradar/certs/sync-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem"
-            }
-          }
-        }
-      }
-  
   faker.json: |
       {
         "service": {
@@ -1433,7 +1324,6 @@ data:
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.pollerServiceAccount | default "serviceradar-poller" }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $otelSA }}", "role": "reader"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $syncSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $mapperSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $snmpCheckerSA }}", "role": "writer"},

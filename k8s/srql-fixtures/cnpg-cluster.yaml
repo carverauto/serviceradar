@@ -28,9 +28,16 @@ spec:
     shared_preload_libraries:
       - timescaledb
       - age
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
     parameters:
       max_connections: "200"
       shared_buffers: 512MB
+
+  certificates:
+    serverAltDNSNames:
+      - srql-fixture.serviceradar.cloud
 
   managed:
     roles:

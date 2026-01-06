@@ -39,7 +39,6 @@ var (
 // Config defines the configuration for the sync service including sources, logging, and OTEL settings.
 type Config struct {
 	Sources           map[string]*models.SourceConfig `json:"sources" hot:"rebuild"`           // integration configs
-	KVAddress         string                          `json:"kv_address"`                      // KV gRPC server address (optional)
 	ListenAddr        string                          `json:"listen_addr"`                     // gRPC listen address
 	PollInterval      models.Duration                 `json:"poll_interval" hot:"reload"`      // Polling interval
 	DiscoveryInterval models.Duration                 `json:"discovery_interval" hot:"reload"` // Fetch cadence
@@ -48,14 +47,21 @@ type Config struct {
 	PollerID          string                          `json:"poller_id"`
 	Security          *models.SecurityConfig          `json:"security" hot:"rebuild"`
 	Logging           *logger.Config                  `json:"logging"`
+	GatewayAddr       string                          `json:"gateway_addr"`          // Agent-gateway address for push mode
+	GatewaySecurity   *models.SecurityConfig          `json:"gateway_security"`      // mTLS config for gateway connection
+	TenantID          string                          `json:"tenant_id,omitempty"`   // Tenant UUID for routing
+	TenantSlug        string                          `json:"tenant_slug,omitempty"` // Tenant slug for routing
+	Partition         string                          `json:"partition,omitempty"`   // Partition identifier
 }
 
 func (c *Config) Validate() error {
 	if len(c.Sources) == 0 {
-		return errMissingSources
+		if c.GatewayAddr == "" {
+			return errMissingSources
+		}
 	}
 
-	if c.ListenAddr == "" {
+	if c.ListenAddr == "" && c.GatewayAddr == "" {
 		return errListenAddrRequired
 	}
 
@@ -79,6 +85,14 @@ func (c *Config) Validate() error {
 
 	if c.Security != nil {
 		c.normalizeCertPaths(c.Security)
+	}
+
+	if c.GatewaySecurity != nil {
+		c.normalizeCertPaths(c.GatewaySecurity)
+	}
+
+	if c.Partition == "" {
+		c.Partition = "default"
 	}
 
 	return nil

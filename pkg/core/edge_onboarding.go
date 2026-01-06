@@ -890,6 +890,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 			}
 			pollerID = resolvedPoller
 		}
+	case models.EdgeOnboardingComponentTypeSync:
+		return nil, fmt.Errorf("%w: sync component type not yet supported for edge onboarding", models.ErrEdgeOnboardingInvalidRequest)
 	case models.EdgeOnboardingComponentTypeNone:
 		return nil, fmt.Errorf("%w: component_type is required", models.ErrEdgeOnboardingInvalidRequest)
 	default:
@@ -1450,9 +1452,7 @@ func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, co
 		filter.PollerID = componentID
 	case models.EdgeOnboardingComponentTypeAgent:
 		filter.ComponentID = componentID
-	case models.EdgeOnboardingComponentTypeChecker:
-		return nil, nil
-	case models.EdgeOnboardingComponentTypeNone:
+	case models.EdgeOnboardingComponentTypeChecker, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 		return nil, nil
 	default:
 		return nil, nil
@@ -1960,6 +1960,8 @@ func templateComponentDir(componentType models.EdgeOnboardingComponentType) stri
 		return "agents"
 	case models.EdgeOnboardingComponentTypePoller:
 		return "pollers"
+	case models.EdgeOnboardingComponentTypeSync:
+		return "sync"
 	case models.EdgeOnboardingComponentTypeChecker, models.EdgeOnboardingComponentTypeNone:
 		return "checkers"
 	default:
@@ -2134,7 +2136,7 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 		switch componentType {
 		case models.EdgeOnboardingComponentTypeChecker:
 			serverName = defaultPollerSNI
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeNone:
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			serverName = defaultCoreSNI
 		}
 	}
@@ -2657,7 +2659,7 @@ func (s *edgeOnboardingService) kvKeyForPackage(pkg *models.EdgeOnboardingPackag
 	}
 
 	switch pkg.ComponentType {
-	case models.EdgeOnboardingComponentTypeNone, models.EdgeOnboardingComponentTypePoller:
+	case models.EdgeOnboardingComponentTypeNone, models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync:
 		return fmt.Sprintf("config/pollers/%s.json", componentID), nil
 	case models.EdgeOnboardingComponentTypeAgent:
 		pollerID := sanitizePollerID(pkg.PollerID)
@@ -2948,7 +2950,7 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 			serverName = defaultPollerSNI
 		case models.EdgeOnboardingComponentTypeAgent:
 			serverName = defaultPollerSNI
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeNone:
+		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			serverName = defaultCoreSNI
 		default:
 			serverName = defaultCoreSNI
@@ -3247,7 +3249,7 @@ func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, co
 			CreatedBy:          createdBy,
 		})
 
-	case models.EdgeOnboardingComponentTypeNone:
+	case models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, componentType)

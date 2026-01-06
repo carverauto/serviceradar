@@ -226,6 +226,12 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                     <span class="text-sm font-medium">
                       {@current_scope.active_tenant.name}
                     </span>
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Role
+                    </span>
+                    <span class="text-xs font-medium">
+                      {format_role(@current_scope.user.role)}
+                    </span>
                     <%= if length(@current_scope.tenant_memberships) > 0 do %>
                       <div class="mt-1 border-t border-base-300 pt-1">
                         <span class="text-[9px] uppercase tracking-wider text-base-content/50">
@@ -291,6 +297,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp user_initials(_), do: "?"
+
+  defp format_role(role) when is_atom(role) do
+    role
+    |> Atom.to_string()
+    |> String.split("_")
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp format_role(role) when is_binary(role), do: role
 
   attr :href, :string, required: true
   attr :label, :string, required: true

@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.PageController do
     if conn.assigns.current_scope && conn.assigns.current_scope.user do
       redirect(conn, to: ~p"/analytics")
     else
-      render(conn, :home)
+      redirect(conn, to: ~p"/users/log-in")
     end
   end
 

@@ -10,13 +10,13 @@ Simple Network Management Protocol (SNMP) polling remains the fastest way to pop
 
 1. Ensure each poller can reach monitored devices on UDP 161 (and UDP 162 if you plan to receive traps).
 2. Store SNMP communities or v3 credentials in the KV store so pollers can refresh secrets without redeploys. Follow the [KV configuration](./kv-configuration.md) examples for encrypted values.
-3. Map device targets to the correct SNMP profile inside the registry. The [Sync service guide](./sync.md) explains how to seed profiles programmatically.
+3. Map device targets to the correct SNMP profile inside the registry. The [sync runtime guide](./sync.md) explains how to seed profiles programmatically.
 
 ## Define Credentials
 
 - **SNMPv2c** – use unique read-only community strings per device class; avoid `public` or `private`.
 - **SNMPv3** – prefer `authPriv` with SHA-256 and AES-256 where devices allow. Record usernames, auth passwords, and privacy keys in KV.
-- Rotate secrets quarterly and update the registry via Sync to prevent stale poller configs.
+- Rotate secrets quarterly and update the registry via the embedded sync runtime to prevent stale poller configs.
 
 ## Build Polling Plans
 

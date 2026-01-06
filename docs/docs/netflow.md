@@ -20,7 +20,7 @@ ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and
 
 ## Registry and Metadata
 
-- Use the [Sync service](./sync.md) to register flow exporters with site, tenant, and device tags.
+- Use the embedded sync runtime (agent) to register flow exporters with site, tenant, and device tags.
 - Populate interface maps in the registry so flows can be joined with SNMP interface stats.
 - Capture application dictionaries (port → service mapping) in KV to improve SRQL readability.
 

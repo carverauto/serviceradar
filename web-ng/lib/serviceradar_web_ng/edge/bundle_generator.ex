@@ -41,12 +41,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   ## Bootstrap Configuration
 
   The generated config contains only minimal bootstrap settings:
-  - `agent_id` - Component identifier
+  - `agent_id` - Component identifier used for gateway enrollment
   - `gateway_addr` - SaaS gateway endpoint
   - `gateway_security` - mTLS credentials
 
   All monitoring configuration (checks, schedules, etc.) is delivered
-  dynamically via the `GetConfig` gRPC call after the agent connects.
+  dynamically via the `GetConfig` gRPC call after the component connects.
   """
   @spec create_tarball(OnboardingPackage.t(), String.t(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
@@ -57,11 +57,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     {cert_pem, key_pem, ca_chain_pem} = parse_bundle_pem(bundle_pem)
 
     # Build the file list for the tarball
+    config_yaml = generate_config_yaml(package, join_token, opts)
+    config_json = generate_config_json(package, join_token, opts)
+
     files = [
       {"#{package_dir}/certs/component.pem", cert_pem},
       {"#{package_dir}/certs/component-key.pem", key_pem},
       {"#{package_dir}/certs/ca-chain.pem", ca_chain_pem},
-      {"#{package_dir}/config/config.yaml", generate_config_yaml(package, join_token, opts)},
+      {"#{package_dir}/config/config.yaml", config_yaml},
+      {"#{package_dir}/config/config.json", config_json},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
       {"#{package_dir}/README.md", generate_readme(package)}
       | generate_kubernetes_files(
@@ -94,14 +98,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   def docker_install_command(package, download_token, opts \\ []) do
     base_url = Keyword.get(opts, :base_url, default_base_url())
     image_tag = Keyword.get(opts, :image_tag, "latest")
+    component_type = effective_component_type(package.component_type)
 
     """
     curl -fsSL "#{base_url}/api/edge-packages/#{package.id}/bundle?token=#{download_token}" | tar xzf - && \\
     cd edge-package-#{short_id(package.id)} && \\
-    docker run -d --name serviceradar-#{package.component_type} \\
+    docker run -d --name serviceradar-#{component_type} \\
       -v $(pwd)/certs:/etc/serviceradar/certs:ro \\
       -v $(pwd)/config:/etc/serviceradar/config:ro \\
-      ghcr.io/carverauto/serviceradar-#{package.component_type}:#{image_tag}
+      ghcr.io/carverauto/serviceradar-#{component_type}:#{image_tag}
     """
     |> String.trim()
   end
@@ -170,34 +175,40 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp parse_bundle_pem(_), do: {"", "", ""}
 
-  defp generate_config_yaml(package, _join_token, opts) do
+  defp generate_config_yaml(package, join_token, opts) do
+    generate_config_json(package, join_token, opts)
+  end
+
+  defp generate_config_json(package, _join_token, opts) do
     gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
+    component_type = effective_component_type(package.component_type)
+    component_id = package.component_id || package.id
+    cert_dir = "/etc/serviceradar/certs"
 
-    # Minimal bootstrap configuration per spec:
-    # Only SaaS endpoint + mTLS credentials. All monitoring config
-    # is delivered dynamically via GetConfig after agent connects.
-    config = %{
-      # Agent identity
-      "agent_id" => package.component_id || package.id,
-
-      # Gateway connection (required)
-      "gateway_addr" => gateway_addr,
-
-      # mTLS security configuration
-      "gateway_security" => %{
-        "mode" => "mtls",
-        "cert_file" => "/etc/serviceradar/certs/component.pem",
-        "key_file" => "/etc/serviceradar/certs/component-key.pem",
-        "ca_file" => "/etc/serviceradar/certs/ca-chain.pem"
+    gateway_security = %{
+      "mode" => "mtls",
+      "cert_dir" => cert_dir,
+      "server_name" => gateway_server_name(gateway_addr),
+      "role" => component_type,
+      "tls" => %{
+        "cert_file" => "component.pem",
+        "key_file" => "component-key.pem",
+        "ca_file" => "ca-chain.pem",
+        "client_ca_file" => "ca-chain.pem"
       }
     }
 
-    # Convert to YAML
-    encode_yaml(config)
+    config = %{
+      "agent_id" => component_id,
+      "gateway_addr" => gateway_addr,
+      "gateway_security" => gateway_security
+    }
+
+    Jason.encode!(config, pretty: true)
   end
 
   defp generate_install_script(package, _opts) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
 
     """
     #!/bin/bash
@@ -360,7 +371,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_readme(package) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
 
     """
     # ServiceRadar Edge Package
@@ -371,13 +382,14 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     ## Architecture
 
-    This package contains a **minimal bootstrap configuration**. The agent connects
+    This package contains a **minimal bootstrap configuration**. The component connects
     to the ServiceRadar gateway using mTLS, then receives all monitoring configuration
     dynamically via the `GetConfig` gRPC call.
 
     **Bootstrap config includes:**
     - Gateway endpoint address
     - mTLS certificates for secure connection
+    - Both `config.yaml` and `config.json` (same content for YAML/JSON parsers)
 
     **Delivered via GetConfig:**
     - Monitoring checks and schedules
@@ -455,49 +467,34 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     # Create tarball entries
     entries =
       Enum.map(files, fn {name, content} ->
-        {String.to_charlist(name), content}
+        data =
+          case content do
+            nil -> ""
+            _ -> IO.iodata_to_binary(content)
+          end
+
+        {String.to_charlist(name), data}
       end)
 
-    # Create the tarball in memory
-    case :erl_tar.create({:binary, []}, entries, [:compressed]) do
-      {:ok, {:binary, tarball}} -> {:ok, tarball}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+    tmp_path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
+      )
 
-  defp encode_yaml(map) do
-    # Simple YAML encoder for our config structure
-    # For production, consider using a proper YAML library
-    do_encode_yaml(map, 0)
-  end
+    try do
+      case :erl_tar.create(String.to_charlist(tmp_path), entries, [:compressed]) do
+        :ok ->
+          case File.read(tmp_path) do
+            {:ok, tarball} -> {:ok, tarball}
+            {:error, reason} -> {:error, reason}
+          end
 
-  defp do_encode_yaml(map, indent) when is_map(map) do
-    prefix = String.duplicate("  ", indent)
-
-    Enum.map_join(map, "\n", fn {key, value} ->
-      "#{prefix}#{key}: #{encode_yaml_value(value, indent)}"
-    end)
-  end
-
-  defp encode_yaml_value(value, _indent) when is_binary(value), do: "\"#{value}\""
-  defp encode_yaml_value(value, _indent) when is_number(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_boolean(value), do: to_string(value)
-  defp encode_yaml_value(value, _indent) when is_nil(value), do: "null"
-
-  defp encode_yaml_value(value, indent) when is_map(value) do
-    if map_size(value) == 0 do
-      "{}"
-    else
-      "\n" <> do_encode_yaml(value, indent + 1)
-    end
-  end
-
-  defp encode_yaml_value(value, _indent) when is_list(value) do
-    if value == [] do
-      "[]"
-    else
-      # Simple list encoding
-      "[" <> Enum.map_join(value, ", ", &inspect/1) <> "]"
+        {:error, reason} ->
+          {:error, reason}
+      end
+    after
+      _ = File.rm(tmp_path)
     end
   end
 
@@ -541,7 +538,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
 
     # Base64 encode the certificate data
@@ -571,25 +568,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   end
 
   defp generate_k8s_configmap(package, _join_token, namespace, opts) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
-    gateway_addr = Keyword.get(opts, :gateway_addr, default_gateway_addr())
 
-    # Minimal bootstrap configuration per spec:
-    # Only SaaS endpoint + mTLS credentials. All monitoring config
-    # is delivered dynamically via GetConfig after agent connects.
-    config_yaml = """
     # Minimal bootstrap config - monitoring settings delivered via GetConfig
-    agent_id: "#{component_id}"
-    gateway_addr: "#{gateway_addr}"
-    gateway_security:
-      mode: "mtls"
-      cert_file: "/etc/serviceradar/certs/tls.crt"
-      key_file: "/etc/serviceradar/certs/tls.key"
-      ca_file: "/etc/serviceradar/certs/ca.crt"
-    """
+    config_yaml = generate_config_yaml(package, nil, opts)
+    config_json = generate_config_json(package, nil, opts)
 
     config_b64 = Base.encode64(config_yaml)
+    config_json_b64 = Base.encode64(config_json)
 
     """
     # ServiceRadar Edge Component - Configuration
@@ -604,14 +591,17 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         app.kubernetes.io/name: serviceradar-#{component_type}
         app.kubernetes.io/component: #{component_type}
         app.kubernetes.io/part-of: serviceradar
+        serviceradar.io/component-id: "#{component_id}"
     binaryData:
       config.yaml: #{config_b64}
+      config.json: #{config_json_b64}
     """
   end
 
   defp generate_k8s_deployment(package, namespace, image_tag) do
-    component_type = to_string(package.component_type)
+    component_type = effective_component_type(package.component_type)
     component_id = package.component_id || package.id
+    grpc_port = grpc_port_for_component(component_type)
 
     """
     # ServiceRadar Edge Component - Deployment
@@ -646,7 +636,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
                 - /etc/serviceradar/config/config.yaml
               ports:
                 - name: grpc
-                  containerPort: 50051
+                  containerPort: #{grpc_port}
                   protocol: TCP
                 - name: metrics
                   containerPort: 9090
@@ -672,12 +662,12 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
                   memory: 256Mi
               livenessProbe:
                 grpc:
-                  port: 50051
+                  port: #{grpc_port}
                 initialDelaySeconds: 10
                 periodSeconds: 30
               readinessProbe:
                 grpc:
-                  port: 50051
+                  port: #{grpc_port}
                 initialDelaySeconds: 5
                 periodSeconds: 10
               securityContext:
@@ -731,5 +721,22 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   defp default_gateway_addr do
     Application.get_env(:serviceradar_web_ng, :gateway_addr, "gateway.serviceradar.cloud:50052")
+  end
+
+  defp gateway_server_name(gateway_addr) when is_binary(gateway_addr) do
+    case String.split(gateway_addr, ":") do
+      [host, _port] -> host
+      [host] -> host
+      _ -> gateway_addr
+    end
+  end
+
+  defp grpc_port_for_component(_), do: 50_051
+
+  defp effective_component_type(component_type) do
+    case to_string(component_type) do
+      "sync" -> "agent"
+      other -> other
+    end
   end
 end

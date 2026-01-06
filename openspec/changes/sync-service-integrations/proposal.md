@@ -2,53 +2,54 @@
 
 ## Summary
 
-Add sync service onboarding and integration source management. Sync services must be onboarded before integration sources (Armis/NetBox/Faker) appear in the UI. The SaaS sync service auto-onboards at platform bootstrap. Customers can add on-prem sync services. Users select which sync service processes each integration. Data flows from integration sources through sync service to CNPG, then to agent config via GetConfig.
+Embed the sync runtime inside `serviceradar-agent` so every tenant runs discovery from their own agent deployment. The agent boots with minimal onboarding config, completes Hello + GetConfig, receives integration sources for its tenant, and streams device updates through agent-gateway to core-elx and DIRE. There is no platform-level sync service; sync exists only as an agent capability. The agent still uses existing AgentGatewayService push RPCs with ResultsChunk-compatible chunking (no new sync-specific RPCs). The sync runtime does not use datasvc/KV, and sync pull APIs remain deprecated.
 
 ## Motivation
 
 Currently:
-1. Integration sources are always visible in the UI regardless of sync service availability
-2. There's no concept of "sync service onboarding" - sync services just exist
-3. Agents depend on KV store for sweep config (sweep.json), but edge-deployed agents have no KV access
-4. No way for customers to choose between SaaS and on-prem sync services
-5. Integration config syncs to datasvc KV, but this doesn't work for edge agents
+1. Standalone sync deployments add operational overhead and duplicate onboarding steps for customers.
+2. Sync configuration relies on KV, which is unavailable or inappropriate for edge workflows.
+3. Tenant scoping must be enforced at the agent boundary using mTLS identity, not platform multi-tenant sync.
+4. Platform vs tenant service identities must remain explicit, but sync should never run as a platform service.
 
 The proposed changes:
-1. Gate integration source UI on sync service availability
-2. Auto-onboard SaaS sync at platform bootstrap
-3. Allow customers to onboard on-prem sync services
-4. Let users assign integrations to specific sync services
-5. Route discovered device data through CNPG instead of KV
-6. Include sweep config in GetConfig response (eliminates KV dependency for agents)
+1. Agents bootstrap via Hello + GetConfig using mTLS through agent-gateway and include embedded sync capability.
+2. Tenant agents process integration configs scoped to their tenant only; no platform sync service exists.
+3. Device updates flow through agent -> agent-gateway -> core-elx -> DIRE for canonical records.
+4. Embedded sync no longer depends on datasvc/KV for configuration or state.
+5. Sync results reuse existing AgentGatewayService StreamStatus push RPCs with ResultsChunk-compatible chunking; pull results APIs remain deprecated.
+6. Tenants must onboard at least one agent to use integrations; UI and onboarding flows point to agent onboarding.
 
 ## Scope
 
 ### In Scope
-- SyncService Ash resource for tracking onboarded sync services
-- Platform bootstrap logic to auto-onboard SaaS sync
-- On-prem sync service onboarding flow
-- UI gating for integration sources based on sync availability
-- Sync service selector when creating/editing integrations
-- Device data storage in CNPG (replacing KV flow)
-- Sweep config generation from CNPG device data
-- GetConfig enhancement to include sweep targets
+- Embed sync runtime inside the agent binary (platform and edge use the same agent build)
+- Tenant-scoped integration config delivery via Agent GetConfig
+- Agent/agent-gateway ingestion of sync device updates
+- DIRE processing of sync updates into canonical device records (source of truth)
+- mTLS identity classification to enforce tenant scoping for agent-embedded sync
+- UI gating and agent assignment for integrations
+- Deprecation of sync pull results APIs (StreamResults/GetResults)
 
 ### Out of Scope
-- Changes to the Go sync service binary itself (only config/onboarding)
+- New integration adapters (Armis/NetBox/Faker behavior changes)
 - NATS integration (covered by separate proposal)
-- Agent local config file format changes
+- Agent local config file format changes beyond GetConfig payloads
+- DiscoveredDevice staging and SweepConfig generation (superseded by DIRE as source of truth)
+- Standalone sync service deployments (removed by this change)
 
 ## Dependencies
 
-- `update-agent-saas-connectivity` - Provides Hello/GetConfig gRPC protocol
+- `update-agent-saas-connectivity` (Hello/GetConfig protocol)
 - Existing IntegrationSource Ash resource
-- Existing sync service Go implementation
 
 ## Related Specs
 
-- `specs/agent-gateway-protocol/` - Agent enrollment and config delivery
-- `specs/multi-tenancy/` - Tenant isolation for sync services
+- `specs/tenant-isolation/spec.md`
+- `specs/device-identity-reconciliation/spec.md`
+- `specs/kv-configuration/spec.md`
+- `specs/edge-architecture/spec.md`
 
 ## Status
 
-**Draft** - Awaiting review
+**Approved** - Ready for implementation

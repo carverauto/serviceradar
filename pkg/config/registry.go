@@ -64,17 +64,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 			"auth.jwt_public_key_pem",
 		},
 	},
-	"sync": {
-		Name:        "sync",
-		DisplayName: "Sync Service",
-		ServiceType: "sync",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/sync.json",
-		Format:      ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
-		},
-	},
 	"poller": {
 		Name:          "poller",
 		DisplayName:   "Poller",

@@ -92,14 +92,14 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 - **Empty results**: Confirm scopes exist in KV under `discovery/jobs/*`. Reconcile job ownership using the [Discovery guide](./discovery.md).
 - **Mapper stalled**: Tail `serviceradar-mapper` logs for `scheduler` messages. Ensure `/etc/serviceradar/mapper.json` has at least one enabled `scheduled_jobs` entry and that credentials cover the target CIDRs.
 - **Missing interfaces/topology**: Verify `stream_config` in `mapper.json` still points to `discovered_interfaces` and `topology_discovery_events`. Mapper only emits interface/topology data when those fields are present.
-- **Duplicate devices**: Enable canonical matching in Sync so NetBox and Armis merges succeed.
+- **Duplicate devices**: Enable canonical matching in the embedded sync runtime so NetBox and Armis merges succeed.
 - **Sweep failures**: Check poller network reachability and throttling limits.
 
 ## Integrations
 
 ### Armis
 
-- Refresh client secrets and inspect `serviceradar-sync` logs. The [Armis integration doc](./armis.md) covers faker resets and pagination tuning.
+- Refresh client secrets and inspect `serviceradar-agent` logs. The [Armis integration doc](./armis.md) covers faker resets and pagination tuning.
 - Compare Faker vs. production counts to spot ingestion gaps.
 
 ### NetBox

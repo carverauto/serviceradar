@@ -82,6 +82,18 @@ The system SHALL create a super_admin user in the default tenant with a cryptogr
   - User: the created admin user
   - Tenant: the default tenant
 
+### Requirement: First User Promotion
+
+The system SHALL promote the first user created in a fresh install to platform owner with super_admin privileges.
+
+#### Scenario: First user becomes platform owner
+
+- **WHEN** a user is created and no other users exist
+- **AND** a platform tenant exists (`is_platform_tenant: true`)
+- **THEN** the user SHALL be created with role `:super_admin`
+- **AND** the platform tenant SHALL be updated with `owner_id` set to that user
+- **AND** an owner TenantMembership SHALL be created for the platform tenant
+
 ### Requirement: Secure Password Generation
 
 The system SHALL generate cryptographically secure passwords using a strong random source.

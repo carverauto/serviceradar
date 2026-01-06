@@ -67,6 +67,7 @@ pub enum ComponentType {
     Poller,
     Agent,
     Checker,
+    Sync,
 }
 
 impl ComponentType {
@@ -75,6 +76,7 @@ impl ComponentType {
             ComponentType::Poller => "poller",
             ComponentType::Agent => "agent",
             ComponentType::Checker => "checker",
+            ComponentType::Sync => "sync",
         }
     }
 
@@ -83,6 +85,7 @@ impl ComponentType {
             ComponentType::Poller => "poller.json",
             ComponentType::Agent => "agent.json",
             ComponentType::Checker => "checker.json",
+            ComponentType::Sync => "sync.json",
         }
     }
 }

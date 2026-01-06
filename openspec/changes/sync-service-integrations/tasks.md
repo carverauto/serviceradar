@@ -1,88 +1,60 @@
-## 1. Core Ash Resources
+## 1. Protocol + Identity
+- [x] 1.1 Update Hello/GetConfig to advertise agent sync capability (replace sync service class)
+- [x] 1.2 Define mTLS identity classification for platform vs tenant services (SPIFFE/CN rules)
+- [x] 1.3 Enforce tenant scoping in agent/agent-gateway based on mTLS identity
+- [x] 1.4 Reserve platform tenant slug and validate platform/non-platform usage
+- [x] 1.5 Reject zero UUID for platform tenant identity and require explicit gateway tenant_id
+- [x] 1.6 Remove platform sync identity handling in agent-gateway (superseded by agent-embedded sync)
 
-- [ ] 1.1 Create SyncService Ash resource with attributes: name, service_type (:saas/:on_prem), endpoint, status, is_platform_sync, capabilities, last_heartbeat_at, tenant_id
-- [ ] 1.2 Create DiscoveredDevice Ash resource with: device_id, source_type, ip_addresses, mac_addresses, hostname, device_type, raw_data, agent_uid, integration_source_id, tenant_id
-- [ ] 1.3 Add sync_service_id foreign key to IntegrationSource with belongs_to relationship
-- [ ] 1.4 Create database migrations for sync_services and discovered_devices tables
-- [ ] 1.5 Add migration to add sync_service_id column to integration_sources
+## 2. Core Ash Resources
+- [x] 2.1 Remove SyncService resource; model sync capability on Agent (or AgentCapability)
+- [x] 2.2 Replace IntegrationSource sync_service_id with agent_id assignment
+- [x] 2.3 Add migrations for agent assignment; drop sync_services table if needed
+- [x] 2.4 Emit IntegrationSource create/update events to OCSF events pipeline
+- [x] 2.5 Remove sync service status tracking (use agent heartbeat)
 
-## 2. Platform Bootstrap
+## 3. Platform Bootstrap
+- [x] 3.1 Generate and persist random platform tenant UUID on first boot
+- [x] 3.2 Remove platform sync service bootstrap (sync certs/config/records)
+- [x] 3.3 Ensure platform bootstrap does not issue sync onboarding packages
 
-- [ ] 2.1 Add ensure_platform_sync_service/0 to platform bootstrap logic
-- [ ] 2.2 Create SaaS sync service record with is_platform_sync: true at bootstrap
-- [ ] 2.3 Add platform sync service to tenant onboarding (all tenants get access to SaaS sync)
-- [ ] 2.4 Add tests for bootstrap sync service creation
+## 4. gRPC/API
+- [x] 4.1 Confirm agent-embedded sync pushes results via StreamStatus with ResultsChunk semantics
+- [x] 4.2 Add integration source payloads to Agent GetConfig (agent-scoped)
+- [x] 4.3 Remove sync-specific Hello/GetConfig fields (if any)
+- [x] 4.4 Regenerate protobuf stubs (Go/Elixir) if changed
 
-## 3. Proto & gRPC Changes
+## 5. Agent Runtime (Go)
+- [x] 5.1 Embed sync runtime into agent binary
+- [x] 5.2 Implement per-agent sync loop + config cache
+- [x] 5.3 Push device updates via StreamStatus with chunking
+- [x] 5.4 Remove standalone sync service binary/deployments/config docs
+- [x] 5.5 Remove datasvc/KV clients and config code from sync runtime
 
-- [ ] 3.1 Add SyncDevicesRequest/Response messages to proto/monitoring.proto
-- [ ] 3.2 Add DiscoveredDevice proto message
-- [ ] 3.3 Add SyncDevices RPC to AgentGatewayService
-- [ ] 3.4 Add SweepConfig message to proto
-- [ ] 3.5 Add sweep field to AgentConfigResponse
-- [ ] 3.6 Generate Go protobuf stubs
-- [ ] 3.7 Generate Elixir protobuf stubs
+## 6. Device Ingestion + DIRE
+- [x] 6.1 Ingest sync results from StreamStatus chunks in agent-gateway/core pipeline
+- [x] 6.2 Validate tenant scope using mTLS identity and request metadata
+- [x] 6.3 Route sync updates through DIRE for canonical device records
+- [x] 6.4 Remove discovered_devices staging path (out of scope)
+- [x] 6.5 Add tests for sync ingestion path
 
-## 4. Device Sync Flow
+## 7. Onboarding + UI
+- [x] 7.1 Require sync-capable agent before integrations can be created
+- [x] 7.2 Replace "Add Edge Sync Service" UI with "Add Edge Agent" onboarding
+- [x] 7.3 Remove edge sync onboarding endpoint `/api/admin/edge-packages/sync`
+- [x] 7.4 Update edge onboarding bundles to include agent sync bootstrap config
+- [x] 7.5 Add agent selector + status in Integrations UI (if multiple agents)
 
-- [ ] 4.1 Implement SyncDevices handler in AgentGatewayServer (Elixir)
-- [ ] 4.2 Create DiscoveredDevice upsert logic (create or update by device_id + source)
-- [ ] 4.3 Add device deduplication by IP/MAC
-- [ ] 4.4 Update Go sync service to call SyncDevices RPC after discovery
-- [ ] 4.5 Add tests for device sync flow
+## 8. KV Deprecation
+- [x] 8.1 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
+- [x] 8.2 Update documentation for new device discovery flow
+- [x] 8.3 Add migration guide for customers moving from standalone sync to agent-embedded sync
 
-## 5. Sweep Config Generation
+## 9. Testing & Documentation
+- [x] 9.1 Add integration tests for full device discovery → DIRE → inventory flow (agent-embedded sync)
+- [x] 9.2 Update architecture + sync docs for agent-embedded sync
 
-- [ ] 5.1 Add build_sweep_config/2 to AgentConfigGenerator
-- [ ] 5.2 Query DiscoveredDevice by agent_uid to build sweep targets
-- [ ] 5.3 Extract networks from device IPs (compute CIDR ranges)
-- [ ] 5.4 Build device_targets list with ports from source data
-- [ ] 5.5 Include sweep config in GetConfig response
-- [ ] 5.6 Add tests for sweep config generation
-
-## 6. Agent Sweep Config Application
-
-- [ ] 6.1 Add sweep config handling to Go agent's fetchAndApplyConfig
-- [ ] 6.2 Update SweepService to accept config from GetConfig (not just sweep.json)
-- [ ] 6.3 Add fallback to sweep.json for backward compatibility
-- [ ] 6.4 Remove KV dependency from agent sweep config path
-- [ ] 6.5 Add tests for agent sweep config application
-
-## 7. Sync Service Onboarding
-
-- [ ] 7.1 Add SyncServiceHello RPC for on-prem sync registration
-- [ ] 7.2 Implement heartbeat tracking (update last_heartbeat_at)
-- [ ] 7.3 Add status computation (online if heartbeat < 2 min, offline otherwise)
-- [ ] 7.4 Add on-prem sync service onboarding endpoint in web-ng
-- [ ] 7.5 Generate onboarding credentials for on-prem sync
-
-## 8. UI - Integration Sources
-
-- [ ] 8.1 Query SyncService availability on IntegrationsLive mount
-- [ ] 8.2 Show "No sync service available" banner when none onboarded
-- [ ] 8.3 Disable "Add Integration" button until sync available
-- [ ] 8.4 Add sync service selector dropdown to integration form
-- [ ] 8.5 Show sync service name in integration list table
-- [ ] 8.6 Add sync service status indicator (online/offline)
-
-## 9. UI - Sync Services Management
-
-- [ ] 9.1 Add "Sync Services" tab to InfrastructureLive (platform admin only)
-- [ ] 9.2 Show SaaS sync service status and last heartbeat
-- [ ] 9.3 Add "Add On-Prem Sync" button with onboarding flow
-- [ ] 9.4 Show list of on-prem sync services with status
-- [ ] 9.5 Add sync service details view (integrations using it, device counts)
-
-## 10. KV Deprecation
-
-- [ ] 10.1 Add feature flag for "sweep config from GetConfig" vs "sweep.json from KV"
-- [ ] 10.2 Remove sync_to_datasvc calls from IntegrationSource (behind flag)
-- [ ] 10.3 Update documentation for new device discovery flow
-- [ ] 10.4 Add migration guide for customers using on-prem sync
-
-## 11. Testing & Documentation
-
-- [ ] 11.1 Add integration tests for full device discovery → sweep config flow
-- [ ] 11.2 Add tests for sync service onboarding
-- [ ] 11.3 Update architecture docs with new data flow
-- [ ] 11.4 Add API documentation for SyncDevices RPC
+## 10. Runtime Validation
+- [x] 10.1 Validate agent-embedded sync startup logs after successful Hello (expect "Starting simplified sync service")
+- [x] 10.2 Confirm Hello/GetConfig succeeds in docker compose (no "core unavailable" errors)
+- [ ] 10.3 Capture expected sync config/heartbeat log sequence for troubleshooting docs

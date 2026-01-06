@@ -70,7 +70,7 @@ ServiceRadar consists of these main components:
 ### Core Services
 - **Core**: Main API and business logic service
 - **Web**: Next.js web interface
-- **Nginx**: Reverse proxy and load balancer
+- **Caddy**: Reverse proxy and TLS termination (default for Compose)
 - **CNPG**: Time-series database (TimeBase fork)
 
 ### Data Collection Services
@@ -83,7 +83,6 @@ ServiceRadar consists of these main components:
 ### Supporting Services
 - **NATS**: Message bus and event streaming
 - **KV**: Key-value store for configuration
-- **Sync**: Device discovery synchronization
 - **DB Event Writer**: NATS to database bridge
 
 ### Monitoring Services
@@ -123,7 +122,7 @@ Default exposed ports:
 
 | Service | Port | Protocol | Purpose |
 |---------|------|----------|---------|
-| Nginx | 80 | HTTP | Web interface and API |
+| Caddy | 80/443 | HTTP(S) | Web interface and API |
 | Core | 8090 | HTTP | Direct API access |
 | NATS | 4222, 8222 | TCP | Message bus |
 | Flowgger | 514 | UDP | Syslog collection |
@@ -468,8 +467,8 @@ docker-compose restart core
 
 #### Can't Access Web Interface
 
-1. **Check nginx status**: `docker-compose ps nginx`
-2. **Check nginx logs**: `docker-compose logs nginx`
+1. **Check caddy status**: `docker-compose ps caddy`
+2. **Check caddy logs**: `docker-compose logs caddy`
 3. **Verify core service**: `docker-compose ps core`
 4. **Test direct access**: `curl http://localhost:8090/api/status`
 
@@ -569,15 +568,24 @@ For high availability, deploy multiple ServiceRadar instances behind a load bala
 # docker-compose.ha.yml
 version: '3.8'
 services:
-  nginx-lb:
-    image: nginx:alpine
+  caddy:
+    image: caddy:2.8.4-alpine
     ports:
+      - "80:80"
       - "443:443"
     volumes:
-      - ./nginx-lb.conf:/etc/nginx/nginx.conf
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - serviceradar-1
       - serviceradar-2
+```
+
+Example `Caddyfile`:
+
+```
+https://example.com {
+  reverse_proxy serviceradar-1:4000 serviceradar-2:4000
+}
 ```
 
 ## Migration and Upgrades
@@ -652,8 +660,8 @@ graph TD
     C --> E[core]
     D --> F[kv]
     E --> G[web]
-    G --> H[nginx]
-    F --> I[sync]
+    G --> H[caddy]
+    F --> I[agent]
     D --> J[db-event-writer]
 ```
 

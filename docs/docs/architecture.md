@@ -87,7 +87,7 @@ flowchart TB
 ```
 
 **Traffic flow summary:**
-- **User requests** → Ingress → Web UI (static/SSR) and Core (API)
+- **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
 - **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
 - **Edge agents** (Go binaries) connect via gRPC mTLS to the Poller on port 50051
 - **NATS JetStream** provides pub/sub messaging and KV storage for all services
@@ -117,7 +117,7 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 
 - **Ingress**: Required for the web UI and API. Default host/class/TLS come from `helm/serviceradar/values.yaml` (`ingress.enabled=true`, `host=demo.serviceradar.cloud`, `className=nginx`, `tls.secretName=serviceradar-prod-tls`, `tls.clusterIssuer=carverauto-issuer`). If you use nginx, mirror the demo annotations (`nginx.ingress.kubernetes.io/proxy-body-size: 100m`, `proxy-buffer-size: 128k`, `proxy-buffers-number: 4`, `proxy-busy-buffers-size: 256k`, `proxy-read-timeout: 86400`, `proxy-send-timeout: 86400`, `proxy-connect-timeout: 60`) to keep SRQL streams and large asset uploads stable (`k8s/demo/prod/ingress.yaml`).
 
-- **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3×100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
+- **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3x100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
 
 - **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
 
@@ -189,7 +189,7 @@ The Web UI provides a modern dashboard interface that:
 - Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
 - Supports responsive design for mobile and desktop
 
-### Edge Proxy (Ingress/Caddy/Nginx)
+### Edge Proxy (Ingress/Caddy)
 
 The edge proxy terminates TLS and routes user traffic:
 
@@ -216,7 +216,7 @@ The SRQL microservice executes ServiceRadar Query Language requests:
 
 ## Device Identity Canonicalization
 
-Modern environments discover the same device from multiple angles—Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
+Modern environments discover the same device from multiple angles - Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
 
 To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
 
@@ -313,7 +313,29 @@ sequenceDiagram
 
 - Web-NG issues and validates JWTs; expose `https://<web-host>/auth/jwks.json` when external validators need the public keys.
 - JWTs are issued with short expirations; the Web UI rotates them server-side using the refresh token flow.
-- Downstream services (pollers, sync workers) continue to use mTLS and service credentials.
+- Downstream agents (including the embedded sync runtime) continue to use mTLS and service credentials.
+
+## Sync Discovery Flow (Push-First)
+
+Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs in a push-first mode inside the agent:
+
+- Tenant-specific integration sources are configured in the Web UI and stored in Core (Ash).
+- Agents enroll with agent-gateway via mTLS and fetch config via `GetConfig`.
+- Embedded sync updates are streamed back to agent-gateway with ResultsChunk-compatible `StreamStatus` payloads.
+- Core routes updates through DIRE before writing canonical inventory records.
+
+```mermaid
+graph TD
+    UI[Integrations UI] --> Core[(Core / Ash)]
+    Core -->|GetConfig| Gateway[Agent-Gateway]
+
+    AgentSync[Agent + Embedded Sync] -->|Hello + GetConfig| Gateway
+    AgentSync -->|StreamStatus (chunked results)| Gateway
+
+    Gateway --> Core
+    Core --> DIRE[DIRE]
+    DIRE --> Inventory[(Inventory)]
+```
 
 For deployment specifics, pair this section with the [Authentication Configuration](./auth-configuration.md) and [TLS Security](./tls-security.md) guides.
 
@@ -328,10 +350,10 @@ All components installed on separate machines for optimal security and reliabili
 ```mermaid
 graph LR
     Browser[Browser] --> WebServer[Web Server<br/>Web UI + Core]
-    WebServer --> PollerServer[Poller Server]
-    PollerServer --> AgentServer1[Host 1<br/>Agent]
-    PollerServer --> AgentServer2[Host 2<br/>Agent]
-    PollerServer --> AgentServerN[Host N<br/>Agent]
+    WebServer --> GatewayServer[Agent-Gateway]
+    GatewayServer --> AgentServer1[Host 1<br/>Agent]
+    GatewayServer --> AgentServer2[Host 2<br/>Agent]
+    GatewayServer --> AgentServerN[Host N<br/>Agent]
 ```
 
 ### Minimal Deployment
@@ -340,7 +362,7 @@ For smaller environments, components can be co-located:
 
 ```mermaid
 graph LR
-    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Poller]
+    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Gateway]
     CombinedServer --> AgentServer1[Host 1<br/>Agent]
     CombinedServer --> AgentServer2[Host 2<br/>Agent]
 ```
@@ -357,14 +379,14 @@ graph TD
     WebServer2 --> CoreServer1
     WebServer1 --> CoreServer2[Core Server 2]
     WebServer2 --> CoreServer2
-    CoreServer1 --> Poller1[Poller 1]
-    CoreServer2 --> Poller1
-    CoreServer1 --> Poller2[Poller 2]
-    CoreServer2 --> Poller2
-    Poller1 --> Agent1[Agent 1]
-    Poller1 --> Agent2[Agent 2]
-    Poller2 --> Agent1
-    Poller2 --> Agent2
+    CoreServer1 --> Gateway1[Agent-Gateway 1]
+    CoreServer2 --> Gateway1
+    CoreServer1 --> Gateway2[Agent-Gateway 2]
+    CoreServer2 --> Gateway2
+    Gateway1 --> Agent1[Agent 1]
+    Gateway1 --> Agent2[Agent 2]
+    Gateway2 --> Agent1
+    Gateway2 --> Agent2
 ```
 
 ## Network Requirements
@@ -376,8 +398,8 @@ ServiceRadar uses the following network ports:
 | Component | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
 | Agent | 50051 | gRPC/TCP | Service status queries |
-| Poller | 50053 | gRPC/TCP | Health checks |
-| Core | 50052 | gRPC/TCP | Poller connections |
+| Agent-Gateway | 50052 | gRPC/TCP | Agent push ingestion (including sync results) |
+| Core | 50052 | gRPC/TCP | Core gRPC API |
 | Core | 8090 | HTTP/TCP | API (internal) |
 | Web UI | 80/443 | HTTP(S)/TCP | User interface |
 | SNMP Checker | 50054 | gRPC/TCP | SNMP status queries |
@@ -387,7 +409,7 @@ ServiceRadar uses the following network ports:
 
 | Direction | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
-| Edge → Poller | 50051 | gRPC/TCP | Service check results (mTLS required) |
+| Edge -> Agent-Gateway | 50052 | gRPC/TCP | Status + sync results (mTLS required) |
 
 ### Firewall Requirements
 
@@ -395,7 +417,7 @@ ServiceRadar uses the following network ports:
 
 | From | To | Port | Purpose |
 |------|-----|------|---------|
-| Edge Agent | Poller | 50051 | gRPC mTLS |
+| Edge Agent | Agent-Gateway | 50052 | gRPC mTLS |
 
 **Block from Edge Networks (by design):**
 

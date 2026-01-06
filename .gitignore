@@ -242,6 +242,11 @@ docker/compose/.env.*.local
 .bazelrc.local
 .bazelrc.remote
 .bazel_output/
+# Bazel caches/distdir (repo-relative to avoid home dir paths).
+third_party/bazel-repo-cache/
+third_party/bazel-disk-cache/
+third_party/distdir/*
+!third_party/distdir/README.md
 k8s/buildbuddy/values.yaml
 #MODULE.bazel.lock
 

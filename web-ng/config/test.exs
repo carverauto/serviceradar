@@ -81,6 +81,15 @@ config :serviceradar_core, ServiceRadar.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
+config :serviceradar_core,
+  datasvc_enabled: false,
+  nats_enabled: false,
+  service_heartbeat_enabled: false,
+  state_monitor_enabled: false,
+  event_batcher_enabled: false,
+  health_check_runner_enabled: false,
+  health_check_registrar_enabled: false
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

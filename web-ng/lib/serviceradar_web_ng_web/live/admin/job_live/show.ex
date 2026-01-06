@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   import ServiceRadarWebNGWeb.AdminComponents
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
 
   @refresh_intervals [
@@ -26,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   def mount(%{"id" => encoded_id}, _session, socket) do
     case decode_job_id(encoded_id) do
       {:ok, id} ->
-        case JobCatalog.get_job(id) do
+        case JobCatalog.get_job(id, job_scope_opts(socket)) do
           {:ok, job} ->
             {:ok, assign_job(socket, job)}
 
@@ -48,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   @impl true
   def handle_info(:refresh, socket) do
     socket =
-      case JobCatalog.get_job(socket.assigns.job.id) do
+      case JobCatalog.get_job(socket.assigns.job.id, job_scope_opts(socket)) do
         {:ok, job} -> assign_job(socket, job)
         {:error, :not_found} -> put_flash(socket, :error, "Job no longer exists")
       end
@@ -65,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    case JobCatalog.get_job(socket.assigns.job.id) do
+    case JobCatalog.get_job(socket.assigns.job.id, job_scope_opts(socket)) do
       {:ok, job} -> {:noreply, assign_job(socket, job)}
       {:error, :not_found} -> {:noreply, put_flash(socket, :error, "Job no longer exists")}
     end
@@ -314,7 +315,13 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                 >
                   <.icon name="hero-play" class="size-4" /> Trigger Now
                 </.ui_button>
-                <.ui_button variant="outline" size="sm" class="w-full" href={~p"/admin/oban"}>
+                <.ui_button
+                  :if={@show_oban_web}
+                  variant="outline"
+                  size="sm"
+                  class="w-full"
+                  href={~p"/admin/oban"}
+                >
                   <.icon name="hero-queue-list" class="size-4" /> View in Oban Web
                 </.ui_button>
                 <.ui_button variant="ghost" size="sm" class="w-full" navigate={~p"/admin/jobs"}>
@@ -522,9 +529,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   end
 
   defp assign_job(socket, job) do
+    job_scope = job_scope_opts(socket)
+    show_oban_web = show_oban_web?(socket.assigns.current_scope || %{})
+
     recent_runs =
       if job.worker do
-        JobCatalog.get_recent_runs(job.worker, limit: 20)
+        JobCatalog.get_recent_runs(job.worker, Keyword.merge(job_scope, limit: 20))
       else
         []
       end
@@ -541,6 +551,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     |> assign(:refresh_intervals, @refresh_intervals)
     |> assign(:refresh_timer, nil)
     |> assign(:chart_hours, 24)
+    |> assign(:show_oban_web, show_oban_web)
     |> load_chart_data()
   end
 
@@ -548,9 +559,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     job = socket.assigns.job
     hours = socket.assigns.chart_hours
 
+    job_scope = job_scope_opts(socket)
+
     chart_data =
       if job.worker do
-        JobCatalog.get_execution_stats(job.worker, hours: hours)
+        JobCatalog.get_execution_stats(job.worker, Keyword.merge(job_scope, hours: hours))
       else
         []
       end
@@ -721,4 +734,61 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       _ -> "ghost"
     end
   end
+
+  defp job_scope_opts(socket) do
+    scope = socket.assigns.current_scope || %{}
+    tenant_id = Scope.tenant_id(scope)
+    platform_admin? = platform_owner_admin?(scope)
+
+    [tenant_id: tenant_id, platform_admin?: platform_admin?]
+  end
+
+  defp platform_owner_admin?(%{
+         user: %{role: role} = user,
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
+    admin_role?(role) && platform_tenant?(tenant) && platform_owner?(user, tenant, memberships)
+  end
+
+  defp platform_owner_admin?(_), do: false
+
+  defp admin_role?(role), do: role in [:admin, :super_admin]
+
+  defp platform_tenant?(%{is_platform_tenant: true}), do: true
+  defp platform_tenant?(_), do: false
+
+  defp platform_owner?(user, tenant, memberships) do
+    tenant_owner? = Map.get(tenant, :owner_id) == user.id
+
+    membership_owner? =
+      Enum.any?(memberships || [], fn membership ->
+        to_string(membership.tenant_id) == to_string(tenant.id) and membership.role == :owner
+      end)
+
+    tenant_owner? || membership_owner?
+  end
+
+  defp show_oban_web?(%{
+         user: %{role: role},
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
+    platform_tenant?(tenant) || tenant_admin?(role, tenant, memberships)
+  end
+
+  defp show_oban_web?(_), do: false
+
+  defp tenant_admin?(role, tenant, memberships) do
+    admin_role?(role) || membership_admin?(tenant, memberships)
+  end
+
+  defp membership_admin?(%{id: tenant_id}, memberships) do
+    Enum.any?(memberships || [], fn membership ->
+      to_string(membership.tenant_id) == to_string(tenant_id) and
+        membership.role in [:admin, :owner]
+    end)
+  end
+
+  defp membership_admin?(_, _), do: false
 end

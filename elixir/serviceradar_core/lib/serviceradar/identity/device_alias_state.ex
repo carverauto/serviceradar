@@ -116,17 +116,23 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     end
 
     update :record_sighting do
-      description "Record a new sighting of this alias"
+      description "Record a new sighting and confirm if threshold is met"
       accept [:metadata]
-      require_atomic? false
+      argument :confirm_threshold, :integer, default: 3
 
-      change fn changeset, _context ->
-        current_count = Ash.Changeset.get_attribute(changeset, :sighting_count) || 0
+      change atomic_update(:last_seen_at, expr(now()))
+      change atomic_update(:sighting_count, expr(sighting_count + 1))
 
-        changeset
-        |> Ash.Changeset.change_attribute(:last_seen_at, DateTime.utc_now())
-        |> Ash.Changeset.change_attribute(:sighting_count, current_count + 1)
-      end
+      change atomic_update(
+               :state,
+               expr(
+                 if state == :detected and sighting_count + 1 >= ^arg(:confirm_threshold) do
+                   :confirmed
+                 else
+                   state
+                 end
+               )
+             )
     end
 
     # State machine transition actions

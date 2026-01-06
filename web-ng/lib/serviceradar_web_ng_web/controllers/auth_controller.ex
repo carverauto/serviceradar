@@ -24,9 +24,17 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   or the default analytics page.
   """
   def success(conn, _activity, nil, _token) do
+    redirect_path =
+      if Application.get_env(:serviceradar_web_ng, :dev_routes, false) ||
+           Application.get_env(:serviceradar_web_ng, :local_mailer, false) do
+        ~p"/dev/mailbox"
+      else
+        ~p"/users/log-in"
+      end
+
     conn
     |> put_flash(:info, "Check your email for the next step.")
-    |> redirect(to: ~p"/users/log-in")
+    |> redirect(to: redirect_path)
   end
 
   def success(conn, _activity, %_{} = user, _token) do

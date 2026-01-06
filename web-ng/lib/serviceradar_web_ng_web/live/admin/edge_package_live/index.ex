@@ -46,7 +46,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp apply_action(socket, :index, _params), do: socket
-  defp apply_action(socket, :new, _params), do: assign(socket, :show_create_modal, true)
+
+  defp apply_action(socket, :new, params) do
+    socket
+    |> assign(:show_create_modal, true)
+    |> assign(:selected_component_type, component_type_from_params(params))
+  end
 
   defp apply_action(socket, :show, %{"id" => id}) do
     case OnboardingPackages.get(id) do
@@ -245,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Edge Onboarding</h1>
             <p class="text-sm text-base-content/60">
-              Manage edge component onboarding packages for pollers, agents, and checkers.
+              Manage edge component onboarding packages for pollers, agents, checkers, and sync.
             </p>
           </div>
           <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
@@ -284,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <option value="checker" selected={@filter_component_type == "checker"}>
                   Checker
                 </option>
+                <option value="sync" selected={@filter_component_type == "sync"}>Sync</option>
               </select>
             </div>
           </:header>
@@ -447,7 +453,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 field={@form[:component_type]}
                 type="select"
                 label="Component Type"
-                options={[{"Poller", :poller}, {"Agent", :agent}, {"Checker", :checker}]}
+                value={@selected_component_type}
+                options={[
+                  {"Poller", :poller},
+                  {"Agent", :agent},
+                  {"Checker", :checker},
+                  {"Sync", :sync}
+                ]}
               />
 
               <%= if @selected_component_type in ["agent", "checker"] do %>
@@ -1039,6 +1051,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "poller")
   defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
   defp add_parent_type(attrs, _), do: attrs
+
+  defp component_type_from_params(%{"component_type" => type})
+       when type in ["poller", "agent", "checker", "sync"] do
+    type
+  end
+
+  defp component_type_from_params(_params), do: "poller"
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_error/1)

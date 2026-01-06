@@ -53,7 +53,6 @@ image:
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
-    sync: *appTag
     rperfClient: *appTag
     faker: *appTag
     rperfChecker: *appTag
@@ -212,7 +211,6 @@ spire:
   socketHostPath: ""
   joinTokenTTL: 15m
   otelServiceAccount: serviceradar-otel
-  syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
   dbEventWriterServiceAccount: serviceradar-db-event-writer

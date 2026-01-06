@@ -497,60 +497,6 @@ services:
     networks:
       - serviceradar-net
 
-  # ServiceRadar Sync Service (Device discovery synchronization)
-  sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
-    container_name: serviceradar-sync
-    ports:
-      - "50058:50058"  # gRPC port
-    volumes:
-      - ./docker/compose/sync.docker.json:/etc/serviceradar/sync.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - sync-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/sync.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      # Wait for dependencies
-      - WAIT_FOR_DATASVC=true
-      - WAIT_FOR_NATS=true
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-      spire-agent:
-        condition: service_healthy
-    # Health check disabled - sync service may not implement standard gRPC health service
-    # Service logs show when it's ready and healthy
-    # healthcheck:
-    #   test: ["CMD", "grpcurl", "-plaintext", "localhost:50058", "grpc.health.v1.Health/Check"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 60s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   # ServiceRadar OTEL Service (OpenTelemetry collector)
   otel:
     image: ghcr.io/carverauto/serviceradar-otel:${APP_TAG:-latest}
@@ -984,7 +930,6 @@ volumes:
     driver: local
   datasvc-data:
     driver: local
-  sync-data:
     driver: local
   otel-data:
     driver: local

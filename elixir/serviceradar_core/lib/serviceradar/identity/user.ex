@@ -117,7 +117,7 @@ defmodule ServiceRadar.Identity.User do
       end
 
       upsert? true
-      upsert_identity :unique_email
+      upsert_identity :email
       upsert_fields [:email]
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
@@ -369,7 +369,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :email, :ci_string do
       allow_nil? false
       public? true
-      description "User email address (unique per tenant)"
+      description "User email address (globally unique; memberships control access)"
       constraints match: ~r/^[^\s]+@[^\s]+$/
     end
 
@@ -455,7 +455,10 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
+    # Global email identity required by AshAuthentication for password/magic_link strategies.
+    # Email is globally unique - users access multiple tenants via memberships.
+    identity :email, [:email]
+    # Composite identity for multi-tenant queries (kept for backwards compatibility)
     identity :unique_email_per_tenant, [:tenant_id, :email]
-    identity :unique_email, [:email]
   end
 end

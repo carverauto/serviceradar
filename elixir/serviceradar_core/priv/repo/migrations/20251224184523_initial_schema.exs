@@ -323,7 +323,7 @@ defmodule ServiceRadar.Repo.Migrations.InitialSchema do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:ng_users, [:tenant_id, :email], name: "ng_users_unique_email_index")
+    create unique_index(:ng_users, [:email], name: "ng_users_unique_email_index")
 
     create unique_index(:ng_users, [:tenant_id, :email],
              name: "ng_users_unique_email_per_tenant_index"

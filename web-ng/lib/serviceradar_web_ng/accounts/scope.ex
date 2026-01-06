@@ -76,21 +76,36 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def tenant_id(_), do: nil
 
   @doc """
-  Returns true if the user is a platform admin viewing the platform tenant.
+  Returns true if the user is a platform admin.
 
-  Platform admin access requires BOTH:
+  Platform admin access requires:
   1. User has super_admin role
-  2. Active tenant is the platform tenant (is_platform_tenant: true)
+  2. User is associated to the platform tenant (active tenant or membership)
 
-  This ensures platform-level views (cluster nodes, agent gateways) are only
-  visible when actively managing the platform, not when switched to a
-  regular tenant context.
+  This avoids hard-coding tenant slugs and ensures platform owners retain
+  visibility even when their active tenant is not the platform tenant.
   """
   def platform_admin?(%{
         user: %{role: :super_admin},
-        active_tenant: %{is_platform_tenant: true}
-      }),
-      do: true
+        active_tenant: active_tenant,
+        tenant_memberships: memberships
+      }) do
+    platform_active? =
+      case active_tenant do
+        %{is_platform_tenant: true} -> true
+        _ -> false
+      end
+
+    platform_member? =
+      Enum.any?(memberships || [], fn membership ->
+        case membership.tenant do
+          %{is_platform_tenant: true} -> true
+          _ -> false
+        end
+      end)
+
+    platform_active? || platform_member?
+  end
 
   def platform_admin?(_), do: false
 

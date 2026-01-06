@@ -11,8 +11,8 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
              "REFRESH MATERIALIZED VIEW CONCURRENTLY otel_trace_summaries"
   end
 
-  test "returns error when view is missing" do
-    assert {:error, _} = RefreshTraceSummariesWorker.perform(%Oban.Job{args: %{}})
+  test "returns ok when view is missing" do
+    assert :ok = RefreshTraceSummariesWorker.perform(%Oban.Job{args: %{}})
   end
 
   test "refreshes the materialized view when present" do

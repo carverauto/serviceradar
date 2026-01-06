@@ -19,6 +19,8 @@ defmodule ServiceRadar.Identity.Tenant do
   - `enterprise` - Custom limits and features
   """
 
+  require Ash.Query
+
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
@@ -72,6 +74,13 @@ defmodule ServiceRadar.Identity.Tenant do
 
     create :create do
       accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
+      change ServiceRadar.Identity.Changes.GenerateSlug
+      change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+    end
+
+    create :create_platform do
+      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
+      change set_attribute(:is_platform_tenant, true)
       change ServiceRadar.Identity.Changes.GenerateSlug
       change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
     end
@@ -276,6 +285,9 @@ defmodule ServiceRadar.Identity.Tenant do
       change fn changeset, _ ->
         changeset
         |> Ash.Changeset.after_action(fn _changeset, tenant ->
+          first_user? = first_user?()
+          platform_tenant = if first_user?, do: fetch_platform_tenant(), else: {:ok, nil}
+
           owner_params = Ash.Changeset.get_argument(changeset, :owner)
 
           user_params = %{
@@ -285,7 +297,7 @@ defmodule ServiceRadar.Identity.Tenant do
               owner_params["password_confirmation"] || owner_params[:password_confirmation],
             display_name: owner_params["display_name"] || owner_params[:display_name],
             tenant_id: tenant.id,
-            role: :admin
+            role: if(first_user?, do: :super_admin, else: :admin)
           }
 
           with {:ok, user} <-
@@ -301,11 +313,13 @@ defmodule ServiceRadar.Identity.Tenant do
                      tenant_id: tenant.id,
                      role: :owner
                    },
-                   tenant: tenant.id,
                    authorize?: false
                  ),
                {:ok, final_tenant} <- Ash.update(tenant, %{owner_id: user.id}, authorize?: false) do
-            {:ok, final_tenant}
+            with {:ok, platform_tenant} <- platform_tenant,
+                 {:ok, _} <- ensure_platform_owner(first_user?, platform_tenant, user) do
+              {:ok, final_tenant}
+            end
           else
             {:error, error} -> {:error, error}
           end
@@ -313,6 +327,43 @@ defmodule ServiceRadar.Identity.Tenant do
       end
     end
   end
+
+  require Ash.Query
+
+  defp first_user? do
+    ServiceRadar.Identity.User
+    |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one()
+    |> case do
+      {:ok, nil} -> true
+      {:ok, _user} -> false
+      {:error, _} -> false
+    end
+  end
+
+  defp fetch_platform_tenant do
+    __MODULE__
+    |> Ash.Query.for_read(:read, %{}, authorize?: false)
+    |> Ash.Query.filter(is_platform_tenant: true)
+    |> Ash.read_one()
+  end
+
+  defp ensure_platform_owner(true, %{id: tenant_id} = platform_tenant, user) when is_binary(tenant_id) do
+    with {:ok, _} <-
+           Ash.create(ServiceRadar.Identity.TenantMembership, %{
+             user_id: user.id,
+             tenant_id: tenant_id,
+             role: :owner
+           },
+             authorize?: false
+           ),
+         {:ok, _} <- Ash.update(platform_tenant, %{owner_id: user.id}, authorize?: false) do
+      {:ok, :ok}
+    end
+  end
+
+  defp ensure_platform_owner(_, _, _), do: {:ok, :ok}
 
   policies do
     # Allow public tenant registration (no actor required)
@@ -559,5 +610,6 @@ defmodule ServiceRadar.Identity.Tenant do
 
   validations do
     validate ServiceRadar.Identity.Validations.UniquePlatformTenant
+    validate ServiceRadar.Identity.Validations.ReservedTenantSlug
   end
 end

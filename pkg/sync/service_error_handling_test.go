@@ -38,7 +38,6 @@ var (
 	errFetch1Failed     = errors.New("fetch1 failed")
 	errFetch2Failed     = errors.New("fetch2 failed")
 	errTestSequence     = errors.New("test sequence error")
-	errKVWriteFailed    = errors.New("kv write failed")
 	errReconcile1Failed = errors.New("reconcile1 failed")
 	errReconcile2Failed = errors.New("reconcile2 failed")
 	errTaskFailed       = errors.New("task failed")
@@ -51,6 +50,58 @@ const (
 	testErrorStopTimeout    = 1 * time.Second
 )
 
+// testServiceWithMocks creates a test sync service with two mock integrations.
+func testServiceWithMocks(
+	t *testing.T,
+	ctrl *gomock.Controller,
+) (*SimpleSyncService, *MockIntegration, *MockIntegration) {
+	t.Helper()
+
+	mockInt1 := NewMockIntegration(ctrl)
+	mockInt2 := NewMockIntegration(ctrl)
+
+	s, err := NewSimpleSyncService(
+		context.Background(),
+		&Config{
+			AgentID:           "test-agent",
+			PollerID:          "test-poller",
+			DiscoveryInterval: models.Duration(time.Minute),
+			UpdateInterval:    models.Duration(time.Minute),
+			ListenAddr:        ":50051",
+			Sources: map[string]*models.SourceConfig{
+				"source1": {
+					Type:     "test1",
+					Endpoint: "http://test1",
+					AgentID:  "test-agent",
+				},
+				"source2": {
+					Type:     "test2",
+					Endpoint: "http://test2",
+					AgentID:  "test-agent",
+				},
+			},
+		},
+		map[string]IntegrationFactory{
+			"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+				return mockInt1
+			},
+			"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
+				return mockInt2
+			},
+		},
+		logger.NewTestLogger(),
+	)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		if err := s.Stop(context.Background()); err != nil {
+			t.Logf("Failed to stop service: %v", err)
+		}
+	})
+
+	return s, mockInt1, mockInt2
+}
+
 // TestRunDiscoveryErrorAggregation validates that runDiscovery properly aggregates errors
 func TestRunDiscoveryErrorAggregation(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -58,66 +109,42 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		setupMocks    func(*MockKVClient, *MockIntegration, *MockIntegration)
+		setupMocks    func(*MockIntegration, *MockIntegration)
 		expectedError string
 		errorCount    int
 	}{
 		{
 			name: "single source fetch error",
-			setupMocks: func(kvClient *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetchFailed)
+			setupMocks: func(int1 *MockIntegration, int2 *MockIntegration) {
+				int1.EXPECT().Fetch(gomock.Any()).Return(nil, errFetchFailed)
 				int2.EXPECT().Fetch(gomock.Any()).Return(
-					map[string][]byte{"key2": []byte("data2")},
 					[]*models.DeviceUpdate{{IP: "192.168.1.2"}},
 					nil,
 				)
-				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			expectedError: "discovery completed with 1 errors",
 			errorCount:    1,
 		},
 		{
 			name: "multiple source fetch errors",
-			setupMocks: func(_ *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetch1Failed)
-				int2.EXPECT().Fetch(gomock.Any()).Return(nil, nil, errFetch2Failed)
+			setupMocks: func(int1 *MockIntegration, int2 *MockIntegration) {
+				int1.EXPECT().Fetch(gomock.Any()).Return(nil, errFetch1Failed)
+				int2.EXPECT().Fetch(gomock.Any()).Return(nil, errFetch2Failed)
 			},
 			expectedError: "discovery completed with 2 errors",
 			errorCount:    2,
 		},
 		{
-			name: "fetch success but KV write error",
-			setupMocks: func(kvClient *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
-				int1.EXPECT().Fetch(gomock.Any()).Return(
-					map[string][]byte{"key1": []byte("data1")},
-					[]*models.DeviceUpdate{{IP: "192.168.1.1"}},
-					nil,
-				)
-				int2.EXPECT().Fetch(gomock.Any()).Return(
-					map[string][]byte{"key2": []byte("data2")},
-					[]*models.DeviceUpdate{{IP: "192.168.1.2"}},
-					nil,
-				)
-				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, errKVWriteFailed)
-				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, nil)
-			},
-			expectedError: "discovery completed with 1 errors",
-			errorCount:    1,
-		},
-		{
 			name: "no errors",
-			setupMocks: func(kvClient *MockKVClient, int1 *MockIntegration, int2 *MockIntegration) {
+			setupMocks: func(int1 *MockIntegration, int2 *MockIntegration) {
 				int1.EXPECT().Fetch(gomock.Any()).Return(
-					map[string][]byte{"key1": []byte("data1")},
 					[]*models.DeviceUpdate{{IP: "192.168.1.1"}},
 					nil,
 				)
 				int2.EXPECT().Fetch(gomock.Any()).Return(
-					map[string][]byte{"key2": []byte("data2")},
 					[]*models.DeviceUpdate{{IP: "192.168.1.2"}},
 					nil,
 				)
-				kvClient.EXPECT().PutMany(gomock.Any(), gomock.Any()).Return(nil, nil).Times(2)
 			},
 			expectedError: "",
 			errorCount:    0,
@@ -126,61 +153,11 @@ func TestRunDiscoveryErrorAggregation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockKVClient := NewMockKVClient(ctrl)
-			expectNoopBatchGet(mockKVClient)
+			s, mockInt1, mockInt2 := testServiceWithMocks(t, ctrl)
 
-			mockGRPCClient := NewMockGRPCClient(ctrl)
-			mockGRPCClient.EXPECT().Close().Return(nil)
+			tt.setupMocks(mockInt1, mockInt2)
 
-			mockInt1 := NewMockIntegration(ctrl)
-			mockInt2 := NewMockIntegration(ctrl)
-
-			s, err := NewSimpleSyncService(
-				context.Background(),
-				&Config{
-					AgentID:           "test-agent",
-					PollerID:          "test-poller",
-					DiscoveryInterval: models.Duration(time.Minute),
-					UpdateInterval:    models.Duration(time.Minute),
-					ListenAddr:        ":50051",
-					Sources: map[string]*models.SourceConfig{
-						"source1": {
-							Type:     "test1",
-							Endpoint: "http://test1",
-							AgentID:  "test-agent",
-						},
-						"source2": {
-							Type:     "test2",
-							Endpoint: "http://test2",
-							AgentID:  "test-agent",
-						},
-					},
-				},
-				mockKVClient,
-				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt1
-					},
-					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt2
-					},
-				},
-				mockGRPCClient,
-				logger.NewTestLogger(),
-			)
-			require.NoError(t, err)
-
-			defer func() {
-				if err := s.Stop(context.Background()); err != nil {
-					t.Logf("Failed to stop service: %v", err)
-				}
-			}()
-
-			// Setup mocks
-			tt.setupMocks(mockKVClient, mockInt1, mockInt2)
-
-			// Run discovery
-			err = s.runDiscovery(context.Background())
+			err := s.runDiscovery(context.Background())
 
 			if tt.errorCount > 0 {
 				require.Error(t, err)
@@ -234,64 +211,11 @@ func TestRunArmisUpdatesErrorAggregation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockKVClient := NewMockKVClient(ctrl)
-			expectNoopBatchGet(mockKVClient)
+			s, mockInt1, mockInt2 := testServiceWithMocks(t, ctrl)
 
-			mockGRPCClient := NewMockGRPCClient(ctrl)
-			mockGRPCClient.EXPECT().Close().Return(nil)
-
-			mockInt1 := NewMockIntegration(ctrl)
-			mockInt2 := NewMockIntegration(ctrl)
-
-			s, err := NewSimpleSyncService(
-				context.Background(),
-				&Config{
-					AgentID:           "test-agent",
-					PollerID:          "test-poller",
-					DiscoveryInterval: models.Duration(time.Minute),
-					UpdateInterval:    models.Duration(time.Minute),
-					ListenAddr:        ":50051",
-					Sources: map[string]*models.SourceConfig{
-						"source1": {
-							Type:     "test1",
-							Endpoint: "http://test1",
-							AgentID:  "test-agent",
-						},
-						"source2": {
-							Type:     "test2",
-							Endpoint: "http://test2",
-							AgentID:  "test-agent",
-						},
-					},
-				},
-				mockKVClient,
-				map[string]IntegrationFactory{
-					"test1": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt1
-					},
-					"test2": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
-						return mockInt2
-					},
-				},
-				mockGRPCClient,
-				logger.NewTestLogger(),
-			)
-
-			require.NoError(t, err)
-
-			defer func() {
-				if err := s.Stop(context.Background()); err != nil {
-					t.Logf("Failed to stop service: %v", err)
-				}
-			}()
-
-			// Sweep timing logic removed - updates proceed immediately
-
-			// Setup mocks
 			tt.setupMocks(mockInt1, mockInt2)
 
-			// Run armis updates
-			err = s.runArmisUpdates(context.Background())
+			err := s.runArmisUpdates(context.Background())
 
 			if tt.errorCount > 0 {
 				require.Error(t, err)
@@ -342,11 +266,6 @@ func TestSafelyRunTask(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockKVClient := NewMockKVClient(ctrl)
-			expectNoopBatchGet(mockKVClient)
-			mockGRPCClient := NewMockGRPCClient(ctrl)
-			mockGRPCClient.EXPECT().Close().Return(nil)
-
 			s, err := NewSimpleSyncService(
 				context.Background(),
 				&Config{
@@ -363,13 +282,11 @@ func TestSafelyRunTask(t *testing.T) {
 						},
 					},
 				},
-				mockKVClient,
 				map[string]IntegrationFactory{
 					"dummy": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 						return &dummyIntegration{}
 					},
 				},
-				mockGRPCClient,
 				logger.NewTestLogger(),
 			)
 
@@ -426,11 +343,6 @@ func TestErrorChannelOverflow(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockKVClient := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKVClient)
-	mockGRPCClient := NewMockGRPCClient(ctrl)
-	mockGRPCClient.EXPECT().Close().Return(nil)
-
 	s, err := NewSimpleSyncService(
 		context.Background(),
 		&Config{
@@ -447,13 +359,11 @@ func TestErrorChannelOverflow(t *testing.T) {
 				},
 			},
 		},
-		mockKVClient,
 		map[string]IntegrationFactory{
 			"dummy": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 				return &dummyIntegration{}
 			},
 		},
-		mockGRPCClient,
 		logger.NewTestLogger(),
 	)
 
@@ -489,9 +399,6 @@ func TestGracefulShutdown(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockKVClient := NewMockKVClient(ctrl)
-	expectNoopBatchGet(mockKVClient)
-	mockGRPCClient := NewMockGRPCClient(ctrl)
 	mockIntegration := NewMockIntegration(ctrl)
 
 	var taskStarted atomic.Bool
@@ -514,13 +421,11 @@ func TestGracefulShutdown(t *testing.T) {
 				},
 			},
 		},
-		mockKVClient,
 		map[string]IntegrationFactory{
 			"test": func(_ context.Context, _ *models.SourceConfig, _ logger.Logger) Integration {
 				return mockIntegration
 			},
 		},
-		mockGRPCClient,
 		logger.NewTestLogger(),
 	)
 
@@ -530,7 +435,7 @@ func TestGracefulShutdown(t *testing.T) {
 	taskStartedChan := make(chan struct{})
 
 	// Setup mock to simulate slow operation that respects context cancellation
-	mockIntegration.EXPECT().Fetch(gomock.Any()).DoAndReturn(func(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
+	mockIntegration.EXPECT().Fetch(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]*models.DeviceUpdate, error) {
 		taskStarted.Store(true)
 		close(taskStartedChan) // Signal that task has started
 
@@ -539,15 +444,12 @@ func TestGracefulShutdown(t *testing.T) {
 		case <-time.After(testErrorOperationDelay):
 			// Normal completion after 50ms (shorter for tests)
 			taskCompleted.Store(true)
-			return nil, nil, nil
+			return nil, nil
 		case <-ctx.Done():
 			// Context was canceled, exit early
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		}
 	})
-
-	// Expect Close to be called during Stop
-	mockGRPCClient.EXPECT().Close().Return(nil)
 
 	// Launch a task - context parameter is ignored now as launchTask uses service's internal context
 	s.launchTask(context.Background(), "test", s.runDiscovery)
@@ -584,8 +486,8 @@ func TestGracefulShutdown(t *testing.T) {
 // dummyIntegration is a test integration that does nothing
 type dummyIntegration struct{}
 
-func (*dummyIntegration) Fetch(_ context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
-	return nil, nil, nil
+func (*dummyIntegration) Fetch(_ context.Context) ([]*models.DeviceUpdate, error) {
+	return nil, nil
 }
 
 func (*dummyIntegration) Reconcile(_ context.Context) error {

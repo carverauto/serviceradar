@@ -324,6 +324,7 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
   config :serviceradar_web_ng, dev_routes: dev_routes
+  config :serviceradar_web_ng, local_mailer: local_mailer
   config :serviceradar_web_ng, security_mode: security_mode
 
   # Token signing secret for AshAuthentication JWT tokens

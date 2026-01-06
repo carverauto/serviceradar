@@ -43,7 +43,7 @@ kubectl exec -n "${NAMESPACE}" deploy/serviceradar-tools -- \
   cnpg-migrate --app-name reset-cnpg
 
 echo "♻️  Restarting core services so they reconnect to the fresh database..."
-for deployment in serviceradar-core serviceradar-sync serviceradar-datasvc \
+for deployment in serviceradar-core serviceradar-datasvc \
   serviceradar-db-event-writer serviceradar-web-ng serviceradar-agent \
   serviceradar-poller serviceradar-snmp-checker; do
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}" || true

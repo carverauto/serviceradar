@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -31,11 +30,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -51,44 +48,11 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
-	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
-		DeviceTargets: []models.DeviceTarget{
-			{
-				Network:    "192.168.1.1/32",
-				SweepModes: []models.SweepMode{},
-				QueryLabel: "test",
-				Source:     "armis",
-				Metadata: map[string]string{
-					"armis_device_id":  "1",
-					"integration_id":   "1",
-					"integration_type": "armis",
-					"query_label":      "test",
-				},
-			},
-			{
-				Network:    "192.168.1.2/32",
-				SweepModes: []models.SweepMode{},
-				QueryLabel: "test",
-				Source:     "armis",
-				Metadata: map[string]string{
-					"armis_device_id":  "2",
-					"integration_id":   "2",
-					"integration_type": "armis",
-					"query_label":      "test",
-				},
-			},
-		},
-	}
 
-	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
+	setupArmisMocks(t, mocks, firstPageResp)
 
-	result, events, err := integration.Fetch(context.Background())
-	verifyArmisResults(t, result, events, err, expectedDevices)
-
-	// Ensure that the enrichment data was not added
-	_, exists := result["_sweep_results"]
-	assert.False(t, exists)
+	events, err := integration.Fetch(context.Background())
+	verifyArmisResults(t, events, err, expectedDevices)
 }
 
 // TestArmisIntegration_Fetch_WithUpdaterAndCorrelation tests the discovery workflow (Fetch) and
@@ -112,17 +76,14 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	// Expectations for the initial device fetch only
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
 	// 3. Execute Fetch (Discovery only)
-	result, events, err := integration.Fetch(context.Background())
+	events, err := integration.Fetch(context.Background())
 
 	// 4. Assert Fetch results (Discovery only)
 	require.NoError(t, err)
-	require.NotNil(t, result)
-
 	// Verify devices and sweep results
-	verifyArmisResults(t, result, events, err, expectedDevices)
+	verifyArmisResults(t, events, err, expectedDevices)
 
 	// 5. Test Reconcile (Updates) - should perform correlation and updates
 	// Expectations for the reconciliation logic
@@ -166,7 +127,6 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 	mocks := &armisMocks{
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
-		KVWriter:      NewMockKVWriter(ctrl),
 		SweepQuerier:  NewMockSRQLQuerier(ctrl),
 		Updater:       NewMockArmisUpdater(ctrl),
 	}
@@ -188,7 +148,6 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		PageSize:      100,
 		TokenProvider: mocks.TokenProvider,
 		DeviceFetcher: mocks.DeviceFetcher,
-		KVWriter:      mocks.KVWriter,
 		SweepQuerier:  mocks.SweepQuerier,
 		Updater:       mocks.Updater,
 		Logger:        logger.NewTestLogger(),
@@ -198,7 +157,6 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 type armisMocks struct {
 	TokenProvider *MockTokenProvider
 	DeviceFetcher *MockDeviceFetcher
-	KVWriter      *MockKVWriter
 	SweepQuerier  *MockSRQLQuerier
 	Updater       *MockArmisUpdater
 }
@@ -245,7 +203,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 	}
 }
 
-func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, _ *models.SweepConfig) {
+func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse) {
 	t.Helper()
 
 	testAccessToken := testAccessToken
@@ -253,15 +211,12 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, _ *m
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(resp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.DeviceUpdate, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, events []*models.DeviceUpdate, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Empty(t, result, "per-device KV cache is disabled")
 
 	assert.Len(t, events, len(expectedDevices))
 
@@ -294,7 +249,6 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		PageSize:      50,
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
-		KVWriter:      NewMockKVWriter(ctrl),
 		// Explicitly nil for this test's scope
 		Updater:      nil,
 		SweepQuerier: nil,
@@ -326,14 +280,10 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 50).Return(firstPageResp, nil)
 	integration.DeviceFetcher.(*MockDeviceFetcher).
 		EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 2, 50).Return(secondPageResp, nil)
-	integration.KVWriter.(*MockKVWriter).
-		EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
-	result, events, err := integration.Fetch(context.Background())
+	events, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Empty(t, result)
 	require.Len(t, events, 4)
 }
 
@@ -355,7 +305,6 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		PageSize:      100,
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
-		KVWriter:      NewMockKVWriter(ctrl),
 		// Explicitly nil for this test's scope
 		Updater:      nil,
 		SweepQuerier: nil,
@@ -385,40 +334,20 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 			},
 			expectedError: "network error",
 		},
-		{
-			name: "kv writer error is logged but doesn't fail fetch",
-			setupMocks: func(i *ArmisIntegration) {
-				i.TokenProvider.(*MockTokenProvider).EXPECT().GetAccessToken(gomock.Any()).Return("test-token", nil)
-				firstPageResp := &SearchResponse{Data: struct {
-					Count   int         `json:"count"`
-					Next    int         `json:"next"`
-					Prev    interface{} `json:"prev"`
-					Results []Device    `json:"results"`
-					Total   int         `json:"total"`
-				}{Count: 1, Next: 0,
-					Results: []Device{{ID: 1, IPAddress: "192.168.1.1", Name: "Device 1"}}, Total: 1}, Success: true}
-				i.DeviceFetcher.(*MockDeviceFetcher).
-					EXPECT().FetchDevicesPage(gomock.Any(),
-					"test-token", "in:devices orderBy=id", 0, 100).Return(firstPageResp, nil)
-				i.KVWriter.(*MockKVWriter).
-					EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(errKVWriteError)
-			},
-			expectedError: "",
-		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMocks(integration)
 
-			result, _, err := integration.Fetch(context.Background())
+			events, err := integration.Fetch(context.Background())
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
-				assert.Nil(t, result)
+				assert.Nil(t, events)
 			} else {
 				require.NoError(t, err)
-				require.NotNil(t, result)
+				require.NotNil(t, events)
 			}
 		})
 	}
@@ -444,12 +373,11 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 		PageSize:      100,
 		TokenProvider: mockTokenProvider,
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
-		KVWriter:      NewMockKVWriter(ctrl),
 	}
 
-	result, _, err := integration.Fetch(context.Background())
+	events, err := integration.Fetch(context.Background())
 
-	assert.Nil(t, result)
+	assert.Nil(t, events)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no queries configured")
 }
@@ -524,19 +452,11 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 		FetchDevicesPage(gomock.Any(), testAccessToken, "in:devices boundaries:\"Guest\"", 0, 100).
 		Return(guestResp, nil)
 
-	// The KVWriter should be called ONCE with a sweep config containing ALL devices from BOTH queries
-
-	mocks.KVWriter.EXPECT().
-		WriteSweepConfig(gomock.Any(), gomock.Any()).
-		Return(nil)
-
 	// Execute the fetch
-	result, events, err := integration.Fetch(context.Background())
+	events, err := integration.Fetch(context.Background())
 
 	// Verify no errors
 	require.NoError(t, err)
-	require.NotNil(t, result)
-
 	// Verify that we got devices from BOTH queries
 	assert.Len(t, events, 4, "Should have 4 device events from both queries combined")
 
@@ -561,9 +481,7 @@ func TestArmisIntegration_FetchMultipleQueries(t *testing.T) {
 	assert.Equal(t, 2, corporateEvents, "Should have 2 events from corporate query")
 	assert.Equal(t, 2, guestEvents, "Should have 2 events from guest query")
 
-	assert.Empty(t, result, "Per-device KV entries removed; sweep config handled via KVWriter")
-
-	t.Log("Successfully verified that multiple queries are accumulated in memory and written as chunked sweep config")
+	t.Log("Successfully verified that multiple queries are accumulated in memory")
 }
 
 func createSuccessResponse(t *testing.T) *http.Response {
@@ -733,223 +651,6 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 	}
 }
 
-type mockKVClient struct {
-	ctrl     *gomock.Controller
-	recorder *mockKVClientRecorder
-}
-
-type mockKVClientRecorder struct {
-	mock *mockKVClient
-}
-
-func newMockKVClient(ctrl *gomock.Controller) *mockKVClient {
-	mock := &mockKVClient{ctrl: ctrl}
-	mock.recorder = &mockKVClientRecorder{mock}
-
-	return mock
-}
-
-func (m *mockKVClient) EXPECT() *mockKVClientRecorder {
-	return m.recorder
-}
-
-func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
-	m.ctrl.T.Helper()
-
-	varargs := []interface{}{ctx, in}
-
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-
-	ret := m.ctrl.Call(m, "Put", varargs...)
-
-	ret0, _ := ret[0].(*proto.PutResponse)
-	ret1, _ := ret[1].(error)
-
-	return ret0, ret1
-}
-
-func (m *mockKVClient) PutIfAbsent(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
-	m.ctrl.T.Helper()
-
-	varargs := []interface{}{ctx, in}
-
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-
-	ret := m.ctrl.Call(m, "PutIfAbsent", varargs...)
-
-	ret0, _ := ret[0].(*proto.PutResponse)
-	ret1, _ := ret[1].(error)
-
-	return ret0, ret1
-}
-
-func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
-	m.ctrl.T.Helper()
-
-	varargs := []interface{}{ctx, in}
-
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-
-	ret := m.ctrl.Call(m, "PutMany", varargs...)
-	ret0, _ := ret[0].(*proto.PutManyResponse)
-	ret1, _ := ret[1].(error)
-
-	return ret0, ret1
-}
-
-func (m *mockKVClient) Update(ctx context.Context, in *proto.UpdateRequest, opts ...grpc.CallOption) (*proto.UpdateResponse, error) {
-	m.ctrl.T.Helper()
-
-	varargs := []interface{}{ctx, in}
-
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-
-	ret := m.ctrl.Call(m, "Update", varargs...)
-	ret0, _ := ret[0].(*proto.UpdateResponse)
-	ret1, _ := ret[1].(error)
-
-	return ret0, ret1
-}
-
-func (mr *mockKVClientRecorder) PutMany(ctx, in interface{}, opts ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-
-	varargs := append([]interface{}{ctx, in}, opts...)
-
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*mockKVClient)(nil).PutMany), varargs...)
-}
-
-func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-
-	varargs := append([]interface{}{ctx, in}, opts...)
-
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
-}
-
-func (mr *mockKVClientRecorder) Update(ctx, in interface{}, opts ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-
-	varargs := append([]interface{}{ctx, in}, opts...)
-
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*mockKVClient)(nil).Update), varargs...)
-}
-
-func (mr *mockKVClientRecorder) PutIfAbsent(ctx, in interface{}, opts ...interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-
-	varargs := append([]interface{}{ctx, in}, opts...)
-
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutIfAbsent", reflect.TypeOf((*mockKVClient)(nil).PutIfAbsent), varargs...)
-}
-
-func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (*mockKVClient) BatchGet(_ context.Context, _ *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
-	return nil, errNotImplemented
-}
-
-func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, errNotImplemented
-}
-
-func (*mockKVClient) Info(_ context.Context, _ *proto.InfoRequest, _ ...grpc.CallOption) (*proto.InfoResponse, error) {
-	return &proto.InfoResponse{Domain: "test", Bucket: "test"}, nil
-}
-
-func (*mockKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.CallOption) (*proto.ListKeysResponse, error) {
-	return nil, errNotImplemented
-}
-
-func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockKV := newMockKVClient(ctrl)
-	t.Logf("MockKVClient created: %v", mockKV)
-
-	kvWriter := &DefaultKVWriter{
-		KVClient:   mockKV,
-		ServerName: "test-server",
-		AgentID:    "test-server",
-		Logger:     logger.NewTestLogger(),
-	}
-
-	testSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
-	}
-
-	testCases := []struct {
-		name          string
-		setupMock     func(*mockKVClientRecorder)
-		expectedError string
-	}{
-		{
-			name: "successful write",
-			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-						assert.Len(t, req.Entries, 1)
-						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Entries[0].Key)
-
-						var config models.SweepConfig
-						err := json.Unmarshal(req.Entries[0].Value, &config)
-						require.NoError(t, err)
-						assert.Equal(t, testSweepConfig.Networks, config.Networks)
-
-						return &proto.PutManyResponse{}, nil
-					})
-			},
-			expectedError: "",
-		},
-		{
-			name: "KV client error",
-			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany with error")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
-			},
-			expectedError: "failed to write sweep config",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Log("Starting test case setup")
-
-			tc.setupMock(mockKV.EXPECT())
-
-			t.Log("Mock expectation set")
-			t.Log("Calling WriteSweepConfig")
-
-			err := kvWriter.WriteSweepConfig(context.Background(), testSweepConfig)
-
-			t.Log("WriteSweepConfig returned")
-
-			if tc.expectedError != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.expectedError)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1004,7 +705,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestProcessDevices verifies that Armis devices are converted into KV entries and IP list
+// TestProcessDevices verifies that Armis devices are converted into DeviceUpdate events.
 func TestProcessDevices(t *testing.T) {
 	integ := &ArmisIntegration{
 		Config: &models.SourceConfig{AgentID: "test-agent", PollerID: "poller", Partition: "part"},
@@ -1021,15 +722,7 @@ func TestProcessDevices(t *testing.T) {
 		2: "test_query_2",
 	}
 
-	deviceQueries := map[int]models.QueryConfig{
-		1: {Label: "test_query_1", SweepModes: []models.SweepMode{models.ModeTCP}},
-		2: {Label: "test_query_2", SweepModes: []models.SweepMode{models.ModeICMP}},
-	}
-
-	data, ips, events, deviceTargets := integ.processDevices(context.Background(), devices, deviceLabels, deviceQueries)
-
-	require.Empty(t, data, "per-device KV payloads should be omitted")
-	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
+	events := integ.processDevices(context.Background(), devices, deviceLabels)
 
 	// Verify events were created correctly
 	require.Len(t, events, 2, "should have one event per device")
@@ -1069,35 +762,6 @@ func TestProcessDevices(t *testing.T) {
 	assert.Equal(t, "2", events[1].Metadata["integration_id"])
 	assert.Equal(t, "2", events[1].Metadata["armis_device_id"])
 	assert.Equal(t, "test_query_2", events[1].Metadata["query_label"])
-
-	// Verify device targets were created correctly
-	require.Len(t, deviceTargets, 2)
-	// Find device targets by network
-	var target1, target2 *models.DeviceTarget
-
-	for i := range deviceTargets {
-		target := &deviceTargets[i]
-		switch target.Network {
-		case "192.168.1.1/32":
-			target1 = target
-		case "192.168.1.2/32":
-			target2 = target
-		}
-	}
-	// Verify device target 1 (TCP)
-	require.NotNil(t, target1)
-	assert.Equal(t, []models.SweepMode{models.ModeTCP}, target1.SweepModes)
-	assert.Equal(t, "test_query_1", target1.QueryLabel)
-	assert.Equal(t, "armis", target1.Source)
-	assert.Equal(t, "1", target1.Metadata["armis_device_id"])
-	// Verify device target 2 (ICMP)
-	require.NotNil(t, target2)
-	assert.Equal(t, []models.SweepMode{models.ModeICMP}, target2.SweepModes)
-	assert.Equal(t, "test_query_2", target2.QueryLabel)
-	assert.Equal(t, "armis", target2.Source)
-	assert.Equal(t, "2", target2.Metadata["armis_device_id"])
-
-	require.Empty(t, data)
 }
 
 func TestDeviceAggregatorAggregatesByID(t *testing.T) {
@@ -1138,105 +802,6 @@ func TestDeviceAggregatorAggregatesByID(t *testing.T) {
 	assert.ElementsMatch(t, []models.SweepMode{models.ModeTCP, models.ModeICMP}, queryCfg.SweepModes)
 }
 
-type fakeKVClient struct {
-	getFn      func(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
-	batchGetFn func(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error)
-}
-
-func (f *fakeKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
-	if f.getFn != nil {
-		return f.getFn(ctx, in, opts...)
-	}
-	return &proto.GetResponse{}, nil
-}
-
-func (f *fakeKVClient) BatchGet(ctx context.Context, in *proto.BatchGetRequest, opts ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-	if f.batchGetFn != nil {
-		return f.batchGetFn(ctx, in, opts...)
-	}
-
-	resp := &proto.BatchGetResponse{Results: make([]*proto.BatchGetEntry, 0, len(in.GetKeys()))}
-	for _, key := range in.GetKeys() {
-		single, err := f.Get(ctx, &proto.GetRequest{Key: key}, opts...)
-		if err != nil {
-			return nil, err
-		}
-		resp.Results = append(resp.Results, &proto.BatchGetEntry{
-			Key:      key,
-			Value:    single.GetValue(),
-			Found:    single.GetFound(),
-			Revision: single.GetRevision(),
-		})
-	}
-
-	return resp, nil
-}
-
-func (*fakeKVClient) Put(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
-	return &proto.PutResponse{}, nil
-}
-
-func (*fakeKVClient) PutIfAbsent(context.Context, *proto.PutRequest, ...grpc.CallOption) (*proto.PutResponse, error) {
-	return &proto.PutResponse{}, nil
-}
-
-func (*fakeKVClient) PutMany(context.Context, *proto.PutManyRequest, ...grpc.CallOption) (*proto.PutManyResponse, error) {
-	return &proto.PutManyResponse{}, nil
-}
-
-func (*fakeKVClient) Update(context.Context, *proto.UpdateRequest, ...grpc.CallOption) (*proto.UpdateResponse, error) {
-	return &proto.UpdateResponse{}, nil
-}
-
-func (*fakeKVClient) Delete(context.Context, *proto.DeleteRequest, ...grpc.CallOption) (*proto.DeleteResponse, error) {
-	return &proto.DeleteResponse{}, nil
-}
-
-func (*fakeKVClient) Watch(context.Context, *proto.WatchRequest, ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, nil
-}
-
-func (*fakeKVClient) Info(context.Context, *proto.InfoRequest, ...grpc.CallOption) (*proto.InfoResponse, error) {
-	return &proto.InfoResponse{}, nil
-}
-
-func (*fakeKVClient) ListKeys(context.Context, *proto.ListKeysRequest, ...grpc.CallOption) (*proto.ListKeysResponse, error) {
-	return &proto.ListKeysResponse{}, nil
-}
-
-func TestProcessDevices_DoesNotHydrateCanonicalMetadata(t *testing.T) {
-	fake := &fakeKVClient{
-		getFn: func(ctx context.Context, req *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
-			t.Fatalf("processDevices should not issue KV identity lookups (Get): %s", req.GetKey())
-			return nil, nil
-		},
-		batchGetFn: func(ctx context.Context, req *proto.BatchGetRequest, _ ...grpc.CallOption) (*proto.BatchGetResponse, error) {
-			t.Fatalf("processDevices should not issue KV identity lookups (BatchGet): %v", req.GetKeys())
-			return nil, nil
-		},
-	}
-
-	integ := &ArmisIntegration{
-		Config:   &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "part"},
-		KVClient: fake,
-		Logger:   logger.NewTestLogger(),
-	}
-
-	devices := []Device{{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1"}}
-	labels := map[int]string{1: "query"}
-	queries := map[int]models.QueryConfig{1: {Label: "query", SweepModes: []models.SweepMode{models.ModeTCP}}}
-
-	data, _, events, targets := integ.processDevices(context.Background(), devices, labels, queries)
-	require.Len(t, events, 1)
-	_, hasCanonicalID := events[0].Metadata["canonical_device_id"]
-	require.False(t, hasCanonicalID, "sync should no longer hydrate canonical metadata")
-	require.Len(t, targets, 1)
-	_, hasTargetCanonical := targets[0].Metadata["canonical_device_id"]
-	require.False(t, hasTargetCanonical, "device targets should not include canonical metadata from sync")
-
-	require.Empty(t, data)
-}
-
 func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 	integ := &ArmisIntegration{Logger: logger.NewTestLogger()}
 	states := []DeviceState{
@@ -1260,7 +825,6 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 	// Create mocks
 	mockTokenProvider := NewMockTokenProvider(ctrl)
 	mockDeviceFetcher := NewMockDeviceFetcher(ctrl)
-	mockKVWriter := NewMockKVWriter(ctrl)
 	mockUpdater := NewMockArmisUpdater(ctrl)
 
 	// Setup integration
@@ -1270,7 +834,6 @@ func TestBatchUpdateDeviceAttributes_WithLargeDataset(t *testing.T) {
 		},
 		TokenProvider: mockTokenProvider,
 		DeviceFetcher: mockDeviceFetcher,
-		KVWriter:      mockKVWriter,
 		Updater:       mockUpdater,
 		Logger:        logger.NewTestLogger(),
 	}
@@ -1644,24 +1207,12 @@ func TestArmisIntegration_Fetch_PerDeviceSweepModes(t *testing.T) {
 			},
 		}, nil)
 
-	// Mock KV writer to capture the sweep config
-	var capturedSweepConfig *models.SweepConfig
-
-	mocks.KVWriter.EXPECT().
-		WriteSweepConfig(ctx, gomock.Any()).
-		DoAndReturn(func(_ context.Context, config *models.SweepConfig) error {
-			capturedSweepConfig = config
-			return nil
-		})
-
 	// Execute fetch
-	kvData, deviceUpdates, err := integration.Fetch(ctx)
+	deviceUpdates, err := integration.Fetch(ctx)
 
 	// Verify no errors
 	require.NoError(t, err)
-	require.NotNil(t, kvData)
 	require.NotNil(t, deviceUpdates)
-	require.NotNil(t, capturedSweepConfig)
 
 	// Verify device updates contain correct metadata
 	assert.Len(t, deviceUpdates, 3)
@@ -1688,45 +1239,4 @@ func TestArmisIntegration_Fetch_PerDeviceSweepModes(t *testing.T) {
 	assert.Equal(t, "icmp_devices", icmpDevice.Metadata["query_label"])
 	require.NotNil(t, bothModesDevice)
 	assert.Equal(t, "both_modes_devices", bothModesDevice.Metadata["query_label"])
-
-	// Verify sweep config contains device targets with correct sweep modes
-	assert.Len(t, capturedSweepConfig.DeviceTargets, 3)
-
-	// Find device targets by network
-	var tcpTarget, icmpTarget, bothModesTarget *models.DeviceTarget
-
-	for i := range capturedSweepConfig.DeviceTargets {
-		target := &capturedSweepConfig.DeviceTargets[i]
-		switch target.Network {
-		case "192.168.1.10/32":
-			tcpTarget = target
-		case "192.168.1.20/32":
-			icmpTarget = target
-		case "192.168.1.30/32":
-			bothModesTarget = target
-		}
-	}
-
-	// Verify TCP device target
-	require.NotNil(t, tcpTarget)
-	assert.Equal(t, []models.SweepMode{models.ModeTCP}, tcpTarget.SweepModes)
-	assert.Equal(t, "tcp_devices", tcpTarget.QueryLabel)
-	assert.Equal(t, "armis", tcpTarget.Source)
-
-	// Verify ICMP device target
-	require.NotNil(t, icmpTarget)
-	assert.Equal(t, []models.SweepMode{models.ModeICMP}, icmpTarget.SweepModes)
-	assert.Equal(t, "icmp_devices", icmpTarget.QueryLabel)
-	assert.Equal(t, "armis", icmpTarget.Source)
-
-	// Verify both modes device target
-	require.NotNil(t, bothModesTarget)
-	assert.Equal(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, bothModesTarget.SweepModes)
-	assert.Equal(t, "both_modes_devices", bothModesTarget.QueryLabel)
-	assert.Equal(t, "armis", bothModesTarget.Source)
-
-	// Verify metadata is preserved
-	assert.Equal(t, "1", tcpTarget.Metadata["armis_device_id"])
-	assert.Equal(t, "2", icmpTarget.Metadata["armis_device_id"])
-	assert.Equal(t, "3", bothModesTarget.Metadata["armis_device_id"])
 }

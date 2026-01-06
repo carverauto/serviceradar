@@ -44,6 +44,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug ServiceRadarWebNGWeb.Plugs.BasicAuth
   end
 
+  pipeline :oban_access do
+    plug :require_oban_access
+  end
+
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug :accepts, ["json"]
@@ -196,11 +200,15 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/edge-sites/:id", Admin.EdgeSitesLive.Show, :show
     end
 
-    oban_dashboard("/oban",
-      oban_name: Oban,
-      as: :admin_oban_dashboard,
-      resolver: ServiceRadarWebNGWeb.ObanResolver
-    )
+    scope "/" do
+      pipe_through [:oban_access]
+
+      oban_dashboard("/oban",
+        oban_name: Oban,
+        as: :admin_oban_dashboard,
+        resolver: ServiceRadarWebNGWeb.ObanResolver
+      )
+    end
   end
 
   ## AshAuthentication routes

@@ -5,7 +5,6 @@ go_library(
     srcs = [
         "armis.go",
         "armis_updater.go",
-        "config.go",
         "devices.go",
         "errors.go",
         "interfaces.go",

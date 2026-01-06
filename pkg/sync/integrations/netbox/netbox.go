@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -67,14 +66,14 @@ func parseTCPPorts(config *models.SourceConfig) []int {
 
 // Fetch retrieves devices from NetBox for discovery purposes only.
 // This method focuses purely on data discovery and does not perform state reconciliation.
-func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.DeviceUpdate, error) {
+func (n *NetboxIntegration) Fetch(ctx context.Context) ([]*models.DeviceUpdate, error) {
 	deviceResp, deviceCount, pagesFetched, err := n.fetchAllDevices(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Process current devices from Netbox API
-	data, ips, currentEvents := n.processDevices(ctx, deviceResp)
+	currentEvents := n.processDevices(ctx, deviceResp)
 
 	n.Logger.Info().
 		Int("devices_discovered", len(deviceResp.Results)).
@@ -83,10 +82,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 		Int("sweep_results_generated", len(currentEvents)).
 		Msg("Completed NetBox discovery operation")
 
-	n.writeSweepConfig(ctx, ips)
-
-	// Return the data for both KV store and sweep agents
-	return data, currentEvents, nil
+	return currentEvents, nil
 }
 
 // Reconcile performs state reconciliation operations for NetBox.
@@ -132,7 +128,7 @@ func (n *NetboxIntegration) Reconcile(ctx context.Context) error {
 	}
 
 	// Process current devices to get current events
-	_, _, currentEvents := n.processDevices(ctx, deviceResp)
+	currentEvents := n.processDevices(ctx, deviceResp)
 
 	n.Logger.Info().
 		Int("devices_discovered", len(deviceResp.Results)).
@@ -347,20 +343,15 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 	return deviceResp, nil
 }
 
-// processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
+// processDevices converts NetBox devices to DeviceUpdate events.
 type netboxDeviceContext struct {
-	device  *Device
-	event   *models.DeviceUpdate
-	network string
+	device *Device
+	event  *models.DeviceUpdate
 }
 
 func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceResponse) (
-	data map[string][]byte,
-	ips []string,
 	events []*models.DeviceUpdate,
 ) {
-	data = make(map[string][]byte)
-	ips = make([]string, 0, len(deviceResp.Results))
 	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))
 
 	agentID := n.Config.AgentID
@@ -391,13 +382,6 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 		}
 
 		ipStr := ip.String()
-
-		network := fmt.Sprintf("%s/32", ipStr)
-		if n.ExpandSubnets {
-			network = device.PrimaryIP4.Address
-		}
-
-		ips = append(ips, network)
 
 		metadata := map[string]interface{}{
 			"netbox_device_id": fmt.Sprintf("%d", device.ID),
@@ -432,9 +416,8 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 		}
 
 		contexts = append(contexts, netboxDeviceContext{
-			device:  device,
-			event:   event,
-			network: network,
+			device: device,
+			event:  event,
 		})
 	}
 
@@ -449,107 +432,5 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 		events = append(events, ctxDevice.event)
 	}
 
-	return data, ips, events
-}
-
-// writeSweepConfig generates and writes the sweep Config to KV.
-func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
-	if n.KvClient == nil {
-		n.Logger.Warn().Msg("KV client not configured; skipping sweep config write")
-		return
-	}
-
-	// Apply blacklist filtering to IPs before creating sweep config
-	if len(n.Config.NetworkBlacklist) > 0 {
-		n.Logger.Info().
-			Int("original_ip_count", len(ips)).
-			Strs("blacklist_cidrs", n.Config.NetworkBlacklist).
-			Msg("Applying network blacklist filtering to NetBox IPs")
-
-		filteredIPs, err := models.FilterIPsWithBlacklist(ips, n.Config.NetworkBlacklist)
-		if err != nil {
-			n.Logger.Error().
-				Err(err).
-				Msg("Failed to apply network blacklist filtering, using original IPs")
-		} else {
-			ips = filteredIPs
-		}
-
-		n.Logger.Info().
-			Int("filtered_ip_count", len(ips)).
-			Msg("Applied network blacklist filtering")
-	}
-
-	// AgentID to be used for the sweep config key.
-	// We prioritize the agent_id set on the source config itself.
-	agentIDForConfig := n.Config.AgentID
-	if agentIDForConfig == "" {
-		// As a fallback, we could use ServerName, but logging a warning is better
-		// to encourage explicit configuration.
-		n.Logger.Warn().
-			Str("source", "netbox").
-			Msg("agent_id not set for Netbox source. Sweep config key may be incorrect")
-		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
-
-		return // Or simply return to avoid writing a config with an unpredictable key
-	}
-
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
-
-	// Clean up old sweep config to remove any stale data before writing new config
-	n.Logger.Info().
-		Str("config_key", configKey).
-		Msg("Cleaning up old sweep config from KV store")
-
-	if _, delErr := n.KvClient.Delete(ctx, &proto.DeleteRequest{
-		Key: configKey,
-	}); delErr != nil {
-		n.Logger.Debug().
-			Err(delErr).
-			Str("config_key", configKey).
-			Msg("Failed to delete old sweep config (may not exist)")
-	} else {
-		n.Logger.Info().
-			Str("config_key", configKey).
-			Msg("Successfully cleaned up old sweep config")
-	}
-
-	// Create minimal sweep config with only networks (file config is authoritative for everything else)
-	n.Logger.Info().Msg("Creating networks-only sweep config for KV")
-
-	sweepConfig := models.SweepConfig{
-		Networks: ips,
-	}
-
-	configJSON, err := json.Marshal(sweepConfig)
-	if err != nil {
-		n.Logger.Error().
-			Err(err).
-			Msg("Failed to marshal sweep config")
-
-		return
-	}
-
-	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
-		Key:   configKey,
-		Value: configJSON,
-	})
-
-	n.Logger.Info().
-		Str("config_key", configKey).
-		Str("config", string(configJSON)).
-		Msg("Writing sweep config")
-
-	if err != nil {
-		n.Logger.Error().
-			Err(err).
-			Str("config_key", configKey).
-			Msg("Failed to write sweep config")
-
-		return
-	}
-
-	n.Logger.Info().
-		Str("config_key", configKey).
-		Msg("Successfully wrote sweep config")
+	return events
 }

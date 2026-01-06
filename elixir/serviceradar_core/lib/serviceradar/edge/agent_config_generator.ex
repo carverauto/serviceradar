@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
   # Default intervals
@@ -74,7 +75,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   def generate_config(agent_id, tenant_id) do
     case load_agent_checks(agent_id, tenant_id) do
       {:ok, checks} ->
-        config = build_config(checks)
+        sync_payload = load_sync_payload(agent_id, tenant_id)
+        config = build_config(checks, sync_payload)
         {:ok, config}
 
       {:error, reason} ->
@@ -180,18 +182,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks) do
+  defp build_config(checks, sync_payload) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
-    # Compute version hash from the check configs
-    config_version = compute_version_hash(check_configs)
+    # Compute version hash from checks and sync payload
+    config_version = compute_version_hash(check_configs, sync_payload)
+    config_json = Jason.encode!(sync_payload)
 
     %{
       config_version: config_version,
       config_timestamp: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_poll_interval_sec: @default_config_poll_interval_sec,
-      checks: check_configs
+      checks: check_configs,
+      config_json: config_json
     }
   end
 
@@ -246,17 +250,31 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stringify_value(v), do: v
 
   # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(check_configs) do
+  defp compute_version_hash(check_configs, sync_payload) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
     # Serialize deterministically for hashing (works for any Erlang term).
-    bin = :erlang.term_to_binary(sorted_checks)
+    bin = :erlang.term_to_binary(%{checks: sorted_checks, sync: sync_payload})
 
     # Compute SHA256 hash
     hash = :crypto.hash(:sha256, bin)
 
     # Return as hex string with "v" prefix
     "v" <> Base.encode16(hash, case: :lower)
+  end
+
+  defp load_sync_payload(agent_id, tenant_id) do
+    case SyncConfigGenerator.build_payload(agent_id, tenant_id) do
+      {:ok, payload} ->
+        payload
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        %{"agent_id" => agent_id, "tenant_id" => tenant_id, "sources" => %{}}
+    end
   end
 end

@@ -8,8 +8,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
 
   require Logger
+  require Ash.Query
+  import Ash.Expr
 
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Edge.OnboardingPackage
 
   @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -19,6 +22,32 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       tenant_id,
       config_version
     )
+  end
+
+  @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}
+  def component_type_for_component_id(component_id, tenant_id) do
+    actor = system_actor(tenant_id)
+
+    query =
+      OnboardingPackage
+      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_id, authorize?: false)
+      |> Ash.Query.filter(
+        expr(component_id == ^component_id and status in [:issued, :delivered, :activated])
+      )
+      |> Ash.Query.sort(created_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.Query.select([:component_type])
+
+    case Ash.read(query, authorize?: false) do
+      {:ok, [%OnboardingPackage{component_type: type}]} when is_atom(type) ->
+        {:ok, type}
+
+      {:ok, []} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @spec upsert_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}

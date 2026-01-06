@@ -53,10 +53,10 @@ the Docker Compose stack up on a freshly rebooted dev host.
 By default the compose Caddy proxy binds to host ports `80` and `443`. If the
 ports are already occupied on your host, either stop the conflicting service
 or set `SERVICERADAR_HTTP_PORT=<alternate>` before running `docker compose up`.
-The common culprit is the distro’s own nginx service; disable it once and the
-stack will reuse port 80 every boot:
+Disable or stop whatever host web service is bound to port 80 so the stack can
+reuse the port on every boot:
 ```
-sudo systemctl disable --now nginx
+sudo systemctl disable --now <web-service>
 docker compose up -d caddy
 ```
 

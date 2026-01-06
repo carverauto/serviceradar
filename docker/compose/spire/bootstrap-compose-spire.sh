@@ -19,7 +19,6 @@ core|serviceradar-core
 datasvc|serviceradar-datasvc
 poller|serviceradar-poller
 agent|serviceradar-agent
-sync|serviceradar-sync
 db-event-writer|serviceradar-db-event-writer
 mapper|serviceradar-mapper
 otel|serviceradar-otel

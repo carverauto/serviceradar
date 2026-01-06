@@ -38,7 +38,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   ## Options
 
     * `:status` - List of status atoms to filter by (e.g., [:issued, :delivered])
-    * `:component_type` - List of component types to filter by (e.g., [:poller, :checker])
+    * `:component_type` - List of component types to filter by (e.g., [:poller, :checker, :sync])
     * `:poller_id` - Filter by poller_id
     * `:component_id` - Filter by component_id
     * `:parent_id` - Filter by parent_id
@@ -153,46 +153,32 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       attrs
       |> Map.put(:created_by, get_actor_name(actor))
 
-    case OnboardingPackage
-         |> Ash.Changeset.for_create(:create, create_attrs,
-           actor: actor,
-           authorize?: authorize?,
-           tenant: tenant
-         )
-         |> Ash.create() do
+    changeset =
+      OnboardingPackage
+      |> Ash.Changeset.for_create(:create, create_attrs,
+        actor: actor,
+        authorize?: authorize?,
+        tenant: tenant
+      )
+      |> Ash.Changeset.force_change_attribute(:join_token_ciphertext, join_token_ciphertext)
+      |> Ash.Changeset.force_change_attribute(:join_token_expires_at, join_expires)
+      |> Ash.Changeset.force_change_attribute(:download_token_hash, download_token_hash)
+      |> Ash.Changeset.force_change_attribute(:download_token_expires_at, download_expires)
+
+    case Ash.create(changeset) do
       {:ok, package} ->
-        # Update with token fields
-        token_attrs = %{
-          join_token_ciphertext: join_token_ciphertext,
-          join_token_expires_at: join_expires,
-          download_token_hash: download_token_hash,
-          download_token_expires_at: download_expires
-        }
+        # Record creation event
+        OnboardingEvents.record(package.id, :created,
+          actor: get_actor_name(actor),
+          source_ip: source_ip
+        )
 
-        case package
-             |> Ash.Changeset.for_update(:update_tokens, token_attrs,
-               actor: actor,
-               authorize?: authorize?,
-               tenant: tenant
-             )
-             |> Ash.update() do
-          {:ok, updated_package} ->
-            # Record creation event
-            OnboardingEvents.record(package.id, :created,
-              actor: get_actor_name(actor),
-              source_ip: source_ip
-            )
-
-            {:ok,
-             %{
-               package: updated_package,
-               join_token: join_token,
-               download_token: download_token
-             }}
-
-          {:error, error} ->
-            {:error, error}
-        end
+        {:ok,
+         %{
+           package: package,
+           join_token: join_token,
+           download_token: download_token
+         }}
 
       {:error, error} ->
         {:error, error}
@@ -467,7 +453,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
     * `tenant_id` - The tenant UUID
     * `component_id` - Unique component identifier
-    * `component_type` - :poller, :agent, or :checker
+    * `component_type` - :poller, :agent, :checker, or :sync
     * `partition_id` - Network partition identifier (default: "default")
     * `opts` - Additional options:
       * `:validity_days` - Certificate validity (default: 365)

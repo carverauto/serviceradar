@@ -19,6 +19,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -26,7 +27,10 @@ import (
 	"sync"
 	"time"
 
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/models"
+	syncsvc "github.com/carverauto/serviceradar/pkg/sync"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -38,7 +42,7 @@ var Version = "dev"
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
-	gateway            *GatewayClient
+	gateway            *agentgateway.GatewayClient
 	interval           time.Duration
 	logger             logger.Logger
 	done               chan struct{}
@@ -49,10 +53,13 @@ type PushLoop struct {
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
 	started            bool          // Whether Start has been invoked
+	syncer             *syncsvc.SimpleSyncService
+	syncStarted        bool
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
+	syncMu   sync.Mutex
 }
 
 // Thread-safe accessors for shared state
@@ -105,8 +112,11 @@ func (p *PushLoop) setEnrolled(v bool) {
 	p.stateMu.Unlock()
 }
 
-// Default config poll interval (5 minutes)
-const defaultConfigPollInterval = 5 * time.Minute
+// Default intervals
+const (
+	defaultPushInterval       = 30 * time.Second
+	defaultConfigPollInterval = 5 * time.Minute
+)
 
 // Check type constants for goconst compliance
 const (
@@ -117,7 +127,7 @@ const (
 )
 
 // NewPushLoop creates a new push loop.
-func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
+func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval time.Duration, log logger.Logger) *PushLoop {
 	if interval <= 0 {
 		interval = defaultPushInterval
 	}
@@ -131,6 +141,89 @@ func NewPushLoop(server *Server, gateway *GatewayClient, interval time.Duration,
 		stopCh:             make(chan struct{}),
 		configPollInterval: defaultConfigPollInterval,
 	}
+}
+
+func (p *PushLoop) initSync(ctx context.Context) {
+	p.syncMu.Lock()
+	defer p.syncMu.Unlock()
+
+	if p.syncer != nil {
+		return
+	}
+
+	syncCfg := p.buildSyncConfig()
+	syncer, err := syncsvc.NewEmbedded(ctx, syncCfg, p.gateway, p.logger)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to initialize sync runtime")
+		return
+	}
+
+	p.syncer = syncer
+}
+
+func (p *PushLoop) startSync(ctx context.Context) {
+	p.syncMu.Lock()
+	if p.syncer == nil || p.syncStarted {
+		p.syncMu.Unlock()
+		return
+	}
+	syncer := p.syncer
+	p.syncStarted = true
+	p.syncMu.Unlock()
+
+	go func() {
+		if err := syncer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			p.logger.Error().Err(err).Msg("Sync runtime stopped")
+		}
+	}()
+}
+
+func (p *PushLoop) markSyncEnrolled(tenantID, tenantSlug string) {
+	p.syncMu.Lock()
+	syncer := p.syncer
+	p.syncMu.Unlock()
+
+	if syncer == nil {
+		return
+	}
+
+	syncer.MarkGatewayEnrolled(tenantID, tenantSlug)
+}
+
+func (p *PushLoop) stopSync(ctx context.Context) {
+	p.syncMu.Lock()
+	syncer := p.syncer
+	started := p.syncStarted
+	p.syncMu.Unlock()
+
+	if syncer == nil || !started {
+		return
+	}
+
+	if err := syncer.Stop(ctx); err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to stop sync runtime")
+	}
+}
+
+func (p *PushLoop) buildSyncConfig() *syncsvc.Config {
+	p.server.mu.RLock()
+	cfg := p.server.config
+	p.server.mu.RUnlock()
+
+	syncCfg := &syncsvc.Config{
+		Sources:         map[string]*models.SourceConfig{},
+		AgentID:         cfg.AgentID,
+		PollerID:        "",
+		Security:        cfg.Security,
+		Logging:         cfg.Logging,
+		GatewayAddr:     cfg.GatewayAddr,
+		GatewaySecurity: cfg.GatewaySecurity,
+		TenantID:        cfg.TenantID,
+		TenantSlug:      cfg.TenantSlug,
+		Partition:       cfg.Partition,
+	}
+
+	return syncCfg
 }
 
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.
@@ -149,6 +242,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	p.stateMu.Unlock()
 
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
+	p.initSync(runCtx)
 
 	// Initial connection and enrollment attempt
 	if err := p.gateway.Connect(runCtx); err != nil {
@@ -187,7 +281,11 @@ func (p *PushLoop) Start(ctx context.Context) error {
 
 // Stop signals the push loop to stop and waits for it to exit.
 // Closes done channel if Start() was never called to prevent deadlock.
-func (p *PushLoop) Stop() {
+func (p *PushLoop) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	p.stopOnce.Do(func() { close(p.stopCh) })
 	p.cancelMu.Lock()
 	if p.cancel != nil {
@@ -195,14 +293,21 @@ func (p *PushLoop) Stop() {
 	}
 	p.cancelMu.Unlock()
 
+	p.stopSync(ctx)
+
 	p.stateMu.RLock()
 	started := p.started
 	p.stateMu.RUnlock()
 	if !started {
 		p.doneOnce.Do(func() { close(p.done) })
-		return
+		return nil
 	}
-	<-p.done
+	select {
+	case <-p.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // pushStatus collects status from all services and pushes to the gateway.
@@ -440,6 +545,7 @@ func (p *PushLoop) getSourceIP() string {
 // enroll sends Hello to the gateway and fetches initial config.
 func (p *PushLoop) enroll(ctx context.Context) {
 	p.logger.Info().Msg("Enrolling with gateway...")
+	p.initSync(ctx)
 
 	// Build Hello request
 	p.server.mu.RLock()
@@ -486,6 +592,9 @@ func (p *PushLoop) enroll(ctx context.Context) {
 		Str("gateway_id", helloResp.GatewayId).
 		Str("tenant_slug", helloResp.TenantSlug).
 		Msg("Successfully enrolled with gateway")
+
+	p.markSyncEnrolled(helloResp.TenantId, helloResp.TenantSlug)
+	p.startSync(ctx)
 
 	// Fetch initial config if outdated or not yet fetched
 	if helloResp.ConfigOutdated || p.getConfigVersion() == "" {
@@ -865,5 +974,6 @@ func getAgentCapabilities() []string {
 		sweepType,
 		"snmp",
 		"process",
+		"sync",
 	}
 }

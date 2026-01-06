@@ -39,6 +39,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   @tenant_select_fields [
     :id,
     :slug,
+    :is_platform_tenant,
     :status,
     :plan,
     :nats_account_status,

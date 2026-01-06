@@ -38,6 +38,24 @@ if config_env() == :prod do
 
   config :serviceradar_core, :default_tenant_id, default_tenant_id
 
+  platform_tenant_id =
+    System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
+      System.get_env("PLATFORM_TENANT_ID")
+
+  config :serviceradar_core, :platform_tenant_id, platform_tenant_id
+
+  platform_tenant_slug =
+    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
+      System.get_env("PLATFORM_TENANT_SLUG") ||
+      "platform"
+
+  config :serviceradar_core, :platform_tenant_slug, platform_tenant_slug
+
+  platform_sync_component_id =
+    System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
+
+  config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

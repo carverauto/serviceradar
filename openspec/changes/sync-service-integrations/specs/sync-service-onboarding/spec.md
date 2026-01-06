@@ -1,70 +1,67 @@
-# Sync Service Onboarding
+# Agent Sync Onboarding
 
-## ADDED Requirements
+## MODIFIED Requirements
+
+### Requirement: Agent onboarding enables sync capability
+The platform SHALL treat sync as a capability of the tenant agent. There is no standalone sync service to onboard.
+
+#### Scenario: Agent registers with sync capability
+- **GIVEN** a tenant agent has valid mTLS credentials
+- **WHEN** the agent calls the AgentGatewayService.Hello RPC
+- **THEN** the agent is marked as sync-capable
+- **AND** the agent appears in the UI for integration assignment
+
+### Requirement: Edge onboarding generates minimal agent config
+Edge onboarding packages MUST include a minimal agent config file suitable for bootstrapping embedded sync.
+
+#### Scenario: Agent onboarding generates minimal config
+- **GIVEN** a tenant user initiates edge onboarding for an agent
+- **WHEN** the onboarding package is generated
+- **THEN** the package includes a minimal agent config file
+- **AND** the config contains only identity, gateway address, and TLS paths required to boot
+- **AND** the agent fetches full integration configuration via GetConfig after startup
+
+### Requirement: Integration source agent assignment
+Integration sources MUST be assigned to a sync-capable agent within the tenant.
+
+#### Scenario: Creating integration with agent assignment
+- **GIVEN** at least one sync-capable agent is available for a tenant
+- **WHEN** the user creates a new integration source
+- **THEN** the user selects which agent runs the integration
+- **AND** the integration is saved with the agent assignment
+
+#### Scenario: Integrations gated on agent availability
+- **GIVEN** no sync-capable agents are onboarded for a tenant
+- **WHEN** the user views the integrations page
+- **THEN** the "Add Integration" button is disabled
+- **AND** a message explains that an agent must be onboarded first
+
+### Requirement: Agent onboarding entrypoint in Integrations UI
+The integrations UI MUST provide an explicit action to onboard an edge agent for sync.
+
+#### Scenario: Integrations UI exposes agent onboarding
+- **GIVEN** a user is viewing the integrations page
+- **WHEN** they look below the "+ New Source" action
+- **THEN** an "Add Edge Agent" button is visible
+- **AND** the button starts the agent onboarding flow
+
+## REMOVED Requirements
 
 ### Requirement: SaaS sync service auto-onboarding
+**Reason**: Sync no longer runs as a platform service; all discovery runs inside tenant agents.
+**Migration**: Tenants must onboard at least one agent to use integrations.
 
-The platform must automatically onboard a SaaS sync service during platform bootstrap.
+#### Scenario: Platform bootstrap does not create a sync service
+- **GIVEN** the platform is starting for the first time
+- **WHEN** the bootstrap process runs
+- **THEN** no platform sync service is created
+- **AND** tenants must onboard agents for discovery
 
-#### Scenario: Platform bootstrap creates SaaS sync service
+### Requirement: Sync service heartbeat tracking
+**Reason**: Sync health is tracked via the agent heartbeat rather than a standalone sync service record.
+**Migration**: Use agent heartbeat status to determine sync availability.
 
-Given the platform is starting for the first time
-When the bootstrap process runs
-Then a SyncService record is created with is_platform_sync=true
-And the service_type is set to :saas
-And all tenants have access to this sync service
-
-### Requirement: On-prem sync service onboarding
-
-Customers must be able to onboard their own on-prem sync services.
-
-#### Scenario: On-prem sync service registers via Hello RPC
-
-Given an on-prem sync service has valid mTLS credentials
-When the sync service calls the SyncServiceHello RPC
-Then a SyncService record is created with service_type=:on_prem
-And the tenant_id is set from the certificate
-And the sync service appears in the UI
-
-#### Scenario: Sync service heartbeat tracking
-
-Given an onboarded sync service
-When the sync service sends a heartbeat
-Then the last_heartbeat_at timestamp is updated
-And the status changes to :online if previously offline
-
-### Requirement: Sync service status tracking
-
-The system must track sync service availability based on heartbeats.
-
-#### Scenario: Sync service goes offline
-
-Given a sync service with last_heartbeat_at older than 2 minutes
-When the status is computed
-Then the status is :offline
-
-#### Scenario: Sync service is online
-
-Given a sync service with last_heartbeat_at within the last 2 minutes
-When the status is computed
-Then the status is :online
-
-## ADDED Requirements
-
-### Requirement: Integration source sync service assignment
-
-The system MUST require integration sources to be assigned to a specific sync service.
-
-#### Scenario: Creating integration with sync service
-
-Given at least one sync service is available
-When the user creates a new integration source
-Then the user must select which sync service processes the integration
-And the integration is saved with sync_service_id
-
-#### Scenario: Integration sources gated on sync availability
-
-Given no sync services are onboarded for a tenant
-When the user views the integrations page
-Then the "Add Integration" button is disabled
-And a message explains that a sync service must be onboarded first
+#### Scenario: Sync health derived from agent status
+- **GIVEN** a sync-capable agent
+- **WHEN** the agent heartbeat is stale
+- **THEN** sync is treated as offline for that tenant

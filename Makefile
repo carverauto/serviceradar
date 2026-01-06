@@ -197,7 +197,49 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
-	@cd web-ng && mix precommit
+	@ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
+	cd web-ng && mix precommit
+
+.PHONY: test-integration
+test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
+	@echo "$(COLOR_BOLD)Running serviceradar_core integration tests$(COLOR_RESET)"
+	@set -eu; \
+	ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
+	db_url="$${SERVICERADAR_TEST_DATABASE_URL:-$${SRQL_TEST_DATABASE_URL:-}}"; \
+	admin_url="$${SERVICERADAR_TEST_ADMIN_URL:-$${SRQL_TEST_ADMIN_URL:-}}"; \
+	if [ -z "$${db_url}" ]; then \
+	  if [ -n "$${CNPG_HOST:-}" ] || [ -n "$${CNPG_PASSWORD:-}" ]; then \
+	    db_host="$${CNPG_HOST:-localhost}"; \
+	    db_port="$${CNPG_PORT:-5455}"; \
+	    db_name="$${SERVICERADAR_TEST_DATABASE:-$${CNPG_DATABASE:-serviceradar}}"; \
+	    db_user="$${CNPG_USERNAME:-serviceradar}"; \
+	    db_pass="$${CNPG_PASSWORD:-}"; \
+	    db_sslmode="$${CNPG_SSL_MODE:-verify-full}"; \
+	    if [ -z "$${db_pass}" ]; then \
+	      echo "CNPG_PASSWORD is required to build the test DSN." >&2; \
+	      exit 1; \
+	    fi; \
+	    db_url="postgres://$${db_user}:$${db_pass}@$${db_host}:$${db_port}/$${db_name}?sslmode=$${db_sslmode}"; \
+	    export CNPG_TLS_SERVER_NAME="$${CNPG_TLS_SERVER_NAME:-$${db_host}}"; \
+	  fi; \
+	fi; \
+	if [ -z "$${db_url}" ]; then \
+	  echo "Set SERVICERADAR_TEST_DATABASE_URL, SRQL_TEST_DATABASE_URL, or CNPG_* env vars." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -n "$${admin_url}" ]; then \
+	  export PGSSLROOTCERT="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT:-$${SRQL_TEST_DATABASE_CA_CERT:-}}}"; \
+	  export PGSSLCERT="$${PGSSLCERT:-$${SERVICERADAR_TEST_DATABASE_CERT:-$${SRQL_TEST_DATABASE_CERT:-}}}"; \
+	  export PGSSLKEY="$${PGSSLKEY:-$${SERVICERADAR_TEST_DATABASE_KEY:-$${SRQL_TEST_DATABASE_KEY:-}}}"; \
+	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
+	fi; \
+	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
+	cd elixir/serviceradar_core; \
+	MIX_ENV=test mix deps.get; \
+	MIX_ENV=test mix ecto.migrate; \
+	MIX_ENV=test mix test --include integration --no-start
 
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
@@ -285,7 +327,6 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"

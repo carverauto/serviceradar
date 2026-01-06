@@ -9,9 +9,9 @@ type SourceConfig struct {
 	Type               string            `json:"type"`                   // "armis", "netbox", etc.
 	Endpoint           string            `json:"endpoint"`               // API endpoint
 	Credentials        map[string]string `json:"credentials"`            // e.g., {"api_key": "xyz"}
-	Prefix             string            `json:"prefix"`                 // KV key prefix, e.g., "armis/"
+	Prefix             string            `json:"prefix"`                 // Optional namespace prefix for device identifiers
 	InsecureSkipVerify bool              `json:"insecure_skip_verify"`   // For TLS connections
-    Queries            []QueryConfig     `json:"queries"`                // List of queries
+	Queries            []QueryConfig     `json:"queries"`                // List of queries
 	CustomField        string            `json:"custom_field,omitempty"` // Custom field for additional metadata
 
 	// AgentID and PollerID allow assigning discovered devices to specific
@@ -20,6 +20,11 @@ type SourceConfig struct {
 	AgentID   string `json:"agent_id,omitempty"`
 	PollerID  string `json:"poller_id,omitempty"`
 	Partition string `json:"partition,omitempty"`
+
+	// Tenant scoping data from control plane (used for platform sync fan-out).
+	TenantID      string `json:"tenant_id,omitempty"`
+	TenantSlug    string `json:"tenant_slug,omitempty"`
+	SyncServiceID string `json:"sync_service_id,omitempty"`
 
 	// SweepInterval allows configuring how often agents should sweep the
 	// networks discovered by this source. If empty, a sensible default is
@@ -41,7 +46,7 @@ type SourceConfig struct {
 // QueryConfig represents a single labeled query.
 type QueryConfig struct {
 	Label      string      `json:"label"`       // Name or description of the query
-    Query      string      `json:"query"`       // The query string
+	Query      string      `json:"query"`       // The query string
 	SweepModes []SweepMode `json:"sweep_modes"` // Sweep modes to apply to devices from this query
 }
 

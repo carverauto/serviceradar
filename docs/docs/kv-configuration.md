@@ -132,7 +132,7 @@ RBAC controls which clients can read from or write to the KV store:
 "rbac": {
   "roles": [
     {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"},
-    {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"}
+    {"identity": "CN=core.serviceradar,O=ServiceRadar", "role": "writer"}
   ]
 }
 ```
@@ -168,7 +168,7 @@ Use this runbook whenever you roll the Helm chart or docker-compose stack so we 
      https://<core-host>/api/admin/config/watchers | jq '.[] | {service, kv_key, status}'
    ```
 
-4. **Spot-check the canonical keys** – Helm, compose, and the demo manifests now seed the same set of global keys (`config/core.json`, `config/sync.json`, `config/agent.json`, `config/flowgger.toml`, etc.). If the API returns `404`, exec into the `serviceradar-tools` pod (or your compose shell) and run `nats-kv get <key>` to confirm the data is actually missing before filing an Admin UI bug.
+4. **Spot-check the canonical keys** – Helm, compose, and the demo manifests now seed the same set of global keys (`config/core.json`, `config/agent.json`, `config/poller.json`, `config/flowgger.toml`, etc.). If the API returns `404`, exec into the `serviceradar-tools` pod (or your compose shell) and run `nats-kv get <key>` to confirm the data is actually missing before filing an Admin UI bug.
 
 Running this SOP gives you a paper trail that the metadata, the KV buckets, and the live watchers all look healthy before you touch the UI.
 
@@ -251,7 +251,7 @@ For certificate generation instructions, see the [TLS Security](./tls-security.m
 
 ## Configuring Components to Use the KV Store
 
-Bare-metal installs now behave the same way as our Kubernetes, Helm, and Compose deployments: every systemd unit (core, poller, agent, sync, mapper, flowgger, trapd, zen, otel, db-event-writer, and the packaged checkers) exports `CONFIG_SOURCE=kv` plus the `KV_*` client settings out of the box. Services immediately seed KV from the JSON/TOML file on first boot and switch to KV overlays without any manual edits.
+Bare-metal installs now behave the same way as our Kubernetes, Helm, and Compose deployments: every systemd unit (core, poller, agent, mapper, flowgger, trapd, zen, otel, db-event-writer, and the packaged checkers) exports `CONFIG_SOURCE=kv` plus the `KV_*` client settings out of the box. Services immediately seed KV from the JSON/TOML file on first boot and switch to KV overlays without any manual edits.
 
 All of those units also load `/etc/serviceradar/kv-overrides.env` (if it exists) so operators can override the defaults without touching the shipped units. Use that file to point at a remote KV instance or to set the server name that matches your datasvc certificate:
 

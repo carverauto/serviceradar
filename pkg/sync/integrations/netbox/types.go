@@ -19,11 +19,8 @@ package netbox
 import (
 	"context"
 
-	"google.golang.org/grpc"
-
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 // SRQLQuerier defines the interface for querying device states from ServiceRadar.
@@ -51,9 +48,6 @@ type DeviceState struct {
 // NetboxIntegration manages the NetBox API integration.
 type NetboxIntegration struct {
 	Config          *models.SourceConfig
-	KvClient        proto.KVServiceClient // For writing sweep Config
-	GrpcConn        *grpc.ClientConn      // Connection to reuse
-	ServerName      string
 	ExpandSubnets   bool
 	Querier         SRQLQuerier     // Querier for sweep results
 	ResultSubmitter ResultSubmitter // For submitting retraction events

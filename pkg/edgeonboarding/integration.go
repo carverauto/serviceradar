@@ -163,6 +163,8 @@ func getConfigKeyForComponent(componentType models.EdgeOnboardingComponentType) 
 		return "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:
 		return "checker.json"
+	case models.EdgeOnboardingComponentTypeSync:
+		return "sync.json"
 	case models.EdgeOnboardingComponentTypeNone:
 		return defaultServiceConfigFile
 	default:
@@ -187,6 +189,8 @@ func writeGeneratedConfig(componentType models.EdgeOnboardingComponentType, data
 		filename = "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:
 		filename = "checker.json"
+	case models.EdgeOnboardingComponentTypeSync:
+		filename = "sync.json"
 	case models.EdgeOnboardingComponentTypeNone:
 		filename = defaultServiceConfigFile
 	default:

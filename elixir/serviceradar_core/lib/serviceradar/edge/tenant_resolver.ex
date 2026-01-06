@@ -51,6 +51,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
           partition_id: String.t(),
           component_type: atom() | nil,
           spiffe_id: String.t() | nil,
+          is_platform_tenant: boolean(),
           tenant_id: String.t() | nil,
           tenant_ca_id: String.t() | nil,
           issuer_spki_sha256: String.t() | nil
@@ -238,6 +239,8 @@ defmodule ServiceRadar.Edge.TenantResolver do
          {:ok, parsed} <- parse_cn(cn) do
       spiffe_info = extract_spiffe_info(otp_cert)
 
+      is_platform_tenant = parsed.tenant_slug == platform_tenant_slug()
+
       {:ok,
        %{
          tenant_slug: parsed.tenant_slug,
@@ -245,6 +248,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
          partition_id: parsed.partition_id,
          component_type: spiffe_info[:component_type],
          spiffe_id: spiffe_info[:spiffe_id],
+         is_platform_tenant: is_platform_tenant,
          tenant_id: nil,
          tenant_ca_id: nil,
          issuer_spki_sha256: nil
@@ -396,11 +400,16 @@ defmodule ServiceRadar.Edge.TenantResolver do
           "poller" -> :poller
           "agent" -> :agent
           "checker" -> :checker
+          "sync" -> :sync
           _ -> nil
         end
 
       _ ->
         nil
     end
+  end
+
+  defp platform_tenant_slug do
+    Application.get_env(:serviceradar_core, :platform_tenant_slug, "platform")
   end
 end

@@ -32,7 +32,7 @@ This table provides the ground truth for how system components map to queryable 
 | `flowgger` | **Syslog server** that ingests syslog. | `events` | ✅ Working |
 | `OTEL Collector` | Ingests OpenTelemetry data. | `logs` | ✅ Working |
 | (Generic SNMP Polling) | Collects metrics via SNMP GET requests. | `snmp_metrics` | ✅ Working |
-| `serviceradar-sync` | Syncs device info from external sources. | `devices` | ✅ Working |
+| Embedded sync runtime (agent) | Syncs device info from external sources. | `devices` | ✅ Working |
 | `trapd` | SNMP Trap Receiver. | `traps`, `events` | ❌ traps not working |
 | `Network Sweep` | Scans networks for live hosts and open ports. | `sweep_results` | ❌ Not working |
 | (Generic Netflow) | Collects NetFlow, sFlow, IPFIX, etc. | `flows` | ❌ Not working |

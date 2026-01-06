@@ -10,7 +10,7 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 1. Expose the syslog listener (`service/serviceradar-syslog`) on UDP/TCP 514. In Docker Compose, this maps to the host automatically; in Kubernetes, create a `LoadBalancer` or `NodePort`.
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
-3. Tag syslog inputs with `tenant`, `site`, or `device` metadata using the [Sync service configuration](./sync.md) so SRQL queries stay filterable.
+3. Tag syslog inputs with `tenant`, `site`, or `device` metadata using the [sync runtime configuration](./sync.md) so SRQL queries stay filterable.
 
 ## Configure Devices
 

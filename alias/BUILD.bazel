@@ -6,6 +6,11 @@ alias(
     actual = "//pkg/agent:agent",
 )
 
+alias(
+    name = "agentgateway",
+    actual = "//pkg/agentgateway:agentgateway",
+)
+
 # pkg/checker
 alias(
     name = "checker",

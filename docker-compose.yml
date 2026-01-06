@@ -126,6 +126,8 @@ services:
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      - SERVICERADAR_PLATFORM_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
+      - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
       - CLOAK_KEY=${CLOAK_KEY:-}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
@@ -343,40 +345,6 @@ services:
           - datasvc.serviceradar
     restart: unless-stopped
 
-  sync:
-    image: ghcr.io/carverauto/serviceradar-sync:${APP_TAG:-latest}
-    container_name: serviceradar-sync-mtls
-    ports:
-      - "50058:50058"
-    volumes:
-      - ./docker/compose/sync.mtls.json:/etc/serviceradar/sync.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - sync-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/sync.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/sync.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/sync-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      nats:
-        condition: service_started
-      datasvc:
-        condition: service_healthy
-    networks:
-      serviceradar-net:
-        aliases:
-          - sync.serviceradar
-    restart: unless-stopped
-
   agent:
     image: ghcr.io/carverauto/serviceradar-agent:${APP_TAG:-latest}
     container_name: serviceradar-agent-mtls
@@ -434,8 +402,8 @@ services:
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
-      - GATEWAY_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
-      - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-default}
+      - GATEWAY_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
+      - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-platform}
       - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
       - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
       - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
@@ -449,6 +417,7 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
@@ -786,7 +755,6 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data"
   cnpg-data:
   datasvc-data:
-  sync-data:
   nats-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_nats-data"
   nats-creds:

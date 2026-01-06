@@ -359,7 +359,6 @@ spec:
 - ✅ serviceradar-poller
 - ✅ serviceradar-agent
 - ✅ serviceradar-mapper
-- ✅ serviceradar-sync
 - ✅ serviceradar-db-event-writer
 - ✅ serviceradar-flowgger
 - ✅ serviceradar-trapd

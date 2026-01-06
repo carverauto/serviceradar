@@ -38,7 +38,7 @@ import {
 import RoleGuard from '@/components/Auth/RoleGuard';
 import { getPublicApiUrl } from '@/lib/config';
 
-type EdgeComponentType = 'poller' | 'agent' | 'checker' | '';
+type EdgeComponentType = 'poller' | 'agent' | 'checker' | 'sync' | '';
 
 type EdgePackage = {
   package_id: string;

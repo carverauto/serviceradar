@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   - `:poller` - Polling service component
   - `:agent` - Agent component
   - `:checker` - Checker component
+  - `:sync` - Sync service component
 
   ## Security Modes
 
@@ -142,6 +143,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       ]
     end
 
+    update :update_metadata do
+      description "Update metadata fields for the package"
+      accept [:metadata_json]
+    end
+
     update :deliver do
       description "Mark package as delivered (downloaded)"
       require_atomic? false
@@ -214,7 +220,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     # Operators can also deliver and update tokens
-    policy action([:deliver, :update_tokens]) do
+    policy action([:deliver, :update_tokens, :update_metadata]) do
       authorize_if actor_attribute_equals(:role, :admin)
       authorize_if actor_attribute_equals(:role, :operator)
     end
@@ -238,13 +244,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :component_type, :atom do
       default :poller
       public? true
-      constraints one_of: [:poller, :agent, :checker]
+      constraints one_of: [:poller, :agent, :checker, :sync]
       description "Type of component being onboarded"
     end
 
     attribute :parent_type, :atom do
       public? true
-      constraints one_of: [:poller, :agent, :checker]
+      constraints one_of: [:poller, :agent, :checker, :sync]
       description "Parent component type (for hierarchical components)"
     end
 

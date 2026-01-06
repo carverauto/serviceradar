@@ -1,14 +1,20 @@
+use anyhow::Context;
 use axum::{
     body::{self, Body},
     http::{self, Request, StatusCode},
     Router,
 };
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::{ClientConfig, RootCertStore};
+use rustls_pemfile::certs;
 use serde::Serialize;
 use serde_json::Value;
 use srql::{config::AppConfig, query::QueryRequest, server::Server};
 use std::{
-    fs,
+    env,
+    fs::{self, File},
     future::Future,
+    io::BufReader,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Once,
@@ -19,6 +25,7 @@ use tokio::{
     time::{sleep, Duration as TokioDuration},
 };
 use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, NoTls};
+use tokio_postgres_rustls::MakeRustlsConnect;
 use tower::ServiceExt;
 
 const API_KEY: &str = "test-api-key";
@@ -99,9 +106,9 @@ fn test_config(database_url: String) -> AppConfig {
         listen_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
         database_url,
         max_pool_size: 5,
-        pg_ssl_root_cert: None,
-        pg_ssl_cert: None,
-        pg_ssl_key: None,
+        pg_ssl_root_cert: env::var("PGSSLROOTCERT").ok(),
+        pg_ssl_cert: env::var("PGSSLCERT").ok(),
+        pg_ssl_key: env::var("PGSSLKEY").ok(),
         api_key: Some(API_KEY.to_string()),
         api_key_kv_key: None,
         allowed_origins: None,
@@ -134,23 +141,19 @@ async fn seed_fixture_database(database_url: &str) -> anyhow::Result<()> {
 
 async fn seed_fixture_database_once(database_url: &str) -> anyhow::Result<()> {
     let mut attempts = 0usize;
-    let (client, connection) = loop {
-        match tokio_postgres::connect(database_url, NoTls).await {
-            Ok(parts) => break parts,
+    let client = loop {
+        let config: PgConfig = database_url.parse()?;
+        match connect_with_env_tls(config, "fixture").await {
+            Ok((client, _task)) => break client,
             Err(err) => {
                 if attempts >= DB_CONNECT_RETRIES {
-                    return Err(err.into());
+                    return Err(err);
                 }
                 attempts += 1;
                 sleep(TokioDuration::from_millis(DB_CONNECT_DELAY_MS)).await;
             }
         }
     };
-    tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            eprintln!("fixture database connection closed with error: {err}");
-        }
-    });
 
     ensure_extension(&client, "timescaledb").await?;
     ensure_extension(&client, "age").await?;
@@ -313,12 +316,8 @@ struct RemoteFixtureGuard {
 
 impl RemoteFixtureGuard {
     async fn acquire(config: &RemoteFixtureConfig) -> anyhow::Result<Self> {
-        let (client, connection) = tokio_postgres::connect(&config.admin_url, NoTls).await?;
-        let task = tokio::spawn(async move {
-            if let Err(err) = connection.await {
-                eprintln!("remote admin connection closed with error: {err}");
-            }
-        });
+        let admin_config: PgConfig = config.admin_url.parse()?;
+        let (client, task) = connect_with_env_tls(admin_config, "remote admin").await?;
         client
             .execute("SELECT pg_advisory_lock($1)", &[&REMOTE_FIXTURE_LOCK_ID])
             .await?;
@@ -360,12 +359,7 @@ impl RemoteFixtureGuard {
             .parse()
             .map_err(|err| anyhow::anyhow!("SRQL_TEST_ADMIN_URL is invalid: {err}"))?;
         extension_config.dbname(&config.database_name);
-        let (client, connection) = extension_config.connect(NoTls).await?;
-        let task = tokio::spawn(async move {
-            if let Err(err) = connection.await {
-                eprintln!("remote extension connection closed with error: {err}");
-            }
-        });
+        let (client, task) = connect_with_env_tls(extension_config, "remote extension").await?;
         client
             .batch_execute("CREATE EXTENSION IF NOT EXISTS timescaledb;")
             .await?;
@@ -501,10 +495,8 @@ fn fixture_root() -> PathBuf {
 }
 
 async fn check_age_available(database_url: &str) -> anyhow::Result<bool> {
-    let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
+    let config: PgConfig = database_url.parse()?;
+    let (client, _task) = connect_with_env_tls(config, "age-check").await?;
     let result = client
         .query(
             "SELECT 1 FROM ag_catalog.cypher('serviceradar', 'RETURN 1') AS (result agtype) LIMIT 1",
@@ -512,4 +504,116 @@ async fn check_age_available(database_url: &str) -> anyhow::Result<bool> {
         )
         .await;
     Ok(result.is_ok())
+}
+
+async fn connect_with_env_tls(
+    config: PgConfig,
+    label: &str,
+) -> anyhow::Result<(Client, JoinHandle<()>)> {
+    let label = label.to_string();
+    if let Some(connector) = tls_connector_from_env()? {
+        let (client, connection) = config.connect(connector).await?;
+        let task = tokio::spawn(async move {
+            if let Err(err) = connection.await {
+                eprintln!("{label} connection closed with error: {err}");
+            }
+        });
+        Ok((client, task))
+    } else {
+        let (client, connection) = config.connect(NoTls).await?;
+        let task = tokio::spawn(async move {
+            if let Err(err) = connection.await {
+                eprintln!("{label} connection closed with error: {err}");
+            }
+        });
+        Ok((client, task))
+    }
+}
+
+fn tls_connector_from_env() -> anyhow::Result<Option<MakeRustlsConnect>> {
+    let root_cert = match env::var("PGSSLROOTCERT") {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => return Ok(None),
+    };
+    let client_cert = env::var("PGSSLCERT").ok();
+    let client_key = env::var("PGSSLKEY").ok();
+
+    Ok(Some(build_tls_connector(
+        &root_cert,
+        client_cert.as_deref(),
+        client_key.as_deref(),
+    )?))
+}
+
+fn build_tls_connector(
+    root_cert: &str,
+    client_cert: Option<&str>,
+    client_key: Option<&str>,
+) -> anyhow::Result<MakeRustlsConnect> {
+    let mut reader =
+        BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
+    let mut root_store = RootCertStore::empty();
+    for cert in certs(&mut reader) {
+        let cert = cert.context("failed to parse PGSSLROOTCERT")?;
+        root_store
+            .add(cert)
+            .map_err(|_| anyhow::anyhow!("invalid certificate in PGSSLROOTCERT"))?;
+    }
+
+    Ok(MakeRustlsConnect::new(build_client_config(
+        root_store,
+        root_cert,
+        client_cert,
+        client_key,
+    )?))
+}
+
+fn build_client_config(
+    root_store: RootCertStore,
+    root_cert: &str,
+    client_cert: Option<&str>,
+    client_key: Option<&str>,
+) -> anyhow::Result<ClientConfig> {
+    let builder = ClientConfig::builder().with_root_certificates(root_store);
+
+    match (client_cert, client_key) {
+        (None, None) => Ok(builder.with_no_client_auth()),
+        (Some(cert), Some(key)) => {
+            let certs = load_client_certs(cert)?;
+            let key = load_client_key(key)?;
+            builder
+                .with_client_auth_cert(certs, key)
+                .with_context(|| format!("failed to build client TLS config for {root_cert}"))
+        }
+        _ => anyhow::bail!("PGSSLCERT and PGSSLKEY must both be set (or neither)"),
+    }
+}
+
+fn load_client_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+    let mut reader = BufReader::new(
+        File::open(path).with_context(|| format!("failed to open PGSSLCERT file '{path}'"))?,
+    );
+
+    let mut chain = Vec::new();
+    for cert in certs(&mut reader) {
+        chain.push(cert.context("failed to parse PGSSLCERT")?);
+    }
+
+    if chain.is_empty() {
+        anyhow::bail!("PGSSLCERT contained no certificates");
+    }
+
+    Ok(chain)
+}
+
+fn load_client_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
+    let mut reader = BufReader::new(
+        File::open(path).with_context(|| format!("failed to open PGSSLKEY file '{path}'"))?,
+    );
+
+    let key = rustls_pemfile::private_key(&mut reader)
+        .context("failed to parse PGSSLKEY")?
+        .context("PGSSLKEY contained no private keys")?;
+
+    Ok(key)
 }

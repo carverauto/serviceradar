@@ -347,4 +347,4 @@ Should include `rperf-network-test` status.
 
 - Explore [TLS Security](./tls-security.md) for securing `serviceradar-rperf-checker`.
 - Integrate results into [Web UI](./web-ui.md) dashboards.
-- Consider [Sync Service](./sync.md) for dynamic rperf target updates.
+- Consider the [embedded sync runtime](./sync.md) for dynamic rperf target updates.
