@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
@@ -548,7 +549,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   defp get_tenant_id(conn) do
     case conn.assigns[:current_scope] do
-      %{user: %{tenant_id: tenant_id}} -> tenant_id
+      %Scope{} = scope -> Scope.tenant_id(scope)
       _ -> nil
     end
   end

@@ -108,10 +108,10 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
       Logger.info("Created PostgreSQL schema: #{schema_name}")
 
-    # Run tenant migrations if requested
-    if run_migrations do
-      run_tenant_migrations!(schema_name)
-    end
+      # Run tenant migrations if requested
+      if run_migrations do
+        run_tenant_migrations!(schema_name)
+      end
 
       {:ok, schema_name}
     rescue

@@ -12,20 +12,19 @@ ServiceRadar currently relies on attribute-based multitenancy in public schema t
 
 ## Decisions
 - Use `strategy :context` for tenant-scoped Ash resources and apply tenant schema prefixes via the core repository.
-- Preserve `public` schema for shared/global resources (users, tenants, platform metadata).
-- Create tenant schemas named `tenant_<slug>` (slug sanitized) and run tenant migrations immediately.
+- Preserve `public` schema for platform-managed resources only (tenants, users, tenant memberships, NATS platform tables, Oban, job schedules).
+- Create tenant schemas named `tenant_<slug>` (slug sanitized) and run tenant migrations immediately, including for the platform tenant.
 - core-elx runs Ash migrations on startup for the public schema and all tenant schemas. Startup fails if migrations cannot be applied.
+- Tenant-scoped tokens (API tokens, user tokens) live in tenant schemas and require tenant context for lookup.
 
 ## Risks / Trade-offs
-- Data migration complexity for existing tenants; incorrect migration can result in data loss.
 - Startup time increases due to migration execution.
 - Requires strict ordering so migrations run before Oban/AshOban jobs and application boot logic that assumes tables exist.
 
 ## Migration Plan
 1. Identify tenant-scoped resources and define tenant migrations.
 2. Add a migration runner that applies public and tenant migrations at startup.
-3. Create tenant schemas and migrate existing tenant data from public.
-4. Validate tenant data integrity and application functionality per tenant.
+3. Create tenant schemas as part of provisioning; rebuild dev/test DBs as needed.
 
 ## Open Questions
 - None.

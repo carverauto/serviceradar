@@ -40,8 +40,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   def fetch_current_scope_for_user(conn, _opts) do
     # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
     with token when is_binary(token) <- get_session(conn, "user_token"),
-         {:ok, user, _claims} <- verify_token(token) do
-      active_tenant_id = get_session(conn, "active_tenant_id")
+         {:ok, user, claims} <- verify_token(token) do
+      active_tenant_id = get_session(conn, "active_tenant_id") || Map.get(claims, "tenant")
 
       conn
       |> assign(:current_scope, Scope.for_user(user, active_tenant_id: active_tenant_id))
@@ -53,13 +53,16 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   # Verify an Ash JWT token and load the user
   defp verify_token(token) do
+    tenant = token_tenant(token)
+    opts = tenant_opts(tenant)
+    subject_opts = Keyword.merge([authorize?: false], opts)
+
     # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
     # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
+    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
       {:ok, claims, resource} ->
         with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <-
-               AshAuthentication.subject_to_user(subject, resource, authorize?: false) do
+             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
           {:ok, user, claims}
         else
           _ -> {:error, :invalid_token}
@@ -177,15 +180,15 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     socket
     |> Phoenix.Component.assign_new(:current_scope, fn ->
       # Token is stored under "user_token" key when require_token_presence_for_authentication? is true
-      user =
+      {user, tenant_claim} =
         with token when is_binary(token) <- session["user_token"],
-             {:ok, user, _claims} <- verify_token(token) do
-          user
+             {:ok, user, claims} <- verify_token(token) do
+          {user, Map.get(claims, "tenant")}
         else
-          _ -> nil
+          _ -> {nil, nil}
         end
 
-      active_tenant_id = session["active_tenant_id"]
+      active_tenant_id = session["active_tenant_id"] || tenant_claim
       Scope.for_user(user, active_tenant_id: active_tenant_id)
     end)
     |> maybe_set_ash_context()
@@ -213,6 +216,16 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         socket
     end
   end
+
+  defp token_tenant(token) do
+    case AshAuthentication.Jwt.peek(token) do
+      {:ok, claims} -> Map.get(claims, "tenant")
+      _ -> nil
+    end
+  end
+
+  defp tenant_opts(nil), do: []
+  defp tenant_opts(tenant), do: [tenant: tenant]
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to analytics

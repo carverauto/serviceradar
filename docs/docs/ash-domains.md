@@ -62,17 +62,17 @@ graph TB
 
 ## Multi-Tenancy
 
-All resources use **attribute-based multitenancy** with `tenant_id`:
+Tenant-scoped resources use **schema-based multitenancy** (`strategy :context`) and are stored
+under `tenant_<slug>` schemas. Platform-managed resources (tenants, users, tenant memberships,
+NATS platform tables, Oban, job schedules) remain in the public schema.
 
 ```elixir
 multitenancy do
-  strategy :attribute
-  attribute :tenant_id
-  global? true  # Allow cross-tenant queries for super_admin
+  strategy :context
 end
 ```
 
-The `tenant_id` is automatically set from the actor's tenant context and enforced in policies.
+The `tenant` option is passed from the actor's tenant context and enforced in policies.
 
 ## Domain Modules
 

@@ -21,11 +21,11 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
     test "clears session and redirects", %{conn: conn} do
       conn =
         conn
-        |> put_session(:user, "some_token")
+        |> put_session("user_token", "some_token")
         |> put_session(:live_socket_id, "users_sessions:123")
         |> UserAuth.log_out_user()
 
-      refute get_session(conn, :user)
+      refute get_session(conn, "user_token")
       assert redirected_to(conn) == ~p"/"
     end
 
@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
 
     test "works even if user is already logged out", %{conn: conn} do
       conn = conn |> UserAuth.log_out_user()
-      refute get_session(conn, :user)
+      refute get_session(conn, "user_token")
       assert redirected_to(conn) == ~p"/"
     end
   end
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
     test "assigns nil to current_scope with invalid token", %{conn: conn} do
       conn =
         conn
-        |> put_session(:user, "invalid_token")
+        |> put_session("user_token", "invalid_token")
         |> UserAuth.fetch_current_scope_for_user([])
 
       assert conn.assigns.current_scope.user == nil
@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
     end
 
     test "assigns nil to current_scope with invalid token", %{conn: conn} do
-      session = conn |> put_session(:user, "invalid_token") |> get_session()
+      session = conn |> put_session("user_token", "invalid_token") |> get_session()
 
       socket = %LiveView.Socket{
         endpoint: ServiceRadarWebNGWeb.Endpoint,
@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.UserAuthTest do
 
   describe "on_mount :require_authenticated" do
     test "redirects to login page if there isn't a valid token", %{conn: conn} do
-      session = conn |> put_session(:user, "invalid_token") |> get_session()
+      session = conn |> put_session("user_token", "invalid_token") |> get_session()
 
       socket = %LiveView.Socket{
         endpoint: ServiceRadarWebNGWeb.Endpoint,

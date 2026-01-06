@@ -437,6 +437,10 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
   end
 
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
+  end
+
   attributes do
     # OCSF Core Identity - uid is the primary key
     attribute :uid, :string do

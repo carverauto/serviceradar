@@ -30,8 +30,9 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 
 ### Multi-tenancy
 
-- All tenant-scoped resources use attribute-based multitenancy with `tenant_id`
+- Tenant-scoped resources use schema-based multitenancy (`strategy :context`)
 - **Always** pass `tenant: tenant_id` option to Ash operations for tenant-scoped resources
+- Public resources (tenants, users, tenant memberships, platform tables) use the public schema and do not take tenant context
 - The actor's `tenant_id` is used for policy enforcement
 
 ### Domains

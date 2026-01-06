@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
 
+  alias ServiceRadarWebNG.Accounts.Scope
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -312,12 +314,13 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
-      %{user: user} when not is_nil(user) ->
+      %Scope{user: user} = scope when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
+        tenant_id = Scope.tenant_id(scope)
 
         actor = %{
           id: user.id,
-          tenant_id: user.tenant_id,
+          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -328,12 +331,15 @@ defmodule ServiceRadarWebNGWeb.Router do
         |> assign(:ash_actor, actor)
         |> assign(:current_partition_id, partition_id)
         |> Ash.PlugHelpers.set_actor(actor)
-        |> Ash.PlugHelpers.set_tenant(user.tenant_id)
+        |> maybe_set_tenant(tenant_id)
 
       _ ->
         conn
     end
   end
+
+  defp maybe_set_tenant(conn, nil), do: conn
+  defp maybe_set_tenant(conn, tenant_id), do: Ash.PlugHelpers.set_tenant(conn, tenant_id)
 
   # Extract partition ID from X-Partition-Id header or session
   defp get_partition_id_from_request(conn) do

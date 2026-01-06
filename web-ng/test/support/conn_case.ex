@@ -67,11 +67,12 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   """
   def log_in_user(conn, user, _opts \\ []) do
     # Generate an Ash JWT token for the user
-    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user)
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{}, tenant: user.tenant_id)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
-    |> Plug.Conn.put_session(:user, token)
+    |> Plug.Conn.put_session("user_token", token)
+    |> Plug.Conn.put_session("tenant", user.tenant_id)
     |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
 
@@ -107,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   """
   def log_in_api_user(conn, user, _opts \\ []) do
     # Generate an Ash JWT token for the user
-    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user)
+    {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{}, tenant: user.tenant_id)
 
     conn
     |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")

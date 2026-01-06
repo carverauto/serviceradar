@@ -261,6 +261,10 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
   end
 
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
+  end
+
   attributes do
     uuid_primary_key :id
 

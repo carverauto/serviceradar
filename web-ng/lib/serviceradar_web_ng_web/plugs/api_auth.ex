@@ -25,6 +25,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   import Plug.Conn
   require Logger
 
+  alias Ash.PlugHelpers
+  alias ServiceRadarWebNG.Accounts.Scope
+
   def init(opts), do: opts
 
   def call(conn, _opts) do
@@ -75,17 +78,20 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
+    tenant = token_tenant(token)
+    opts = tenant_opts(tenant)
+    subject_opts = Keyword.merge([authorize?: false], opts)
+
     # Bearer tokens are Ash JWT tokens
     # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
     # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
+    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
       {:ok, claims, resource} ->
         with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <-
-               AshAuthentication.subject_to_user(subject, resource, authorize?: false) do
-          scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
-          conn = assign(conn, :current_scope, scope)
-          {:ok, conn}
+             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
+          tenant_id = Map.get(claims, "tenant") || user.tenant_id
+          scope = Scope.for_user(user, active_tenant_id: tenant_id)
+          {:ok, assign_scope(conn, scope, tenant_id)}
         else
           _ -> {:error, :unauthorized}
         end
@@ -114,47 +120,53 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_ash_api_token(conn, token) do
-    # Hash the token to compare against stored hash
-    token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
-    token_prefix = String.slice(token, 0, 8)
+    tenant_id = tenant_from_header(conn)
 
-    # Query for matching token using Ash (bypass authorization for token lookup)
-    require Ash.Query
+    if is_nil(tenant_id) do
+      {:error, :unauthorized}
+    else
+      # Hash the token to compare against stored hash
+      token_hash = :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
+      token_prefix = String.slice(token, 0, 8)
 
-    query =
-      ServiceRadar.Identity.ApiToken
-      |> Ash.Query.filter(
-        token_prefix == ^token_prefix and
-          token_hash == ^token_hash and
-          enabled == true and
-          is_nil(revoked_at) and
-          (is_nil(expires_at) or expires_at > ^DateTime.utc_now())
-      )
-      |> Ash.Query.load(:user)
+      # Query for matching token using Ash (bypass authorization for token lookup)
+      require Ash.Query
 
-    case Ash.read(query, authorize?: false) do
-      {:ok, [api_token]} ->
-        # Record the usage
-        record_token_usage(api_token, conn)
+      query =
+        ServiceRadar.Identity.ApiToken
+        |> Ash.Query.filter(
+          token_prefix == ^token_prefix and
+            token_hash == ^token_hash and
+            enabled == true and
+            is_nil(revoked_at) and
+            (is_nil(expires_at) or expires_at > ^DateTime.utc_now())
+        )
+        |> Ash.Query.load(:user)
 
-        # Create scope with the token's user
-        user = api_token.user
+      case Ash.read(query, authorize?: false, tenant: tenant_id) do
+        {:ok, [api_token]} ->
+          # Record the usage
+          record_token_usage(api_token, conn)
 
-        scope = %ServiceRadarWebNG.Accounts.Scope{user: user}
+          # Create scope with the token's user
+          user = api_token.user
 
-        conn =
-          conn
-          |> assign(:current_scope, scope)
-          |> assign(:api_token, api_token)
-          |> assign(:api_token_scope, api_token.scope)
+          scope = Scope.for_user(user, active_tenant_id: api_token.tenant_id)
 
-        {:ok, conn}
+          conn =
+            conn
+            |> assign_scope(scope, api_token.tenant_id)
+            |> assign(:api_token, api_token)
+            |> assign(:api_token_scope, api_token.scope)
 
-      {:ok, []} ->
-        {:error, :not_found}
+          {:ok, conn}
 
-      {:error, _} ->
-        {:error, :not_found}
+        {:ok, []} ->
+          {:error, :not_found}
+
+        {:error, _} ->
+          {:error, :not_found}
+      end
     end
   end
 
@@ -170,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     Task.start(fn ->
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update(authorize?: false)
+      |> Ash.update(authorize?: false, tenant: api_token.tenant_id)
     end)
   end
 
@@ -179,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
     if key in valid_keys do
       # API key auth - create a system scope
-      scope = %ServiceRadarWebNG.Accounts.Scope{user: nil}
+      scope = %Scope{user: nil}
 
       conn =
         conn
@@ -195,5 +207,80 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   defp get_api_keys do
     Application.get_env(:serviceradar_web_ng, :api_auth, [])
     |> Keyword.get(:api_keys, [])
+  end
+
+  defp assign_scope(conn, %Scope{user: user} = scope, tenant_id) do
+    partition_id = get_partition_id_from_request(conn)
+
+    actor =
+      if user do
+        actor = %{
+          id: user.id,
+          tenant_id: tenant_id,
+          role: user.role,
+          email: user.email
+        }
+
+        if partition_id do
+          Map.put(actor, :partition_id, partition_id)
+        else
+          actor
+        end
+      end
+
+    conn =
+      conn
+      |> assign(:current_scope, scope)
+      |> assign(:ash_actor, actor)
+      |> assign(:current_partition_id, partition_id)
+
+    conn =
+      if actor do
+        PlugHelpers.set_actor(conn, actor)
+      else
+        conn
+      end
+
+    if tenant_id do
+      PlugHelpers.set_tenant(conn, tenant_id)
+    else
+      conn
+    end
+  end
+
+  defp get_partition_id_from_request(conn) do
+    case get_req_header(conn, "x-partition-id") do
+      [partition_id | _] when byte_size(partition_id) > 0 ->
+        cast_uuid(partition_id)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp token_tenant(token) do
+    case AshAuthentication.Jwt.peek(token) do
+      {:ok, claims} -> Map.get(claims, "tenant")
+      _ -> nil
+    end
+  end
+
+  defp tenant_opts(nil), do: []
+  defp tenant_opts(tenant), do: [tenant: tenant]
+
+  defp tenant_from_header(conn) do
+    case get_req_header(conn, "x-tenant-id") do
+      [tenant_id | _] -> cast_uuid(tenant_id)
+      _ -> nil
+    end
+  end
+
+  defp cast_uuid(nil), do: nil
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
   end
 end

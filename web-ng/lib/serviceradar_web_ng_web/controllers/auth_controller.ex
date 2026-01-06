@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   ## Token Storage
 
   AshAuthentication stores JWT tokens in the session automatically via `store_in_session/2`.
-  The token is stored under the subject name key (e.g., `:user`) and can be retrieved
+  The token is stored under the subject token key (e.g., `"user_token"`) and can be retrieved
   for verification using `AshAuthentication.Jwt.verify/2`.
   """
 
@@ -39,10 +39,23 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   def success(conn, _activity, %_{} = user, _token) do
     return_to = get_session(conn, :user_return_to) || ~p"/analytics"
+    tenant_id = user.tenant_id
+
+    conn =
+      case AshAuthentication.Jwt.token_for_user(user, %{}, tenant: tenant_id) do
+        {:ok, token, _claims} ->
+          conn
+          |> put_session("user_token", token)
+          |> put_session("tenant", tenant_id)
+
+        :error ->
+          conn
+          |> store_in_session(user)
+          |> put_session("tenant", tenant_id)
+      end
 
     conn
     |> delete_session(:user_return_to)
-    |> store_in_session(user)
     |> put_session(:live_socket_id, "users_sessions:#{user.id}")
     |> configure_session(renew: true)
     |> assign(:current_user, user)
