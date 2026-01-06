@@ -63,9 +63,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -196,6 +194,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     policy action(:reprovision) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

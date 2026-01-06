@@ -24,6 +24,10 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
     repo ServiceRadar.Repo
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   code_interface do
     define :record, action: :record
     define :by_package, action: :by_package, args: [:package_id]

@@ -48,9 +48,7 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? false
+    strategy :context
   end
 
   code_interface do

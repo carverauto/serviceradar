@@ -56,6 +56,9 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
 
+        # Startup migrations (core-elx only, after repo)
+        startup_migrations_child(),
+
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
@@ -145,6 +148,14 @@ defmodule ServiceRadar.Application do
         nil -> nil
         oban_config when is_list(oban_config) -> {Oban, oban_config}
       end
+    else
+      nil
+    end
+  end
+
+  defp startup_migrations_child do
+    if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
+      ServiceRadar.Cluster.StartupMigrations
     else
       nil
     end

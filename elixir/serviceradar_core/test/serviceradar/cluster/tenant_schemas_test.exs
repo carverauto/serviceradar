@@ -81,30 +81,6 @@ defmodule ServiceRadar.Cluster.TenantSchemasTest do
     end
   end
 
-  describe "isolation_level/1" do
-    test "returns :context for enterprise plan" do
-      assert TenantSchemas.isolation_level(%{plan: :enterprise}) == :context
-      assert TenantSchemas.isolation_level(%{plan: "enterprise"}) == :context
-    end
-
-    test "returns :attribute for other plans" do
-      assert TenantSchemas.isolation_level(%{plan: :pro}) == :attribute
-      assert TenantSchemas.isolation_level(%{plan: :free}) == :attribute
-      assert TenantSchemas.isolation_level(%{plan: nil}) == :attribute
-    end
-  end
-
-  describe "uses_schema_isolation?/1" do
-    test "returns true for enterprise" do
-      assert TenantSchemas.uses_schema_isolation?(%{plan: :enterprise}) == true
-    end
-
-    test "returns false for other plans" do
-      assert TenantSchemas.uses_schema_isolation?(%{plan: :pro}) == false
-      assert TenantSchemas.uses_schema_isolation?(%{plan: :free}) == false
-    end
-  end
-
   describe "tenant_migrations_path/0" do
     test "returns path to tenant migrations directory" do
       path = TenantSchemas.tenant_migrations_path()

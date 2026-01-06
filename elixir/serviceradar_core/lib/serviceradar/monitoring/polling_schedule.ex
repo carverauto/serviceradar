@@ -53,9 +53,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -316,6 +314,10 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       # Allow AshOban scheduler (no actor) to execute
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

@@ -37,9 +37,7 @@ defmodule ServiceRadar.Observability.Log do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do

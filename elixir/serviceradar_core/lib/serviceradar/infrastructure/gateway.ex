@@ -79,9 +79,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   state_machine do
@@ -372,6 +370,10 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     policy action_type(:update) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

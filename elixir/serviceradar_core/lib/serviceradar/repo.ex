@@ -21,4 +21,8 @@ defmodule ServiceRadar.Repo do
   def min_pg_version do
     %Version{major: 15, minor: 0, patch: 0}
   end
+
+  def all_tenants do
+    ServiceRadar.Cluster.TenantSchemas.list_schemas()
+  end
 end

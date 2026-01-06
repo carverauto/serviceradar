@@ -83,6 +83,9 @@ if config_env() == :prod do
   config :serviceradar_core,
     cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") == "true"
 
+  config :serviceradar_core,
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+
   # Oban configuration
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,

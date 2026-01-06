@@ -101,9 +101,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -339,6 +337,10 @@ defmodule ServiceRadar.Monitoring.Alert do
       # Allow AshOban scheduler (no actor) to send notifications
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

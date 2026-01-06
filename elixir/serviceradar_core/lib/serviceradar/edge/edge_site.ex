@@ -56,9 +56,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -169,6 +167,10 @@ defmodule ServiceRadar.Edge.EdgeSite do
     policy action_type(:destroy) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

@@ -138,9 +138,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do

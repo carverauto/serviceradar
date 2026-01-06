@@ -62,27 +62,13 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   end
   ```
 
-  ## Tiered Isolation
-
-  Isolation level can vary by tenant plan:
-
-  | Plan       | Strategy     | Description                        |
-  |------------|--------------|-------------------------------------|
-  | Enterprise | :context     | Full schema isolation               |
-  | Pro        | :attribute   | Attribute-based with extra auditing |
-  | Free       | :attribute   | Basic attribute-based               |
-
   ## Migration Strategy
 
   - Public schema migrations: `priv/repo/migrations/`
   - Tenant schema migrations: `priv/repo/tenant_migrations/`
 
-  Run both during deployment:
-
-  ```bash
-  mix ecto.migrate
-  mix ecto.migrate --migrations-path priv/repo/tenant_migrations --prefix tenant_*
-  ```
+  core-elx runs these migrations on startup and fails fast if any migration
+  cannot be applied.
   """
 
   alias ServiceRadar.Repo
@@ -122,10 +108,10 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
       Logger.info("Created PostgreSQL schema: #{schema_name}")
 
-      # Run tenant migrations if requested
-      if run_migrations do
-        run_tenant_migrations(schema_name)
-      end
+    # Run tenant migrations if requested
+    if run_migrations do
+      run_tenant_migrations!(schema_name)
+    end
 
       {:ok, schema_name}
     rescue
@@ -243,43 +229,26 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @doc """
   Runs tenant migrations for a specific schema.
   """
-  @spec run_tenant_migrations(String.t()) :: :ok | {:error, term()}
-  def run_tenant_migrations(schema_name) do
-    migrations_path = tenant_migrations_path()
-
-    if File.dir?(migrations_path) do
-      try do
-        Ecto.Migrator.run(
-          Repo,
-          migrations_path,
-          :up,
-          all: true,
-          prefix: schema_name
-        )
-
-        Logger.info("Ran tenant migrations for schema: #{schema_name}")
-        :ok
-      rescue
-        e ->
-          Logger.error("Failed to run migrations for #{schema_name}: #{inspect(e)}")
-          {:error, e}
-      end
-    else
-      Logger.debug("No tenant migrations directory found at #{migrations_path}")
-      :ok
-    end
+  @spec run_tenant_migrations!(String.t()) :: :ok
+  def run_tenant_migrations!(schema_name) do
+    run_migrations!(tenant_migrations_path(), schema_name, "tenant")
   end
 
   @doc """
   Runs tenant migrations for all tenant schemas.
   """
-  @spec run_all_tenant_migrations() :: :ok
-  def run_all_tenant_migrations do
+  @spec run_all_tenant_migrations!() :: :ok
+  def run_all_tenant_migrations! do
     for schema <- list_schemas() do
-      run_tenant_migrations(schema)
+      run_tenant_migrations!(schema)
     end
 
     :ok
+  end
+
+  @spec run_public_migrations!() :: :ok
+  def run_public_migrations! do
+    run_migrations!(public_migrations_path(), nil, "public")
   end
 
   @doc """
@@ -288,6 +257,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @spec tenant_migrations_path() :: String.t()
   def tenant_migrations_path do
     Application.app_dir(:serviceradar_core, "priv/repo/tenant_migrations")
+  end
+
+  @spec public_migrations_path() :: String.t()
+  def public_migrations_path do
+    Application.app_dir(:serviceradar_core, "priv/repo/migrations")
   end
 
   # ============================================================================
@@ -347,35 +321,27 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     Process.get(:tenant_schema)
   end
 
-  # ============================================================================
-  # Isolation Level
-  # ============================================================================
+  defp run_migrations!(migrations_path, prefix, label) do
+    if File.dir?(migrations_path) do
+      try do
+        Ecto.Migrator.run(Repo, migrations_path, :up, all: true, prefix: prefix)
 
-  @doc """
-  Returns the isolation level for a tenant based on their plan.
+        Logger.info("Ran #{label} migrations#{maybe_prefix_label(prefix)}")
+        :ok
+      rescue
+        e ->
+          Logger.error(
+            "Failed to run #{label} migrations#{maybe_prefix_label(prefix)}: #{inspect(e)}"
+          )
 
-  ## Examples
-
-      TenantSchemas.isolation_level(%{plan: :enterprise})
-      # => :context
-
-      TenantSchemas.isolation_level(%{plan: :free})
-      # => :attribute
-  """
-  @spec isolation_level(map() | struct()) :: :context | :attribute
-  def isolation_level(%{plan: plan}) when plan in [:enterprise, "enterprise"] do
-    :context
+          reraise e, __STACKTRACE__
+      end
+    else
+      Logger.debug("No #{label} migrations directory found at #{migrations_path}")
+      :ok
+    end
   end
 
-  def isolation_level(_tenant) do
-    :attribute
-  end
-
-  @doc """
-  Determines if a tenant should use schema isolation.
-  """
-  @spec uses_schema_isolation?(map() | struct()) :: boolean()
-  def uses_schema_isolation?(tenant) do
-    isolation_level(tenant) == :context
-  end
+  defp maybe_prefix_label(nil), do: ""
+  defp maybe_prefix_label(prefix), do: " for schema #{prefix}"
 end

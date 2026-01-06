@@ -62,9 +62,7 @@ defmodule ServiceRadar.Edge.TenantCA do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -188,6 +186,10 @@ defmodule ServiceRadar.Edge.TenantCA do
     policy action(:increment_serial) do
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

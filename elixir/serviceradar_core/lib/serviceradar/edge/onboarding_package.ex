@@ -66,9 +66,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -191,7 +189,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # TENANT ISOLATION is enforced by multitenancy strategy :attribute
+    # TENANT ISOLATION is enforced by schema-based multitenancy (:context)
     # The tenant context passed to actions automatically filters records
     # Policies here only check role-based access
 
@@ -224,6 +222,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :admin)
       authorize_if actor_attribute_equals(:role, :operator)
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

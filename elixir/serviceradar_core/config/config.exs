@@ -97,5 +97,8 @@ config :serviceradar_core, Oban,
 config :serviceradar_core,
   cluster_enabled: false
 
+config :serviceradar_core,
+  run_startup_migrations: false
+
 # Import environment specific config
 import_config "#{config_env()}.exs"

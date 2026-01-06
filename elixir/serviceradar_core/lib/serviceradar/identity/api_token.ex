@@ -31,9 +31,7 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? false
+    strategy :context
   end
 
   code_interface do
@@ -170,6 +168,10 @@ defmodule ServiceRadar.Identity.ApiToken do
       authorize_if expr(user_id == ^actor(:id))
       authorize_if actor_attribute_equals(:role, :admin)
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

@@ -24,6 +24,10 @@ defmodule ServiceRadar.Inventory.MergeAudit do
     repo ServiceRadar.Repo
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   code_interface do
     define :record, action: :record
     define :get_by_device, action: :by_device, args: [:device_id]

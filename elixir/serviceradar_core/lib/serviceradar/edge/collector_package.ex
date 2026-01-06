@@ -62,9 +62,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -310,6 +308,10 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     policy action(:revoke) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

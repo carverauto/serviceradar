@@ -36,6 +36,10 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     repo ServiceRadar.Repo
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   code_interface do
     define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
     define :get_by_device, action: :by_device, args: [:device_id]
@@ -162,8 +166,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     end
 
     # Read access for authenticated users in same tenant
-    # Note: device_identifiers doesn't have tenant_id directly,
-    # authorization flows through the device relationship
+    # Note: device_identifiers doesn't have tenant_id; schema isolation handles tenancy.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end

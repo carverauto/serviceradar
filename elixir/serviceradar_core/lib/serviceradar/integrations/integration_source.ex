@@ -33,9 +33,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   cloak do
@@ -253,6 +251,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
                        tenant_id == ^actor(:tenant_id)
                    )
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

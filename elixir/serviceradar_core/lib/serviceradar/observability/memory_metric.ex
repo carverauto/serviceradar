@@ -30,6 +30,10 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     end
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   resource do
     # TimescaleDB hypertables don't have traditional primary keys
     require_primary_key? false
@@ -65,7 +69,7 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   end
 
   policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
+    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
@@ -75,7 +79,7 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     end
   end
 
-  # Note: No multitenancy - Go schema doesn't have tenant_id
+  # Note: This hypertable does not include tenant_id; schema isolation handles tenancy.
 
   attributes do
     # TimescaleDB hypertable - no traditional PK
