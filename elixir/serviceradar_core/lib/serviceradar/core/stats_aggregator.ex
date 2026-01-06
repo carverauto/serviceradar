@@ -271,8 +271,10 @@ defmodule ServiceRadar.Core.StatsAggregator do
       end)
 
     # Merge fallback records that don't have canonical equivalents
+    sorted_fallback = Enum.sort(fallback)
+
     {canonical, meta} =
-      Enum.reduce(fallback, {canonical, meta}, fn {key, device}, {can, m} ->
+      Enum.reduce(sorted_fallback, {canonical, meta}, fn {key, device}, {can, m} ->
         if Map.has_key?(can, key) do
           {can, %{m | skipped_non_canonical: m.skipped_non_canonical + 1}}
         else

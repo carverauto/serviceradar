@@ -302,7 +302,11 @@ defmodule ServiceRadar.DataService.Client do
     case System.get_env(key) do
       nil -> nil
       "" -> nil
-      value -> String.to_integer(value)
+      value ->
+        case Integer.parse(value) do
+          {int, ""} -> int
+          _ -> nil
+        end
     end
   end
 

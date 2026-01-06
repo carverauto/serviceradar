@@ -439,13 +439,12 @@ defmodule ServiceRadar.Identity.AliasEvents do
     alias ServiceRadar.Identity.DeviceAliasState
 
     # Record the sighting
-    case DeviceAliasState.record_sighting(existing, %{}, actor: actor) do
+    case DeviceAliasState.record_sighting(
+           existing,
+           %{confirm_threshold: confirm_threshold},
+           actor: actor
+         ) do
       {:ok, updated} ->
-        # Check if we should confirm
-        if updated.state == :detected and updated.sighting_count >= confirm_threshold do
-          DeviceAliasState.confirm(updated, actor: actor)
-        end
-
         # Generate event if state changed
         if updated.state != existing.state do
           %{

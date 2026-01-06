@@ -200,28 +200,31 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 
 		// Bound shutdown so the process can't hang forever (includes pushLoop.Stop()).
 		const shutdownTimeout = 10 * time.Second
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer shutdownCancel()
 		shutdownDone := make(chan struct{})
 
 		go func() {
 			defer close(shutdownDone)
 
 			cancel()
-			pushLoop.Stop()
-			<-errChan
+			if err := pushLoop.Stop(shutdownCtx); err != nil {
+				log.Warn().Err(err).Msg("Push loop stop did not complete before timeout")
+			}
+			select {
+			case <-errChan:
+			case <-shutdownCtx.Done():
+				return
+			}
 
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer stopCancel()
-			if err := server.Stop(stopCtx); err != nil {
+			if err := server.Stop(shutdownCtx); err != nil {
 				log.Error().Err(err).Msg("Error stopping agent services")
 			}
 		}()
 
-		timer := time.NewTimer(shutdownTimeout)
-		defer timer.Stop()
-
 		select {
 		case <-shutdownDone:
-		case <-timer.C:
+		case <-shutdownCtx.Done():
 			return fmt.Errorf("%w after %s", errShutdownTimeout, shutdownTimeout)
 		}
 

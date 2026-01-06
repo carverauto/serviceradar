@@ -307,7 +307,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"
       accept [:poller_id]
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -318,7 +317,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :connection_failed do
       description "Mark connection attempt as failed"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -327,7 +325,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :degrade do
       description "Mark agent as degraded (connected but unhealthy)"
-      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -337,7 +334,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :restore_health do
       description "Restore agent health (from degraded to connected)"
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -347,7 +343,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :lose_connection do
       description "Mark agent as disconnected (connection lost)"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:poller_id, nil)
@@ -357,7 +352,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :reconnect do
       description "Start reconnection process (from disconnected to connecting)"
-      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -367,7 +361,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :mark_unavailable do
       description "Mark agent as unavailable (admin action)"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:unavailable)
       change set_attribute(:is_healthy, false)
@@ -377,7 +370,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :recover do
       description "Start recovery process (from unavailable to connecting)"
-      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -388,7 +380,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :connect do
       description "Mark agent as connected to a poller (legacy - use establish_connection)"
       accept [:poller_id]
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -399,7 +390,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :disconnect do
       description "Mark agent as disconnected (legacy - use lose_connection)"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:poller_id, nil)
@@ -409,7 +399,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :mark_unhealthy do
       description "Mark agent as unhealthy (legacy - use degrade)"
-      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -661,7 +650,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
               :string,
               expr(
                 if not is_nil(host) and not is_nil(port) do
-                  host <> ":" <> fragment("?::text", port)
+                  fragment("? || ':' || ?::text", host, port)
                 else
                   nil
                 end

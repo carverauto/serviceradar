@@ -190,7 +190,7 @@ func (p *PushLoop) markSyncEnrolled(tenantID, tenantSlug string) {
 	syncer.MarkGatewayEnrolled(tenantID, tenantSlug)
 }
 
-func (p *PushLoop) stopSync() {
+func (p *PushLoop) stopSync(ctx context.Context) {
 	p.syncMu.Lock()
 	syncer := p.syncer
 	started := p.syncStarted
@@ -200,7 +200,7 @@ func (p *PushLoop) stopSync() {
 		return
 	}
 
-	if err := syncer.Stop(context.Background()); err != nil {
+	if err := syncer.Stop(ctx); err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to stop sync runtime")
 	}
 }
@@ -281,7 +281,11 @@ func (p *PushLoop) Start(ctx context.Context) error {
 
 // Stop signals the push loop to stop and waits for it to exit.
 // Closes done channel if Start() was never called to prevent deadlock.
-func (p *PushLoop) Stop() {
+func (p *PushLoop) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	p.stopOnce.Do(func() { close(p.stopCh) })
 	p.cancelMu.Lock()
 	if p.cancel != nil {
@@ -289,16 +293,21 @@ func (p *PushLoop) Stop() {
 	}
 	p.cancelMu.Unlock()
 
-	p.stopSync()
+	p.stopSync(ctx)
 
 	p.stateMu.RLock()
 	started := p.started
 	p.stateMu.RUnlock()
 	if !started {
 		p.doneOnce.Do(func() { close(p.done) })
-		return
+		return nil
 	}
-	<-p.done
+	select {
+	case <-p.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // pushStatus collects status from all services and pushes to the gateway.

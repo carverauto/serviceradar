@@ -174,7 +174,11 @@ defmodule ServiceRadar.NATS.AccountClient do
           expires_at =
             case response.expires_at_unix do
               0 -> nil
-              unix -> DateTime.from_unix!(unix)
+              unix ->
+                case DateTime.from_unix(unix) do
+                  {:ok, dt} -> dt
+                  {:error, _} -> nil
+                end
             end
 
           {:ok,
