@@ -76,7 +76,7 @@ func ExtractSafeConfigMetadata(config interface{}) map[string]string {
 Services communicate their KV store usage to the core:
 
 ```go
-func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+func (s *Server) extractSafeKVMetadata(svc *proto.GatewayServiceStatus) map[string]string {
     metadata := make(map[string]string)
     metadata["service_type"] = svc.ServiceType
     

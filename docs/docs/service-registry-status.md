@@ -174,7 +174,7 @@ func (s *Server) isKnownGateway(ctx context.Context, gatewayID string) bool {
 - [ ] Keep static config as fallback for backwards compat
 - [ ] Add feature flag if needed
 
-#### 2.2 Record Heartbeats from ReportStatus
+#### 2.2 Record Heartbeats from PushStatus
 
 **Current Code** (`pkg/core/services.go:869`):
 ```go
@@ -211,7 +211,7 @@ if s.edgeOnboarding != nil { ... }
 ```
 
 **Tasks**:
-- [ ] Add heartbeat recording to `ReportStatus` handler
+- [ ] Add heartbeat recording to `PushStatus` handler
 - [ ] Add helper `determineServiceType()` to detect gateway/agent/checker
 - [ ] Ensure gatewayID, agentID extracted from status report
 - [ ] Handle errors gracefully (don't fail status report)
@@ -347,7 +347,7 @@ if s.edgeOnboarding != nil { ... }
 
 2. **Core Integration** (2-3 days)
    - Replace `isKnownGateway()` logic
-   - Add heartbeat recording from `ReportStatus`
+   - Add heartbeat recording from `PushStatus`
    - Test backwards compatibility
 
 3. **Basic Testing** (2 days)

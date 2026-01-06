@@ -88,7 +88,7 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 				Times(1)
 
 			// Create test service status
-			serviceStatus := &proto.ServiceStatus{
+			serviceStatus := &proto.GatewayServiceStatus{
 				ServiceName: "armis-sync",
 				ServiceType: "sync-discovery-results",
 			}
@@ -145,7 +145,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 	sightings := createSyncSightings(15) // Reduced for test performance
 	sightingsJSON, _ := json.Marshal(sightings)
 
-	serviceStatus := &proto.ServiceStatus{
+	serviceStatus := &proto.GatewayServiceStatus{
 		ServiceName: "armis-sync",
 		ServiceType: "sync-discovery-results",
 	}
@@ -211,7 +211,7 @@ func TestDatabaseCallCounting(t *testing.T) {
 	sightings := createSyncSightings(15) // Batch size doesn't matter anymore
 	sightingsJSON, _ := json.Marshal(sightings)
 
-	serviceStatus := &proto.ServiceStatus{
+	serviceStatus := &proto.GatewayServiceStatus{
 		ServiceName: "armis-sync",
 		ServiceType: "sync-discovery-results",
 	}
@@ -251,7 +251,7 @@ func createSyncSightings(count int) []*models.SweepResult {
 	for i := 0; i < count; i++ {
 		sightings[i] = &models.SweepResult{
 			AgentID:         "test-agent",
-			GatewayID:        "test-gateway",
+			GatewayID:       "test-gateway",
 			Partition:       "test",
 			DiscoverySource: "armis",
 			IP:              fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),

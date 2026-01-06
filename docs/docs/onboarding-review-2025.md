@@ -96,7 +96,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
      - Starting service
 
 4. **Activation** (Gateway → Core):
-   - Gateway sends first `ReportStatus` RPC to Core
+   - Gateway sends first `PushStatus` RPC to Core
    - Core calls `edgeOnboarding.RecordActivation()` in `pkg/core/services.go:869`
    - Package status changes to `activated`
    - Gateway added to in-memory allowed list, broadcast to all Core instances
@@ -206,7 +206,7 @@ TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 
 1. **Gateway Authorization** (`pkg/core/gateways.go:812`):
    ```go
-   func (s *Server) ReportStatus(ctx context.Context, req *proto.GatewayStatusRequest) {
+   func (s *Server) PushStatus(ctx context.Context, req *proto.GatewayStatusRequest) {
        if !s.isKnownGateway(ctx, req.GatewayId) {
            s.logger.Warn().Str("gateway_id", req.GatewayId).
                Msg("Ignoring status report from unknown gateway")
@@ -275,7 +275,7 @@ if s.edgeOnboarding != nil {
 func (s *Server) ensureServiceDevice(
     ctx context.Context,
     agentID, gatewayID, partition string,
-    svc *proto.ServiceStatus,
+    svc *proto.GatewayServiceStatus,
     serviceData json.RawMessage,
     timestamp time.Time,
 ) {

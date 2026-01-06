@@ -121,7 +121,10 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
     drop_if_exists unique_index(:ocsf_devices, [:uid], name: "ocsf_devices_unique_uid_index")
     drop table(:ocsf_devices)
 
-    drop_if_exists unique_index(:gateways, [:gateway_id], name: "gateways_unique_gateway_id_index")
+    drop_if_exists unique_index(:gateways, [:gateway_id],
+                     name: "gateways_unique_gateway_id_index"
+                   )
+
     drop table(:gateways)
   end
 end

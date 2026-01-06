@@ -22,7 +22,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     # Create a test package
     {:ok, result} =
       OnboardingPackages.create(
-        %{label: "test-bundle-pkg", component_type: :gateway, component_id: "gateway-test-bundle"},
+        %{
+          label: "test-bundle-pkg",
+          component_type: :gateway,
+          component_id: "gateway-test-bundle"
+        },
         tenant: tenant.id
       )
 

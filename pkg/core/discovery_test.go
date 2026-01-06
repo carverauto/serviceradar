@@ -73,7 +73,7 @@ func TestProcessSyncResults(t *testing.T) {
 		name          string
 		setupMocks    func(*db.MockService, *registry.MockManager)
 		deviceUpdates []*models.DeviceUpdate
-		svc           *proto.ServiceStatus
+		svc           *proto.GatewayServiceStatus
 		expectError   bool
 		errorContains string
 	}{
@@ -87,7 +87,7 @@ func TestProcessSyncResults(t *testing.T) {
 			deviceUpdates: []*models.DeviceUpdate{
 				{
 					AgentID:     "agent1",
-					GatewayID:    "gateway1",
+					GatewayID:   "gateway1",
 					DeviceID:    "partition1:192.168.1.1",
 					Partition:   "partition1",
 					Source:      models.DiscoverySourceIntegration,
@@ -97,7 +97,7 @@ func TestProcessSyncResults(t *testing.T) {
 					Metadata:    map[string]string{"test": "data"},
 				},
 			},
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "sync",
 				AgentId:     "agent1",
 			},
@@ -109,7 +109,7 @@ func TestProcessSyncResults(t *testing.T) {
 				// No expectations - ProcessBatchDeviceUpdates should not be called
 			},
 			deviceUpdates: []*models.DeviceUpdate{},
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "sync",
 				AgentId:     "agent1",
 			},
@@ -121,7 +121,7 @@ func TestProcessSyncResults(t *testing.T) {
 				// No expectations
 			},
 			deviceUpdates: nil, // This will cause JSON decode to fail
-			svc:           &proto.ServiceStatus{ServiceName: "sync"},
+			svc:           &proto.GatewayServiceStatus{ServiceName: "sync"},
 			expectError:   true,
 			errorContains: "read sync payload token",
 		},
@@ -138,7 +138,7 @@ func TestProcessSyncResults(t *testing.T) {
 					IP:     "192.168.1.1",
 				},
 			},
-			svc:           &proto.ServiceStatus{ServiceName: "sync"},
+			svc:           &proto.GatewayServiceStatus{ServiceName: "sync"},
 			expectError:   true,
 			errorContains: "registry error",
 		},
@@ -215,7 +215,7 @@ func TestProcessSyncResults_NilRegistry(t *testing.T) {
 
 	// Should not error when registry is nil, just log a warning
 	err = svc.ProcessSyncResults(context.Background(), "gateway1", "partition1",
-		&proto.ServiceStatus{ServiceName: "sync"}, details, time.Now())
+		&proto.GatewayServiceStatus{ServiceName: "sync"}, details, time.Now())
 	assert.NoError(t, err)
 }
 
@@ -260,7 +260,7 @@ func TestProcessSyncResults_StreamChunking(t *testing.T) {
 		context.Background(),
 		"gateway1",
 		"partition",
-		&proto.ServiceStatus{ServiceName: "sync"},
+		&proto.GatewayServiceStatus{ServiceName: "sync"},
 		details,
 		time.Now(),
 	)
@@ -288,7 +288,7 @@ func buildSyncPayload(total int) (json.RawMessage, error) {
 	for i := 0; i < total; i++ {
 		updates[i] = &models.DeviceUpdate{
 			AgentID:     "agent1",
-			GatewayID:    "gateway1",
+			GatewayID:   "gateway1",
 			DeviceID:    fmt.Sprintf("partition:%d", i),
 			Partition:   "partition",
 			Source:      models.DiscoverySourceIntegration,
@@ -316,7 +316,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 		name          string
 		setupMocks    func(*db.MockService, *registry.MockManager)
 		payload       models.SNMPDiscoveryDataPayload
-		svc           *proto.ServiceStatus
+		svc           *proto.GatewayServiceStatus
 		expectError   bool
 		errorContains string
 	}{
@@ -331,7 +331,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 				mockReg.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Len(1)).Return(nil)
 			},
 			payload: models.SNMPDiscoveryDataPayload{
-				AgentID:  "agent1",
+				AgentID:   "agent1",
 				GatewayID: "gateway1",
 				Devices: []*discoverypb.DiscoveredDevice{
 					{
@@ -362,7 +362,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 					},
 				},
 			},
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "mapper",
 				AgentId:     "agent1",
 			},
@@ -382,7 +382,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 					},
 				},
 			},
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "mapper",
 				AgentId:     "fallback-agent",
 			},
@@ -394,7 +394,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 				// No expectations
 			},
 			payload:       models.SNMPDiscoveryDataPayload{}, // This will be overridden
-			svc:           &proto.ServiceStatus{ServiceName: "mapper"},
+			svc:           &proto.GatewayServiceStatus{ServiceName: "mapper"},
 			expectError:   true,
 			errorContains: "failed to parse SNMP discovery data",
 		},
@@ -419,7 +419,7 @@ func TestProcessSNMPDiscoveryResults(t *testing.T) {
 					},
 				},
 			},
-			svc:         &proto.ServiceStatus{ServiceName: "mapper"},
+			svc:         &proto.GatewayServiceStatus{ServiceName: "mapper"},
 			expectError: false,
 		},
 	}

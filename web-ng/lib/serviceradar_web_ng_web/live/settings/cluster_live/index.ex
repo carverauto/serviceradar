@@ -290,7 +290,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                         <td class="font-mono text-xs max-w-[10rem] truncate">
                           {Map.get(agent, :agent_id, "—")}
                         </td>
-                        <td class="font-mono text-xs">{format_node(Map.get(agent, :gateway_node))}</td>
+                        <td class="font-mono text-xs">
+                          {format_node(Map.get(agent, :gateway_node))}
+                        </td>
                         <td><.status_badge status={Map.get(agent, :status)} /></td>
                       </tr>
                     <% end %>

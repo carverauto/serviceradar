@@ -284,7 +284,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 phx-change="filter"
               >
                 <option value="">All Types</option>
-                <option value="gateway" selected={@filter_component_type == "gateway"}>Gateway</option>
+                <option value="gateway" selected={@filter_component_type == "gateway"}>
+                  Gateway
+                </option>
                 <option value="agent" selected={@filter_component_type == "agent"}>Agent</option>
                 <option value="checker" selected={@filter_component_type == "checker"}>
                   Checker

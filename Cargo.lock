@@ -913,7 +913,7 @@ dependencies = [
  "serde_json 1.0.145",
  "snafu",
  "url",
- "uuid 1.18.1",
+ "uuid 1.19.0",
  "web-sys",
 ]
 
@@ -1353,9 +1353,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.3.3"
+version = "2.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e7624a3bb9fffd82fff016be9a7f163d20e5a89eb8d28f9daaa6b30fff37500"
+checksum = "e130c806dccc85428c564f2dc5a96e05b6615a27c9a28776bd7761a9af4bb552"
 dependencies = [
  "bitflags 2.10.0",
  "byteorder 1.5.0",
@@ -1365,6 +1365,7 @@ dependencies = [
  "itoa 1.0.15",
  "pq-sys",
  "serde_json 1.0.145",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -4871,7 +4872,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.18.1",
+ "uuid 1.19.0",
 ]
 
 [[package]]
@@ -5652,7 +5653,7 @@ dependencies = [
  "tonic-health 0.12.3",
  "tonic-reflection 0.12.3",
  "url",
- "uuid 1.18.1",
+ "uuid 1.19.0",
  "zen-engine",
 ]
 
@@ -5969,7 +5970,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "uuid 1.18.1",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -7063,17 +7064,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom 0.2.16",
+ "serde 1.0.228",
 ]
 
 [[package]]
 name = "uuid"
-version = "1.18.1"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
+checksum = "e2e054861b4bd027cd373e18e8d8d8e6548085000e41290d95ce0c373a654b4a"
 dependencies = [
  "getrandom 0.3.4",
  "js-sys",
- "serde 1.0.228",
  "wasm-bindgen",
 ]
 
@@ -7084,7 +7085,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8"
 dependencies = [
  "outref",
- "uuid 1.18.1",
+ "uuid 1.19.0",
  "vsimd",
 ]
 

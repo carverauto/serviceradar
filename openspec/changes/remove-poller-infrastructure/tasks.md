@@ -9,4 +9,4 @@
 - [x] 1.5.1 Retain UBNT poller for discovery/mapper engine.
 - [x] 1.6 Update docs and runbooks to remove poller references (excluding Swagger/OpenAPI and generated SBOM artifacts).
 - [x] 1.7 Update OpenSpec deltas and ensure specs reflect gateway/agent architecture.
-- [ ] 1.8 Run `make lint`, `make test`, and `mix precommit` (web-ng) after updates.
+- [x] 1.8 Run `make lint`, `make test`, and `mix precommit` (web-ng) after updates.

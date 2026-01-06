@@ -44,7 +44,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 	discoveredDevices = []*models.SweepResult{
 		{
 			AgentID:         "test-agent",
-			GatewayID:        "test-gateway",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.1",
 			DiscoverySource: "armis",
@@ -59,7 +59,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 		},
 		{
 			AgentID:         "test-agent",
-			GatewayID:        "test-gateway",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.2",
 			DiscoverySource: "armis",
@@ -84,7 +84,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 	sweptDevices = []*models.SweepResult{
 		{
 			AgentID:         "test-agent",
-			GatewayID:        "test-gateway",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.1",
 			DiscoverySource: "sweep",
@@ -95,7 +95,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 		},
 		{
 			AgentID:         "test-agent",
-			GatewayID:        "test-gateway",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.2",
 			DiscoverySource: "sweep",
@@ -201,7 +201,7 @@ func executeGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *M
 				ServiceName:     "sync",
 				ServiceType:     "sync",
 				AgentId:         "test-agent",
-				GatewayId:        "test-gateway",
+				GatewayId:       "test-gateway",
 				HasNewData:      true,
 				CurrentSequence: "discovery-seq-123",
 			}, nil
@@ -213,7 +213,7 @@ func executeGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *M
 	var receivedDiscoveryResults []*models.SweepResult
 
 	mockCore.EXPECT().
-		ReportStatus(gomock.Any(), gomock.Any()).
+		PushStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 			// Find sync service status in the report
 			for _, svc := range req.Services {
@@ -271,7 +271,7 @@ func executeAgentSweepFlow(
 				ServiceName:     "sweep",
 				ServiceType:     "sweep",
 				AgentId:         "test-agent",
-				GatewayId:        "test-gateway",
+				GatewayId:       "test-gateway",
 				HasNewData:      true,
 				CurrentSequence: "sweep-seq-456",
 			}, nil
@@ -283,7 +283,7 @@ func executeAgentSweepFlow(
 	var receivedSweepResults []*models.SweepResult
 
 	mockCore.EXPECT().
-		ReportStatus(gomock.Any(), gomock.Any()).
+		PushStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 			// Find sweep service status in the report
 			for _, svc := range req.Services {
@@ -408,7 +408,7 @@ func simulateGatewayFlow(
 		ServiceName:  serviceName,
 		ServiceType:  serviceType,
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -418,22 +418,22 @@ func simulateGatewayFlow(
 
 	// Gateway forwards to core
 	statusReport := &proto.GatewayStatusRequest{
-		AgentId:  "test-agent",
+		AgentId:   "test-agent",
 		GatewayId: "test-gateway",
-		Services: []*proto.ServiceStatus{
+		Services: []*proto.GatewayServiceStatus{
 			{
 				ServiceName: serviceName,
 				ServiceType: serviceType,
 				Available:   true,
 				Message:     resp.Data,
 				AgentId:     "test-agent",
-				GatewayId:    "test-gateway",
+				GatewayId:   "test-gateway",
 				Source:      "results",
 			},
 		},
 	}
 
-	_, err = mockCore.ReportStatus(ctx, statusReport)
+	_, err = mockCore.PushStatus(ctx, statusReport)
 	require.NoError(t, err)
 }
 

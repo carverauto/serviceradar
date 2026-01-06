@@ -121,13 +121,13 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "sync",
 				ServiceType: "grpc",
 				Available:   true,
 				Message:     tt.message,
 				AgentId:     "test-agent",
-				GatewayId:    gatewayID,
+				GatewayId:   gatewayID,
 				Source:      "results", // Source field doesn't matter anymore
 			}
 
@@ -244,7 +244,7 @@ func TestProcessGRPCService_SysmonPrefixedName(t *testing.T) {
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-ora9",
 		ServiceType: "grpc",
 	}
@@ -296,7 +296,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	]`)
 
 	enhancedPayload := models.ServiceMetricsPayload{
-		GatewayID:  "enhanced-gateway",
+		GatewayID: "enhanced-gateway",
 		Partition: "enhanced-partition",
 		AgentID:   "enhanced-agent",
 		Data:      discoveryData,
@@ -305,13 +305,13 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	enhancedMessage, err := json.Marshal(enhancedPayload)
 	require.NoError(t, err)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sync",
 		ServiceType: "grpc",
 		Available:   true,
 		Message:     enhancedMessage,
 		AgentId:     "original-agent",
-		GatewayId:    "original-gateway",
+		GatewayId:   "original-gateway",
 		Source:      "results", // Must be "results" to process
 	}
 
@@ -319,7 +319,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	mockDiscovery.EXPECT().
 		ProcessSyncResults(
 			ctx,
-			"enhanced-gateway",    // Should use enhanced context
+			"enhanced-gateway",   // Should use enhanced context
 			"enhanced-partition", // Should use enhanced context
 			svc,
 			gomock.Any(), // The extracted discovery data (whitespace may vary)
@@ -394,13 +394,13 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 		"timestamp": 1234567890
 	}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sync",
 		ServiceType: "grpc",
 		Available:   true,
 		Message:     healthCheckMessage,
 		AgentId:     "test-agent",
-		GatewayId:    gatewayID,
+		GatewayId:   gatewayID,
 		Source:      "status", // Source field is ignored with new payload detection
 	}
 
@@ -433,7 +433,7 @@ func TestProcessICMPMetricsPrefersAgentDeviceWhenSourceIPInvalid(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -483,7 +483,7 @@ func TestProcessICMPMetricsIgnoresCanonicalRemapWhenAgentPresent(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -522,7 +522,7 @@ func TestProcessICMPMetricsSkipsWhenAgentMissing(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -561,7 +561,7 @@ func TestProcessICMPMetricsIgnoresPayloadDeviceIDWhenAgentPresent(t *testing.T) 
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,

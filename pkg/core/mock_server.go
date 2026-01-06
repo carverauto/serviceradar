@@ -209,7 +209,7 @@ func (m *MockDiscoveryService) EXPECT() *MockDiscoveryServiceMockRecorder {
 }
 
 // ProcessSNMPDiscoveryResults mocks base method.
-func (m *MockDiscoveryService) ProcessSNMPDiscoveryResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
+func (m *MockDiscoveryService) ProcessSNMPDiscoveryResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.GatewayServiceStatus, details json.RawMessage, timestamp time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ProcessSNMPDiscoveryResults", ctx, reportingGatewayID, partition, svc, details, timestamp)
 	ret0, _ := ret[0].(error)
@@ -223,7 +223,7 @@ func (mr *MockDiscoveryServiceMockRecorder) ProcessSNMPDiscoveryResults(ctx, rep
 }
 
 // ProcessSyncResults mocks base method.
-func (m *MockDiscoveryService) ProcessSyncResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
+func (m *MockDiscoveryService) ProcessSyncResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.GatewayServiceStatus, details json.RawMessage, timestamp time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ProcessSyncResults", ctx, reportingGatewayID, partition, svc, details, timestamp)
 	ret0, _ := ret[0].(error)

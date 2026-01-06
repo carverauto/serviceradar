@@ -31,7 +31,7 @@ import (
 func (s *Server) ensureServiceDevice(
 	ctx context.Context,
 	agentID, gatewayID, partition string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	serviceData json.RawMessage,
 	timestamp time.Time,
 ) {
@@ -114,7 +114,7 @@ func (s *Server) ensureServiceDevice(
 
 	deviceUpdate := &models.DeviceUpdate{
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Partition:   partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSelfReported,
@@ -143,7 +143,7 @@ func (s *Server) ensureServiceDevice(
 
 	eventMetadata := map[string]any{
 		"agent_id":             agentID,
-		"gateway_id":            gatewayID,
+		"gateway_id":           gatewayID,
 		"partition":            partition,
 		"checker_service":      svc.ServiceName,
 		"checker_service_type": svc.ServiceType,
@@ -480,7 +480,7 @@ func (s *Server) createSNMPTargetDeviceUpdate(
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Partition:   partition,
 		Source:      models.DiscoverySourceSNMP,
 		IP:          targetIP,

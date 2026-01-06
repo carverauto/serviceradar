@@ -178,7 +178,6 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.status == :inactive
       assert updated.is_healthy == false
     end
-
   end
 
   describe "read actions" do

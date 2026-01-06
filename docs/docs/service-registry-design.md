@@ -931,7 +931,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 ### Phase 2: Basic Integration (Week 1-2)
 - [ ] Integrate with edge onboarding package creation
-- [ ] Add heartbeat recording from `ReportStatus` RPC
+- [ ] Add heartbeat recording from `PushStatus` RPC
 - [ ] Replace `isKnownGateway()` to use service registry
 - [ ] Integration tests
 

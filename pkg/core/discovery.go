@@ -78,7 +78,7 @@ func (s *discoveryService) ProcessSyncResults(
 	ctx context.Context,
 	reportingGatewayID string,
 	_ string, // partition is not used in sync results
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	_ time.Time,
 ) error {
@@ -349,7 +349,7 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	ctx context.Context,
 	reportingGatewayID string,
 	partition string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	timestamp time.Time,
 ) error {
@@ -440,7 +440,7 @@ func (s *discoveryService) processDiscoveredDevices(
 
 		result := &models.DeviceUpdate{
 			AgentID:     discoveryAgentID,
-			GatewayID:    discoveryInitiatorGatewayID,
+			GatewayID:   discoveryInitiatorGatewayID,
 			DeviceID:    fmt.Sprintf("%s:%s", partition, protoDevice.Ip),
 			Partition:   partition,
 			Source:      models.DiscoverySourceMapper, // Mapper discovery: devices found by the mapper component using SNMP
@@ -680,7 +680,7 @@ func (s *discoveryService) createModelInterfaces(
 			modelIface := &models.DiscoveredInterface{
 				Timestamp:     timestamp,
 				AgentID:       discoveryAgentID,
-				GatewayID:      discoveryInitiatorGatewayID,
+				GatewayID:     discoveryInitiatorGatewayID,
 				DeviceIP:      protoIface.DeviceIp,
 				DeviceID:      provisionalDeviceID, // Use the provisional ID for this raw data.
 				IfIndex:       protoIface.IfIndex,
@@ -763,7 +763,7 @@ func (s *discoveryService) createCorrelationSighting(
 	// Create the single, enriched sighting for this device.
 	return &models.DeviceUpdate{
 		AgentID:     discoveryAgentID,
-		GatewayID:    discoveryInitiatorGatewayID,
+		GatewayID:   discoveryInitiatorGatewayID,
 		DeviceID:    fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
 		Partition:   partition,
 		IP:          deviceIP, // The primary IP from this discovery event.
@@ -941,7 +941,7 @@ func (s *discoveryService) processDiscoveredTopology(
 		modelEvent := &models.TopologyDiscoveryEvent{
 			Timestamp:              timestamp,
 			AgentID:                discoveryAgentID,
-			GatewayID:               discoveryInitiatorGatewayID,
+			GatewayID:              discoveryInitiatorGatewayID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
 			LocalIfIndex:           protoLink.LocalIfIndex,

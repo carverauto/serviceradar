@@ -54,8 +54,8 @@ func TestNewServer(t *testing.T) {
 			config: &models.CoreServiceConfig{
 				AlertThreshold: 5 * time.Minute,
 				Metrics: models.Metrics{
-					Enabled:    true,
-					Retention:  100,
+					Enabled:     true,
+					Retention:   100,
 					MaxGateways: 1000,
 				},
 				DBPath: "", // Will be overridden in the test
@@ -115,8 +115,8 @@ func TestNewServer(t *testing.T) {
 func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:    normalizedConfig.Metrics.Enabled,
-		Retention:  normalizedConfig.Metrics.Retention,
+		Enabled:     normalizedConfig.Metrics.Enabled,
+		Retention:   normalizedConfig.Metrics.Retention,
 		MaxGateways: normalizedConfig.Metrics.MaxGateways,
 	}, database, logger.NewTestLogger())
 
@@ -131,23 +131,23 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 	}
 
 	server := &Server{
-		DB:                  database,
-		alertThreshold:      normalizedConfig.AlertThreshold,
-		webhooks:            make([]alerts.AlertService, 0),
-		ShutdownChan:        make(chan struct{}),
+		DB:                   database,
+		alertThreshold:       normalizedConfig.AlertThreshold,
+		webhooks:             make([]alerts.AlertService, 0),
+		ShutdownChan:         make(chan struct{}),
 		gatewayPatterns:      normalizedConfig.GatewayPatterns,
-		metrics:             metricsManager,
-		snmpManager:         metricstore.NewSNMPManager(database),
-		config:              normalizedConfig,
-		authService:         auth.NewAuth(authConfig, database),
-		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*models.ServiceStatus),
-		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
+		metrics:              metricsManager,
+		snmpManager:          metricstore.NewSNMPManager(database),
+		config:               normalizedConfig,
+		authService:          auth.NewAuth(authConfig, database),
+		metricBuffers:        make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:       make(map[string][]*models.ServiceStatus),
+		serviceListBuffers:   make(map[string][]*models.Service),
+		sysmonBuffers:        make(map[string][]*sysmonMetricBuffer),
 		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
 		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
-		logger:              logger.NewTestLogger(),
-		tracer:              otel.Tracer("serviceradar-core-test"),
+		logger:               logger.NewTestLogger(),
+		tracer:               otel.Tracer("serviceradar-core-test"),
 	}
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
@@ -155,7 +155,7 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 	return server, nil
 }
 
-func TestReportStatus(t *testing.T) {
+func TestPushStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -163,13 +163,13 @@ func TestReportStatus(t *testing.T) {
 	mockAPI := api.NewMockService(ctrl)
 
 	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:    true,
-		Retention:  100,
+		Enabled:     true,
+		Retention:   100,
 		MaxGateways: 1000,
 	}, mockDB, logger.NewTestLogger())
 
 	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now(),
@@ -184,7 +184,7 @@ func TestReportStatus(t *testing.T) {
 
 	mockDB.EXPECT().UpdateServiceStatuses(
 		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
-		t.Logf("TestReportStatus: UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
+		t.Logf("TestPushStatus: UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		return nil
 	}).AnyTimes()
 
@@ -206,25 +206,25 @@ func TestReportStatus(t *testing.T) {
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-gateway",
 		gomock.Any()).DoAndReturn(func(_ context.Context, gatewayID string, metrics []*models.TimeseriesMetric) error {
-		t.Logf("TestReportStatus: StoreMetrics called for gateway %s with %d metrics", gatewayID, len(metrics))
+		t.Logf("TestPushStatus: StoreMetrics called for gateway %s with %d metrics", gatewayID, len(metrics))
 		return nil
 	}).AnyTimes()
 
 	mockAPI.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
-		DB:                  mockDB,
-		config:              &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
-		metrics:             metricsManager,
-		apiServer:           mockAPI,
-		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*models.ServiceStatus),
-		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
+		DB:                   mockDB,
+		config:               &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
+		metrics:              metricsManager,
+		apiServer:            mockAPI,
+		metricBuffers:        make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:       make(map[string][]*models.ServiceStatus),
+		serviceListBuffers:   make(map[string][]*models.Service),
+		sysmonBuffers:        make(map[string][]*sysmonMetricBuffer),
 		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
 		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
-		logger:              logger.NewTestLogger(),
-		tracer:              otel.Tracer("serviceradar-core-test"),
+		logger:               logger.NewTestLogger(),
+		tracer:               otel.Tracer("serviceradar-core-test"),
 	}
 
 	// Test unknown gateway
@@ -234,10 +234,10 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers before unknown-gateway: %+v", server.serviceBuffers)
+	t.Logf("TestPushStatus: serviceBuffers before unknown-gateway: %+v", server.serviceBuffers)
 
-	resp, err := server.ReportStatus(context.Background(), &proto.GatewayStatusRequest{
-		GatewayId:  "unknown-gateway",
+	resp, err := server.PushStatus(context.Background(), &proto.GatewayStatusRequest{
+		GatewayId: "unknown-gateway",
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
 	})
@@ -252,7 +252,7 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers after unknown-gateway: %+v", server.serviceBuffers)
+	t.Logf("TestPushStatus: serviceBuffers after unknown-gateway: %+v", server.serviceBuffers)
 
 	// Test valid gateway with ICMP service
 	server.serviceBufferMu.Lock()
@@ -261,15 +261,15 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers before test-gateway: %+v", server.serviceBuffers)
+	t.Logf("TestPushStatus: serviceBuffers before test-gateway: %+v", server.serviceBuffers)
 
 	icmpMessage := `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`
-	resp, err = server.ReportStatus(context.Background(), &proto.GatewayStatusRequest{
-		GatewayId:  "test-gateway",
+	resp, err = server.PushStatus(context.Background(), &proto.GatewayStatusRequest{
+		GatewayId: "test-gateway",
 		Timestamp: time.Now().Unix(),
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
-		Services: []*proto.ServiceStatus{
+		Services: []*proto.GatewayServiceStatus{
 			{
 				ServiceName: "icmp-service",
 				ServiceType: "icmp",
@@ -290,7 +290,7 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers after test-gateway: %+v", server.serviceBuffers)
+	t.Logf("TestPushStatus: serviceBuffers after test-gateway: %+v", server.serviceBuffers)
 }
 
 // getSweepTestCases returns test cases for TestProcessSweepData
@@ -509,7 +509,7 @@ func TestUpdateGatewayStatus(t *testing.T) {
 
 	// Mock GetGatewayStatus to simulate existing gateway
 	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now(),
@@ -519,10 +519,10 @@ func TestUpdateGatewayStatus(t *testing.T) {
 	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 	server := &Server{
-		DB:                  mockDB,
+		DB:                   mockDB,
 		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
-		logger:              logger.NewTestLogger(),
-		tracer:              otel.Tracer("serviceradar-core-test"),
+		logger:               logger.NewTestLogger(),
+		tracer:               otel.Tracer("serviceradar-core-test"),
 	}
 
 	err := server.updateGatewayStatus(context.Background(), "test-gateway", true, time.Now())
@@ -544,7 +544,7 @@ func TestHandleGatewayRecovery(t *testing.T) {
 
 	gatewayID := testGatewayID
 	apiStatus := &api.GatewayStatus{
-		GatewayID:   gatewayID,
+		GatewayID:  gatewayID,
 		IsHealthy:  true,
 		LastUpdate: time.Now(),
 	}
@@ -564,15 +564,15 @@ func TestHandleGatewayDown(t *testing.T) {
 	mockAlerter := alerts.NewMockAlertService(ctrl)
 
 	server := &Server{
-		DB:                      mockDB,
-		webhooks:                []alerts.AlertService{mockAlerter},
+		DB:                       mockDB,
+		webhooks:                 []alerts.AlertService{mockAlerter},
 		gatewayStatusCache:       make(map[string]*models.GatewayStatus),
 		gatewayStatusUpdates:     make(map[string]*models.GatewayStatus),
-		ShutdownChan:            make(chan struct{}),
-		cacheMutex:              sync.RWMutex{},
+		ShutdownChan:             make(chan struct{}),
+		cacheMutex:               sync.RWMutex{},
 		gatewayStatusUpdateMutex: sync.Mutex{},
-		logger:                  logger.NewTestLogger(),
-		tracer:                  otel.Tracer("serviceradar-core-test"),
+		logger:                   logger.NewTestLogger(),
+		tracer:                   otel.Tracer("serviceradar-core-test"),
 	}
 	server.gatewayStatusInterval = 10 * time.Millisecond
 
@@ -582,7 +582,7 @@ func TestHandleGatewayDown(t *testing.T) {
 
 	// Set up gateway status cache
 	server.gatewayStatusCache[gatewayID] = &models.GatewayStatus{
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		FirstSeen: firstSeen,
 	}
 
@@ -618,7 +618,7 @@ func TestEvaluateGatewayHealth(t *testing.T) {
 
 	// Mock GetGatewayStatus
 	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now().Add(-10 * time.Minute),
@@ -632,14 +632,14 @@ func TestEvaluateGatewayHealth(t *testing.T) {
 	mockAPI.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return().AnyTimes() // Fixed: Removed Return(nil)
 
 	server := &Server{
-		DB:                  mockDB,
-		webhooks:            []alerts.AlertService{mockWebhook},
-		apiServer:           mockAPI,
+		DB:                   mockDB,
+		webhooks:             []alerts.AlertService{mockWebhook},
+		apiServer:            mockAPI,
 		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
 		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
-		alertThreshold:      5 * time.Minute, // Set threshold to match test
-		logger:              logger.NewTestLogger(),
-		tracer:              otel.Tracer("serviceradar-core-test"),
+		alertThreshold:       5 * time.Minute, // Set threshold to match test
+		logger:               logger.NewTestLogger(),
+		tracer:               otel.Tracer("serviceradar-core-test"),
 	}
 
 	now := time.Now()
@@ -743,17 +743,17 @@ func setupTestServer(
 	mockAPIServer := api.NewMockService(ctrl)
 
 	server = &Server{
-		DB:                      mockDB,
-		webhooks:                []alerts.AlertService{mockAlerter},
-		apiServer:               mockAPIServer,
-		serviceBuffers:          make(map[string][]*models.ServiceStatus),
+		DB:                       mockDB,
+		webhooks:                 []alerts.AlertService{mockAlerter},
+		apiServer:                mockAPIServer,
+		serviceBuffers:           make(map[string][]*models.ServiceStatus),
 		gatewayStatusUpdateMutex: sync.Mutex{},
 		gatewayStatusUpdates:     make(map[string]*models.GatewayStatus),
 		gatewayStatusCache:       make(map[string]*models.GatewayStatus),
-		ShutdownChan:            make(chan struct{}),
-		config:                  &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
-		logger:                  logger.NewTestLogger(),
-		tracer:                  otel.Tracer("serviceradar-core-test"),
+		ShutdownChan:             make(chan struct{}),
+		config:                   &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
+		logger:                   logger.NewTestLogger(),
+		tracer:                   otel.Tracer("serviceradar-core-test"),
 	}
 
 	// Clear all buffers and caches for isolation
@@ -792,18 +792,18 @@ func createTestRequest(gatewayID, agentID string, now time.Time) *proto.GatewayS
 	statusMessage := `{"status":"ok"}`
 
 	return &proto.GatewayStatusRequest{
-		GatewayId:  gatewayID,
+		GatewayId: gatewayID,
 		Timestamp: now.Unix(),
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
-		Services: []*proto.ServiceStatus{
+		Services: []*proto.GatewayServiceStatus{
 			{
 				ServiceName: "test-service",
 				ServiceType: "test",
 				Available:   true,
 				Message:     []byte(statusMessage), // Convert string to []byte
 				AgentId:     agentID,
-				GatewayId:    gatewayID,
+				GatewayId:   gatewayID,
 			},
 		},
 	}
@@ -822,7 +822,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 
 	// Setup mock expectations
 	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), gatewayID).Return(&models.GatewayStatus{
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		IsHealthy: false,
 		FirstSeen: now.Add(-1 * time.Hour),
 		LastSeen:  now.Add(-10 * time.Minute),
@@ -852,29 +852,29 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Clear buffers before ReportStatus
+	// Clear buffers before PushStatus
 	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	server.serviceBufferMu.Unlock()
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
+	t.Logf("serviceBuffers before PushStatus: %+v", server.serviceBuffers)
 
-	// Test the ReportStatus function
+	// Test the PushStatus function
 	reportStatusCount := 0
-	wrappedReportStatus := func(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
+	wrappedPushStatus := func(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 		reportStatusCount++
-		t.Logf("ReportStatus called %d times with GatewayID: %s", reportStatusCount, req.GatewayId)
+		t.Logf("PushStatus called %d times with GatewayID: %s", reportStatusCount, req.GatewayId)
 
-		return server.ReportStatus(ctx, req)
+		return server.PushStatus(ctx, req)
 	}
 
-	resp, err := wrappedReportStatus(ctx, req)
+	resp, err := wrappedPushStatus(ctx, req)
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
-	assert.Equal(t, 1, reportStatusCount, "ReportStatus should be called exactly once")
+	assert.Equal(t, 1, reportStatusCount, "PushStatus should be called exactly once")
 
 	// Cleanup
 	server.flushAllBuffers(ctx)

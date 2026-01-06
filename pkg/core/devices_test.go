@@ -28,7 +28,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 
 	serviceData := json.RawMessage(`{"status":{"host_ip":"10.0.0.5","hostname":"edge-agent"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "edge-agent",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -108,7 +108,7 @@ func TestEnsureServiceDeviceSkipsResultSource(t *testing.T) {
 
 	serviceData := json.RawMessage(`{"status":{"host_ip":"10.0.0.5"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "edge-agent",
 		ServiceType: grpcServiceType,
 		Source:      "results",
@@ -299,7 +299,7 @@ func TestEnsureServiceDeviceSkipsEphemeralCollectorIP(t *testing.T) {
 	// This should be detected as an ephemeral collector IP and skipped
 	serviceData := json.RawMessage(`{"status":{"host_ip":"172.18.0.5","hostname":"docker-agent"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -338,7 +338,7 @@ func TestEnsureServiceDeviceCreatesTargetDevice(t *testing.T) {
 	// This should be detected as a legitimate target and create a device
 	serviceData := json.RawMessage(`{"status":{"host_ip":"192.168.1.218","hostname":"sysmon-osx"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -755,7 +755,7 @@ func TestEnsureServiceDevice_NonGRPCServiceTypes(t *testing.T) {
 
 	for _, serviceType := range nonGRPCTypes {
 		t.Run(serviceType, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "test-service",
 				ServiceType: serviceType,
 				Source:      "status",
@@ -802,7 +802,7 @@ func TestEnsureServiceDevice_UnknownHostIP(t *testing.T) {
 
 	for _, payload := range unknownIPs {
 		t.Run(payload, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "test-service",
 				ServiceType: grpcServiceType,
 				Source:      "status",

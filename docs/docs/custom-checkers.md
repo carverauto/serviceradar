@@ -19,7 +19,7 @@ flowchart LR
         Checker["Checker<br/>(monitoring.AgentService)"] --> Agent
     end
     Agent -->|gRPC AgentService| Gateway
-    Gateway -->|ReportStatus / StreamStatus| Core
+    Gateway -->|PushStatus / StreamStatus| Core
     Core -->|DeviceUpdate| DeviceRegistry
     Core -->|REST & GraphQL| WebUI
 ```
@@ -46,7 +46,7 @@ sequenceDiagram
     Agent->>Checker: GetStatus(...)
     Checker-->>Agent: StatusResponse{message, available}
     Agent-->>Gateway: ServiceStatus(message, agent_id, source="getStatus")
-    Gateway->>Core: ReportStatus(ServiceStatus[])
+    Gateway->>Core: PushStatus(GatewayServiceStatus[])
     Core->>DeviceRegistry: ProcessDeviceUpdate(checker metadata)
     Core-->>UI: /api/devices/.../sysmon
 ```
@@ -125,8 +125,8 @@ sequenceDiagram
 
 ## Core Ingestion Path
 
-- `ReportStatus` (`pkg/core/gateways.go:803`) receives the batched
-  `ServiceStatus` messages.
+- `PushStatus` (`pkg/core/gateways.go:839`) receives the batched
+  `GatewayServiceStatus` messages.
 - `processServicePayload` (`pkg/core/metrics.go:797`) peels off the gateway
   envelope. Right after parsing it calls `ensureServiceDevice`, which:
   - Extracts the host IP/hostname with `extractCheckerHostIdentity`.

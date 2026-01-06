@@ -81,7 +81,7 @@ func createSNMPMetric(
 	}
 
 	return &models.TimeseriesMetric{
-		GatewayID:       gatewayID,
+		GatewayID:      gatewayID,
 		TargetDeviceIP: targetName,
 		DeviceID:       fmt.Sprintf("%s:%s", partition, targetName),
 		Partition:      partition,
@@ -254,9 +254,9 @@ func (s *Server) processSNMPDeviceUpdates(
 
 			status := statusByDeviceID[update.DeviceID]
 			metadata := map[string]any{
-				"agent_id":  agentID,
+				"agent_id":   agentID,
 				"gateway_id": gatewayID,
-				"partition": partition,
+				"partition":  partition,
 			}
 			if update.IP != "" {
 				metadata["target_ip"] = update.IP
@@ -451,7 +451,7 @@ func (*Server) processRperfResult(result *struct {
 			Type:           "rperf",
 			Timestamp:      gatewayTimestamp,
 			Metadata:       metadataStr,
-			GatewayID:       gatewayID,
+			GatewayID:      gatewayID,
 			TargetDeviceIP: result.Target,
 			DeviceID:       fmt.Sprintf("%s:%s", partition, result.Target),
 			Partition:      partition,
@@ -514,7 +514,7 @@ func (s *Server) processSweepService(
 	gatewayID string,
 	partition string,
 	agentID string,
-	_ *proto.ServiceStatus,
+	_ *proto.GatewayServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
 	const maxSweepLogLength = 200
@@ -579,7 +579,7 @@ func (s *Server) processSweepService(
 func (s *Server) processICMPMetrics(
 	ctx context.Context,
 	gatewayID string, partition string, sourceIP string, agentID string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	if svc == nil {
@@ -676,7 +676,7 @@ func (s *Server) processICMPMetrics(
 		DeviceID:       deviceID,
 		Partition:      partition,
 		IfIndex:        0,
-		GatewayID:       gatewayID,
+		GatewayID:      gatewayID,
 	}
 
 	// Buffer ICMP metric
@@ -712,7 +712,7 @@ func (s *Server) processICMPMetrics(
 			"icmp_packet_loss":     fmt.Sprintf("%f", pingResult.PacketLoss),
 			"icmp_round_trip_ns":   fmt.Sprintf("%d", pingResult.ResponseTime),
 			"collector_agent_id":   agentID,
-			"collector_gateway_id":  gatewayID,
+			"collector_gateway_id": gatewayID,
 			"icmp_service_name":    serviceName,
 			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
 		}
@@ -731,7 +731,7 @@ func (s *Server) processICMPMetrics(
 			IP:          updateIP,
 			Source:      models.DiscoverySourceServiceRadar,
 			AgentID:     agentID,
-			GatewayID:    gatewayID,
+			GatewayID:   gatewayID,
 			Partition:   partition,
 			Timestamp:   now,
 			IsAvailable: pingResult.Available,
@@ -949,7 +949,7 @@ func (s *Server) processSysmonMetrics(
 
 	eventMetadata := map[string]any{
 		"agent_id":         agentID,
-		"gateway_id":        gatewayID,
+		"gateway_id":       gatewayID,
 		"partition":        partition,
 		"host_ip":          hostIP,
 		"host_id":          hostID,
@@ -1104,7 +1104,7 @@ func buildHostAliasUpdate(
 		IP:          hostIP,
 		Source:      models.DiscoverySourceServiceRadar,
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Partition:   partition,
 		Timestamp:   when,
 		IsAvailable: available,
@@ -1371,7 +1371,7 @@ func (s *Server) noteSysmonStall(
 		"host_ip":            hostIP,
 		"host_id":            hostID,
 		"agent_id":           agentID,
-		"gateway_id":          gatewayID,
+		"gateway_id":         gatewayID,
 		"consecutive_empty":  consecutive,
 		"stalled_since":      stalledSince.Format(time.RFC3339Nano),
 		"sysmon_available":   false,
@@ -1410,7 +1410,7 @@ func (s *Server) processGRPCService(
 	partition string,
 	_ string,
 	agentID string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
 	switch {
@@ -1441,7 +1441,7 @@ func (s *Server) processServicePayload(
 	gatewayID string,
 	partition string,
 	sourceIP string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	s.logger.Debug().

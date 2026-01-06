@@ -138,12 +138,12 @@ func (s *Server) handleGateway(batchCtx context.Context, ps *models.GatewayStatu
 		}
 	} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) && ps.AlertSent {
 		// Backup recovery mechanism: gateway is marked unhealthy but has reported recently
-		// Primary recovery now happens in ReportStatus, but this serves as a safety net
+		// Primary recovery now happens in PushStatus, but this serves as a safety net
 		s.logger.Info().
 			Str("gateway_id", ps.GatewayID).
 			Msg("Gateway detected as recovered via periodic check (backup mechanism)")
 
-		// Simply clear the alert flag and mark as healthy - ReportStatus handles proper recovery events
+		// Simply clear the alert flag and mark as healthy - PushStatus handles proper recovery events
 		ps.AlertSent = false
 		ps.IsHealthy = true
 	}
@@ -240,7 +240,7 @@ func (s *Server) evaluateGatewayHealth(
 
 func (s *Server) handlePotentialRecovery(ctx context.Context, gatewayID string, lastSeen time.Time) error {
 	apiStatus := &api.GatewayStatus{
-		GatewayID:   gatewayID,
+		GatewayID:  gatewayID,
 		LastUpdate: lastSeen,
 		Services:   make([]api.ServiceStatus, 0),
 	}
@@ -287,7 +287,7 @@ func (s *Server) handleGatewayDown(ctx context.Context, gatewayID string, lastSe
 		Level:     alerts.Error,
 		Title:     "Gateway Offline",
 		Message:   fmt.Sprintf("Gateway '%s' is offline", gatewayID),
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname": getHostname(),
@@ -303,7 +303,7 @@ func (s *Server) handleGatewayDown(ctx context.Context, gatewayID string, lastSe
 
 	if s.apiServer != nil {
 		s.apiServer.UpdateGatewayStatus(gatewayID, &api.GatewayStatus{
-			GatewayID:   gatewayID,
+			GatewayID:  gatewayID,
 			IsHealthy:  false,
 			LastUpdate: lastSeen,
 		})
@@ -372,7 +372,7 @@ func (s *Server) handleGatewayRecovery(
 		Level:       alerts.Info,
 		Title:       "Gateway Recovered",
 		Message:     fmt.Sprintf("Gateway '%s' is back online", gatewayID),
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Timestamp:   timestamp.UTC().Format(time.RFC3339),
 		ServiceName: "",
 		Details: map[string]any{
@@ -421,7 +421,7 @@ func (s *Server) storeGatewayStatus(ctx context.Context, gatewayID string, isHea
 	normIP := normalizeHostIP(hostIP)
 
 	gatewayStatus := &models.GatewayStatus{
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		IsHealthy: isHealthy,
 		LastSeen:  now,
 		HostIP:    normIP,
@@ -436,7 +436,7 @@ func (s *Server) storeGatewayStatus(ctx context.Context, gatewayID string, isHea
 
 func (s *Server) updateGatewayStatus(ctx context.Context, gatewayID string, isHealthy bool, timestamp time.Time) error {
 	gatewayStatus := &models.GatewayStatus{
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		IsHealthy: isHealthy,
 		LastSeen:  timestamp,
 	}
@@ -490,10 +490,10 @@ func (s *Server) checkNeverReportedGateways(ctx context.Context) error {
 			Level:     alerts.Warning,
 			Title:     "Gateways Never Reported",
 			Message:   fmt.Sprintf("%d gateway(s) have not reported since startup", len(gatewayIDs)),
-			GatewayID:  "core",
+			GatewayID: "core",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Details: map[string]any{
-				"hostname":     getHostname(),
+				"hostname":      getHostname(),
 				"gateway_ids":   gatewayIDs,
 				"gateway_count": len(gatewayIDs),
 			},
@@ -556,10 +556,10 @@ func (s *Server) sendUnreportedGatewaysAlert(ctx context.Context, gatewayIDs []s
 		Level:     alerts.Warning,
 		Title:     "Gateways Never Reported",
 		Message:   fmt.Sprintf("%d gateway(s) have not reported since startup: %v", len(gatewayIDs), gatewayIDs),
-		GatewayID:  "core",
+		GatewayID: "core",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Details: map[string]any{
-			"hostname":     getHostname(),
+			"hostname":      getHostname(),
 			"gateway_ids":   gatewayIDs,
 			"gateway_count": len(gatewayIDs),
 		},
@@ -579,7 +579,7 @@ func (s *Server) sendUnreportedGatewaysAlert(ctx context.Context, gatewayIDs []s
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.GatewayStatusRequest, now time.Time, resolvedSourceIP string) (*api.GatewayStatus, error) {
 	gatewayStatus := &models.GatewayStatus{
-		GatewayID:  req.GatewayId,
+		GatewayID: req.GatewayId,
 		IsHealthy: true,
 		LastSeen:  now,
 	}
@@ -612,7 +612,7 @@ func (s *Server) processStatusReport(
 		}
 
 		// Register the gateway/agent as a device
-		go func(normalizedIP string, services []*proto.ServiceStatus) {
+		go func(normalizedIP string, services []*proto.GatewayServiceStatus) {
 			// Run in a separate goroutine to not block the main status report flow.
 			// Create a detached context but preserve trace information
 			detachedCtx := context.WithoutCancel(ctx)
@@ -655,7 +655,7 @@ func (s *Server) processStatusReport(
 	s.processServices(ctx, req.GatewayId, req.Partition, normSourceIP, apiStatus, req.Services, now)
 
 	// Register the gateway/agent as a device for new gateways too
-	go func(normalizedIP string, services []*proto.ServiceStatus) {
+	go func(normalizedIP string, services []*proto.GatewayServiceStatus) {
 		// Run in a separate goroutine to not block the main status report flow.
 		// Create a detached context but preserve trace information
 		detachedCtx := context.WithoutCancel(ctx)
@@ -667,7 +667,7 @@ func (s *Server) processStatusReport(
 
 func (*Server) createGatewayStatus(req *proto.GatewayStatusRequest, now time.Time) *api.GatewayStatus {
 	return &api.GatewayStatus{
-		GatewayID:   req.GatewayId,
+		GatewayID:  req.GatewayId,
 		LastUpdate: now,
 		IsHealthy:  true,
 		Services:   make([]api.ServiceStatus, 0, len(req.Services)),
@@ -818,7 +818,7 @@ func (s *Server) queueGatewayStatusUpdate(gatewayID string, isHealthy bool, last
 	defer s.gatewayStatusUpdateMutex.Unlock()
 
 	s.gatewayStatusUpdates[gatewayID] = &models.GatewayStatus{
-		GatewayID:  gatewayID,
+		GatewayID: gatewayID,
 		IsHealthy: isHealthy,
 		LastSeen:  lastSeen,
 		FirstSeen: firstSeen,
@@ -826,7 +826,7 @@ func (s *Server) queueGatewayStatusUpdate(gatewayID string, isHealthy bool, last
 }
 
 // findAgentID extracts the agent ID from the services if available
-func (*Server) findAgentID(services []*proto.ServiceStatus) string {
+func (*Server) findAgentID(services []*proto.GatewayServiceStatus) string {
 	for _, svc := range services {
 		if svc.AgentId != "" {
 			return svc.AgentId
@@ -836,8 +836,8 @@ func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 	return ""
 }
 
-func (s *Server) ReportStatus(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "ReportStatus")
+func (s *Server) PushStatus(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
+	ctx, span := s.tracer.Start(ctx, "PushStatus")
 	defer span.End()
 
 	resolvedSourceIP := s.resolveServiceHostIP(ctx, req.GatewayId, req.AgentId, req.SourceIp)
@@ -922,7 +922,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.GatewayStatusReque
 }
 
 // StreamStatus handles streaming status reports from gateways for large datasets
-func (s *Server) StreamStatus(stream proto.GatewayService_StreamStatusServer) error {
+func (s *Server) StreamStatus(stream proto.AgentGatewayService_StreamStatusServer) error {
 	ctx := stream.Context()
 	ctx, span := s.tracer.Start(ctx, "StreamStatus")
 
@@ -979,7 +979,7 @@ func (s *Server) StreamStatus(stream proto.GatewayService_StreamStatusServer) er
 
 // streamMetadata holds metadata extracted from streaming chunks
 type streamMetadata struct {
-	gatewayID  string
+	gatewayID string
 	agentID   string
 	partition string
 	sourceIP  string
@@ -989,12 +989,12 @@ type streamMetadata struct {
 // receiveAndAssembleChunks receives all chunks and handles service messages
 // For sync services, keeps chunks separate. For other services, reassembles them.
 func (s *Server) receiveAndAssembleChunks(
-	_ context.Context, stream proto.GatewayService_StreamStatusServer) ([]*proto.ServiceStatus, streamMetadata, error) {
+	_ context.Context, stream proto.AgentGatewayService_StreamStatusServer) ([]*proto.GatewayServiceStatus, streamMetadata, error) {
 	var metadata streamMetadata
 
 	serviceMessages := make(map[string][]byte)
 
-	serviceMetadata := make(map[string]*proto.ServiceStatus)
+	serviceMetadata := make(map[string]*proto.GatewayServiceStatus)
 
 	for {
 		chunk, err := stream.Recv()
@@ -1009,7 +1009,7 @@ func (s *Server) receiveAndAssembleChunks(
 		// Extract metadata from first chunk
 		if metadata.gatewayID == "" {
 			metadata = streamMetadata{
-				gatewayID:  chunk.GatewayId,
+				gatewayID: chunk.GatewayId,
 				agentID:   chunk.AgentId,
 				partition: chunk.Partition,
 				sourceIP:  chunk.SourceIp,
@@ -1049,9 +1049,9 @@ func (s *Server) logChunkReceipt(chunk *proto.GatewayStatusChunk) {
 
 // collectServiceChunks processes services from a chunk
 func (s *Server) collectServiceChunks(
-	services []*proto.ServiceStatus,
+	services []*proto.GatewayServiceStatus,
 	serviceMessages map[string][]byte,
-	serviceMetadata map[string]*proto.ServiceStatus) {
+	serviceMetadata map[string]*proto.GatewayServiceStatus) {
 	for _, svc := range services {
 		key := fmt.Sprintf("%s:%s", svc.ServiceName, svc.ServiceType)
 
@@ -1101,20 +1101,24 @@ func (s *Server) mergeSyncServiceChunks(existingData, newChunk []byte) []byte {
 
 // assembleServices creates the final service list from reassembled messages
 func (s *Server) assembleServices(
-	serviceMessages map[string][]byte, serviceMetadata map[string]*proto.ServiceStatus) []*proto.ServiceStatus {
-	var allServices []*proto.ServiceStatus
+	serviceMessages map[string][]byte, serviceMetadata map[string]*proto.GatewayServiceStatus) []*proto.GatewayServiceStatus {
+	var allServices []*proto.GatewayServiceStatus
 
 	for key, message := range serviceMessages {
 		if metadata, ok := serviceMetadata[key]; ok {
-			service := &proto.ServiceStatus{
+			service := &proto.GatewayServiceStatus{
 				ServiceName:  metadata.ServiceName,
 				ServiceType:  metadata.ServiceType,
 				Message:      message,
 				Available:    metadata.Available,
 				ResponseTime: metadata.ResponseTime,
 				AgentId:      metadata.AgentId,
-				GatewayId:     metadata.GatewayId,
+				GatewayId:    metadata.GatewayId,
 				Partition:    metadata.Partition,
+				Source:       metadata.Source,
+				KvStoreId:    metadata.KvStoreId,
+				TenantId:     metadata.TenantId,
+				TenantSlug:   metadata.TenantSlug,
 			}
 
 			allServices = append(allServices, service)
@@ -1133,7 +1137,7 @@ func (s *Server) assembleServices(
 
 // processStreamedStatus validates and processes the assembled streaming data
 func (s *Server) processStreamedStatus(
-	ctx context.Context, stream proto.GatewayService_StreamStatusServer, allServices []*proto.ServiceStatus, metadata streamMetadata) error {
+	ctx context.Context, stream proto.AgentGatewayService_StreamStatusServer, allServices []*proto.GatewayServiceStatus, metadata streamMetadata) error {
 	if metadata.gatewayID == "" {
 		return errEmptyGatewayID
 	}
@@ -1160,7 +1164,7 @@ func (s *Server) processStreamedStatus(
 
 	req := &proto.GatewayStatusRequest{
 		Services:  allServices,
-		GatewayId:  metadata.gatewayID,
+		GatewayId: metadata.gatewayID,
 		AgentId:   metadata.agentID,
 		Timestamp: metadata.timestamp,
 		Partition: metadata.partition,
@@ -1237,7 +1241,7 @@ func (s *Server) getGatewayStatuses(ctx context.Context, forceRefresh bool) (map
 
 	for i := range statuses {
 		ps := &models.GatewayStatus{
-			GatewayID:  statuses[i].GatewayID,
+			GatewayID: statuses[i].GatewayID,
 			IsHealthy: statuses[i].IsHealthy,
 			LastSeen:  statuses[i].LastSeen,
 			FirstSeen: statuses[i].FirstSeen,
@@ -1335,7 +1339,6 @@ func (s *Server) registerAgentInOCSF(ctx context.Context, agentID, gatewayID, ho
 	return nil
 }
 
-
 // registerCheckerAsDevice registers a checker as a device in the inventory
 func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checkerKind, agentID, gatewayID, hostIP, partition string) error {
 	if s.DeviceRegistry == nil {
@@ -1379,7 +1382,7 @@ func (s *Server) registerCheckerAsDevice(ctx context.Context, checkerID, checker
 	eventMetadata := map[string]any{
 		"checker_id": checkerID,
 		"agent_id":   agentID,
-		"gateway_id":  gatewayID,
+		"gateway_id": gatewayID,
 	}
 	if normalizedPartition != "" {
 		eventMetadata["partition"] = normalizedPartition
@@ -1420,7 +1423,7 @@ func (s *Server) ensureGatewayRegistered(ctx context.Context, gatewayID, sourceI
 		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
 			ServiceID:   gatewayID,
 			ServiceType: "gateway",
-			GatewayID:    gatewayID,
+			GatewayID:   gatewayID,
 			Timestamp:   time.Now().UTC(),
 			SourceIP:    sourceIP,
 			Healthy:     true,
@@ -1434,7 +1437,7 @@ func (s *Server) ensureGatewayRegistered(ctx context.Context, gatewayID, sourceI
 		Msg("Auto-registering gateway from heartbeat")
 
 	return s.ServiceRegistry.RegisterGateway(ctx, &registry.GatewayRegistration{
-		GatewayID:           gatewayID,
+		GatewayID:          gatewayID,
 		ComponentID:        gatewayID,
 		RegistrationSource: registry.RegistrationSourceImplicit,
 		Metadata: map[string]string{
@@ -1460,7 +1463,7 @@ func (s *Server) ensureAgentRegistered(ctx context.Context, agentID, gatewayID, 
 		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
 			ServiceID:   agentID,
 			ServiceType: "agent",
-			GatewayID:    gatewayID,
+			GatewayID:   gatewayID,
 			AgentID:     agentID,
 			Timestamp:   time.Now().UTC(),
 			SourceIP:    sourceIP,
@@ -1476,7 +1479,7 @@ func (s *Server) ensureAgentRegistered(ctx context.Context, agentID, gatewayID, 
 
 	return s.ServiceRegistry.RegisterAgent(ctx, &registry.AgentRegistration{
 		AgentID:            agentID,
-		GatewayID:           gatewayID,
+		GatewayID:          gatewayID,
 		ComponentID:        agentID,
 		RegistrationSource: registry.RegistrationSourceImplicit,
 		Metadata: map[string]string{
@@ -1502,7 +1505,7 @@ func (s *Server) ensureCheckerRegistered(ctx context.Context, checkerID, agentID
 		return s.ServiceRegistry.RecordHeartbeat(ctx, &registry.ServiceHeartbeat{
 			ServiceID:   checkerID,
 			ServiceType: "checker",
-			GatewayID:    gatewayID,
+			GatewayID:   gatewayID,
 			AgentID:     agentID,
 			CheckerID:   checkerID,
 			Timestamp:   time.Now().UTC(),
@@ -1522,7 +1525,7 @@ func (s *Server) ensureCheckerRegistered(ctx context.Context, checkerID, agentID
 	return s.ServiceRegistry.RegisterChecker(ctx, &registry.CheckerRegistration{
 		CheckerID:          checkerID,
 		AgentID:            agentID,
-		GatewayID:           gatewayID,
+		GatewayID:          gatewayID,
 		CheckerKind:        checkerKind,
 		ComponentID:        checkerID,
 		RegistrationSource: registry.RegistrationSourceImplicit,

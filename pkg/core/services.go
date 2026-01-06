@@ -345,14 +345,14 @@ func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
 	return nil
 }
 
-func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
+func (*Server) createAPIService(svc *proto.GatewayServiceStatus) api.ServiceStatus {
 	apiService := api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Type:      svc.ServiceType,
 		Available: svc.Available,
 		Message:   svc.Message,
 		AgentID:   svc.AgentId,
-		GatewayID:  svc.GatewayId,
+		GatewayID: svc.GatewayId,
 		KvStoreID: svc.KvStoreId,
 	}
 
@@ -372,7 +372,7 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	return apiService
 }
 
-func (s *Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+func (s *Server) parseServiceDetails(svc *proto.GatewayServiceStatus) (json.RawMessage, error) {
 	var details json.RawMessage
 
 	if err := json.Unmarshal(svc.Message, &details); err != nil {
@@ -415,7 +415,7 @@ func (s *Server) extractDeviceContext(
 	}
 
 	var payload struct {
-		GatewayID  string `json:"gateway_id"`
+		GatewayID string `json:"gateway_id"`
 		AgentID   string `json:"agent_id"`
 		Partition string `json:"partition"`
 		Data      struct {
@@ -461,7 +461,7 @@ func (s *Server) processServices(
 	partition string,
 	sourceIP string,
 	apiStatus *api.GatewayStatus,
-	services []*proto.ServiceStatus,
+	services []*proto.GatewayServiceStatus,
 	now time.Time) {
 	ctx, span := s.tracer.Start(ctx, "processServices")
 	defer span.End()
@@ -502,7 +502,7 @@ func (s *Server) processIndividualServices(
 	ctx context.Context,
 	gatewayID, partition, sourceIP string,
 	apiStatus *api.GatewayStatus,
-	services []*proto.ServiceStatus,
+	services []*proto.GatewayServiceStatus,
 	now time.Time,
 ) (allServicesAvailable bool, bufferedServiceStatuses []*models.ServiceStatus, bufferedServiceList []*models.Service) {
 	allServicesAvailable = true
@@ -584,7 +584,7 @@ func (s *Server) processIndividualServices(
 }
 
 // createServiceSpan creates a tracing span for individual service processing
-func (s *Server) createServiceSpan(ctx context.Context, svc *proto.ServiceStatus) (context.Context, trace.Span) {
+func (s *Server) createServiceSpan(ctx context.Context, svc *proto.GatewayServiceStatus) (context.Context, trace.Span) {
 	serviceName := fmt.Sprintf("service.%s", svc.ServiceName)
 	serviceCtx, serviceSpan := s.tracer.Start(ctx, serviceName)
 
@@ -600,7 +600,7 @@ func (s *Server) createServiceSpan(ctx context.Context, svc *proto.ServiceStatus
 }
 
 // logServiceProcessing logs details about service processing
-func (s *Server) logServiceProcessing(gatewayID string, svc *proto.ServiceStatus) {
+func (s *Server) logServiceProcessing(gatewayID string, svc *proto.GatewayServiceStatus) {
 	s.logger.Debug().
 		Str("gateway_id", gatewayID).
 		Str("service_name", svc.ServiceName).
@@ -633,7 +633,7 @@ func (s *Server) processServiceWithErrorHandling(
 	serviceSpan trace.Span,
 	gatewayID, partition, sourceIP string,
 	apiService *api.ServiceStatus,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	now time.Time,
 ) {
 	s.logger.Debug().
@@ -693,7 +693,7 @@ func (s *Server) bufferServiceData(
 // createServiceRecords creates service status and service records for a given service
 func (s *Server) createServiceRecords(
 	ctx context.Context,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	apiService *api.ServiceStatus,
 	gatewayID, partition, sourceIP string,
 	now time.Time,
@@ -702,7 +702,7 @@ func (s *Server) createServiceRecords(
 
 	serviceStatus := &models.ServiceStatus{
 		AgentID:     svc.AgentId,
-		GatewayID:    svc.GatewayId,
+		GatewayID:   svc.GatewayId,
 		ServiceName: apiService.Name,
 		ServiceType: apiService.Type,
 		Available:   apiService.Available,
@@ -720,7 +720,7 @@ func (s *Server) createServiceRecords(
 	kvMetadata := s.extractSafeKVMetadata(svc)
 
 	serviceRecord := &models.Service{
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		ServiceName: svc.ServiceName,
 		ServiceType: svc.ServiceType,
 		AgentID:     svc.AgentId,
@@ -744,7 +744,7 @@ func (s *Server) createServiceRecords(
 
 // extractSafeKVMetadata extracts safe, non-sensitive KV metadata for storage
 // This function ensures no secrets, passwords, or sensitive data is stored
-func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+func (s *Server) extractSafeKVMetadata(svc *proto.GatewayServiceStatus) map[string]string {
 	metadata := make(map[string]string)
 
 	// Set service type for context
@@ -769,7 +769,7 @@ func (s *Server) processServiceDetails(
 	partition string,
 	sourceIP string,
 	apiService *api.ServiceStatus,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	now time.Time,
 ) error {
 	if len(svc.Message) == 0 {
@@ -884,7 +884,7 @@ func (s *Server) registerServiceDevice(
 		IP:          sourceIP,
 		Source:      models.DiscoverySourceSelfReported,
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Timestamp:   timestamp,
 		IsAvailable: true,
 		Metadata:    metadata,
@@ -981,7 +981,7 @@ func getCoreServiceType(serviceType string) models.ServiceType {
 
 // findCoreServiceType checks if any of the services in the list is a core service.
 // Returns the service type and service name if found, empty strings otherwise.
-func findCoreServiceType(services []*proto.ServiceStatus) (models.ServiceType, string) {
+func findCoreServiceType(services []*proto.GatewayServiceStatus) (models.ServiceType, string) {
 	for _, svc := range services {
 		if svc == nil {
 			continue
@@ -1036,7 +1036,7 @@ func (s *Server) registerCoreServiceDevice(
 func (s *Server) registerServiceOrCoreDevice(
 	ctx context.Context,
 	gatewayID, partition, sourceIP string,
-	services []*proto.ServiceStatus,
+	services []*proto.GatewayServiceStatus,
 	timestamp time.Time,
 ) {
 	// Skip registration if location data is missing

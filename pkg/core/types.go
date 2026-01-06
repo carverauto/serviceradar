@@ -55,7 +55,7 @@ type sysmonStreamState struct {
 
 // Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
-	proto.UnimplementedGatewayServiceServer
+	proto.UnimplementedAgentGatewayServiceServer
 	proto.UnimplementedCoreServiceServer
 	mu                  sync.RWMutex
 	DB                  db.Service
@@ -63,7 +63,7 @@ type Server struct {
 	webhooks            []alerts.AlertService
 	apiServer           api.Service
 	ShutdownChan        chan struct{}
-	gatewayPatterns      []string
+	gatewayPatterns     []string
 	grpcServer          *grpc.Server
 	metrics             *metrics.Manager
 	snmpManager         metricstore.SNMPManager
@@ -82,34 +82,34 @@ type Server struct {
 	edgeOnboarding      *edgeOnboardingService
 	templateRegistry    templateRegistry
 	// MCP removed from Go server; SRQL tooling moved out of process
-	metricBuffers           map[string][]*models.TimeseriesMetric
-	serviceBuffers          map[string][]*models.ServiceStatus
-	serviceListBuffers      map[string][]*models.Service
-	sysmonBuffers           map[string][]*sysmonMetricBuffer
-	sysmonStall             map[string]*sysmonStreamState
-	metricBufferMu          sync.RWMutex
-	serviceBufferMu         sync.RWMutex
-	serviceListBufferMu     sync.RWMutex
-	sysmonBufferMu          sync.RWMutex
-	sysmonStallMu           sync.Mutex
-	serviceDeviceMu         sync.Mutex
-	serviceDeviceBuffer     map[string]*models.DeviceUpdate
+	metricBuffers            map[string][]*models.TimeseriesMetric
+	serviceBuffers           map[string][]*models.ServiceStatus
+	serviceListBuffers       map[string][]*models.Service
+	sysmonBuffers            map[string][]*sysmonMetricBuffer
+	sysmonStall              map[string]*sysmonStreamState
+	metricBufferMu           sync.RWMutex
+	serviceBufferMu          sync.RWMutex
+	serviceListBufferMu      sync.RWMutex
+	sysmonBufferMu           sync.RWMutex
+	sysmonStallMu            sync.Mutex
+	serviceDeviceMu          sync.Mutex
+	serviceDeviceBuffer      map[string]*models.DeviceUpdate
 	gatewayStatusCache       map[string]*models.GatewayStatus
 	gatewayStatusUpdates     map[string]*models.GatewayStatus
 	gatewayStatusUpdateMutex sync.Mutex
 	gatewayStatusInterval    time.Duration
-	cacheLastUpdated        time.Time
-	cacheMutex              sync.RWMutex
-	logger                  logger.Logger
-	tracer                  trace.Tracer
-	canonicalCache          *canonicalCache
-	logDigest               *LogDigestAggregator
-	logDigestCancel         context.CancelFunc
-	statsAggregator         *StatsAggregator
-	statsCancel             context.CancelFunc
-	statsAlertMu            sync.Mutex
-	lastStatsAlertTime      time.Time
-	lastStatsAlertCount     int
+	cacheLastUpdated         time.Time
+	cacheMutex               sync.RWMutex
+	logger                   logger.Logger
+	tracer                   trace.Tracer
+	canonicalCache           *canonicalCache
+	logDigest                *LogDigestAggregator
+	logDigestCancel          context.CancelFunc
+	statsAggregator          *StatsAggregator
+	statsCancel              context.CancelFunc
+	statsAlertMu             sync.Mutex
+	lastStatsAlertTime       time.Time
+	lastStatsAlertCount      int
 }
 
 // OIDStatusData represents the structure of OID status data.
@@ -122,7 +122,7 @@ type OIDStatusData struct {
 
 // ServiceStatus represents the status of a monitored service.
 type ServiceStatus struct {
-	GatewayID    string
+	GatewayID   string
 	ServiceName string
 	ServiceType string
 	Available   bool

@@ -119,9 +119,7 @@ func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration,
 
 // connectToCore creates a gRPC connection to the Core service using the security configuration.
 // Uses SPIFFE mTLS if configured, otherwise falls back based on security settings.
-//
-//nolint:staticcheck // SA1019: GatewayServiceClient is deprecated but still used for legacy support
-func (s *Server) connectToCore(ctx context.Context, endpoint string, security *models.SecurityConfig) (*grpc.Client, proto.GatewayServiceClient, error) {
+func (s *Server) connectToCore(ctx context.Context, endpoint string, security *models.SecurityConfig) (*grpc.Client, proto.AgentGatewayServiceClient, error) {
 	log.Printf("Connecting to Core at %s for registration", endpoint)
 
 	// Create security provider
@@ -147,16 +145,14 @@ func (s *Server) connectToCore(ctx context.Context, endpoint string, security *m
 		return nil, nil, fmt.Errorf("failed to create Core client: %w", err)
 	}
 
-	coreClient := proto.NewGatewayServiceClient(client.GetConnection())
+	coreClient := proto.NewAgentGatewayServiceClient(client.GetConnection())
 
 	return client, coreClient, nil
 }
 
-// registerWithCore sends a registration request to Core using the standard ReportStatus RPC.
+// registerWithCore sends a registration request to Core using the standard PushStatus RPC.
 // This reuses the existing service registration infrastructure.
-//
-//nolint:staticcheck // SA1019: GatewayServiceClient is deprecated but still used for legacy support
-func (s *Server) registerWithCore(ctx context.Context, client proto.GatewayServiceClient, instanceID, endpoint, spiffeID string) error {
+func (s *Server) registerWithCore(ctx context.Context, client proto.AgentGatewayServiceClient, instanceID, endpoint, spiffeID string) error {
 	// Get source IP from the endpoint
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil {
@@ -164,19 +160,19 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.GatewayServi
 	}
 
 	// Create service status for datasvc
-	serviceStatus := &proto.ServiceStatus{
+	serviceStatus := &proto.GatewayServiceStatus{
 		ServiceName: instanceID,
 		ServiceType: "datasvc",
 		Available:   true,
 		Message:     []byte(fmt.Sprintf(`{"endpoint":"%s","spiffe_id":"%s"}`, endpoint, spiffeID)),
 		AgentId:     instanceID,
-		GatewayId:    instanceID, // DataSvc acts as its own "gateway"
+		GatewayId:   instanceID, // DataSvc acts as its own "gateway"
 		KvStoreId:   endpoint,   // Store endpoint in kv_store_id for easy retrieval
 	}
 
 	req := &proto.GatewayStatusRequest{
-		Services:  []*proto.ServiceStatus{serviceStatus},
-		GatewayId:  instanceID,
+		Services:  []*proto.GatewayServiceStatus{serviceStatus},
+		GatewayId: instanceID,
 		AgentId:   instanceID,
 		Timestamp: time.Now().Unix(),
 		Partition: "core", // DataSvc lives in core partition
@@ -184,9 +180,9 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.GatewayServi
 		KvStoreId: endpoint,
 	}
 
-	resp, err := client.ReportStatus(ctx, req)
+	resp, err := client.PushStatus(ctx, req)
 	if err != nil {
-		return fmt.Errorf("ReportStatus RPC failed: %w", err)
+		return fmt.Errorf("PushStatus RPC failed: %w", err)
 	}
 
 	if !resp.Received {

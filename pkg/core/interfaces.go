@@ -50,13 +50,13 @@ type DiscoveryService interface {
 	ProcessSyncResults(
 		ctx context.Context,
 		reportingGatewayID, partition string,
-		svc *proto.ServiceStatus,
+		svc *proto.GatewayServiceStatus,
 		details json.RawMessage,
 		timestamp time.Time) error
 	ProcessSNMPDiscoveryResults(
 		ctx context.Context,
 		reportingGatewayID, partition string,
-		svc *proto.ServiceStatus,
+		svc *proto.GatewayServiceStatus,
 		details json.RawMessage,
 		timestamp time.Time) error
 }

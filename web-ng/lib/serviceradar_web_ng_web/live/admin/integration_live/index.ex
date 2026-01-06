@@ -752,7 +752,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           <%= if @source.gateway_id do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Gateway ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.gateway_id}</code>
+              <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+                {@source.gateway_id}
+              </code>
             </div>
           <% end %>
 

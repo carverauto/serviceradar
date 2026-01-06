@@ -82,7 +82,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     test "supports all OCSF agent type IDs", %{tenant: tenant, gateway: gateway} do
       for type_id <- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99] do
         unique = System.unique_integer([:positive])
-        agent = agent_fixture(gateway, %{uid: "agent-type-#{type_id}-#{unique}", type_id: type_id})
+
+        agent =
+          agent_fixture(gateway, %{uid: "agent-type-#{type_id}-#{unique}", type_id: type_id})
+
         assert agent.type_id == type_id
       end
     end
@@ -476,7 +479,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert loaded.display_name == "192.168.1.101"
     end
 
-    test "status_color returns correct colors for each status", %{tenant: tenant, gateway: gateway} do
+    test "status_color returns correct colors for each status", %{
+      tenant: tenant,
+      gateway: gateway
+    } do
       actor = admin_actor(tenant)
 
       # Connected healthy = green
