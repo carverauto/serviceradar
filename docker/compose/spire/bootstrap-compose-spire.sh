@@ -17,7 +17,6 @@ WAIT_SLEEP="${SPIRE_BOOTSTRAP_SLEEP_SECONDS:-2}"
 WORKLOADS=$(cat <<'EOF'
 core|serviceradar-core
 datasvc|serviceradar-datasvc
-poller|serviceradar-poller
 agent|serviceradar-agent
 db-event-writer|serviceradar-db-event-writer
 mapper|serviceradar-mapper

@@ -231,8 +231,6 @@ generate_cert() {
         fi
         if [ "$component" = "core" ]; then
             required_dns="core-elx"
-        elif [ "$component" = "poller" ]; then
-            required_dns="poller-elx-t2"
         elif [ "$component" = "agent" ]; then
             required_dns="agent-elx-t2"
         fi
@@ -395,16 +393,12 @@ generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "agent-001" "$DEFAULT_PART
 # Docker Compose dev agent (matches docker/compose/agent.mtls.json)
 generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "docker-agent" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
 
-# Default tenant poller
-generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "poller-001" "$DEFAULT_PARTITION_ID" "DNS:poller,DNS:poller-elx,DNS:poller-elx-t2"
-
 # Support multi-tenant testing with a second tenant
 if [ "${ENABLE_MULTI_TENANT:-false}" = "true" ]; then
     echo ""
     echo "=== Multi-tenant mode enabled, generating additional tenant ==="
     generate_tenant_ca "acme-corp"
     generate_tenant_component_cert "acme-corp" "agent-001" "partition-1" "DNS:agent"
-    generate_tenant_component_cert "acme-corp" "poller-001" "partition-1" "DNS:poller"
 fi
 
 echo ""

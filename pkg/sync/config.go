@@ -54,6 +54,53 @@ type Config struct {
 	Partition         string                          `json:"partition,omitempty"`   // Partition identifier
 }
 
+// Clone returns a deep copy of the Config.
+func (c *Config) Clone() Config {
+	clone := Config{
+		ListenAddr:        c.ListenAddr,
+		PollInterval:      c.PollInterval,
+		DiscoveryInterval: c.DiscoveryInterval,
+		UpdateInterval:    c.UpdateInterval,
+		AgentID:           c.AgentID,
+		PollerID:          c.PollerID,
+		GatewayAddr:       c.GatewayAddr,
+		TenantID:          c.TenantID,
+		TenantSlug:        c.TenantSlug,
+		Partition:         c.Partition,
+	}
+
+	// Deep copy Sources map
+	if c.Sources != nil {
+		clone.Sources = make(map[string]*models.SourceConfig, len(c.Sources))
+		for k, v := range c.Sources {
+			if v != nil {
+				srcCopy := *v
+				clone.Sources[k] = &srcCopy
+			}
+		}
+	}
+
+	// Deep copy Security
+	if c.Security != nil {
+		secCopy := *c.Security
+		clone.Security = &secCopy
+	}
+
+	// Deep copy GatewaySecurity
+	if c.GatewaySecurity != nil {
+		gsCopy := *c.GatewaySecurity
+		clone.GatewaySecurity = &gsCopy
+	}
+
+	// Deep copy Logging
+	if c.Logging != nil {
+		logCopy := *c.Logging
+		clone.Logging = &logCopy
+	}
+
+	return clone
+}
+
 func (c *Config) Validate() error {
 	if len(c.Sources) == 0 {
 		if c.GatewayAddr == "" {

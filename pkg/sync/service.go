@@ -368,6 +368,10 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 	if newCfg == nil {
 		return
 	}
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+
 	// Check interval changes
 	newDisc := time.Duration(newCfg.DiscoveryInterval)
 	newUpd := time.Duration(newCfg.UpdateInterval)
@@ -385,6 +389,7 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 		select {
 		case s.reloadChan <- struct{}{}:
 		default:
+			s.logger.Debug().Msg("Reload channel full; skipping reload trigger")
 		}
 	}
 	s.config = *newCfg
@@ -1491,7 +1496,10 @@ func (s *SimpleSyncService) applySourceBlacklist(
 	sourceName string,
 	devices []*models.DeviceUpdate,
 ) (filteredDevices []*models.DeviceUpdate) {
+	s.configMu.RLock()
 	sourceConfig := s.config.Sources[sourceName]
+	s.configMu.RUnlock()
+
 	if sourceConfig == nil || len(sourceConfig.NetworkBlacklist) == 0 {
 		return devices
 	}

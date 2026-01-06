@@ -26,7 +26,7 @@ if [ "$FORCE_CERT_REGEN" != "true" ] && [ -f "$CERT_DIR/root.pem" ] && [ -f "$CE
    [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
    [ -f "$CERT_DIR/snmp-checker.pem" ] && [ -f "$CERT_DIR/mapper.pem" ] && \
    [ -f "$CERT_DIR/rperf-client.pem" ] && [ -f "$CERT_DIR/agent.pem" ] && \
-   [ -f "$CERT_DIR/poller.pem" ] && [ -f "$CERT_DIR/web.pem" ]; then
+   [ -f "$CERT_DIR/web.pem" ]; then
     echo "All certificates already exist, nothing to generate"
     exit 0
 fi

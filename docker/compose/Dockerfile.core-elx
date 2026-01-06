@@ -2,7 +2,7 @@
 # Primary coordination node for the ERTS cluster
 #
 # This service owns the Horde supervisors and registries.
-# Other nodes (web-ng, poller-elx, agent-elx) connect to core-elx
+# Other nodes (web-ng, agent-gateway, agent-elx) connect to core-elx
 # for distributed process coordination.
 #
 # Build:
