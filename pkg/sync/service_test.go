@@ -393,12 +393,12 @@ func TestBuildResultsChunks(t *testing.T) {
 	})
 
 	t.Run("splits large payloads", func(t *testing.T) {
-		chunkLimit := resultsChunkMaxSize
+		chunkLimit := service.resultsChunkMaxSize
 		if testing.Short() {
-			originalLimit := resultsChunkMaxSize
+			originalLimit := service.resultsChunkMaxSize
 			chunkLimit = 256 * 1024
-			resultsChunkMaxSize = chunkLimit
-			t.Cleanup(func() { resultsChunkMaxSize = originalLimit })
+			service.resultsChunkMaxSize = chunkLimit
+			t.Cleanup(func() { service.resultsChunkMaxSize = originalLimit })
 		}
 
 		payloadSize := chunkLimit / 64
@@ -492,12 +492,12 @@ func TestBuildResultsChunksSizeBudget(t *testing.T) {
 	}, nil, log)
 	require.NoError(t, err)
 
-	chunkLimit := resultsChunkMaxSize
+	chunkLimit := service.resultsChunkMaxSize
 	if testing.Short() {
-		originalLimit := resultsChunkMaxSize
+		originalLimit := service.resultsChunkMaxSize
 		chunkLimit = 256 * 1024
-		resultsChunkMaxSize = chunkLimit
-		t.Cleanup(func() { resultsChunkMaxSize = originalLimit })
+		service.resultsChunkMaxSize = chunkLimit
+		t.Cleanup(func() { service.resultsChunkMaxSize = originalLimit })
 	}
 
 	payloadSize := chunkLimit / 4

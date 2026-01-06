@@ -53,3 +53,8 @@
 ## 9. Testing & Documentation
 - [x] 9.1 Add integration tests for full device discovery → DIRE → inventory flow (agent-embedded sync)
 - [x] 9.2 Update architecture + sync docs for agent-embedded sync
+
+## 10. Runtime Validation
+- [x] 10.1 Validate agent-embedded sync startup logs after successful Hello (expect "Starting simplified sync service")
+- [x] 10.2 Confirm Hello/GetConfig succeeds in docker compose (no "core unavailable" errors)
+- [ ] 10.3 Capture expected sync config/heartbeat log sequence for troubleshooting docs

@@ -122,11 +122,28 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
       # Convert files to format expected by :erl_tar
       file_entries =
         Enum.map(files, fn {path, content} ->
-          {String.to_charlist(path), content}
+          data =
+            case content do
+              nil -> ""
+              _ -> IO.iodata_to_binary(content)
+            end
+
+          {String.to_charlist(path), data}
         end)
 
-      # Create tar in memory
-      {:ok, tar_data} = :erl_tar.create({:binary, []}, file_entries, [:memory, :compressed])
+      tmp_path =
+        Path.join(
+          System.tmp_dir!(),
+          "serviceradar-edge-site-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
+        )
+
+      tar_data =
+        try do
+          :ok = :erl_tar.create(String.to_charlist(tmp_path), file_entries, [:compressed])
+          File.read!(tmp_path)
+        after
+          _ = File.rm(tmp_path)
+        end
 
       {:ok, tar_data}
     rescue

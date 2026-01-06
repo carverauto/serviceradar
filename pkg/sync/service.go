@@ -38,18 +38,18 @@ import (
 )
 
 const (
-	syncServiceName           = "sync"
-	syncServiceType           = "sync"
-	syncResultsSource         = "results"
-	syncStatusSource          = "status"
-	defaultConfigPollInterval = 5 * time.Minute
-	defaultHeartbeatInterval  = 30 * time.Second
+	syncServiceName            = "sync"
+	syncServiceType            = "sync"
+	syncResultsSource          = "results"
+	syncStatusSource           = "status"
+	defaultConfigPollInterval  = 5 * time.Minute
+	defaultHeartbeatInterval   = 30 * time.Second
+	defaultResultsChunkMaxSize = 3 * 1024 * 1024
 )
 
 var (
 	errTaskPanic          = errors.New("panic in sync task")
 	errGatewayNotEnrolled = errors.New("gateway enrollment pending")
-	resultsChunkMaxSize   = 3 * 1024 * 1024
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -83,7 +83,8 @@ type SimpleSyncService struct {
 	grpcServer *grpc.Server
 
 	// Simplified results storage
-	resultsStore *StreamingResultsStore
+	resultsStore        *StreamingResultsStore
+	resultsChunkMaxSize int
 
 	// Simple interval timers
 	discoveryInterval   time.Duration
@@ -162,6 +163,7 @@ func NewSimpleSyncServiceWithMetrics(
 		sources:             make(map[string]Integration),
 		registry:            registry,
 		resultsStore:        &StreamingResultsStore{},
+		resultsChunkMaxSize: defaultResultsChunkMaxSize,
 		discoveryInterval:   time.Duration(config.DiscoveryInterval),
 		armisUpdateInterval: time.Duration(config.UpdateInterval),
 		ctx:                 serviceCtx,
@@ -1077,7 +1079,10 @@ func (s *SimpleSyncService) buildResultsChunks(
 	allDeviceUpdates []*models.DeviceUpdate,
 	sequence string,
 ) ([]*proto.ResultsChunk, error) {
-	maxChunkSize := resultsChunkMaxSize // keep under default 4MB gRPC limit
+	maxChunkSize := s.resultsChunkMaxSize // keep under default 4MB gRPC limit
+	if maxChunkSize <= 0 {
+		maxChunkSize = defaultResultsChunkMaxSize
+	}
 
 	if len(allDeviceUpdates) == 0 {
 		return []*proto.ResultsChunk{{

@@ -484,13 +484,34 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     # Create tarball entries
     entries =
       Enum.map(files, fn {name, content} ->
-        {String.to_charlist(name), content}
+        data =
+          case content do
+            nil -> ""
+            _ -> IO.iodata_to_binary(content)
+          end
+
+        {String.to_charlist(name), data}
       end)
 
-    # Create the tarball in memory
-    case :erl_tar.create({:binary, []}, entries, [:compressed]) do
-      {:ok, {:binary, tarball}} -> {:ok, tarball}
-      {:error, reason} -> {:error, reason}
+    tmp_path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-collector-bundle-#{:erlang.unique_integer([:positive])}.tar.gz"
+      )
+
+    try do
+      case :erl_tar.create(String.to_charlist(tmp_path), entries, [:compressed]) do
+        :ok ->
+          case File.read(tmp_path) do
+            {:ok, tarball} -> {:ok, tarball}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    after
+      _ = File.rm(tmp_path)
     end
   end
 
