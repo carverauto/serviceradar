@@ -15,7 +15,7 @@
 
 # generate-tenant-component-cert.sh - Generate edge component certificates for a tenant
 #
-# This script creates certificates for edge components (pollers, agents, checkers)
+# This script creates certificates for edge components (gateways, agents, checkers)
 # signed by the tenant's intermediate CA. The certificate CN follows the format:
 # <component-id>.<partition-id>.<tenant-slug>.serviceradar
 #
@@ -33,7 +33,7 @@
 #   --help               Show this help message
 #
 # Examples:
-#   ./generate-tenant-component-cert.sh acme-corp poller-001 partition-1
+#   ./generate-tenant-component-cert.sh acme-corp gateway-001 partition-1
 #   ./generate-tenant-component-cert.sh acme-corp agent-001 partition-1 --dns-names "agent,localhost"
 #   ./generate-tenant-component-cert.sh acme-corp checker-snmp partition-1 --json
 

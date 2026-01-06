@@ -31,7 +31,7 @@ type SweepFilterArgs struct {
 	Limit     int        `json:"limit,omitempty"`      // Max results
 	OrderBy   string     `json:"order_by,omitempty"`   // Field to sort by
 	SortDesc  bool       `json:"sort_desc,omitempty"`  // Sort descending
-	PollerID  string     `json:"poller_id,omitempty"`  // Filter by poller ID
+	GatewayID  string     `json:"gateway_id,omitempty"`  // Filter by gateway ID
 	Network   string     `json:"network,omitempty"`    // Filter by network range
 }
 
@@ -46,10 +46,10 @@ func (m *MCPServer) registerSweepTools() {
 func (m *MCPServer) registerGetSweepResultsTool() {
 	sweepFilterBuilder := &GenericFilterBuilder{
 		FieldMappings: map[string]string{
-			"poller_id": "poller_id",
+			"gateway_id": "gateway_id",
 			"network":   "network",
 		},
-		ResponseFields: []string{"poller_id", "network", "start_time", "end_time"},
+		ResponseFields: []string{"gateway_id", "network", "start_time", "end_time"},
 	}
 
 	m.tools["sweeps.getResults"] = m.BuildGenericFilterToolWithBuilder(
@@ -69,7 +69,7 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
 			var recentArgs struct {
 				Limit    int    `json:"limit,omitempty"`     // Max results (default 20)
-				PollerID string `json:"poller_id,omitempty"` // Optional poller filter
+				GatewayID string `json:"gateway_id,omitempty"` // Optional gateway filter
 				Hours    int    `json:"hours,omitempty"`     // Last N hours (default 24)
 			}
 			if err := json.Unmarshal(args, &recentArgs); err != nil {
@@ -95,9 +95,9 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 			if timeFilter != "" {
 				filters = append(filters, timeFilter)
 			}
-			if recentArgs.PollerID != "" {
-				filters = append(filters, "poller_id = $1")
-				queryParams = append(queryParams, recentArgs.PollerID)
+			if recentArgs.GatewayID != "" {
+				filters = append(filters, "gateway_id = $1")
+				queryParams = append(queryParams, recentArgs.GatewayID)
 			}
 
 			combinedFilter := CombineFilters(filters...)
@@ -107,7 +107,7 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 
 			m.logger.Debug().
 				Str("query", query).
-				Str("poller_id", recentArgs.PollerID).
+				Str("gateway_id", recentArgs.GatewayID).
 				Int("hours", hours).
 				Int("limit", limit).
 				Msg("Executing recent sweeps query")
@@ -124,7 +124,7 @@ func (m *MCPServer) registerGetRecentSweepsTool() {
 				"query":      query,
 				"limit":      limit,
 				"hours":      hours,
-				"poller_id":  recentArgs.PollerID,
+				"gateway_id":  recentArgs.GatewayID,
 				"start_time": startTime,
 			}, nil
 		},
@@ -138,7 +138,7 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 		Description: "Get summary statistics for network sweeps",
 		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
 			var summaryArgs struct {
-				PollerID  string     `json:"poller_id,omitempty"`  // Optional poller filter
+				GatewayID  string     `json:"gateway_id,omitempty"`  // Optional gateway filter
 				StartTime *time.Time `json:"start_time,omitempty"` // Start time filter
 				EndTime   *time.Time `json:"end_time,omitempty"`   // End time filter
 			}
@@ -154,9 +154,9 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 			if timeFilter != "" {
 				filters = append(filters, timeFilter)
 			}
-			if summaryArgs.PollerID != "" {
-				filters = append(filters, "poller_id = $1")
-				queryParams = append(queryParams, summaryArgs.PollerID)
+			if summaryArgs.GatewayID != "" {
+				filters = append(filters, "gateway_id = $1")
+				queryParams = append(queryParams, summaryArgs.GatewayID)
 			}
 
 			combinedFilter := CombineFilters(filters...)
@@ -167,7 +167,7 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 
 			m.logger.Debug().
 				Str("query", query).
-				Str("poller_id", summaryArgs.PollerID).
+				Str("gateway_id", summaryArgs.GatewayID).
 				Msg("Executing sweep summary query")
 
 			// Execute SRQL query via API
@@ -178,12 +178,12 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 
 			// Calculate summary statistics
 			totalSweeps := len(results)
-			pollerCounts := make(map[string]int)
+			gatewayCounts := make(map[string]int)
 			networkCounts := make(map[string]int)
 
 			for _, result := range results {
-				if pollerID, ok := result["poller_id"].(string); ok {
-					pollerCounts[pollerID]++
+				if gatewayID, ok := result["gateway_id"].(string); ok {
+					gatewayCounts[gatewayID]++
 				}
 				if network, ok := result["network"].(string); ok {
 					networkCounts[network]++
@@ -192,11 +192,11 @@ func (m *MCPServer) registerGetSweepSummaryTool() {
 
 			return map[string]interface{}{
 				"total_sweeps":   totalSweeps,
-				"poller_counts":  pollerCounts,
+				"gateway_counts":  gatewayCounts,
 				"network_counts": networkCounts,
 				"query":          query,
 				"filters": map[string]interface{}{
-					"poller_id":  summaryArgs.PollerID,
+					"gateway_id":  summaryArgs.GatewayID,
 					"start_time": summaryArgs.StartTime,
 					"end_time":   summaryArgs.EndTime,
 				},

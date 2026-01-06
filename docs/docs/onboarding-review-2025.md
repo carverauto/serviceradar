@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document provides a comprehensive review of ServiceRadar's service onboarding processes across all deployment models: Kubernetes, Docker Compose, and edge deployments. The review examines how services register with Core, how agents associate with pollers, and identifies gaps in the current implementation.
+This document provides a comprehensive review of ServiceRadar's service onboarding processes across all deployment models: Kubernetes, Docker Compose, and edge deployments. The review examines how services register with Core, how agents associate with gateways, and identifies gaps in the current implementation.
 
 **Key Findings:**
 - ✅ **K8s onboarding is fully automated** via SPIFFE Controller and ClusterSPIFFEID CRDs
@@ -38,18 +38,18 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 4. Workloads access SPIFFE Workload API via `/run/spire/sockets/agent.sock` mounted from DaemonSet
 
 **Service Registration with Core:**
-- Pollers appear as "known" once they have a `ClusterSPIFFEID` resource
-- Core's `isKnownPoller()` checks:
-  1. Static `KnownPollers` list in core config (legacy)
-  2. Edge onboarding service's allowed poller list (dynamic, KV-backed)
-- No explicit "registration" API call - pollers become known declaratively
+- Gateways appear as "known" once they have a `ClusterSPIFFEID` resource
+- Core's `isKnownGateway()` checks:
+  1. Static `KnownGateways` list in core config (legacy)
+  2. Edge onboarding service's allowed gateway list (dynamic, KV-backed)
+- No explicit "registration" API call - gateways become known declaratively
 
 **Status:** ✅ **Fully Automated** - Zero manual intervention after CRD creation
 
 **Files:**
 - `k8s/demo/base/spire/spire-clusterspiffeid-*.yaml` - Identity definitions
 - `k8s/demo/base/spire/spire-controller-manager-rbac.yaml` - Controller RBAC
-- `pkg/core/pollers.go:701` - `isKnownPoller()` function
+- `pkg/core/gateways.go:701` - `isKnownGateway()` function
 
 ---
 
@@ -63,13 +63,13 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
    ```bash
    serviceradar-cli edge create-package \
      --name "Remote Site A" \
-     --type poller \
+     --type gateway \
      --metadata-json "$(cat metadata.json)"
    ```
    - Core creates `EdgeOnboardingPackage` record with status `issued`
    - Generates SPIRE join token (15min TTL) and download token (24hr TTL)
    - Package includes:
-     - `edge-poller.env` - Service configuration
+     - `edge-gateway.env` - Service configuration
      - `spire/upstream-join-token` - SPIRE attestation token
      - `spire/upstream-bundle.pem` - Trust bundle
      - `metadata.json` - Core/KV endpoints, SPIFFE IDs
@@ -86,7 +86,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
    ```bash
    # Zero-touch onboarding (implemented in GH-1915)
    docker run -e ONBOARDING_TOKEN=$TOKEN \
-     ghcr.io/carverauto/serviceradar-poller:latest
+     ghcr.io/carverauto/serviceradar-agent-gateway:latest
    ```
    - `pkg/edgeonboarding` library handles:
      - Downloading package from Core
@@ -95,11 +95,11 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
      - Generating service configuration
      - Starting service
 
-4. **Activation** (Poller → Core):
-   - Poller sends first `ReportStatus` RPC to Core
+4. **Activation** (Gateway → Core):
+   - Gateway sends first `PushStatus` RPC to Core
    - Core calls `edgeOnboarding.RecordActivation()` in `pkg/core/services.go:869`
    - Package status changes to `activated`
-   - Poller added to in-memory allowed list, broadcast to all Core instances
+   - Gateway added to in-memory allowed list, broadcast to all Core instances
 
 **Nested SPIRE Architecture:**
 ```
@@ -107,7 +107,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 │ Edge Site (Docker Compose)                  │
 │                                              │
 │  ┌──────────────────────────────────────┐  │
-│  │ Poller Container                     │  │
+│  │ Gateway Container                     │  │
 │  │                                       │  │
 │  │  ┌──────────────────────────────┐   │  │
 │  │  │ SPIRE Upstream Agent         │   │  │
@@ -120,7 +120,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 │  │  └──────────────────────────────┘   │  │
 │  │                                       │  │
 │  │  ┌──────────────────────────────┐   │  │
-│  │  │ Poller Service               │   │  │
+│  │  │ Gateway Service               │   │  │
 │  │  └──────────────────────────────┘   │  │
 │  └──────────────────────────────────────┘  │
 │                                              │
@@ -129,7 +129,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 │  │                                       │  │
 │  │  ┌──────────────────────────────┐   │  │
 │  │  │ SPIRE Downstream Agent       │   │  │
-│  │  │ (gets cert from poller)      │   │  │
+│  │  │ (gets cert from gateway)      │   │  │
 │  │  └──────────────────────────────┘   │  │
 │  │                                       │  │
 │  │  ┌──────────────────────────────┐   │  │
@@ -145,7 +145,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 └─────────────────────────────────────────────┘
 ```
 
-**Status:** ✅ **Implemented for Pollers** (GH-1915/serviceradar-57)
+**Status:** ✅ **Implemented for Gateways** (GH-1915/serviceradar-57)
 - Zero-touch onboarding working
 - DataSvc self-registration implemented
 - Checker template registration added
@@ -158,7 +158,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 **Files:**
 - `pkg/edgeonboarding/` - Bootstrap library
 - `pkg/core/edge_onboarding.go` - Package creation/activation
-- `docker/compose/poller-stack.compose.yml` - Edge stack definition
+- `docker/compose/gateway-stack.compose.yml` - Edge stack definition
 - `docker/compose/bootstrap-nested-spire.sh` - SPIRE bootstrap helper
 
 ---
@@ -169,7 +169,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 
 **How It Works:**
 1. `cert-generator` container runs `generate-certs.sh` to create self-signed certs
-2. Certificates stored in `poller-cert-data` volume
+2. Certificates stored in `gateway-cert-data` volume
 3. Services mount certificates from volume
 4. Services connect using TLS, not SPIFFE
 
@@ -192,7 +192,7 @@ This document provides a comprehensive review of ServiceRadar's service onboardi
 ```sql
 CREATE STREAM IF NOT EXISTS services (
     timestamp         DateTime64(3),
-    poller_id         string,
+    gateway_id         string,
     agent_id          string,
     service_name      string,
     service_type      string,
@@ -204,13 +204,13 @@ TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 
 **How Service Registration Works:**
 
-1. **Poller Authorization** (`pkg/core/pollers.go:812`):
+1. **Gateway Authorization** (`pkg/core/gateways.go:812`):
    ```go
-   func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) {
-       if !s.isKnownPoller(ctx, req.PollerId) {
-           s.logger.Warn().Str("poller_id", req.PollerId).
-               Msg("Ignoring status report from unknown poller")
-           return &proto.PollerStatusResponse{Received: true}, nil
+   func (s *Server) PushStatus(ctx context.Context, req *proto.GatewayStatusRequest) {
+       if !s.isKnownGateway(ctx, req.GatewayId) {
+           s.logger.Warn().Str("gateway_id", req.GatewayId).
+               Msg("Ignoring status report from unknown gateway")
+           return &proto.GatewayStatusResponse{Received: true}, nil
        }
        // Process status report...
    }
@@ -224,45 +224,45 @@ TTL to_start_of_day(coalesce(timestamp, _tp_time)) + INTERVAL 3 DAY
 
 3. **Service Storage** (`pkg/core/services.go:860`):
    - Services written to `services` stream
-   - Includes `poller_id`, `agent_id`, `service_type`, `service_name`
+   - Includes `gateway_id`, `agent_id`, `service_type`, `service_name`
    - Records become the implicit service registry
 
-### 2.2 Agent-to-Poller Association
+### 2.2 Agent-to-Gateway Association
 
-**Mechanism:** Agents are associated with pollers through the `services` stream, NOT through explicit registration.
+**Mechanism:** Agents are associated with gateways through the `services` stream, NOT through explicit registration.
 
-**Query for Agent List** (`pkg/db/pollers.go:423`):
+**Query for Agent List** (`pkg/db/gateways.go:423`):
 ```sql
 SELECT
     agent_id,
-    poller_id,
+    gateway_id,
     MAX(timestamp) as last_seen,
     groupArray(DISTINCT service_type) as service_types
 FROM table(services)
 WHERE agent_id != ''
-GROUP BY agent_id, poller_id
+GROUP BY agent_id, gateway_id
 ORDER BY last_seen DESC
 ```
 
 **Key Implications:**
 - Agents only appear after they start reporting services
 - No "pre-registration" of agents
-- Agent-poller relationship is derived, not declared
+- Agent-gateway relationship is derived, not declared
 - If agent stops reporting, it disappears from the list (TTL = 3 days)
 
 **Edge Onboarding Activation** (`pkg/core/services.go:876`):
 ```go
 if s.edgeOnboarding != nil {
-    if agentID != "" && agentID != pollerID {
+    if agentID != "" && agentID != gatewayID {
         if err := s.edgeOnboarding.RecordActivation(ctx,
             models.EdgeOnboardingComponentTypeAgent,
-            agentID, pollerID, sourceIP, "", timestamp); err != nil {
+            agentID, gatewayID, sourceIP, "", timestamp); err != nil {
             // Log error but continue
         }
     }
 }
 ```
-- When services report with both `poller_id` and `agent_id`, Core calls `RecordActivation`
+- When services report with both `gateway_id` and `agent_id`, Core calls `RecordActivation`
 - This promotes edge-onboarded agents from "issued" to "activated"
 - Updates `edge_onboarding_packages` table
 
@@ -274,8 +274,8 @@ if s.edgeOnboarding != nil {
 ```go
 func (s *Server) ensureServiceDevice(
     ctx context.Context,
-    agentID, pollerID, partition string,
-    svc *proto.ServiceStatus,
+    agentID, gatewayID, partition string,
+    svc *proto.GatewayServiceStatus,
     serviceData json.RawMessage,
     timestamp time.Time,
 ) {
@@ -295,7 +295,7 @@ func (s *Server) ensureServiceDevice(
         "source":             "checker",
         "checker_service":    svc.ServiceName,
         "collector_agent_id": agentID,
-        "collector_poller_id": pollerID,
+        "collector_gateway_id": gatewayID,
         // ...
     }
 
@@ -356,7 +356,7 @@ spec:
 **Services with SPIFFE Identities in K8s:**
 - ✅ serviceradar-core
 - ✅ serviceradar-datasvc
-- ✅ serviceradar-poller
+- ✅ serviceradar-agent-gateway
 - ✅ serviceradar-agent
 - ✅ serviceradar-mapper
 - ✅ serviceradar-db-event-writer
@@ -369,14 +369,14 @@ spec:
 ### 3.2 Edge SPIFFE Flow (Nested SPIRE)
 
 **Upstream Agent Attestation:**
-- Edge poller's upstream agent connects to cluster SPIRE server
+- Edge gateway's upstream agent connects to cluster SPIRE server
 - Uses join token attestation (not `k8s_sat`)
 - Join token stored in package: `spire/upstream-join-token`
-- Parent ID: `spiffe://carverauto.dev/ns/edge/poller-nested-spire`
+- Parent ID: `spiffe://carverauto.dev/ns/edge/gateway-nested-spire`
 - Token TTL: 15 minutes (expires quickly for security)
 
 **Downstream Server Configuration:**
-- Poller runs nested SPIRE server for downstream workloads (agent, checkers)
+- Gateway runs nested SPIRE server for downstream workloads (agent, checkers)
 - Bootstrap script (`bootstrap-nested-spire.sh`) creates downstream entries
 - Downstream agent (in agent container) uses Unix selectors for attestation:
   ```
@@ -388,12 +388,12 @@ spec:
 
 **Network/PID Sharing:**
 ```yaml
-# poller-stack.compose.yml
+# gateway-stack.compose.yml
 agent:
-  network_mode: "service:poller"
-  pid: "service:poller"
+  network_mode: "service:gateway"
+  pid: "service:gateway"
 ```
-- Agent shares network namespace with poller (accesses localhost:50051)
+- Agent shares network namespace with gateway (accesses localhost:50051)
 - Agent shares PID namespace for SPIRE Workload API attestation
 
 ---
@@ -406,35 +406,35 @@ agent:
 
 **Current Behavior:**
 - Services are tracked only in the ephemeral `services` stream (3-day TTL)
-- Query `ListAgentsWithPollers()` derives agents from recent service reports
+- Query `ListAgentsWithGateways()` derives agents from recent service reports
 - If agent stops reporting, it disappears from system view after 3 days
 - No historical record of what services existed
 
 **Impact:**
 - Cannot answer "what services are registered in the system?" without querying time-series data
 - Cannot distinguish between "service stopped reporting" vs "service was never onboarded"
-- No persistent association between agent and poller
+- No persistent association between agent and gateway
 - Cannot pre-register agents/checkers before they start reporting
 
 **Recommendation:**
 Create dedicated registration tables:
 
 ```sql
--- Persistent poller registry
-CREATE TABLE pollers_registry (
-    poller_id           string,
+-- Persistent gateway registry
+CREATE TABLE gateways_registry (
+    gateway_id           string,
     component_id        string,  -- from edge onboarding
     status              string,  -- 'pending', 'active', 'inactive', 'revoked'
     first_registered    DateTime64(3),
     last_seen           DateTime64(3),
     registration_source string,  -- 'edge_onboarding', 'k8s_spiffe', 'config'
     metadata            string   -- JSON
-) PRIMARY KEY poller_id;
+) PRIMARY KEY gateway_id;
 
 -- Persistent agent registry
 CREATE TABLE agents_registry (
     agent_id            string,
-    poller_id           string,  -- parent poller
+    gateway_id           string,  -- parent gateway
     component_id        string,  -- from edge onboarding
     status              string,
     first_registered    DateTime64(3),
@@ -447,7 +447,7 @@ CREATE TABLE agents_registry (
 CREATE TABLE checkers_registry (
     checker_id          string,
     agent_id            string,  -- parent agent
-    poller_id           string,  -- grandparent poller
+    gateway_id           string,  -- grandparent gateway
     checker_kind        string,  -- 'snmp', 'sysmon', 'rperf', etc.
     status              string,
     first_registered    DateTime64(3),
@@ -461,19 +461,19 @@ CREATE TABLE checkers_registry (
 - Clear audit trail of all services ever registered
 - Pre-registration support (mark as 'pending' before first report)
 - Distinguish between "never reported" vs "stopped reporting"
-- Persistent agent-to-poller associations
-- Support for "list all pollers" without relying on time-series data
+- Persistent agent-to-gateway associations
+- Support for "list all gateways" without relying on time-series data
 
 ---
 
 ### 4.2 Agent/Checker Onboarding Not Fully Automated
 
-**Gap:** While poller onboarding is fully automated, agent and checker onboarding still requires manual KV updates (GH-1909 not complete).
+**Gap:** While gateway onboarding is fully automated, agent and checker onboarding still requires manual KV updates (GH-1909 not complete).
 
 **Current Agent Onboarding:**
 1. ✅ Can create agent package via API
 2. ⚠️ Package creation does NOT update KV automatically
-3. ❌ Must manually update `config/pollers/<poller-id>/agents/<agent-id>.json` in KV
+3. ❌ Must manually update `config/gateways/<gateway-id>/agents/<agent-id>.json` in KV
 4. ⚠️ Agent only becomes "known" after it starts reporting services
 
 **Current Checker Onboarding:**
@@ -483,20 +483,20 @@ CREATE TABLE checkers_registry (
 
 **Expected Flow (from GH-1909):**
 ```
-Admin creates agent package with parent_id=poller-123
-  → Core automatically writes config/pollers/poller-123/agents/agent-456.json
+Admin creates agent package with parent_id=gateway-123
+  → Core automatically writes config/gateways/gateway-123/agents/agent-456.json
   → Status: 'pending'
 
 Agent first reports in
   → Core updates agent config status to 'active'
-  → Poller immediately starts routing work to agent
+  → Gateway immediately starts routing work to agent
 ```
 
 **Recommendation:**
 1. Complete GH-1909 implementation:
    - Auto-create KV entries on package creation
    - Support agent and checker package types
-   - Validate parent exists (poller for agent, agent for checker)
+   - Validate parent exists (gateway for agent, agent for checker)
    - Update status from 'pending' → 'active' on first report
 
 2. Implement checker package creation:
@@ -518,7 +518,7 @@ Agent first reports in
 1. Admin wants to prepare 10 agents for a new site
    - Cannot create agent records in advance
    - Cannot verify configuration before deployment
-   - Cannot assign agents to pollers before they start
+   - Cannot assign agents to gateways before they start
 
 2. Admin wants to see "pending" services that haven't checked in yet
    - No way to distinguish "hasn't reported yet" from "doesn't exist"
@@ -606,7 +606,7 @@ Alternative: Support X.509 PoP attestation for edge sites where join tokens are 
 **Gap:** While individual services report health, there's no centralized view of all registered services and their health status.
 
 **Current Behavior:**
-- Can query `/api/admin/pollers` to see pollers
+- Can query `/api/admin/gateways` to see gateways
 - Can query `/api/admin/agents` to see agents (recently added)
 - No unified view of:
   - Which services are registered
@@ -616,8 +616,8 @@ Alternative: Support X.509 PoP attestation for edge sites where join tokens are 
 
 **Recommendation:**
 Create unified service registry dashboard:
-- List all pollers, agents, checkers with status
-- Show parent-child relationships (agent → poller, checker → agent)
+- List all gateways, agents, checkers with status
+- Show parent-child relationships (agent → gateway, checker → agent)
 - Highlight services that haven't reported recently
 - Show pending edge onboarding packages
 
@@ -719,8 +719,8 @@ Use Kubernetes External Secrets Operator or similar:
 - Proper security model for untrusted networks
 
 **Implementation:**
-- Poller runs both upstream agent (to cluster) and downstream server (for edge)
-- Agent/checkers get SVIDs from poller's downstream server
+- Gateway runs both upstream agent (to cluster) and downstream server (for edge)
+- Agent/checkers get SVIDs from gateway's downstream server
 - Network/PID namespace sharing enables Workload API attestation
 
 ---
@@ -731,7 +731,7 @@ Use Kubernetes External Secrets Operator or similar:
 
 **Action Items:**
 1. Complete automatic KV updates on agent package creation
-   - Write to `config/pollers/<poller-id>/agents/<agent-id>.json`
+   - Write to `config/gateways/<gateway-id>/agents/<agent-id>.json`
    - Set status: 'pending'
 
 2. Implement checker package creation
@@ -740,7 +740,7 @@ Use Kubernetes External Secrets Operator or similar:
    - Include checker-specific metadata (credentials, targets)
 
 3. Update UI to support component type selection
-   - Dropdown for poller/agent/checker
+   - Dropdown for gateway/agent/checker
    - Parent selector for agents and checkers
    - Metadata forms tailored to component type
 
@@ -752,7 +752,7 @@ Use Kubernetes External Secrets Operator or similar:
 
 **Action Items:**
 1. Add registry tables:
-   - `pollers_registry`
+   - `gateways_registry`
    - `agents_registry`
    - `checkers_registry`
 
@@ -766,7 +766,7 @@ Use Kubernetes External Secrets Operator or similar:
    - Background job to mark as 'inactive' if no reports for X hours
 
 4. Add registry queries to API:
-   - `GET /api/admin/services/pollers`
+   - `GET /api/admin/services/gateways`
    - `GET /api/admin/services/agents`
    - `GET /api/admin/services/checkers`
    - Include status, parent relationships, last_seen
@@ -787,7 +787,7 @@ Use Kubernetes External Secrets Operator or similar:
 2. Add filters:
    - By status
    - By component type
-   - By poller/agent
+   - By gateway/agent
    - By registration source
 
 3. Add alerting for:
@@ -867,11 +867,11 @@ These improvements will eliminate remaining manual steps, provide better operati
 - `docs/docs/spire-onboarding-plan.md` - SPIRE integration planning
 - `pkg/edgeonboarding/` - Edge onboarding library implementation
 - `pkg/core/edge_onboarding.go` - Core edge onboarding service
-- `pkg/core/pollers.go` - Poller management and isKnownPoller()
+- `pkg/core/gateways.go` - Gateway management and isKnownGateway()
 - `pkg/core/devices.go` - Device registration via checkers
-- `pkg/db/pollers.go` - Poller/agent database queries
+- `pkg/db/gateways.go` - Gateway/agent database queries
 - `k8s/demo/base/spire/` - Kubernetes SPIFFE/SPIRE manifests
-- `docker/compose/poller-stack.compose.yml` - Edge deployment stack
+- `docker/compose/gateway-stack.compose.yml` - Edge deployment stack
 
 ---
 

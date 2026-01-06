@@ -56,14 +56,14 @@ defmodule ServiceRadar.ClusterSupervisor do
   @doc """
   Dynamically update cluster topology at runtime.
 
-  Useful for adding new pollers without restarting the cluster.
+  Useful for adding new gateways without restarting the cluster.
   This stops the existing topology supervisor and restarts with new config.
 
   ## Examples
 
       iex> ServiceRadar.ClusterSupervisor.update_topology(:serviceradar, [
       ...>   strategy: Cluster.Strategy.Epmd,
-      ...>   config: [hosts: [:"poller1@192.168.1.20", :"poller2@192.168.1.21"]]
+      ...>   config: [hosts: [:"gateway1@192.168.1.20", :"gateway2@192.168.1.21"]]
       ...> ])
       {:ok, pid}
   """

@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:checks, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
-     |> assign(:poller_node_info, nil)
+     |> assign(:gateway_node_info, nil)
      |> assign(:show_check_modal, false)
      |> assign(:check_form, nil)
      |> assign(:check_types, @check_types)}
@@ -59,8 +59,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       "[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}"
     )
 
-    # Get poller node system info if live agent exists
-    poller_node_info =
+    # Get gateway node system info if live agent exists
+    gateway_node_info =
       if live_agent && Map.get(live_agent, :node) do
         fetch_node_info(Map.get(live_agent, :node))
       else
@@ -75,8 +75,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           "agent_id" => Map.get(live_agent, :agent_id, uid),
           "status" => to_string(Map.get(live_agent, :status, :connected)),
           "capabilities" => Map.get(live_agent, :capabilities, []),
-          "poller_id" => Map.get(live_agent, :poller_id),
-          "poller_node" => format_node(Map.get(live_agent, :node)),
+          "gateway_id" => Map.get(live_agent, :gateway_id),
+          "gateway_node" => format_node(Map.get(live_agent, :node)),
           "partition_id" => Map.get(live_agent, :partition_id),
           "registered_at" => Map.get(live_agent, :registered_at),
           "last_heartbeat" => Map.get(live_agent, :last_heartbeat),
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:error, error)
      |> assign(:checks, checks)
      |> assign(:live_agent, live_agent)
-     |> assign(:poller_node_info, poller_node_info)
+     |> assign(:gateway_node_info, gateway_node_info)
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
   end
 
@@ -245,10 +245,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
           <.capabilities_card capabilities={Map.get(@agent, "capabilities", [])} />
-          <.poller_node_info
-            :if={@poller_node_info}
-            node_info={@poller_node_info}
-            node={Map.get(@agent, "poller_node")}
+          <.gateway_node_info
+            :if={@gateway_node_info}
+            node_info={@gateway_node_info}
+            node={Map.get(@agent, "gateway_node")}
           />
           <.registration_info agent={@agent} />
           <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
@@ -296,19 +296,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-mono">{Map.get(@agent, "version")}</span>
         </div>
 
-        <div :if={has_value?(@agent, "poller_id")} class="flex flex-col gap-1">
+        <div :if={has_value?(@agent, "gateway_id")} class="flex flex-col gap-1">
           <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway</span>
           <.link
-            navigate={~p"/gateways/#{Map.get(@agent, "poller_id")}"}
+            navigate={~p"/gateways/#{Map.get(@agent, "gateway_id")}"}
             class="text-sm font-mono link link-primary"
           >
-            {Map.get(@agent, "poller_id")}
+            {Map.get(@agent, "gateway_id")}
           </.link>
         </div>
 
-        <div :if={has_value?(@agent, "poller_node")} class="flex flex-col gap-1">
-          <span class="text-xs text-base-content/50 uppercase tracking-wider">Poller Node</span>
-          <span class="text-sm font-mono text-xs">{Map.get(@agent, "poller_node")}</span>
+        <div :if={has_value?(@agent, "gateway_node")} class="flex flex-col gap-1">
+          <span class="text-xs text-base-content/50 uppercase tracking-wider">Gateway Node</span>
+          <span class="text-sm font-mono text-xs">{Map.get(@agent, "gateway_node")}</span>
         </div>
 
         <div :if={has_value?(@agent, "partition_id")} class="flex flex-col gap-1">
@@ -369,11 +369,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :node_info, :map, required: true
   attr :node, :string, required: true
 
-  defp poller_node_info(assigns) do
+  defp gateway_node_info(assigns) do
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
-        <span class="text-sm font-semibold">Poller Node System Information</span>
+        <span class="text-sm font-semibold">Gateway Node System Information</span>
         <span class="badge badge-ghost badge-sm font-mono">{@node}</span>
       </div>
       <div class="p-4 grid grid-cols-2 md:grid-cols-4 gap-4">

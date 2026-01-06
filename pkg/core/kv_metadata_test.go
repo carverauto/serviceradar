@@ -42,49 +42,49 @@ const (
 func TestExtractSafeKVMetadata(t *testing.T) {
 	tests := []struct {
 		name     string
-		svc      *proto.ServiceStatus
+		svc      *proto.GatewayServiceStatus
 		expected map[string]string
 	}{
 		{
 			name: "service with KV store ID",
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "test-service",
 				ServiceType: "grpc",
 				KvStoreId:   "kv-store-123",
 				Available:   true,
 			},
 			expected: map[string]string{
-				"service_type":   "grpc",
-				"kv_store_id":    "kv-store-123",
-				"kv_enabled":     "true",
-				"kv_configured":  "true",
+				"service_type":  "grpc",
+				"kv_store_id":   "kv-store-123",
+				"kv_enabled":    "true",
+				"kv_configured": "true",
 			},
 		},
 		{
 			name: "service without KV store ID",
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "legacy-service",
 				ServiceType: "http",
 				KvStoreId:   "",
 				Available:   false,
 			},
 			expected: map[string]string{
-				"service_type":   "http",
-				"kv_enabled":     "false",
-				"kv_configured":  "false",
+				"service_type":  "http",
+				"kv_enabled":    "false",
+				"kv_configured": "false",
 			},
 		},
 		{
 			name: "service with empty KV store ID",
-			svc: &proto.ServiceStatus{
+			svc: &proto.GatewayServiceStatus{
 				ServiceName: "empty-kv-service",
 				ServiceType: "tcp",
 				Available:   true,
 			},
 			expected: map[string]string{
-				"service_type":   "tcp",
-				"kv_enabled":     "false",
-				"kv_configured":  "false",
+				"service_type":  "tcp",
+				"kv_enabled":    "false",
+				"kv_configured": "false",
 			},
 		},
 	}
@@ -106,7 +106,7 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	
+
 	server := &Server{
 		DB:     mockDB,
 		logger: logger.NewTestLogger(),
@@ -114,7 +114,7 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 	}
 
 	now := time.Now()
-	pollerID := "test-poller"
+	gatewayID := "test-gateway"
 	partition := testPartition
 	sourceIP := testSourceIP
 
@@ -123,18 +123,18 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	ctx := context.Background()
-	
+
 	// Test KV-enabled service
-	protoSvc := &proto.ServiceStatus{
+	protoSvc := &proto.GatewayServiceStatus{
 		ServiceName: "kv-enabled-service",
 		ServiceType: "grpc",
 		AgentId:     "agent-1",
-		PollerId:    pollerID,
+		GatewayId:   gatewayID,
 		KvStoreId:   "kv-store-abc",
 		Available:   true,
 		Message:     []byte(`{"status": "ok"}`),
 	}
-	
+
 	apiSvc := &api.ServiceStatus{
 		Name:      protoSvc.ServiceName,
 		Type:      protoSvc.ServiceType,
@@ -142,20 +142,20 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 		Available: protoSvc.Available,
 		Message:   protoSvc.Message,
 	}
-	
-	serviceStatus, serviceRecord := server.createServiceRecords(ctx, protoSvc, apiSvc, pollerID, partition, sourceIP, now)
+
+	serviceStatus, serviceRecord := server.createServiceRecords(ctx, protoSvc, apiSvc, gatewayID, partition, sourceIP, now)
 
 	// Verify service status record
 	assert.Equal(t, "kv-enabled-service", serviceStatus.ServiceName)
 	assert.Equal(t, "grpc", serviceStatus.ServiceType)
-	assert.Equal(t, pollerID, serviceStatus.PollerID)
+	assert.Equal(t, gatewayID, serviceStatus.GatewayID)
 	assert.Equal(t, "agent-1", serviceStatus.AgentID)
 	assert.Equal(t, partition, serviceStatus.Partition)
-	
+
 	// Verify service record with KV metadata
 	assert.Equal(t, "kv-enabled-service", serviceRecord.ServiceName)
 	assert.Equal(t, "grpc", serviceRecord.ServiceType)
-	
+
 	// Verify KV metadata in config
 	require.NotNil(t, serviceRecord.Config)
 	assert.Equal(t, "grpc", serviceRecord.Config["service_type"])
@@ -164,16 +164,16 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 	assert.Equal(t, "true", serviceRecord.Config["kv_configured"])
 
 	// Test legacy service without KV
-	legacyProto := &proto.ServiceStatus{
+	legacyProto := &proto.GatewayServiceStatus{
 		ServiceName: "legacy-service",
 		ServiceType: "http",
 		AgentId:     "agent-2",
-		PollerId:    pollerID,
+		GatewayId:   gatewayID,
 		KvStoreId:   "", // No KV store
 		Available:   false,
 		Message:     []byte(`{"error": "service down"}`),
 	}
-	
+
 	legacyAPI := &api.ServiceStatus{
 		Name:      legacyProto.ServiceName,
 		Type:      legacyProto.ServiceType,
@@ -181,9 +181,9 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 		Available: legacyProto.Available,
 		Message:   legacyProto.Message,
 	}
-	
-	_, legacyRecord := server.createServiceRecords(ctx, legacyProto, legacyAPI, pollerID, partition, sourceIP, now)
-	
+
+	_, legacyRecord := server.createServiceRecords(ctx, legacyProto, legacyAPI, gatewayID, partition, sourceIP, now)
+
 	// Verify legacy service has no KV metadata
 	require.NotNil(t, legacyRecord.Config)
 	assert.Equal(t, "http", legacyRecord.Config["service_type"])
@@ -193,32 +193,32 @@ func TestCreateServiceRecords_WithKVMetadata(t *testing.T) {
 	assert.False(t, hasKvStoreId) // Should not be present when empty
 }
 
-func TestReportStatus_WithKVStoreId(t *testing.T) {
+func TestPushStatus_WithKVStoreId(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	
+
 	server := &Server{
-		DB:                 mockDB,
-		config:             &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
-		serviceBuffers:     make(map[string][]*models.ServiceStatus),
-		serviceListBuffers: make(map[string][]*models.Service),
-		pollerStatusCache:  make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
-		logger:             logger.NewTestLogger(),
-		tracer:             otel.Tracer("serviceradar-core-test"),
+		DB:                   mockDB,
+		config:               &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
+		serviceBuffers:       make(map[string][]*models.ServiceStatus),
+		serviceListBuffers:   make(map[string][]*models.Service),
+		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
+		logger:               logger.NewTestLogger(),
+		tracer:               otel.Tracer("serviceradar-core-test"),
 	}
 
-	// Mock poller status
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
-		PollerID:  "test-poller",
+	// Mock gateway status
+	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
+		GatewayID: "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now(),
 	}, nil).AnyTimes()
 
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Mock device lookup
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
@@ -231,11 +231,11 @@ func TestReportStatus_WithKVStoreId(t *testing.T) {
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		require.Len(t, statuses, 1)
 		status := statuses[0]
-		
+
 		assert.Equal(t, "kv-service", status.ServiceName)
-		assert.Equal(t, "test-poller", status.PollerID)
+		assert.Equal(t, "test-gateway", status.GatewayID)
 		assert.Equal(t, "agent-kv", status.AgentID)
-		
+
 		return nil
 	}).AnyTimes()
 
@@ -243,41 +243,41 @@ func TestReportStatus_WithKVStoreId(t *testing.T) {
 	mockDB.EXPECT().StoreServices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, services []*models.Service) error {
 		require.Len(t, services, 1)
 		service := services[0]
-		
+
 		assert.Equal(t, "kv-service", service.ServiceName)
 		assert.Equal(t, "grpc", service.ServiceType)
-		
+
 		// Verify KV metadata is present
 		require.NotNil(t, service.Config)
 		assert.Equal(t, "grpc", service.Config["service_type"])
 		assert.Equal(t, "kv-store-xyz", service.Config["kv_store_id"])
 		assert.Equal(t, "true", service.Config["kv_enabled"])
 		assert.Equal(t, "true", service.Config["kv_configured"])
-		
+
 		return nil
 	}).AnyTimes()
 
 	ctx := context.Background()
-	
+
 	// Test request with KV store ID
-	req := &proto.PollerStatusRequest{
-		PollerId:  "test-poller",
+	req := &proto.GatewayStatusRequest{
+		GatewayId: "test-gateway",
 		Timestamp: time.Now().Unix(),
 		Partition: testPartition,
 		SourceIp:  testSourceIP,
-		Services: []*proto.ServiceStatus{
+		Services: []*proto.GatewayServiceStatus{
 			{
 				ServiceName: "kv-service",
 				ServiceType: "grpc",
 				Available:   true,
 				AgentId:     "agent-kv",
-				PollerId:    "test-poller",
+				GatewayId:   "test-gateway",
 				KvStoreId:   "kv-store-xyz", // This should be captured in metadata
 			},
 		},
 	}
 
-	resp, err := server.ReportStatus(ctx, req)
+	resp, err := server.PushStatus(ctx, req)
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
@@ -291,7 +291,7 @@ func TestKVMetadataIntegration(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	
+
 	server := &Server{
 		DB:                 mockDB,
 		serviceListBuffers: make(map[string][]*models.Service),
@@ -304,7 +304,7 @@ func TestKVMetadataIntegration(t *testing.T) {
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
 	now := time.Now()
-	pollerID := "integration-poller"
+	gatewayID := "integration-gateway"
 	partition := "integration-partition"
 	sourceIP := testSourceIP
 
@@ -312,18 +312,18 @@ func TestKVMetadataIntegration(t *testing.T) {
 
 	// Mix of services with and without KV store IDs
 	testCases := []struct {
-		name           string
-		protoService   *proto.ServiceStatus
-		expectedKVID   string
+		name            string
+		protoService    *proto.GatewayServiceStatus
+		expectedKVID    string
 		expectedEnabled string
 	}{
 		{
 			name: "auth-service",
-			protoService: &proto.ServiceStatus{
+			protoService: &proto.GatewayServiceStatus{
 				ServiceName: "auth-service",
 				ServiceType: "grpc",
 				AgentId:     "auth-agent",
-				PollerId:    pollerID,
+				GatewayId:   gatewayID,
 				KvStoreId:   "auth-kv-store",
 				Available:   true,
 				Message:     []byte(`{"status": "healthy"}`),
@@ -333,11 +333,11 @@ func TestKVMetadataIntegration(t *testing.T) {
 		},
 		{
 			name: "legacy-web",
-			protoService: &proto.ServiceStatus{
+			protoService: &proto.GatewayServiceStatus{
 				ServiceName: "legacy-web",
 				ServiceType: "http",
 				AgentId:     "web-agent",
-				PollerId:    pollerID,
+				GatewayId:   gatewayID,
 				KvStoreId:   "",
 				Available:   true,
 				Message:     []byte(`{"status": "ok"}`),
@@ -347,11 +347,11 @@ func TestKVMetadataIntegration(t *testing.T) {
 		},
 		{
 			name: "config-service",
-			protoService: &proto.ServiceStatus{
+			protoService: &proto.GatewayServiceStatus{
 				ServiceName: "config-service",
 				ServiceType: "grpc",
 				AgentId:     "config-agent",
-				PollerId:    pollerID,
+				GatewayId:   gatewayID,
 				KvStoreId:   "config-kv-store",
 				Available:   false,
 				Message:     []byte(`{"error": "connection failed"}`),
@@ -371,15 +371,15 @@ func TestKVMetadataIntegration(t *testing.T) {
 				Available: tc.protoService.Available,
 				Message:   tc.protoService.Message,
 			}
-			
-			_, serviceRecord := server.createServiceRecords(ctx, tc.protoService, apiSvc, pollerID, partition, sourceIP, now)
-			
+
+			_, serviceRecord := server.createServiceRecords(ctx, tc.protoService, apiSvc, gatewayID, partition, sourceIP, now)
+
 			// Verify service record metadata
 			require.NotNil(t, serviceRecord.Config)
 			assert.Equal(t, tc.protoService.ServiceType, serviceRecord.Config["service_type"])
 			assert.Equal(t, tc.expectedEnabled, serviceRecord.Config["kv_enabled"])
 			assert.Equal(t, tc.expectedEnabled, serviceRecord.Config["kv_configured"])
-			
+
 			if tc.expectedKVID != "" {
 				assert.Equal(t, tc.expectedKVID, serviceRecord.Config["kv_store_id"])
 			} else {

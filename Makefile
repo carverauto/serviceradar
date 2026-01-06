@@ -323,7 +323,6 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
@@ -357,11 +356,6 @@ kodata-prep: build-web ## Prepare kodata directories
 deb-agent: build-web ## Build the agent Debian package
 	@echo "$(COLOR_BOLD)Building agent Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-
-.PHONY: deb-poller
-deb-poller: build-web ## Build the poller Debian package
-	@echo "$(COLOR_BOLD)Building poller Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
 
 .PHONY: deb-core
 deb-core: build-web ## Build the core Debian package (standard)
@@ -428,7 +422,6 @@ deb-all-container: ## Build all Debian packages with container support for core
 	@echo "$(COLOR_BOLD)Building all Debian packages with container support for core$(COLOR_RESET)"
 	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb nats
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
@@ -450,11 +443,6 @@ rpm-core: ## Build the core RPM package
 rpm-agent: ## Build the agent RPM package
 	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm agent
-
-.PHONY: rpm-poller
-rpm-poller: ## Build the poller RPM package
-	@echo "$(COLOR_BOLD)Building poller RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm poller
 
 .PHONY: rpm-web
 rpm-web: ## Build the web RPM package

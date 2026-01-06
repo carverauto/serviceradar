@@ -56,7 +56,7 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     create :create do
       accept [
         :timestamp,
-        :poller_id,
+        :gateway_id,
         :agent_id,
         :metric_name,
         :metric_type,
@@ -95,10 +95,10 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       description "When the metric was collected"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       allow_nil? false
       public? true
-      description "Poller that collected this metric"
+      description "Gateway that collected this metric"
     end
 
     attribute :agent_id, :string do

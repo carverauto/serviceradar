@@ -2,8 +2,7 @@ defmodule ServiceRadar.GatewayRegistrationWorker do
   @moduledoc """
   GenServer that handles agent gateway registration at the platform level.
 
-  Unlike pollers (which are tenant-scoped), agent gateways are platform
-  infrastructure that serve all tenants. This worker registers the gateway
+  Agent gateways are platform infrastructure that serve all tenants. This worker registers the gateway
   with `ServiceRadar.GatewayTracker` for cluster-wide visibility.
 
   ## Configuration

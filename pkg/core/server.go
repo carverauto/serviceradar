@@ -51,14 +51,14 @@ var (
 )
 
 const (
-	defaultPollerStatusUpdateInterval = 5 * time.Second
+	defaultGatewayStatusUpdateInterval = 5 * time.Second
 	shutdownTimeout                   = 10 * time.Second
 	oneDay                            = 24 * time.Hour
 	oneWeek                           = 7 * oneDay
 	serviceradarDirPerms              = 0700
-	pollerHistoryLimit                = 1000
-	pollerDiscoveryTimeout            = 30 * time.Second
-	pollerNeverReportedTimeout        = 30 * time.Second
+	gatewayHistoryLimit                = 1000
+	gatewayDiscoveryTimeout            = 30 * time.Second
+	gatewayNeverReportedTimeout        = 30 * time.Second
 	defaultDBPath                     = "/var/lib/serviceradar/serviceradar.db"
 	statusUnknown                     = "unknown"
 	sweepService                      = "sweep"
@@ -86,12 +86,12 @@ func ageGraphEnabled() bool {
 	}
 }
 
-func (s *Server) pollerStatusIntervalOrDefault() time.Duration {
-	if s == nil || s.pollerStatusInterval <= 0 {
-		return defaultPollerStatusUpdateInterval
+func (s *Server) gatewayStatusIntervalOrDefault() time.Duration {
+	if s == nil || s.gatewayStatusInterval <= 0 {
+		return defaultGatewayStatusUpdateInterval
 	}
 
-	return s.pollerStatusInterval
+	return s.gatewayStatusInterval
 }
 
 //nolint:gocyclo // initialization wiring spans config validation, db bootstrapping, and subsystem setup
@@ -126,7 +126,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	metricsConfig := models.MetricsConfig{
 		Enabled:    normalizedConfig.Metrics.Enabled,
 		Retention:  normalizedConfig.Metrics.Retention,
-		MaxPollers: normalizedConfig.Metrics.MaxPollers,
+		MaxGateways: normalizedConfig.Metrics.MaxGateways,
 	}
 
 	metricsManager := metrics.NewManager(metricsConfig, database, log)
@@ -202,7 +202,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		log.Info().Msg("device search planner disabled via feature flag")
 	}
 
-	// Initialize the Service Registry for pollers, agents, and checkers
+	// Initialize the Service Registry for gateways, agents, and checkers
 	// Type assert to get underlying *db.DB for registry operations
 	dbConn, ok := database.(*db.DB)
 	if !ok {
@@ -221,7 +221,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
-		pollerPatterns:      normalizedConfig.PollerPatterns,
+		gatewayPatterns:      normalizedConfig.GatewayPatterns,
 		metrics:             metricsManager,
 		snmpManager:         metricstore.NewSNMPManager(database),
 		rperfManager:        metricstore.NewRperfManager(database),
@@ -233,8 +233,8 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		sysmonStall:         make(map[string]*sysmonStreamState),
 		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
-		pollerStatusCache:   make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
 		logger:              log,
 		tracer:              otel.Tracer("serviceradar-core"),
 		kvClientCloser:      kvClientCloser,
@@ -253,8 +253,8 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	server.edgeOnboarding = edgeSvc
 
 	// Initialize the cache on startup
-	if _, err := server.getPollerStatuses(ctx, true); err != nil {
-		server.logger.Warn().Err(err).Msg("Failed to initialize poller status cache")
+	if _, err := server.getGatewayStatuses(ctx, true); err != nil {
+		server.logger.Warn().Err(err).Msg("Failed to initialize gateway status cache")
 	}
 
 	// Initialize NATS event publisher if configured
@@ -263,7 +263,7 @@ func NewServer(ctx context.Context, config *models.CoreServiceConfig, spireClien
 	}
 
 	go server.flushBuffers(ctx)
-	go server.flushPollerStatusUpdates(ctx)
+	go server.flushGatewayStatusUpdates(ctx)
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
@@ -370,8 +370,8 @@ func resolveLogDigestStorePath(cfg *models.CoreServiceConfig) string {
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting core service...")
 
-	if err := s.cleanupUnknownPollers(ctx); err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to clean up unknown pollers")
+	if err := s.cleanupUnknownGateways(ctx); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to clean up unknown gateways")
 	}
 
 	if s.edgeOnboarding != nil {
@@ -399,7 +399,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	go s.runMetricsCleanup(ctx)
-	go s.monitorPollers(ctx)
+	go s.monitorGateways(ctx)
 
 	// Start stale device reaper
 	reaperInterval := 1 * time.Hour
@@ -567,7 +567,7 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if s.metrics != nil {
-				s.metrics.CleanupStalePollers(oneWeek)
+				s.metrics.CleanupStaleGateways(oneWeek)
 			} else {
 				s.logger.Error().Msg("Metrics manager is nil")
 			}
@@ -601,7 +601,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 			Message: fmt.Sprintf("ServiceRadar core service shutting down at %s",
 				time.Now().Format(time.RFC3339)),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			PollerID:  "core",
+			GatewayID:  "core",
 			Details: map[string]any{
 				"hostname": getHostname(),
 				"pid":      os.Getpid(),
@@ -629,10 +629,10 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	defer s.mu.Unlock()
 
 	s.apiServer = apiServer
-	apiServer.SetKnownPollers(s.config.KnownPollers)
+	apiServer.SetKnownGateways(s.config.KnownGateways)
 	if s.edgeOnboarding != nil {
-		apiServer.SetDynamicPollers(s.edgeOnboarding.allowedPollersSnapshot())
-		s.edgeOnboarding.SetAllowedPollerCallback(apiServer.SetDynamicPollers)
+		apiServer.SetDynamicGateways(s.edgeOnboarding.allowedGatewaysSnapshot())
+		s.edgeOnboarding.SetAllowedGatewayCallback(apiServer.SetDynamicGateways)
 		// Set device registry callback for service cleanup on revocation
 		if s.DeviceRegistry != nil {
 			s.edgeOnboarding.SetDeviceRegistryCallback(s.DeviceRegistry.ProcessBatchDeviceUpdates)
@@ -641,18 +641,18 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 
 	// MCP initialization removed; SRQL/MCP is now external
 
-	apiServer.SetPollerHistoryHandler(ctx, func(pollerID string) ([]api.PollerHistoryPoint, error) {
+	apiServer.SetGatewayHistoryHandler(ctx, func(gatewayID string) ([]api.GatewayHistoryPoint, error) {
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, defaultShortTimeout)
 		defer cancel()
 
-		points, err := s.DB.GetPollerHistoryPoints(ctxWithTimeout, pollerID, pollerHistoryLimit)
+		points, err := s.DB.GetGatewayHistoryPoints(ctxWithTimeout, gatewayID, gatewayHistoryLimit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get poller history: %w", err)
+			return nil, fmt.Errorf("failed to get gateway history: %w", err)
 		}
 
-		apiPoints := make([]api.PollerHistoryPoint, len(points))
+		apiPoints := make([]api.GatewayHistoryPoint, len(points))
 		for i, p := range points {
-			apiPoints[i] = api.PollerHistoryPoint{
+			apiPoints[i] = api.GatewayHistoryPoint{
 				Timestamp: p.Timestamp,
 				IsHealthy: p.IsHealthy,
 			}
@@ -662,16 +662,16 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	})
 }
 
-func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
+func (s *Server) updateAPIState(gatewayID string, apiStatus *api.GatewayStatus) {
 	if s.apiServer == nil {
 		s.logger.Warn().Msg("API server not initialized, state not updated")
 
 		return
 	}
 
-	s.apiServer.UpdatePollerStatus(pollerID, apiStatus)
+	s.apiServer.UpdateGatewayStatus(gatewayID, apiStatus)
 
-	s.logger.Debug().Str("poller_id", pollerID).Msg("Updated API server state for poller")
+	s.logger.Debug().Str("gateway_id", gatewayID).Msg("Updated API server state for gateway")
 }
 
 // GetRperfManager returns the rperf manager instance.

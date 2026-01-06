@@ -9,9 +9,9 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
   use Ecto.Migration
 
   def up do
-    # pollers table (new)
-    create table(:pollers, primary_key: false) do
-      add :poller_id, :text, null: false, primary_key: true
+    # gateways table (new)
+    create table(:gateways, primary_key: false) do
+      add :gateway_id, :text, null: false, primary_key: true
       add :component_id, :text
       add :registration_source, :text
       add :status, :text, default: "active"
@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
         null: false
     end
 
-    create unique_index(:pollers, [:poller_id], name: "pollers_unique_poller_id_index")
+    create unique_index(:gateways, [:gateway_id], name: "gateways_unique_gateway_id_index")
 
     # ocsf_devices table (new)
     create table(:ocsf_devices, primary_key: false) do
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
       add :org, :map, default: %{}
       add :groups, {:array, :map}, default: []
       add :agent_list, {:array, :map}, default: []
-      add :poller_id, :text
+      add :gateway_id, :text
       add :agent_id, :text
       add :discovery_sources, {:array, :text}, default: []
       add :is_available, :boolean, default: true
@@ -88,7 +88,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
       add :vendor_name, :text, default: "ServiceRadar"
       add :version, :text
       add :policies, {:array, :map}, default: []
-      add :poller_id, :text
+      add :gateway_id, :text
       add :device_uid, :text
       add :capabilities, {:array, :text}, default: []
       add :host, :text
@@ -109,7 +109,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
     create unique_index(:ocsf_agents, [:uid], name: "ocsf_agents_unique_uid_index")
 
     # Add indexes on tenant_id for query performance
-    create index(:pollers, [:tenant_id])
+    create index(:gateways, [:tenant_id])
     create index(:ocsf_devices, [:tenant_id])
     create index(:ocsf_agents, [:tenant_id])
   end
@@ -121,7 +121,10 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
     drop_if_exists unique_index(:ocsf_devices, [:uid], name: "ocsf_devices_unique_uid_index")
     drop table(:ocsf_devices)
 
-    drop_if_exists unique_index(:pollers, [:poller_id], name: "pollers_unique_poller_id_index")
-    drop table(:pollers)
+    drop_if_exists unique_index(:gateways, [:gateway_id],
+                     name: "gateways_unique_gateway_id_index"
+                   )
+
+    drop table(:gateways)
   end
 end

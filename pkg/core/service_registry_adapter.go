@@ -16,9 +16,9 @@ func newServiceRegistryAdapter(reg registry.ServiceManager) ServiceManager {
 	return &serviceRegistryAdapter{registry: reg}
 }
 
-func (a *serviceRegistryAdapter) RegisterPoller(ctx context.Context, reg *PollerRegistration) error {
-	return a.registry.RegisterPoller(ctx, &registry.PollerRegistration{
-		PollerID:           reg.PollerID,
+func (a *serviceRegistryAdapter) RegisterGateway(ctx context.Context, reg *GatewayRegistration) error {
+	return a.registry.RegisterGateway(ctx, &registry.GatewayRegistration{
+		GatewayID:           reg.GatewayID,
 		ComponentID:        reg.ComponentID,
 		RegistrationSource: registry.RegistrationSource(reg.RegistrationSource),
 		Metadata:           reg.Metadata,
@@ -30,7 +30,7 @@ func (a *serviceRegistryAdapter) RegisterPoller(ctx context.Context, reg *Poller
 func (a *serviceRegistryAdapter) RegisterAgent(ctx context.Context, reg *AgentRegistration) error {
 	return a.registry.RegisterAgent(ctx, &registry.AgentRegistration{
 		AgentID:            reg.AgentID,
-		PollerID:           reg.PollerID,
+		GatewayID:           reg.GatewayID,
 		ComponentID:        reg.ComponentID,
 		RegistrationSource: registry.RegistrationSource(reg.RegistrationSource),
 		Metadata:           reg.Metadata,
@@ -43,7 +43,7 @@ func (a *serviceRegistryAdapter) RegisterChecker(ctx context.Context, reg *Check
 	return a.registry.RegisterChecker(ctx, &registry.CheckerRegistration{
 		CheckerID:          reg.CheckerID,
 		AgentID:            reg.AgentID,
-		PollerID:           reg.PollerID,
+		GatewayID:           reg.GatewayID,
 		CheckerKind:        reg.CheckerKind,
 		ComponentID:        reg.ComponentID,
 		RegistrationSource: registry.RegistrationSource(reg.RegistrationSource),
@@ -53,10 +53,10 @@ func (a *serviceRegistryAdapter) RegisterChecker(ctx context.Context, reg *Check
 	})
 }
 
-func (a *serviceRegistryAdapter) GetAgentPollerID(ctx context.Context, agentID string) (string, error) {
+func (a *serviceRegistryAdapter) GetAgentGatewayID(ctx context.Context, agentID string) (string, error) {
 	agent, err := a.registry.GetAgent(ctx, agentID)
 	if err != nil {
 		return "", err
 	}
-	return agent.PollerID, nil
+	return agent.GatewayID, nil
 }

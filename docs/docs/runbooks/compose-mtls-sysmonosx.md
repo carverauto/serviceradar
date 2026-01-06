@@ -6,7 +6,7 @@ Use this runbook to bring a macOS arm64 or Linux sysmon-osx checker online again
 - The Docker Compose stack is running (`docker compose up -d`).
 - You can read generated secrets from the `cert-data` volume (`/etc/serviceradar/certs` in core/web).
 - `serviceradar-cli` is available (`./serviceradar-cli` from the repo root is fine).
-- Know the poller endpoint reachable from the edge host (e.g., `192.168.2.134:50053`).
+- Know the gateway endpoint reachable from the edge host (e.g., `192.168.2.134:50053`).
 
 ## 1) Fetch admin auth + API key from Compose
 ```bash
@@ -31,9 +31,9 @@ CORE_URL=http://localhost:8090
   --auth-token "${ACCESS_TOKEN}" \
   --api-key "${API_KEY}" \
   --label sysmonosx-darwin \
-  --poller-id docker-poller \
+  --gateway-id docker-gateway \
   --checker-kind sysmon \
-  --metadata '{"security_mode":"mtls","checker":{"poller_endpoint":"192.168.2.134:50053"}}' \
+  --metadata '{"security_mode":"mtls","checker":{"gateway_endpoint":"192.168.2.134:50053"}}' \
   --output json
 
 # Emit the edgepkg-v1 token (base64url payload with pkg/download token/core api)
@@ -61,12 +61,12 @@ serviceradar-sysmon-osx \
   --mtls \
   --token "${EDGE_TOKEN}" \
   --host http://192.168.2.134:8090 \
-  --poller-endpoint 192.168.2.134:50053 \
+  --gateway-endpoint 192.168.2.134:50053 \
   --cert-dir /etc/serviceradar/certs
 ```
 - `--host` is only needed if the token omits `api`.
 - Certs install to `/etc/serviceradar/certs` (writes `root.pem`, `sysmon-osx.pem`, `sysmon-osx-key.pem`). Server name defaults to the bundle value if not provided.
-- The poller will accept the connection because the client cert chains to the Compose CA.
+- The gateway will accept the connection because the client cert chains to the Compose CA.
 
 ## 4) Offline / pre-fetched bundle flow
 ```bash
@@ -84,7 +84,7 @@ serviceradar-sysmon-osx \
 serviceradar-sysmon-osx \
   --mtls \
   --bundle /path/to/edge-package.json \
-  --poller-endpoint 192.168.2.134:50053 \
+  --gateway-endpoint 192.168.2.134:50053 \
   --cert-dir /etc/serviceradar/certs
 ```
 `--bundle` also accepts a tar.gz archive or a directory containing `mtls/ca.pem`, `client.pem`, and `client-key.pem`.

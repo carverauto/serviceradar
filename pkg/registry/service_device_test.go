@@ -31,8 +31,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// Note: TestServiceDeviceRegistration_PollerDeviceUpdate was removed because
-// pollers are no longer registered as devices (OCSF alignment - pollers are software components)
+// Note: TestServiceDeviceRegistration_GatewayDeviceUpdate was removed because
+// gateways are no longer registered as devices (OCSF alignment - gateways are software components)
 
 // Note: TestServiceDeviceRegistration_AgentDeviceUpdate was removed because
 // agents are no longer registered as devices (OCSF alignment - they go to ocsf_agents table)
@@ -60,7 +60,7 @@ func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 		}).
 		AnyTimes()
 
-	checkerUpdate := models.CreateCheckerDeviceUpdate("sysmon@agent-123", "sysmon", "agent-123", "k8s-poller", "", "default", nil)
+	checkerUpdate := models.CreateCheckerDeviceUpdate("sysmon@agent-123", "sysmon", "agent-123", "k8s-gateway", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{checkerUpdate})
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, models.ServiceTypeChecker, *result.ServiceType)
 	assert.Equal(t, "sysmon@agent-123", result.ServiceID)
 	assert.Equal(t, "agent-123", result.AgentID)
-	assert.Equal(t, "k8s-poller", result.PollerID)
+	assert.Equal(t, "k8s-gateway", result.GatewayID)
 	assert.Equal(t, "default", result.Partition)
 	assert.Equal(t, models.DiscoverySourceServiceRadar, result.Source)
 	assert.True(t, result.IsAvailable)
@@ -80,7 +80,7 @@ func TestServiceDeviceRegistration_CheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, "sysmon@agent-123", result.Metadata["checker_id"])
 	assert.Equal(t, "sysmon", result.Metadata["checker_kind"])
 	assert.Equal(t, "agent-123", result.Metadata["agent_id"])
-	assert.Equal(t, "k8s-poller", result.Metadata["poller_id"])
+	assert.Equal(t, "k8s-gateway", result.Metadata["gateway_id"])
 }
 
 func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
@@ -107,11 +107,11 @@ func TestServiceDeviceRegistration_MultipleServicesOnSameIP(t *testing.T) {
 		AnyTimes()
 
 	// Create multiple services all running on the same IP
-	// Note: Agents and pollers are no longer registered as devices (OCSF alignment)
+	// Note: Agents and gateways are no longer registered as devices (OCSF alignment)
 	hostIP := "192.168.1.100"
 	updates := []*models.DeviceUpdate{
-		models.CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "poller-1", hostIP, "default", nil),
-		models.CreateCheckerDeviceUpdate("rperf@agent-1", "rperf", "agent-1", "poller-1", hostIP, "default", nil),
+		models.CreateCheckerDeviceUpdate("sysmon@agent-1", "sysmon", "agent-1", "gateway-1", hostIP, "default", nil),
+		models.CreateCheckerDeviceUpdate("rperf@agent-1", "rperf", "agent-1", "gateway-1", hostIP, "default", nil),
 	}
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
@@ -169,7 +169,7 @@ func TestServiceDeviceRegistration_EmptyIPAllowed(t *testing.T) {
 		}).
 		AnyTimes()
 
-	// Service devices with empty IPs should be allowed - using core service instead of poller
+	// Service devices with empty IPs should be allowed - using core service instead of gateway
 	coreUpdate := models.CreateCoreServiceDeviceUpdate(models.ServiceTypeDatasvc, "datasvc-primary", "", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{coreUpdate})
@@ -251,15 +251,15 @@ func TestServiceDeviceRegistration_DeviceIDGeneration(t *testing.T) {
 		{
 			name: "Service device with empty DeviceID gets generated",
 			update: &models.DeviceUpdate{
-				ServiceType: func() *models.ServiceType { st := models.ServiceTypePoller; return &st }(),
-				ServiceID:   "test-poller",
+				ServiceType: func() *models.ServiceType { st := models.ServiceTypeGateway; return &st }(),
+				ServiceID:   "test-gateway",
 				IP:          "192.168.1.100",
 				Source:      models.DiscoverySourceServiceRadar,
 				Timestamp:   time.Now(),
 				IsAvailable: true,
 				Metadata:    map[string]string{},
 			},
-			expectedDeviceID: "serviceradar:poller:test-poller",
+			expectedDeviceID: "serviceradar:gateway:test-gateway",
 		},
 		{
 			name: "Network device with empty DeviceID gets generated",
@@ -317,7 +317,7 @@ func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
 
 	// Create 100 checker instances for a single agent
 	agentID := "agent-123"
-	pollerID := "poller-1"
+	gatewayID := "gateway-1"
 	hostIP := "192.168.1.100"
 	updates := make([]*models.DeviceUpdate, 0, 100)
 
@@ -326,7 +326,7 @@ func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		for _, checkerType := range checkerTypes {
 			checkerID := fmt.Sprintf("%s-%d@%s", checkerType, checkerIndex, agentID)
-			updates = append(updates, models.CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, "default", nil))
+			updates = append(updates, models.CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, gatewayID, hostIP, "default", nil))
 			checkerIndex++
 		}
 	}
@@ -370,9 +370,9 @@ func TestServiceDeviceRegistration_MixedBatch(t *testing.T) {
 		AnyTimes()
 
 	// Create a batch with both service devices and network devices
-	// Note: Agents and pollers are no longer registered as devices (OCSF alignment)
+	// Note: Agents and gateways are no longer registered as devices (OCSF alignment)
 	updates := []*models.DeviceUpdate{
-		// Service devices - using core service instead of poller
+		// Service devices - using core service instead of gateway
 		models.CreateCoreServiceDeviceUpdate(models.ServiceTypeDatasvc, "datasvc-1", "", "default", nil),
 		// Network devices
 		{
@@ -449,7 +449,7 @@ func TestServiceDevicesBypassSightingsWhenIdentityEnabled(t *testing.T) {
 		}),
 	)
 
-	// Using core service instead of poller (pollers are no longer registered as devices)
+	// Using core service instead of gateway (gateways are no longer registered as devices)
 	coreUpdate := models.CreateCoreServiceDeviceUpdate(models.ServiceTypeDatasvc, "datasvc-primary", "10.20.30.40", "default", nil)
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, []*models.DeviceUpdate{coreUpdate})

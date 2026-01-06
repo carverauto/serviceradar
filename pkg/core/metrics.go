@@ -41,7 +41,7 @@ const sysmonStallPollThreshold = 5
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
-	pollerID string,
+	gatewayID string,
 	partition string,
 	targetName string,
 	oidConfigName string,
@@ -81,7 +81,7 @@ func createSNMPMetric(
 	}
 
 	return &models.TimeseriesMetric{
-		PollerID:       pollerID,
+		GatewayID:      gatewayID,
 		TargetDeviceIP: targetName,
 		DeviceID:       fmt.Sprintf("%s:%s", partition, targetName),
 		Partition:      partition,
@@ -94,8 +94,8 @@ func createSNMPMetric(
 	}
 }
 
-// bufferMetrics adds metrics to the server's metric buffer for a specific poller
-func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetric) {
+// bufferMetrics adds metrics to the server's metric buffer for a specific gateway
+func (s *Server) bufferMetrics(gatewayID string, metrics []*models.TimeseriesMetric) {
 	if len(metrics) == 0 {
 		return
 	}
@@ -103,27 +103,27 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 	s.metricBufferMu.Lock()
 	defer s.metricBufferMu.Unlock()
 
-	// Ensure the buffer for this pollerID exists
-	if _, ok := s.metricBuffers[pollerID]; !ok {
-		s.metricBuffers[pollerID] = []*models.TimeseriesMetric{}
+	// Ensure the buffer for this gatewayID exists
+	if _, ok := s.metricBuffers[gatewayID]; !ok {
+		s.metricBuffers[gatewayID] = []*models.TimeseriesMetric{}
 	}
 
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
+	s.metricBuffers[gatewayID] = append(s.metricBuffers[gatewayID], metrics...)
 }
 
 func (s *Server) processSNMPMetrics(
 	ctx context.Context,
-	pollerID, partition, _, agentID string,
+	gatewayID, partition, _, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
-	targetStatusMap, err := s.parseSNMPTargetStatus(details, pollerID)
+	targetStatusMap, err := s.parseSNMPTargetStatus(details, gatewayID)
 	if err != nil {
 		return err
 	}
 
 	if len(targetStatusMap) == 0 {
 		s.logger.Info().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("SNMP service returned no targets")
 
 		return nil
@@ -132,29 +132,29 @@ func (s *Server) processSNMPMetrics(
 	s.logSNMPTargetStatus(targetStatusMap)
 
 	// Process device updates in batch
-	if err := s.processSNMPDeviceUpdates(ctx, targetStatusMap, agentID, pollerID, partition, timestamp); err != nil {
+	if err := s.processSNMPDeviceUpdates(ctx, targetStatusMap, agentID, gatewayID, partition, timestamp); err != nil {
 		s.logger.Warn().
 			Err(err).
 			Msg("Failed to process SNMP device updates")
 	}
 
 	// Process and buffer metrics
-	metrics := s.createSNMPTimeseriesMetrics(targetStatusMap, pollerID, partition, timestamp)
-	s.bufferMetrics(pollerID, metrics)
+	metrics := s.createSNMPTimeseriesMetrics(targetStatusMap, gatewayID, partition, timestamp)
+	s.bufferMetrics(gatewayID, metrics)
 
 	return nil
 }
 
 // parseSNMPTargetStatus parses SNMP target status from JSON details
 func (s *Server) parseSNMPTargetStatus(
-	details json.RawMessage, pollerID string,
+	details json.RawMessage, gatewayID string,
 ) (map[string]*snmp.TargetStatus, error) {
 	var targetStatusMap map[string]*snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Str("details", string(details)).
 			Msg("Error unmarshaling SNMP targets")
 
@@ -164,7 +164,7 @@ func (s *Server) parseSNMPTargetStatus(
 		if errParseErr := json.Unmarshal(details, &errorWrapper); errParseErr == nil {
 			if msg, exists := errorWrapper["message"]; exists {
 				s.logger.Error().
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Str("message", msg).
 					Msg("SNMP service returned error")
 
@@ -173,7 +173,7 @@ func (s *Server) parseSNMPTargetStatus(
 
 			if errMsg, exists := errorWrapper["error"]; exists {
 				s.logger.Error().
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Str("error", errMsg).
 					Msg("SNMP service returned error")
 
@@ -213,7 +213,7 @@ func (s *Server) logSNMPTargetStatus(targetStatusMap map[string]*snmp.TargetStat
 func (s *Server) processSNMPDeviceUpdates(
 	ctx context.Context,
 	targetStatusMap map[string]*snmp.TargetStatus,
-	agentID, pollerID, partition string,
+	agentID, gatewayID, partition string,
 	timestamp time.Time) error {
 	var deviceUpdates []*models.DeviceUpdate
 	statusByDeviceID := make(map[string]*snmp.TargetStatus, len(targetStatusMap))
@@ -234,7 +234,7 @@ func (s *Server) processSNMPDeviceUpdates(
 		}
 
 		deviceUpdate := s.createSNMPTargetDeviceUpdate(
-			agentID, pollerID, partition, deviceIP, deviceHostname, timestamp, targetData.Available)
+			agentID, gatewayID, partition, deviceIP, deviceHostname, timestamp, targetData.Available)
 		if deviceUpdate != nil {
 			deviceUpdates = append(deviceUpdates, deviceUpdate)
 			statusByDeviceID[deviceUpdate.DeviceID] = targetData
@@ -250,13 +250,13 @@ func (s *Server) processSNMPDeviceUpdates(
 			if update == nil || strings.TrimSpace(update.DeviceID) == "" {
 				continue
 			}
-			s.upsertCollectorCapabilities(ctx, update.DeviceID, []string{"snmp"}, agentID, pollerID, "snmp", timestamp)
+			s.upsertCollectorCapabilities(ctx, update.DeviceID, []string{"snmp"}, agentID, gatewayID, "snmp", timestamp)
 
 			status := statusByDeviceID[update.DeviceID]
 			metadata := map[string]any{
-				"agent_id":  agentID,
-				"poller_id": pollerID,
-				"partition": partition,
+				"agent_id":   agentID,
+				"gateway_id": gatewayID,
+				"partition":  partition,
 			}
 			if update.IP != "" {
 				metadata["target_ip"] = update.IP
@@ -287,7 +287,7 @@ func (s *Server) processSNMPDeviceUpdates(
 				Capability:    "snmp",
 				ServiceID:     agentID,
 				ServiceType:   "snmp",
-				RecordedBy:    pollerID,
+				RecordedBy:    gatewayID,
 				Enabled:       true,
 				Success:       update.IsAvailable,
 				CheckedAt:     update.Timestamp,
@@ -307,7 +307,7 @@ func (s *Server) processSNMPDeviceUpdates(
 // createSNMPTimeseriesMetrics creates timeseries metrics from SNMP target data
 func (*Server) createSNMPTimeseriesMetrics(
 	targetStatusMap map[string]*snmp.TargetStatus,
-	pollerID, partition string,
+	gatewayID, partition string,
 	timestamp time.Time) []*models.TimeseriesMetric {
 	var metrics []*models.TimeseriesMetric
 
@@ -325,7 +325,7 @@ func (*Server) createSNMPTimeseriesMetrics(
 			baseMetricName, parsedIfIndex := parseOIDConfigName(oidConfigName)
 
 			metric := createSNMPMetric(
-				pollerID, partition, deviceIP, oidConfigName, oidStatus,
+				gatewayID, partition, deviceIP, oidConfigName, oidStatus,
 				targetData, baseMetricName, parsedIfIndex, timestamp)
 
 			metrics = append(metrics, metric)
@@ -368,12 +368,12 @@ func (*Server) parseRperfPayload(details json.RawMessage, timestamp time.Time) (
 	}
 
 	// Parse the timestamp
-	pollerTimestamp, err := time.Parse(time.RFC3339Nano, rperfPayload.Status.Timestamp)
+	gatewayTimestamp, err := time.Parse(time.RFC3339Nano, rperfPayload.Status.Timestamp)
 	if err != nil {
-		pollerTimestamp = timestamp
+		gatewayTimestamp = timestamp
 	}
 
-	return rperfPayload, pollerTimestamp, nil
+	return rperfPayload, gatewayTimestamp, nil
 }
 
 // processRperfResult processes a single rperf result and returns the corresponding metrics
@@ -382,7 +382,7 @@ func (*Server) processRperfResult(result *struct {
 	Success bool               `json:"success"`
 	Error   *string            `json:"error"`
 	Status  models.RperfMetric `json:"status"`
-}, pollerID string, partition string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
+}, gatewayID string, partition string, responseTime int64, gatewayTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
 	if !result.Success {
 		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v: %w", result.Target, result.Error, ErrRperfTestFailed)
 	}
@@ -449,9 +449,9 @@ func (*Server) processRperfResult(result *struct {
 			Name:           m.Name,
 			Value:          m.Value,
 			Type:           "rperf",
-			Timestamp:      pollerTimestamp,
+			Timestamp:      gatewayTimestamp,
 			Metadata:       metadataStr,
-			PollerID:       pollerID,
+			GatewayID:      gatewayID,
 			TargetDeviceIP: result.Target,
 			DeviceID:       fmt.Sprintf("%s:%s", partition, result.Target),
 			Partition:      partition,
@@ -463,19 +463,19 @@ func (*Server) processRperfResult(result *struct {
 	return timeseriesMetrics, nil
 }
 
-// bufferRperfMetrics adds the metrics to the buffer for the given poller
-func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.TimeseriesMetric) {
+// bufferRperfMetrics adds the metrics to the buffer for the given gateway
+func (s *Server) bufferRperfMetrics(gatewayID string, metrics []*models.TimeseriesMetric) {
 	s.metricBufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
+	s.metricBuffers[gatewayID] = append(s.metricBuffers[gatewayID], metrics...)
 	s.metricBufferMu.Unlock()
 }
 
-func (s *Server) processRperfMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
-	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
+func (s *Server) processRperfMetrics(gatewayID, partition string, details json.RawMessage, timestamp time.Time) error {
+	rperfPayload, gatewayTimestamp, err := s.parseRperfPayload(details, timestamp)
 	if err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Error unmarshaling rperf data")
 
 		return err
@@ -484,7 +484,7 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 	var allMetrics []*models.TimeseriesMetric
 
 	for i := range rperfPayload.Status.Results {
-		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, partition, rperfPayload.ResponseTime, pollerTimestamp)
+		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], gatewayID, partition, rperfPayload.ResponseTime, gatewayTimestamp)
 		if err != nil {
 			s.logger.Warn().
 				Err(err).
@@ -497,12 +497,12 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 	}
 
 	// Buffer rperf timeseriesMetrics
-	s.bufferRperfMetrics(pollerID, allMetrics)
+	s.bufferRperfMetrics(gatewayID, allMetrics)
 
 	s.logger.Info().
 		Int("metric_count", len(allMetrics)).
-		Str("poller_id", pollerID).
-		Str("timestamp", pollerTimestamp.Format(time.RFC3339)).
+		Str("gateway_id", gatewayID).
+		Str("timestamp", gatewayTimestamp.Format(time.RFC3339)).
 		Msg("Parsed rperf metrics")
 
 	return nil
@@ -511,10 +511,10 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 // processSweepService handles processing for sweep service.
 func (s *Server) processSweepService(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	agentID string,
-	_ *proto.ServiceStatus,
+	_ *proto.GatewayServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
 	const maxSweepLogLength = 200
@@ -530,7 +530,7 @@ func (s *Server) processSweepService(
 		Msg("Sweep payload received")
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("partition", partition).
 		Str("agent_id", agentID).
 		Msg("Sweep context extracted")
@@ -554,7 +554,7 @@ func (s *Server) processSweepService(
 
 	// Use the result processor to convert HostResults to DeviceUpdates
 	// This ensures ICMP metadata is properly extracted and availability is correctly set
-	deviceUpdates := s.processHostResults(ctx, sweepSummary.Hosts, pollerID, partition, agentID, now)
+	deviceUpdates := s.processHostResults(ctx, sweepSummary.Hosts, gatewayID, partition, agentID, now)
 
 	s.logger.Info().Int("hosts", len(sweepSummary.Hosts)).Int("updates", len(deviceUpdates)).Msg("Sweep processed")
 
@@ -578,8 +578,8 @@ func (s *Server) processSweepService(
 
 func (s *Server) processICMPMetrics(
 	ctx context.Context,
-	pollerID string, partition string, sourceIP string, agentID string,
-	svc *proto.ServiceStatus,
+	gatewayID string, partition string, sourceIP string, agentID string,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	if svc == nil {
@@ -591,8 +591,8 @@ func (s *Server) processICMPMetrics(
 
 	if agentID == "" {
 		s.logger.Warn().
-			Str("poller_id", pollerID).
-			Msg("Skipping ICMP metrics without agent ID to avoid poller device attribution")
+			Str("gateway_id", gatewayID).
+			Msg("Skipping ICMP metrics without agent ID to avoid gateway device attribution")
 		return nil
 	}
 
@@ -617,12 +617,12 @@ func (s *Server) processICMPMetrics(
 	targetDeviceID := strings.TrimSpace(pingResult.DeviceID)
 	deviceID := targetDeviceID
 
-	deviceID, hostDeviceID, collectorIP, updateIP, err := s.resolveICMPDevice(ctx, pollerID, partition, agentID, sourceIP, deviceID)
+	deviceID, hostDeviceID, collectorIP, updateIP, err := s.resolveICMPDevice(ctx, gatewayID, partition, agentID, sourceIP, deviceID)
 	if err != nil {
 		if errors.Is(err, errICMPDeviceIdentifiersMissing) {
 			s.logger.Warn().
 				Str("service_name", serviceName).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("agent_id", agentID).
 				Msg("Skipping ICMP device registration due to missing identifiers and collector IP")
 			return nil
@@ -658,7 +658,7 @@ func (s *Server) processICMPMetrics(
 		s.logger.Error().
 			Err(err).
 			Str("service_name", serviceName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Failed to marshal ICMP metadata")
 
 		return fmt.Errorf("failed to marshal ICMP metadata: %w", err)
@@ -676,17 +676,17 @@ func (s *Server) processICMPMetrics(
 		DeviceID:       deviceID,
 		Partition:      partition,
 		IfIndex:        0,
-		PollerID:       pollerID,
+		GatewayID:      gatewayID,
 	}
 
 	// Buffer ICMP metric
 	s.metricBufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
+	s.metricBuffers[gatewayID] = append(s.metricBuffers[gatewayID], metric)
 	s.metricBufferMu.Unlock()
 
 	if s.metrics != nil {
 		err := s.metrics.AddMetric(
-			pollerID,
+			gatewayID,
 			now,
 			pingResult.ResponseTime,
 			serviceName,
@@ -702,7 +702,7 @@ func (s *Server) processICMPMetrics(
 		}
 	} else {
 		s.logger.Error().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Metrics manager is nil in processICMPMetrics")
 	}
 
@@ -712,7 +712,7 @@ func (s *Server) processICMPMetrics(
 			"icmp_packet_loss":     fmt.Sprintf("%f", pingResult.PacketLoss),
 			"icmp_round_trip_ns":   fmt.Sprintf("%d", pingResult.ResponseTime),
 			"collector_agent_id":   agentID,
-			"collector_poller_id":  pollerID,
+			"collector_gateway_id": gatewayID,
 			"icmp_service_name":    serviceName,
 			"_last_icmp_update_at": now.Format(time.RFC3339Nano),
 		}
@@ -731,7 +731,7 @@ func (s *Server) processICMPMetrics(
 			IP:          updateIP,
 			Source:      models.DiscoverySourceServiceRadar,
 			AgentID:     agentID,
-			PollerID:    pollerID,
+			GatewayID:   gatewayID,
 			Partition:   partition,
 			Timestamp:   now,
 			IsAvailable: pingResult.Available,
@@ -741,7 +741,7 @@ func (s *Server) processICMPMetrics(
 
 		s.enqueueServiceDeviceUpdate(update)
 
-		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, pollerID, serviceName, now)
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"icmp"}, agentID, gatewayID, serviceName, now)
 
 		eventMetadata := map[string]any{
 			"collector_ip":      sourceIP,
@@ -755,8 +755,8 @@ func (s *Server) processICMPMetrics(
 		if agentID != "" {
 			eventMetadata["agent_id"] = agentID
 		}
-		if pollerID != "" {
-			eventMetadata["poller_id"] = pollerID
+		if gatewayID != "" {
+			eventMetadata["gateway_id"] = gatewayID
 		}
 		if targetHost != "" {
 			eventMetadata["target_host"] = targetHost
@@ -782,7 +782,7 @@ func (s *Server) processICMPMetrics(
 			Capability:    "icmp",
 			ServiceID:     serviceName,
 			ServiceType:   serviceType,
-			RecordedBy:    pollerID,
+			RecordedBy:    gatewayID,
 			Enabled:       true,
 			Success:       pingResult.Available,
 			CheckedAt:     now,
@@ -797,7 +797,7 @@ func (s *Server) processICMPMetrics(
 				partition,
 				deviceID,
 				agentID,
-				pollerID,
+				gatewayID,
 				sourceIP,
 				pingResult.Available,
 				now,
@@ -812,7 +812,7 @@ func (s *Server) processICMPMetrics(
 
 func (s *Server) resolveICMPDevice(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	agentID string,
 	sourceIP string,
@@ -820,7 +820,7 @@ func (s *Server) resolveICMPDevice(
 ) (string, string, string, string, error) {
 	agentID = strings.TrimSpace(agentID)
 	partition = strings.TrimSpace(partition)
-	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, pollerID, agentID, sourceIP))
+	collectorIP := normalizeHostIP(s.resolveServiceHostIP(ctx, gatewayID, agentID, sourceIP))
 	if collectorIP == "" {
 		collectorIP = normalizeHostIP(sourceIP)
 	}
@@ -872,10 +872,10 @@ func (s *Server) resolveICMPDevice(
 
 func (s *Server) processSysmonMetrics(
 	ctx context.Context,
-	pollerID, partition, agentID string,
+	gatewayID, partition, agentID string,
 	details json.RawMessage,
 	timestamp time.Time) error {
-	sysmonPayload, pollerTimestamp, err := s.parseSysmonPayload(details, pollerID, timestamp)
+	sysmonPayload, gatewayTimestamp, err := s.parseSysmonPayload(details, gatewayID, timestamp)
 	if err != nil {
 		return err
 	}
@@ -885,7 +885,7 @@ func (s *Server) processSysmonMetrics(
 	if hostIP == "" {
 		if s.logger != nil {
 			s.logger.Warn().
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("agent_id", agentID).
 				Msg("Sysmon payload missing host_ip; skipping metric buffer")
 		}
@@ -913,8 +913,8 @@ func (s *Server) processSysmonMetrics(
 			reason = "sysmon collector reported unavailable"
 		}
 
-		s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
-		s.noteSysmonStall(ctx, deviceID, hostIP, hostID, agentID, pollerID, reason, pollerTimestamp)
+		s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, gatewayID, "sysmon", gatewayTimestamp)
+		s.noteSysmonStall(ctx, deviceID, hostIP, hostID, agentID, gatewayID, reason, gatewayTimestamp)
 
 		return nil
 	}
@@ -922,11 +922,11 @@ func (s *Server) processSysmonMetrics(
 	sysmonPayload.Status.HostIP = hostIP
 	sysmonPayload.Status.HostID = hostID
 
-	s.noteSysmonSuccess(deviceID, pollerTimestamp)
+	s.noteSysmonSuccess(deviceID, gatewayTimestamp)
 
-	m := s.buildSysmonMetrics(sysmonPayload, pollerTimestamp, agentID)
+	m := s.buildSysmonMetrics(sysmonPayload, gatewayTimestamp, agentID)
 
-	s.bufferSysmonMetrics(pollerID, partition, deviceID, m)
+	s.bufferSysmonMetrics(gatewayID, partition, deviceID, m)
 
 	memoryCount := 0
 	if sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0 {
@@ -938,18 +938,18 @@ func (s *Server) processSysmonMetrics(
 		Int("disk_count", len(sysmonPayload.Status.Disks)).
 		Int("memory_count", memoryCount).
 		Int("process_count", len(sysmonPayload.Status.Processes)).
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("device_id", deviceID).
 		Str("host_ip", sysmonPayload.Status.HostIP).
 		Str("partition", partition).
 		Str("timestamp", sysmonPayload.Status.Timestamp).
 		Msg("Parsed sysmon metrics")
 
-	s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, pollerID, "sysmon", pollerTimestamp)
+	s.upsertCollectorCapabilities(ctx, deviceID, []string{"sysmon"}, agentID, gatewayID, "sysmon", gatewayTimestamp)
 
 	eventMetadata := map[string]any{
 		"agent_id":         agentID,
-		"poller_id":        pollerID,
+		"gateway_id":       gatewayID,
 		"partition":        partition,
 		"host_ip":          hostIP,
 		"host_id":          hostID,
@@ -967,10 +967,10 @@ func (s *Server) processSysmonMetrics(
 		Capability:    "sysmon",
 		ServiceID:     agentID,
 		ServiceType:   "sysmon",
-		RecordedBy:    pollerID,
+		RecordedBy:    gatewayID,
 		Enabled:       true,
 		Success:       true,
-		CheckedAt:     pollerTimestamp,
+		CheckedAt:     gatewayTimestamp,
 		FailureReason: "",
 		Metadata:      eventMetadata,
 	})
@@ -1060,7 +1060,7 @@ func (s *Server) fetchCanonicalSnapshot(ctx context.Context, ip string) (canonic
 }
 
 func buildHostAliasUpdate(
-	hostDeviceID, hostIP, partition, serviceDeviceID, agentID, pollerID, collectorIP string,
+	hostDeviceID, hostIP, partition, serviceDeviceID, agentID, gatewayID, collectorIP string,
 	available bool,
 	when time.Time,
 ) *models.DeviceUpdate {
@@ -1104,7 +1104,7 @@ func buildHostAliasUpdate(
 		IP:          hostIP,
 		Source:      models.DiscoverySourceServiceRadar,
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:   gatewayID,
 		Partition:   partition,
 		Timestamp:   when,
 		IsAvailable: available,
@@ -1168,47 +1168,47 @@ type sysmonPayload struct {
 	} `json:"status"`
 }
 
-func (s *Server) parseSysmonPayload(details json.RawMessage, pollerID string, timestamp time.Time) (*sysmonPayload, time.Time, error) {
+func (s *Server) parseSysmonPayload(details json.RawMessage, gatewayID string, timestamp time.Time) (*sysmonPayload, time.Time, error) {
 	var payload sysmonPayload
 
 	if err := json.Unmarshal(details, &payload); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Error unmarshaling sysmon data")
 
 		return nil, time.Time{}, fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
 
-	pollerTimestamp, err := time.Parse(time.RFC3339Nano, payload.Status.Timestamp)
+	gatewayTimestamp, err := time.Parse(time.RFC3339Nano, payload.Status.Timestamp)
 	if err != nil {
 		s.logger.Warn().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Invalid timestamp in sysmon data, using server timestamp")
 
-		pollerTimestamp = timestamp
+		gatewayTimestamp = timestamp
 	} else {
 		const maxAllowedSkew = 10 * time.Minute
 
-		skew := pollerTimestamp.Sub(timestamp)
+		skew := gatewayTimestamp.Sub(timestamp)
 		if skew > maxAllowedSkew || skew < -maxAllowedSkew {
 			s.logger.Warn().
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("reported_time", payload.Status.Timestamp).
 				Time("ingest_time", timestamp).
 				Dur("skew", skew).
 				Msg("Sysmon payload timestamp skew exceeds threshold; using ingest timestamp")
 
-			pollerTimestamp = timestamp
+			gatewayTimestamp = timestamp
 		}
 	}
 
-	return &payload, pollerTimestamp, nil
+	return &payload, gatewayTimestamp, nil
 }
 
 func (*Server) buildSysmonMetrics(
-	payload *sysmonPayload, pollerTimestamp time.Time, agentID string) *models.SysmonMetrics {
+	payload *sysmonPayload, gatewayTimestamp time.Time, agentID string) *models.SysmonMetrics {
 	hasMemoryData := payload.Status.Memory.TotalBytes > 0 || payload.Status.Memory.UsedBytes > 0
 
 	m := &models.SysmonMetrics{
@@ -1226,7 +1226,7 @@ func (*Server) buildSysmonMetrics(
 			FrequencyHz:  cpu.FrequencyHz,
 			Label:        cpu.Label,
 			Cluster:      cpu.Cluster,
-			Timestamp:    pollerTimestamp,
+			Timestamp:    gatewayTimestamp,
 			HostID:       payload.Status.HostID,
 			HostIP:       payload.Status.HostIP,
 			AgentID:      agentID,
@@ -1237,7 +1237,7 @@ func (*Server) buildSysmonMetrics(
 		m.Clusters[i] = models.CPUClusterMetric{
 			Name:        cluster.Name,
 			FrequencyHz: cluster.FrequencyHz,
-			Timestamp:   pollerTimestamp,
+			Timestamp:   gatewayTimestamp,
 			HostID:      payload.Status.HostID,
 			HostIP:      payload.Status.HostIP,
 			AgentID:     agentID,
@@ -1249,7 +1249,7 @@ func (*Server) buildSysmonMetrics(
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
-			Timestamp:  pollerTimestamp,
+			Timestamp:  gatewayTimestamp,
 			HostID:     payload.Status.HostID,
 			HostIP:     payload.Status.HostIP,
 			AgentID:    agentID,
@@ -1260,7 +1260,7 @@ func (*Server) buildSysmonMetrics(
 		m.Memory = &models.MemoryMetric{
 			UsedBytes:  payload.Status.Memory.UsedBytes,
 			TotalBytes: payload.Status.Memory.TotalBytes,
-			Timestamp:  pollerTimestamp,
+			Timestamp:  gatewayTimestamp,
 			HostID:     payload.Status.HostID,
 			HostIP:     payload.Status.HostIP,
 			AgentID:    agentID,
@@ -1276,7 +1276,7 @@ func (*Server) buildSysmonMetrics(
 			MemoryUsage: process.MemoryUsage,
 			Status:      process.Status,
 			StartTime:   process.StartTime,
-			Timestamp:   pollerTimestamp,
+			Timestamp:   gatewayTimestamp,
 			HostID:      payload.Status.HostID,
 			HostIP:      payload.Status.HostIP,
 			AgentID:     agentID,
@@ -1310,7 +1310,7 @@ func (s *Server) noteSysmonSuccess(deviceID string, when time.Time) {
 
 func (s *Server) noteSysmonStall(
 	ctx context.Context,
-	deviceID, hostIP, hostID, agentID, pollerID, reason string,
+	deviceID, hostIP, hostID, agentID, gatewayID, reason string,
 	when time.Time,
 ) {
 	if s == nil || deviceID == "" {
@@ -1356,7 +1356,7 @@ func (s *Server) noteSysmonStall(
 			Str("device_id", deviceID).
 			Str("host_ip", hostIP).
 			Str("host_id", hostID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Str("agent_id", agentID).
 			Int("consecutive_empty", consecutive).
 			Msg("Sysmon metrics stalled; skipping insert")
@@ -1371,7 +1371,7 @@ func (s *Server) noteSysmonStall(
 		"host_ip":            hostIP,
 		"host_id":            hostID,
 		"agent_id":           agentID,
-		"poller_id":          pollerID,
+		"gateway_id":         gatewayID,
 		"consecutive_empty":  consecutive,
 		"stalled_since":      stalledSince.Format(time.RFC3339Nano),
 		"sysmon_available":   false,
@@ -1384,7 +1384,7 @@ func (s *Server) noteSysmonStall(
 		Capability:    "sysmon",
 		ServiceID:     agentID,
 		ServiceType:   "sysmon",
-		RecordedBy:    pollerID,
+		RecordedBy:    gatewayID,
 		Enabled:       true,
 		Success:       false,
 		CheckedAt:     when,
@@ -1393,9 +1393,9 @@ func (s *Server) noteSysmonStall(
 	})
 }
 
-func (s *Server) bufferSysmonMetrics(pollerID, partition, deviceID string, metrics *models.SysmonMetrics) {
+func (s *Server) bufferSysmonMetrics(gatewayID, partition, deviceID string, metrics *models.SysmonMetrics) {
 	s.sysmonBufferMu.Lock()
-	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
+	s.sysmonBuffers[gatewayID] = append(s.sysmonBuffers[gatewayID], &sysmonMetricBuffer{
 		Metrics:   metrics,
 		Partition: partition,
 		DeviceID:  deviceID,
@@ -1406,29 +1406,29 @@ func (s *Server) bufferSysmonMetrics(pollerID, partition, deviceID string, metri
 // processGRPCService handles processing for GRPC service.
 func (s *Server) processGRPCService(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	_ string,
 	agentID string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	serviceData json.RawMessage,
 	now time.Time) error {
 	switch {
 	case svc.ServiceName == rperfServiceType:
-		return s.processRperfMetrics(pollerID, partition, serviceData, now)
+		return s.processRperfMetrics(gatewayID, partition, serviceData, now)
 	case svc.ServiceName == sysmonServiceType || svc.ServiceName == "sysmon-osx" || strings.HasPrefix(svc.ServiceName, sysmonServiceType+"-"):
-		return s.processSysmonMetrics(ctx, pollerID, partition, agentID, serviceData, now)
+		return s.processSysmonMetrics(ctx, gatewayID, partition, agentID, serviceData, now)
 	case svc.ServiceName == syncServiceType:
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("data_size", len(serviceData)).
 			Msg("CORE DEBUG: Processing GRPC sync service data")
 
-		return s.discoveryService.ProcessSyncResults(ctx, pollerID, partition, svc, serviceData, now)
+		return s.discoveryService.ProcessSyncResults(ctx, gatewayID, partition, svc, serviceData, now)
 	default:
 		s.logger.Debug().
 			Str("service_name", svc.ServiceName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Unknown GRPC service name")
 	}
 
@@ -1438,10 +1438,10 @@ func (s *Server) processGRPCService(
 // processServicePayload handles service payload processing for all service types including metrics, discovery results, and sync data.
 func (s *Server) processServicePayload(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	sourceIP string,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	s.logger.Debug().
@@ -1454,35 +1454,35 @@ func (s *Server) processServicePayload(
 	enhancedPayload, serviceData := s.extractServicePayload(details)
 
 	// Use enhanced context if available, otherwise fall back to gRPC parameters
-	contextPollerID := pollerID
+	contextGatewayID := gatewayID
 	contextPartition := partition
 	contextAgentID := svc.AgentId
 
 	if enhancedPayload != nil {
-		contextPollerID = enhancedPayload.PollerID
+		contextGatewayID = enhancedPayload.GatewayID
 		contextPartition = enhancedPayload.Partition
 		contextAgentID = enhancedPayload.AgentID
 	}
 
-	s.ensureServiceDevice(ctx, contextAgentID, contextPollerID, contextPartition, svc, serviceData, now)
+	s.ensureServiceDevice(ctx, contextAgentID, contextGatewayID, contextPartition, svc, serviceData, now)
 
 	switch svc.ServiceType {
 	case snmpServiceType:
-		return s.processSNMPMetrics(ctx, contextPollerID, contextPartition, sourceIP, contextAgentID, serviceData, now)
+		return s.processSNMPMetrics(ctx, contextGatewayID, contextPartition, sourceIP, contextAgentID, serviceData, now)
 	case grpcServiceType:
-		return s.processGRPCService(ctx, contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
+		return s.processGRPCService(ctx, contextGatewayID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case icmpServiceType:
-		return s.processICMPMetrics(ctx, contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
+		return s.processICMPMetrics(ctx, contextGatewayID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
-		return s.discoveryService.ProcessSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		return s.discoveryService.ProcessSNMPDiscoveryResults(ctx, contextGatewayID, contextPartition, svc, serviceData, now)
 	case sweepService:
-		return s.processSweepService(ctx, contextPollerID, contextPartition, contextAgentID, svc, serviceData, now)
+		return s.processSweepService(ctx, contextGatewayID, contextPartition, contextAgentID, svc, serviceData, now)
 	case syncServiceType:
-		return s.discoveryService.ProcessSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		return s.discoveryService.ProcessSyncResults(ctx, contextGatewayID, contextPartition, svc, serviceData, now)
 	default:
 		s.logger.Debug().
 			Str("service_type", svc.ServiceType).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Unknown service type")
 	}
 

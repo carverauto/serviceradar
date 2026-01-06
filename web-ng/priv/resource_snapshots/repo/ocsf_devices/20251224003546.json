@@ -402,7 +402,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "poller_id",
+      "source": "gateway_id",
       "type": "text"
     },
     {

@@ -16,7 +16,7 @@ defmodule ServiceRadar.SPIFFE do
   ```
 
   Where:
-  - `node-type` is one of: `core`, `poller`, `agent`
+  - `node-type` is one of: `core`, `gateway`, `agent`
   - `partition-id` is the partition/tenant identifier
   - `node-id` is the unique node identifier
 
@@ -45,7 +45,7 @@ defmodule ServiceRadar.SPIFFE do
   require Logger
 
   @type spiffe_id :: String.t()
-  @type node_type :: :core | :poller | :agent
+  @type node_type :: :core | :gateway | :agent
   @type ssl_opts :: keyword()
 
   @trust_domain_default "serviceradar.local"
@@ -79,7 +79,7 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   @doc """
-  Returns SSL/TLS options for client connections (e.g., gRPC to pollers).
+  Returns SSL/TLS options for client connections (e.g., gRPC to gateways).
   """
   @spec client_ssl_opts(keyword()) :: {:ok, ssl_opts()} | {:error, term()}
   def client_ssl_opts(opts \\ []) do
@@ -136,8 +136,8 @@ defmodule ServiceRadar.SPIFFE do
 
   ## Examples
 
-      iex> ServiceRadar.SPIFFE.parse_spiffe_id("spiffe://serviceradar.local/poller/partition-1/poller-001")
-      {:ok, %{trust_domain: "serviceradar.local", node_type: :poller, partition_id: "partition-1", node_id: "poller-001"}}
+      iex> ServiceRadar.SPIFFE.parse_spiffe_id("spiffe://serviceradar.local/gateway/partition-1/gateway-001")
+      {:ok, %{trust_domain: "serviceradar.local", node_type: :gateway, partition_id: "partition-1", node_id: "gateway-001"}}
   """
   @spec parse_spiffe_id(spiffe_id()) :: {:ok, map()} | {:error, term()}
   def parse_spiffe_id(spiffe_id) when is_binary(spiffe_id) do
@@ -181,8 +181,8 @@ defmodule ServiceRadar.SPIFFE do
 
   ## Examples
 
-      iex> ServiceRadar.SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-001")
-      "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      iex> ServiceRadar.SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001")
+      "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
   """
   @spec build_spiffe_id(node_type(), String.t(), String.t(), keyword()) :: spiffe_id()
   def build_spiffe_id(node_type, partition_id, node_id, opts \\ []) do
@@ -514,7 +514,7 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   defp parse_node_type("core"), do: {:ok, :core}
-  defp parse_node_type("poller"), do: {:ok, :poller}
+  defp parse_node_type("gateway"), do: {:ok, :gateway}
   defp parse_node_type("agent"), do: {:ok, :agent}
   defp parse_node_type("web"), do: {:ok, :core}
   defp parse_node_type(other), do: {:error, {:unknown_node_type, other}}

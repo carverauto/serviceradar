@@ -32,10 +32,10 @@ import (
 
 // TestEndToEndDiscoveryFlow validates the complete flow:
 // 1. Sync service discovers devices → publishes to KV + caches SweepResults
-// 2. Poller calls sync GetResults → forwards discovery data to core
+// 2. Gateway calls sync GetResults → forwards discovery data to core
 // 3. Agent detects KV changes → starts ping sweep
-// 4. Poller calls agent GetResults → forwards sweep data to core
-// 5. Poller triggers Armis updater after both discovery and sweep complete
+// 4. Gateway calls agent GetResults → forwards sweep data to core
+// 5. Gateway triggers Armis updater after both discovery and sweep complete
 // createTestData creates the test data structures for the end-to-end flow test
 func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.SweepResult, kvData map[string][]byte) {
 	t.Helper()
@@ -44,7 +44,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 	discoveredDevices = []*models.SweepResult{
 		{
 			AgentID:         "test-agent",
-			PollerID:        "test-poller",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.1",
 			DiscoverySource: "armis",
@@ -59,7 +59,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 		},
 		{
 			AgentID:         "test-agent",
-			PollerID:        "test-poller",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.2",
 			DiscoverySource: "armis",
@@ -84,7 +84,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 	sweptDevices = []*models.SweepResult{
 		{
 			AgentID:         "test-agent",
-			PollerID:        "test-poller",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.1",
 			DiscoverySource: "sweep",
@@ -95,7 +95,7 @@ func createTestData(t *testing.T) (discoveredDevices, sweptDevices []*models.Swe
 		},
 		{
 			AgentID:         "test-agent",
-			PollerID:        "test-poller",
+			GatewayID:       "test-gateway",
 			Partition:       "default",
 			DeviceID:        "default:192.168.1.2",
 			DiscoverySource: "sweep",
@@ -147,10 +147,10 @@ func executeEndToEndFlow(
 	setupKVMock(t, mockKV)
 	simulateSyncDiscovery(t, mockKV, discoveredDevices, kvData)
 
-	// Step 2-4: Poller sync flow
-	executePollerSyncFlow(t, mockSync, mockCore, discoveredDevices)
+	// Step 2-4: Gateway sync flow
+	executeGatewaySyncFlow(t, mockSync, mockCore, discoveredDevices)
 
-	// Step 5-7: Agent and poller sweep flow
+	// Step 5-7: Agent and gateway sweep flow
 	executeAgentSweepFlow(t, mockAgent, mockCore, sweptDevices, kvData)
 
 	// Step 8: Trigger updater
@@ -180,12 +180,12 @@ func setupKVMock(t *testing.T, mockKV *MockKVService) {
 		})
 }
 
-// executePollerSyncFlow handles the poller sync flow
-func executePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService, discoveredDevices []*models.SweepResult) {
+// executeGatewaySyncFlow handles the gateway sync flow
+func executeGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService, discoveredDevices []*models.SweepResult) {
 	t.Helper()
 
-	// Step 2: Poller calls sync service GetResults
-	t.Log("=== Step 2: Poller requests sync discovery results ===")
+	// Step 2: Gateway calls sync service GetResults
+	t.Log("=== Step 2: Gateway requests sync discovery results ===")
 
 	discoveryResultsJSON := mustMarshal(t, discoveredDevices)
 
@@ -201,20 +201,20 @@ func executePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *Mo
 				ServiceName:     "sync",
 				ServiceType:     "sync",
 				AgentId:         "test-agent",
-				PollerId:        "test-poller",
+				GatewayId:       "test-gateway",
 				HasNewData:      true,
 				CurrentSequence: "discovery-seq-123",
 			}, nil
 		})
 
-	// Step 3: Poller forwards discovery results to core
-	t.Log("=== Step 3: Poller forwards discovery results to core ===")
+	// Step 3: Gateway forwards discovery results to core
+	t.Log("=== Step 3: Gateway forwards discovery results to core ===")
 
 	var receivedDiscoveryResults []*models.SweepResult
 
 	mockCore.EXPECT().
-		ReportStatus(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+		PushStatus(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 			// Find sync service status in the report
 			for _, svc := range req.Services {
 				if svc.ServiceType != "sync" {
@@ -234,11 +234,11 @@ func executePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *Mo
 				}
 			}
 
-			return &proto.PollerStatusResponse{}, nil
+			return &proto.GatewayStatusResponse{}, nil
 		})
 
-	// Simulate poller calling sync GetResults and forwarding to core
-	simulatePollerSyncFlow(t, mockSync, mockCore)
+	// Simulate gateway calling sync GetResults and forwarding to core
+	simulateGatewaySyncFlow(t, mockSync, mockCore)
 }
 
 // executeAgentSweepFlow handles the agent sweep flow
@@ -255,8 +255,8 @@ func executeAgentSweepFlow(
 	t.Log("=== Step 4: Agent detects KV changes and starts ping sweep ===")
 	simulateAgentKVWatch(t, kvData)
 
-	// Step 5: Poller calls agent GetResults for sweep data
-	t.Log("=== Step 5: Poller requests agent sweep results ===")
+	// Step 5: Gateway calls agent GetResults for sweep data
+	t.Log("=== Step 5: Gateway requests agent sweep results ===")
 
 	sweepResultsJSON := mustMarshal(t, sweptDevices)
 
@@ -271,20 +271,20 @@ func executeAgentSweepFlow(
 				ServiceName:     "sweep",
 				ServiceType:     "sweep",
 				AgentId:         "test-agent",
-				PollerId:        "test-poller",
+				GatewayId:       "test-gateway",
 				HasNewData:      true,
 				CurrentSequence: "sweep-seq-456",
 			}, nil
 		})
 
-	// Step 6: Poller forwards sweep results to core
-	t.Log("=== Step 6: Poller forwards sweep results to core ===")
+	// Step 6: Gateway forwards sweep results to core
+	t.Log("=== Step 6: Gateway forwards sweep results to core ===")
 
 	var receivedSweepResults []*models.SweepResult
 
 	mockCore.EXPECT().
-		ReportStatus(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+		PushStatus(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 			// Find sweep service status in the report
 			for _, svc := range req.Services {
 				if svc.ServiceType != "sweep" {
@@ -305,19 +305,19 @@ func executeAgentSweepFlow(
 				}
 			}
 
-			return &proto.PollerStatusResponse{}, nil
+			return &proto.GatewayStatusResponse{}, nil
 		})
 
-	// Simulate poller calling agent GetResults and forwarding to core
-	simulatePollerAgentFlow(t, mockAgent, mockCore)
+	// Simulate gateway calling agent GetResults and forwarding to core
+	simulateGatewayAgentFlow(t, mockAgent, mockCore)
 }
 
 // executeUpdaterFlow handles the Armis updater flow
 func executeUpdaterFlow(t *testing.T, mockArmisUpdater *MockArmisUpdater, discoveredDevices, sweptDevices []*models.SweepResult) {
 	t.Helper()
 
-	// Step 7: Poller triggers Armis updater
-	t.Log("=== Step 7: Poller triggers Armis updater ===")
+	// Step 7: Gateway triggers Armis updater
+	t.Log("=== Step 7: Gateway triggers Armis updater ===")
 
 	// Mock Armis updater execution
 	mockArmisUpdater.EXPECT().
@@ -327,7 +327,7 @@ func executeUpdaterFlow(t *testing.T, mockArmisUpdater *MockArmisUpdater, discov
 			return nil
 		})
 
-	// Simulate poller triggering updater after both discovery and sweep complete
+	// Simulate gateway triggering updater after both discovery and sweep complete
 	simulateUpdaterTrigger(t, mockArmisUpdater, discoveredDevices, sweptDevices)
 }
 
@@ -392,8 +392,8 @@ func simulateSyncDiscovery(t *testing.T, mockKV *MockKVService, devices []*model
 	t.Logf("Sync service discovered %d devices and wrote to KV", len(devices))
 }
 
-// simulatePollerFlow is a helper function to simulate poller flow for different service types
-func simulatePollerFlow(
+// simulateGatewayFlow is a helper function to simulate gateway flow for different service types
+func simulateGatewayFlow(
 	t *testing.T,
 	serviceName, serviceType string,
 	getResults func(context.Context, *proto.ResultsRequest) (*proto.ResultsResponse, error),
@@ -403,12 +403,12 @@ func simulatePollerFlow(
 
 	ctx := context.Background()
 
-	// Poller calls service GetResults
+	// Gateway calls service GetResults
 	req := &proto.ResultsRequest{
 		ServiceName:  serviceName,
 		ServiceType:  serviceType,
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -416,31 +416,31 @@ func simulatePollerFlow(
 	require.NoError(t, err)
 	require.True(t, resp.HasNewData)
 
-	// Poller forwards to core
-	statusReport := &proto.PollerStatusRequest{
-		AgentId:  "test-agent",
-		PollerId: "test-poller",
-		Services: []*proto.ServiceStatus{
+	// Gateway forwards to core
+	statusReport := &proto.GatewayStatusRequest{
+		AgentId:   "test-agent",
+		GatewayId: "test-gateway",
+		Services: []*proto.GatewayServiceStatus{
 			{
 				ServiceName: serviceName,
 				ServiceType: serviceType,
 				Available:   true,
 				Message:     resp.Data,
 				AgentId:     "test-agent",
-				PollerId:    "test-poller",
+				GatewayId:   "test-gateway",
 				Source:      "results",
 			},
 		},
 	}
 
-	_, err = mockCore.ReportStatus(ctx, statusReport)
+	_, err = mockCore.PushStatus(ctx, statusReport)
 	require.NoError(t, err)
 }
 
-func simulatePollerSyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService) {
+func simulateGatewaySyncFlow(t *testing.T, mockSync *MockSyncService, mockCore *MockCoreService) {
 	t.Helper()
 
-	simulatePollerFlow(t, "sync", "sync", mockSync.GetResults, mockCore)
+	simulateGatewayFlow(t, "sync", "sync", mockSync.GetResults, mockCore)
 }
 
 func simulateAgentKVWatch(t *testing.T, kvData map[string][]byte) {
@@ -465,15 +465,15 @@ func simulateAgentKVWatch(t *testing.T, kvData map[string][]byte) {
 	t.Logf("Agent will sweep %d IPs: %v", len(ipsToSweep), ipsToSweep)
 }
 
-func simulatePollerAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore *MockCoreService) {
+func simulateGatewayAgentFlow(t *testing.T, mockAgent *MockAgentService, mockCore *MockCoreService) {
 	t.Helper()
 
-	simulatePollerFlow(t, "sweep", "sweep", mockAgent.GetResults, mockCore)
+	simulateGatewayFlow(t, "sweep", "sweep", mockAgent.GetResults, mockCore)
 }
 
 func simulateUpdaterTrigger(t *testing.T, mockUpdater *MockArmisUpdater, discoveryResults, sweepResults []*models.SweepResult) {
 	t.Helper()
-	// This simulates the poller logic that triggers the updater after both
+	// This simulates the gateway logic that triggers the updater after both
 	// discovery and sweep results have been collected and forwarded to core
 
 	if len(discoveryResults) > 0 && len(sweepResults) > 0 {

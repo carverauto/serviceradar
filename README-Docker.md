@@ -99,7 +99,7 @@ The stack automatically handles certificate generation and configuration:
 2. **cnpg** - PostgreSQL with mTLS + password auth
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
 4. **nats** - Message broker with mTLS
-5. **datasvc, core, poller, agent** - Core services
+5. **datasvc, core, gateway, agent** - Core services
 6. **checkers, web-ng, etc.** - Additional services
 
 ## Test Your Setup

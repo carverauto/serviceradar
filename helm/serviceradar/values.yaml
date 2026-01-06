@@ -45,7 +45,6 @@ image:
     nats: "2.12.2-alpine"
     datasvc: *appTag
     agent: *appTag
-    poller: *appTag
     snmpChecker: *appTag
     dbEventWriter: *appTag
     otel: *appTag
@@ -205,7 +204,6 @@ spire:
   clusterName: carverauto-cluster
   agentServiceAccount: spire-agent
   coreServiceAccount: serviceradar-core
-  pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
@@ -218,43 +216,6 @@ spire:
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
-  nestedPoller:
-    enabled: false
-    name: poller-nested-spire
-    containerName: poller-nested-spire
-    podLabelKey: app
-    podLabelValue: serviceradar-poller
-    spiffeID: ""
-    x509TTL: 4h
-    jwtTTL: 30m
-    admin: true
-    storeSVID: true
-    joinTokenMode: disabled
-    serverPort: 8083
-    upstreamServerAddress: ""
-    upstreamServerPort: 8081
-    upstreamAgentSocketPath: /run/spire/nested/upstream/agent.sock
-    downstreamAgentSocketPath: /run/spire/nested/workload/agent.sock
-    upstreamAgentDataDir: /run/spire/nested/upstream-agent
-    downstreamAgentDataDir: /run/spire/nested/downstream-agent
-    serverDataDir: /run/spire/nested/server
-    logLevel: INFO
-    extraSelectors: []
-    downstreamX509TTLSeconds: 14400
-    downstreamJWTTTLSeconds: 1800
-    downstreamWaitSeconds: 5
-    downstreamRefreshSeconds: 300
-    downstreamRegistrationMode: disabled
-    downstreamRetrySeconds: 5
-    adminUsername: admin
-    adminSecret: serviceradar-secrets
-    adminSecretKey: admin-password
-    joinToken:
-      enabled: true
-      ttlSeconds: 900
-      coreURL: http://serviceradar-core:8090
-      apiKeySecret: serviceradar-secrets
-      apiKeyKey: api-key
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
@@ -383,41 +344,6 @@ sweep:
       rateLimit: 1000
       timeout: 5s
       maxBatch: 64
-
-# =============================================================================
-# Elixir Poller Configuration
-# =============================================================================
-# Standalone Elixir release that joins the ERTS cluster for distributed monitoring
-
-pollerElx:
-  enabled: false
-  replicas: 1
-  
-  # Poller identification
-  partitionId: "default"
-  domain: "default"
-  capabilities: "icmp,tcp,http"
-  
-  # Cluster configuration
-  clusterStrategy: "kubernetes"
-  kubernetesSelector: "app=serviceradar"
-  nodeBasename: "serviceradar"
-  coreService: "serviceradar-core-elx-headless"
-  
-  # Secrets
-  serviceAccount: "serviceradar-poller-elx"
-  cookieSecret: "serviceradar-secrets"
-  cookieSecretKey: "erlang-cookie"
-  certSecret: "serviceradar-certs"
-  
-  # Resources
-  resources:
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
 
 # =============================================================================
 # SPIFFE Configuration (shared by all Elixir components)

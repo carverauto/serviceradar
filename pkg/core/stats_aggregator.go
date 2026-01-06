@@ -488,7 +488,7 @@ func (a *StatsAggregator) selectCanonicalRecords(records []*registry.DeviceRecor
 		// DIRE: No tombstone filtering. The database is the source of truth.
 		// All devices in ocsf_devices are active - no soft deletes or merge chains.
 
-		// All records (including pollers, agents, global services) are counted as devices.
+		// All records (including gateways, agents, global services) are counted as devices.
 		// Even if service components share an IP with other devices, they maintain
 		// separate device records in inventory for tracking purposes.
 		processRecord(record)

@@ -105,11 +105,11 @@ func TestBuildSRQL(t *testing.T) {
 		{
 			name:     "query with filter",
 			entity:   "devices",
-			filter:   "poller_id = 'test'",
+			filter:   "gateway_id = 'test'",
 			orderBy:  "",
 			limit:    0,
 			sortDesc: false,
-			expected: "SHOW devices WHERE poller_id = 'test'",
+			expected: "SHOW devices WHERE gateway_id = 'test'",
 		},
 		{
 			name:     "query with order and limit",

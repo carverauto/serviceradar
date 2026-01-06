@@ -214,8 +214,8 @@ impl AgentService for SysmonService {
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
         let req = request.into_inner();
         info!(
-            "Received GetStatus: service_name={}, service_type={}, agent_id={}, poller_id={}, details={}",
-            req.service_name, req.service_type, req.agent_id, req.poller_id, req.details
+            "Received GetStatus: service_name={}, service_type={}, agent_id={}, gateway_id={}, details={}",
+            req.service_name, req.service_type, req.agent_id, req.gateway_id, req.details
         );
         debug!("Processing GetStatus request");
 
@@ -255,7 +255,6 @@ impl AgentService for SysmonService {
             service_type: req.service_type,
             response_time: response_time_ns,
             agent_id: req.agent_id,
-            poller_id: req.poller_id,
             gateway_id: req.gateway_id,
         }))
     }
@@ -266,8 +265,8 @@ impl AgentService for SysmonService {
     ) -> Result<Response<monitoring::ResultsResponse>, Status> {
         let req = request.into_inner();
         info!(
-            "Received GetResults: service_name={}, service_type={}, agent_id={}, poller_id={}, details={}, last_sequence={}",
-            req.service_name, req.service_type, req.agent_id, req.poller_id, req.details, req.last_sequence
+            "Received GetResults: service_name={}, service_type={}, agent_id={}, gateway_id={}, details={}, last_sequence={}",
+            req.service_name, req.service_type, req.agent_id, req.gateway_id, req.details, req.last_sequence
         );
 
         let start_time = std::time::Instant::now();
@@ -299,7 +298,6 @@ impl AgentService for SysmonService {
             service_type: req.service_type,
             response_time: response_time_ns,
             agent_id: req.agent_id,
-            poller_id: req.poller_id,
             gateway_id: req.gateway_id,
             timestamp: now
                 .timestamp_nanos_opt()

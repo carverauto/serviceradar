@@ -8,7 +8,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   ## Certificate Types
 
   1. **Tenant Intermediate CA**: Long-lived (10 years), signs edge component certs
-  2. **Edge Component Cert**: Short-lived (1 year), used by pollers/agents/checkers
+  2. **Edge Component Cert**: Short-lived (1 year), used by gateways/agents/checkers
 
   ## Certificate CN Format
 
@@ -151,7 +151,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   - `tenant_ca` - The TenantCA record (with decrypted private key)
   - `component_id` - Unique identifier for the component
-  - `component_type` - :poller, :agent, :checker, or :sync
+  - `component_type` - :gateway, :agent, :checker, or :sync
   - `partition_id` - Network partition identifier
   - `opts` - Additional options
 
@@ -236,8 +236,8 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   ## Examples
 
-      iex> extract_tenant_from_cn("poller-001.partition-1.acme-corp.serviceradar")
-      {:ok, %{component_id: "poller-001", partition_id: "partition-1", tenant_slug: "acme-corp"}}
+      iex> extract_tenant_from_cn("gateway-001.partition-1.acme-corp.serviceradar")
+      {:ok, %{component_id: "gateway-001", partition_id: "partition-1", tenant_slug: "acme-corp"}}
 
       iex> extract_tenant_from_cn("invalid-cn")
       {:error, :invalid_cn_format}

@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.Device do
   Device resource for network inventory (OCSF v1.7.0 Device object).
 
   Maps to the `ocsf_devices` table with OCSF-aligned attributes.
-  Devices can be discovered by pollers, agents, or external sources.
+  Devices can be discovered by gateways, agents, or external sources.
 
   ## OCSF Type IDs
 
@@ -79,9 +79,9 @@ defmodule ServiceRadar.Inventory.Device do
       filter expr(mac == ^arg(:mac))
     end
 
-    read :by_poller do
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
+    read :by_gateway do
+      argument :gateway_id, :string, allow_nil?: false
+      filter expr(gateway_id == ^arg(:gateway_id))
     end
 
     read :available do
@@ -128,7 +128,7 @@ defmodule ServiceRadar.Inventory.Device do
         :org,
         :groups,
         :agent_list,
-        :poller_id,
+        :gateway_id,
         :agent_id,
         :discovery_sources,
         :is_available,
@@ -431,9 +431,9 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     # ServiceRadar-specific fields
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller that discovered this device"
+      description "Gateway that discovered this device"
     end
 
     attribute :agent_id, :string do

@@ -15,7 +15,7 @@ import (
 const insertSweepHostStatesSQL = `
 INSERT INTO sweep_host_states (
 	host_ip,
-	poller_id,
+	gateway_id,
 	agent_id,
 	partition,
 	network_cidr,
@@ -71,8 +71,8 @@ func buildSweepHostStateArgs(state *models.SweepHostState) ([]interface{}, error
 	if strings.TrimSpace(state.HostIP) == "" {
 		return nil, ErrSweepHostIPMissing
 	}
-	if strings.TrimSpace(state.PollerID) == "" {
-		return nil, ErrSweepPollerIDMissing
+	if strings.TrimSpace(state.GatewayID) == "" {
+		return nil, ErrSweepGatewayIDMissing
 	}
 	if strings.TrimSpace(state.AgentID) == "" {
 		return nil, ErrSweepAgentIDMissing
@@ -106,7 +106,7 @@ func buildSweepHostStateArgs(state *models.SweepHostState) ([]interface{}, error
 
 	return []interface{}{
 		state.HostIP,
-		state.PollerID,
+		state.GatewayID,
 		state.AgentID,
 		state.Partition,
 		toNullableString(state.NetworkCIDR),
@@ -174,11 +174,11 @@ func safeString(state *models.SweepHostState, getter func(*models.SweepHostState
 	return getter(state)
 }
 
-func (db *DB) cnpgGetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error) {
+func (db *DB) cnpgGetSweepHostStates(ctx context.Context, gatewayID string, limit int) ([]*models.SweepHostState, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT 
 			host_ip,
-			poller_id,
+			gateway_id,
 			agent_id,
 			partition,
 			network_cidr,
@@ -194,9 +194,9 @@ func (db *DB) cnpgGetSweepHostStates(ctx context.Context, pollerID string, limit
 			first_seen,
 			metadata
 		FROM sweep_host_states
-		WHERE poller_id = $1
+		WHERE gateway_id = $1
 		ORDER BY last_sweep_time DESC
-		LIMIT $2`, pollerID, limit)
+		LIMIT $2`, gatewayID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("cnpg sweep host states: %w", err)
 	}
@@ -221,7 +221,7 @@ func (db *DB) cnpgGetSweepHostStates(ctx context.Context, pollerID string, limit
 
 		if err := rows.Scan(
 			&state.HostIP,
-			&state.PollerID,
+			&state.GatewayID,
 			&state.AgentID,
 			&state.Partition,
 			&networkCIDR,

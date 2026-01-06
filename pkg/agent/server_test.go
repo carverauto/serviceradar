@@ -228,7 +228,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -243,7 +243,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 	assert.True(t, response.Available)
 	assert.NotEmpty(t, response.Data)
 }
@@ -290,7 +290,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "1", // Current sequence
 	}
 
@@ -305,7 +305,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 }
 
 func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
@@ -323,7 +323,7 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -337,7 +337,7 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 	assert.Contains(t, string(response.Data), "No sweep service configured")
 }
 
@@ -375,7 +375,7 @@ func TestServer_GetResults_SweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -406,7 +406,7 @@ func TestServer_GetResults_UnsupportedServiceType(t *testing.T) {
 		ServiceName:  "some_service",
 		ServiceType:  "unsupported",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -534,7 +534,7 @@ func TestServerGetStatus(t *testing.T) {
 			name: "sweep status request",
 			req: &proto.StatusRequest{
 				ServiceType: "sweep",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 			},
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
@@ -678,7 +678,7 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "ping",
 				ServiceType: "icmp",
 				AgentId:     "test-agent",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 				Details:     "1.1.1.1",
 			},
 			wantErr: true,
@@ -694,7 +694,7 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "network_sweep",
 				ServiceType: "sweep",
 				AgentId:     "test-agent",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 				Details:     "",
 			},
 			wantErr: false,
@@ -755,7 +755,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		AgentId:     "test-agent",
-		PollerId:    "test-poller",
+		GatewayId:    "test-gateway",
 		Details:     "1.1.1.1",
 	}
 
@@ -775,7 +775,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
 		AgentId:     "test-agent",
-		PollerId:    "test-poller",
+		GatewayId:    "test-gateway",
 		Details:     "",
 	}
 

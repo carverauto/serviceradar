@@ -5,17 +5,17 @@ defmodule ServiceRadar.Edge.AgentProcess do
   The AgentProcess is responsible for:
   1. Registering with the AgentRegistry for discoverability
   2. Maintaining a gRPC connection to the serviceradar-sync service
-  3. Executing check requests from Pollers
-  4. Collecting results FROM the sync service and returning them to Pollers
+  3. Executing check requests from Gateways
+  4. Collecting results FROM the sync service and returning them to Gateways
 
   ## Communication Pattern
 
-  Core (AshOban) -> Poller -> Agent -> serviceradar-sync
+  Core (AshOban) -> Gateway -> Agent -> serviceradar-sync
                                    <-  (results)
-  Core <- Poller <- Agent
+  Core <- Gateway <- Agent
 
-  The AgentProcess receives work requests from Pollers and calls the sync
-  service via gRPC to collect data. Results are returned to the Poller,
+  The AgentProcess receives work requests from Gateways and calls the sync
+  service via gRPC to collect data. Results are returned to the Gateway,
   which aggregates them and returns to Core for processing.
 
   Results can be returned synchronously or stored for async pickup via PubSub.
@@ -136,7 +136,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   @doc """
   Execute a health check for a service via gRPC.
 
-  Used by PollerProcess for high-frequency health monitoring.
+  Used by GatewayProcess for high-frequency health monitoring.
   Returns the health status of the target service.
 
   ## Service Config
@@ -161,7 +161,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   @doc """
   Get accumulated check results from the agent.
 
-  Used by PollerProcess to retrieve results from external services
+  Used by GatewayProcess to retrieve results from external services
   that accumulate check data over time.
   """
   @spec get_results(String.t() | pid(), map()) :: {:ok, list()} | {:error, term()}
@@ -251,7 +251,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   def handle_call({:push_status, services, opts}, _from, state) do
     request = %Monitoring.GatewayStatusRequest{
       services: services,
-      gateway_id: opts[:gateway_id] || opts[:poller_id] || "",
+      gateway_id: opts[:gateway_id] || "",
       agent_id: state.agent_id,
       timestamp: System.system_time(:second),
       partition: state.partition_id,
@@ -403,7 +403,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: request[:service_name] || "",
       service_type: request[:service_type] || "",
       agent_id: state.agent_id,
-      poller_id: request[:poller_id] || request[:gateway_id] || "",
       gateway_id: request[:gateway_id] || "",
       details: request[:details] || "",
       port: request[:port] || 0
@@ -456,7 +455,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
       service_name: service_id,
       service_type: service_type,
       agent_id: state.agent_id,
-      poller_id: "",
       details: target,
       port: 0
     }

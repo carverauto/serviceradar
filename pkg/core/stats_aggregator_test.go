@@ -167,7 +167,7 @@ func TestStatsAggregatorCountsServiceComponents(t *testing.T) {
 		})
 	}
 
-	addServiceComponent("poller", models.GenerateServiceDeviceID(models.ServiceTypePoller, "docker-poller"))
+	addServiceComponent("gateway", models.GenerateServiceDeviceID(models.ServiceTypeGateway, "docker-gateway"))
 	addServiceComponent("agent", models.GenerateServiceDeviceID(models.ServiceTypeAgent, "docker-agent"))
 
 	agg := NewStatsAggregator(reg, log, WithStatsClock(func() time.Time { return base }))
@@ -430,17 +430,17 @@ func TestStatsAggregatorCountsServiceComponentsWithSharedIP(t *testing.T) {
 		},
 	})
 
-	// Poller on same IP - should be counted as separate device
-	pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, "poller-on-shared-ip")
+	// Gateway on same IP - should be counted as separate device
+	gatewayID := models.GenerateServiceDeviceID(models.ServiceTypeGateway, "gateway-on-shared-ip")
 	reg.UpsertDeviceRecord(&registry.DeviceRecord{
-		DeviceID:    pollerID,
+		DeviceID:    gatewayID,
 		IP:          sharedIP,
 		IsAvailable: true,
 		FirstSeen:   base.Add(-time.Hour),
 		LastSeen:    base,
 		Metadata: map[string]string{
-			"component_type":      "poller",
-			"canonical_device_id": pollerID,
+			"component_type":      "gateway",
+			"canonical_device_id": gatewayID,
 			"canonical_partition": "default",
 		},
 	})
@@ -481,16 +481,16 @@ func TestStatsAggregatorCountsMultipleServiceComponentsOfSameType(t *testing.T) 
 
 	base := time.Date(2025, 4, 12, 11, 0, 0, 0, time.UTC)
 
-	// Multiple pollers
+	// Multiple gateways
 	for i := 1; i <= 3; i++ {
-		pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, fmt.Sprintf("poller-%d", i))
+		gatewayID := models.GenerateServiceDeviceID(models.ServiceTypeGateway, fmt.Sprintf("gateway-%d", i))
 		reg.UpsertDeviceRecord(&registry.DeviceRecord{
-			DeviceID:    pollerID,
+			DeviceID:    gatewayID,
 			IsAvailable: true,
 			LastSeen:    base,
 			Metadata: map[string]string{
-				"component_type":      "poller",
-				"canonical_device_id": pollerID,
+				"component_type":      "gateway",
+				"canonical_device_id": gatewayID,
 				"canonical_partition": "default",
 			},
 		})

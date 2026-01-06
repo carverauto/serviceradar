@@ -108,13 +108,13 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   def remote_registry_count(node) do
     IO.puts("Querying #{node}...")
 
-    poller_count = :rpc.call(node, ServiceRadar.PollerRegistry, :count, [])
+    gateway_count = :rpc.call(node, ServiceRadar.GatewayRegistry, :count, [])
     agent_count = :rpc.call(node, ServiceRadar.AgentRegistry, :count, [])
 
-    IO.puts("  PollerRegistry count: #{inspect(poller_count)}")
+    IO.puts("  GatewayRegistry count: #{inspect(gateway_count)}")
     IO.puts("  AgentRegistry count: #{inspect(agent_count)}")
 
-    {poller_count, agent_count}
+    {gateway_count, agent_count}
   end
 
   @doc """

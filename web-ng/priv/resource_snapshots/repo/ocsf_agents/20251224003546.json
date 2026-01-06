@@ -107,7 +107,7 @@
       "primary_key?": false,
       "references": {
         "deferrable": false,
-        "destination_attribute": "poller_id",
+        "destination_attribute": "gateway_id",
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
@@ -118,16 +118,16 @@
           "global": true,
           "strategy": "attribute"
         },
-        "name": "ocsf_agents_poller_id_fkey",
+        "name": "ocsf_agents_gateway_id_fkey",
         "on_delete": null,
         "on_update": null,
         "primary_key?": true,
         "schema": "public",
-        "table": "pollers"
+        "table": "gateways"
       },
       "scale": null,
       "size": null,
-      "source": "poller_id",
+      "source": "gateway_id",
       "type": "text"
     },
     {

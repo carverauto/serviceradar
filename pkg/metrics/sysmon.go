@@ -8,7 +8,7 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	ctx context.Context, gatewayID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:      make([]models.CPUMetric, len(metrics.CPUs)),
 		Clusters:  make([]models.CPUClusterMetric, len(metrics.Clusters)),
@@ -79,8 +79,8 @@ func (m *Manager) StoreSysmonMetrics(
 		}
 	}
 
-	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, dbMetrics, timestamp); err != nil {
-		m.logger.Error().Str("pollerID", pollerID).Err(err).Msg("Failed to store sysmon metrics")
+	if err := m.db.StoreSysmonMetrics(ctx, gatewayID, agentID, hostID, partition, hostIP, deviceID, dbMetrics, timestamp); err != nil {
+		m.logger.Error().Str("gatewayID", gatewayID).Err(err).Msg("Failed to store sysmon metrics")
 		return err
 	}
 
@@ -88,8 +88,8 @@ func (m *Manager) StoreSysmonMetrics(
 }
 
 func (m *Manager) GetCPUMetrics(
-	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
-	dbMetrics, err := m.db.GetCPUMetrics(ctx, pollerID, coreID, start, end)
+	ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+	dbMetrics, err := m.db.GetCPUMetrics(ctx, gatewayID, coreID, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +113,8 @@ func (m *Manager) GetCPUMetrics(
 }
 
 func (m *Manager) GetDiskMetrics(
-	ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
-	dbMetrics, err := m.db.GetDiskMetrics(ctx, pollerID, mountPoint, start, end)
+	ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+	dbMetrics, err := m.db.GetDiskMetrics(ctx, gatewayID, mountPoint, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -134,18 +134,18 @@ func (m *Manager) GetDiskMetrics(
 	return metrics, nil
 }
 
-// GetAllDiskMetrics retrieves disk metrics for all mount points for a given poller.
+// GetAllDiskMetrics retrieves disk metrics for all mount points for a given gateway.
 func (m *Manager) GetAllDiskMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.DiskMetric, error) {
 	// Use the DB service's GetAllDiskMetrics method
-	dbMetrics, err := m.db.GetAllDiskMetrics(ctx, pollerID, start, end)
+	dbMetrics, err := m.db.GetAllDiskMetrics(ctx, gatewayID, start, end)
 	if err != nil {
 		m.logger.Error().Err(err).Msg("Error getting all disk metrics from database")
 		return nil, err
 	}
 
 	if len(dbMetrics) == 0 {
-		m.logger.Info().Str("pollerID", pollerID).Msg("No disk metrics found for poller")
+		m.logger.Info().Str("gatewayID", gatewayID).Msg("No disk metrics found for gateway")
 		return []models.DiskMetric{}, nil
 	}
 
@@ -166,8 +166,8 @@ func (m *Manager) GetAllDiskMetrics(
 }
 
 func (m *Manager) GetMemoryMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
-	dbMetrics, err := m.db.GetMemoryMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.MemoryMetric, error) {
+	dbMetrics, err := m.db.GetMemoryMetrics(ctx, gatewayID, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -186,32 +186,32 @@ func (m *Manager) GetMemoryMetrics(
 	return metrics, nil
 }
 
-// GetAllCPUMetrics retrieves all CPU metrics for a poller.
+// GetAllCPUMetrics retrieves all CPU metrics for a gateway.
 func (m *Manager) GetAllCPUMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
-	return m.db.GetAllCPUMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	return m.db.GetAllCPUMetrics(ctx, gatewayID, start, end)
 }
 
-// GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
+// GetAllDiskMetricsGrouped retrieves all disk metrics for a gateway, grouped by timestamp.
 func (m *Manager) GetAllDiskMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
-	return m.db.GetAllDiskMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	return m.db.GetAllDiskMetricsGrouped(ctx, gatewayID, start, end)
 }
 
-// GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
+// GetMemoryMetricsGrouped retrieves all memory metrics for a gateway, grouped by timestamp.
 func (m *Manager) GetMemoryMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
-	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	return m.db.GetMemoryMetricsGrouped(ctx, gatewayID, start, end)
 }
 
-// GetAllProcessMetrics retrieves all process metrics for a poller.
+// GetAllProcessMetrics retrieves all process metrics for a gateway.
 func (m *Manager) GetAllProcessMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
-	return m.db.GetAllProcessMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	return m.db.GetAllProcessMetrics(ctx, gatewayID, start, end)
 }
 
-// GetAllProcessMetricsGrouped retrieves all process metrics for a poller, grouped by timestamp.
+// GetAllProcessMetricsGrouped retrieves all process metrics for a gateway, grouped by timestamp.
 func (m *Manager) GetAllProcessMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
-	return m.db.GetAllProcessMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	return m.db.GetAllProcessMetricsGrouped(ctx, gatewayID, start, end)
 }

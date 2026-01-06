@@ -1045,48 +1045,6 @@ oci_load(
 )
 
 pkg_tar(
-    name = "poller_layer_amd64",
-    files = {
-        "//cmd/poller:poller": "usr/local/bin/serviceradar-poller",
-        "//docker/compose:poller.docker.json": "etc/serviceradar/poller.json",
-        "//docker/compose:entrypoint-poller.sh": "usr/local/bin/poller-entrypoint.sh",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-poller": "0755",
-        "etc/serviceradar/poller.json": "0644",
-        "usr/local/bin/poller-entrypoint.sh": "0755",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "poller_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":poller_layer_amd64"],
-    entrypoint = ["/usr/local/bin/poller-entrypoint.sh"],
-    cmd = ["/usr/local/bin/serviceradar-poller", "-config", "/etc/serviceradar/poller.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50053/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-poller",
-    },
-)
-
-oci_load(
-    name = "poller_image_amd64_tar",
-    image = ":poller_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-poller:local"],
-)
-
-pkg_tar(
     name = "faker_layer_amd64",
     files = {
         "//cmd/faker:faker": "usr/local/bin/serviceradar-faker",

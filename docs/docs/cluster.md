@@ -10,8 +10,7 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 
 | Component    | Purpose                                                                                      | Default Deployment |
 |--------------|----------------------------------------------------------------------------------------------|--------------------|
-| Core API     | Accepts poller reports, exposes the public API, and fans out notifications.                  | `deploy/serviceradar-core` |
-| Poller       | Coordinates health checks against agents and external targets.                               | `deploy/serviceradar-poller` |
+| Core API     | Accepts gateway reports, exposes the public API, and fans out notifications.                 | `deploy/serviceradar-core` |
 | Agent        | Runs checkers and the embedded sync integrations; forwards status to the gateway.            | `deploy/serviceradar-agent` |
 | Registry     | Stores canonical device inventory and service relationships.                                 | `statefulset/serviceradar-registry` |
 | Data Service | Provides dynamic configuration (KV) and Object Store via NATS JetStream.                     | `statefulset/serviceradar-datasvc` |
@@ -23,12 +22,12 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 
 - **CNPG / Timescale**: CloudNativePG cluster that stores registry state plus every telemetry hypertable (events, logs, OTEL metrics/traces). The demo namespace creates it via `cnpg-cluster.yaml` and exposes the RW service at `cnpg-rw.<namespace>.svc`.
 - **Faker**: Generates synthetic Armis datasets for demos and developer testing. Deployed as `deploy/serviceradar-faker` and backed by `pvc/serviceradar-faker-data`.
-- **Ingress**: The `serviceradar-gateway` service exposes HTTPS endpoints for the web UI and API; mutual TLS is enforced between internal components via `serviceradar-ca`.
+- **Ingress**: The ingress service exposes HTTPS endpoints for the web UI and API; mutual TLS is enforced between internal components via `serviceradar-ca`.
 
 ## Observability Hooks
 
 - **Logs**: All pods write to STDOUT/STDERR; aggregate with `kubectl logs -n demo -l serviceradar.io/component=<name>`.
-- **Metrics**: Pollers scrape Sysmon VM exporters every 60 seconds; ensure the jobs stay within the five-minute hostfreq retention window.
+- **Metrics**: Gateways scrape Sysmon VM exporters every 60 seconds; ensure the jobs stay within the five-minute hostfreq retention window.
 - **Tracing**: Distributed traces flow through the OTLP gateway (`service/serviceradar-otel`) and land in CNPG/Timescale for correlation with SRQL queries.
 
 ## Operational Tips

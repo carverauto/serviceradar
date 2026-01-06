@@ -18,7 +18,7 @@ func TestDeviceRecordFromUpdate_NewRecord(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:    "default:10.0.0.5",
 		IP:          "10.0.0.5",
-		PollerID:    "poller-1",
+		GatewayID:    "gateway-1",
 		AgentID:     "agent-1",
 		Source:      models.DiscoverySourceSNMP,
 		Timestamp:   now,
@@ -38,7 +38,7 @@ func TestDeviceRecordFromUpdate_NewRecord(t *testing.T) {
 
 	assert.Equal(t, "default:10.0.0.5", record.DeviceID)
 	assert.Equal(t, "10.0.0.5", record.IP)
-	assert.Equal(t, "poller-1", record.PollerID)
+	assert.Equal(t, "gateway-1", record.GatewayID)
 	assert.Equal(t, "agent-1", record.AgentID)
 	require.NotNil(t, record.Hostname)
 	assert.Equal(t, "edge-gw", *record.Hostname)
@@ -62,7 +62,7 @@ func TestDeviceRecordFromUpdate_MergesExisting(t *testing.T) {
 	existing := &DeviceRecord{
 		DeviceID:         "default:10.0.0.6",
 		IP:               "10.0.0.6",
-		PollerID:         "poller-old",
+		GatewayID:         "gateway-old",
 		AgentID:          "agent-old",
 		DiscoverySources: []string{"snmp"},
 		IsAvailable:      true,
@@ -79,7 +79,7 @@ func TestDeviceRecordFromUpdate_MergesExisting(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:  "default:10.0.0.6",
 		IP:        "10.0.0.6",
-		PollerID:  "poller-new",
+		GatewayID:  "gateway-new",
 		AgentID:   "agent-new",
 		Source:    models.DiscoverySourceMapper,
 		Timestamp: earlier,
@@ -91,7 +91,7 @@ func TestDeviceRecordFromUpdate_MergesExisting(t *testing.T) {
 	record := deviceRecordFromUpdate(update, existing)
 	require.NotNil(t, record)
 
-	assert.Equal(t, "poller-new", record.PollerID)
+	assert.Equal(t, "gateway-new", record.GatewayID)
 	assert.Equal(t, "agent-new", record.AgentID)
 	assert.ElementsMatch(t, []string{"snmp", "mapper"}, record.DiscoverySources)
 	assert.Equal(t, now, record.LastSeen, "older update should not regress last_seen")

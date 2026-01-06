@@ -58,7 +58,7 @@ The system SHALL expose health check endpoints for Ash-related services.
 #### Scenario: Cluster health check
 - **WHEN** /health/cluster is requested
 - **THEN** the system SHALL verify ERTS cluster connectivity
-- **AND** report the number of connected poller nodes
+- **AND** report the number of connected gateway nodes
 
 ### Requirement: Horde Cluster Admin Dashboard
 The system SHALL provide a LiveView admin dashboard for monitoring and managing the distributed Horde cluster.
@@ -70,9 +70,9 @@ The system SHALL provide a LiveView admin dashboard for monitoring and managing 
   - Node names and status (connected/disconnected)
   - Cluster topology visualization
 
-#### Scenario: Poller registry view
-- **WHEN** an admin navigates to /admin/cluster/pollers
-- **THEN** the dashboard SHALL display all registered pollers with:
+#### Scenario: Gateway registry view
+- **WHEN** an admin navigates to /admin/cluster/gateways
+- **THEN** the dashboard SHALL display all registered gateways with:
   - Node name and partition
   - Domain and capabilities
   - Status (available/busy/offline)
@@ -83,7 +83,7 @@ The system SHALL provide a LiveView admin dashboard for monitoring and managing 
 - **WHEN** an admin navigates to /admin/cluster/agents
 - **THEN** the dashboard SHALL display all registered agents with:
   - Agent ID and SPIFFE identity
-  - Connected poller node
+  - Connected gateway node
   - Capabilities
   - Connection status and duration
 
@@ -95,16 +95,16 @@ The system SHALL provide a LiveView admin dashboard for monitoring and managing 
   - Memory usage per process
 
 #### Scenario: Node disconnect alert
-- **GIVEN** a poller node is connected to the cluster
+- **GIVEN** a gateway node is connected to the cluster
 - **WHEN** the node disconnects unexpectedly
 - **THEN** the dashboard SHALL show a real-time alert
 - **AND** the node status SHALL update to "disconnected"
 - **AND** an event SHALL be logged
 
-#### Scenario: Manual poller status control
-- **GIVEN** an admin viewing a poller in the dashboard
+#### Scenario: Manual gateway status control
+- **GIVEN** an admin viewing a gateway in the dashboard
 - **WHEN** the admin clicks "Mark Unavailable"
-- **THEN** the poller status SHALL change to :unavailable
-- **AND** new jobs SHALL NOT be routed to that poller
+- **THEN** the gateway status SHALL change to :unavailable
+- **AND** new jobs SHALL NOT be routed to that gateway
 - **AND** an audit event SHALL be recorded
 

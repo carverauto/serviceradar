@@ -64,7 +64,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
       {:error, reason} ->
         Logger.error("Failed to create TenantRegistry for #{tenant_slug}: #{inspect(reason)}")
         # Don't fail the tenant creation, just log the error
-        # Registry will be lazily created on first poller/agent connection
+        # Registry will be lazily created on first gateway/agent connection
     end
 
     # 2. Provision per-tenant Oban queues for job isolation

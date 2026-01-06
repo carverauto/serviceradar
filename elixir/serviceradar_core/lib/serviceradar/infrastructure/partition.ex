@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
   Partition resource for managing network partitions.
 
   Partitions enable monitoring of overlapping IP address spaces by providing
-  logical separation. Each partition can have its own CIDR ranges and pollers,
+  logical separation. Each partition can have its own CIDR ranges and gateways,
   allowing the same IP address to exist in multiple partitions without conflict.
 
   ## Use Cases

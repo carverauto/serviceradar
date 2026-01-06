@@ -96,7 +96,7 @@ runtime expectations:
 3. **RBAC checks** – Datasvc and other control-plane services inspect the
    SPIFFE URI from client certificates (SAN URI) instead of legacy CN values.
 
-As of this change, `serviceradar-core`, `serviceradar-poller`, `serviceradar-
+As of this change, `serviceradar-core`, `serviceradar-agent-gateway`, `serviceradar-
 datasvc`, and the `serviceradar-agent` chart/manifests ship in SPIFFE mode.
 Mapper/sync/checkers are queued for migration.
 
@@ -144,17 +144,17 @@ Telemetry emitted:
 
 1. **Confirm TLS distribution is enabled** for each BEAM node.
    - Web/core: `CLUSTER_TLS_ENABLED=true` and `SSL_DIST_OPTFILE` set.
-   - Poller/agent releases: `ENABLE_TLS_DIST=true` and `ssl_dist.conf` present.
+   - Gateway/agent releases: `ENABLE_TLS_DIST=true` and `ssl_dist.conf` present.
 2. **Verify node connectivity** from the core/web node:
 
 ```bash
 bin/serviceradar_web_ng rpc "Node.list()"
 ```
 
-3. **Validate registry sync** (pollers and agents visible across nodes):
+3. **Validate registry sync** (gateways and agents visible across nodes):
 
 ```bash
-bin/serviceradar_web_ng rpc "ServiceRadar.PollerRegistry.count()"
+bin/serviceradar_web_ng rpc "ServiceRadar.GatewayRegistry.count()"
 bin/serviceradar_web_ng rpc "ServiceRadar.AgentRegistry.count()"
 ```
 

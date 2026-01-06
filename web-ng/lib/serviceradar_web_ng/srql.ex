@@ -134,7 +134,7 @@ defmodule ServiceRadarWebNG.SRQL do
   defp timestamp_field_for("services"), do: "last_check_at"
   defp timestamp_field_for("service_checks"), do: "last_check_at"
   defp timestamp_field_for("devices"), do: "last_seen"
-  defp timestamp_field_for("pollers"), do: "last_seen"
+  defp timestamp_field_for("gateways"), do: "last_seen"
   defp timestamp_field_for("agents"), do: "last_seen"
   defp timestamp_field_for(_), do: "created_at"
 

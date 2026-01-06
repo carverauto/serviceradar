@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
 
   ## Parameters
 
-    - `component_type` - The component type (e.g., "checker", "poller")
+    - `component_type` - The component type (e.g., "checker", "gateway")
     - `security_mode` - The security mode (e.g., "mtls", "insecure")
     - `opts` - Optional keyword list:
       - `:timeout` - gRPC timeout in milliseconds (default: 5000)
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
       iex> ComponentTemplates.list("checker", "mtls")
       {:ok, [%{component_type: "checker", kind: "sysmon", ...}]}
 
-      iex> ComponentTemplates.list("poller", "insecure")
+      iex> ComponentTemplates.list("gateway", "insecure")
       {:ok, []}
 
   """
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
   """
   @spec available_component_types() :: [String.t()]
   def available_component_types do
-    ["checker", "poller"]
+    ["checker", "gateway"]
   end
 
   @doc """
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplates do
 
   # Simple pluralization for component types
   defp pluralize("checker"), do: "checkers"
-  defp pluralize("poller"), do: "pollers"
+  defp pluralize("gateway"), do: "gateways"
   defp pluralize(type), do: type <> "s"
 
   # Parse a template key into a template map

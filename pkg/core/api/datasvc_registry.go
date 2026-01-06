@@ -33,7 +33,7 @@ type dataSvcInstanceView struct {
 
 // handleListDataSvcInstances returns the list of registered datasvc instances.
 // This is used by the admin UI to display available datasvc instances for edge onboarding.
-// DataSvc instances register themselves as services via ReportStatus, just like pollers/agents.
+// DataSvc instances register themselves as services via PushStatus, just like gateways/agents.
 func (s *APIServer) handleListDataSvcInstances(w http.ResponseWriter, r *http.Request) {
 	if s.dbService == nil {
 		writeError(w, "Database service not available", http.StatusServiceUnavailable)
@@ -43,7 +43,7 @@ func (s *APIServer) handleListDataSvcInstances(w http.ResponseWriter, r *http.Re
 	const listInstancesQuery = `
 		SELECT DISTINCT ON (service_name)
 			service_name,
-			poller_id,
+			gateway_id,
 			agent_id,
 			available,
 			details,
@@ -87,7 +87,7 @@ func selectInstanceID(row map[string]interface{}) string {
 	ids := []string{
 		asString(row["service_name"]),
 		asString(row["agent_id"]),
-		asString(row["poller_id"]),
+		asString(row["gateway_id"]),
 	}
 	for _, candidate := range ids {
 		if trimmed := strings.TrimSpace(candidate); trimmed != "" {

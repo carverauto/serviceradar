@@ -8,7 +8,7 @@ import "time"
 type DeviceRecord struct {
 	DeviceID         string
 	IP               string
-	PollerID         string
+	GatewayID         string
 	AgentID          string
 	Hostname         *string
 	MAC              *string

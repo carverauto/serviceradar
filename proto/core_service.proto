@@ -91,7 +91,7 @@ message TemplateInfo {
   int32 size_bytes = 5;
 }
 
-// CoreService exposes control-plane RPCs for pollers and agents.
+// CoreService exposes control-plane RPCs for gateways and agents.
 service CoreService {
   // GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
   rpc GetCanonicalDevice(GetCanonicalDeviceRequest) returns (GetCanonicalDeviceResponse);

@@ -5,10 +5,10 @@
   "stream_name": "events",
   "consumer_name": "db-event-writer",
   "agent_id": "docker-db-event-writer",
-  "poller_id": "docker-poller",
+  "gateway_id": "docker-gateway",
   "streams": [
     {
-      "subject": "events.poller.health",
+      "subject": "events.gateway.health",
       "table": "events"
     },
     {

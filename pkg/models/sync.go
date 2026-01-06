@@ -14,11 +14,11 @@ type SourceConfig struct {
 	Queries            []QueryConfig     `json:"queries"`                // List of queries
 	CustomField        string            `json:"custom_field,omitempty"` // Custom field for additional metadata
 
-	// AgentID and PollerID allow assigning discovered devices to specific
-	// agents and pollers. When set, they override any global defaults for
+	// AgentID and GatewayID allow assigning discovered devices to specific
+	// agents and gateways. When set, they override any global defaults for
 	// the Sync service.
 	AgentID   string `json:"agent_id,omitempty"`
-	PollerID  string `json:"poller_id,omitempty"`
+	GatewayID  string `json:"gateway_id,omitempty"`
 	Partition string `json:"partition,omitempty"`
 
 	// Tenant scoping data from control plane (used for platform sync fan-out).

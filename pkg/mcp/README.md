@@ -82,7 +82,7 @@ export AUTH_TOKEN="your-jwt-token-here"
   "params": {
     "name": "devices.getDevices", 
     "arguments": {
-      "filter": "poller_id = 'poller-001'",
+      "filter": "gateway_id = 'gateway-001'",
       "limit": 50
     }
   }

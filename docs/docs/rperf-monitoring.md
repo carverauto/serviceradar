@@ -15,14 +15,14 @@ The `rperf` system provides:
 - **Client (`serviceradar-rperf-checker`)**: A gRPC-based client that initiates tests against the server and reports results to ServiceRadar.
 - **Features**: Measures TCP/UDP throughput, packet loss, jitter, and more, with support for parallel streams and configurable bandwidth targets.
 
-This system integrates with ServiceRadar's Agent and Poller for automated, scheduled monitoring and alerting.
+This system integrates with ServiceRadar's Agent and Gateway for automated, scheduled monitoring and alerting.
 
 ### Architecture
 
 ```mermaid
 graph TD
     subgraph "ServiceRadar Monitoring"
-        Poller[Poller<br/>:50053] -->|gRPC| Agent[Agent<br/>:50051]
+        Gateway[Gateway<br/>:50053] -->|gRPC| Agent[Agent<br/>:50051]
         Agent -->|gRPC| RperfClient[serviceradar-rperf-checker<br/>:50059]
     end
     subgraph "Network Testing"
@@ -30,7 +30,7 @@ graph TD
     end
     RperfServer -->|Results| RperfClient
     RperfClient -->|Status| Agent
-    Agent -->|Report| Poller
+    Agent -->|Report| Gateway
 ```
 
 **serviceradar-rperf-checker**: Runs as a checker plugin on the Agent host, initiates tests, and reports results.
@@ -40,7 +40,7 @@ graph TD
 ## Prerequisites
 
 - **Operating System**: Debian/Ubuntu or RHEL/Oracle Linux
-- **ServiceRadar**: Agent and Poller installed (see [Installation Guide](./installation.md))
+- **ServiceRadar**: Agent and Gateway installed (see [Installation Guide](./installation.md))
 - **Network Access**: Client must reach the server's control port (default: 5199) and data ports.
 - **Root/Sudo Access**: Required for installation and firewall configuration.
 
@@ -197,7 +197,7 @@ sudo systemctl restart serviceradar-rperf-checker
 
 ### Integrate with ServiceRadar Agent
 
-Update `/etc/serviceradar/poller.json` to include the rperf checker:
+Update `/etc/serviceradar/gateway.json` to include the rperf checker:
 
 ```json
 {
@@ -217,18 +217,18 @@ Update `/etc/serviceradar/poller.json` to include the rperf checker:
   "core_address": "localhost:50052",
   "listen_addr": ":50053",
   "poll_interval": "5m",
-  "poller_id": "my-poller",
-  "service_name": "PollerService",
+  "gateway_id": "my-gateway",
+  "service_name": "GatewayService",
   "service_type": "grpc",
   "security": { "mode": "none" }
 }
 ```
 
-Restart the Agent and Poller:
+Restart the Agent and Gateway:
 
 ```bash
 sudo systemctl restart serviceradar-agent
-sudo systemctl restart serviceradar-poller
+sudo systemctl restart serviceradar-gateway
 ```
 
 ## Firewall Configuration
@@ -333,7 +333,7 @@ Should include `rperf-network-test` status.
 - Confirm config file permissions: `chmod 644 /etc/serviceradar/checkers/rperf.json`.
 
 ### No Results in Dashboard:
-- Verify Poller configuration includes the rperf check.
+- Verify Gateway configuration includes the rperf check.
 - Check Agent logs: `journalctl -u serviceradar-agent`.
 
 ## Best Practices

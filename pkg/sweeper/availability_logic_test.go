@@ -34,7 +34,7 @@ import (
 func TestDeviceAvailabilityLogic(t *testing.T) {
 	config := &models.Config{
 		AgentID:   "test-agent",
-		PollerID:  "test-poller",
+		GatewayID:  "test-gateway",
 		Partition: "test-partition",
 	}
 
@@ -311,7 +311,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 					"all_ips":         "192.168.1.1,192.168.1.2,10.0.0.1",
 					"primary_ip":      "192.168.1.1",
 					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
+					"gateway_id":       "test-gateway",
 					"partition":       "default",
 				},
 			},
@@ -319,7 +319,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		Ports:     []int{80, 443},
 		Interval:  time.Minute,
 		AgentID:   "test-agent",
-		PollerID:  "test-poller",
+		GatewayID:  "test-gateway",
 		Partition: "default",
 	}
 
@@ -540,7 +540,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 					"all_ips":         "192.168.1.100,10.1.1.100", // Multiple IPs for this device
 					"primary_ip":      "192.168.1.100",
 					"agent_id":        "tcp-test-agent",
-					"poller_id":       "tcp-test-poller",
+					"gateway_id":       "tcp-test-gateway",
 					"partition":       "tcp-test-partition",
 				},
 			},
@@ -548,7 +548,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		Ports:     []int{22, 80, 443}, // Common ports for TCP scanning
 		Interval:  time.Minute,
 		AgentID:   "tcp-test-agent",
-		PollerID:  "tcp-test-poller",
+		GatewayID:  "tcp-test-gateway",
 		Partition: "tcp-test-partition",
 	}
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document proposes extending the existing `pkg/registry` package to handle **service registration** in addition to device registration. The goal is to create a unified, authoritative service discovery and registration system that tracks all pollers, agents, and checkers across the ServiceRadar deployment.
+This document proposes extending the existing `pkg/registry` package to handle **service registration** in addition to device registration. The goal is to create a unified, authoritative service discovery and registration system that tracks all gateways, agents, and checkers across the ServiceRadar deployment.
 
 ## Background
 
@@ -73,13 +73,13 @@ import (
 )
 
 // ServiceManager manages the lifecycle and registration of all services
-// (pollers, agents, checkers) in the ServiceRadar system.
+// (gateways, agents, checkers) in the ServiceRadar system.
 type ServiceManager interface {
-    // RegisterPoller explicitly registers a new poller.
+    // RegisterGateway explicitly registers a new gateway.
     // Used during edge package creation, K8s ClusterSPIFFEID creation, etc.
-    RegisterPoller(ctx context.Context, reg *PollerRegistration) error
+    RegisterGateway(ctx context.Context, reg *GatewayRegistration) error
 
-    // RegisterAgent explicitly registers a new agent under a poller.
+    // RegisterAgent explicitly registers a new agent under a gateway.
     RegisterAgent(ctx context.Context, reg *AgentRegistration) error
 
     // RegisterChecker explicitly registers a new checker under an agent.
@@ -92,8 +92,8 @@ type ServiceManager interface {
     // RecordBatchHeartbeats handles batch heartbeat updates efficiently.
     RecordBatchHeartbeats(ctx context.Context, heartbeats []*ServiceHeartbeat) error
 
-    // GetPoller retrieves a poller by ID.
-    GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error)
+    // GetGateway retrieves a gateway by ID.
+    GetGateway(ctx context.Context, gatewayID string) (*RegisteredGateway, error)
 
     // GetAgent retrieves an agent by ID.
     GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error)
@@ -101,11 +101,11 @@ type ServiceManager interface {
     // GetChecker retrieves a checker by ID.
     GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error)
 
-    // ListPollers retrieves all pollers matching filter.
-    ListPollers(ctx context.Context, filter *ServiceFilter) ([]*RegisteredPoller, error)
+    // ListGateways retrieves all gateways matching filter.
+    ListGateways(ctx context.Context, filter *ServiceFilter) ([]*RegisteredGateway, error)
 
-    // ListAgentsByPoller retrieves all agents under a poller.
-    ListAgentsByPoller(ctx context.Context, pollerID string) ([]*RegisteredAgent, error)
+    // ListAgentsByGateway retrieves all agents under a gateway.
+    ListAgentsByGateway(ctx context.Context, gatewayID string) ([]*RegisteredAgent, error)
 
     // ListCheckersByAgent retrieves all checkers under an agent.
     ListCheckersByAgent(ctx context.Context, agentID string) ([]*RegisteredChecker, error)
@@ -126,9 +126,9 @@ type ServiceManager interface {
     // for longer than the retention period. This is typically called by a background job.
     PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error)
 
-    // IsKnownPoller checks if a poller is registered and active.
-    // Replaces the logic currently in pkg/core/pollers.go:701
-    IsKnownPoller(ctx context.Context, pollerID string) (bool, error)
+    // IsKnownGateway checks if a gateway is registered and active.
+    // Replaces the logic currently in pkg/core/gateways.go:701
+    IsKnownGateway(ctx context.Context, gatewayID string) (bool, error)
 }
 ```
 
@@ -168,9 +168,9 @@ const (
     RegistrationSourceImplicit       RegistrationSource = "implicit"        // From heartbeat
 )
 
-// PollerRegistration represents a poller registration request.
-type PollerRegistration struct {
-    PollerID           string
+// GatewayRegistration represents a gateway registration request.
+type GatewayRegistration struct {
+    GatewayID           string
     ComponentID        string // From edge onboarding package
     RegistrationSource RegistrationSource
     Metadata           map[string]string
@@ -181,7 +181,7 @@ type PollerRegistration struct {
 // AgentRegistration represents an agent registration request.
 type AgentRegistration struct {
     AgentID            string
-    PollerID           string // Parent poller (required)
+    GatewayID           string // Parent gateway (required)
     ComponentID        string
     RegistrationSource RegistrationSource
     Metadata           map[string]string
@@ -193,7 +193,7 @@ type AgentRegistration struct {
 type CheckerRegistration struct {
     CheckerID          string
     AgentID            string // Parent agent (required)
-    PollerID           string // Grandparent poller (denormalized for queries)
+    GatewayID           string // Grandparent gateway (denormalized for queries)
     CheckerKind        string // snmp, sysmon, rperf, etc.
     ComponentID        string
     RegistrationSource RegistrationSource
@@ -205,19 +205,19 @@ type CheckerRegistration struct {
 // ServiceHeartbeat represents a service status report.
 type ServiceHeartbeat struct {
     ServiceID   string
-    ServiceType string // "poller", "agent", "checker"
-    PollerID    string
-    AgentID     string // Empty for pollers
-    CheckerID   string // Empty for agents/pollers
+    ServiceType string // "gateway", "agent", "checker"
+    GatewayID    string
+    AgentID     string // Empty for gateways
+    CheckerID   string // Empty for agents/gateways
     Timestamp   time.Time
     SourceIP    string
     Healthy     bool
     Metadata    map[string]string
 }
 
-// RegisteredPoller represents a registered poller in the system.
-type RegisteredPoller struct {
-    PollerID           string
+// RegisteredGateway represents a registered gateway in the system.
+type RegisteredGateway struct {
+    GatewayID           string
     ComponentID        string
     Status             ServiceStatus
     RegistrationSource RegistrationSource
@@ -236,7 +236,7 @@ type RegisteredPoller struct {
 // RegisteredAgent represents a registered agent in the system.
 type RegisteredAgent struct {
     AgentID            string
-    PollerID           string
+    GatewayID           string
     ComponentID        string
     Status             ServiceStatus
     RegistrationSource RegistrationSource
@@ -255,7 +255,7 @@ type RegisteredAgent struct {
 type RegisteredChecker struct {
     CheckerID          string
     AgentID            string
-    PollerID           string
+    GatewayID           string
     CheckerKind        string
     ComponentID        string
     Status             ServiceStatus
@@ -284,9 +284,9 @@ type ServiceFilter struct {
 ### Service Registry Tables
 
 ```sql
--- Poller registry
-CREATE TABLE pollers_registry (
-    poller_id           string,
+-- Gateway registry
+CREATE TABLE gateways_registry (
+    gateway_id           string,
     component_id        string,
     status              string,
     registration_source string,
@@ -298,14 +298,14 @@ CREATE TABLE pollers_registry (
     created_by          string,
     updated_at          DateTime64(3) DEFAULT now64()
 ) ENGINE = ReplacingMergeTree(updated_at)
-PRIMARY KEY (poller_id)
-ORDER BY (poller_id, updated_at)
+PRIMARY KEY (gateway_id)
+ORDER BY (gateway_id, updated_at)
 SETTINGS index_granularity = 8192;
 
 -- Agent registry
 CREATE TABLE agents_registry (
     agent_id            string,
-    poller_id           string,
+    gateway_id           string,
     component_id        string,
     status              string,
     registration_source string,
@@ -318,14 +318,14 @@ CREATE TABLE agents_registry (
     updated_at          DateTime64(3) DEFAULT now64()
 ) ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY (agent_id)
-ORDER BY (agent_id, poller_id, updated_at)
+ORDER BY (agent_id, gateway_id, updated_at)
 SETTINGS index_granularity = 8192;
 
 -- Checker registry
 CREATE TABLE checkers_registry (
     checker_id          string,
     agent_id            string,
-    poller_id           string,
+    gateway_id           string,
     checker_kind        string,
     component_id        string,
     status              string,
@@ -339,7 +339,7 @@ CREATE TABLE checkers_registry (
     updated_at          DateTime64(3) DEFAULT now64()
 ) ENGINE = ReplacingMergeTree(updated_at)
 PRIMARY KEY (checker_id)
-ORDER BY (checker_id, agent_id, poller_id, updated_at)
+ORDER BY (checker_id, agent_id, gateway_id, updated_at)
 SETTINGS index_granularity = 8192;
 
 -- Service registration events (audit trail)
@@ -347,8 +347,8 @@ CREATE STREAM IF NOT EXISTS service_registration_events (
     event_id            string,
     event_type          string,  -- 'registered', 'activated', 'deactivated', 'revoked'
     service_id          string,
-    service_type        string,  -- 'poller', 'agent', 'checker'
-    parent_id           string,  -- For agents: poller_id, for checkers: agent_id
+    service_type        string,  -- 'gateway', 'agent', 'checker'
+    parent_id           string,  -- For agents: gateway_id, for checkers: agent_id
     registration_source string,
     actor               string,  -- Who performed the action
     timestamp           DateTime64(3),
@@ -364,7 +364,7 @@ SETTINGS index_granularity = 8192;
 - **ReplacingMergeTree** for registry tables - supports updates via inserts with `updated_at`
 - **No automatic TTL on registry tables** - persistent record, but manual deletion supported
 - **Nullable first_seen/last_seen** - distinguish "never reported" from "reported once"
-- **Denormalized poller_id in checkers** - easier queries, acceptable redundancy
+- **Denormalized gateway_id in checkers** - easier queries, acceptable redundancy
 - **Audit stream** - 90-day retention for compliance/debugging
 - **Deletion Strategy** - See "Deletion and Retention Policy" section below
 
@@ -398,7 +398,7 @@ For immediate permanent deletion:
 
 ```go
 // Permanently delete a service
-err := serviceRegistry.DeleteService(ctx, "poller", pollerID)
+err := serviceRegistry.DeleteService(ctx, "gateway", gatewayID)
 ```
 
 **Implementation**:
@@ -406,7 +406,7 @@ err := serviceRegistry.DeleteService(ctx, "poller", pollerID)
 func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, serviceID string) error {
     // Verify service is not active
     var status string
-    query := `SELECT status FROM pollers_registry WHERE poller_id = ? LIMIT 1`
+    query := `SELECT status FROM gateways_registry WHERE gateway_id = ? LIMIT 1`
     if err := r.db.QueryRow(ctx, query, serviceID).Scan(&status); err != nil {
         return fmt.Errorf("service not found: %w", err)
     }
@@ -420,13 +420,13 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 
     // Hard delete from table using ALTER TABLE DELETE
     // Note: In ClickHouse/Timeplus, deletes are asynchronous and may take time
-    deleteQuery := `ALTER TABLE pollers_registry DELETE WHERE poller_id = ?`
+    deleteQuery := `ALTER TABLE gateways_registry DELETE WHERE gateway_id = ?`
     if err := r.db.Exec(ctx, deleteQuery, serviceID); err != nil {
         return fmt.Errorf("failed to delete service: %w", err)
     }
 
     // Invalidate cache
-    r.invalidatePollerCache()
+    r.invalidateGatewayCache()
 
     return nil
 }
@@ -449,8 +449,8 @@ func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod tim
     // Find services to purge: inactive/revoked/deleted for > retention period
     query := `SELECT service_type, service_id
               FROM (
-                  SELECT 'poller' AS service_type, poller_id AS service_id, updated_at, status
-                  FROM pollers_registry
+                  SELECT 'gateway' AS service_type, gateway_id AS service_id, updated_at, status
+                  FROM gateways_registry
                   WHERE status IN ('inactive', 'revoked', 'deleted')
                   AND updated_at < ?
 
@@ -533,7 +533,7 @@ States:
 
 ```go
 // Admin endpoints
-DELETE /api/admin/services/pollers/{id}      // Hard delete
+DELETE /api/admin/services/gateways/{id}      // Hard delete
 DELETE /api/admin/services/agents/{id}
 DELETE /api/admin/services/checkers/{id}
 
@@ -579,9 +579,9 @@ type ServiceRegistry struct {
     db     db.Service
     logger logger.Logger
 
-    // Cache for IsKnownPoller() - invalidated on registration changes
-    pollerCacheMu sync.RWMutex
-    pollerCache   map[string]bool
+    // Cache for IsKnownGateway() - invalidated on registration changes
+    gatewayCacheMu sync.RWMutex
+    gatewayCache   map[string]bool
     cacheExpiry   time.Time
 }
 
@@ -589,36 +589,36 @@ func NewServiceRegistry(database db.Service, log logger.Logger) *ServiceRegistry
     return &ServiceRegistry{
         db:          database,
         logger:      log,
-        pollerCache: make(map[string]bool),
+        gatewayCache: make(map[string]bool),
     }
 }
 ```
 
 ### Key Methods
 
-#### RegisterPoller
+#### RegisterGateway
 
 ```go
-func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistration) error {
+func (r *ServiceRegistry) RegisterGateway(ctx context.Context, reg *GatewayRegistration) error {
     now := time.Now().UTC()
 
     // Check if already exists
-    existing, err := r.GetPoller(ctx, reg.PollerID)
+    existing, err := r.GetGateway(ctx, reg.GatewayID)
     if err == nil && existing != nil {
         // Already registered - return error or update?
-        return fmt.Errorf("poller %s already registered", reg.PollerID)
+        return fmt.Errorf("gateway %s already registered", reg.GatewayID)
     }
 
-    // Insert into pollers_registry
-    query := `INSERT INTO pollers_registry (
-        poller_id, component_id, status, registration_source,
+    // Insert into gateways_registry
+    query := `INSERT INTO gateways_registry (
+        gateway_id, component_id, status, registration_source,
         first_registered, metadata, spiffe_identity, created_by, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
     metadataJSON, _ := json.Marshal(reg.Metadata)
 
     err = r.db.Exec(ctx, query,
-        reg.PollerID,
+        reg.GatewayID,
         reg.ComponentID,
         ServiceStatusPending,
         reg.RegistrationSource,
@@ -630,14 +630,14 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
     )
 
     if err != nil {
-        return fmt.Errorf("failed to register poller: %w", err)
+        return fmt.Errorf("failed to register gateway: %w", err)
     }
 
     // Emit registration event
-    r.emitRegistrationEvent(ctx, "registered", "poller", reg.PollerID, "", reg.RegistrationSource, reg.CreatedBy)
+    r.emitRegistrationEvent(ctx, "registered", "gateway", reg.GatewayID, "", reg.RegistrationSource, reg.CreatedBy)
 
     // Invalidate cache
-    r.invalidatePollerCache()
+    r.invalidateGatewayCache()
 
     return nil
 }
@@ -653,109 +653,109 @@ func (r *ServiceRegistry) RecordHeartbeat(ctx context.Context, heartbeat *Servic
     }
 
     switch heartbeat.ServiceType {
-    case "poller":
-        return r.recordPollerHeartbeat(ctx, heartbeat.PollerID, now, heartbeat.SourceIP)
+    case "gateway":
+        return r.recordGatewayHeartbeat(ctx, heartbeat.GatewayID, now, heartbeat.SourceIP)
     case "agent":
-        return r.recordAgentHeartbeat(ctx, heartbeat.AgentID, heartbeat.PollerID, now, heartbeat.SourceIP)
+        return r.recordAgentHeartbeat(ctx, heartbeat.AgentID, heartbeat.GatewayID, now, heartbeat.SourceIP)
     case "checker":
-        return r.recordCheckerHeartbeat(ctx, heartbeat.CheckerID, heartbeat.AgentID, heartbeat.PollerID, now)
+        return r.recordCheckerHeartbeat(ctx, heartbeat.CheckerID, heartbeat.AgentID, heartbeat.GatewayID, now)
     default:
         return fmt.Errorf("unknown service type: %s", heartbeat.ServiceType)
     }
 }
 
-func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID string, timestamp time.Time, sourceIP string) error {
+func (r *ServiceRegistry) recordGatewayHeartbeat(ctx context.Context, gatewayID string, timestamp time.Time, sourceIP string) error {
     // Update last_seen, activate if pending, set first_seen if null
-    query := `INSERT INTO pollers_registry (
-        poller_id, status, first_seen, last_seen, updated_at
+    query := `INSERT INTO gateways_registry (
+        gateway_id, status, first_seen, last_seen, updated_at
     ) SELECT
         ?,
         if(status = 'pending', 'active', status) AS new_status,
         coalesce(first_seen, ?) AS new_first_seen,
         ? AS new_last_seen,
         ? AS updated_at
-    FROM pollers_registry
-    WHERE poller_id = ?
+    FROM gateways_registry
+    WHERE gateway_id = ?
     LIMIT 1`
 
-    err := r.db.Exec(ctx, query, pollerID, timestamp, timestamp, timestamp, pollerID)
+    err := r.db.Exec(ctx, query, gatewayID, timestamp, timestamp, timestamp, gatewayID)
     if err != nil {
-        return fmt.Errorf("failed to record poller heartbeat: %w", err)
+        return fmt.Errorf("failed to record gateway heartbeat: %w", err)
     }
 
     // Check if status changed to active
-    poller, _ := r.GetPoller(ctx, pollerID)
-    if poller != nil && poller.Status == ServiceStatusActive && poller.FirstSeen != nil && poller.FirstSeen.Equal(timestamp) {
+    gateway, _ := r.GetGateway(ctx, gatewayID)
+    if gateway != nil && gateway.Status == ServiceStatusActive && gateway.FirstSeen != nil && gateway.FirstSeen.Equal(timestamp) {
         // First activation
-        r.emitRegistrationEvent(ctx, "activated", "poller", pollerID, "", poller.RegistrationSource, "system")
+        r.emitRegistrationEvent(ctx, "activated", "gateway", gatewayID, "", gateway.RegistrationSource, "system")
     }
 
     return nil
 }
 ```
 
-#### IsKnownPoller (Replaces core logic)
+#### IsKnownGateway (Replaces core logic)
 
 ```go
-const pollerCacheTTL = 5 * time.Minute
+const gatewayCacheTTL = 5 * time.Minute
 
-func (r *ServiceRegistry) IsKnownPoller(ctx context.Context, pollerID string) (bool, error) {
+func (r *ServiceRegistry) IsKnownGateway(ctx context.Context, gatewayID string) (bool, error) {
     // Check cache first
-    r.pollerCacheMu.RLock()
+    r.gatewayCacheMu.RLock()
     if time.Now().Before(r.cacheExpiry) {
-        known, exists := r.pollerCache[pollerID]
-        r.pollerCacheMu.RUnlock()
+        known, exists := r.gatewayCache[gatewayID]
+        r.gatewayCacheMu.RUnlock()
         if exists {
             return known, nil
         }
     }
-    r.pollerCacheMu.RUnlock()
+    r.gatewayCacheMu.RUnlock()
 
     // Query database
-    query := `SELECT COUNT(*) FROM pollers_registry
-              WHERE poller_id = ? AND status IN ('pending', 'active')`
+    query := `SELECT COUNT(*) FROM gateways_registry
+              WHERE gateway_id = ? AND status IN ('pending', 'active')`
 
     var count int
-    row := r.db.QueryRow(ctx, query, pollerID)
+    row := r.db.QueryRow(ctx, query, gatewayID)
     if err := row.Scan(&count); err != nil {
-        return false, fmt.Errorf("failed to check poller: %w", err)
+        return false, fmt.Errorf("failed to check gateway: %w", err)
     }
 
     known := count > 0
 
     // Update cache
-    r.pollerCacheMu.Lock()
+    r.gatewayCacheMu.Lock()
     if time.Now().After(r.cacheExpiry) {
         // Refresh entire cache
-        r.refreshPollerCache(ctx)
+        r.refreshGatewayCache(ctx)
     } else {
-        r.pollerCache[pollerID] = known
+        r.gatewayCache[gatewayID] = known
     }
-    r.pollerCacheMu.Unlock()
+    r.gatewayCacheMu.Unlock()
 
     return known, nil
 }
 
-func (r *ServiceRegistry) refreshPollerCache(ctx context.Context) {
-    query := `SELECT poller_id FROM pollers_registry WHERE status IN ('pending', 'active')`
+func (r *ServiceRegistry) refreshGatewayCache(ctx context.Context) {
+    query := `SELECT gateway_id FROM gateways_registry WHERE status IN ('pending', 'active')`
     rows, err := r.db.Query(ctx, query)
     if err != nil {
-        r.logger.Warn().Err(err).Msg("Failed to refresh poller cache")
+        r.logger.Warn().Err(err).Msg("Failed to refresh gateway cache")
         return
     }
     defer rows.Close()
 
     newCache := make(map[string]bool)
     for rows.Next() {
-        var pollerID string
-        if err := rows.Scan(&pollerID); err != nil {
+        var gatewayID string
+        if err := rows.Scan(&gatewayID); err != nil {
             continue
         }
-        newCache[pollerID] = true
+        newCache[gatewayID] = true
     }
 
-    r.pollerCache = newCache
-    r.cacheExpiry = time.Now().Add(pollerCacheTTL)
+    r.gatewayCache = newCache
+    r.cacheExpiry = time.Now().Add(gatewayCacheTTL)
 }
 ```
 
@@ -773,9 +773,9 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.C
 
     // NEW: Register service in service registry
     switch req.ComponentType {
-    case models.EdgeOnboardingComponentTypePoller:
-        err := s.serviceRegistry.RegisterPoller(ctx, &registry.PollerRegistration{
-            PollerID:           pollerID,
+    case models.EdgeOnboardingComponentTypeGateway:
+        err := s.serviceRegistry.RegisterGateway(ctx, &registry.GatewayRegistration{
+            GatewayID:           gatewayID,
             ComponentID:        pkg.ComponentID,
             RegistrationSource: registry.RegistrationSourceEdgeOnboarding,
             Metadata:           req.Metadata,
@@ -783,12 +783,12 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.C
             CreatedBy:          getUserFromContext(ctx),
         })
         if err != nil {
-            return nil, fmt.Errorf("failed to register poller: %w", err)
+            return nil, fmt.Errorf("failed to register gateway: %w", err)
         }
     case models.EdgeOnboardingComponentTypeAgent:
         err := s.serviceRegistry.RegisterAgent(ctx, &registry.AgentRegistration{
             AgentID:            req.ComponentID,
-            PollerID:           req.ParentID,
+            GatewayID:           req.ParentID,
             ComponentID:        pkg.ComponentID,
             RegistrationSource: registry.RegistrationSourceEdgeOnboarding,
             Metadata:           req.Metadata,
@@ -818,19 +818,19 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.C
 
 ### 2. Core Service Integration
 
-**In `pkg/core/pollers.go`:**
+**In `pkg/core/gateways.go`:**
 
 ```go
 // OLD:
-func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
-    for _, known := range s.config.KnownPollers {
-        if known == pollerID {
+func (s *Server) isKnownGateway(ctx context.Context, gatewayID string) bool {
+    for _, known := range s.config.KnownGateways {
+        if known == gatewayID {
             return true
         }
     }
 
     if s.edgeOnboarding != nil {
-        if s.edgeOnboarding.isPollerAllowed(ctx, pollerID) {
+        if s.edgeOnboarding.isGatewayAllowed(ctx, gatewayID) {
             return true
         }
     }
@@ -839,17 +839,17 @@ func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
 }
 
 // NEW:
-func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
+func (s *Server) isKnownGateway(ctx context.Context, gatewayID string) bool {
     // Backwards compatibility: check static config first
-    for _, known := range s.config.KnownPollers {
-        if known == pollerID {
+    for _, known := range s.config.KnownGateways {
+        if known == gatewayID {
             return true
         }
     }
 
     // Primary path: check service registry
     if s.serviceRegistry != nil {
-        known, err := s.serviceRegistry.IsKnownPoller(ctx, pollerID)
+        known, err := s.serviceRegistry.IsKnownGateway(ctx, gatewayID)
         if err != nil {
             s.logger.Warn().Err(err).Msg("Failed to check service registry")
         }
@@ -872,7 +872,7 @@ func (s *Server) registerServiceDevice(ctx context.Context, /* ... */) error {
     if s.serviceRegistry != nil {
         heartbeat := &registry.ServiceHeartbeat{
             ServiceType: determineServiceType(agentID, serviceType),
-            PollerID:    pollerID,
+            GatewayID:    gatewayID,
             AgentID:     agentID,
             Timestamp:   timestamp,
             SourceIP:    sourceIP,
@@ -931,13 +931,13 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 ### Phase 2: Basic Integration (Week 1-2)
 - [ ] Integrate with edge onboarding package creation
-- [ ] Add heartbeat recording from `ReportStatus` RPC
-- [ ] Replace `isKnownPoller()` to use service registry
+- [ ] Add heartbeat recording from `PushStatus` RPC
+- [ ] Replace `isKnownGateway()` to use service registry
 - [ ] Integration tests
 
 ### Phase 3: API & UI (Week 2)
 - [ ] Add REST API endpoints:
-  - `GET /api/admin/services/pollers`
+  - `GET /api/admin/services/gateways`
   - `GET /api/admin/services/agents`
   - `GET /api/admin/services/checkers`
   - `GET /api/admin/services/{id}`
@@ -960,7 +960,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 ### Phase 6: Migration & Cleanup (Week 4)
 - [ ] Backfill existing services from `services` stream
 - [ ] Update all documentation
-- [ ] Remove legacy poller tracking code from edge onboarding
+- [ ] Remove legacy gateway tracking code from edge onboarding
 - [ ] Performance tuning and optimization
 
 ---
@@ -988,7 +988,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 - Developer familiarity
 
 ### 5. Scalability
-- Caching for high-frequency queries (`IsKnownPoller`)
+- Caching for high-frequency queries (`IsKnownGateway`)
 - Batch operations for efficiency
 - Background jobs for maintenance
 
@@ -1002,7 +1002,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
    - Audit all registration events
 
 2. **Data Validation:**
-   - Validate parent references (agent → poller, checker → agent)
+   - Validate parent references (agent → gateway, checker → agent)
    - Prevent duplicate registrations
    - Sanitize metadata
 
@@ -1016,7 +1016,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 ## Future Enhancements
 
 ### Service Dependencies
-Track dependencies between services (e.g., agent depends on poller being healthy).
+Track dependencies between services (e.g., agent depends on gateway being healthy).
 
 ### Service Mesh Integration
 Export service registry to service mesh control plane.
@@ -1031,7 +1031,7 @@ Extend registry to support multi-tenant deployments with namespace isolation.
 
 ## Conclusion
 
-Extending `pkg/registry` to handle service registration provides a unified, authoritative system for tracking all pollers, agents, and checkers. This design:
+Extending `pkg/registry` to handle service registration provides a unified, authoritative system for tracking all gateways, agents, and checkers. This design:
 
 - ✅ Mirrors proven device registry patterns
 - ✅ Solves all gaps identified in onboarding review

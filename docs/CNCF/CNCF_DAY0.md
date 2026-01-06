@@ -51,7 +51,7 @@ ServiceRadar follows a dual-track roadmap:
 
 ServiceRadar provides secure-by-design network management for cloud-native environments:
 
-- **Multi-tenant isolation**: Agent/poller/checker architecture supporting overlapping IP spaces and separate security domains
+- **Multi-tenant isolation**: Agent/gateway/checker architecture supporting overlapping IP spaces and separate security domains
 - **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via SPIFFE/SPIRE
 - **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability, using CloudEvents for event standardization
 - **Stream processing**: CNPG/Timescale for real-time data processing and analysis
@@ -209,7 +209,7 @@ ServiceRadar provides its own:
 - RBAC with tenant-scoped queries
 - Kubernetes NetworkPolicies per tenant namespace
 - Separate data retention policies per tenant
-- Isolated agent/poller deployments
+- Isolated agent/gateway deployments
 
 ---
 
@@ -221,7 +221,7 @@ ServiceRadar provides its own:
 |-----------|----------------|--------------------------------------------------------|
 | **Secure by Default** | mTLS enforced, Rust for network-facing code, no default passwords | Zero trust networking, memory safety                   |
 | **Event-Driven Scalability** | NATS JetStream messaging, async processing | Horizontal scaling, fault isolation, CloudEvents based |
-| **Fault Tolerant** | Distributed pollers, circuit breakers, retry logic | 99.9% availability during component failures           |
+| **Fault Tolerant** | Distributed gateways, circuit breakers, retry logic | 99.9% availability during component failures           |
 | **Cloud Native** | SPIFFE/SPIRE identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral                        |
 | **Multi-tenant Isolation** | RBAC, network policies, tenant-scoped queries | Security compliance, MSP-ready                         |
 
@@ -262,7 +262,7 @@ ServiceRadar provides its own:
        ┌────────────┼────────────┐
        │            │            │
    ┌───────┐   ┌────────┐   ┌────────┐
-   │Poller │   │ Agent  │   │Checker │
+   │Gateway │   │ Agent  │   │Checker │
    │(gRPC) │──▶│(mTLS)  │──▶│(Plugin)│
    └───────┘   └────────┘   └────────┘
                                  │
@@ -284,12 +284,12 @@ ServiceRadar provides its own:
 **Data collection:**
 
 ```
-Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS → Core
+Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS → Core
 ```
 
 - **Checkers**: SNMP, ICMP ping, iperf3 bandwidth tests, custom plugins
 - **Agents**: Lightweight gRPC proxies, handle overlapping IP spaces
-- **Pollers**: Data aggregators, chunking for large payloads
+- **Gateways**: Data aggregators, chunking for large payloads
 
 **External integrations:**
 
@@ -381,9 +381,9 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 - Edge proxy: Multiple replicas behind a load balancer or ingress controller
 
 **Data collection:**
-- Multiple poller instances per tenant
-- Agent failover to backup pollers
-- Erlang/BEAM distributed pollers (roadmap Q2 2026)
+- Multiple gateway instances per tenant
+- Agent failover to backup gateways
+- Erlang/BEAM distributed gateways (roadmap Q2 2026)
 
 **Cross-region DR:**
 - NATS hub/leaf federation across regions
@@ -401,7 +401,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 | **Core API** | 2 cores | 4 GB | 30 GB | Horizontal (replicas) |
 | **Edge Proxy** | 1 core | 2 GB | 10 GB | Horizontal (replicas) |
 | **Web UI** | 1 core | 1 GB | 5 GB | Horizontal (replicas) |
-| **Poller** (per instance) | 1 core | 1 GB | 10 GB | Horizontal (instances) |
+| **Gateway** (per instance) | 1 core | 1 GB | 10 GB | Horizontal (instances) |
 | **Agent** (per instance) | 0.5 core | 512 MB | 2 GB | Horizontal (instances) |
 | **Supporting Services** | 0.5 core | 512 MB | 5 GB | Per service (Zen, OTEL, Flowgger) |
 
@@ -412,7 +412,7 @@ Device → Checker (plugin) → Agent (proxy) → Poller (aggregator) → NATS �
 | Load | Additional Resources |
 |------|---------------------|
 | **+10,000 devices** | +1 core, +2 GB RAM (Core API), +100 GB storage/month |
-| **+1,000 events/sec** | +1 poller replica, +2 NATS cores |
+| **+1,000 events/sec** | +1 gateway replica, +2 NATS cores |
 | **+100 concurrent users** | +1 Web UI replica, +1 edge proxy replica |
 
 **Reference configurations:**
@@ -713,7 +713,7 @@ High-risk features requiring ongoing maintenance:
 | Component | Required Privileges | Justification |
 |-----------|---------------------|---------------|
 | **Core API** | Read/write database, pub/sub NATS, service coordination | Central orchestrator |
-| **Pollers** | Write to NATS streams, read from agents | Data collection only |
+| **Gateways** | Write to NATS streams, read from agents | Data collection only |
 | **Agents** | Network access for device polling | Minimal proxy, no data persistence |
 | **Web UI** | Read-only API access | Writes proxied through server-side |
 | **Database** | No external network access | Only accessible via Core API |
@@ -876,7 +876,7 @@ kubectl apply -f previous-version/manifests/
 | **SPIFFE cert mismatch** | mTLS handshake failures | Restart SPIRE server, regenerate certs |
 
 **Impact to running workloads:**
-- Data collection: Brief interruption during poller restarts (<30s)
+- Data collection: Brief interruption during gateway restarts (<30s)
 - API availability: No downtime with multiple replicas
 - Database: Read-only mode during schema migrations
 
@@ -938,7 +938,7 @@ features:
 
 | Component | Scaling Method | Trigger | Max Recommended |
 |-----------|---------------|---------|-----------------|
-| **Pollers** | HPA (CPU:70%) | Kubernetes HPA | 100 instances per cluster |
+| **Gateways** | HPA (CPU:70%) | Kubernetes HPA | 100 instances per cluster |
 | **Agents** | Manual/HPA | Device count | 1000 instances |
 | **Core API** | HPA (CPU:80%) | Kubernetes HPA | 10 replicas (Q1 2026) |
 | **Web UI** | HPA (requests) | Kubernetes HPA | 20 replicas |
@@ -950,7 +950,7 @@ features:
 |--------|-----|-----|-------------------|
 | **API Availability** | 99.9% | Pod healthy, /health returns 200 | 30 days |
 | **API Latency** | p95 < 500ms | API request duration (Prometheus) | 5 minutes |
-| **Data Collection Success** | 99.5% | Poller success rate | 24 hours |
+| **Data Collection Success** | 99.5% | Gateway success rate | 24 hours |
 | **Query Performance** | p95 < 500ms | SRQL query duration | 5 minutes |
 | **Event Processing** | < 30s end-to-end | Ingest to query latency | 5 minutes |
 
@@ -959,7 +959,7 @@ features:
 | Additional Load | CPU Impact | Memory Impact | Storage Impact |
 |----------------|-----------|---------------|----------------|
 | +10k devices | +20% Core API | +2GB Core API | +100GB/month |
-| +1k events/sec | +1 poller replica | +512MB per poller | +50GB/month |
+| +1k events/sec | +1 gateway replica | +512MB per gateway | +50GB/month |
 | +100 concurrent users | +10% Web UI | +1GB edge proxy | Minimal |
 
 **Resource exhaustion scenarios:**
@@ -989,7 +989,7 @@ features:
 | Limit | Value | Basis |
 |-------|-------|-------|
 | **Devices per cluster** | 100,000 | Load testing validated |
-| **Pollers per cluster** | 100 | Network connection limits |
+| **Gateways per cluster** | 100 | Network connection limits |
 | **Events per second** | 10,000 | NATS throughput testing |
 | **Concurrent API users** | 1,000 | Edge proxy connection pooling |
 | **Data retention (default)** | 90 days | Storage cost optimization |
@@ -998,7 +998,7 @@ features:
 
 | Pattern | Implementation | Example |
 |---------|----------------|---------|
-| **Circuit Breaker** | gRPC clients fail-open after 5 consecutive failures | Poller → Agent connection |
+| **Circuit Breaker** | gRPC clients fail-open after 5 consecutive failures | Gateway → Agent connection |
 | **Bulkhead** | Separate goroutine pools per tenant | Core API request handling |
 | **Retry with Backoff** | Exponential backoff, max 5 attempts, 30s max delay | Database queries |
 | **Timeout** | 30s for external calls, 10s for internal gRPC | All API calls |
@@ -1027,8 +1027,8 @@ histogram_quantile(0.95, rate(serviceradar_api_duration_seconds_bucket[5m]))
 # Device reachability
 serviceradar_device_reachable_total / serviceradar_device_total
 
-# Poller success rate
-rate(serviceradar_poller_success_total[5m]) / rate(serviceradar_poller_attempts_total[5m])
+# Gateway success rate
+rate(serviceradar_gateway_success_total[5m]) / rate(serviceradar_gateway_attempts_total[5m])
 
 # NATS message lag
 nats_jetstream_stream_messages_pending
@@ -1118,7 +1118,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |----------|--------|------------|
 | Is ServiceRadar in use? | Prometheus | `serviceradar_devices_monitored > 0` |
 | What's the device count? | API or UI | `/api/v1/devices/count` |
-| Are pollers active? | Logs | "Polling cycle completed" messages |
+| Are gateways active? | Logs | "Polling cycle completed" messages |
 | What's the data volume? | Prometheus | `serviceradar_metrics_collected_total` |
 
 **Operator health verification:**
@@ -1130,9 +1130,9 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
   expr: rate(serviceradar_api_errors_total[5m]) > 0.05
   for: 5m
 
-# Poller failure rate
-- alert: HighPollerFailureRate
-  expr: rate(serviceradar_poller_failures_total[5m]) / rate(serviceradar_poller_attempts_total[5m]) > 0.05
+# Gateway failure rate
+- alert: HighGatewayFailureRate
+  expr: rate(serviceradar_gateway_failures_total[5m]) / rate(serviceradar_gateway_attempts_total[5m]) > 0.05
   for: 10m
 
 # Database query latency
@@ -1161,7 +1161,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 
 | Dependency Down | Immediate Impact | Mitigation | Recovery |
 |-----------------|------------------|------------|----------|
-| **NATS** | Data ingestion halted | Pollers buffer locally (5min) | Automatic retry, drain buffer |
+| **NATS** | Data ingestion halted | Gateways buffer locally (5min) | Automatic retry, drain buffer |
 | **CNPG** | Queries fail, writes buffered | NATS retains messages | Replay from NATS on recovery |
 | **SPIRE** | New pods fail auth | Existing services continue | Restart SPIRE, pods self-heal |
 | **Edge Proxy** | API access denied | Direct Core API access possible | Restart proxy, routes restored |
@@ -1213,7 +1213,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 **Database (CNPG/Timescale) failure:**
 - **Impact**: Queries fail, new data cannot be written
 - **Recovery**:
-  1. Pollers buffer data in NATS (automatic)
+  1. Gateways buffer data in NATS (automatic)
   2. Alert fires: "Database unreachable"
   3. Operator restarts database or restores from backup
   4. Core API drains NATS buffer and writes to database
@@ -1222,9 +1222,9 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 **NATS JetStream failure:**
 - **Impact**: Data ingestion halted, configuration updates blocked
 - **Recovery**:
-  1. Pollers cache data locally (5-minute buffer)
+  1. Gateways cache data locally (5-minute buffer)
   2. NATS cluster self-heals (leader election)
-  3. Pollers reconnect automatically
+  3. Gateways reconnect automatically
   4. Cached data flushed to NATS
 - **Data loss**: Minimal (5 minutes if all NATS nodes fail)
 
@@ -1274,13 +1274,13 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | **Resolution** | 1. Verify SPIRE server health: `kubectl get pods -n spire-system`<br>2. Check SPIRE agent logs: `kubectl logs -n serviceradar <pod> -c spire-agent`<br>3. Manually trigger rotation: `kubectl exec <pod> -- spire-agent api fetch -socketPath /run/spire/sockets/agent.sock`<br>4. Restart affected pods if necessary |
 | **Prevention** | Monitor `spiffe_cert_expiry_seconds`, alert if < 1 hour remaining |
 
-**4. Poller-Agent Communication Failure**
+**4. Gateway-Agent Communication Failure**
 
 | Field | Details |
 |-------|---------|
 | **Symptom** | Device data gaps, "unreachable" status in UI, logs show "connection refused" |
 | **Root Cause** | Network connectivity issue, agent pod crash, mTLS certificate mismatch |
-| **Resolution** | 1. Verify network connectivity: `kubectl exec <poller-pod> -- nc -zv <agent-service> 50051`<br>2. Check agent pod status: `kubectl get pods -l app=serviceradar-agent`<br>3. Validate mTLS: check SPIRE logs in both poller and agent<br>4. Restart agent pod if necessary |
+| **Resolution** | 1. Verify network connectivity: `kubectl exec <gateway-pod> -- nc -zv <agent-service> 50051`<br>2. Check agent pod status: `kubectl get pods -l app=serviceradar-agent`<br>3. Validate mTLS: check SPIRE logs in both gateway and agent<br>4. Restart agent pod if necessary |
 | **Prevention** | Network policies correctly configured, regular connectivity tests |
 
 **5. Large SNMP Payload Timeout**
@@ -1289,7 +1289,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |-------|---------|
 | **Symptom** | Devices with many interfaces timeout, logs show "context deadline exceeded" |
 | **Root Cause** | SNMP walk takes longer than 30s default timeout |
-| **Resolution** | 1. Enable gRPC chunking in poller config<br>2. Increase timeout: `poller.snmpTimeout: 60s`<br>3. Use SNMP bulk requests: `snmp.useBulkRequests: true` |
+| **Resolution** | 1. Enable gRPC chunking in gateway config<br>2. Increase timeout: `gateway.snmpTimeout: 60s`<br>3. Use SNMP bulk requests: `snmp.useBulkRequests: true` |
 | **Prevention** | Monitor `serviceradar_snmp_timeout_total`, tune timeouts per device type |
 
 **Troubleshooting runbook**: https://docs.serviceradar.cloud/troubleshooting

@@ -30,11 +30,11 @@ func TestDownloadPackageSuccess(t *testing.T) {
 		resp := deliverResponse{
 			Package: edgePackagePayload{
 				PackageID:              "pkg-123",
-				Label:                  "Edge Poller",
-				ComponentID:            "poller-a",
-				ComponentType:          string(models.EdgeOnboardingComponentTypePoller),
+				Label:                  "Edge Gateway",
+				ComponentID:            "gateway-a",
+				ComponentType:          string(models.EdgeOnboardingComponentTypeGateway),
 				Status:                 string(models.EdgeOnboardingStatusDelivered),
-				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/poller-a",
+				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/gateway-a",
 				JoinTokenExpiresAt:     time.Now().Add(time.Hour),
 				DownloadTokenExpiresAt: time.Now().Add(2 * time.Hour),
 				CreatedAt:              time.Now(),
@@ -58,15 +58,15 @@ func TestDownloadPackageSuccess(t *testing.T) {
 	b, err := NewBootstrapper(&Config{
 		Token:           token,
 		GatewayEndpoint: "gateway:50052",
-		ServiceType:     models.EdgeOnboardingComponentTypePoller,
+		ServiceType:     models.EdgeOnboardingComponentTypeGateway,
 	})
 	require.NoError(t, err)
 
 	require.NoError(t, b.downloadPackage(context.Background()))
 	require.NotNil(t, b.pkg)
 	require.Equal(t, "pkg-123", b.pkg.PackageID)
-	require.Equal(t, "poller-a", b.pkg.ComponentID)
-	require.Equal(t, "spiffe://example.org/ns/edge/poller-a", b.pkg.DownstreamSPIFFEID)
+	require.Equal(t, "gateway-a", b.pkg.ComponentID)
+	require.Equal(t, "spiffe://example.org/ns/edge/gateway-a", b.pkg.DownstreamSPIFFEID)
 	require.NotNil(t, b.downloadResult)
 	require.Equal(t, "join-json", b.downloadResult.JoinToken)
 	require.Equal(t, "bundle-json", string(b.downloadResult.BundlePEM))
@@ -76,10 +76,10 @@ func TestDownloadPackageFromArchive(t *testing.T) {
 	now := time.Now().UTC()
 	meta := &archiveMetadataFile{
 		PackageID:          "pkg-archive",
-		Label:              "Offline Poller",
-		ComponentID:        "poller-offline",
-		ComponentType:      string(models.EdgeOnboardingComponentTypePoller),
-		PollerID:           "poller-offline",
+		Label:              "Offline Gateway",
+		ComponentID:        "gateway-offline",
+		ComponentType:      string(models.EdgeOnboardingComponentTypeGateway),
+		GatewayID:           "gateway-offline",
 		Status:             string(models.EdgeOnboardingStatusDelivered),
 		DownstreamSPIFFEID: "spiffe://example.org/ns/edge/offline",
 		Selectors:          []string{"unix:uid:0"},
@@ -99,14 +99,14 @@ func TestDownloadPackageFromArchive(t *testing.T) {
 	b, err := NewBootstrapper(&Config{
 		PackagePath: archivePath,
 		KVEndpoint:  "kv:50057",
-		ServiceType: models.EdgeOnboardingComponentTypePoller,
+		ServiceType: models.EdgeOnboardingComponentTypeGateway,
 	})
 	require.NoError(t, err)
 
 	require.NoError(t, b.downloadPackage(context.Background()))
 	require.NotNil(t, b.pkg)
 	require.Equal(t, "pkg-archive", b.pkg.PackageID)
-	require.Equal(t, "poller-offline", b.pkg.ComponentID)
+	require.Equal(t, "gateway-offline", b.pkg.ComponentID)
 	require.Equal(t, "spiffe://example.org/ns/edge/offline", b.pkg.DownstreamSPIFFEID)
 	require.NotNil(t, b.downloadResult)
 	require.Equal(t, "offline-token", b.downloadResult.JoinToken)

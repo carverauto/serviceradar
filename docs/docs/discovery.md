@@ -8,13 +8,13 @@ ServiceRadar discovery jobs keep the registry aligned with real-world infrastruc
 
 ## Mapper Service Overview
 
-The `serviceradar-mapper` service is the SNMP-first discovery engine that complements sweep jobs and external imports. It exposes gRPC endpoints (`discovery.DiscoveryService` and `monitoring.AgentService`) for on-demand scans, and it can run scheduled discovery without any external trigger. Mapper loads its settings from `/etc/serviceradar/mapper.json` (mounted from `docker/compose/mapper.docker.json` in Docker or rendered via the Helm chart) and keeps its own worker pool so discovery does not compete with poller workloads.
+The `serviceradar-mapper` service is the SNMP-first discovery engine that complements sweep jobs and external imports. It exposes gRPC endpoints (`discovery.DiscoveryService` and `monitoring.AgentService`) for on-demand scans, and it can run scheduled discovery without any external trigger. Mapper loads its settings from `/etc/serviceradar/mapper.json` (mounted from `docker/compose/mapper.docker.json` in Docker or rendered via the Helm chart) and keeps its own worker pool so discovery does not compete with gateway workloads.
 
 ### Publishing Flow
 
 - Newly discovered devices are normalized through the device registry and land in the CNPG `device_updates` stream with `discovery_source = 'mapper'`. That keeps reconciliation logic consistent with sweep, Armis, and Sync imports.
 - Interface inventories are written to the `discovered_interfaces` table, and topology links flow into `topology_discovery_events`. Use SRQL queries such as `in:interfaces time:last_1h limit:20` to spot-check mapper output.
-- Mapper enriches each record with the `agent_id`, `poller_id`, and `partition` defined under `stream_config`, so downstream alerts and dashboards can segment results by environment.
+- Mapper enriches each record with the `agent_id`, `gateway_id`, and `partition` defined under `stream_config`, so downstream alerts and dashboards can segment results by environment.
 
 ### Configuring `mapper.json`
 
@@ -23,7 +23,7 @@ Mapper reads a single JSON document; the most important sections are:
 - **`workers`, `max_active_jobs`, `timeout`, `retries`** - govern concurrency and job lifecycle. Keep `workers` below the number of SNMP sessions your network can tolerate.
 - **`default_credentials` and `credentials[]`** - define global SNMP v2c/v3 credentials plus CIDR-specific overrides. CIDR matches are evaluated in order; list the most specific ranges first.
 - **`oids`** - per-discovery-type OID sets. `basic`, `interfaces`, and `topology` ship with sensible defaults, but you can add vendor-specific OIDs as needed.
-- **`stream_config`** - names the CNPG streams (`device_stream`, `interface_stream`, `topology_stream`) and tags emitted events with `agent_id`, `poller_id`, and optional `partition`. Defaults point to `sweep_results`, `discovered_interfaces`, and `topology_discovery_events`.
+- **`stream_config`** - names the CNPG streams (`device_stream`, `interface_stream`, `topology_stream`) and tags emitted events with `agent_id`, `gateway_id`, and optional `partition`. Defaults point to `sweep_results`, `discovered_interfaces`, and `topology_discovery_events`.
 - **`scheduled_jobs[]`** - cron-like definitions that launch discovery on an interval. Each job supplies `seeds` (IPs, hosts, or subnets), the discovery `type` (`full`, `basic`, `interfaces`, or `topology`), credentials override, concurrency, timeout, and retry budget.
 - **`unifi_apis[]`** - optional UniFi controller integrations. Provide `base_url`, `api_key`, and set `insecure_skip_verify` only when testing lab controllers.
 - **`security` / `logging`** - mTLS endpoints and OTLP exporter settings so mapper aligns with the wider ServiceRadar transport policies.

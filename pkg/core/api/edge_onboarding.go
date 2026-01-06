@@ -26,7 +26,7 @@ type edgePackageView struct {
 	ComponentType      string     `json:"component_type"`
 	ParentType         string     `json:"parent_type,omitempty"`
 	ParentID           string     `json:"parent_id,omitempty"`
-	PollerID           string     `json:"poller_id"`
+	GatewayID           string     `json:"gateway_id"`
 	Site               string     `json:"site,omitempty"`
 	Status             string     `json:"status"`
 	DownstreamSPIFFEID string     `json:"downstream_spiffe_id"`
@@ -66,7 +66,7 @@ type edgePackageCreateRequest struct {
 	ComponentType           string   `json:"component_type,omitempty"`
 	ParentType              string   `json:"parent_type,omitempty"`
 	ParentID                string   `json:"parent_id,omitempty"`
-	PollerID                string   `json:"poller_id,omitempty"`
+	GatewayID                string   `json:"gateway_id,omitempty"`
 	Site                    string   `json:"site,omitempty"`
 	SecurityMode            string   `json:"security_mode,omitempty"`
 	Selectors               []string `json:"selectors,omitempty"`
@@ -109,7 +109,7 @@ type edgePackageDeliverResponse struct {
 }
 
 const (
-	componentTypePoller  = "poller"
+	componentTypeGateway  = "gateway"
 	componentTypeChecker = "checker"
 	componentTypeAgent   = serviceAgent
 )
@@ -123,7 +123,7 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 	query := r.URL.Query()
 
 	filter := &models.EdgeOnboardingListFilter{
-		PollerID:    strings.TrimSpace(query.Get("poller_id")),
+		GatewayID:    strings.TrimSpace(query.Get("gateway_id")),
 		ComponentID: strings.TrimSpace(query.Get("component_id")),
 		ParentID:    strings.TrimSpace(query.Get("parent_id")),
 	}
@@ -178,14 +178,14 @@ func (s *APIServer) handleListEdgePackages(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				switch trimmed {
-				case componentTypePoller:
-					types = append(types, models.EdgeOnboardingComponentTypePoller)
+				case componentTypeGateway:
+					types = append(types, models.EdgeOnboardingComponentTypeGateway)
 				case componentTypeAgent:
 					types = append(types, models.EdgeOnboardingComponentTypeAgent)
 				case componentTypeChecker:
 					types = append(types, models.EdgeOnboardingComponentTypeChecker)
 				default:
-					writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
+					writeError(w, "component_type must be gateway, agent, or checker", http.StatusBadRequest)
 					return
 				}
 			}
@@ -336,17 +336,17 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	componentType := models.EdgeOnboardingComponentTypePoller
+	componentType := models.EdgeOnboardingComponentTypeGateway
 	if rawType := strings.TrimSpace(strings.ToLower(req.ComponentType)); rawType != "" {
 		switch rawType {
-		case string(models.EdgeOnboardingComponentTypePoller):
-			componentType = models.EdgeOnboardingComponentTypePoller
+		case string(models.EdgeOnboardingComponentTypeGateway):
+			componentType = models.EdgeOnboardingComponentTypeGateway
 		case string(models.EdgeOnboardingComponentTypeAgent):
 			componentType = models.EdgeOnboardingComponentTypeAgent
 		case string(models.EdgeOnboardingComponentTypeChecker):
 			componentType = models.EdgeOnboardingComponentTypeChecker
 		default:
-			writeError(w, "component_type must be poller, agent, or checker", http.StatusBadRequest)
+			writeError(w, "component_type must be gateway, agent, or checker", http.StatusBadRequest)
 			return
 		}
 	}
@@ -354,31 +354,31 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 	parentType := models.EdgeOnboardingComponentTypeNone
 	if rawParent := strings.TrimSpace(strings.ToLower(req.ParentType)); rawParent != "" {
 		switch rawParent {
-		case string(models.EdgeOnboardingComponentTypePoller):
-			parentType = models.EdgeOnboardingComponentTypePoller
+		case string(models.EdgeOnboardingComponentTypeGateway):
+			parentType = models.EdgeOnboardingComponentTypeGateway
 		case string(models.EdgeOnboardingComponentTypeAgent):
 			parentType = models.EdgeOnboardingComponentTypeAgent
 		case string(models.EdgeOnboardingComponentTypeChecker):
 			parentType = models.EdgeOnboardingComponentTypeChecker
 		default:
-			writeError(w, "parent_type must be poller, agent, or checker", http.StatusBadRequest)
+			writeError(w, "parent_type must be gateway, agent, or checker", http.StatusBadRequest)
 			return
 		}
 	}
 
 	parentID := strings.TrimSpace(req.ParentID)
-	if componentType == models.EdgeOnboardingComponentTypePoller && parentID != "" {
-		writeError(w, "parent_id is not allowed for poller packages", http.StatusBadRequest)
+	if componentType == models.EdgeOnboardingComponentTypeGateway && parentID != "" {
+		writeError(w, "parent_id is not allowed for gateway packages", http.StatusBadRequest)
 		return
 	}
 
 	if parentType == models.EdgeOnboardingComponentTypeNone && parentID != "" {
 		switch componentType {
 		case models.EdgeOnboardingComponentTypeAgent:
-			parentType = models.EdgeOnboardingComponentTypePoller
+			parentType = models.EdgeOnboardingComponentTypeGateway
 		case models.EdgeOnboardingComponentTypeChecker:
 			parentType = models.EdgeOnboardingComponentTypeAgent
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
+		case models.EdgeOnboardingComponentTypeGateway, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			// no parent inference required
 		}
 	}
@@ -389,7 +389,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 
 	componentID := strings.TrimSpace(req.ComponentID)
 	if componentID == "" {
-		componentID = strings.TrimSpace(req.PollerID)
+		componentID = strings.TrimSpace(req.GatewayID)
 	}
 
 	var joinTTL, downloadTTL time.Duration
@@ -411,7 +411,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		ComponentType:      componentType,
 		ParentType:         parentType,
 		ParentID:           parentID,
-		PollerID:           strings.TrimSpace(req.PollerID),
+		GatewayID:           strings.TrimSpace(req.GatewayID),
 		Site:               req.Site,
 		SecurityMode:       strings.TrimSpace(req.SecurityMode),
 		Selectors:          req.Selectors,
@@ -431,7 +431,7 @@ func (s *APIServer) handleCreateEdgePackage(w http.ResponseWriter, r *http.Reque
 		switch {
 		case errors.Is(err, models.ErrEdgeOnboardingInvalidRequest):
 			writeError(w, err.Error(), http.StatusBadRequest)
-		case errors.Is(err, models.ErrEdgeOnboardingPollerConflict):
+		case errors.Is(err, models.ErrEdgeOnboardingGatewayConflict):
 			writeError(w, err.Error(), http.StatusConflict)
 		case errors.Is(err, models.ErrEdgeOnboardingComponentConflict):
 			writeError(w, err.Error(), http.StatusConflict)
@@ -561,7 +561,7 @@ func (s *APIServer) handleDownloadEdgePackage(w http.ResponseWriter, r *http.Req
 
 	if result.Package != nil {
 		w.Header().Set("X-Edge-Package-ID", result.Package.PackageID)
-		w.Header().Set("X-Edge-Poller-ID", result.Package.PollerID)
+		w.Header().Set("X-Edge-Gateway-ID", result.Package.GatewayID)
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", buildContentDisposition(filename))
@@ -685,7 +685,7 @@ func toEdgePackageView(pkg *models.EdgeOnboardingPackage) edgePackageView {
 		ComponentType:      string(pkg.ComponentType),
 		ParentType:         string(pkg.ParentType),
 		ParentID:           pkg.ParentID,
-		PollerID:           pkg.PollerID,
+		GatewayID:           pkg.GatewayID,
 		Site:               pkg.Site,
 		Status:             string(pkg.Status),
 		SecurityMode:       pkg.SecurityMode,

@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   Tests cover:
   - Inventory Domain: /api/v2/devices
-  - Infrastructure Domain: /api/v2/pollers, /api/v2/agents
+  - Infrastructure Domain: /api/v2/gateways, /api/v2/agents
   - Monitoring Domain: /api/v2/service-checks, /api/v2/alerts
   """
 
@@ -60,16 +60,16 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     end
   end
 
-  describe "GET /api/v2/pollers" do
+  describe "GET /api/v2/gateways" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      poller = tenant_poller_fixture(tenant)
+      gateway = tenant_gateway_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, poller: poller}
+      %{conn: conn, tenant: tenant, gateway: gateway}
     end
 
-    test "returns a list of pollers", %{conn: conn} do
-      conn = get(conn, ~p"/api/v2/pollers")
+    test "returns a list of gateways", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/gateways")
       response = json_response(conn, 200)
 
       assert is_map(response)
@@ -79,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
     test "returns empty list for unauthenticated request (tenant isolation)" do
       conn = build_conn()
-      conn = get(conn, ~p"/api/v2/pollers")
+      conn = get(conn, ~p"/api/v2/gateways")
 
       # API allows unauthenticated access but returns empty due to tenant isolation
       response = json_response(conn, 200)
@@ -87,16 +87,16 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     end
   end
 
-  describe "GET /api/v2/pollers/:id" do
+  describe "GET /api/v2/gateways/:id" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      poller = tenant_poller_fixture(tenant)
+      gateway = tenant_gateway_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, poller: poller}
+      %{conn: conn, tenant: tenant, gateway: gateway}
     end
 
-    test "returns error for non-existent poller", %{conn: conn} do
-      conn = get(conn, ~p"/api/v2/pollers/non-existent-id")
+    test "returns error for non-existent gateway", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/gateways/non-existent-id")
 
       # Returns 400 (validation) or 404 (not found) depending on path matching
       assert conn.status in [400, 404]
@@ -146,25 +146,25 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     end
   end
 
-  describe "GET /api/v2/agents/by-poller/:poller_id" do
+  describe "GET /api/v2/agents/by-gateway/:gateway_id" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      poller = tenant_poller_fixture(tenant)
-      agent = tenant_agent_fixture(tenant, %{poller_id: poller.id})
+      gateway = tenant_gateway_fixture(tenant)
+      agent = tenant_agent_fixture(tenant, %{gateway_id: gateway.id})
 
-      %{conn: conn, tenant: tenant, poller: poller, agent: agent}
+      %{conn: conn, tenant: tenant, gateway: gateway, agent: agent}
     end
 
-    test "returns agents for a poller", %{conn: conn, poller: poller} do
-      conn = get(conn, ~p"/api/v2/agents/by-poller/#{poller.id}")
+    test "returns agents for a gateway", %{conn: conn, gateway: gateway} do
+      conn = get(conn, ~p"/api/v2/agents/by-gateway/#{gateway.id}")
       response = json_response(conn, 200)
 
       assert is_map(response)
       assert is_list(response["data"])
     end
 
-    test "returns empty list for non-existent poller", %{conn: conn} do
-      conn = get(conn, ~p"/api/v2/agents/by-poller/non-existent-poller")
+    test "returns empty list for non-existent gateway", %{conn: conn} do
+      conn = get(conn, ~p"/api/v2/agents/by-gateway/non-existent-gateway")
       response = json_response(conn, 200)
 
       assert response["data"] == []

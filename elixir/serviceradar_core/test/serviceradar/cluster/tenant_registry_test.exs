@@ -104,7 +104,7 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     test "registers and looks up process in tenant registry", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      key = {:poller, "poller-001"}
+      key = {:gateway, "gateway-001"}
       metadata = %{status: :available, node: node()}
 
       {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, metadata)
@@ -117,14 +117,14 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     test "returns empty list for non-existent key", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      assert [] = TenantRegistry.lookup(tenant_id_1, {:poller, "non-existent"})
+      assert [] = TenantRegistry.lookup(tenant_id_1, {:gateway, "non-existent"})
     end
 
     test "tenant isolation - cannot see other tenant's registrations", %{tenant_id_1: tenant_id_1, tenant_id_2: tenant_id_2} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_2)
 
-      key = {:poller, "poller-001"}
+      key = {:gateway, "gateway-001"}
       metadata = %{status: :available}
 
       {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, metadata)
@@ -137,8 +137,8 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     end
   end
 
-  describe "register_poller/3 and find_pollers/1" do
-    test "registers poller with auto-generated metadata", %{tenant_id_1: tenant_id_1} do
+  describe "register_gateway/3 and find_gateways/1" do
+    test "registers gateway with auto-generated metadata", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       metadata = %{
@@ -147,28 +147,28 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
         status: :available
       }
 
-      {:ok, _pid} = TenantRegistry.register_poller(tenant_id_1, "poller-001", metadata)
+      {:ok, _pid} = TenantRegistry.register_gateway(tenant_id_1, "gateway-001", metadata)
 
-      pollers = TenantRegistry.find_pollers(tenant_id_1)
+      gateways = TenantRegistry.find_gateways(tenant_id_1)
 
-      assert length(pollers) == 1
-      [poller] = pollers
-      assert poller[:partition_id] == "partition-1"
-      assert poller[:status] == :available
-      assert poller[:type] == :poller
-      assert %DateTime{} = poller[:registered_at]
-      assert %DateTime{} = poller[:last_heartbeat]
+      assert length(gateways) == 1
+      [gateway] = gateways
+      assert gateway[:partition_id] == "partition-1"
+      assert gateway[:status] == :available
+      assert gateway[:type] == :gateway
+      assert %DateTime{} = gateway[:registered_at]
+      assert %DateTime{} = gateway[:last_heartbeat]
     end
 
-    test "find_available_pollers/1 filters by status", %{tenant_id_1: tenant_id_1} do
+    test "find_available_gateways/1 filters by status", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
       {:ok, _} =
-        TenantRegistry.register_poller(tenant_id_1, "poller-001", %{status: :available})
+        TenantRegistry.register_gateway(tenant_id_1, "gateway-001", %{status: :available})
 
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{status: :busy})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-002", %{status: :busy})
 
-      available = TenantRegistry.find_available_pollers(tenant_id_1)
+      available = TenantRegistry.find_available_gateways(tenant_id_1)
 
       assert length(available) == 1
       assert hd(available)[:status] == :available
@@ -201,7 +201,7 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     test "unregisters process from tenant registry", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      key = {:poller, "poller-001"}
+      key = {:gateway, "gateway-001"}
       {:ok, _pid} = TenantRegistry.register(tenant_id_1, key, %{})
 
       assert [{_, _}] = TenantRegistry.lookup(tenant_id_1, key)
@@ -216,8 +216,8 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     test "counts all processes in tenant registry", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-001", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-002", %{})
       {:ok, _} = TenantRegistry.register_agent(tenant_id_1, "agent-001", %{})
 
       assert TenantRegistry.count(tenant_id_1) == 3
@@ -226,30 +226,30 @@ defmodule ServiceRadar.Cluster.TenantRegistryTest do
     test "counts processes by type", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-002", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-001", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-002", %{})
       {:ok, _} = TenantRegistry.register_agent(tenant_id_1, "agent-001", %{})
 
-      assert TenantRegistry.count_by_type(tenant_id_1, :poller) == 2
+      assert TenantRegistry.count_by_type(tenant_id_1, :gateway) == 2
       assert TenantRegistry.count_by_type(tenant_id_1, :agent) == 1
     end
   end
 
-  describe "poller_heartbeat/2" do
+  describe "gateway_heartbeat/2" do
     test "updates last_heartbeat timestamp", %{tenant_id_1: tenant_id_1} do
       {:ok, _} = TenantRegistry.ensure_registry(tenant_id_1)
 
-      {:ok, _} = TenantRegistry.register_poller(tenant_id_1, "poller-001", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_id_1, "gateway-001", %{})
 
-      [poller_before] = TenantRegistry.find_pollers(tenant_id_1)
-      original_heartbeat = poller_before[:last_heartbeat]
+      [gateway_before] = TenantRegistry.find_gateways(tenant_id_1)
+      original_heartbeat = gateway_before[:last_heartbeat]
 
       Process.sleep(10)
 
-      :ok = TenantRegistry.poller_heartbeat(tenant_id_1, "poller-001")
+      :ok = TenantRegistry.gateway_heartbeat(tenant_id_1, "gateway-001")
 
-      [poller_after] = TenantRegistry.find_pollers(tenant_id_1)
-      new_heartbeat = poller_after[:last_heartbeat]
+      [gateway_after] = TenantRegistry.find_gateways(tenant_id_1)
+      new_heartbeat = gateway_after[:last_heartbeat]
 
       assert DateTime.compare(new_heartbeat, original_heartbeat) == :gt
     end

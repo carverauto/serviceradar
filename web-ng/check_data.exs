@@ -6,7 +6,7 @@ IO.puts("=== Table row counts ===")
 tables = %{
   "ocsf_agents" => 0,
   "ocsf_devices" => 0,
-  "pollers" => 0,
+  "gateways" => 0,
   "monitoring_events" => 0,
   "service_checks" => 0,
   "alerts" => 0,

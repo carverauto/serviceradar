@@ -68,14 +68,14 @@ defmodule ServiceRadarWebNG.Inventory do
   end
 
   @doc """
-  Gets devices by poller ID.
+  Gets devices by gateway ID.
   """
-  def list_devices_by_poller(poller_id, opts \\ []) do
+  def list_devices_by_gateway(gateway_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     query_opts = build_query_opts(actor)
 
     Device
-    |> Ash.Query.for_read(:by_poller, %{poller_id: poller_id})
+    |> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway_id})
     |> Ash.read(query_opts)
     |> case do
       {:ok, devices} -> devices

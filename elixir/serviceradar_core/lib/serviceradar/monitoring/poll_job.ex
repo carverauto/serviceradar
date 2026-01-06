@@ -15,8 +15,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
   ## States
 
   - `:pending` - Job created, waiting to be picked up by orchestrator
-  - `:dispatching` - Finding an available poller for execution
-  - `:running` - Job is executing on a poller/agent
+  - `:dispatching` - Finding an available gateway for execution
+  - `:running` - Job is executing on a gateway/agent
   - `:completed` - Job finished successfully
   - `:failed` - Job failed (agent unreachable, check error, etc.)
   - `:timeout` - Job timed out before completion
@@ -26,8 +26,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
   1. AshOban triggers PollingSchedule.execute
   2. PollOrchestrator creates a PollJob in :pending state
-  3. PollOrchestrator transitions to :dispatching while finding a poller
-  4. When poller accepts job, transitions to :running
+  3. PollOrchestrator transitions to :dispatching while finding a gateway
+  4. When gateway accepts job, transitions to :running
   5. On completion, transitions to :completed/:failed/:timeout
   6. Results are recorded and schedule is updated
 
@@ -149,7 +149,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
         :schedule_name,
         :check_count,
         :check_ids,
-        :poller_id,
+        :gateway_id,
         :agent_id,
         :priority,
         :timeout_seconds,
@@ -160,15 +160,15 @@ defmodule ServiceRadar.Monitoring.PollJob do
     # State machine transition actions
 
     update :dispatch do
-      description "Mark job as dispatching (finding a poller)"
-      accept [:poller_id]
+      description "Mark job as dispatching (finding a gateway)"
+      accept [:gateway_id]
 
       change transition_state(:dispatching)
       change set_attribute(:dispatched_at, &DateTime.utc_now/0)
     end
 
     update :start do
-      description "Mark job as running on a poller/agent"
+      description "Mark job as running on a gateway/agent"
       accept [:agent_id]
 
       change transition_state(:running)
@@ -343,9 +343,9 @@ defmodule ServiceRadar.Monitoring.PollJob do
       description "IDs of service checks included in this job"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller assigned to execute this job"
+      description "Gateway assigned to execute this job"
     end
 
     attribute :agent_id, :string do
@@ -387,7 +387,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
     # Timing
     attribute :dispatched_at, :utc_datetime do
       public? true
-      description "When the job was dispatched to a poller"
+      description "When the job was dispatched to a gateway"
     end
 
     attribute :started_at, :utc_datetime do

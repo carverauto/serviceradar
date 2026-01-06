@@ -142,7 +142,7 @@ func TestCheckRBAC(t *testing.T) {
 	})
 
 	t.Run("SPIFFEIdentity", func(t *testing.T) {
-		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller")
+		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-gateway")
 		require.NoError(t, err)
 
 		cert := &x509.Certificate{

@@ -95,7 +95,7 @@ func (s *AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) 
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     "serviceradar-mapper-monitor",
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 		Timestamp:   time.Now().Unix(),
 	}, nil
 }

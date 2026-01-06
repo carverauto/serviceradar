@@ -97,7 +97,6 @@ data:
     generate_cert "web" "serviceradar-web-ng" "DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
     generate_cert "datasvc" "serviceradar-datasvc" "DNS:serviceradar-datasvc,DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc.serviceradar-staging.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
     generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.serviceradar-staging.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
-    generate_cert "poller" "serviceradar-poller" "DNS:serviceradar-poller,DNS:poller,DNS:poller.serviceradar,DNS:serviceradar-poller.serviceradar-staging.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
     generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:serviceradar-snmp-checker,DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:localhost,IP:127.0.0.1"
     generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
     generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"

@@ -35,7 +35,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_poller@poller-elx
+      - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent_gateway@agent-gateway
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
@@ -72,7 +72,7 @@ services:
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
-      - CLUSTER_HOSTS=serviceradar_poller@poller-elx,serviceradar_core@core-elx
+      - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx
       - CLUSTER_TLS_ENABLED=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - RELEASE_NODE=serviceradar_web_ng@web-ng
@@ -82,12 +82,12 @@ services:
       - ./docker/compose/ssl_dist.web.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
 
-  poller-elx:
+  agent-gateway:
     build:
       context: .
-      dockerfile: docker/compose/Dockerfile.poller-elx
-    container_name: serviceradar-poller-elx
-    hostname: poller-elx
+      dockerfile: docker/compose/Dockerfile.agent-gateway
+    container_name: serviceradar-agent-gateway-elx
+    hostname: agent-gateway
     environment:
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
@@ -95,11 +95,11 @@ services:
       - ENABLE_TLS_DIST=true
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - RELEASE_NODE=serviceradar_poller@poller-elx
+      - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_COOKIE=serviceradar_dev_cookie
     volumes:
       - cert-data:/etc/serviceradar/certs:ro
-      - ./docker/compose/ssl_dist.poller.conf:/etc/serviceradar/ssl_dist.conf:ro
+      - ./docker/compose/ssl_dist.gateway.conf:/etc/serviceradar/ssl_dist.conf:ro
     networks:
       - serviceradar-net
     restart: unless-stopped

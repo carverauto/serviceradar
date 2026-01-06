@@ -6,18 +6,18 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// agentInfoView represents an agent and its associated poller information for API responses.
+// agentInfoView represents an agent and its associated gateway information for API responses.
 type agentInfoView struct {
 	AgentID      string   `json:"agent_id"`
-	PollerID     string   `json:"poller_id"`
+	GatewayID     string   `json:"gateway_id"`
 	LastSeen     string   `json:"last_seen"`
 	ServiceTypes []string `json:"service_types,omitempty"`
 }
 
-// handleListAgents retrieves all agents with their associated pollers.
+// handleListAgents retrieves all agents with their associated gateways.
 // GET /api/admin/agents
 func (s *APIServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.dbService.ListAgentsWithPollers(r.Context())
+	agents, err := s.dbService.ListAgentsWithGateways(r.Context())
 	if err != nil {
 		s.logger.Error().
 			Err(err).
@@ -30,7 +30,7 @@ func (s *APIServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range agents {
 		views = append(views, agentInfoView{
 			AgentID:      agent.AgentID,
-			PollerID:     agent.PollerID,
+			GatewayID:     agent.GatewayID,
 			LastSeen:     agent.LastSeen.Format("2006-01-02T15:04:05Z07:00"),
 			ServiceTypes: agent.ServiceTypes,
 		})
@@ -39,22 +39,22 @@ func (s *APIServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, views)
 }
 
-// handleListAgentsByPoller retrieves all agents associated with a specific poller.
-// GET /api/admin/pollers/{poller_id}/agents
-func (s *APIServer) handleListAgentsByPoller(w http.ResponseWriter, r *http.Request) {
-	pollerID := mux.Vars(r)["poller_id"]
-	if pollerID == "" {
-		writeError(w, "poller_id is required", http.StatusBadRequest)
+// handleListAgentsByGateway retrieves all agents associated with a specific gateway.
+// GET /api/admin/gateways/{gateway_id}/agents
+func (s *APIServer) handleListAgentsByGateway(w http.ResponseWriter, r *http.Request) {
+	gatewayID := mux.Vars(r)["gateway_id"]
+	if gatewayID == "" {
+		writeError(w, "gateway_id is required", http.StatusBadRequest)
 		return
 	}
 
-	agents, err := s.dbService.ListAgentsByPoller(r.Context(), pollerID)
+	agents, err := s.dbService.ListAgentsByGateway(r.Context(), gatewayID)
 	if err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
-			Msg("Failed to list agents for poller")
-		writeError(w, "failed to list agents for poller", http.StatusInternalServerError)
+			Str("gateway_id", gatewayID).
+			Msg("Failed to list agents for gateway")
+		writeError(w, "failed to list agents for gateway", http.StatusInternalServerError)
 		return
 	}
 
@@ -62,7 +62,7 @@ func (s *APIServer) handleListAgentsByPoller(w http.ResponseWriter, r *http.Requ
 	for _, agent := range agents {
 		views = append(views, agentInfoView{
 			AgentID:      agent.AgentID,
-			PollerID:     agent.PollerID,
+			GatewayID:     agent.GatewayID,
 			LastSeen:     agent.LastSeen.Format("2006-01-02T15:04:05Z07:00"),
 			ServiceTypes: agent.ServiceTypes,
 		})

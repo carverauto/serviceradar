@@ -6,7 +6,7 @@ use crate::{
     schema::cpu_metrics::dsl::{
         agent_id as col_agent_id, cluster as col_cluster, core_id as col_core_id, cpu_metrics,
         device_id as col_device_id, frequency_hz as col_frequency_hz, host_id as col_host_id,
-        label as col_label, partition as col_partition, poller_id as col_poller_id,
+        label as col_label, partition as col_partition, gateway_id as col_gateway_id,
         timestamp as col_timestamp, usage_percent as col_usage_percent,
     },
     time::TimeRange,
@@ -188,7 +188,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
             collect_text_params(params, filter)
         }
         "core_id" => {
@@ -209,8 +209,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 
 fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -304,9 +304,9 @@ fn apply_primary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQuer
             OrderDirection::Asc => query.order(col_usage_percent.asc()),
             OrderDirection::Desc => query.order(col_usage_percent.desc()),
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => query.order(col_device_id.asc()),
@@ -340,9 +340,9 @@ fn apply_secondary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQu
                 diesel::QueryDsl::then_order_by(query, col_usage_percent.desc())
             }
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_poller_id.asc()),
-            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_gateway_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_device_id.asc()),
@@ -444,7 +444,7 @@ fn build_stats_order_clause(plan: &QueryPlan, alias: &str) -> String {
 
 fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
     match filter.field.as_str() {
-        "poller_id" => Ok(Some(build_text_clause("poller_id", filter)?)),
+        "gateway_id" => Ok(Some(build_text_clause("gateway_id", filter)?)),
         "agent_id" => Ok(Some(build_text_clause("agent_id", filter)?)),
         "host_id" => Ok(Some(build_text_clause("host_id", filter)?)),
         "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),

@@ -71,7 +71,7 @@ Docker Compose deployments SHALL start KV-managed services with KV-backed config
 
 #### Scenario: Compose seeds KV on first boot
 - **GIVEN** the Docker Compose stack starts against an empty `serviceradar-datasvc` bucket
-- **WHEN** core, poller, agent, sync, and other KV-managed services initialize
+- **WHEN** core, gateway, agent, sync, and other KV-managed services initialize
 - **THEN** each service writes its default config to its KV key without overwriting existing values
 - **AND** watcher snapshots appear under `watchers/<service>/<instance>.json` so the Settings → Watcher Telemetry UI lists those compose services
 
@@ -79,7 +79,7 @@ Docker Compose deployments SHALL start KV-managed services with KV-backed config
 Docker Compose upgrades SHALL preserve user-managed configuration state (both persistent config artifacts and KV-backed configuration). Bootstrap jobs used by Compose (e.g., config-updater and KV seeders) MUST NOT overwrite existing non-empty configuration values during routine upgrades.
 
 #### Scenario: Upgrade preserves sysmon endpoint
-- **GIVEN** a running Compose stack with a user-configured checker in the poller configuration
+- **GIVEN** a running Compose stack with a user-configured checker in the gateway configuration
 - **WHEN** the stack is upgraded (images updated and containers recreated)
 - **THEN** the checker configuration remains present after the upgrade
 - **AND** metrics continue to populate without requiring manual reconfiguration

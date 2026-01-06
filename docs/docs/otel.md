@@ -42,9 +42,9 @@ Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion vo
 ServiceRadar emits capability lifecycle metrics whenever the core service records a capability event:
 
 - `serviceradar_core_capability_events_total` (counter) – increments on every capability snapshot written to CNPG. Key attributes:
-  - `capability`: logical capability string (`icmp`, `snmp`, `sysmon`, `poller`, …)
-  - `service_type`: poller/agent/checker service type (if available)
-  - `recorded_by`: poller ID or component that produced the event
+  - `capability`: logical capability string (`icmp`, `snmp`, `sysmon`, `gateway`, …)
+  - `service_type`: gateway/agent/checker service type (if available)
+  - `recorded_by`: gateway ID or component that produced the event
   - `state`: normalized state stored alongside the snapshot (`ok`, `failed`, `degraded`, `unknown`)
 
 Suggested PromQL examples once the OTEL collector exports to Prometheus:
@@ -57,4 +57,4 @@ sum(rate(serviceradar_core_capability_events_total[5m])) by (capability)
 sum(rate(serviceradar_core_capability_events_total{capability="icmp"}[10m])) < 0.1
 ```
 
-Grafana tip: plot the per-capability series as a stacked area chart to spot imbalances between collectors; overlay `recorded_by` to see which pollers stop reporting first during outages.
+Grafana tip: plot the per-capability series as a stacked area chart to spot imbalances between collectors; overlay `recorded_by` to see which gateways stop reporting first during outages.

@@ -105,7 +105,7 @@ type OCSFAgentRecord struct {
 	Policies   []OCSFAgentPolicy `json:"policies,omitempty" db:"policies"`       // Applied policies array
 
 	// ServiceRadar Extensions
-	PollerID      string    `json:"poller_id,omitempty" db:"poller_id"`           // Parent poller reference
+	GatewayID      string    `json:"gateway_id,omitempty" db:"gateway_id"`           // Parent gateway reference
 	Capabilities  []string  `json:"capabilities,omitempty" db:"capabilities"`    // Registered checker capabilities
 	IP            string    `json:"ip,omitempty" db:"ip"`                         // Agent IP address
 	FirstSeenTime time.Time `json:"first_seen_time,omitempty" db:"first_seen_time"`
@@ -184,7 +184,7 @@ func DetermineAgentTypeFromCapabilities(capabilities []string) (int, string) {
 }
 
 // NewOCSFAgentRecord creates a new OCSFAgentRecord with defaults set
-func NewOCSFAgentRecord(uid, pollerID, ip string, capabilities []string) *OCSFAgentRecord {
+func NewOCSFAgentRecord(uid, gatewayID, ip string, capabilities []string) *OCSFAgentRecord {
 	now := time.Now()
 	typeID, typeName := DetermineAgentTypeFromCapabilities(capabilities)
 
@@ -194,7 +194,7 @@ func NewOCSFAgentRecord(uid, pollerID, ip string, capabilities []string) *OCSFAg
 		TypeID:        typeID,
 		Type:          typeName,
 		VendorName:    "ServiceRadar",
-		PollerID:      pollerID,
+		GatewayID:      gatewayID,
 		Capabilities:  capabilities,
 		IP:            ip,
 		FirstSeenTime: now,
@@ -205,8 +205,8 @@ func NewOCSFAgentRecord(uid, pollerID, ip string, capabilities []string) *OCSFAg
 }
 
 // CreateOCSFAgentFromRegistration creates an OCSFAgentRecord from registration data
-func CreateOCSFAgentFromRegistration(agentID, pollerID, hostIP, version string, capabilities []string, metadata map[string]string) *OCSFAgentRecord {
-	agent := NewOCSFAgentRecord(agentID, pollerID, hostIP, capabilities)
+func CreateOCSFAgentFromRegistration(agentID, gatewayID, hostIP, version string, capabilities []string, metadata map[string]string) *OCSFAgentRecord {
+	agent := NewOCSFAgentRecord(agentID, gatewayID, hostIP, capabilities)
 
 	if version != "" {
 		agent.Version = version

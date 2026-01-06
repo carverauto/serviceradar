@@ -20,7 +20,6 @@ This directory contains Kubernetes manifests for deploying ServiceRadar in the d
 ## Components
 
 - **cloud** – central service that collects and stores monitoring data
-- **poller** – polls targets and reports back to cloud
 - **agent** – DaemonSet on every node for local resource monitoring
 - **dusk-checker** – checker for Dusk Network services
 - **snmp-checker** – SNMP monitoring service

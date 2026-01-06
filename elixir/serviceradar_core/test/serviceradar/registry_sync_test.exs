@@ -58,7 +58,7 @@ defmodule ServiceRadar.RegistrySyncTest do
       tenant_id: @tenant_id,
       partition_id: @partition_id,
       agent_id: agent_id,
-      poller_node: Node.self(),
+      gateway_node: Node.self(),
       capabilities: [:grpc_checker],
       status: :connected,
       connected_at: DateTime.utc_now(),

@@ -54,7 +54,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Title:     "Core Service Started",
 		Message:   fmt.Sprintf("ServiceRadar core service initialized at %s", time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		PollerID:  "core",
+		GatewayID:  "core",
 		Details: map[string]any{
 			"version":  "1.0.36",
 			"hostname": getHostname(),
@@ -75,7 +75,7 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 		Message: fmt.Sprintf("ServiceRadar core service shutting down at %s",
 			time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		PollerID:  "core",
+		GatewayID:  "core",
 		Details: map[string]any{
 			"hostname": getHostname(),
 		},

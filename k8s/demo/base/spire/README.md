@@ -46,7 +46,7 @@ Manifests in this directory bootstrap SPIFFE/SPIRE inside the `demo` Kubernetes 
    The SPIRE Controller Manager now runs as a sidecar in the server StatefulSet.
    Once the server is Ready it reconciles the `ClusterSPIFFEID` custom resources
    in this directory and creates the corresponding registration entries for the
-   demo workloads (core, poller, datasvc, serviceradar-agent). Observe the
+   demo workloads (core, datasvc, serviceradar-agent). Observe the
    controller’s view with:
 
    ```bash

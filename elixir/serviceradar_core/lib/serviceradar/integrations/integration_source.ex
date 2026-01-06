@@ -81,7 +81,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :source_type,
         :endpoint,
         :agent_id,
-        :poller_id,
+        :gateway_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         :name,
         :endpoint,
         :agent_id,
-        :poller_id,
+        :gateway_id,
         :partition,
         :poll_interval_seconds,
         :discovery_interval_seconds,
@@ -289,9 +289,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Agent to assign this source to"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller to assign this source to"
+      description "Gateway to assign this source to"
     end
 
     attribute :partition, :string do

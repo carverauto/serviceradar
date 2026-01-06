@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     |> Ash.Query.offset(opts.offset)
     |> maybe_filter_search(opts.search)
     |> maybe_filter_status(opts.status)
-    |> maybe_filter_poller_id(opts.poller_id)
+    |> maybe_filter_gateway_id(opts.gateway_id)
     |> maybe_filter_device_type(opts.device_type)
     |> Ash.read!(authorize?: false)
   end
@@ -244,7 +244,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
          {:ok, offset} <- parse_offset(params, limit),
          {:ok, search} <- parse_optional_string(Map.get(params, "search")),
          {:ok, status} <- parse_status(Map.get(params, "status")),
-         {:ok, poller_id} <- parse_optional_string(Map.get(params, "poller_id")),
+         {:ok, gateway_id} <- parse_optional_string(Map.get(params, "gateway_id")),
          {:ok, device_type} <- parse_optional_string(Map.get(params, "device_type")) do
       {:ok,
        %{
@@ -252,7 +252,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
          offset: offset,
          search: search,
          status: status,
-         poller_id: poller_id,
+         gateway_id: gateway_id,
          device_type: device_type
        }}
     end
@@ -390,10 +390,10 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp maybe_filter_status(query, :offline), do: Ash.Query.filter(query, is_available == false)
   defp maybe_filter_status(query, _), do: query
 
-  defp maybe_filter_poller_id(query, nil), do: query
+  defp maybe_filter_gateway_id(query, nil), do: query
 
-  defp maybe_filter_poller_id(query, poller_id),
-    do: Ash.Query.filter(query, poller_id == ^poller_id)
+  defp maybe_filter_gateway_id(query, gateway_id),
+    do: Ash.Query.filter(query, gateway_id == ^gateway_id)
 
   defp maybe_filter_device_type(query, nil), do: query
 
@@ -460,7 +460,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
       "groups" => device.groups,
       "agent_list" => device.agent_list,
       # ServiceRadar-specific fields
-      "poller_id" => device.poller_id,
+      "gateway_id" => device.gateway_id,
       "agent_id" => device.agent_id,
       "discovery_sources" => device.discovery_sources,
       "is_available" => device.is_available,

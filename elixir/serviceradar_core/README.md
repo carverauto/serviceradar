@@ -13,7 +13,7 @@ Core business logic library for the ServiceRadar distributed monitoring platform
 
 This library is used as a dependency by:
 - `serviceradar_web` (Phoenix web application)
-- `serviceradar_poller` (Standalone edge poller)
+- `serviceradar_gateway` (Standalone edge gateway)
 
 Note: Monitoring agents are now Go-based (`serviceradar-agent`) and communicate via gRPC,
 not ERTS distribution. The AgentRegistry is still used to track connected agents.
@@ -55,7 +55,7 @@ config :libcluster,
   topologies: [
     serviceradar: [
       strategy: Cluster.Strategy.Epmd,
-      config: [hosts: [:"web@host1", :"poller@host2"]]
+      config: [hosts: [:"web@host1", :"gateway@host2"]]
     ]
   ]
 ```
@@ -97,7 +97,7 @@ Partition and service inventory management.
 
 ### Infrastructure
 
-Devices, pollers, and agents.
+Devices, gateways, and agents.
 
 ### Monitoring
 
@@ -145,8 +145,8 @@ ServiceRadar.AgentRegistry.register(%{
 {:ok, ssl_opts} = ServiceRadar.SPIFFE.ssl_dist_opts()
 
 # Build a SPIFFE ID
-spiffe_id = ServiceRadar.SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-001")
-# => "spiffe://serviceradar.local/poller/partition-1/poller-001"
+spiffe_id = ServiceRadar.SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001")
+# => "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
 # Verify a peer's SPIFFE ID
 {:ok, verified_id} = ServiceRadar.SPIFFE.verify_peer_id(peer_cert)
@@ -156,8 +156,8 @@ spiffe_id = ServiceRadar.SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-
 
 ```elixir
 # Emit events
-ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"poller@host1"})
-ServiceRadar.Telemetry.emit_poller_event(:registered, %{partition_id: "p1", poller_id: "poller-001"})
+ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"gateway@host1"})
+ServiceRadar.Telemetry.emit_gateway_event(:registered, %{partition_id: "p1", gateway_id: "gateway-001"})
 
 # Get metrics definitions for Phoenix.LiveDashboard
 metrics = ServiceRadar.Telemetry.metrics()

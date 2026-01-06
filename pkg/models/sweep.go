@@ -49,7 +49,7 @@ type Config struct {
 	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
 	AgentID      string `json:"agent_id,omitempty"`
-	PollerID     string `json:"poller_id,omitempty"`
+	GatewayID     string `json:"gateway_id,omitempty"`
 	Partition    string `json:"partition,omitempty"`
 	ICMPSettings struct {
 		RateLimit int // Packets per second
@@ -284,7 +284,7 @@ type DeviceTarget struct {
 // SweepHostState represents the latest sweep state for a host in the versioned KV store.
 type SweepHostState struct {
 	HostIP           string            `json:"host_ip"`
-	PollerID         string            `json:"poller_id"`
+	GatewayID         string            `json:"gateway_id"`
 	AgentID          string            `json:"agent_id"`
 	Partition        string            `json:"partition"`
 	NetworkCIDR      *string           `json:"network_cidr,omitempty"`

@@ -23,11 +23,11 @@ This repository hosts the ServiceRadar monitoring platform. Use this file as the
 
 ## Project Overview
 
-ServiceRadar is a multi-component system made up of Go services (core, sync, registry, poller, faker), a Rust-based SRQL service, CNPG/Timescale storage, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
+ServiceRadar is a multi-component system made up of Go services (core, sync, registry, agent, faker), a Rust-based SRQL service, CNPG/Timescale storage, a Next.js web UI, and supporting tooling. The repo contains Bazel and Go module definitions alongside Docker/Bazel image targets.
 
 ## Repository Layout
 
-- `cmd/` – Go binaries (core, sync, poller, faker, kv, etc.).
+- `cmd/` – Go binaries (core, sync, agent, faker, kv, etc.).
 - `pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
@@ -70,7 +70,7 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
 - GH client is installed and authenticated
 - 'bb' (BuildBuddy) client is available for any build issues
 - bazel is our build system, we use it to build and push images
-- Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep pollers querying at least once per retention window so cached CPU data stays fresh.
+- Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep gateways querying at least once per retention window so cached CPU data stays fresh.
 
 ## Demo Namespace Helm Refresh
 
@@ -178,9 +178,9 @@ export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
 mix phx.server
 ```
 
-## Local mTLS ERTS Cluster (web-ng + poller + agent)
+## Local mTLS ERTS Cluster (web-ng + agent-gateway)
 
-Use this when validating TLS distribution locally without Docker. This keeps `web-ng`, `serviceradar_poller`, and `serviceradar_agent` joined over mTLS ERTS.
+Use this when validating TLS distribution locally without Docker. This keeps `web-ng` and `serviceradar_agent_gateway` joined over mTLS ERTS.
 
 ### 1. Generate local mTLS certs for distribution
 
@@ -194,8 +194,7 @@ sudo chown -R "$USER:$USER" tmp/serviceradar-certs
 
 ```bash
 cp docker/compose/ssl_dist.web.conf tmp/ssl_dist/web.conf
-cp docker/compose/ssl_dist.poller.conf tmp/ssl_dist/poller.conf
-cp docker/compose/ssl_dist.agent.conf tmp/ssl_dist/agent.conf
+cp docker/compose/ssl_dist.gateway.conf tmp/ssl_dist/gateway.conf
 sed -i "s#/etc/serviceradar/certs#$PWD/tmp/serviceradar-certs#g" tmp/ssl_dist/*.conf
 ```
 
@@ -207,24 +206,17 @@ sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstati
 sudo chown -R "$USER:$USER" tmp/serviceradar-docker-certs
 ```
 
-### 4. Start poller + agent with TLS distribution (use 127.0.0.1 names)
+### 4. Start agent gateway with TLS distribution (use 127.0.0.1 names)
 
 ```bash
-ERL_FLAGS="-name serviceradar_poller@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/poller.conf" \
+ERL_FLAGS="-name serviceradar_agent_gateway@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/gateway.conf" \
 CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
-CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1,serviceradar_agent@127.0.0.1 \
-ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/poller.conf \
+CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1 \
+ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/gateway.conf \
 SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
-POLLER_PARTITION_ID=local POLLER_ID=poller-local-1 POLLER_DOMAIN=local POLLER_CAPABILITIES=icmp,tcp \
-nohup mix run --no-halt > $PWD/tmp/logs/poller-local.log 2>&1 &
-
-ERL_FLAGS="-name serviceradar_agent@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/agent.conf" \
-CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
-CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1,serviceradar_poller@127.0.0.1 \
-ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/agent.conf \
-SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
-AGENT_PARTITION_ID=local AGENT_ID=agent-local-1 AGENT_POLLER_ID=poller-local-1 AGENT_CAPABILITIES=snmp,disk \
-nohup mix run --no-halt > $PWD/tmp/logs/agent-local.log 2>&1 &
+GATEWAY_PARTITION_ID=local GATEWAY_ID=gateway-local-1 GATEWAY_DOMAIN=local GATEWAY_CAPABILITIES=icmp,tcp \
+GATEWAY_TENANT_ID=<tenant-uuid> GATEWAY_TENANT_SLUG=platform \
+nohup mix run --no-halt > $PWD/tmp/logs/gateway-local.log 2>&1 &
 ```
 
 ### 5. Start web-ng with TLS distribution + CNPG
@@ -232,7 +224,7 @@ nohup mix run --no-halt > $PWD/tmp/logs/agent-local.log 2>&1 &
 ```bash
 ERL_FLAGS="-name serviceradar_web_ng@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/web.conf" \
 CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
-CLUSTER_HOSTS=serviceradar_poller@127.0.0.1,serviceradar_agent@127.0.0.1 \
+CLUSTER_HOSTS=serviceradar_agent_gateway@127.0.0.1 \
 CLUSTER_TLS_ENABLED=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/web.conf \
 CNPG_HOST=localhost CNPG_PORT=5455 CNPG_USERNAME=serviceradar CNPG_PASSWORD=serviceradar \
 CNPG_DATABASE=serviceradar_web_ng_dev CNPG_SSL_MODE=verify-ca \
@@ -267,7 +259,7 @@ cat > tmp/ssl_dist/observer.conf <<EOF
 EOF
 
 ERL_FLAGS="-name observer@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/observer.conf" \
-elixir -e 'IO.inspect(:rpc.call(:\"serviceradar_poller@127.0.0.1\", Node, :list, []))'
+elixir -e 'IO.inspect(:rpc.call(:\"serviceradar_agent_gateway@127.0.0.1\", Node, :list, []))'
 ```
 
 Note: using `@127.0.0.1` avoids the ERTS error `System running to use fully qualified hostnames` that you get with `@localhost`.
@@ -280,8 +272,7 @@ Use the release `remote` command from inside the containers so node names resolv
 ```bash
 docker exec -it serviceradar-web-ng-mtls /app/bin/serviceradar_web_ng remote
 docker exec -it serviceradar-core-elx-mtls /app/bin/serviceradar_core_elx remote
-docker exec -it serviceradar-poller-elx-mtls /app/bin/serviceradar_poller remote
-docker exec -it serviceradar-agent-elx-mtls /app/bin/serviceradar_agent remote
+docker exec -it serviceradar-agent-gateway-mtls /app/bin/serviceradar_agent_gateway remote
 ```
 
 If you need a host-side IEx shell, run a one-off container on the same Docker network with the cert volume mounted so the TLS cert paths resolve:
@@ -294,7 +285,7 @@ docker run --rm -it --network serviceradar-net \
   /app/bin/serviceradar_web_ng remote
 ```
 
-If distribution fails with `bad_cert` or `hostname_check_failed` for `poller-elx` or `agent-elx`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
+If distribution fails with `bad_cert` or `hostname_check_failed` for `agent-gateway`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
 If you see `hostname_check_failed` for `core-elx`, ensure the core certificate SAN list includes `DNS:core-elx` (and `core`, `serviceradar-core`) in `docker/compose/generate-certs.sh`, then rerun the cert generator.
 
 ## Edge Onboarding Testing with Docker mTLS Stack
@@ -326,19 +317,19 @@ curl -s -X POST http://localhost:8090/auth/login \
   -d '{"username":"admin","password":"<PASSWORD>"}' | jq -r '.access_token' > /tmp/jwt_token.txt
 ```
 
-### 3. Find Available Pollers and Agents
+### 3. Find Available Gateways and Agents
 
 ```bash
-# List pollers
-curl -s "http://localhost:8090/api/pollers" \
-  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].poller_id'
+# List gateways
+curl -s "http://localhost:8090/api/gateways" \
+  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].gateway_id'
 
 # List agents
 curl -s "http://localhost:8090/api/admin/agents" \
   -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].agent_id'
 ```
 
-Typical output: `docker-poller` and `docker-agent`.
+Typical output: `docker-gateway` and `docker-agent`.
 
 ### 4. Create an Edge Onboarding Package
 
@@ -354,7 +345,7 @@ curl -s -X POST "http://localhost:8090/api/admin/edge-packages" \
     "component_id": "sysmon-test-01",
     "parent_id": "docker-agent",
     "parent_type": "agent",
-    "poller_id": "docker-poller",
+    "gateway_id": "docker-gateway",
     "checker_kind": "sysmon",
     "security_mode": "mtls",
     "checker_config_json": "{\"listen_addr\":\"0.0.0.0:50083\",\"poll_interval\":30,\"filesystems\":[{\"name\":\"/\",\"type\":\"ext4\",\"monitor\":true}]}"

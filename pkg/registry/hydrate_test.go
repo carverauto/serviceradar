@@ -38,7 +38,7 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 			LastSeenTime:     &last,
 			IsAvailable:      &isAvailable,
 			AgentID:          "agent-1",
-			PollerID:         "poller-1",
+			GatewayID:         "gateway-1",
 			DiscoverySources: []string{string(models.DiscoverySourceSweep)},
 		},
 		{
@@ -47,7 +47,7 @@ func TestHydrateFromStoreLoadsDevices(t *testing.T) {
 			FirstSeenTime:    &first,
 			LastSeenTime:     &last,
 			AgentID:          "agent-2",
-			PollerID:         "poller-2",
+			GatewayID:         "gateway-2",
 			DiscoverySources: []string{string(models.DiscoverySourceNetbox)},
 		},
 	}

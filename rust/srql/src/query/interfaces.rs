@@ -9,7 +9,7 @@ use crate::{
         if_alias as col_if_alias, if_descr as col_if_descr, if_index as col_if_index,
         if_name as col_if_name, if_oper_status as col_if_oper_status,
         if_phys_address as col_if_phys_address, if_speed as col_if_speed,
-        poller_id as col_poller_id, timestamp as col_timestamp,
+        gateway_id as col_gateway_id, timestamp as col_timestamp,
     },
     time::TimeRange,
 };
@@ -166,8 +166,8 @@ fn apply_filter<'a>(
                 "device_ip filter does not support lists"
             )?;
         }
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -289,7 +289,7 @@ fn collect_text_params(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "device_id" | "poller_id" | "agent_id" | "if_name" | "if_descr" | "description"
+        "device_id" | "gateway_id" | "agent_id" | "if_name" | "if_descr" | "description"
         | "if_alias" | "if_phys_address" | "mac" => collect_text_params(params, filter, true),
         "device_ip" | "ip" => collect_text_params(params, filter, false),
         "if_admin_status" | "if_oper_status" | "status" => {

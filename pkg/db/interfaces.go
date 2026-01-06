@@ -35,26 +35,26 @@ type QueryExecutor interface {
 type Service interface {
 	Close() error
 
-	// Poller operations.
+	// Gateway operations.
 
-	UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error
-	GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error)
-	GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error)
-	GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error)
-	IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error)
-	ListPollers(ctx context.Context) ([]string, error)
-	DeletePoller(ctx context.Context, pollerID string) error
-	ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error)
-	ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error)
-	ListAgentsWithPollers(ctx context.Context) ([]AgentInfo, error)
-	ListAgentsByPoller(ctx context.Context, pollerID string) ([]AgentInfo, error)
+	UpdateGatewayStatus(ctx context.Context, status *models.GatewayStatus) error
+	GetGatewayStatus(ctx context.Context, gatewayID string) (*models.GatewayStatus, error)
+	GetGatewayHistory(ctx context.Context, gatewayID string) ([]models.GatewayStatus, error)
+	GetGatewayHistoryPoints(ctx context.Context, gatewayID string, limit int) ([]models.GatewayHistoryPoint, error)
+	IsGatewayOffline(ctx context.Context, gatewayID string, threshold time.Duration) (bool, error)
+	ListGateways(ctx context.Context) ([]string, error)
+	DeleteGateway(ctx context.Context, gatewayID string) error
+	ListGatewayStatuses(ctx context.Context, patterns []string) ([]models.GatewayStatus, error)
+	ListNeverReportedGateways(ctx context.Context, patterns []string) ([]string, error)
+	ListAgentsWithGateways(ctx context.Context) ([]AgentInfo, error)
+	ListAgentsByGateway(ctx context.Context, gatewayID string) ([]AgentInfo, error)
 
 	// Service operations.
 
 	UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error
 	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
-	GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error)
-	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error)
+	GetGatewayServices(ctx context.Context, gatewayID string) ([]models.ServiceStatus, error)
+	GetServiceHistory(ctx context.Context, gatewayID, serviceName string, limit int) ([]models.ServiceStatus, error)
 	// StoreServices stores a batch of service records in the services stream.
 	StoreServices(ctx context.Context, services []*models.Service) error
 
@@ -62,10 +62,10 @@ type Service interface {
 
 	// Generic timeseries methods.
 
-	StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error
-	StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error
-	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error)
-	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	StoreMetric(ctx context.Context, gatewayID string, metric *models.TimeseriesMetric) error
+	StoreMetrics(ctx context.Context, gatewayID string, metrics []*models.TimeseriesMetric) error
+	GetMetrics(ctx context.Context, gatewayID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetMetricsByType(ctx context.Context, gatewayID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 
 	// Query (SRQL) operations.
 
@@ -75,19 +75,19 @@ type Service interface {
 
 	StoreSysmonMetrics(
 		ctx context.Context,
-		pollerID, agentID, hostID, partition, hostIP, deviceID string,
+		gatewayID, agentID, hostID, partition, hostIP, deviceID string,
 		metrics *models.SysmonMetrics,
 		timestamp time.Time) error
-	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
-	GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error)
-	GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
+	GetCPUMetrics(ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, gatewayID string) ([]string, error)
+	GetAllCPUMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetMemoryMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	GetAllProcessMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.ProcessMetric, error)
+	GetAllProcessMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
 
 	// SNMP metric operations.
 
@@ -95,7 +95,7 @@ type Service interface {
 
 	// Rperf.
 
-	StoreRperfMetrics(ctx context.Context, pollerID, serviceName string, message string, timestamp time.Time) error
+	StoreRperfMetrics(ctx context.Context, gatewayID, serviceName string, message string, timestamp time.Time) error
 
 	// NetFlow operations.
 
@@ -109,7 +109,7 @@ type Service interface {
 	// Sweep operations.
 
 	StoreSweepHostStates(ctx context.Context, states []*models.SweepHostState) error
-	GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error)
+	GetSweepHostStates(ctx context.Context, gatewayID string, limit int) ([]*models.SweepHostState, error)
 
 	// Discovery operations.
 
@@ -156,7 +156,7 @@ type Service interface {
 	UpsertEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error
 	GetEdgeOnboardingPackage(ctx context.Context, packageID string) (*models.EdgeOnboardingPackage, error)
 	ListEdgeOnboardingPackages(ctx context.Context, filter *models.EdgeOnboardingListFilter) ([]*models.EdgeOnboardingPackage, error)
-	ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error)
+	ListEdgeOnboardingGatewayIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error)
 	InsertEdgeOnboardingEvent(ctx context.Context, event *models.EdgeOnboardingEvent) error
 	ListEdgeOnboardingEvents(ctx context.Context, packageID string, limit int) ([]*models.EdgeOnboardingEvent, error)
 	DeleteEdgeOnboardingPackage(ctx context.Context, pkg *models.EdgeOnboardingPackage) error
@@ -190,16 +190,16 @@ type Service interface {
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
 type SysmonMetricsProvider interface {
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
-	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
-	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
-	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllProcessMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
-	GetAllProcessMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error)
+	GetAllCPUMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetCPUMetrics(ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetDiskMetrics(ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllDiskMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, gatewayID string) ([]string, error)
+	GetMemoryMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	GetMemoryMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllProcessMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonProcessResponse, error)
+	GetAllProcessMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.ProcessMetric, error)
 }
 
 // Rows represents multiple database rows.

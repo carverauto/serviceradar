@@ -1,7 +1,7 @@
 # ServiceRadar Core Configuration
 #
 # This file provides default configuration for serviceradar_core.
-# Host applications (web, poller, agent) should override these
+# Host applications (web, gateway, agent) should override these
 # settings in their own config files.
 
 import Config

@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	testPollerID = "test-poller"
+	testGatewayID = "test-gateway"
 )
 
 func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
@@ -59,7 +59,7 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	partition := "test-partition"
 	sourceIP := "192.168.1.100"
 	timestamp := time.Now()
@@ -86,7 +86,7 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 			message: json.RawMessage(`[
 				{
 					"agent_id": "agent-1",
-					"poller_id": "poller-1",
+					"gateway_id": "gateway-1",
 					"partition": "default",
 					"device_id": "default:192.168.1.1",
 					"discovery_source": "armis",
@@ -121,22 +121,22 @@ func TestProcessServicePayload_SyncService_PayloadDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "sync",
 				ServiceType: "grpc",
 				Available:   true,
 				Message:     tt.message,
 				AgentId:     "test-agent",
-				PollerId:    pollerID,
+				GatewayId:   gatewayID,
 				Source:      "results", // Source field doesn't matter anymore
 			}
 
 			// ProcessSyncResults is now always called - it internally handles status checks
 			mockDiscovery.EXPECT().
-				ProcessSyncResults(ctx, pollerID, partition, svc, tt.message, timestamp).
+				ProcessSyncResults(ctx, gatewayID, partition, svc, tt.message, timestamp).
 				Return(tt.expectedError)
 
-			err := server.processServicePayload(ctx, pollerID, partition, sourceIP, svc, tt.message, timestamp)
+			err := server.processServicePayload(ctx, gatewayID, partition, sourceIP, svc, tt.message, timestamp)
 
 			if tt.expectedError != nil {
 				require.Error(t, err)
@@ -196,7 +196,7 @@ func TestProcessSysmonMetrics_EmitsStallEventAfterEmptyPayloads(t *testing.T) {
 
 	ctx := context.Background()
 	for i := 0; i < sysmonStallPollThreshold; i++ {
-		err := server.processSysmonMetrics(ctx, testPollerID, "default", "agent-1", raw, now.Add(time.Duration(i)*time.Second))
+		err := server.processSysmonMetrics(ctx, testGatewayID, "default", "agent-1", raw, now.Add(time.Duration(i)*time.Second))
 		require.NoError(t, err)
 	}
 }
@@ -244,15 +244,15 @@ func TestProcessGRPCService_SysmonPrefixedName(t *testing.T) {
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-ora9",
 		ServiceType: "grpc",
 	}
 
-	err = server.processGRPCService(context.Background(), testPollerID, "default", "", "agent-1", svc, raw, now)
+	err = server.processGRPCService(context.Background(), testGatewayID, "default", "", "agent-1", svc, raw, now)
 	require.NoError(t, err)
 
-	buffers := server.sysmonBuffers[testPollerID]
+	buffers := server.sysmonBuffers[testGatewayID]
 	require.Len(t, buffers, 1)
 	assert.Equal(t, "default", buffers[0].Partition)
 }
@@ -285,7 +285,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	discoveryData := json.RawMessage(`[
 		{
 			"agent_id": "agent-1",
-			"poller_id": "poller-1",
+			"gateway_id": "gateway-1",
 			"partition": "default",
 			"device_id": "default:192.168.1.1",
 			"discovery_source": "armis",
@@ -296,7 +296,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	]`)
 
 	enhancedPayload := models.ServiceMetricsPayload{
-		PollerID:  "enhanced-poller",
+		GatewayID: "enhanced-gateway",
 		Partition: "enhanced-partition",
 		AgentID:   "enhanced-agent",
 		Data:      discoveryData,
@@ -305,13 +305,13 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	enhancedMessage, err := json.Marshal(enhancedPayload)
 	require.NoError(t, err)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sync",
 		ServiceType: "grpc",
 		Available:   true,
 		Message:     enhancedMessage,
 		AgentId:     "original-agent",
-		PollerId:    "original-poller",
+		GatewayId:   "original-gateway",
 		Source:      "results", // Must be "results" to process
 	}
 
@@ -319,7 +319,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 	mockDiscovery.EXPECT().
 		ProcessSyncResults(
 			ctx,
-			"enhanced-poller",    // Should use enhanced context
+			"enhanced-gateway",   // Should use enhanced context
 			"enhanced-partition", // Should use enhanced context
 			svc,
 			gomock.Any(), // The extracted discovery data (whitespace may vary)
@@ -327,7 +327,7 @@ func TestProcessServicePayload_SyncService_WithEnhancedPayload(t *testing.T) {
 		).
 		Return(nil)
 
-	err = server.processServicePayload(ctx, "original-poller", "original-partition", "192.168.1.100", svc, enhancedMessage, timestamp)
+	err = server.processServicePayload(ctx, "original-gateway", "original-partition", "192.168.1.100", svc, enhancedMessage, timestamp)
 	require.NoError(t, err)
 }
 
@@ -341,7 +341,7 @@ func TestBuildHostAliasUpdate(t *testing.T) {
 		"ignored",
 		serviceID,
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		"10.0.0.8",
 		true,
 		now,
@@ -381,7 +381,7 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 	}
 
 	ctx := context.Background()
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	partition := "test-partition"
 	sourceIP := "192.168.1.100"
 	timestamp := time.Now()
@@ -394,22 +394,22 @@ func TestProcessServicePayload_SyncService_HealthCheckNotProcessed(t *testing.T)
 		"timestamp": 1234567890
 	}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sync",
 		ServiceType: "grpc",
 		Available:   true,
 		Message:     healthCheckMessage,
 		AgentId:     "test-agent",
-		PollerId:    pollerID,
+		GatewayId:   gatewayID,
 		Source:      "status", // Source field is ignored with new payload detection
 	}
 
 	// ProcessSyncResults is now always called - it internally checks and skips status payloads
 	mockDiscovery.EXPECT().
-		ProcessSyncResults(ctx, pollerID, partition, svc, healthCheckMessage, timestamp).
+		ProcessSyncResults(ctx, gatewayID, partition, svc, healthCheckMessage, timestamp).
 		Return(nil)
 
-	err := server.processServicePayload(ctx, pollerID, partition, sourceIP, svc, healthCheckMessage, timestamp)
+	err := server.processServicePayload(ctx, gatewayID, partition, sourceIP, svc, healthCheckMessage, timestamp)
 	require.NoError(t, err)
 }
 
@@ -433,7 +433,7 @@ func TestProcessICMPMetricsPrefersAgentDeviceWhenSourceIPInvalid(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -441,7 +441,7 @@ func TestProcessICMPMetricsPrefersAgentDeviceWhenSourceIPInvalid(t *testing.T) {
 
 	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
 
-	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "poller", "k8s-agent", svc, payload, now)
+	err := server.processICMPMetrics(ctx, "k8s-gateway", "default", "gateway", "k8s-agent", svc, payload, now)
 	require.NoError(t, err)
 
 	server.serviceDeviceMu.Lock()
@@ -474,16 +474,16 @@ func TestProcessICMPMetricsIgnoresCanonicalRemapWhenAgentPresent(t *testing.T) {
 		serviceDeviceBuffer: make(map[string]*models.DeviceUpdate),
 	}
 
-	// Seed canonical cache to map collector IP to poller device, which should be ignored for agent ICMP.
+	// Seed canonical cache to map collector IP to gateway device, which should be ignored for agent ICMP.
 	server.canonicalCache.store("10.0.0.10", canonicalSnapshot{
-		DeviceID: models.GenerateServiceDeviceID(models.ServiceTypePoller, "k8s-poller"),
+		DeviceID: models.GenerateServiceDeviceID(models.ServiceTypeGateway, "k8s-gateway"),
 		IP:       "10.0.0.10",
 	})
 
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -491,7 +491,7 @@ func TestProcessICMPMetricsIgnoresCanonicalRemapWhenAgentPresent(t *testing.T) {
 
 	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
 
-	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "10.0.0.10", "k8s-agent", svc, payload, now)
+	err := server.processICMPMetrics(ctx, "k8s-gateway", "default", "10.0.0.10", "k8s-agent", svc, payload, now)
 	require.NoError(t, err)
 
 	server.serviceDeviceMu.Lock()
@@ -522,7 +522,7 @@ func TestProcessICMPMetricsSkipsWhenAgentMissing(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -530,7 +530,7 @@ func TestProcessICMPMetricsSkipsWhenAgentMissing(t *testing.T) {
 
 	payload := []byte(`{"host":"8.8.8.8","response_time":10,"packet_loss":0,"available":true}`)
 
-	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "10.0.0.10", "", svc, payload, now)
+	err := server.processICMPMetrics(ctx, "k8s-gateway", "default", "10.0.0.10", "", svc, payload, now)
 	require.NoError(t, err)
 
 	server.serviceDeviceMu.Lock()
@@ -561,7 +561,7 @@ func TestProcessICMPMetricsIgnoresPayloadDeviceIDWhenAgentPresent(t *testing.T) 
 	ctx := context.Background()
 	now := time.Now()
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		Available:   true,
@@ -569,7 +569,7 @@ func TestProcessICMPMetricsIgnoresPayloadDeviceIDWhenAgentPresent(t *testing.T) 
 
 	payload := []byte(`{"host":"8.8.4.4","response_time":25,"packet_loss":0,"available":true,"device_id":"default:agent"}`)
 
-	err := server.processICMPMetrics(ctx, "k8s-poller", "default", "agent", "k8s-agent", svc, payload, now)
+	err := server.processICMPMetrics(ctx, "k8s-gateway", "default", "agent", "k8s-agent", svc, payload, now)
 	require.NoError(t, err)
 
 	server.serviceDeviceMu.Lock()
@@ -578,11 +578,11 @@ func TestProcessICMPMetricsIgnoresPayloadDeviceIDWhenAgentPresent(t *testing.T) 
 	require.True(t, ok, "expected ICMP update to attach to agent service device")
 	assert.Equal(t, "serviceradar:agent:k8s-agent", update.DeviceID)
 	assert.Equal(t, "k8s-agent", update.AgentID)
-	assert.Equal(t, "k8s-poller", update.PollerID)
+	assert.Equal(t, "k8s-gateway", update.GatewayID)
 	assert.Equal(t, "default", update.Partition)
 
 	server.metricBufferMu.Lock()
-	metrics := server.metricBuffers["k8s-poller"]
+	metrics := server.metricBuffers["k8s-gateway"]
 	server.metricBufferMu.Unlock()
 	require.Len(t, metrics, 1, "expected one buffered metric")
 	assert.Equal(t, "serviceradar:agent:k8s-agent", metrics[0].DeviceID)

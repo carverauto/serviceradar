@@ -15,8 +15,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert AshAdapter.ash_entity?("devices")
     end
 
-    test "returns true for pollers" do
-      assert AshAdapter.ash_entity?("pollers")
+    test "returns true for gateways" do
+      assert AshAdapter.ash_entity?("gateways")
     end
 
     test "returns true for agents" do
@@ -41,8 +41,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert {:ok, ServiceRadar.Inventory.Device} = AshAdapter.get_resource("devices")
     end
 
-    test "returns Poller resource for pollers entity" do
-      assert {:ok, ServiceRadar.Infrastructure.Poller} = AshAdapter.get_resource("pollers")
+    test "returns Gateway resource for gateways entity" do
+      assert {:ok, ServiceRadar.Infrastructure.Gateway} = AshAdapter.get_resource("gateways")
     end
 
     test "returns Agent resource for agents entity" do
@@ -59,8 +59,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert {:ok, ServiceRadar.Inventory} = AshAdapter.get_domain("devices")
     end
 
-    test "returns Infrastructure domain for pollers entity" do
-      assert {:ok, ServiceRadar.Infrastructure} = AshAdapter.get_domain("pollers")
+    test "returns Infrastructure domain for gateways entity" do
+      assert {:ok, ServiceRadar.Infrastructure} = AshAdapter.get_domain("gateways")
     end
 
     test "returns Infrastructure domain for agents entity" do
@@ -336,45 +336,45 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
     end
   end
 
-  describe "query/3 - pollers" do
+  describe "query/3 - gateways" do
     setup do
       tenant = tenant_fixture()
-      poller1 = poller_fixture(tenant, %{id: "poller-001"})
-      poller2 = poller_fixture(tenant, %{id: "poller-002"})
+      gateway1 = gateway_fixture(tenant, %{id: "gateway-001"})
+      gateway2 = gateway_fixture(tenant, %{id: "gateway-002"})
 
-      {:ok, tenant: tenant, poller1: poller1, poller2: poller2}
+      {:ok, tenant: tenant, gateway1: gateway1, gateway2: gateway2}
     end
 
-    test "returns all pollers", %{tenant: tenant} do
+    test "returns all gateways", %{tenant: tenant} do
       actor = viewer_actor(tenant)
-      {:ok, response} = AshAdapter.query("pollers", %{}, actor)
+      {:ok, response} = AshAdapter.query("gateways", %{}, actor)
 
       assert is_list(response["results"])
       assert length(response["results"]) >= 2
     end
 
-    test "filters pollers by id", %{tenant: tenant, poller1: poller1} do
+    test "filters gateways by id", %{tenant: tenant, gateway1: gateway1} do
       actor = viewer_actor(tenant)
 
       params = %{
-        filters: [%{field: "id", op: "eq", value: poller1.id}]
+        filters: [%{field: "id", op: "eq", value: gateway1.id}]
       }
 
-      {:ok, response} = AshAdapter.query("pollers", params, actor)
+      {:ok, response} = AshAdapter.query("gateways", params, actor)
 
       assert length(response["results"]) == 1
-      assert hd(response["results"])["id"] == poller1.id
+      assert hd(response["results"])["id"] == gateway1.id
     end
   end
 
   describe "query/3 - agents" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      agent1 = agent_fixture(poller, %{uid: "agent-001", name: "Agent One"})
-      agent2 = agent_fixture(poller, %{uid: "agent-002", name: "Agent Two"})
+      gateway = gateway_fixture(tenant)
+      agent1 = agent_fixture(gateway, %{uid: "agent-001", name: "Agent One"})
+      agent2 = agent_fixture(gateway, %{uid: "agent-002", name: "Agent Two"})
 
-      {:ok, tenant: tenant, poller: poller, agent1: agent1, agent2: agent2}
+      {:ok, tenant: tenant, gateway: gateway, agent1: agent1, agent2: agent2}
     end
 
     test "returns all agents", %{tenant: tenant} do

@@ -53,7 +53,7 @@ func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 		Events: &models.EventsConfig{
 			Enabled:    true,
 			StreamName: "events",
-			Subjects:   []string{"events.poller.health"},
+			Subjects:   []string{"events.gateway.health"},
 		},
 		NATS: &models.NATSConfig{
 			URL: jsServer.ClientURL(),
@@ -94,7 +94,7 @@ func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 	publishCtx, cancelPublish := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelPublish()
 
-	err := server.eventPublisher.PublishPollerOfflineEvent(publishCtx, "poller-1", "1.2.3.4", "default", time.Now())
+	err := server.eventPublisher.PublishGatewayOfflineEvent(publishCtx, "gateway-1", "1.2.3.4", "default", time.Now())
 	require.NoError(t, err, "expected publish to succeed after reinitialization")
 
 	close(server.ShutdownChan)

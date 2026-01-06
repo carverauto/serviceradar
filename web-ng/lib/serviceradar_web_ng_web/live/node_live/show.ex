@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
   @moduledoc """
   LiveView for showing individual cluster node details.
 
-  A generic node details page that adapts based on node type (core, poller, agent, web).
+  A generic node details page that adapts based on node type (core, gateway, agent, web).
   Shows system information, memory usage, process counts, and node-type-specific information.
   """
   use ServiceRadarWebNGWeb, :live_view
@@ -73,7 +73,6 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
     cond do
       String.starts_with?(node_name, "serviceradar_core") -> :core
       String.starts_with?(node_name, "serviceradar_agent_gateway") -> :gateway
-      String.starts_with?(node_name, "serviceradar_poller") -> :poller
       String.starts_with?(node_name, "serviceradar_web") -> :web
       true -> :unknown
     end
@@ -227,7 +226,6 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
       case assigns.type do
         :core -> {"Core", "primary"}
         :gateway -> {"Gateway", "info"}
-        :poller -> {"Poller", "secondary"}
         :web -> {"Web", "warning"}
         _ -> {"Unknown", "ghost"}
       end
@@ -389,21 +387,14 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             ]
           }
 
-        :poller ->
-          # Derive from Ash resource (Gateway, formerly Poller)
-          %{
-            description: ServiceRadar.Infrastructure.Gateway.role_description(),
-            steps: ServiceRadar.Infrastructure.Gateway.role_steps()
-          }
-
         :agent ->
           %{
             description:
               "Agent nodes host the Go agent processes that perform actual monitoring checks and connect to local checkers.",
             steps: [
-              %{label: "RECEIVE", description: "Accept check requests from pollers"},
+              %{label: "RECEIVE", description: "Accept check requests from gateways"},
               %{label: "EXECUTE", description: "Perform ICMP, TCP, HTTP checks"},
-              %{label: "REPORT", description: "Return results to poller"}
+              %{label: "REPORT", description: "Return results to gateway"}
             ]
           }
 

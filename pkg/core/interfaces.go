@@ -31,9 +31,9 @@ import (
 
 // NodeService represents node-related operations.
 type NodeService interface {
-	GetNodeStatus(nodeID string) (*api.PollerStatus, error)
-	UpdateNodeStatus(nodeID string, status *api.PollerStatus) error
-	GetNodeHistory(nodeID string, limit int) ([]api.PollerHistoryPoint, error)
+	GetNodeStatus(nodeID string) (*api.GatewayStatus, error)
+	UpdateNodeStatus(nodeID string, status *api.GatewayStatus) error
+	GetNodeHistory(nodeID string, limit int) ([]api.GatewayHistoryPoint, error)
 	CheckNodeHealth(nodeID string) (bool, error)
 }
 
@@ -41,7 +41,7 @@ type NodeService interface {
 type CoreService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	ReportStatus(ctx context.Context, nodeID string, status *api.PollerStatus) error
+	ReportStatus(ctx context.Context, nodeID string, status *api.GatewayStatus) error
 	GetMetricsManager() metrics.MetricCollector
 }
 
@@ -49,14 +49,14 @@ type CoreService interface {
 type DiscoveryService interface {
 	ProcessSyncResults(
 		ctx context.Context,
-		reportingPollerID, partition string,
-		svc *proto.ServiceStatus,
+		reportingGatewayID, partition string,
+		svc *proto.GatewayServiceStatus,
 		details json.RawMessage,
 		timestamp time.Time) error
 	ProcessSNMPDiscoveryResults(
 		ctx context.Context,
-		reportingPollerID, partition string,
-		svc *proto.ServiceStatus,
+		reportingGatewayID, partition string,
+		svc *proto.GatewayServiceStatus,
 		details json.RawMessage,
 		timestamp time.Time) error
 }

@@ -108,74 +108,74 @@ func TestGetCoreServiceType(t *testing.T) {
 
 func TestFindCoreServiceType(t *testing.T) {
 	tests := []struct {
-		name             string
-		services         []*proto.ServiceStatus
-		expectedType     models.ServiceType
+		name              string
+		services          []*proto.GatewayServiceStatus
+		expectedType      models.ServiceType
 		expectedServiceID string
 	}{
 		{
 			name: "finds datasvc in services list",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				{ServiceName: "datasvc-primary", ServiceType: "datasvc"},
 			},
-			expectedType:     models.ServiceTypeDatasvc,
+			expectedType:      models.ServiceTypeDatasvc,
 			expectedServiceID: "datasvc-primary",
 		},
 		{
 			name: "finds sync in services list",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				{ServiceName: "sync-01", ServiceType: "sync"},
 			},
-			expectedType:     models.ServiceTypeSync,
+			expectedType:      models.ServiceTypeSync,
 			expectedServiceID: "sync-01",
 		},
 		{
 			name: "finds core service among multiple services",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				{ServiceName: "sysmon-checker", ServiceType: "grpc"},
 				{ServiceName: "otel-collector", ServiceType: "otel"},
-				{ServiceName: "snmp-poller", ServiceType: "snmp"},
+				{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 			},
-			expectedType:     models.ServiceTypeOtel,
+			expectedType:      models.ServiceTypeOtel,
 			expectedServiceID: "otel-collector",
 		},
 		{
 			name: "returns first core service when multiple present",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				{ServiceName: "datasvc-01", ServiceType: "datasvc"},
 				{ServiceName: "sync-01", ServiceType: "sync"},
 			},
-			expectedType:     models.ServiceTypeDatasvc,
+			expectedType:      models.ServiceTypeDatasvc,
 			expectedServiceID: "datasvc-01",
 		},
 		{
 			name: "returns empty for non-core services",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				{ServiceName: "sysmon-checker", ServiceType: "grpc"},
-				{ServiceName: "snmp-poller", ServiceType: "snmp"},
+				{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 			},
-			expectedType:     "",
+			expectedType:      "",
 			expectedServiceID: "",
 		},
 		{
-			name:             "returns empty for empty services list",
-			services:         []*proto.ServiceStatus{},
-			expectedType:     "",
+			name:              "returns empty for empty services list",
+			services:          []*proto.GatewayServiceStatus{},
+			expectedType:      "",
 			expectedServiceID: "",
 		},
 		{
-			name:             "returns empty for nil services list",
-			services:         nil,
-			expectedType:     "",
+			name:              "returns empty for nil services list",
+			services:          nil,
+			expectedType:      "",
 			expectedServiceID: "",
 		},
 		{
 			name: "handles nil service in list",
-			services: []*proto.ServiceStatus{
+			services: []*proto.GatewayServiceStatus{
 				nil,
 				{ServiceName: "mapper-01", ServiceType: "mapper"},
 			},
-			expectedType:     models.ServiceTypeMapper,
+			expectedType:      models.ServiceTypeMapper,
 			expectedServiceID: "mapper-01",
 		},
 	}
@@ -287,13 +287,13 @@ func TestRegisterServiceOrCoreDevice_CoreService(t *testing.T) {
 			return nil
 		})
 
-	services := []*proto.ServiceStatus{
+	services := []*proto.GatewayServiceStatus{
 		{ServiceName: "datasvc-primary", ServiceType: "datasvc"},
 	}
 
 	server.registerServiceOrCoreDevice(
 		context.Background(),
-		"datasvc-primary", // pollerID
+		"datasvc-primary", // gatewayID
 		"core",            // partition
 		"172.18.0.5",      // Docker IP - should still work for core service
 		services,
@@ -301,7 +301,7 @@ func TestRegisterServiceOrCoreDevice_CoreService(t *testing.T) {
 	)
 }
 
-func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
+func TestRegisterServiceOrCoreDevice_RegularGateway(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -314,7 +314,7 @@ func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
 
 	now := time.Now()
 
-	// Expect regular poller device registration (partition:IP format)
+	// Expect regular gateway device registration (partition:IP format)
 	mockRegistry.EXPECT().
 		ProcessDeviceUpdate(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
@@ -323,16 +323,16 @@ func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
 			return nil
 		})
 
-	services := []*proto.ServiceStatus{
+	services := []*proto.GatewayServiceStatus{
 		{ServiceName: "sysmon-checker", ServiceType: "grpc"},
-		{ServiceName: "snmp-poller", ServiceType: "snmp"},
+		{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 	}
 
 	server.registerServiceOrCoreDevice(
 		context.Background(),
-		"edge-poller-01", // pollerID
-		"edge",           // partition
-		"192.168.1.100",  // regular IP
+		"edge-gateway-01", // gatewayID
+		"edge",            // partition
+		"192.168.1.100",   // regular IP
 		services,
 		now,
 	)
@@ -351,14 +351,14 @@ func TestRegisterServiceOrCoreDevice_SkipsEmptyPartition(t *testing.T) {
 
 	// No expectations - should not call ProcessDeviceUpdate
 
-	services := []*proto.ServiceStatus{
+	services := []*proto.GatewayServiceStatus{
 		{ServiceName: "datasvc-primary", ServiceType: "datasvc"},
 	}
 
 	server.registerServiceOrCoreDevice(
 		context.Background(),
 		"datasvc-primary",
-		"",           // empty partition - should skip
+		"", // empty partition - should skip
 		"10.0.0.10",
 		services,
 		time.Now(),
@@ -378,7 +378,7 @@ func TestRegisterServiceOrCoreDevice_SkipsEmptyIP(t *testing.T) {
 
 	// No expectations - should not call ProcessDeviceUpdate
 
-	services := []*proto.ServiceStatus{
+	services := []*proto.GatewayServiceStatus{
 		{ServiceName: "datasvc-primary", ServiceType: "datasvc"},
 	}
 

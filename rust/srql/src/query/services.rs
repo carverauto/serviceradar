@@ -5,7 +5,7 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::service_status::dsl::{
         agent_id as col_agent_id, available as col_available, message as col_message,
-        partition as col_partition, poller_id as col_poller_id, service_name as col_service_name,
+        partition as col_partition, gateway_id as col_gateway_id, service_name as col_service_name,
         service_status, service_type as col_service_type, timestamp as col_timestamp,
     },
     time::TimeRange,
@@ -386,8 +386,8 @@ fn apply_filter<'a>(mut query: ServicesQuery<'a>, filter: &Filter) -> Result<Ser
         "service_type" | "type" => {
             query = apply_text_filter!(query, filter, col_service_type)?;
         }
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -447,7 +447,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "service_name" | "name" | "service_type" | "type" | "poller_id" | "agent_id"
+        "service_name" | "name" | "service_type" | "type" | "gateway_id" | "agent_id"
         | "partition" | "message" => collect_text_params(params, filter),
         "available" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));

@@ -403,7 +403,6 @@ impl AgentService for RPerfServiceImpl {
                     service_type: req.service_type,
                     response_time: 0,
                     agent_id: req.agent_id,
-                    poller_id: req.poller_id,
                     gateway_id: req.gateway_id,
                 }));
             }
@@ -465,7 +464,6 @@ impl AgentService for RPerfServiceImpl {
             service_type: req.service_type,
             response_time,
             agent_id: req.agent_id,
-            poller_id: req.poller_id,
             gateway_id: req.gateway_id,
         }))
     }

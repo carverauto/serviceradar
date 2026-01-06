@@ -21,7 +21,7 @@ func TestBuildSweepHostStateArgs(t *testing.T) {
 
 	state := &models.SweepHostState{
 		HostIP:           "192.168.1.10",
-		PollerID:         "poller-1",
+		GatewayID:         "gateway-1",
 		AgentID:          "agent-1",
 		Partition:        "demo",
 		NetworkCIDR:      &cidr,
@@ -47,7 +47,7 @@ func TestBuildSweepHostStateArgs(t *testing.T) {
 	require.Len(t, args, 16)
 
 	assert.Equal(t, "192.168.1.10", args[0])
-	assert.Equal(t, "poller-1", args[1])
+	assert.Equal(t, "gateway-1", args[1])
 	assert.Equal(t, "agent-1", args[2])
 	assert.Equal(t, "demo", args[3])
 	assert.Equal(t, "10.0.0.0/24", args[4])
@@ -76,9 +76,9 @@ func TestBuildSweepHostStateArgsRequiresIdentifiers(t *testing.T) {
 	state.HostIP = "1.2.3.4"
 	_, err = buildSweepHostStateArgs(state)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "poller id")
+	assert.Contains(t, err.Error(), "gateway id")
 
-	state.PollerID = "poller"
+	state.GatewayID = "gateway"
 	_, err = buildSweepHostStateArgs(state)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agent id")
@@ -88,7 +88,7 @@ func TestBuildSweepHostStateArgsNilSlices(t *testing.T) {
 	now := time.Now()
 	state := &models.SweepHostState{
 		HostIP:        "1.1.1.1",
-		PollerID:      "poller",
+		GatewayID:      "gateway",
 		AgentID:       "agent",
 		LastSweepTime: now,
 		FirstSeen:     now,

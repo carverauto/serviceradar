@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Infrastructure.Poller
+  alias ServiceRadar.Infrastructure.Gateway
 
   @doc """
   Returns a system actor that bypasses all authorization.
@@ -123,20 +123,20 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a poller belonging to the given tenant.
+  Creates a gateway belonging to the given tenant.
   """
-  def tenant_poller_fixture(tenant, attrs \\ %{}) do
+  def tenant_gateway_fixture(tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
-      id: "poller-#{unique}",
+      id: "gateway-#{unique}",
       component_id: "test-component-#{unique}",
       registration_source: "manual"
     }
 
     attrs = Map.merge(defaults, attrs)
 
-    Poller
+    Gateway
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
       authorize?: false,
@@ -227,8 +227,8 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   Returns a map with all the created resources:
 
       %{
-        tenant_a: %{tenant: ..., user: ..., admin: ..., device: ..., poller: ...},
-        tenant_b: %{tenant: ..., user: ..., admin: ..., device: ..., poller: ...}
+        tenant_a: %{tenant: ..., user: ..., admin: ..., device: ..., gateway: ...},
+        tenant_b: %{tenant: ..., user: ..., admin: ..., device: ..., gateway: ...}
       }
   """
   def multi_tenant_scenario do
@@ -241,14 +241,14 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
         user: tenant_user_fixture(tenant_a),
         admin: tenant_admin_fixture(tenant_a),
         device: tenant_device_fixture(tenant_a),
-        poller: tenant_poller_fixture(tenant_a)
+        gateway: tenant_gateway_fixture(tenant_a)
       },
       tenant_b: %{
         tenant: tenant_b,
         user: tenant_user_fixture(tenant_b),
         admin: tenant_admin_fixture(tenant_b),
         device: tenant_device_fixture(tenant_b),
-        poller: tenant_poller_fixture(tenant_b)
+        gateway: tenant_gateway_fixture(tenant_b)
       }
     }
   end

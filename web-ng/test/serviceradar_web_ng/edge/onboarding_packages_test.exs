@@ -26,13 +26,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
   describe "create/2" do
     test "creates a package with generated tokens", %{tenant_id: tenant_id} do
-      attrs = %{label: "test-poller-1", component_type: :poller}
+      attrs = %{label: "test-gateway-1", component_type: :gateway}
 
       assert {:ok, result} = OnboardingPackages.create(attrs, tenant: tenant_id)
 
       assert result.package.id != nil
-      assert result.package.label == "test-poller-1"
-      assert result.package.component_type == :poller
+      assert result.package.label == "test-gateway-1"
+      assert result.package.component_type == :gateway
       assert result.package.status == :issued
       assert result.join_token != nil
       assert result.download_token != nil
@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "fails with missing label", %{tenant_id: tenant_id} do
-      attrs = %{component_type: :poller}
+      attrs = %{component_type: :gateway}
 
       assert {:error, error} = OnboardingPackages.create(attrs, tenant: tenant_id)
       assert is_struct(error, Ash.Error.Invalid)
@@ -97,7 +97,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     setup %{tenant_id: tenant_id} do
       # Create some test packages
       {:ok, r1} =
-        OnboardingPackages.create(%{label: "poller-1", component_type: :poller},
+        OnboardingPackages.create(%{label: "gateway-1", component_type: :gateway},
           tenant: tenant_id
         )
 
@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
           %{
             label: "agent-1",
             component_type: :agent,
-            poller_id: "poller-123"
+            gateway_id: "gateway-123"
           },
           tenant: tenant_id
         )
@@ -141,9 +141,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       assert Enum.all?(result, &(&1.component_type == :checker))
     end
 
-    test "filters by poller_id", %{tenant_id: tenant_id} do
-      result = OnboardingPackages.list(%{poller_id: "poller-123"}, tenant: tenant_id)
-      assert Enum.all?(result, &(&1.poller_id == "poller-123"))
+    test "filters by gateway_id", %{tenant_id: tenant_id} do
+      result = OnboardingPackages.list(%{gateway_id: "gateway-123"}, tenant: tenant_id)
+      assert Enum.all?(result, &(&1.gateway_id == "gateway-123"))
     end
 
     test "respects limit", %{tenant_id: tenant_id} do
@@ -293,9 +293,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   describe "create_with_tenant_cert/2" do
     test "creates package with certificate data", %{tenant_id: tenant_id} do
       attrs = %{
-        label: "test-poller-cert",
-        component_type: :poller,
-        component_id: "poller-test-cert"
+        label: "test-gateway-cert",
+        component_type: :gateway,
+        component_id: "gateway-test-cert"
       }
 
       result = OnboardingPackages.create_with_tenant_cert(attrs, tenant: tenant_id)
@@ -303,7 +303,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       case result do
         {:ok, package_result} ->
           assert package_result.package.id != nil
-          assert package_result.package.label == "test-poller-cert"
+          assert package_result.package.label == "test-gateway-cert"
           assert package_result.join_token != nil
           assert package_result.download_token != nil
 
@@ -325,7 +325,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
 
     test "delegates to core create_with_tenant_cert function", %{tenant_id: tenant_id} do
-      attrs = %{label: "test-delegation", component_type: :poller}
+      attrs = %{label: "test-delegation", component_type: :gateway}
 
       # The function should either succeed or fail gracefully
       result = OnboardingPackages.create_with_tenant_cert(attrs, tenant: tenant_id)
@@ -366,8 +366,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # Create a package with certificate - this should trigger CA generation
       attrs = %{
         label: "ca-auto-gen-test",
-        component_type: :poller,
-        component_id: "poller-ca-test"
+        component_type: :gateway,
+        component_id: "gateway-ca-test"
       }
 
       result = OnboardingPackages.create_with_tenant_cert(attrs, tenant: tenant.id)
@@ -403,8 +403,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # First, try to create a package (which may auto-generate CA)
       attrs1 = %{
         label: "ca-reuse-test-1",
-        component_type: :poller,
-        component_id: "poller-reuse-1"
+        component_type: :gateway,
+        component_id: "gateway-reuse-1"
       }
 
       result1 = OnboardingPackages.create_with_tenant_cert(attrs1, tenant: tenant.id)
@@ -476,14 +476,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # Create package for tenant A
       result_a =
         OnboardingPackages.create_with_tenant_cert(
-          %{label: "tenant-a-pkg", component_type: :poller},
+          %{label: "tenant-a-pkg", component_type: :gateway},
           tenant: tenant_a.id
         )
 
       # Create package for tenant B
       result_b =
         OnboardingPackages.create_with_tenant_cert(
-          %{label: "tenant-b-pkg", component_type: :poller},
+          %{label: "tenant-b-pkg", component_type: :gateway},
           tenant: tenant_b.id
         )
 

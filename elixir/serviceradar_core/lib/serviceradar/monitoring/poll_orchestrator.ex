@@ -6,28 +6,28 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   action is triggered. It handles:
 
   1. Creating a PollJob record to track execution
-  2. Finding an available poller for the schedule's partition/tenant
+  2. Finding an available gateway for the schedule's partition/tenant
   3. Loading the service checks associated with the schedule
-  4. Dispatching the job to the poller
+  4. Dispatching the job to the gateway
   5. Transitioning the PollJob through states and recording results
 
   ## ERTS Dispatch Protocol
 
-  Jobs are dispatched to pollers across the ERTS cluster using Horde registries:
+  Jobs are dispatched to gateways across the ERTS cluster using Horde registries:
 
-  1. **Discovery**: PollerRegistry (backed by Horde via TenantRegistry) provides
-     cluster-wide poller discovery. Each registered poller has a PID that is
+  1. **Discovery**: GatewayRegistry (backed by Horde via TenantRegistry) provides
+     cluster-wide gateway discovery. Each registered gateway has a PID that is
      location-transparent across nodes.
 
-  2. **Selection**: Pollers are selected by tenant/partition using:
-     - `:any` - Random available poller for tenant
-     - `:partition` - Available poller in specific partition
-     - `:specific` - Directly assigned poller by UUID
+  2. **Selection**: Gateways are selected by tenant/partition using:
+     - `:any` - Random available gateway for tenant
+     - `:partition` - Available gateway in specific partition
+     - `:specific` - Directly assigned gateway by UUID
 
-  3. **Dispatch**: The poller's PID from Horde is used directly for GenServer.call,
+  3. **Dispatch**: The gateway PID from Horde is used directly for GenServer.call,
      which works transparently across ERTS nodes. No explicit RPC is needed.
 
-  4. **Execution**: The poller receives the job, finds an agent, and dispatches
+  4. **Execution**: The gateway receives the job, finds an agent, and dispatches
      checks via gRPC to the Go agent process.
 
   ## Communication Flow
@@ -42,13 +42,13 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   PollOrchestrator.execute_schedule (core-elx)
        |
        ├── Create PollJob (pending)
-       ├── Find poller via Horde (cluster-wide)
+       ├── Find gateway via Horde (cluster-wide)
        ├── Get PID from Horde registry
        v
-  GenServer.call(poller_pid, ...) (cross-node via ERTS)
+  GenServer.call(gateway_pid, ...) (cross-node via ERTS)
        |
        v
-  PollerProcess.execute_job (poller-elx node)
+  GatewayProcess.execute_job (agent-gateway node)
        |
        ├── Find agent via AgentRegistry
        v
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   Execute a polling schedule.
 
   Creates a PollJob record and transitions it through execution states.
-  Finds an available poller and dispatches all service checks for execution.
+  Finds an available gateway and dispatches all service checks for execution.
   Returns aggregated results.
   """
   @spec execute_schedule(map()) :: {:ok, map()} | {:error, term()}
@@ -413,7 +413,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     }
   end
 
-  # Process results from poller execution
+  # Process results from gateway execution
   defp process_results(result, schedule, poll_job) do
     # Broadcast results via PubSub for any listeners
     Phoenix.PubSub.broadcast(

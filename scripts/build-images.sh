@@ -15,7 +15,7 @@ BUILDER_NAME="multiarch"
 # Available services grouped by category
 declare -A SERVICE_GROUPS=(
     ["infrastructure"]="cert-generator config-updater"
-    ["core"]="core web poller agent"
+    ["core"]="core web agent-gateway agent"
     ["data"]="kv db-event-writer"
     ["observability"]="otel flowgger trapd zen"
     ["checkers"]="mapper snmp-checker rperf-client"
@@ -72,7 +72,7 @@ OPTIONS:
 
 SERVICE GROUPS:
   infrastructure: cert-generator, config-updater
-  core:          core, web, poller, agent
+  core:          core, web, agent-gateway, agent
   data:          kv, db-event-writer
   observability: otel, flowgger, trapd, zen
   checkers:      mapper, snmp-checker, rperf-client
@@ -81,7 +81,7 @@ SERVICE GROUPS:
 
 SERVICES:
   You can specify individual services to build:
-  cert-generator, config-updater, core, web, poller, agent,
+  cert-generator, config-updater, core, web, agent-gateway, agent,
   kv, db-event-writer, otel, flowgger, trapd, zen,
   mapper, snmp-checker, rperf-client, tools
 
@@ -308,7 +308,7 @@ declare -A SERVICE_DOCKERFILES=(
     ["config-updater"]="docker/compose/Dockerfile.config-updater"
     ["core"]="docker/compose/Dockerfile.core"
     ["web"]="docker/compose/Dockerfile.web"
-    ["poller"]="docker/compose/Dockerfile.poller"
+    ["agent-gateway"]="docker/compose/Dockerfile.agent-gateway"
     ["agent"]="docker/compose/Dockerfile.agent"
     ["datasvc"]="docker/compose/Dockerfile.datasvc"
     ["db-event-writer"]="docker/compose/Dockerfile.db-event-writer"
@@ -327,7 +327,7 @@ declare -A SERVICE_BUILD_ARGS=(
     ["config-updater"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["core"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["web"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
-    ["poller"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
+    ["agent-gateway"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["agent"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["datasvc"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["db-event-writer"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"

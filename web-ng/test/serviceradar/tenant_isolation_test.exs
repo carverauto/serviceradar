@@ -20,7 +20,7 @@ defmodule ServiceRadar.TenantIsolationTest do
 
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Infrastructure.Poller
+  alias ServiceRadar.Infrastructure.Gateway
 
   import ServiceRadarWebNG.MultiTenantFixtures
 
@@ -95,21 +95,21 @@ defmodule ServiceRadar.TenantIsolationTest do
     end
   end
 
-  describe "Poller tenant isolation" do
+  describe "Gateway tenant isolation" do
     setup do
       scenario = multi_tenant_scenario()
       {:ok, scenario}
     end
 
-    test "users can only see pollers in their own tenant", %{tenant_a: a, tenant_b: b} do
+    test "users can only see gateways in their own tenant", %{tenant_a: a, tenant_b: b} do
       actor_a = actor_for_user(a.user)
 
-      # User A should see pollers in Tenant A
-      {:ok, pollers} = Ash.read(Poller, actor: actor_a, tenant: a.tenant.id)
-      poller_ids = Enum.map(pollers, & &1.id)
+      # User A should see gateways in Tenant A
+      {:ok, gateways} = Ash.read(Gateway, actor: actor_a, tenant: a.tenant.id)
+      gateway_ids = Enum.map(gateways, & &1.id)
 
-      assert a.poller.id in poller_ids
-      refute b.poller.id in poller_ids
+      assert a.gateway.id in gateway_ids
+      refute b.gateway.id in gateway_ids
     end
   end
 

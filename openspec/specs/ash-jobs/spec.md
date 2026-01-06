@@ -17,35 +17,35 @@ The system SHALL use AshOban for declarative job scheduling tied to Ash resource
 - **THEN** the system SHALL update the resource state
 - **AND** record success or failure in the job history
 
-### Requirement: Distributed Poller Coordination
-The system SHALL coordinate polling jobs across distributed poller nodes using Horde.
+### Requirement: Distributed Gateway Coordination
+The system SHALL coordinate polling jobs across distributed gateway nodes using Horde.
 
-#### Scenario: Poller discovery
-- **GIVEN** multiple poller nodes in the ERTS cluster
+#### Scenario: Gateway discovery
+- **GIVEN** multiple gateway nodes in the ERTS cluster
 - **WHEN** a polling job needs execution
-- **THEN** the system SHALL query Horde.Registry for available pollers
-- **AND** select a poller matching the required partition
+- **THEN** the system SHALL query Horde.Registry for available gateways
+- **AND** select a gateway matching the required partition
 
-#### Scenario: Poller failover
-- **GIVEN** a polling job assigned to poller node P1
-- **WHEN** poller P1 becomes unavailable mid-execution
+#### Scenario: Gateway failover
+- **GIVEN** a polling job assigned to gateway node P1
+- **WHEN** gateway P1 becomes unavailable mid-execution
 - **THEN** Horde SHALL detect the failure
-- **AND** the job SHALL be reassigned to another available poller
+- **AND** the job SHALL be reassigned to another available gateway
 
 ### Requirement: Edge Domain Job Routing
-The system SHALL route jobs to edge-deployed pollers based on endpoint domain.
+The system SHALL route jobs to edge-deployed gateways based on endpoint domain.
 
-#### Scenario: Edge poller selection
+#### Scenario: Edge gateway selection
 - **GIVEN** a job targeting endpoint domain "site-a"
 - **WHEN** the job is dispatched
-- **THEN** the system SHALL find pollers registered for domain "site-a"
+- **THEN** the system SHALL find gateways registered for domain "site-a"
 - **AND** dispatch the task via ERTS distribution
 
 #### Scenario: Partition-aware routing
 - **GIVEN** overlapping IP spaces in partitions P1 and P2
 - **WHEN** a job targets a device in partition P1
-- **THEN** only pollers registered for partition P1 SHALL be candidates
-- **AND** the job SHALL NOT be routed to partition P2 pollers
+- **THEN** only gateways registered for partition P1 SHALL be candidates
+- **AND** the job SHALL NOT be routed to partition P2 gateways
 
 ### Requirement: Job Migration from Custom Scheduler
 The system SHALL migrate existing custom Oban jobs to AshOban triggers.

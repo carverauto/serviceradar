@@ -55,8 +55,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 	switch cfg.SubCmd {
 	case "update-config":
 		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash, cfg.DBPasswordFile)
-	case "update-poller":
-		return cli.RunUpdatePoller(cfg)
+	case "update-gateway":
+		return cli.RunUpdateGateway(cfg)
 	case "generate-tls":
 		return cli.RunGenerateTLS(cfg)
 	case "generate-jwt-keys":

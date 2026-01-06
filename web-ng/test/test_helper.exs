@@ -68,7 +68,7 @@ _ =
       {"groups", "jsonb"},
       {"agent_list", "jsonb"},
       # ServiceRadar-specific fields
-      {"poller_id", "text"},
+      {"gateway_id", "text"},
       {"agent_id", "text"},
       {"discovery_sources", "text[]"},
       {"is_available", "boolean"},
@@ -87,8 +87,8 @@ _ =
   Ecto.Adapters.SQL.query!(
     repo,
     """
-    CREATE TABLE IF NOT EXISTS pollers (
-      poller_id text PRIMARY KEY
+    CREATE TABLE IF NOT EXISTS gateways (
+      gateway_id text PRIMARY KEY
     )
     """,
     []
@@ -109,12 +109,14 @@ _ =
       {"is_healthy", "boolean"},
       {"agent_count", "integer"},
       {"checker_count", "integer"},
-      {"updated_at", "timestamptz"}
+      {"updated_at", "timestamptz"},
+      {"tenant_id", "uuid"},
+      {"partition_id", "uuid"}
     ],
     fn {col, type} ->
       Ecto.Adapters.SQL.query!(
         repo,
-        "ALTER TABLE pollers ADD COLUMN IF NOT EXISTS #{col} #{type}",
+        "ALTER TABLE gateways ADD COLUMN IF NOT EXISTS #{col} #{type}",
         []
       )
     end

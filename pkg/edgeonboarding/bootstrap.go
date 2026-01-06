@@ -42,7 +42,7 @@ var (
 )
 
 // Config contains all parameters needed for edge service onboarding.
-// This is the client-side configuration for edge services (poller, agent, checker; sync uses agent bootstrap config)
+// This is the client-side configuration for edge services (gateway, agent, checker; sync uses agent bootstrap config)
 // to bootstrap themselves from an onboarding token.
 //
 // ## Minimal Bootstrap Configuration
@@ -177,7 +177,7 @@ func NewBootstrapper(cfg *Config) (*Bootstrapper, error) {
 // Steps:
 // 1. Download package from Core using token
 // 2. Validate and extract package contents
-// 3. Configure SPIRE (nested server for poller, workload API for others)
+// 3. Configure SPIRE (nested server for gateway, workload API for others)
 // 4. Auto-register with Core via database (update edge_packages table)
 // 5. Generate service config based on deployment type
 // 6. Set up credential rotation

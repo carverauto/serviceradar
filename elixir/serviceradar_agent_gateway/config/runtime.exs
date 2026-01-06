@@ -6,16 +6,16 @@ import Config
 # =============================================================================
 # Cluster Configuration
 # =============================================================================
-# All Elixir nodes (poller, agent, web/core) join the same ERTS cluster for:
+# All Elixir nodes (agent gateway, web/core) join the same ERTS cluster for:
 # - Distributed process management (Horde)
 # - Remote debugging and observer
 # - Telemetry aggregation
 # - Direct Erlang messaging between components
 #
-# The poller connects to:
+# The agent gateway connects to:
 # - serviceradar-core-elx (Elixir core/web service)
-# - Other pollers in the same partition
-# - Agents connected to this poller
+# - Other gateways in the same partition
+# - Agents connected to this gateway
 
 cluster_strategy =
   System.get_env("CLUSTER_STRATEGY", "epmd")
@@ -28,7 +28,7 @@ topologies =
     case cluster_strategy do
       "kubernetes" ->
         # Kubernetes DNS-based discovery (production)
-        # Connects to both core and other pollers via headless services
+        # Connects to both core and other gateways via headless services
         namespace = System.get_env("NAMESPACE", "serviceradar")
         kubernetes_selector = System.get_env("KUBERNETES_SELECTOR", "app=serviceradar")
         kubernetes_node_basename = System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar")
@@ -180,7 +180,7 @@ config :serviceradar_core,
 
 config :serviceradar_core, Oban, false
 
-# Disable Swoosh API client (poller does not send email).
+# Disable Swoosh API client (agent gateway does not send email).
 config :swoosh, :api_client, false
 config :swoosh, local: false
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
@@ -205,5 +205,5 @@ if config_env() == :prod do
 
   config :logger, :console,
     format: "$time $metadata[$level] $message\n",
-    metadata: [:request_id, :poller_id, :partition_id, :node]
+    metadata: [:request_id, :gateway_id, :partition_id, :node]
 end

@@ -13,12 +13,12 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
 
       update :go_offline do
         change transition_state(:offline)
-        change {PublishStateChange, entity_type: :poller, new_state: :offline}
+        change {PublishStateChange, entity_type: :gateway, new_state: :offline}
       end
 
   ## Options
 
-  - `:entity_type` - The type of entity (required: :poller, :agent, :checker)
+  - `:entity_type` - The type of entity (required: :gateway, :agent, :checker)
   - `:new_state` - The target state of the transition (required)
   - `:reason` - Optional reason for the transition (defaults to action name)
   """
@@ -34,8 +34,8 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     entity_type = Keyword.fetch!(opts, :entity_type)
     new_state = Keyword.fetch!(opts, :new_state)
 
-    unless entity_type in [:poller, :agent, :checker, :collector] do
-      raise ArgumentError, "entity_type must be one of :poller, :agent, :checker, :collector"
+    unless entity_type in [:gateway, :agent, :checker, :collector] do
+      raise ArgumentError, "entity_type must be one of :gateway, :agent, :checker, :collector"
     end
 
     {:ok, %{entity_type: entity_type, new_state: new_state}}
@@ -80,14 +80,14 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     end
   end
 
-  defp get_entity_id(record, :poller), do: record.id
+  defp get_entity_id(record, :gateway), do: record.id
   defp get_entity_id(record, :agent), do: record.uid
   defp get_entity_id(record, :checker), do: to_string(record.id)
   defp get_entity_id(record, _), do: to_string(Map.get(record, :id))
 
   # Get entity-specific metadata fields
-  defp get_entity_metadata(record, :poller), do: %{partition_id: Map.get(record, :partition_id)}
-  defp get_entity_metadata(record, :agent), do: %{poller_id: Map.get(record, :poller_id)}
+  defp get_entity_metadata(record, :gateway), do: %{partition_id: Map.get(record, :partition_id)}
+  defp get_entity_metadata(record, :agent), do: %{gateway_id: Map.get(record, :gateway_id)}
   defp get_entity_metadata(record, :checker), do: %{agent_uid: Map.get(record, :agent_uid)}
   defp get_entity_metadata(_record, _), do: %{}
 

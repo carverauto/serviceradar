@@ -28,7 +28,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 
 	serviceData := json.RawMessage(`{"status":{"host_ip":"10.0.0.5","hostname":"edge-agent"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "edge-agent",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -51,7 +51,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 				require.Equal(t, "default:10.0.0.5", record.DeviceID)
 				require.ElementsMatch(t, []string{"edge-agent", "grpc"}, record.Capabilities)
 				require.Equal(t, "agent-1", record.AgentID)
-				require.Equal(t, "poller-1", record.PollerID)
+				require.Equal(t, "gateway-1", record.GatewayID)
 				require.Equal(t, "edge-agent", record.ServiceName)
 			}),
 		mockRegistry.EXPECT().
@@ -64,7 +64,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 				require.Equal(t, "10.0.0.5", update.IP)
 				require.Equal(t, "default", update.Partition)
 				require.Equal(t, "agent-1", update.AgentID)
-				require.Equal(t, "poller-1", update.PollerID)
+				require.Equal(t, "gateway-1", update.GatewayID)
 				require.True(t, update.IsAvailable)
 
 				require.NotNil(t, update.Hostname)
@@ -75,7 +75,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 				require.Equal(t, grpcServiceType, update.Metadata["checker_service_type"])
 				require.Equal(t, "10.0.0.5", update.Metadata["checker_host_ip"])
 				require.Equal(t, "agent-1", update.Metadata["collector_agent_id"])
-				require.Equal(t, "poller-1", update.Metadata["collector_poller_id"])
+				require.Equal(t, "gateway-1", update.Metadata["collector_gateway_id"])
 
 				require.NotEmpty(t, update.Metadata["last_update"])
 				return nil
@@ -85,7 +85,7 @@ func TestEnsureServiceDeviceRegistersOnStatusSource(t *testing.T) {
 	server.ensureServiceDevice(
 		context.Background(),
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		"default",
 		svc,
 		serviceData,
@@ -108,7 +108,7 @@ func TestEnsureServiceDeviceSkipsResultSource(t *testing.T) {
 
 	serviceData := json.RawMessage(`{"status":{"host_ip":"10.0.0.5"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "edge-agent",
 		ServiceType: grpcServiceType,
 		Source:      "results",
@@ -117,7 +117,7 @@ func TestEnsureServiceDeviceSkipsResultSource(t *testing.T) {
 	server.ensureServiceDevice(
 		context.Background(),
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		"default",
 		svc,
 		serviceData,
@@ -218,9 +218,9 @@ func TestIsEphemeralCollectorIP(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "docker IP with poller in hostname",
+			name:     "docker IP with gateway in hostname",
 			hostIP:   "172.17.0.10",
-			hostname: "k8s-poller",
+			hostname: "k8s-gateway",
 			hostID:   "",
 			expected: true,
 		},
@@ -299,7 +299,7 @@ func TestEnsureServiceDeviceSkipsEphemeralCollectorIP(t *testing.T) {
 	// This should be detected as an ephemeral collector IP and skipped
 	serviceData := json.RawMessage(`{"status":{"host_ip":"172.18.0.5","hostname":"docker-agent"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -311,7 +311,7 @@ func TestEnsureServiceDeviceSkipsEphemeralCollectorIP(t *testing.T) {
 	server.ensureServiceDevice(
 		context.Background(),
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		"default",
 		svc,
 		serviceData,
@@ -338,7 +338,7 @@ func TestEnsureServiceDeviceCreatesTargetDevice(t *testing.T) {
 	// This should be detected as a legitimate target and create a device
 	serviceData := json.RawMessage(`{"status":{"host_ip":"192.168.1.218","hostname":"sysmon-osx"}}`)
 
-	svc := &proto.ServiceStatus{
+	svc := &proto.GatewayServiceStatus{
 		ServiceName: "sysmon-osx",
 		ServiceType: grpcServiceType,
 		Source:      "status",
@@ -372,7 +372,7 @@ func TestEnsureServiceDeviceCreatesTargetDevice(t *testing.T) {
 	server.ensureServiceDevice(
 		context.Background(),
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		"default",
 		svc,
 		serviceData,
@@ -563,9 +563,9 @@ func TestIsEphemeralCollectorIP_EdgeCases(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "mixed case Poller in hostname",
+			name:     "mixed case Gateway in hostname",
 			hostIP:   "172.17.0.10",
-			hostname: "Edge-Poller",
+			hostname: "Edge-Gateway",
 			hostID:   "",
 			expected: true,
 		},
@@ -659,7 +659,7 @@ func TestGetCollectorIP_NilRegistries(t *testing.T) {
 	}
 
 	// Should return empty when all registries are nil
-	result := server.getCollectorIP(context.Background(), "agent-1", "poller-1")
+	result := server.getCollectorIP(context.Background(), "agent-1", "gateway-1")
 	assert.Empty(t, result)
 }
 
@@ -755,7 +755,7 @@ func TestEnsureServiceDevice_NonGRPCServiceTypes(t *testing.T) {
 
 	for _, serviceType := range nonGRPCTypes {
 		t.Run(serviceType, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "test-service",
 				ServiceType: serviceType,
 				Source:      "status",
@@ -767,7 +767,7 @@ func TestEnsureServiceDevice_NonGRPCServiceTypes(t *testing.T) {
 			server.ensureServiceDevice(
 				context.Background(),
 				"agent-1",
-				"poller-1",
+				"gateway-1",
 				"default",
 				svc,
 				serviceData,
@@ -802,7 +802,7 @@ func TestEnsureServiceDevice_UnknownHostIP(t *testing.T) {
 
 	for _, payload := range unknownIPs {
 		t.Run(payload, func(t *testing.T) {
-			svc := &proto.ServiceStatus{
+			svc := &proto.GatewayServiceStatus{
 				ServiceName: "test-service",
 				ServiceType: grpcServiceType,
 				Source:      "status",
@@ -812,7 +812,7 @@ func TestEnsureServiceDevice_UnknownHostIP(t *testing.T) {
 			server.ensureServiceDevice(
 				context.Background(),
 				"agent-1",
-				"poller-1",
+				"gateway-1",
 				"default",
 				svc,
 				[]byte(payload),
@@ -829,7 +829,7 @@ func TestServiceDeviceID_DoesNotMatchPhantomCleanupCriteria(t *testing.T) {
 	// This test verifies that service device IDs (serviceradar:*) would NOT be
 	// affected by the phantom device cleanup migration
 	serviceDeviceIDs := []string{
-		"serviceradar:poller:edge-poller-01",
+		"serviceradar:gateway:edge-gateway-01",
 		"serviceradar:agent:agent-123",
 		"serviceradar:checker:sysmon@agent-123",
 		"serviceradar:datasvc:datasvc-primary",

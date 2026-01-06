@@ -25,7 +25,7 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
   describe "TenantResolver CN parsing (9.3)" do
     test "extracts tenant slug from valid CN" do
       # Valid CN format: component_id.partition_id.tenant_slug.serviceradar
-      cn = "poller-001.partition-1.acme-corp.serviceradar"
+      cn = "gateway-001.partition-1.acme-corp.serviceradar"
 
       {:ok, slug} = TenantResolver.extract_slug_from_cn(cn)
 
@@ -50,8 +50,8 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
 
     test "rejects invalid CN format - missing parts" do
       invalid_cns = [
-        "poller-001.serviceradar",           # Only 2 parts
-        "poller-001.partition.serviceradar", # Only 3 parts
+        "gateway-001.serviceradar",           # Only 2 parts
+        "gateway-001.partition.serviceradar", # Only 3 parts
         "just-a-name",                       # Single part
         ""                                   # Empty
       ]
@@ -64,9 +64,9 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
 
     test "rejects CN not ending in serviceradar domain" do
       invalid_cns = [
-        "poller-001.partition-1.acme.example.com",
-        "poller-001.partition-1.acme.otherservice",
-        "poller-001.partition-1.acme.local"
+        "gateway-001.partition-1.acme.example.com",
+        "gateway-001.partition-1.acme.otherservice",
+        "gateway-001.partition-1.acme.local"
       ]
 
       for cn <- invalid_cns do
@@ -100,14 +100,14 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
 
   describe "SPIFFE ID parsing" do
     test "parses valid SPIFFE ID with all components" do
-      spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
       {:ok, parsed} = SPIFFE.parse_spiffe_id(spiffe_id)
 
       assert parsed.trust_domain == "serviceradar.local"
-      assert parsed.node_type == :poller
+      assert parsed.node_type == :gateway
       assert parsed.partition_id == "partition-1"
-      assert parsed.node_id == "poller-001"
+      assert parsed.node_id == "gateway-001"
     end
 
     test "parses agent SPIFFE ID" do
@@ -132,9 +132,9 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
 
     test "rejects invalid SPIFFE URI prefix" do
       invalid_ids = [
-        "http://serviceradar.local/poller/p1/p001",
-        "https://serviceradar.local/poller/p1/p001",
-        "serviceradar.local/poller/p1/p001"
+        "http://serviceradar.local/gateway/p1/g001",
+        "https://serviceradar.local/gateway/p1/g001",
+        "serviceradar.local/gateway/p1/g001"
       ]
 
       for id <- invalid_ids do
@@ -151,10 +151,10 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
   end
 
   describe "SPIFFE authorization" do
-    test "authorizes poller with poller SPIFFE ID" do
-      spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+    test "authorizes gateway with gateway SPIFFE ID" do
+      spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
-      assert SPIFFE.authorized?(spiffe_id, :poller)
+      assert SPIFFE.authorized?(spiffe_id, :gateway)
     end
 
     test "authorizes agent with agent SPIFFE ID" do
@@ -163,26 +163,26 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
       assert SPIFFE.authorized?(spiffe_id, :agent)
     end
 
-    test "rejects type mismatch - agent claiming to be poller" do
+    test "rejects type mismatch - agent claiming to be gateway" do
       agent_spiffe_id = "spiffe://serviceradar.local/agent/partition-1/agent-001"
 
-      refute SPIFFE.authorized?(agent_spiffe_id, :poller),
-        "Agent SPIFFE ID should not be authorized as poller"
+      refute SPIFFE.authorized?(agent_spiffe_id, :gateway),
+        "Agent SPIFFE ID should not be authorized as gateway"
     end
 
-    test "rejects type mismatch - poller claiming to be core" do
-      poller_spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+    test "rejects type mismatch - gateway claiming to be core" do
+      gateway_spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
-      refute SPIFFE.authorized?(poller_spiffe_id, :core),
-        "Poller SPIFFE ID should not be authorized as core"
+      refute SPIFFE.authorized?(gateway_spiffe_id, :core),
+        "Gateway SPIFFE ID should not be authorized as core"
     end
   end
 
   describe "SPIFFE ID building" do
-    test "builds correct SPIFFE ID for poller" do
-      spiffe_id = SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-001")
+    test "builds correct SPIFFE ID for gateway" do
+      spiffe_id = SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001")
 
-      assert spiffe_id == "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      assert spiffe_id == "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
     end
 
     test "builds correct SPIFFE ID for agent" do
@@ -198,10 +198,10 @@ defmodule ServiceRadar.Security.MTLSTenantValidationTest do
     end
 
     test "allows custom trust domain" do
-      spiffe_id = SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-001",
+      spiffe_id = SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001",
         trust_domain: "custom.domain")
 
-      assert spiffe_id == "spiffe://custom.domain/poller/partition-1/poller-001"
+      assert spiffe_id == "spiffe://custom.domain/gateway/partition-1/gateway-001"
     end
   end
 

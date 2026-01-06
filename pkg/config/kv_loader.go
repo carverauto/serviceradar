@@ -50,7 +50,7 @@ func isExplicitKVKey(path string) bool {
 	switch {
 	case strings.HasPrefix(trimmed, "config/"),
 		strings.HasPrefix(trimmed, "agents/"),
-		strings.HasPrefix(trimmed, "pollers/"),
+		strings.HasPrefix(trimmed, "gateways/"),
 		strings.HasPrefix(trimmed, "watchers/"),
 		strings.HasPrefix(trimmed, "templates/"),
 		strings.HasPrefix(trimmed, "domains/"):

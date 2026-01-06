@@ -5,7 +5,7 @@ title: TLS Security
 
 # TLS Security
 
-ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the CNPG/Timescale server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with CNPG, ServiceRadar-core, Poller, Agent, NATS JetStream, and serviceradar-datasvc.
+ServiceRadar supports mutual TLS (mTLS) authentication to secure communications between its components, including the CNPG/Timescale server used by ServiceRadar-core for data storage. This guide provides instructions for generating and configuring mTLS certificates for all ServiceRadar components using OpenSSL, tailored for environments without DNS resolution. Certificates use IP-based Subject Alternative Names (SANs) to ensure compatibility with CNPG, ServiceRadar-core, Gateway, Agent, NATS JetStream, and serviceradar-datasvc.
 
 ## Security Architecture
 
@@ -23,8 +23,8 @@ graph TB
         AG --> SweepCheck
     end
 
-    subgraph "Poller Service"
-        PL[Poller<br/>Role: Client+Server<br/>:50053]
+    subgraph "Gateway Service"
+        PL[Gateway<br/>Role: Client+Server<br/>:50053]
     end
 
     subgraph "Core Service"
@@ -46,10 +46,10 @@ graph TB
         MAP[serviceradar-mapper<br/>Role: Server<br/>:50056]
     end
 
-%% Client connections from Poller to Agent
+%% Client connections from Gateway to Agent
     PL -->|mTLS Client| AG
 
-%% Server connections to Poller
+%% Server connections to Gateway
     HC1[Health Checks] -->|mTLS Client| PL
 
 %% Client connections from Agent to Mapper
@@ -69,7 +69,7 @@ graph TB
 ServiceRadar and CNPG use the following certificate files:
 
 - **root.pem**: Root CA certificate, shared across all components.
-- **\<component\>.pem**: Component-specific certificate (e.g., core.pem, poller.pem).
+- **\<component\>.pem**: Component-specific certificate (e.g., core.pem, gateway.pem).
 - **\<component\>-key.pem**: Component-specific private key.
 
 Certificates are stored in `/etc/serviceradar/certs/` for ServiceRadar components (root.pem, \<component\>.pem, \<component\>-key.pem).
@@ -85,14 +85,14 @@ Certificates are stored in `/etc/serviceradar/certs/` for ServiceRadar component
 - **Root or sudo access**: Required for creating directories and deploying certificates.
 - **Network information**: IP addresses for each component:
     - ServiceRadar-core and CNPG: 192.168.2.23 (plus internal IPs like 192.168.2.x).
-    - Poller: \<poller-ip\> (e.g., 192.168.2.100 for dusk01, replace with actual IP).
+    - Gateway: \<gateway-ip\> (e.g., 192.168.2.100 for dusk01, replace with actual IP).
     - Agent, NATS, KV: Respective IPs.
 
 - **Directory**: A working directory (e.g., `/path/to/tls/`) for generating certificates.
 - **No DNS**: This guide assumes no DNS resolution, so all configurations and certificates use IP addresses.
 
 :::note
-To find the Poller's IP address, run `ip addr show` on the Poller host (e.g., dusk01) and note the inet address on the primary interface (e.g., 192.168.2.100). If the IP is unknown, use 192.168.2.100 as a placeholder and regenerate the Poller certificate later with the correct IP.
+To find the Gateway's IP address, run `ip addr show` on the Gateway host (e.g., dusk01) and note the inet address on the primary interface (e.g., 192.168.2.100). If the IP is unknown, use 192.168.2.100 as a placeholder and regenerate the Gateway certificate later with the correct IP.
 :::
 
 ## Certificate Generation with OpenSSL
@@ -135,7 +135,7 @@ Generate certificates for each component with IP-based SANs.
 
 #### CNPG and ServiceRadar-core Certificate (core.pem)
 
-CNPG (server) and ServiceRadar-core (client to CNPG, server to Poller) share the same certificate (CN=core.serviceradar) with SANs covering all relevant IPs.
+CNPG (server) and ServiceRadar-core (client to CNPG, server to Gateway) share the same certificate (CN=core.serviceradar) with SANs covering all relevant IPs.
 
 Create SAN Configuration:
 
@@ -192,14 +192,14 @@ openssl verify -CAfile root.pem core.pem
 
 Expected: `core.pem: OK.`
 
-#### Poller Certificate (poller.pem)
+#### Gateway Certificate (gateway.pem)
 
-The Poller acts as a client to ServiceRadar-core and a server for health checks.
+The Gateway acts as a client to ServiceRadar-core and a server for health checks.
 
 Create SAN Configuration:
 
 ```bash
-cat > poller-san.cnf << EOF
+cat > gateway-san.cnf << EOF
 [req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
@@ -211,7 +211,7 @@ ST = Your State
 L = Your Location
 O = ServiceRadar
 OU = Operations
-CN = poller.serviceradar
+CN = gateway.serviceradar
 
 [v3_req]
 basicConstraints = CA:FALSE
@@ -226,34 +226,34 @@ Replace 192.168.2.100 with the actual IP of dusk01. To find it, run `ip addr sho
 Generate Certificate:
 
 ```bash
-openssl ecparam -name prime256v1 -genkey -out poller-key.pem
-openssl req -new -key poller-key.pem -out poller.csr -config poller-san.cnf
-openssl x509 -req -in poller.csr -CA root.pem -CAkey root-key.pem -CAcreateserial -out poller.pem -days 365 -sha256 -extfile poller-san.cnf -extensions v3_req
+openssl ecparam -name prime256v1 -genkey -out gateway-key.pem
+openssl req -new -key gateway-key.pem -out gateway.csr -config gateway-san.cnf
+openssl x509 -req -in gateway.csr -CA root.pem -CAkey root-key.pem -CAcreateserial -out gateway.pem -days 365 -sha256 -extfile gateway-san.cnf -extensions v3_req
 ```
 
 Verify:
 
 ```bash
-openssl x509 -in poller.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
+openssl x509 -in gateway.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
 ```
 
 Expected:
 ```
-Subject: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=poller.serviceradar
+Subject: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=gateway.serviceradar
 Issuer: C=US, ST=Your State, L=Your Location, O=ServiceRadar, OU=Operations, CN=ServiceRadar CA
 X509v3 Subject Alternative Name: 
     IP Address:192.168.2.100
 ```
 
 ```bash
-openssl verify -CAfile root.pem poller.pem
+openssl verify -CAfile root.pem gateway.pem
 ```
 
-Expected: `poller.pem: OK.`
+Expected: `gateway.pem: OK.`
 
 #### Agent Certificate (agent.pem)
 
-The Agent acts as a client to the KV store and a server for the Poller.
+The Agent acts as a client to the KV store and a server for the Gateway.
 
 Create SAN Configuration:
 
@@ -401,7 +401,7 @@ sudo chmod 600 /path/to/secure/location/root-key.pem
 | Component | Role | Certificates Needed | Location |
 |-----------|------|---------------------|----------|
 | ServiceRadar-core | Client+Server | root.pem, core.pem, core-key.pem | /etc/serviceradar/certs/ |
-| Poller | Client+Server | root.pem, poller.pem, poller-key.pem | /etc/serviceradar/certs/ |
+| Gateway | Client+Server | root.pem, gateway.pem, gateway-key.pem | /etc/serviceradar/certs/ |
 | Agent | Client+Server | root.pem, agent.pem, agent-key.pem | /etc/serviceradar/certs/ |
 | NATS JetStream | Server | root.pem, nats-server.pem, nats-server-key.pem | /etc/serviceradar/certs/ |
 | serviceradar-datasvc | Client+Server | root.pem, datasvc.pem, datasvc-key.pem | /etc/serviceradar/certs/ |
@@ -417,7 +417,7 @@ sudo chown serviceradar:serviceradar /etc/serviceradar/certs
 sudo chmod 700 /etc/serviceradar/certs
 ```
 
-On dusk01 (Poller host):
+On dusk01 (Gateway host):
 ```bash
 sudo mkdir -p /etc/serviceradar/certs
 sudo chown serviceradar:serviceradar /etc/serviceradar/certs
@@ -447,17 +447,17 @@ sudo chmod 644 /etc/serviceradar/certs/*.pem
 sudo chmod 600 /etc/serviceradar/certs/*-key.pem
 ```
 
-##### Poller (on dusk01):
+##### Gateway (on dusk01):
 Transfer certificates from serviceradar-cloud:
 ```bash
-scp /path/to/tls/root.pem /path/to/tls/poller.pem /path/to/tls/poller-key.pem <user>@dusk01:/tmp/
+scp /path/to/tls/root.pem /path/to/tls/gateway.pem /path/to/tls/gateway-key.pem <user>@dusk01:/tmp/
 ```
 
 On dusk01:
 ```bash
 sudo mv /tmp/root.pem /etc/serviceradar/certs/root.pem
-sudo mv /tmp/poller.pem /etc/serviceradar/certs/poller.pem
-sudo mv /tmp/poller-key.pem /etc/serviceradar/certs/poller-key.pem
+sudo mv /tmp/gateway.pem /etc/serviceradar/certs/gateway.pem
+sudo mv /tmp/gateway-key.pem /etc/serviceradar/certs/gateway-key.pem
 sudo chown serviceradar:serviceradar /etc/serviceradar/certs/*
 sudo chmod 644 /etc/serviceradar/certs/*.pem
 sudo chmod 600 /etc/serviceradar/certs/*-key.pem
@@ -490,11 +490,11 @@ Update `/etc/serviceradar/core.json`:
   "listen_addr": ":8090",
   "grpc_addr": ":50052",
   "alert_threshold": "5m",
-  "known_pollers": ["my-poller"],
+  "known_gateways": ["my-gateway"],
   "metrics": {
     "enabled": true,
     "retention": 100,
-    "max_pollers": 10000
+    "max_gateways": 10000
   },
   "database": {
     "addresses": ["192.168.2.23:9440"],
@@ -526,9 +526,9 @@ Update `/etc/serviceradar/core.json`:
 }
 ```
 
-### Poller Configuration (on dusk01)
+### Gateway Configuration (on dusk01)
 
-Update `/etc/serviceradar/poller.json`:
+Update `/etc/serviceradar/gateway.json`:
 
 ```json
 {
@@ -539,8 +539,8 @@ Update `/etc/serviceradar/poller.json`:
         "server_name": "agent.serviceradar",
         "mode": "mtls",
         "tls": {
-          "cert_file": "poller.pem",
-          "key_file": "poller-key.pem",
+          "cert_file": "gateway.pem",
+          "key_file": "gateway-key.pem",
           "ca_file": "root.pem"
         }
       },
@@ -550,17 +550,17 @@ Update `/etc/serviceradar/poller.json`:
   "core_address": "192.168.2.23:50052",
   "listen_addr": ":50053",
   "poll_interval": "30s",
-  "poller_id": "my-poller",
-  "service_name": "PollerService",
+  "gateway_id": "my-gateway",
+  "service_name": "GatewayService",
   "service_type": "grpc",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "core.serviceradar",
-    "role": "poller",
+    "role": "gateway",
     "tls": {
-      "cert_file": "poller.pem",
-      "key_file": "poller-key.pem",
+      "cert_file": "gateway.pem",
+      "key_file": "gateway-key.pem",
       "ca_file": "root.pem"
     }
   }
@@ -584,7 +584,7 @@ Update `/etc/serviceradar/agent.json`:
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "poller.serviceradar",
+    "server_name": "gateway.serviceradar",
     "role": "agent",
     "tls": {
       "cert_file": "agent.pem",
@@ -664,8 +664,8 @@ openssl verify -CAfile /etc/serviceradar/certs/root.pem /etc/serviceradar/certs/
 On dusk01:
 ```bash
 openssl x509 -in /etc/serviceradar/certs/root.pem -text -noout | grep -E "Subject:|Issuer:"
-openssl x509 -in /etc/serviceradar/certs/poller.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
-openssl verify -CAfile /etc/serviceradar/certs/root.pem /etc/serviceradar/certs/poller.pem
+openssl x509 -in /etc/serviceradar/certs/gateway.pem -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:"
+openssl verify -CAfile /etc/serviceradar/certs/root.pem /etc/serviceradar/certs/gateway.pem
 ```
 
 ### Restart Services:
@@ -679,7 +679,7 @@ sudo systemctl restart serviceradar-datasvc
 
 On dusk01:
 ```bash
-sudo systemctl restart serviceradar-poller
+sudo systemctl restart serviceradar-agent-gateway
 ```
 
 On Agent host:
@@ -689,9 +689,9 @@ sudo systemctl restart serviceradar-agent
 
 ### Test mTLS Connections:
 
-#### Poller to Core (from dusk01):
+#### Gateway to Core (from dusk01):
 ```bash
-openssl s_client -connect 192.168.2.23:50052 -cert /etc/serviceradar/certs/poller.pem -key /etc/serviceradar/certs/poller-key.pem -CAfile /etc/serviceradar/certs/root.pem
+openssl s_client -connect 192.168.2.23:50052 -cert /etc/serviceradar/certs/gateway.pem -key /etc/serviceradar/certs/gateway-key.pem -CAfile /etc/serviceradar/certs/root.pem
 ```
 
 Verify: CN=core.serviceradar, IP:192.168.2.23 in SANs, Verify return code: 0 (ok).
@@ -728,7 +728,7 @@ Test from the Agent host if applicable.
   ```bash
   journalctl -u serviceradar-core -f
   # On dusk01
-  journalctl -u serviceradar-poller -f
+  journalctl -u serviceradar-agent-gateway -f
   ```
 
 - Verify network connectivity:
@@ -743,14 +743,14 @@ Test from the Agent host if applicable.
         - "core.serviceradar"
   ```
 
-### Poller IP Mismatch:
+### Gateway IP Mismatch:
 
-- If the Poller's IP is incorrect, regenerate poller.pem with the correct IP:
+- If the Gateway's IP is incorrect, regenerate gateway.pem with the correct IP:
   ```bash
   ip addr show  # On dusk01
   ```
 
-- Update poller-san.cnf and repeat generation steps.
+- Update gateway-san.cnf and repeat generation steps.
 
 ## Checker Certificate Configuration
 
@@ -1064,7 +1064,7 @@ If you encounter certificate issues with checkers (like the "certificate specifi
   ```bash
   sudo ufw allow 50051/tcp  # Agent
   sudo ufw allow 50052/tcp  # Core
-  sudo ufw allow 50053/tcp  # Poller
+  sudo ufw allow 50053/tcp  # Gateway
   sudo ufw allow 50057/tcp  # KV
   sudo ufw allow 9440/tcp   # CNPG
   ```

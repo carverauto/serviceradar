@@ -16,9 +16,9 @@ sequenceDiagram
     Note over S: Sleep 30s (nodeDiscoveryTimeout)
     Note over S: checkInitialStates()
     Note over S: Sleep 30s (nodeNeverReportedTimeout)
-    Note over S: checkNeverReportedPollers()
+    Note over S: checkNeverReportedGateways()
     
-    S->>M: MonitorPollers(ctx)
-    Note over M: ticker := time.NewTicker(pollerTimeout)
+    S->>M: MonitorGateways(ctx)
+    Note over M: ticker := time.NewTicker(gatewayTimeout)
     M->>CS: Scan(ctx, targets)
 ```

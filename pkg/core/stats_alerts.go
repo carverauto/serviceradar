@@ -71,7 +71,7 @@ func (s *Server) handleStatsAnomaly(
 		Title:     "Non-canonical devices filtered from stats",
 		Message:   message,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		PollerID:  "core",
+		GatewayID:  "core",
 		Details:   details,
 	}
 

@@ -16,7 +16,7 @@
 # generate-tenant-ca.sh - Generate per-tenant intermediate CAs for ServiceRadar
 #
 # This script creates a tenant-specific intermediate CA signed by the platform root CA.
-# Tenant CAs are used to sign edge component certificates (pollers, agents, checkers).
+# Tenant CAs are used to sign edge component certificates (gateways, agents, checkers).
 #
 # Usage:
 #   ./generate-tenant-ca.sh <tenant-slug> [options]

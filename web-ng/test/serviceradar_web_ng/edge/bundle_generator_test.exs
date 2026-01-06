@@ -22,7 +22,11 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
     # Create a test package
     {:ok, result} =
       OnboardingPackages.create(
-        %{label: "test-bundle-pkg", component_type: :poller, component_id: "poller-test-bundle"},
+        %{
+          label: "test-bundle-pkg",
+          component_type: :gateway,
+          component_id: "gateway-test-bundle"
+        },
         tenant: tenant.id
       )
 
@@ -72,7 +76,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
           to_string(name) |> String.ends_with?("install.sh")
         end)
 
-      assert install_sh =~ "COMPONENT_TYPE=\"poller\""
+      assert install_sh =~ "COMPONENT_TYPE=\"gateway\""
       assert install_sh =~ "Platform-detecting installer"
       assert install_sh =~ "docker"
       assert install_sh =~ "systemd"
@@ -125,7 +129,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       assert cmd =~ package.id
       assert cmd =~ download_token
       assert cmd =~ "docker run"
-      assert cmd =~ "serviceradar-poller"
+      assert cmd =~ "serviceradar-gateway"
     end
 
     test "uses custom base_url option", %{package: package, download_token: download_token} do

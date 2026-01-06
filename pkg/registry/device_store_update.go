@@ -73,8 +73,8 @@ func deviceRecordFromUpdate(update *models.DeviceUpdate, existing *DeviceRecord)
 	if ip := strings.TrimSpace(update.IP); ip != "" {
 		record.IP = ip
 	}
-	if pollerID := strings.TrimSpace(update.PollerID); pollerID != "" {
-		record.PollerID = pollerID
+	if gatewayID := strings.TrimSpace(update.GatewayID); gatewayID != "" {
+		record.GatewayID = gatewayID
 	}
 	if agentID := strings.TrimSpace(update.AgentID); agentID != "" {
 		record.AgentID = agentID

@@ -97,8 +97,8 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	s.logSweepPayloadInfo(svc.Name, sweepMessage)
 
 	// Get context information from enhanced payload
-	contextPollerID, contextPartition, contextAgentID := s.extractContextInfo(svc, enhancedPayload, partition)
-	s.logContextInfo(svc.Name, contextPollerID, contextPartition, contextAgentID)
+	contextGatewayID, contextPartition, contextAgentID := s.extractContextInfo(svc, enhancedPayload, partition)
+	s.logContextInfo(svc.Name, contextGatewayID, contextPartition, contextAgentID)
 
 	// Parse and validate sweep data
 	sweepData, err := s.prepareSweepData(ctx, sweepMessage, svc, now)
@@ -108,7 +108,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	// Process host results and update devices
 	return s.processSweepHostUpdates(
-		ctx, span, svc.Name, sweepData, contextPollerID, contextPartition, contextAgentID, now,
+		ctx, span, svc.Name, sweepData, contextGatewayID, contextPartition, contextAgentID, now,
 	)
 }
 
@@ -131,10 +131,10 @@ func (s *Server) logSweepPayloadInfo(serviceName string, sweepMessage []byte) {
 }
 
 // logContextInfo logs the extracted context information
-func (s *Server) logContextInfo(serviceName, pollerID, partition, agentID string) {
+func (s *Server) logContextInfo(serviceName, gatewayID, partition, agentID string) {
 	s.logger.Debug().
 		Str("service_name", serviceName).
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("partition", partition).
 		Str("agent_id", agentID).
 		Msg("Sweep context extracted")
@@ -176,16 +176,16 @@ func (s *Server) prepareSweepData(ctx context.Context, sweepMessage []byte, svc 
 func (s *Server) processSweepHostUpdates(ctx context.Context, span trace.Span, serviceName string, sweepData *struct {
 	proto.SweepServiceStatus
 	Hosts []models.HostResult `json:"hosts"`
-}, contextPollerID, contextPartition, contextAgentID string, now time.Time) error {
+}, contextGatewayID, contextPartition, contextAgentID string, now time.Time) error {
 	s.logger.Debug().Str("service_name", serviceName).Int("host_count", len(sweepData.Hosts)).Msg("Processing hosts for device updates")
 
-	updatesToStore := s.processHostResults(ctx, sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
+	updatesToStore := s.processHostResults(ctx, sweepData.Hosts, contextGatewayID, contextPartition, contextAgentID, now)
 
 	// Add span attributes for host processing results
 	span.SetAttributes(
 		attribute.Int("sweep.total_hosts", len(sweepData.Hosts)),
 		attribute.Int("sweep.device_updates", len(updatesToStore)),
-		attribute.String("poller_id", contextPollerID),
+		attribute.String("gateway_id", contextGatewayID),
 		attribute.String("agent_id", contextAgentID),
 	)
 
@@ -301,18 +301,18 @@ func (s *Server) parseConcatenatedSweepJSON(_ context.Context, sweepMessage []by
 func (*Server) extractContextInfo(
 	svc *api.ServiceStatus,
 	enhancedPayload *models.ServiceMetricsPayload,
-	partition string) (pollerID, partitionID, agentID string) {
-	pollerID = svc.PollerID
+	partition string) (gatewayID, partitionID, agentID string) {
+	gatewayID = svc.GatewayID
 	partitionID = partition
 	agentID = svc.AgentID
 
 	if enhancedPayload != nil {
-		pollerID = enhancedPayload.PollerID
+		gatewayID = enhancedPayload.GatewayID
 		partitionID = enhancedPayload.Partition
 		agentID = enhancedPayload.AgentID
 	}
 
-	return pollerID, partitionID, agentID
+	return gatewayID, partitionID, agentID
 }
 
 // validateAndCorrectTimestamp validates the sweep timestamp and corrects it if necessary
@@ -345,21 +345,21 @@ func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
 	return nil
 }
 
-func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
+func (*Server) createAPIService(svc *proto.GatewayServiceStatus) api.ServiceStatus {
 	apiService := api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Type:      svc.ServiceType,
 		Available: svc.Available,
 		Message:   svc.Message,
 		AgentID:   svc.AgentId,
-		PollerID:  svc.PollerId,
+		GatewayID: svc.GatewayId,
 		KvStoreID: svc.KvStoreId,
 	}
 
 	if len(svc.Message) > 0 {
 		var enhancedPayload models.ServiceMetricsPayload
 		if err := json.Unmarshal(svc.Message, &enhancedPayload); err == nil {
-			if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" && len(enhancedPayload.Data) > 0 {
+			if enhancedPayload.GatewayID != "" && enhancedPayload.AgentID != "" && len(enhancedPayload.Data) > 0 {
 				apiService.Details = enhancedPayload.Data
 			} else {
 				apiService.Details = svc.Message
@@ -372,7 +372,7 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	return apiService
 }
 
-func (s *Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+func (s *Server) parseServiceDetails(svc *proto.GatewayServiceStatus) (json.RawMessage, error) {
 	var details json.RawMessage
 
 	if err := json.Unmarshal(svc.Message, &details); err != nil {
@@ -415,7 +415,7 @@ func (s *Server) extractDeviceContext(
 	}
 
 	var payload struct {
-		PollerID  string `json:"poller_id"`
+		GatewayID string `json:"gateway_id"`
 		AgentID   string `json:"agent_id"`
 		Partition string `json:"partition"`
 		Data      struct {
@@ -457,40 +457,40 @@ func (s *Server) extractDeviceContext(
 
 func (s *Server) processServices(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	sourceIP string,
-	apiStatus *api.PollerStatus,
-	services []*proto.ServiceStatus,
+	apiStatus *api.GatewayStatus,
+	services []*proto.GatewayServiceStatus,
 	now time.Time) {
 	ctx, span := s.tracer.Start(ctx, "processServices")
 	defer span.End()
 
 	// Initialize tracing and logging for service batch processing
-	s.initServiceBatchTrace(span, pollerID, partition, sourceIP, len(services))
+	s.initServiceBatchTrace(span, gatewayID, partition, sourceIP, len(services))
 
 	// Process each service and collect results
 	allServicesAvailable, bufferedServiceStatuses, bufferedServiceList := s.processIndividualServices(
-		ctx, pollerID, partition, sourceIP, apiStatus, services, now)
+		ctx, gatewayID, partition, sourceIP, apiStatus, services, now)
 
 	// Buffer the processed service data
-	s.bufferServiceData(pollerID, bufferedServiceStatuses, bufferedServiceList)
+	s.bufferServiceData(gatewayID, bufferedServiceStatuses, bufferedServiceList)
 
 	// Set overall health status
 	apiStatus.IsHealthy = allServicesAvailable
 }
 
 // initServiceBatchTrace initializes tracing attributes for batch service processing
-func (s *Server) initServiceBatchTrace(span trace.Span, pollerID, partition, sourceIP string, serviceCount int) {
+func (s *Server) initServiceBatchTrace(span trace.Span, gatewayID, partition, sourceIP string, serviceCount int) {
 	span.SetAttributes(
-		attribute.String("poller_id", pollerID),
+		attribute.String("gateway_id", gatewayID),
 		attribute.String("partition", partition),
 		attribute.String("source_ip", sourceIP),
 		attribute.Int("service_count", serviceCount),
 	)
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("partition", partition).
 		Str("source_ip", sourceIP).
 		Int("service_count", serviceCount).
@@ -500,9 +500,9 @@ func (s *Server) initServiceBatchTrace(span trace.Span, pollerID, partition, sou
 // processIndividualServices processes each service and returns the results
 func (s *Server) processIndividualServices(
 	ctx context.Context,
-	pollerID, partition, sourceIP string,
-	apiStatus *api.PollerStatus,
-	services []*proto.ServiceStatus,
+	gatewayID, partition, sourceIP string,
+	apiStatus *api.GatewayStatus,
+	services []*proto.GatewayServiceStatus,
 	now time.Time,
 ) (allServicesAvailable bool, bufferedServiceStatuses []*models.ServiceStatus, bufferedServiceList []*models.Service) {
 	allServicesAvailable = true
@@ -514,7 +514,7 @@ func (s *Server) processIndividualServices(
 		serviceCtx, serviceSpan := s.createServiceSpan(ctx, svc)
 
 		// Log service processing details
-		s.logServiceProcessing(pollerID, svc)
+		s.logServiceProcessing(gatewayID, svc)
 
 		apiService := s.createAPIService(svc)
 
@@ -523,10 +523,10 @@ func (s *Server) processIndividualServices(
 		}
 
 		// Process service details with error handling
-		s.processServiceWithErrorHandling(serviceCtx, serviceSpan, pollerID, partition, sourceIP, &apiService, svc, now)
+		s.processServiceWithErrorHandling(serviceCtx, serviceSpan, gatewayID, partition, sourceIP, &apiService, svc, now)
 
 		// Create service records and buffer them
-		serviceStatus, serviceRecord := s.createServiceRecords(serviceCtx, svc, &apiService, pollerID, partition, sourceIP, now)
+		serviceStatus, serviceRecord := s.createServiceRecords(serviceCtx, svc, &apiService, gatewayID, partition, sourceIP, now)
 		bufferedServiceStatuses = append(bufferedServiceStatuses, serviceStatus)
 		bufferedServiceList = append(bufferedServiceList, serviceRecord)
 
@@ -539,15 +539,15 @@ func (s *Server) processIndividualServices(
 			}
 
 			// Register/update agent in ocsf_agents table (not as a device)
-			if err := s.registerAgentInOCSF(serviceCtx, svc.AgentId, pollerID, sourceIP, capabilities); err != nil {
+			if err := s.registerAgentInOCSF(serviceCtx, svc.AgentId, gatewayID, sourceIP, capabilities); err != nil {
 				s.logger.Warn().
 					Err(err).
 					Str("agent_id", svc.AgentId).
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Msg("Failed to register agent in OCSF agents table")
 			}
 			// Auto-register agent in service registry (for operational tracking)
-			if err := s.ensureAgentRegistered(serviceCtx, svc.AgentId, pollerID, sourceIP); err != nil {
+			if err := s.ensureAgentRegistered(serviceCtx, svc.AgentId, gatewayID, sourceIP); err != nil {
 				s.logger.Warn().Err(err).
 					Str("agent_id", svc.AgentId).
 					Msg("Failed to auto-register agent in service registry")
@@ -559,7 +559,7 @@ func (s *Server) processIndividualServices(
 		if s.isCheckerService(svc.ServiceType) && svc.AgentId != "" {
 			// Generate checker ID from service name or use a combination
 			checkerID := s.generateCheckerID(svc.ServiceName, svc.AgentId)
-			if err := s.registerCheckerAsDevice(serviceCtx, checkerID, svc.ServiceType, svc.AgentId, pollerID, sourceIP, partition); err != nil {
+			if err := s.registerCheckerAsDevice(serviceCtx, checkerID, svc.ServiceType, svc.AgentId, gatewayID, sourceIP, partition); err != nil {
 				s.logger.Warn().
 					Err(err).
 					Str("checker_id", checkerID).
@@ -568,7 +568,7 @@ func (s *Server) processIndividualServices(
 					Msg("Failed to register checker as device")
 			}
 			// Auto-register checker in service registry
-			if err := s.ensureCheckerRegistered(serviceCtx, checkerID, svc.AgentId, pollerID, svc.ServiceType, sourceIP); err != nil {
+			if err := s.ensureCheckerRegistered(serviceCtx, checkerID, svc.AgentId, gatewayID, svc.ServiceType, sourceIP); err != nil {
 				s.logger.Warn().Err(err).
 					Str("checker_id", checkerID).
 					Msg("Failed to auto-register checker in service registry")
@@ -584,7 +584,7 @@ func (s *Server) processIndividualServices(
 }
 
 // createServiceSpan creates a tracing span for individual service processing
-func (s *Server) createServiceSpan(ctx context.Context, svc *proto.ServiceStatus) (context.Context, trace.Span) {
+func (s *Server) createServiceSpan(ctx context.Context, svc *proto.GatewayServiceStatus) (context.Context, trace.Span) {
 	serviceName := fmt.Sprintf("service.%s", svc.ServiceName)
 	serviceCtx, serviceSpan := s.tracer.Start(ctx, serviceName)
 
@@ -600,9 +600,9 @@ func (s *Server) createServiceSpan(ctx context.Context, svc *proto.ServiceStatus
 }
 
 // logServiceProcessing logs details about service processing
-func (s *Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus) {
+func (s *Server) logServiceProcessing(gatewayID string, svc *proto.GatewayServiceStatus) {
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("service_name", svc.ServiceName).
 		Str("service_type", svc.ServiceType).
 		Bool("available", svc.Available).
@@ -614,7 +614,7 @@ func (s *Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus)
 		const maxMessagePreview = 500
 
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Str("service_name", svc.ServiceName).
 			Str("service_type", svc.ServiceType).
 			Str("message_preview", func() string {
@@ -631,18 +631,18 @@ func (s *Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus)
 func (s *Server) processServiceWithErrorHandling(
 	serviceCtx context.Context,
 	serviceSpan trace.Span,
-	pollerID, partition, sourceIP string,
+	gatewayID, partition, sourceIP string,
 	apiService *api.ServiceStatus,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	now time.Time,
 ) {
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("service_name", svc.ServiceName).
 		Str("service_type", svc.ServiceType).
 		Msg("CORE_DEBUG: About to call processServiceDetails (this calls handleService)")
 
-	if err := s.processServiceDetails(serviceCtx, pollerID, partition, sourceIP, apiService, svc, now); err != nil {
+	if err := s.processServiceDetails(serviceCtx, gatewayID, partition, sourceIP, apiService, svc, now); err != nil {
 		serviceSpan.RecordError(err)
 		serviceSpan.AddEvent("Service processing failed", trace.WithAttributes(
 			attribute.String("error", err.Error()),
@@ -650,14 +650,14 @@ func (s *Server) processServiceWithErrorHandling(
 		s.logger.Error().
 			Err(err).
 			Str("service_name", svc.ServiceName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Error processing details for service")
 	} else {
 		serviceSpan.AddEvent("Service processed successfully")
 	}
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("service_name", svc.ServiceName).
 		Str("service_type", svc.ServiceType).
 		Msg("CORE_DEBUG: Completed processServiceDetails call")
@@ -665,26 +665,26 @@ func (s *Server) processServiceWithErrorHandling(
 
 // bufferServiceData buffers the processed service status and service list data
 func (s *Server) bufferServiceData(
-	pollerID string, bufferedServiceStatuses []*models.ServiceStatus, bufferedServiceList []*models.Service) {
+	gatewayID string, bufferedServiceStatuses []*models.ServiceStatus, bufferedServiceList []*models.Service) {
 	if len(bufferedServiceStatuses) > 0 {
 		s.serviceBufferMu.Lock()
-		s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], bufferedServiceStatuses...)
+		s.serviceBuffers[gatewayID] = append(s.serviceBuffers[gatewayID], bufferedServiceStatuses...)
 		s.serviceBufferMu.Unlock()
 	}
 
 	if len(bufferedServiceList) > 0 {
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("services_to_buffer", len(bufferedServiceList)).
 			Msg("Buffering services for storage")
 
 		s.serviceListBufferMu.Lock()
-		s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], bufferedServiceList...)
-		totalBuffered := len(s.serviceListBuffers[pollerID])
+		s.serviceListBuffers[gatewayID] = append(s.serviceListBuffers[gatewayID], bufferedServiceList...)
+		totalBuffered := len(s.serviceListBuffers[gatewayID])
 		s.serviceListBufferMu.Unlock()
 
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("total_buffered_services", totalBuffered).
 			Msg("Services buffered, waiting for flush")
 	}
@@ -693,16 +693,16 @@ func (s *Server) bufferServiceData(
 // createServiceRecords creates service status and service records for a given service
 func (s *Server) createServiceRecords(
 	ctx context.Context,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	apiService *api.ServiceStatus,
-	pollerID, partition, sourceIP string,
+	gatewayID, partition, sourceIP string,
 	now time.Time,
 ) (*models.ServiceStatus, *models.Service) {
 	deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
 	serviceStatus := &models.ServiceStatus{
 		AgentID:     svc.AgentId,
-		PollerID:    svc.PollerId,
+		GatewayID:   svc.GatewayId,
 		ServiceName: apiService.Name,
 		ServiceType: apiService.Type,
 		Available:   apiService.Available,
@@ -720,7 +720,7 @@ func (s *Server) createServiceRecords(
 	kvMetadata := s.extractSafeKVMetadata(svc)
 
 	serviceRecord := &models.Service{
-		PollerID:    pollerID,
+		GatewayID:   gatewayID,
 		ServiceName: svc.ServiceName,
 		ServiceType: svc.ServiceType,
 		AgentID:     svc.AgentId,
@@ -744,7 +744,7 @@ func (s *Server) createServiceRecords(
 
 // extractSafeKVMetadata extracts safe, non-sensitive KV metadata for storage
 // This function ensures no secrets, passwords, or sensitive data is stored
-func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+func (s *Server) extractSafeKVMetadata(svc *proto.GatewayServiceStatus) map[string]string {
 	metadata := make(map[string]string)
 
 	// Set service type for context
@@ -765,17 +765,17 @@ func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]stri
 
 func (s *Server) processServiceDetails(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	partition string,
 	sourceIP string,
 	apiService *api.ServiceStatus,
-	svc *proto.ServiceStatus,
+	svc *proto.GatewayServiceStatus,
 	now time.Time,
 ) error {
 	if len(svc.Message) == 0 {
 		s.logger.Debug().
 			Str("service_name", svc.ServiceName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("No message content for service")
 
 		return s.handleService(ctx, apiService, partition, now)
@@ -795,7 +795,7 @@ func (s *Server) processServiceDetails(
 		if err != nil {
 			s.logger.Warn().
 				Str("service_name", svc.ServiceName).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Msg("Failed to parse details for service, proceeding without details")
 
 			if svc.ServiceType == snmpDiscoveryResultsServiceType {
@@ -808,11 +808,11 @@ func (s *Server) processServiceDetails(
 
 	apiService.Details = details
 
-	if err := s.processServicePayload(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
+	if err := s.processServicePayload(ctx, gatewayID, partition, sourceIP, svc, details, now); err != nil {
 		s.logger.Error().
 			Err(err).
 			Str("service_name", svc.ServiceName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Error processing metrics for service")
 
 		return err
@@ -825,7 +825,7 @@ func (*Server) extractServicePayload(details json.RawMessage) (*models.ServiceMe
 	var enhancedPayload models.ServiceMetricsPayload
 
 	if err := json.Unmarshal(details, &enhancedPayload); err == nil {
-		if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" {
+		if enhancedPayload.GatewayID != "" && enhancedPayload.AgentID != "" {
 			return &enhancedPayload, enhancedPayload.Data
 		}
 	}
@@ -834,11 +834,11 @@ func (*Server) extractServicePayload(details json.RawMessage) (*models.ServiceMe
 }
 
 func (s *Server) registerServiceDevice(
-	ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
+	ctx context.Context, gatewayID, agentID, partition, sourceIP string, timestamp time.Time) error {
 	if partition == "" || sourceIP == "" {
-		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - "+
+		return fmt.Errorf("CRITICAL: Cannot register device for gateway %s - "+
 			"missing required location data (partition=%q, source_ip=%q): %w",
-			pollerID, partition, sourceIP, ErrMissingLocationData)
+			gatewayID, partition, sourceIP, ErrMissingLocationData)
 	}
 
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
@@ -849,11 +849,11 @@ func (s *Server) registerServiceDevice(
 
 	switch agentID {
 	case "":
-		serviceTypes = []string{"poller"}
-		primaryServiceID = pollerID
-	case pollerID:
-		serviceTypes = []string{"poller", "agent"}
-		primaryServiceID = pollerID
+		serviceTypes = []string{"gateway"}
+		primaryServiceID = gatewayID
+	case gatewayID:
+		serviceTypes = []string{"gateway", "agent"}
+		primaryServiceID = gatewayID
 	default:
 		serviceTypes = []string{"agent"}
 		primaryServiceID = agentID
@@ -867,12 +867,12 @@ func (s *Server) registerServiceDevice(
 		"primary_service": primaryServiceID,
 	}
 
-	if pollerID != "" {
-		metadata["poller_id"] = pollerID
-		metadata["poller_status"] = "active"
+	if gatewayID != "" {
+		metadata["gateway_id"] = gatewayID
+		metadata["gateway_status"] = "active"
 	}
 
-	if agentID != "" && agentID != pollerID {
+	if agentID != "" && agentID != gatewayID {
 		metadata["agent_id"] = agentID
 		metadata["agent_status"] = "active"
 	}
@@ -884,7 +884,7 @@ func (s *Server) registerServiceDevice(
 		IP:          sourceIP,
 		Source:      models.DiscoverySourceSelfReported,
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:   gatewayID,
 		Timestamp:   timestamp,
 		IsAvailable: true,
 		Metadata:    metadata,
@@ -907,23 +907,23 @@ func (s *Server) registerServiceDevice(
 	s.logger.Debug().
 		Str("device_id", deviceID).
 		Interface("service_types", serviceTypes).
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Msg("Successfully registered host device")
 
 	if s.edgeOnboarding != nil {
-		if pollerID != "" {
-			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypePoller, pollerID, pollerID, sourceIP, "", timestamp); err != nil {
+		if gatewayID != "" {
+			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypeGateway, gatewayID, gatewayID, sourceIP, "", timestamp); err != nil {
 				s.logger.Debug().
 					Err(err).
-					Str("poller_id", pollerID).
-					Msg("edge onboarding: poller activation update failed")
+					Str("gateway_id", gatewayID).
+					Msg("edge onboarding: gateway activation update failed")
 			}
 		}
-		if agentID != "" && agentID != pollerID {
-			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypeAgent, agentID, pollerID, sourceIP, "", timestamp); err != nil {
+		if agentID != "" && agentID != gatewayID {
+			if err := s.edgeOnboarding.RecordActivation(ctx, models.EdgeOnboardingComponentTypeAgent, agentID, gatewayID, sourceIP, "", timestamp); err != nil {
 				s.logger.Debug().
 					Err(err).
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Str("agent_id", agentID).
 					Msg("edge onboarding: agent activation update failed")
 			}
@@ -981,7 +981,7 @@ func getCoreServiceType(serviceType string) models.ServiceType {
 
 // findCoreServiceType checks if any of the services in the list is a core service.
 // Returns the service type and service name if found, empty strings otherwise.
-func findCoreServiceType(services []*proto.ServiceStatus) (models.ServiceType, string) {
+func findCoreServiceType(services []*proto.GatewayServiceStatus) (models.ServiceType, string) {
 	for _, svc := range services {
 		if svc == nil {
 			continue
@@ -1031,12 +1031,12 @@ func (s *Server) registerCoreServiceDevice(
 	return nil
 }
 
-// registerServiceOrCoreDevice handles device registration for both regular pollers/agents
+// registerServiceOrCoreDevice handles device registration for both regular gateways/agents
 // and core services. It detects core services and uses stable service device IDs for them.
 func (s *Server) registerServiceOrCoreDevice(
 	ctx context.Context,
-	pollerID, partition, sourceIP string,
-	services []*proto.ServiceStatus,
+	gatewayID, partition, sourceIP string,
+	services []*proto.GatewayServiceStatus,
 	timestamp time.Time,
 ) {
 	// Skip registration if location data is missing
@@ -1061,13 +1061,13 @@ func (s *Server) registerServiceOrCoreDevice(
 		return
 	}
 
-	// Regular poller/agent registration
-	if err := s.registerServiceDevice(timeoutCtx, pollerID, s.findAgentID(services),
+	// Regular gateway/agent registration
+	if err := s.registerServiceDevice(timeoutCtx, gatewayID, s.findAgentID(services),
 		partition, sourceIP, timestamp); err != nil {
 		s.logger.Warn().
 			Err(err).
-			Str("poller_id", pollerID).
-			Msg("Failed to register service device for poller")
+			Str("gateway_id", gatewayID).
+			Msg("Failed to register service device for gateway")
 	}
 }
 

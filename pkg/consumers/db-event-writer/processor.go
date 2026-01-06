@@ -277,8 +277,8 @@ func processEventData(row *models.EventRow, ce *models.CloudEvent) {
 		return
 	}
 
-	// Try to handle as poller health event first
-	if tryPollerHealthEvent(row, ce, dataBytes) {
+	// Try to handle as gateway health event first
+	if tryGatewayHealthEvent(row, ce, dataBytes) {
 		return
 	}
 
@@ -291,26 +291,26 @@ func processEventData(row *models.EventRow, ce *models.CloudEvent) {
 	tryGELFFormat(row, dataBytes)
 }
 
-// tryPollerHealthEvent attempts to parse data as a poller health event
-func tryPollerHealthEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
-	if ce.Type != "com.carverauto.serviceradar.poller.health" &&
-		ce.Subject != "events.poller.health" {
+// tryGatewayHealthEvent attempts to parse data as a gateway health event
+func tryGatewayHealthEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
+	if ce.Type != "com.carverauto.serviceradar.gateway.health" &&
+		ce.Subject != "events.gateway.health" {
 		return false
 	}
 
-	var pollerData models.PollerHealthEventData
+	var gatewayData models.GatewayHealthEventData
 
-	if err := json.Unmarshal(dataBytes, &pollerData); err != nil {
+	if err := json.Unmarshal(dataBytes, &gatewayData); err != nil {
 		return false
 	}
 
-	row.Host = pollerData.Host
-	row.RemoteAddr = pollerData.RemoteAddr
-	row.ShortMessage = fmt.Sprintf("Poller %s state changed from %s to %s",
-		pollerData.PollerID, pollerData.PreviousState, pollerData.CurrentState)
-	row.Level = getLogLevelForState(pollerData.CurrentState)
-	row.Severity = getSeverityForState(pollerData.CurrentState)
-	row.EventTimestamp = pollerData.Timestamp
+	row.Host = gatewayData.Host
+	row.RemoteAddr = gatewayData.RemoteAddr
+	row.ShortMessage = fmt.Sprintf("Gateway %s state changed from %s to %s",
+		gatewayData.GatewayID, gatewayData.PreviousState, gatewayData.CurrentState)
+	row.Level = getLogLevelForState(gatewayData.CurrentState)
+	row.Severity = getSeverityForState(gatewayData.CurrentState)
+	row.EventTimestamp = gatewayData.Timestamp
 	row.Version = "1.1"
 
 	return true
@@ -462,7 +462,7 @@ func processGELFTimestamp(row *models.EventRow, timestamp float64) {
 }
 
 // buildEventRow parses a CloudEvent payload and returns a models.EventRow.
-// Handles both GELF format (syslog) and PollerHealthEventData format (poller events).
+// Handles both GELF format (syslog) and GatewayHealthEventData format (gateway events).
 // If parsing fails, the returned row will contain only the raw data and subject.
 func buildEventRow(b []byte, subject string) models.EventRow {
 	var ce models.CloudEvent
@@ -504,7 +504,7 @@ func buildEventRow(b []byte, subject string) models.EventRow {
 	return row
 }
 
-// getLogLevelForState maps poller states to GELF log levels
+// getLogLevelForState maps gateway states to GELF log levels
 func getLogLevelForState(state string) int32 {
 	switch state {
 	case "unhealthy":
@@ -518,7 +518,7 @@ func getLogLevelForState(state string) int32 {
 	}
 }
 
-// getSeverityForState maps poller states to severity strings
+// getSeverityForState maps gateway states to severity strings
 func getSeverityForState(state string) string {
 	switch state {
 	case "unhealthy":

@@ -29,7 +29,7 @@ pub struct PackageResponse {
     #[serde(default)]
     pub package_id: String,
 
-    /// Component type (poller, agent, checker).
+    /// Component type (gateway, agent, checker).
     #[serde(default)]
     pub component_type: String,
 

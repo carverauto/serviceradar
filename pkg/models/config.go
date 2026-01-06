@@ -80,12 +80,12 @@ type AgentDefinition struct {
 	Checks  []Check `json:"checks"`  // List of checks to run on this agent
 }
 
-// PollerConfig represents the configuration for a poller instance.
-type PollerConfig struct {
+// GatewayConfig represents the configuration for a gateway instance.
+type GatewayConfig struct {
 	Agents       map[string]AgentDefinition `json:"agents"`        // Map of agent ID to agent definition
 	CloudAddress string                     `json:"cloud_address"` // Address of cloud service
 	PollInterval Duration                   `json:"poll_interval"` // How often to poll agents
-	PollerID     string                     `json:"poller_id"`     // Unique identifier for this poller
+	GatewayID     string                     `json:"gateway_id"`     // Unique identifier for this gateway
 }
 
 // WebhookConfig represents a webhook notification configuration.
@@ -109,7 +109,7 @@ type CloudConfig struct {
 	GrpcAddr       string          `json:"grpc_addr,omitempty"`
 	DBPath         string          `json:"db_path"`
 	AlertThreshold Duration        `json:"alert_threshold"`
-	KnownPollers   []string        `json:"known_pollers"`
+	KnownGateways   []string        `json:"known_gateways"`
 	Webhooks       []WebhookConfig `json:"webhooks,omitempty"`
 }
 
@@ -198,9 +198,9 @@ type CoreServiceConfig struct {
 	GrpcAddr       string                 `json:"grpc_addr"`
 	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
 	AlertThreshold time.Duration          `json:"alert_threshold"`
-	PollerPatterns []string               `json:"poller_patterns"`
+	GatewayPatterns []string               `json:"gateway_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
-	KnownPollers   []string               `json:"known_pollers,omitempty"`
+	KnownGateways   []string               `json:"known_gateways,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           SNMPConfig             `json:"snmp"`
 	Security       *SecurityConfig        `json:"security"`
@@ -243,7 +243,7 @@ type SpireAdminConfig struct {
 	JoinTokenTTL   Duration `json:"join_token_ttl,omitempty"`
 }
 
-// EdgeOnboardingConfig configures secure edge poller enrollment.
+// EdgeOnboardingConfig configures secure edge gateway enrollment.
 type EdgeOnboardingConfig struct {
 	Enabled                bool                         `json:"enabled"`
 	EncryptionKey          string                       `json:"encryption_key" sensitive:"true"`
@@ -252,7 +252,7 @@ type EdgeOnboardingConfig struct {
 	DownstreamPathTemplate string                       `json:"downstream_path_template,omitempty"`
 	JoinTokenTTL           Duration                     `json:"join_token_ttl,omitempty"`
 	DownloadTokenTTL       Duration                     `json:"download_token_ttl,omitempty"`
-	PollerIDPrefix         string                       `json:"poller_id_prefix,omitempty"`
+	GatewayIDPrefix         string                       `json:"gateway_id_prefix,omitempty"`
 	MTLSCertBaseDir        string                       `json:"mtls_cert_base_dir,omitempty"`
 }
 

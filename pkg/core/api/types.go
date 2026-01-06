@@ -38,7 +38,7 @@ import (
 
 type ServiceStatus struct {
 	AgentID   string          `json:"agent_id"`
-	PollerID  string          `json:"poller_id"`
+	GatewayID  string          `json:"gateway_id"`
 	Name      string          `json:"name"`
 	Available bool            `json:"available"`
 	Message   []byte          `json:"message"`
@@ -47,8 +47,8 @@ type ServiceStatus struct {
 	KvStoreID string          `json:"kv_store_id,omitempty"` // KV store identifier used by this service
 }
 
-type PollerStatus struct {
-	PollerID   string               `json:"poller_id"`
+type GatewayStatus struct {
+	GatewayID   string               `json:"gateway_id"`
 	IsHealthy  bool                 `json:"is_healthy"`
 	LastUpdate time.Time            `json:"last_update"`
 	Services   []ServiceStatus      `json:"services"`
@@ -58,19 +58,19 @@ type PollerStatus struct {
 }
 
 type SystemStatus struct {
-	TotalPollers   int       `json:"total_pollers"`
-	HealthyPollers int       `json:"healthy_pollers"`
+	TotalGateways   int       `json:"total_gateways"`
+	HealthyGateways int       `json:"healthy_gateways"`
 	LastUpdate     time.Time `json:"last_update"`
 }
 
-type PollerHistory struct {
-	PollerID  string
+type GatewayHistory struct {
+	GatewayID  string
 	Timestamp time.Time
 	IsHealthy bool
 	Services  []ServiceStatus
 }
 
-type PollerHistoryPoint struct {
+type GatewayHistoryPoint struct {
 	Timestamp time.Time `json:"timestamp"`
 	IsHealthy bool      `json:"is_healthy"`
 }
@@ -90,27 +90,27 @@ type EdgeOnboardingService interface {
 	DeletePackage(ctx context.Context, packageID string) error
 	DefaultSelectors() []string
 	MetadataDefaults() map[models.EdgeOnboardingComponentType]map[string]string
-	SetAllowedPollerCallback(cb func([]string))
+	SetAllowedGatewayCallback(cb func([]string))
 	SetDeviceRegistryCallback(cb func(context.Context, []*models.DeviceUpdate) error)
 	ListComponentTemplates(ctx context.Context, componentType models.EdgeOnboardingComponentType, securityMode string) ([]models.EdgeTemplate, error)
 }
 
 type APIServer struct {
 	mu                    sync.RWMutex
-	pollers               map[string]*PollerStatus
+	gateways               map[string]*GatewayStatus
 	router                *mux.Router
 	protectedRouter       *mux.Router
-	pollerHistoryHandler  func(pollerID string) ([]PollerHistoryPoint, error)
+	gatewayHistoryHandler  func(gatewayID string) ([]GatewayHistoryPoint, error)
 	metricsManager        metrics.MetricCollector
 	snmpManager           metricstore.SNMPManager
 	rperfManager          metricstore.RperfManager
 	queryExecutor         db.QueryExecutor
 	dbService             db.Service
 	deviceRegistry        DeviceRegistryService
-	serviceRegistry       ServiceRegistryService // Service registry for pollers/agents/checkers
-	knownPollers          []string
-	knownPollerSet        map[string]struct{}
-	dynamicPollers        map[string]struct{}
+	serviceRegistry       ServiceRegistryService // Service registry for gateways/agents/checkers
+	knownGateways          []string
+	knownGatewaySet        map[string]struct{}
+	dynamicGateways        map[string]struct{}
 	authService           auth.AuthService
 	corsConfig            models.CORSConfig
 	logger                logger.Logger

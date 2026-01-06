@@ -45,7 +45,7 @@ type LogQueryParams struct {
 // RecentLogsParams defines parameters for retrieving recent log entries.
 type RecentLogsParams struct {
 	Limit    int    `json:"limit,omitempty"`
-	PollerID string `json:"poller_id,omitempty"`
+	GatewayID string `json:"gateway_id,omitempty"`
 }
 
 // ListDevicesParams defines parameters for listing devices.
@@ -119,8 +119,8 @@ func buildRecentLogsQuery(params RecentLogsParams) (string, []any) {
 	query := showLogsQuery
 
 	binds := &srqlBindBuilder{}
-	if params.PollerID != "" {
-		query += fmt.Sprintf(" WHERE poller_id = %s", binds.Bind(params.PollerID))
+	if params.GatewayID != "" {
+		query += fmt.Sprintf(" WHERE gateway_id = %s", binds.Bind(params.GatewayID))
 	}
 
 	if params.Limit <= 0 {

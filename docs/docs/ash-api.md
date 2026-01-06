@@ -14,7 +14,7 @@ All Ash-backed endpoints are mounted at `/api/v2`:
 | Domain | Base Path | Resources |
 |--------|-----------|-----------|
 | Inventory | `/api/v2/devices` | Device |
-| Infrastructure | `/api/v2/pollers`, `/api/v2/agents` | Poller, Agent |
+| Infrastructure | `/api/v2/gateways`, `/api/v2/agents` | Gateway, Agent |
 | Monitoring | `/api/v2/service-checks`, `/api/v2/alerts` | ServiceCheck, Alert |
 | Edge | `/api/v2/onboarding-packages` | OnboardingPackage |
 
@@ -183,25 +183,25 @@ GET /api/v2/service-checks/failing
 
 Returns checks with `consecutive_failures > 0`.
 
-## Poller Endpoints
+## Gateway Endpoints
 
-### List Pollers
+### List Gateways
 
 ```http
-GET /api/v2/pollers
+GET /api/v2/gateways
 ```
 
-### Register Poller
+### Register Gateway
 
 ```http
-POST /api/v2/pollers
+POST /api/v2/gateways
 Content-Type: application/vnd.api+json
 
 {
   "data": {
-    "type": "poller",
+    "type": "gateway",
     "attributes": {
-      "id": "poller-east-1",
+      "id": "gateway-east-1",
       "component_id": "component-001",
       "registration_source": "kubernetes"
     }
@@ -212,7 +212,7 @@ Content-Type: application/vnd.api+json
 ### Send Heartbeat
 
 ```http
-POST /api/v2/pollers/:id/heartbeat
+POST /api/v2/gateways/:id/heartbeat
 ```
 
 ## Agent Endpoints
@@ -223,10 +223,10 @@ POST /api/v2/pollers/:id/heartbeat
 GET /api/v2/agents
 ```
 
-### Get Agents by Poller
+### Get Agents by Gateway
 
 ```http
-GET /api/v2/agents?filter[poller_id]=poller-east-1
+GET /api/v2/agents?filter[gateway_id]=gateway-east-1
 ```
 
 ## Error Responses
@@ -274,7 +274,7 @@ Content-Type: application/json
 
 The SRQL adapter translates entity names:
 - `devices` → `ServiceRadar.Inventory.Device`
-- `pollers` → `ServiceRadar.Infrastructure.Poller`
+- `gateways` → `ServiceRadar.Infrastructure.Gateway`
 - `agents` → `ServiceRadar.Infrastructure.Agent`
 - `alerts` → `ServiceRadar.Monitoring.Alert`
 

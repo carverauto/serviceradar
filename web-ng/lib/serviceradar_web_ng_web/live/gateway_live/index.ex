@@ -171,14 +171,12 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
   end
 
   defp gateway_id(gateway) do
-    Map.get(gateway, "gateway_id") || Map.get(gateway, "poller_id") || Map.get(gateway, "id") ||
-      "unknown"
+    Map.get(gateway, "gateway_id") || Map.get(gateway, "id") || "unknown"
   end
 
   defp gateway_address(gateway) do
     Map.get(gateway, "address") ||
       Map.get(gateway, "gateway_address") ||
-      Map.get(gateway, "poller_address") ||
       Map.get(gateway, "host") ||
       Map.get(gateway, "hostname") ||
       Map.get(gateway, "ip") ||

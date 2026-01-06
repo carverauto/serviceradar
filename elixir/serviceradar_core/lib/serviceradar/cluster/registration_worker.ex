@@ -24,7 +24,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
         entity_type: :gateway
       ]}
 
-  Note: Pollers do not have capabilities. They orchestrate monitoring jobs
+  Note: Gateways do not have capabilities. They orchestrate monitoring jobs
   by receiving scheduled tasks and dispatching work to available agents.
   Agents have capabilities (ICMP, TCP, process checks, gRPC to external checkers).
 
@@ -146,7 +146,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   # Public API
 
   @doc """
-  Get the current poller status.
+  Get the current gateway status.
   """
   @spec get_status() :: atom()
   def get_status do
@@ -167,7 +167,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   end
 
   @doc """
-  Get poller information.
+  Get gateway information.
   """
   @spec get_info() :: map()
   def get_info do
@@ -175,7 +175,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   end
 
   @doc """
-  Mark poller as unavailable (for admin control).
+  Mark gateway as unavailable (for admin control).
   """
   @spec mark_unavailable() :: :ok
   def mark_unavailable do
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   end
 
   @doc """
-  Mark poller as available.
+  Mark gateway as available.
   """
   @spec mark_available() :: :ok
   def mark_available do
@@ -231,11 +231,11 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   end
 
   @doc """
-  Check if a poller is stale (no heartbeat for threshold period).
+  Check if a gateway is stale (no heartbeat for threshold period).
   """
   @spec stale?(map()) :: boolean()
-  def stale?(poller_metadata) do
-    case poller_metadata[:last_heartbeat] do
+  def stale?(gateway_metadata) do
+    case gateway_metadata[:last_heartbeat] do
       nil ->
         true
 
@@ -248,7 +248,6 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   # Get default tenant ID from environment or config
   defp default_tenant_id do
     System.get_env("GATEWAY_TENANT_ID") ||
-      System.get_env("POLLER_TENANT_ID") ||
       Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 
@@ -266,11 +265,9 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
 
   # Get human-readable label for entity type
   defp entity_type_label(:gateway), do: "Gateway"
-  defp entity_type_label(:poller), do: "Poller"
-  defp entity_type_label(_), do: "Poller"
+  defp entity_type_label(_), do: "Gateway"
 
   # Get ID prefix for entity type
   defp entity_type_prefix(:gateway), do: "gateway"
-  defp entity_type_prefix(:poller), do: "poller"
-  defp entity_type_prefix(_), do: "poller"
+  defp entity_type_prefix(_), do: "gateway"
 end

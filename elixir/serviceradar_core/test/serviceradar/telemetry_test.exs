@@ -40,28 +40,28 @@ defmodule ServiceRadar.TelemetryTest do
     end
   end
 
-  describe "emit_poller_event/3" do
-    test "emits poller events" do
+  describe "emit_gateway_event/3" do
+    test "emits gateway events" do
       test_pid = self()
 
       :telemetry.attach(
         "test-handler",
-        [:serviceradar, :poller, :registered],
+        [:serviceradar, :gateway, :registered],
         fn event, measurements, metadata, _config ->
           send(test_pid, {:event, event, measurements, metadata})
         end,
         nil
       )
 
-      Telemetry.emit_poller_event(
+      Telemetry.emit_gateway_event(
         :registered,
-        %{partition_id: "p1", poller_id: "poller-001"},
+        %{partition_id: "p1", gateway_id: "gateway-001"},
         %{}
       )
 
-      assert_receive {:event, [:serviceradar, :poller, :registered], _, metadata}
+      assert_receive {:event, [:serviceradar, :gateway, :registered], _, metadata}
       assert metadata.partition_id == "p1"
-      assert metadata.poller_id == "poller-001"
+      assert metadata.gateway_id == "gateway-001"
     end
   end
 
@@ -98,11 +98,11 @@ defmodule ServiceRadar.TelemetryTest do
         nil
       )
 
-      Telemetry.emit_registry_event(:lookup_hit, %{registry: :poller}, %{duration: 50})
+      Telemetry.emit_registry_event(:lookup_hit, %{registry: :gateway}, %{duration: 50})
 
       assert_receive {:event, [:serviceradar, :registry, :lookup_hit], measurements, metadata}
       assert measurements.duration == 50
-      assert metadata.registry == :poller
+      assert metadata.registry == :gateway
     end
   end
 
@@ -171,7 +171,7 @@ defmodule ServiceRadar.TelemetryTest do
       metric_names = Enum.map(metrics, & &1.name)
 
       assert [:serviceradar, :cluster, :node_connected, :count] in metric_names
-      assert [:serviceradar, :poller, :registered, :count] in metric_names
+      assert [:serviceradar, :gateway, :registered, :count] in metric_names
       assert [:serviceradar, :agent, :connected, :count] in metric_names
       assert [:serviceradar, :registry, :lookup, :count] in metric_names
     end

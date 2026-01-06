@@ -85,7 +85,7 @@ func TestMTLSProvider(t *testing.T) {
 	config := &models.SecurityConfig{
 		Mode:    SecurityModeMTLS,
 		CertDir: tmpDir,
-		Role:    models.RolePoller,
+		Role:    models.RoleGateway,
 		TLS: models.TLSConfig{
 			CertFile: filepath.Join(tmpDir, "server.pem"),
 			KeyFile:  filepath.Join(tmpDir, "server-key.pem"),
@@ -150,7 +150,7 @@ func TestMTLSProvider(t *testing.T) {
 		noCertConfig := &models.SecurityConfig{
 			Mode:    SecurityModeMTLS,
 			CertDir: noCertDir,
-			Role:    models.RolePoller,
+			Role:    models.RoleGateway,
 			// Intentionally omit TLS fields to test missing certs behavior
 		}
 
@@ -282,7 +282,7 @@ func TestNewSecurityProvider(t *testing.T) {
 				Mode:       SecurityModeMTLS,
 				CertDir:    tmpDir,
 				ServerName: "localhost",
-				Role:       "poller",
+				Role:       "gateway",
 				TLS: models.TLSConfig{
 					CertFile: filepath.Join(tmpDir, "server.pem"),
 					KeyFile:  filepath.Join(tmpDir, "server-key.pem"),

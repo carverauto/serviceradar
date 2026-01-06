@@ -45,7 +45,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
   postgres do
-    table "pollers"
+    table "gateways"
     repo ServiceRadar.Repo
   end
 
@@ -350,16 +350,6 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :inactive}
     end
 
-    # Legacy compatibility aliases
-    update :mark_unhealthy do
-      description "Mark gateway as unhealthy (legacy - use degrade)"
-      require_atomic? false
-
-      change transition_state(:degraded)
-      change set_attribute(:is_healthy, false)
-      change set_attribute(:updated_at, &DateTime.utc_now/0)
-      change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :gateway, new_state: :degraded}
-    end
   end
 
   policies do
@@ -386,7 +376,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
   attributes do
     attribute :id, :string do
-      source :poller_id
+      source :gateway_id
       allow_nil? false
       primary_key? true
       public? true
@@ -482,7 +472,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   relationships do
     has_many :agents, ServiceRadar.Infrastructure.Agent do
       source_attribute :id
-      destination_attribute :poller_id
+      destination_attribute :gateway_id
       public? true
     end
 

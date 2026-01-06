@@ -17,7 +17,7 @@ func TestCapabilityIndexSetAndGet(t *testing.T) {
 		DeviceID:     "default:10.0.0.1",
 		Capabilities: []string{"ICMP", "icmp", "Sysmon"},
 		AgentID:      "agent-1",
-		PollerID:     "poller-1",
+		GatewayID:     "gateway-1",
 		LastSeen:     now,
 		ServiceName:  "serviceradar:agent:icmp",
 	}
@@ -30,7 +30,7 @@ func TestCapabilityIndexSetAndGet(t *testing.T) {
 	assert.Equal(t, record.DeviceID, got.DeviceID)
 	assert.ElementsMatch(t, []string{"icmp", "sysmon"}, got.Capabilities)
 	assert.Equal(t, record.AgentID, got.AgentID)
-	assert.Equal(t, record.PollerID, got.PollerID)
+	assert.Equal(t, record.GatewayID, got.GatewayID)
 	assert.Equal(t, record.ServiceName, got.ServiceName)
 	assert.WithinDuration(t, now, got.LastSeen, time.Second)
 

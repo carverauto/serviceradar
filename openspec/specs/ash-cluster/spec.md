@@ -30,10 +30,10 @@ The system SHALL support Cluster.Strategy.Kubernetes for production deployments.
 - **AND** the new node SHALL be available for job routing
 
 #### Scenario: Kubernetes pod termination
-- **GIVEN** a poller pod in the Kubernetes cluster
+- **GIVEN** a gateway pod in the Kubernetes cluster
 - **WHEN** the pod is terminated (graceful or forced)
 - **THEN** Kubernetes strategy SHALL detect pod removal
-- **AND** in-flight jobs SHALL be reassigned to available pollers
+- **AND** in-flight jobs SHALL be reassigned to available gateways
 
 ### Requirement: EPMD Cluster Strategy
 The system SHALL support Cluster.Strategy.Epmd for development and bare metal deployments.

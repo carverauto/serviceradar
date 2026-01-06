@@ -21,38 +21,16 @@ Edge components (agents, checkers) deployed in customer networks SHALL NOT join 
 
 #### Scenario: Edge communicates via gRPC only
 - **WHEN** an agent needs to report data to the platform
-- **THEN** it waits for poller to initiate gRPC connection
-- **AND** responds to gRPC requests with collected data
+- **THEN** it initiates a gRPC connection to the gateway
+- **AND** pushes status updates via gRPC
 - **AND** no Erlang distribution protocol is used
-
-### Requirement: Poller-Initiated Communication
-
-Pollers deployed in the platform Kubernetes cluster SHALL initiate all connections to edge agents. Edge agents SHALL NOT initiate connections to platform services.
-
-#### Scenario: Poller polls agent on schedule
-- **WHEN** a poller is assigned an agent
-- **THEN** the poller initiates gRPC connection to agent endpoint
-- **AND** requests current monitoring data
-- **AND** agent responds with collected metrics
-
-#### Scenario: Agent registration via platform API
-- **WHEN** an edge agent starts up
-- **THEN** the agent's connection details are configured via onboarding
-- **AND** the platform knows agent endpoint from onboarding registration
-- **AND** assigned poller queries platform for agent list
-
-#### Scenario: Agent unreachable handling
-- **WHEN** a poller cannot reach an agent via gRPC
-- **THEN** the poller retries with exponential backoff
-- **AND** marks agent as unreachable after timeout
-- **AND** alerts are generated for unreachable agents
 
 ### Requirement: Internal ERTS Cluster
 
-Platform services (core, pollers, web-ng) running in Kubernetes SHALL form an ERTS Erlang cluster for distributed coordination. This cluster SHALL NOT include edge components.
+Platform services (core, gateway, web-ng) running in Kubernetes SHALL form an ERTS Erlang cluster for distributed coordination. This cluster SHALL NOT include edge components.
 
-#### Scenario: Horde registry for pollers
-- **WHEN** pollers need to coordinate work distribution
+#### Scenario: Horde registry for gateways
+- **WHEN** gateways need to coordinate work distribution
 - **THEN** they use Horde distributed registry
 - **AND** only platform nodes participate in Horde
 
@@ -64,20 +42,20 @@ Platform services (core, pollers, web-ng) running in Kubernetes SHALL form an ER
 #### Scenario: Phoenix PubSub for real-time updates
 - **WHEN** real-time updates need to broadcast
 - **THEN** Phoenix PubSub uses ERTS cluster
-- **AND** web-ng receives updates from core/pollers
+- **AND** web-ng receives updates from core/gateway
 
 ### Requirement: mTLS Agent Authentication
 
 Edge agents SHALL authenticate using mTLS client certificates. Certificates SHALL encode tenant identity for multi-tenant isolation.
 
 #### Scenario: Agent presents tenant certificate
-- **WHEN** a poller connects to an agent
-- **THEN** mTLS handshake requires client certificate from poller
-- **AND** agent verifies poller certificate is from platform CA
+- **WHEN** a gateway connects to an agent
+- **THEN** mTLS handshake requires client certificate from gateway
+- **AND** agent verifies gateway certificate is from platform CA
 
-#### Scenario: Poller verifies agent tenant
-- **WHEN** a poller receives data from an agent
-- **THEN** the poller extracts tenant ID from agent certificate
+#### Scenario: Gateway verifies agent tenant
+- **WHEN** a gateway receives data from an agent
+- **THEN** the gateway extracts tenant ID from agent certificate
 - **AND** verifies agent belongs to expected tenant
 - **AND** rejects cross-tenant data
 
@@ -86,4 +64,23 @@ Edge agents SHALL authenticate using mTLS client certificates. Certificates SHAL
 - **THEN** the certificate CN contains tenant slug
 - **AND** SPIFFE ID encodes tenant workload identity
 - **AND** certificate is signed by tenant-specific intermediate CA
+
+### Requirement: Agent-Initiated Communication
+
+Edge agents SHALL initiate gRPC connections to gateway endpoints to push status updates and results. Gateways SHALL NOT initiate outbound connections to edge agents.
+
+#### Scenario: Agent pushes status to gateway
+- **WHEN** an edge agent collects monitoring data
+- **THEN** it opens a gRPC connection to the gateway endpoint
+- **AND** it calls `PushStatus` or `StreamStatus` with the payload
+
+#### Scenario: Gateway does not poll agents
+- **WHEN** a gateway needs agent data
+- **THEN** it waits for the agent to push updates
+- **AND** it does not dial the agent endpoint directly
+
+#### Scenario: Onboarding provides gateway endpoint
+- **WHEN** an edge agent starts after onboarding
+- **THEN** it receives the gateway endpoint in its configuration
+- **AND** uses that endpoint to establish the gRPC session
 

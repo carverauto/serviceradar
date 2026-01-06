@@ -110,12 +110,12 @@ type deviceSearchResponse struct {
 // NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		pollers:        make(map[string]*PollerStatus),
+		gateways:        make(map[string]*GatewayStatus),
 		router:         mux.NewRouter(),
 		corsConfig:     config,
 		kvEndpoints:    make(map[string]*KVEndpoint),
-		knownPollerSet: make(map[string]struct{}),
-		dynamicPollers: make(map[string]struct{}),
+		knownGatewaySet: make(map[string]struct{}),
+		dynamicGateways: make(map[string]struct{}),
 	}
 
 	// Default kvPutFn dials KV and performs a Put
@@ -126,7 +126,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		clientCfg := coregrpc.ClientConfig{Address: s.kvAddress, MaxRetries: 3, Logger: s.logger, DisableTelemetry: true}
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
-			sec.Role = models.RolePoller
+			sec.Role = models.RoleGateway
 			provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
 			if err != nil {
 				return err
@@ -153,7 +153,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		var provider coregrpc.SecurityProvider
 		if s.kvSecurity != nil {
 			sec := *s.kvSecurity
-			sec.Role = models.RolePoller
+			sec.Role = models.RoleGateway
 			var err error
 			provider, err = coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
 			if err != nil {
@@ -292,7 +292,7 @@ func (s *APIServer) getKVClient(ctx context.Context, id string) (proto.KVService
 	if ep.Security != nil {
 		sec := *ep.Security
 		if sec.Role == "" {
-			sec.Role = models.RolePoller
+			sec.Role = models.RoleGateway
 		}
 		provider, err := coregrpc.NewSecurityProvider(ctx, &sec, s.logger)
 		if err != nil {
@@ -828,19 +828,19 @@ func (s *APIServer) setupProtectedRoutes() {
 		}
 	}
 
-	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
-	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")
+	protected.HandleFunc("/gateways", s.getGateways).Methods("GET")
+	protected.HandleFunc("/gateways/{id}", s.getGateway).Methods("GET")
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/history", s.getPollerHistory).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/metrics", s.getPollerMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/rperf", s.getRperfMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/processes", s.getSysmonProcessMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/history", s.getGatewayHistory).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/metrics", s.getGatewayMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/rperf", s.getRperfMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/services", s.getGatewayServices).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/services/{service}", s.getServiceDetails).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/snmp", s.getSNMPData).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
+	protected.HandleFunc("/gateways/{id}/sysmon/processes", s.getSysmonProcessMetrics).Methods("GET")
 
 	// Device-centric sysmon endpoints
 	protected.HandleFunc("/devices/{id}/sysmon/cpu", s.getDeviceSysmonCPUMetrics).Methods("GET")
@@ -911,14 +911,14 @@ func (s *APIServer) setupProtectedRoutes() {
 
 	// Agent registry endpoints
 	adminRoutes.HandleFunc("/agents", s.handleListAgents).Methods("GET")
-	adminRoutes.HandleFunc("/pollers/{poller_id}/agents", s.handleListAgentsByPoller).Methods("GET")
+	adminRoutes.HandleFunc("/gateways/{gateway_id}/agents", s.handleListAgentsByGateway).Methods("GET")
 
 	// KV endpoints enumeration (optional, for Admin UI)
 	protected.HandleFunc("/kv/endpoints", s.handleListKVEndpoints).Methods("GET")
 	// KV info for selected kv_store_id (endpoint ID or domain)
 	protected.HandleFunc("/kv/info", s.handleKVInfo).Methods("GET")
 
-	// Services tree (poller -> agent -> services) for Admin UI
+	// Services tree (gateway -> agent -> services) for Admin UI
 	protected.HandleFunc("/services/tree", s.handleServicesTree).Methods("GET")
 }
 
@@ -963,7 +963,7 @@ type ServiceNode struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	AgentID   string `json:"agent_id"`
-	PollerID  string `json:"poller_id,omitempty"`
+	GatewayID  string `json:"gateway_id,omitempty"`
 	KvStoreID string `json:"kv_store_id,omitempty"`
 }
 
@@ -974,9 +974,9 @@ type AgentNode struct {
 	Services   []ServiceNode `json:"services"`
 }
 
-// PollerNode represents a poller in the services tree
-type PollerNode struct {
-	PollerID   string      `json:"poller_id"`
+// GatewayNode represents a gateway in the services tree
+type GatewayNode struct {
+	GatewayID   string      `json:"gateway_id"`
 	IsHealthy  bool        `json:"is_healthy"`
 	KvStoreIDs []string    `json:"kv_store_ids,omitempty"`
 	Agents     []AgentNode `json:"agents"`
@@ -984,7 +984,7 @@ type PollerNode struct {
 
 // servicesTreeFilters holds the query filters for the services tree endpoint
 type servicesTreeFilters struct {
-	poller         string
+	gateway         string
 	agent          string
 	configuredOnly bool
 	limit          int
@@ -995,7 +995,7 @@ type servicesTreeFilters struct {
 func (s *APIServer) parseServicesTreeFilters(r *http.Request) servicesTreeFilters {
 	q := r.URL.Query()
 	filters := servicesTreeFilters{
-		poller:         q.Get("poller"),
+		gateway:         q.Get("gateway"),
 		agent:          q.Get("agent"),
 		configuredOnly: strings.EqualFold(q.Get("configured"), "only"),
 	}
@@ -1016,9 +1016,9 @@ func (s *APIServer) parseServicesTreeFilters(r *http.Request) servicesTreeFilter
 }
 
 // buildAgentServices groups services by agent and builds the agent nodes
-func (s *APIServer) buildAgentServices(services []ServiceStatus, filters servicesTreeFilters, pollerID string) (map[string]*AgentNode, map[string]struct{}) {
+func (s *APIServer) buildAgentServices(services []ServiceStatus, filters servicesTreeFilters, gatewayID string) (map[string]*AgentNode, map[string]struct{}) {
 	agentMap := make(map[string]*AgentNode)
-	kvSetPoller := make(map[string]struct{})
+	kvSetGateway := make(map[string]struct{})
 
 	for _, svc := range services {
 		if filters.agent != "" && svc.AgentID != filters.agent {
@@ -1027,16 +1027,16 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 
 		agentID := svc.AgentID
 		if agentID == "" {
-			agentID = pollerID
+			agentID = gatewayID
 		}
 
 		if _, ok := agentMap[agentID]; !ok {
 			agentMap[agentID] = &AgentNode{AgentID: agentID}
 		}
 
-		// Track kv store IDs at agent and poller levels
+		// Track kv store IDs at agent and gateway levels
 		if svc.KvStoreID != "" {
-			kvSetPoller[svc.KvStoreID] = struct{}{}
+			kvSetGateway[svc.KvStoreID] = struct{}{}
 		}
 
 		// Append service
@@ -1044,19 +1044,19 @@ func (s *APIServer) buildAgentServices(services []ServiceStatus, filters service
 			Name:      svc.Name,
 			Type:      svc.Type,
 			AgentID:   agentID,
-			PollerID:  pollerID,
+			GatewayID:  gatewayID,
 			KvStoreID: svc.KvStoreID,
 		}
 
 		agentMap[agentID].Services = append(agentMap[agentID].Services, node)
 	}
 
-	return agentMap, kvSetPoller
+	return agentMap, kvSetGateway
 }
 
 // isServiceConfigured checks if a service is configured in KV store
 func (s *APIServer) isServiceConfigured(ctx context.Context, sn ServiceNode) bool {
-	_, key, _, err := s.resolveServiceKey(sn.Type, sn.Type, sn.AgentID, sn.PollerID)
+	_, key, _, err := s.resolveServiceKey(sn.Type, sn.Type, sn.AgentID, sn.GatewayID)
 	if err != nil || key == "" {
 		return false
 	}
@@ -1139,7 +1139,7 @@ func (s *APIServer) applyPagination(agent *AgentNode, offset, limit int) {
 	}
 }
 
-// handleServicesTree returns a lightweight tree of pollers -> agents -> services.
+// handleServicesTree returns a lightweight tree of gateways -> agents -> services.
 // This uses the in-memory cache (no DB fan-out) to remain responsive and scalable.
 func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
@@ -1148,16 +1148,16 @@ func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
 	filters := s.parseServicesTreeFilters(r)
 
 	// Build tree
-	result := make([]PollerNode, 0, len(s.pollers))
-	for pollerID, ps := range s.pollers {
-		if filters.poller != "" && pollerID != filters.poller {
+	result := make([]GatewayNode, 0, len(s.gateways))
+	for gatewayID, ps := range s.gateways {
+		if filters.gateway != "" && gatewayID != filters.gateway {
 			continue
 		}
 
-		agentMap, kvSetPoller := s.buildAgentServices(ps.Services, filters, pollerID)
+		agentMap, kvSetGateway := s.buildAgentServices(ps.Services, filters, gatewayID)
 
 		// Finalize agents: compute kv sets per agent
-		pollerNode := PollerNode{PollerID: pollerID, IsHealthy: ps.IsHealthy}
+		gatewayNode := GatewayNode{GatewayID: gatewayID, IsHealthy: ps.IsHealthy}
 		for _, agent := range agentMap {
 			kvSet := make(map[string]struct{})
 			for _, sn := range agent.Services {
@@ -1181,16 +1181,16 @@ func (s *APIServer) handleServicesTree(w http.ResponseWriter, r *http.Request) {
 			// Apply offset/limit if requested
 			s.applyPagination(agent, filters.offset, filters.limit)
 
-			pollerNode.Agents = append(pollerNode.Agents, *agent)
+			gatewayNode.Agents = append(gatewayNode.Agents, *agent)
 		}
 
-		if len(kvSetPoller) > 0 {
-			pollerNode.KvStoreIDs = make([]string, 0, len(kvSetPoller))
-			for id := range kvSetPoller {
-				pollerNode.KvStoreIDs = append(pollerNode.KvStoreIDs, id)
+		if len(kvSetGateway) > 0 {
+			gatewayNode.KvStoreIDs = make([]string, 0, len(kvSetGateway))
+			for id := range kvSetGateway {
+				gatewayNode.KvStoreIDs = append(gatewayNode.KvStoreIDs, id)
 			}
 		}
-		result = append(result, pollerNode)
+		result = append(result, gatewayNode)
 	}
 
 	_ = s.encodeJSONResponse(w, result)
@@ -1272,21 +1272,21 @@ func (s *APIServer) handleKVInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Get SNMP data
-// @Description Retrieves SNMP metrics data for a specific poller within the given time range
+// @Description Retrieves SNMP metrics data for a specific gateway within the given time range
 // @Tags SNMP
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param start query string true "Start time in RFC3339 format"
 // @Param end query string true "End time in RFC3339 format"
 // @Success 200 {array} models.SNMPMetric "SNMP metrics data"
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/pollers/{id}/snmp [get]
+// @Router /api/gateways/{id}/snmp [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
 	// set a timer of 10 seconds for the request
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
@@ -1317,9 +1317,9 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use the injected snmpManager to fetch SNMP metrics
-	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(ctx, pollerID, startTime, endTime)
+	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(ctx, gatewayID, startTime, endTime)
 	if err != nil {
-		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error fetching SNMP data")
+		s.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Error fetching SNMP data")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -1328,36 +1328,36 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(snmpMetrics); err != nil {
-		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error encoding SNMP data response")
+		s.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Error encoding SNMP data response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-// @Summary Get poller metrics
-// @Description Retrieves performance metrics for a specific poller
+// @Summary Get gateway metrics
+// @Description Retrieves performance metrics for a specific gateway
 // @Tags Metrics
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
-// @Success 200 {array} models.MetricPoint "Poller metrics data"
+// @Param id path string true "Gateway ID"
+// @Success 200 {array} models.MetricPoint "Gateway metrics data"
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error or metrics not configured"
-// @Router /api/pollers/{id}/metrics [get]
+// @Router /api/gateways/{id}/metrics [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getGatewayMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
 	if s.metricsManager == nil {
-		s.logger.Warn().Str("poller_id", pollerID).Msg("Metrics not configured")
+		s.logger.Warn().Str("gateway_id", gatewayID).Msg("Metrics not configured")
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
 
 		return
 	}
 
-	m := s.metricsManager.GetMetrics(pollerID)
+	m := s.metricsManager.GetMetrics(gatewayID)
 	if m == nil {
-		s.logger.Debug().Str("poller_id", pollerID).Msg("No metrics found")
+		s.logger.Debug().Str("gateway_id", gatewayID).Msg("No metrics found")
 		http.Error(w, "No metrics found", http.StatusNotFound)
 
 		return
@@ -1366,48 +1366,48 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(m); err != nil {
-		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error encoding metrics response")
+		s.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Error encoding metrics response")
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-// SetPollerHistoryHandler sets the handler function for retrieving poller history
-func (s *APIServer) SetPollerHistoryHandler(_ context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error)) {
-	s.pollerHistoryHandler = handler
+// SetGatewayHistoryHandler sets the handler function for retrieving gateway history
+func (s *APIServer) SetGatewayHistoryHandler(_ context.Context, handler func(gatewayID string) ([]GatewayHistoryPoint, error)) {
+	s.gatewayHistoryHandler = handler
 }
 
-// UpdatePollerStatus updates the status of a poller
-func (s *APIServer) UpdatePollerStatus(pollerID string, status *PollerStatus) {
+// UpdateGatewayStatus updates the status of a gateway
+func (s *APIServer) UpdateGatewayStatus(gatewayID string, status *GatewayStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.pollers[pollerID] = status
+	s.gateways[gatewayID] = status
 }
 
-// @Summary Get poller history
-// @Description Retrieves historical status information for a specific poller
-// @Tags Pollers
+// @Summary Get gateway history
+// @Description Retrieves historical status information for a specific gateway
+// @Tags Gateways
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
-// @Success 200 {array} PollerHistoryPoint "Historical status points"
+// @Param id path string true "Gateway ID"
+// @Success 200 {array} GatewayHistoryPoint "Historical status points"
 // @Failure 500 {object} models.ErrorResponse "Internal server error or history handler not configured"
-// @Router /api/pollers/{id}/history [get]
+// @Router /api/gateways/{id}/history [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getGatewayHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
-	if s.pollerHistoryHandler == nil {
+	if s.gatewayHistoryHandler == nil {
 		http.Error(w, "History handler not configured", http.StatusInternalServerError)
 		return
 	}
 
-	points, err := s.pollerHistoryHandler(pollerID)
+	points, err := s.gatewayHistoryHandler(gatewayID)
 	if err != nil {
-		s.logger.Error().Err(err).Msg("Error fetching poller history")
+		s.logger.Error().Err(err).Msg("Error fetching gateway history")
 		http.Error(w, "Failed to fetch history", http.StatusInternalServerError)
 
 		return
@@ -1420,7 +1420,7 @@ func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Get system status
-// @Description Retrieves overall system status including counts of total and healthy pollers
+// @Description Retrieves overall system status including counts of total and healthy gateways
 // @Tags System
 // @Accept json
 // @Produce json
@@ -1431,21 +1431,21 @@ func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	status := SystemStatus{
-		TotalPollers:   len(s.pollers),
-		HealthyPollers: 0,
+		TotalGateways:   len(s.gateways),
+		HealthyGateways: 0,
 		LastUpdate:     time.Now(),
 	}
 
-	for _, poller := range s.pollers {
-		if poller.IsHealthy {
-			status.HealthyPollers++
+	for _, gateway := range s.gateways {
+		if gateway.IsHealthy {
+			status.HealthyGateways++
 		}
 	}
 
 	s.mu.RUnlock()
 
-	s.logger.Info().Int("total", status.TotalPollers).
-		Int("healthy", status.HealthyPollers).
+	s.logger.Info().Int("total", status.TotalGateways).
+		Int("healthy", status.HealthyGateways).
 		Str("last_update", status.LastUpdate.Format(time.RFC3339)).
 		Msg("System status")
 
@@ -1454,96 +1454,96 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// @Summary Get all pollers
-// @Description Retrieves a list of all known pollers
-// @Tags Pollers
+// @Summary Get all gateways
+// @Description Retrieves a list of all known gateways
+// @Tags Gateways
 // @Accept json
 // @Produce json
-// @Success 200 {array} PollerStatus "List of poller statuses"
+// @Success 200 {array} GatewayStatus "List of gateway statuses"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/pollers [get]
+// @Router /api/gateways [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
+func (s *APIServer) getGateways(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// Preallocate the slice with the correct length
-	pollers := make([]*PollerStatus, 0, len(s.pollers))
+	gateways := make([]*GatewayStatus, 0, len(s.gateways))
 
 	// Append all map values to the slice
-	for id, poller := range s.pollers {
-		if s.isAllowedPollerLocked(id) {
-			pollers = append(pollers, poller)
+	for id, gateway := range s.gateways {
+		if s.isAllowedGatewayLocked(id) {
+			gateways = append(gateways, gateway)
 		}
 	}
 
 	// Encode and send the response
-	if err := s.encodeJSONResponse(w, pollers); err != nil {
+	if err := s.encodeJSONResponse(w, gateways); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-// SetKnownPollers sets the list of known pollers
-func (s *APIServer) SetKnownPollers(knownPollers []string) {
+// SetKnownGateways sets the list of known gateways
+func (s *APIServer) SetKnownGateways(knownGateways []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.knownPollers = knownPollers
-	s.knownPollerSet = make(map[string]struct{}, len(knownPollers))
-	for _, id := range knownPollers {
+	s.knownGateways = knownGateways
+	s.knownGatewaySet = make(map[string]struct{}, len(knownGateways))
+	for _, id := range knownGateways {
 		if id == "" {
 			continue
 		}
-		s.knownPollerSet[id] = struct{}{}
+		s.knownGatewaySet[id] = struct{}{}
 	}
 }
 
-// SetDynamicPollers updates the runtime-managed poller allow list.
-func (s *APIServer) SetDynamicPollers(pollerIDs []string) {
+// SetDynamicGateways updates the runtime-managed gateway allow list.
+func (s *APIServer) SetDynamicGateways(gatewayIDs []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(pollerIDs) == 0 {
-		s.dynamicPollers = make(map[string]struct{})
+	if len(gatewayIDs) == 0 {
+		s.dynamicGateways = make(map[string]struct{})
 		return
 	}
 
-	next := make(map[string]struct{}, len(pollerIDs))
-	for _, id := range pollerIDs {
+	next := make(map[string]struct{}, len(gatewayIDs))
+	for _, id := range gatewayIDs {
 		if id == "" {
 			continue
 		}
 		next[id] = struct{}{}
 	}
 
-	s.dynamicPollers = next
+	s.dynamicGateways = next
 }
 
-func (s *APIServer) isAllowedPoller(pollerID string) bool {
+func (s *APIServer) isAllowedGateway(gatewayID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.isAllowedPollerLocked(pollerID)
+	return s.isAllowedGatewayLocked(gatewayID)
 }
 
-func (s *APIServer) isAllowedPollerLocked(pollerID string) bool {
-	if _, ok := s.knownPollerSet[pollerID]; ok {
+func (s *APIServer) isAllowedGatewayLocked(gatewayID string) bool {
+	if _, ok := s.knownGatewaySet[gatewayID]; ok {
 		return true
 	}
-	if _, ok := s.dynamicPollers[pollerID]; ok {
+	if _, ok := s.dynamicGateways[gatewayID]; ok {
 		return true
 	}
 	return false
 }
 
-// getPollerByID retrieves a poller by its ID
-func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
+// getGatewayByID retrieves a gateway by its ID
+func (s *APIServer) getGatewayByID(gatewayID string) (*GatewayStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	poller, exists := s.pollers[pollerID]
+	gateway, exists := s.gateways[gatewayID]
 
-	return poller, exists
+	return gateway, exists
 }
 
 // encodeJSONResponse encodes a response as JSON
@@ -1557,103 +1557,103 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 	return nil
 }
 
-// @Summary Get poller details
-// @Description Retrieves detailed information about a specific poller
-// @Tags Pollers
+// @Summary Get gateway details
+// @Description Retrieves detailed information about a specific gateway
+// @Tags Gateways
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
-// @Success 200 {object} PollerStatus "Poller status details"
-// @Failure 404 {object} models.ErrorResponse "Poller not found"
+// @Param id path string true "Gateway ID"
+// @Success 200 {object} GatewayStatus "Gateway status details"
+// @Failure 404 {object} models.ErrorResponse "Gateway not found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/pollers/{id} [get]
+// @Router /api/gateways/{id} [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getGateway(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
-	if !s.isAllowedPoller(pollerID) {
-		http.Error(w, "Poller not found", http.StatusNotFound)
+	if !s.isAllowedGateway(gatewayID) {
+		http.Error(w, "Gateway not found", http.StatusNotFound)
 		return
 	}
 
-	poller, exists := s.getPollerByID(pollerID)
+	gateway, exists := s.getGatewayByID(gatewayID)
 	if !exists {
-		http.Error(w, "Poller not found", http.StatusNotFound)
+		http.Error(w, "Gateway not found", http.StatusNotFound)
 
 		return
 	}
 
 	if s.metricsManager != nil {
-		m := s.metricsManager.GetMetrics(pollerID)
+		m := s.metricsManager.GetMetrics(gatewayID)
 		if m != nil {
-			poller.Metrics = m
-			s.logger.Debug().Int("count", len(m)).Str("poller_id", pollerID).Msg("Attached metrics points to response")
+			gateway.Metrics = m
+			s.logger.Debug().Int("count", len(m)).Str("gateway_id", gatewayID).Msg("Attached metrics points to response")
 		}
 	}
 
-	if err := s.encodeJSONResponse(w, poller); err != nil {
+	if err := s.encodeJSONResponse(w, gateway); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-// @Summary Get poller services
-// @Description Retrieves all services monitored by a specific poller
+// @Summary Get gateway services
+// @Description Retrieves all services monitored by a specific gateway
 // @Tags Services
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Success 200 {array} ServiceStatus "List of service statuses"
-// @Failure 404 {object} models.ErrorResponse "Poller not found"
+// @Failure 404 {object} models.ErrorResponse "Gateway not found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/pollers/{id}/services [get]
+// @Router /api/gateways/{id}/services [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getGatewayServices(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
 	s.mu.RLock()
-	poller, exists := s.pollers[pollerID]
+	gateway, exists := s.gateways[gatewayID]
 	s.mu.RUnlock()
 
 	if !exists {
-		http.Error(w, "Poller not found", http.StatusNotFound)
+		http.Error(w, "Gateway not found", http.StatusNotFound)
 
 		return
 	}
 
-	if err := s.encodeJSONResponse(w, poller.Services); err != nil {
+	if err := s.encodeJSONResponse(w, gateway.Services); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
 // @Summary Get service details
-// @Description Retrieves detailed information about a specific service monitored by a poller
+// @Description Retrieves detailed information about a specific service monitored by a gateway
 // @Tags Services
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param service path string true "Service name"
 // @Success 200 {object} ServiceStatus "Service status details"
-// @Failure 404 {object} models.ErrorResponse "Poller or service not found"
+// @Failure 404 {object} models.ErrorResponse "Gateway or service not found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/pollers/{id}/services/{service} [get]
+// @Router /api/gateways/{id}/services/{service} [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 	serviceName := vars["service"]
 
 	s.mu.RLock()
-	poller, exists := s.pollers[pollerID]
+	gateway, exists := s.gateways[gatewayID]
 	s.mu.RUnlock()
 
 	if !exists {
-		http.Error(w, "Poller not found", http.StatusNotFound)
+		http.Error(w, "Gateway not found", http.StatusNotFound)
 		return
 	}
 
-	for _, service := range poller.Services {
+	for _, service := range gateway.Services {
 		if service.Name == serviceName {
 			if err := s.encodeJSONResponse(w, service); err != nil {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1782,19 +1782,19 @@ func (s *APIServer) writeJSON(w http.ResponseWriter, status int, payload interfa
 }
 
 // writeJSONResponse writes a JSON response to the HTTP writer
-func (s *APIServer) writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
+func (s *APIServer) writeJSONResponse(w http.ResponseWriter, data interface{}, gatewayID string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Error encoding response")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
 		// Log without trying to determine the length of a specific type
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Successfully wrote metrics response")
 	}
 }
@@ -2561,7 +2561,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 				if mp.Timestamp.After(startTime) && mp.Timestamp.Before(endTime) {
 					// Convert from MetricPoint to TimeseriesMetric
 					timeseriesMetrics = append(timeseriesMetrics, models.TimeseriesMetric{
-						PollerID:  mp.PollerID,
+						GatewayID:  mp.GatewayID,
 						DeviceID:  mp.DeviceID,
 						Partition: mp.Partition,
 						Name:      fmt.Sprintf("icmp_%s_response_time_ms", mp.ServiceName),

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   @moduledoc """
   High-frequency health check runner for gRPC-based service checks.
 
-  Runs per-tenant and performs sub-minute health checks via pollers to agents.
+  Runs per-tenant and performs sub-minute health checks via gateways to agents.
   AshOban can only schedule per-minute, so this GenServer handles high-frequency
   checks (e.g., every 5 seconds).
 
@@ -11,10 +11,10 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
       ┌─────────────────┐
       │ HealthCheckRunner │ (per-tenant GenServer)
       └────────┬────────┘
-               │ gRPC via poller
+               │ gRPC via gateway
                ▼
       ┌─────────────────┐
-      │     Poller      │
+      │     Gateway     │
       └────────┬────────┘
                │ gRPC
                ▼

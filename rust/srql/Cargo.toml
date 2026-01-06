@@ -9,7 +9,7 @@ async-trait = "0.1.89"
 axum = { version = "0.7.5", features = ["macros"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.38", features = ["serde"] }
-diesel = { version = "2.2.2", default-features = false, features = ["postgres", "chrono", "serde_json", "64-column-tables"] }
+diesel = { version = "2.2.2", default-features = false, features = ["postgres", "chrono", "serde_json", "uuid", "64-column-tables"] }
 diesel-async = { version = "0.7.1", features = ["postgres", "tokio", "bb8"] }
 envy = "0.4.2"
 http = "1.1.0"
@@ -26,7 +26,7 @@ tower = "0.5.1"
 tower-http = { version = "0.6.1", features = ["trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
-uuid = { version = "1.11.0", features = ["serde", "v4"] }
+uuid = { version = "0.8.2", features = ["serde", "v4"] }
 bb8 = "0.8"
 tokio-postgres = "0.7.15"
 tokio-postgres-rustls = "0.13"

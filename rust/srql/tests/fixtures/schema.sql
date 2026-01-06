@@ -42,16 +42,16 @@ CREATE TABLE ocsf_devices (
     groups              JSONB,
     agent_list          JSONB,
     -- ServiceRadar-specific fields
-    poller_id           TEXT,
+    gateway_id           TEXT,
     agent_id            TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
     metadata            JSONB
 );
 
-DROP TABLE IF EXISTS pollers;
-CREATE TABLE pollers (
-    poller_id           TEXT        PRIMARY KEY,
+DROP TABLE IF EXISTS gateways;
+CREATE TABLE gateways (
+    gateway_id           TEXT        PRIMARY KEY,
     component_id        TEXT,
     registration_source TEXT,
     status              TEXT,
@@ -64,7 +64,9 @@ CREATE TABLE pollers (
     is_healthy          BOOLEAN,
     agent_count         INT,
     checker_count       INT,
-    updated_at          TIMESTAMPTZ
+    updated_at          TIMESTAMPTZ,
+    tenant_id           UUID        NOT NULL,
+    partition_id        UUID
 );
 
 DROP TABLE IF EXISTS events;
@@ -109,7 +111,7 @@ CREATE TABLE logs (
 DROP TABLE IF EXISTS service_status;
 CREATE TABLE service_status (
     timestamp    TIMESTAMPTZ NOT NULL,
-    poller_id    TEXT        NOT NULL,
+    gateway_id    TEXT        NOT NULL,
     agent_id     TEXT,
     service_name TEXT        NOT NULL,
     service_type TEXT,
@@ -118,14 +120,14 @@ CREATE TABLE service_status (
     details      TEXT,
     partition    TEXT,
     created_at   TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, poller_id, service_name)
+    PRIMARY KEY (timestamp, gateway_id, service_name)
 );
 
 DROP TABLE IF EXISTS discovered_interfaces;
 CREATE TABLE discovered_interfaces (
     timestamp       TIMESTAMPTZ NOT NULL,
     agent_id        TEXT,
-    poller_id       TEXT,
+    gateway_id       TEXT,
     device_ip       TEXT,
     device_id       TEXT,
     if_index        INT,
@@ -194,7 +196,7 @@ CREATE TABLE otel_metrics (
 DROP TABLE IF EXISTS timeseries_metrics;
 CREATE TABLE timeseries_metrics (
     timestamp        TIMESTAMPTZ NOT NULL,
-    poller_id        TEXT        NOT NULL,
+    gateway_id        TEXT        NOT NULL,
     agent_id         TEXT,
     metric_name      TEXT        NOT NULL,
     metric_type      TEXT        NOT NULL,
@@ -209,13 +211,13 @@ CREATE TABLE timeseries_metrics (
     if_index         INT,
     metadata         JSONB,
     created_at       TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, poller_id, metric_name)
+    PRIMARY KEY (timestamp, gateway_id, metric_name)
 );
 
 DROP TABLE IF EXISTS cpu_metrics;
 CREATE TABLE cpu_metrics (
     timestamp     TIMESTAMPTZ NOT NULL,
-    poller_id     TEXT        NOT NULL,
+    gateway_id     TEXT        NOT NULL,
     agent_id      TEXT,
     host_id       TEXT,
     core_id       INT,
@@ -226,13 +228,13 @@ CREATE TABLE cpu_metrics (
     device_id     TEXT,
     partition     TEXT,
     created_at    TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, poller_id, core_id)
+    PRIMARY KEY (timestamp, gateway_id, core_id)
 );
 
 DROP TABLE IF EXISTS disk_metrics;
 CREATE TABLE disk_metrics (
     timestamp       TIMESTAMPTZ NOT NULL,
-    poller_id       TEXT,
+    gateway_id       TEXT,
     agent_id        TEXT,
     host_id         TEXT,
     mount_point     TEXT,
@@ -244,13 +246,13 @@ CREATE TABLE disk_metrics (
     device_id       TEXT,
     partition       TEXT,
     created_at      TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, poller_id, mount_point)
+    PRIMARY KEY (timestamp, gateway_id, mount_point)
 );
 
 DROP TABLE IF EXISTS memory_metrics;
 CREATE TABLE memory_metrics (
     timestamp       TIMESTAMPTZ NOT NULL,
-    poller_id       TEXT,
+    gateway_id       TEXT,
     agent_id        TEXT,
     host_id         TEXT,
     total_bytes     BIGINT,
@@ -260,5 +262,5 @@ CREATE TABLE memory_metrics (
     device_id       TEXT,
     partition       TEXT,
     created_at      TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, poller_id)
+    PRIMARY KEY (timestamp, gateway_id)
 );

@@ -39,7 +39,7 @@ func mergeCollectorCapabilityRecord(
 	existing *models.CollectorCapability,
 	deviceID string,
 	capabilities []string,
-	agentID, pollerID, serviceName string,
+	agentID, gatewayID, serviceName string,
 	lastSeen time.Time,
 ) *models.CollectorCapability {
 	deviceID = strings.TrimSpace(deviceID)
@@ -56,7 +56,7 @@ func mergeCollectorCapabilityRecord(
 		DeviceID:     deviceID,
 		Capabilities: normalized,
 		AgentID:      strings.TrimSpace(agentID),
-		PollerID:     strings.TrimSpace(pollerID),
+		GatewayID:     strings.TrimSpace(gatewayID),
 		ServiceName:  strings.TrimSpace(serviceName),
 		LastSeen:     lastSeen.UTC(),
 	}
@@ -84,8 +84,8 @@ func mergeCollectorCapabilityRecord(
 		if record.AgentID == "" {
 			record.AgentID = existing.AgentID
 		}
-		if record.PollerID == "" {
-			record.PollerID = existing.PollerID
+		if record.GatewayID == "" {
+			record.GatewayID = existing.GatewayID
 		}
 		if record.ServiceName == "" {
 			record.ServiceName = existing.ServiceName
@@ -108,7 +108,7 @@ func (s *Server) upsertCollectorCapabilities(
 	ctx context.Context,
 	deviceID string,
 	capabilities []string,
-	agentID, pollerID, serviceName string,
+	agentID, gatewayID, serviceName string,
 	lastSeen time.Time,
 ) {
 	if s == nil || s.DeviceRegistry == nil {
@@ -121,7 +121,7 @@ func (s *Server) upsertCollectorCapabilities(
 	}
 
 	existing, _ := s.DeviceRegistry.GetCollectorCapabilities(ctx, deviceID)
-	record := mergeCollectorCapabilityRecord(existing, deviceID, normalized, agentID, pollerID, serviceName, lastSeen)
+	record := mergeCollectorCapabilityRecord(existing, deviceID, normalized, agentID, gatewayID, serviceName, lastSeen)
 	if record == nil {
 		return
 	}

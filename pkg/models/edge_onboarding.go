@@ -21,7 +21,7 @@ const (
 type EdgeOnboardingComponentType string
 
 const (
-	EdgeOnboardingComponentTypePoller  EdgeOnboardingComponentType = "poller"
+	EdgeOnboardingComponentTypeGateway  EdgeOnboardingComponentType = "gateway"
 	EdgeOnboardingComponentTypeAgent   EdgeOnboardingComponentType = "agent"
 	EdgeOnboardingComponentTypeChecker EdgeOnboardingComponentType = "checker"
 	EdgeOnboardingComponentTypeSync    EdgeOnboardingComponentType = "sync"
@@ -54,7 +54,7 @@ const (
 var (
 	ErrEdgeOnboardingDisabled          = errors.New("edge onboarding: service disabled")
 	ErrEdgeOnboardingInvalidRequest    = errors.New("edge onboarding: invalid request")
-	ErrEdgeOnboardingPollerConflict    = errors.New("edge onboarding: poller already provisioned")
+	ErrEdgeOnboardingGatewayConflict    = errors.New("edge onboarding: gateway already provisioned")
 	ErrEdgeOnboardingComponentConflict = errors.New("edge onboarding: component already provisioned")
 	ErrEdgeOnboardingSpireUnavailable  = errors.New("edge onboarding: spire admin unavailable")
 	ErrEdgeOnboardingDownloadRequired  = errors.New("edge onboarding: download token required")
@@ -65,7 +65,7 @@ var (
 	ErrEdgeOnboardingDecryptFailed     = errors.New("edge onboarding: decrypt failed")
 )
 
-// EdgeOnboardingPackage models the material tracked for an edge poller bootstrap.
+// EdgeOnboardingPackage models the material tracked for an edge gateway bootstrap.
 type EdgeOnboardingPackage struct {
 	PackageID              string                      `json:"package_id"`
 	Label                  string                      `json:"label"`
@@ -73,7 +73,7 @@ type EdgeOnboardingPackage struct {
 	ComponentType          EdgeOnboardingComponentType `json:"component_type"`
 	ParentType             EdgeOnboardingComponentType `json:"parent_type,omitempty"`
 	ParentID               string                      `json:"parent_id,omitempty"`
-	PollerID               string                      `json:"poller_id"`
+	GatewayID               string                      `json:"gateway_id"`
 	Site                   string                      `json:"site,omitempty"`
 	Status                 EdgeOnboardingStatus        `json:"status"`
 	SecurityMode           string                      `json:"security_mode,omitempty"`
@@ -115,7 +115,7 @@ type EdgeOnboardingEvent struct {
 
 // EdgeOnboardingListFilter allows filtering onboarding packages.
 type EdgeOnboardingListFilter struct {
-	PollerID    string
+	GatewayID    string
 	ComponentID string
 	ParentID    string
 	Statuses    []EdgeOnboardingStatus
@@ -131,7 +131,7 @@ type EdgeOnboardingCreateRequest struct {
 	ParentType         EdgeOnboardingComponentType
 	SecurityMode       string
 	ParentID           string
-	PollerID           string
+	GatewayID           string
 	Site               string
 	Selectors          []string
 	MetadataJSON       string

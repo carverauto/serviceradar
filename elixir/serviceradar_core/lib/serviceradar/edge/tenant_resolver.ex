@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
   @moduledoc """
   Resolves tenant identity from client certificates.
 
-  When edge components (pollers, agents, checkers) connect to core services,
+  When edge components (gateways, agents, checkers) connect to core services,
   their tenant identity is extracted from the mTLS client certificate.
 
   ## Certificate CN Format
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   ## Examples
 
-      iex> extract_slug_from_cn("poller-001.partition-1.acme-corp.serviceradar")
+      iex> extract_slug_from_cn("gateway-001.partition-1.acme-corp.serviceradar")
       {:ok, "acme-corp"}
 
       iex> extract_slug_from_cn("invalid")
@@ -397,7 +397,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
     case String.replace_prefix(spiffe_id, "spiffe://", "") |> String.split("/") do
       [_trust_domain, component_type | _] ->
         case component_type do
-          "poller" -> :poller
+          "gateway" -> :gateway
           "agent" -> :agent
           "checker" -> :checker
           "sync" -> :sync

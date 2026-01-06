@@ -130,7 +130,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :vendor_name,
         :version,
         :policies,
-        :poller_id,
+        :gateway_id,
         :device_uid,
         :capabilities,
         :host,

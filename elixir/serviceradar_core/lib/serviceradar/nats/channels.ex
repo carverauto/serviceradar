@@ -7,13 +7,13 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Channel Format
 
-  Single-tenant: `pollers.heartbeat`
-  Multi-tenant: `<tenant_slug>.pollers.heartbeat`
+  Single-tenant: `gateways.heartbeat`
+  Multi-tenant: `<tenant_slug>.gateways.heartbeat`
 
   ## Standard Channels
 
-  - `<tenant>.pollers.heartbeat` - Poller heartbeat messages
-  - `<tenant>.pollers.status` - Poller status updates
+  - `<tenant>.gateways.heartbeat` - Gateway heartbeat messages
+  - `<tenant>.gateways.status` - Gateway status updates
   - `<tenant>.agents.heartbeat` - Agent heartbeat messages
   - `<tenant>.agents.status` - Agent status updates
   - `<tenant>.metrics.ingest` - Metrics ingestion
@@ -24,15 +24,15 @@ defmodule ServiceRadar.NATS.Channels do
 
   ```elixir
   # In a tenant-aware context
-  channel = Channels.build("pollers.heartbeat", tenant_slug: "acme-corp")
-  # => "acme-corp.pollers.heartbeat"
+  channel = Channels.build("gateways.heartbeat", tenant_slug: "acme-corp")
+  # => "acme-corp.gateways.heartbeat"
 
   # Subscribe with tenant filter
-  Channels.subscribe("pollers.>", tenant_slug: "acme-corp")
-  # Subscribes to "acme-corp.pollers.>"
+  Channels.subscribe("gateways.>", tenant_slug: "acme-corp")
+  # Subscribes to "acme-corp.gateways.>"
 
   # Parse tenant from channel
-  {:ok, "acme-corp", "pollers.heartbeat"} = Channels.parse("acme-corp.pollers.heartbeat")
+  {:ok, "acme-corp", "gateways.heartbeat"} = Channels.parse("acme-corp.gateways.heartbeat")
   ```
 
   ## Security
@@ -55,11 +55,11 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.build("pollers.heartbeat", tenant_slug: "acme-corp")
-      "acme-corp.pollers.heartbeat"
+      iex> Channels.build("gateways.heartbeat", tenant_slug: "acme-corp")
+      "acme-corp.gateways.heartbeat"
 
-      iex> Channels.build("pollers.heartbeat", tenant_slug: nil)
-      "pollers.heartbeat"
+      iex> Channels.build("gateways.heartbeat", tenant_slug: nil)
+      "gateways.heartbeat"
   """
   @spec build(String.t(), keyword()) :: channel()
   def build(base_channel, opts \\ []) do
@@ -78,16 +78,16 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.parse("acme-corp.pollers.heartbeat")
-      {:ok, "acme-corp", "pollers.heartbeat"}
+      iex> Channels.parse("acme-corp.gateways.heartbeat")
+      {:ok, "acme-corp", "gateways.heartbeat"}
 
-      iex> Channels.parse("pollers.heartbeat")
-      {:ok, nil, "pollers.heartbeat"}
+      iex> Channels.parse("gateways.heartbeat")
+      {:ok, nil, "gateways.heartbeat"}
   """
   @spec parse(channel()) :: {:ok, tenant_slug() | nil, String.t()} | {:error, :invalid_channel}
   def parse(channel) when is_binary(channel) do
     # Standard channels start with known prefixes
-    known_prefixes = ~w(pollers agents checkers metrics events alerts devices)
+    known_prefixes = ~w(gateways agents checkers metrics events alerts devices)
 
     parts = String.split(channel, ".", parts: 2)
 
@@ -96,10 +96,10 @@ defmodule ServiceRadar.NATS.Channels do
         first_segment = String.split(rest, ".") |> List.first()
 
         if first_segment in known_prefixes do
-          # Looks like: tenant.pollers.heartbeat
+          # Looks like: tenant.gateways.heartbeat
           {:ok, maybe_tenant, rest}
         else
-          # Looks like: pollers.heartbeat (no tenant)
+          # Looks like: gateways.heartbeat (no tenant)
           {:ok, nil, channel}
         end
 
@@ -119,11 +119,11 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.subscription_pattern("pollers.*", tenant_slug: "acme-corp")
-      "acme-corp.pollers.*"
+      iex> Channels.subscription_pattern("gateways.*", tenant_slug: "acme-corp")
+      "acme-corp.gateways.*"
 
-      iex> Channels.subscription_pattern("pollers.>", tenant_slug: "acme-corp")
-      "acme-corp.pollers.>"
+      iex> Channels.subscription_pattern("gateways.>", tenant_slug: "acme-corp")
+      "acme-corp.gateways.>"
   """
   @spec subscription_pattern(String.t(), keyword()) :: String.t()
   def subscription_pattern(pattern, opts) do
@@ -139,8 +139,8 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.all_tenants_pattern("pollers.heartbeat")
-      "*.pollers.heartbeat"
+      iex> Channels.all_tenants_pattern("gateways.heartbeat")
+      "*.gateways.heartbeat"
   """
   @spec all_tenants_pattern(String.t()) :: String.t()
   def all_tenants_pattern(base_channel) do
@@ -154,10 +154,10 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.validate_tenant("acme-corp.pollers.heartbeat", "acme-corp")
+      iex> Channels.validate_tenant("acme-corp.gateways.heartbeat", "acme-corp")
       :ok
 
-      iex> Channels.validate_tenant("evil-corp.pollers.heartbeat", "acme-corp")
+      iex> Channels.validate_tenant("evil-corp.gateways.heartbeat", "acme-corp")
       {:error, :tenant_mismatch}
   """
   @spec validate_tenant(channel(), tenant_slug()) :: :ok | {:error, :tenant_mismatch}
@@ -176,11 +176,11 @@ defmodule ServiceRadar.NATS.Channels do
   @spec standard_channels() :: map()
   def standard_channels do
     %{
-      # Poller channels
-      poller_heartbeat: "pollers.heartbeat",
-      poller_status: "pollers.status",
-      poller_tasks: "pollers.tasks",
-      poller_results: "pollers.results",
+      # Gateway channels
+      gateway_heartbeat: "gateways.heartbeat",
+      gateway_status: "gateways.status",
+      gateway_tasks: "gateways.tasks",
+      gateway_results: "gateways.results",
 
       # Agent channels
       agent_heartbeat: "agents.heartbeat",
@@ -207,8 +207,8 @@ defmodule ServiceRadar.NATS.Channels do
 
   ## Examples
 
-      iex> Channels.standard(:poller_heartbeat, tenant_slug: "acme-corp")
-      "acme-corp.pollers.heartbeat"
+      iex> Channels.standard(:gateway_heartbeat, tenant_slug: "acme-corp")
+      "acme-corp.gateways.heartbeat"
   """
   @spec standard(atom(), keyword()) :: channel()
   def standard(channel_key, opts \\ []) do

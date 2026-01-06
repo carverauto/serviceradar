@@ -137,7 +137,7 @@ type ICMPResponse struct {
 	PacketLoss   float64 `json:"packet_loss"`
 	Available    bool    `json:"available"`
 	AgentID      string  `json:"agent_id,omitempty"`  // Optional agent ID for context
-	PollerID     string  `json:"poller_id,omitempty"` // Optional poller ID for context
+	GatewayID     string  `json:"gateway_id,omitempty"` // Optional gateway ID for context
 	DeviceID     string  `json:"device_id,omitempty"` // Device ID for proper correlation (partition:host_ip)
 }
 

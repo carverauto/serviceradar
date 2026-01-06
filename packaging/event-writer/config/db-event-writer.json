@@ -5,10 +5,10 @@
   "stream_name": "events",
   "consumer_name": "db-event-writer",
   "agent_id": "agent-default",
-  "poller_id": "poller-default",
+  "gateway_id": "gateway-default",
   "streams": [
     {
-      "subject": "events.poller.health",
+      "subject": "events.gateway.health",
       "table": "events"
     },
     {

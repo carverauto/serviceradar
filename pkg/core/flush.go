@@ -93,28 +93,28 @@ func (s *Server) flushMetrics(ctx context.Context) {
 	s.metricBufferMu.Lock()
 	defer s.metricBufferMu.Unlock()
 
-	for pollerID, timeseriesMetrics := range s.metricBuffers {
+	for gatewayID, timeseriesMetrics := range s.metricBuffers {
 		if len(timeseriesMetrics) == 0 {
 			continue
 		}
 
 		metricsToFlush := make([]*models.TimeseriesMetric, len(timeseriesMetrics))
 		copy(metricsToFlush, timeseriesMetrics)
-		// It's important to clear the original buffer slice for this poller ID
+		// It's important to clear the original buffer slice for this gateway ID
 		// under the lock to prevent race conditions if new metrics come in
 		// while StoreMetrics is running.
-		s.metricBuffers[pollerID] = nil
+		s.metricBuffers[gatewayID] = nil
 
-		if err := s.DB.StoreMetrics(ctx, pollerID, metricsToFlush); err != nil {
+		if err := s.DB.StoreMetrics(ctx, gatewayID, metricsToFlush); err != nil {
 			s.logger.Error().
 				Err(err).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Int("metric_count", len(metricsToFlush)).
 				Msg("CRITICAL DB WRITE ERROR: Failed to flush/StoreMetrics")
 		} else {
 			s.logger.Debug().
 				Int("metric_count", len(metricsToFlush)).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Msg("Successfully flushed timeseries metrics")
 		}
 	}
@@ -125,18 +125,18 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 	s.serviceBufferMu.Lock()
 	defer s.serviceBufferMu.Unlock()
 
-	for pollerID, statuses := range s.serviceBuffers {
+	for gatewayID, statuses := range s.serviceBuffers {
 		if len(statuses) == 0 {
 			continue
 		}
 
-		s.flushServiceStatusBatch(ctx, pollerID, statuses)
-		s.serviceBuffers[pollerID] = nil
+		s.flushServiceStatusBatch(ctx, gatewayID, statuses)
+		s.serviceBuffers[gatewayID] = nil
 	}
 }
 
-// flushServiceStatusBatch processes a single poller's service status batch
-func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, statuses []*models.ServiceStatus) {
+// flushServiceStatusBatch processes a single gateway's service status batch
+func (s *Server) flushServiceStatusBatch(ctx context.Context, gatewayID string, statuses []*models.ServiceStatus) {
 	// With sync services now chunked at the streaming level, we should not have oversized records
 	const maxBatchSizeBytes = 5 * 1024 * 1024  // 5MB batch limit
 	const maxRecordSizeBytes = 9 * 1024 * 1024 // cap individual record size below 10MB shard limit
@@ -144,7 +144,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	totalSize := s.calculateBatchSize(statuses)
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Int("status_count", len(statuses)).
 		Int("estimated_size_bytes", totalSize).
 		Msg("FLUSH DEBUG: Starting service status batch processing")
@@ -183,7 +183,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 			s.logger.Error().
 				Err(err).
 				Str("service_name", status.ServiceName).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Int("details_size", detailsSize).
 				Msg("Failed to flush sync service")
 		}
@@ -192,7 +192,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	// Handle non-sync services with normal batching
 	if len(nonSyncServices) == 0 {
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("sync_services_flushed", len(syncServices)).
 			Msg("FLUSH DEBUG: Only sync services in batch - all handled individually")
 
@@ -203,7 +203,7 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 	nonSyncTotalSize := s.calculateBatchSize(nonSyncServices)
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Int("sync_services_flushed", len(syncServices)).
 		Int("non_sync_services", len(nonSyncServices)).
 		Int("non_sync_batch_size", nonSyncTotalSize).
@@ -211,10 +211,10 @@ func (s *Server) flushServiceStatusBatch(ctx context.Context, pollerID string, s
 
 	// Simple batch processing for non-sync services
 	if nonSyncTotalSize <= maxBatchSizeBytes {
-		s.flushSingleBatch(ctx, pollerID, nonSyncServices, nonSyncTotalSize)
+		s.flushSingleBatch(ctx, gatewayID, nonSyncServices, nonSyncTotalSize)
 	} else {
 		// Split into smaller batches
-		s.flushInSimpleBatches(ctx, pollerID, nonSyncServices, maxBatchSizeBytes)
+		s.flushInSimpleBatches(ctx, gatewayID, nonSyncServices, maxBatchSizeBytes)
 	}
 }
 
@@ -232,17 +232,17 @@ func (*Server) calculateBatchSize(statuses []*models.ServiceStatus) int {
 }
 
 // flushSingleBatch flushes a batch that fits within size limits
-func (s *Server) flushSingleBatch(ctx context.Context, pollerID string, statuses []*models.ServiceStatus, totalSize int) {
+func (s *Server) flushSingleBatch(ctx context.Context, gatewayID string, statuses []*models.ServiceStatus, totalSize int) {
 	if err := s.DB.UpdateServiceStatuses(ctx, statuses); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("status_count", len(statuses)).
 			Int("estimated_size_bytes", totalSize).
 			Msg("Failed to flush service statuses")
 	} else {
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("status_count", len(statuses)).
 			Int("estimated_size_bytes", totalSize).
 			Msg("Successfully flushed service status batch")
@@ -251,9 +251,9 @@ func (s *Server) flushSingleBatch(ctx context.Context, pollerID string, statuses
 
 // flushInSimpleBatches splits and flushes a large batch into smaller batches
 func (s *Server) flushInSimpleBatches(
-	ctx context.Context, pollerID string, statuses []*models.ServiceStatus, maxBatchSizeBytes int) {
+	ctx context.Context, gatewayID string, statuses []*models.ServiceStatus, maxBatchSizeBytes int) {
 	s.logger.Info().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Int("total_statuses", len(statuses)).
 		Msg("Splitting large batch into smaller batches")
 
@@ -277,7 +277,7 @@ func (s *Server) flushInSimpleBatches(
 
 		// If adding this status would exceed the limit, flush current batch
 		if len(batch) > 0 && (batchSize+statusSize > maxBatchSizeBytes) {
-			s.flushSingleBatch(ctx, pollerID, batch, batchSize)
+			s.flushSingleBatch(ctx, gatewayID, batch, batchSize)
 
 			batch = []*models.ServiceStatus{}
 			batchSize = 0
@@ -289,7 +289,7 @@ func (s *Server) flushInSimpleBatches(
 
 	// Flush remaining batch
 	if len(batch) > 0 {
-		s.flushSingleBatch(ctx, pollerID, batch, batchSize)
+		s.flushSingleBatch(ctx, gatewayID, batch, batchSize)
 	}
 }
 
@@ -380,32 +380,32 @@ func (s *Server) flushServices(ctx context.Context) {
 
 	// Debug: Log all buffers and their sizes
 	totalServices := 0
-	for pollerID, services := range s.serviceListBuffers {
+	for gatewayID, services := range s.serviceListBuffers {
 		totalServices += len(services)
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("buffer_size", len(services)).
 			Msg("DEBUG: Service buffer status")
 	}
 
 	s.logger.Debug().
-		Int("total_pollers", len(s.serviceListBuffers)).
+		Int("total_gateways", len(s.serviceListBuffers)).
 		Int("total_services", totalServices).
 		Msg("DEBUG: flushServices called")
 
-	for pollerID, services := range s.serviceListBuffers {
+	for gatewayID, services := range s.serviceListBuffers {
 		if len(services) == 0 {
 			continue
 		}
 
 		s.logger.Debug().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("service_count", len(services)).
 			Msg("Flushing services to database")
 
 		for i, service := range services {
 			s.logger.Debug().
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Int("service_index", i).
 				Str("service_name", service.ServiceName).
 				Str("service_type", service.ServiceType).
@@ -416,17 +416,17 @@ func (s *Server) flushServices(ctx context.Context) {
 		if err := s.DB.StoreServices(ctx, services); err != nil {
 			s.logger.Error().
 				Err(err).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Int("service_count", len(services)).
 				Msg("Failed to flush services")
 		} else {
 			s.logger.Info().
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Int("service_count", len(services)).
 				Msg("Successfully flushed services to database")
 		}
 
-		s.serviceListBuffers[pollerID] = nil
+		s.serviceListBuffers[gatewayID] = nil
 	}
 }
 
@@ -442,13 +442,13 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		s.logger.Warn().Msg("flushSysmonMetrics: database is not *db.DB; cannot verify CNPG write path")
 	}
 
-	for pollerID, sysmonMetrics := range s.sysmonBuffers {
+	for gatewayID, sysmonMetrics := range s.sysmonBuffers {
 		if len(sysmonMetrics) == 0 {
 			continue
 		}
 
 		s.logger.Info().
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Int("buffer_count", len(sysmonMetrics)).
 			Bool("cnpg_writes_enabled", cnpgWritesEnabled).
 			Msg("Flushing sysmon buffers to database")
@@ -486,15 +486,15 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 			}
 
 			if err := s.DB.StoreSysmonMetrics(
-				ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metric, ts); err != nil {
+				ctx, gatewayID, agentID, hostID, partition, hostIP, deviceID, metric, ts); err != nil {
 				s.logger.Error().
 					Err(err).
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Msg("Failed to flush sysmon metrics")
 			} else {
 				hasMemory := metric.Memory != nil && (metric.Memory.TotalBytes > 0 || metric.Memory.UsedBytes > 0)
 				s.logger.Info().
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Str("device_id", deviceID).
 					Int("cpu_count", len(metric.CPUs)).
 					Int("disk_count", len(metric.Disks)).
@@ -504,6 +504,6 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 			}
 		}
 
-		s.sysmonBuffers[pollerID] = nil
+		s.sysmonBuffers[gatewayID] = nil
 	}
 }

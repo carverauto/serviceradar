@@ -38,7 +38,7 @@ const (
 func (s *Server) processHostResults(
 	ctx context.Context,
 	hosts []models.HostResult,
-	pollerID, partition, agentID string,
+	gatewayID, partition, agentID string,
 	now time.Time,
 ) []*models.DeviceUpdate {
 	resultsToStore := make([]*models.DeviceUpdate, 0, len(hosts))
@@ -48,7 +48,7 @@ func (s *Server) processHostResults(
 	for _, host := range hosts {
 		if host.Host == "" {
 			s.logger.Debug().
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("partition", partition).
 				Str("agent_id", agentID).
 				Str("host", host.Host).
@@ -63,7 +63,7 @@ func (s *Server) processHostResults(
 
 		result := &models.DeviceUpdate{
 			AgentID:     agentID,
-			PollerID:    pollerID,
+			GatewayID:    gatewayID,
 			Partition:   partition,
 			DeviceID:    "", // Let DeviceIdentityResolver generate sr: UUID
 			Source:      models.DiscoverySourceSweep,

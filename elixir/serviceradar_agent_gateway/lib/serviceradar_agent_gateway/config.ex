@@ -277,14 +277,12 @@ defmodule ServiceRadarAgentGateway.Config do
       env_tenant_id =
         System.get_env("GATEWAY_TENANT_ID") ||
           System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-          System.get_env("PLATFORM_TENANT_ID") ||
-          System.get_env("POLLER_TENANT_ID")
+          System.get_env("PLATFORM_TENANT_ID")
 
       env_tenant_slug =
         System.get_env("GATEWAY_TENANT_SLUG") ||
           System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-          System.get_env("PLATFORM_TENANT_SLUG") ||
-          System.get_env("POLLER_TENANT_SLUG")
+          System.get_env("PLATFORM_TENANT_SLUG")
 
       if env_tenant_id || env_tenant_slug do
         {env_tenant_id, env_tenant_slug}

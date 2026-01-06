@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   - `devices` -> ServiceRadar.Inventory.Device
 
   ### Infrastructure Domain
-  - `pollers` -> ServiceRadar.Infrastructure.Poller
+  - `gateways` -> ServiceRadar.Infrastructure.Gateway
   - `agents` -> ServiceRadar.Infrastructure.Agent
 
   ### Monitoring Domain
@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
-    devices pollers agents events alerts services service_checks
+    devices gateways agents events alerts services service_checks
     logs timeseries_metrics cpu_metrics memory_metrics disk_metrics
     snmp_metrics rperf_metrics process_metrics
     otel_metrics otel_traces otel_trace_summaries
@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     # Inventory domain
     "devices" => ServiceRadar.Inventory.Device,
     # Infrastructure domain
-    "pollers" => ServiceRadar.Infrastructure.Poller,
+    "gateways" => ServiceRadar.Infrastructure.Gateway,
     "agents" => ServiceRadar.Infrastructure.Agent,
     # Monitoring domain
     "events" => ServiceRadar.Monitoring.Event,
@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     # Inventory domain
     "devices" => ServiceRadar.Inventory,
     # Infrastructure domain
-    "pollers" => ServiceRadar.Infrastructure,
+    "gateways" => ServiceRadar.Infrastructure,
     "agents" => ServiceRadar.Infrastructure,
     # Monitoring domain
     "events" => ServiceRadar.Monitoring,
@@ -138,8 +138,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       "created_at" => "created_time",
       "modified" => "modified_time"
     },
-    # Pollers: Map time fields
-    "pollers" => %{
+    # Gateways: Map time fields
+    "gateways" => %{
       "timestamp" => "last_seen",
       "created_at" => "first_registered"
     },

@@ -43,9 +43,9 @@ func buildEdgePackageArchive(result *models.EdgeOnboardingDeliverResult, now tim
 
 	meta := parseEdgeMetadata(result.Package.MetadataJSON)
 
-	name := strings.TrimSpace(result.Package.PollerID)
+	name := strings.TrimSpace(result.Package.GatewayID)
 	if name == "" {
-		name = "edge-poller"
+		name = "edge-gateway"
 	}
 	filename := sanitizeArchiveName(fmt.Sprintf("edge-package-%s.tar.gz", name))
 
@@ -92,7 +92,7 @@ func buildEdgePackageArchive(result *models.EdgeOnboardingDeliverResult, now tim
 	}{
 		{"README.txt", 0o600, readmeContent},
 		{"metadata.json", 0o600, metadataJSON},
-		{"edge-poller.env", 0o600, envContent},
+		{"edge-gateway.env", 0o600, envContent},
 		{"spire/upstream-join-token", 0o600, append([]byte(result.JoinToken), '\n')},
 		{"spire/upstream-bundle.pem", 0o600, ensureTrailingNewline(result.BundlePEM)},
 	}
@@ -284,18 +284,17 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 	}
 
 	env := map[string]string{
-		"POLLERS_SECURITY_MODE":              "spiffe",
-		"POLLERS_TRUST_DOMAIN":               trustDomain,
-		"POLLERS_SPIRE_UPSTREAM_ADDRESS":     upstreamAddress,
-		"POLLERS_SPIRE_UPSTREAM_PORT":        upstreamPort,
-		"POLLERS_SPIRE_INSECURE_BOOTSTRAP":   insecureBootstrap,
-		"POLLERS_SPIRE_PARENT_ID":            parentID,
-		"POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID": cfg.DownstreamSPIFFEID,
+		"GATEWAYS_SECURITY_MODE":              "spiffe",
+		"GATEWAYS_TRUST_DOMAIN":               trustDomain,
+		"GATEWAYS_SPIRE_UPSTREAM_ADDRESS":     upstreamAddress,
+		"GATEWAYS_SPIRE_UPSTREAM_PORT":        upstreamPort,
+		"GATEWAYS_SPIRE_INSECURE_BOOTSTRAP":   insecureBootstrap,
+		"GATEWAYS_SPIRE_PARENT_ID":            parentID,
+		"GATEWAYS_SPIRE_DOWNSTREAM_SPIFFE_ID": cfg.DownstreamSPIFFEID,
 		"NESTED_SPIRE_PARENT_ID":             parentID,
 		"NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID":  cfg.DownstreamSPIFFEID,
 		"NESTED_SPIRE_AGENT_SPIFFE_ID":       agentSPIFFE,
 		"MANAGE_NESTED_SPIRE":                "enabled",
-		"ENABLE_POLLER_JOIN_TOKEN":           "enabled",
 		"DOWNSTREAM_REGISTRATION_MODE":       "disabled",
 		"NESTED_SPIRE_WAIT_ATTEMPTS":         waitAttempts,
 		"LOG_LEVEL":                          logLevel,
@@ -304,7 +303,7 @@ func renderEdgeEnvFile(result *models.EdgeOnboardingDeliverResult, meta map[stri
 		"SERVICERADAR_TEMPLATES":             templateDir,
 		"CORE_ADDRESS":                       coreAddress,
 		"CORE_SPIFFE_ID":                     coreSPIFFE,
-		"POLLERS_AGENT_ADDRESS":              agentAddress,
+		"GATEWAYS_AGENT_ADDRESS":              agentAddress,
 		"AGENT_SPIFFE_ID":                    agentSPIFFE,
 		"EDGE_PACKAGE_ID":                    cfg.PackageID,
 	}
@@ -343,23 +342,23 @@ func renderEdgeReadme(result *models.EdgeOnboardingDeliverResult, meta map[strin
 	builder.WriteString("ServiceRadar Edge Onboarding Package\n")
 	builder.WriteString("====================================\n\n")
 	builder.WriteString(fmt.Sprintf("Package ID: %s\n", cfg.PackageID))
-	builder.WriteString(fmt.Sprintf("Poller ID : %s\n", cfg.PollerID))
+	builder.WriteString(fmt.Sprintf("Gateway ID : %s\n", cfg.GatewayID))
 	if cfg.Site != "" {
 		builder.WriteString(fmt.Sprintf("Site      : %s\n", cfg.Site))
 	}
 	builder.WriteString(fmt.Sprintf("Generated : %s\n", now))
 	builder.WriteString("\nContents:\n")
-	builder.WriteString("  - edge-poller.env\n")
+	builder.WriteString("  - edge-gateway.env\n")
 	builder.WriteString("  - metadata.json\n")
 	builder.WriteString("  - spire/upstream-join-token\n")
 	builder.WriteString("  - spire/upstream-bundle.pem\n")
 	builder.WriteString("\nNext steps:\n")
-	builder.WriteString("  1. Copy this archive to the edge poller host.\n")
+	builder.WriteString("  1. Copy this archive to the edge gateway host.\n")
 	builder.WriteString("  2. Extract it in the ServiceRadar repository directory:\n")
 	builder.WriteString(fmt.Sprintf("       tar -xzvf %s\n", edgePackageDefaultFilename))
-	builder.WriteString("  3. Run docker/compose/edge-poller-restart.sh with the generated env file:\n")
-	builder.WriteString("       docker/compose/edge-poller-restart.sh --env-file edge-poller.env\n")
-	builder.WriteString("  4. Monitor the poller container logs for successful SPIRE bootstrap.\n\n")
+	builder.WriteString("  3. Run docker/compose/edge-gateway-restart.sh with the generated env file:\n")
+	builder.WriteString("       docker/compose/edge-gateway-restart.sh --env-file edge-gateway.env\n")
+	builder.WriteString("  4. Monitor the gateway container logs for successful SPIRE bootstrap.\n\n")
 	builder.WriteString("The join token expires at ")
 	builder.WriteString(cfg.JoinTokenExpiresAt.Format(time.RFC3339))
 	builder.WriteString(". Download tokens are single use; reissue if needed.\n")
@@ -388,7 +387,7 @@ func renderEdgeMetadataJSON(pkg *models.EdgeOnboardingPackage, meta map[string]s
 	payload := map[string]interface{}{
 		"package_id":            pkg.PackageID,
 		"label":                 pkg.Label,
-		"poller_id":             pkg.PollerID,
+		"gateway_id":             pkg.GatewayID,
 		"site":                  pkg.Site,
 		"status":                pkg.Status,
 		"downstream_spiffe_id":  pkg.DownstreamSPIFFEID,

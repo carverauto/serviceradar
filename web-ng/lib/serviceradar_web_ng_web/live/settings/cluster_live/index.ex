@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   Provides real-time visibility into:
   - ERTS cluster topology and node status
-  - Horde-managed pollers (standalone Elixir releases)
+  - Horde-managed gateways (standalone Elixir releases)
   - Horde-managed agents (standalone Elixir releases)
   - Cluster health metrics
   - Oban job queue status
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Cluster Status</h1>
             <p class="text-sm text-base-content/60">
-              Monitor the distributed ERTS cluster, pollers, agents, and job queues.
+              Monitor the distributed ERTS cluster, gateways, agents, and job queues.
             </p>
           </div>
           <.ui_button variant="ghost" size="sm" phx-click="refresh">
@@ -141,8 +141,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             icon="hero-server-stack"
           />
           <.health_card
-            title="Pollers"
-            value={@cluster_health.poller_count}
+            title="Gateways"
+            value={@cluster_health.gateway_count}
             variant="info"
             icon="hero-cpu-chip"
           />
@@ -212,13 +212,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </.ui_panel>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Poller Registry -->
+          <!-- Gateway Registry -->
           <.ui_panel>
             <:header>
               <div>
-                <div class="text-sm font-semibold">Pollers</div>
+                <div class="text-sm font-semibold">Gateways</div>
                 <p class="text-xs text-base-content/60">
-                  {@cluster_health.poller_count} poller(s) in cluster
+                  {@cluster_health.gateway_count} gateway(s) in cluster
                 </p>
               </div>
             </:header>
@@ -280,7 +280,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                   <thead>
                     <tr class="text-xs uppercase tracking-wide text-base-content/60">
                       <th>Agent ID</th>
-                      <th>Poller</th>
+                      <th>Gateway</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -290,7 +290,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                         <td class="font-mono text-xs max-w-[10rem] truncate">
                           {Map.get(agent, :agent_id, "—")}
                         </td>
-                        <td class="font-mono text-xs">{format_node(Map.get(agent, :poller_node))}</td>
+                        <td class="font-mono text-xs">
+                          {format_node(Map.get(agent, :gateway_node))}
+                        </td>
                         <td><.status_badge status={Map.get(agent, :status)} /></td>
                       </tr>
                     <% end %>
@@ -526,12 +528,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     status = ClusterStatus.get_status()
 
     %{
-      poller_count: status.poller_count,
+      gateway_count: status.gateway_count,
       agent_count: status.agent_count,
       status: status.status
     }
   rescue
-    _ -> %{poller_count: 0, agent_count: 0, status: :unknown}
+    _ -> %{gateway_count: 0, agent_count: 0, status: :unknown}
   end
 
   defp load_gateways do

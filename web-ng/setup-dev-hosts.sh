@@ -12,8 +12,8 @@ get_container_ip() {
 }
 
 CORE_IP=$(get_container_ip "serviceradar-core-elx-mtls")
-POLLER_IP=$(get_container_ip "serviceradar-poller-elx-mtls")
-AGENT_IP=$(get_container_ip "serviceradar-agent-elx-mtls")
+GATEWAY_IP=$(get_container_ip "serviceradar-agent-gateway-mtls")
+AGENT_IP=$(get_container_ip "serviceradar-agent-mtls")
 
 echo "ServiceRadar Development Host Setup"
 echo "===================================="
@@ -23,8 +23,8 @@ echo "for ERTS cluster connectivity."
 echo ""
 echo "Container IPs detected:"
 echo "  core-elx:    ${CORE_IP:-not running}"
-echo "  poller-elx:  ${POLLER_IP:-not running}"
-echo "  agent-elx:   ${AGENT_IP:-not running}"
+echo "  agent-gateway: ${GATEWAY_IP:-not running}"
+echo "  agent:        ${AGENT_IP:-not running}"
 echo ""
 
 if [ "$EUID" -ne 0 ]; then
@@ -39,8 +39,8 @@ cp /etc/hosts /etc/hosts.backup.$(date +%Y%m%d%H%M%S)
 # Remove any existing serviceradar entries
 sed -i '/# ServiceRadar cluster/d' /etc/hosts
 sed -i '/core-elx/d' /etc/hosts
-sed -i '/poller-elx/d' /etc/hosts
-sed -i '/agent-elx/d' /etc/hosts
+sed -i '/agent-gateway/d' /etc/hosts
+sed -i '/agent/d' /etc/hosts
 sed -i '/web-ng/d' /etc/hosts
 
 # Add new entries
@@ -52,14 +52,14 @@ if [ -n "$CORE_IP" ]; then
     echo "Added: $CORE_IP core-elx"
 fi
 
-if [ -n "$POLLER_IP" ]; then
-    echo "$POLLER_IP poller-elx" >> /etc/hosts
-    echo "Added: $POLLER_IP poller-elx"
+if [ -n "$GATEWAY_IP" ]; then
+    echo "$GATEWAY_IP agent-gateway" >> /etc/hosts
+    echo "Added: $GATEWAY_IP agent-gateway"
 fi
 
 if [ -n "$AGENT_IP" ]; then
-    echo "$AGENT_IP agent-elx" >> /etc/hosts
-    echo "Added: $AGENT_IP agent-elx"
+    echo "$AGENT_IP agent" >> /etc/hosts
+    echo "Added: $AGENT_IP agent"
 fi
 
 # Add gateway as web-ng (so docker containers can reach us)

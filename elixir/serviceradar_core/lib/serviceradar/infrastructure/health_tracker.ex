@@ -5,7 +5,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   All health status changes flow through this module to create HealthEvents,
   regardless of the source:
 
-  - **State machine transitions** - Pollers, Agents, Checkers (via PublishStateChange)
+  - **State machine transitions** - Gateways, Agents, Checkers (via PublishStateChange)
   - **gRPC health checks** - External services checked by Go agents
   - **Service heartbeats** - Core, Web, and other Elixir services self-reporting
   - **Manual updates** - Admin/operator actions
@@ -56,7 +56,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       )
 
       # Query health status
-      HealthTracker.current_status(:poller, "poller-001", tenant_id)
+      HealthTracker.current_status(:gateway, "gateway-001", tenant_id)
       HealthTracker.timeline(:agent, "agent-uid", tenant_id, hours: 24)
       HealthTracker.summary(tenant_id)
   """
@@ -65,7 +65,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
   require Logger
 
-  @type entity_type :: :poller | :agent | :checker | :collector | :core | :web | :custom
+  @type entity_type :: :gateway | :agent | :checker | :collector | :core | :web | :custom
   @type state :: atom()
 
   # =============================================================================
@@ -189,7 +189,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   # =============================================================================
 
   @doc """
-  Records a heartbeat from an Elixir service (core, web-ng, poller).
+  Records a heartbeat from an Elixir service (core, web-ng, gateway).
 
   Elixir services call this periodically to report their health.
   If a service stops sending heartbeats, StateMonitor will detect

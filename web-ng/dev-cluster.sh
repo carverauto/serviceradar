@@ -43,11 +43,11 @@ check_container() {
 
 echo "Docker containers:"
 CORE_OK=0; check_container "serviceradar-core-elx-mtls" "core-elx" || CORE_OK=1
-POLLER_OK=0; check_container "serviceradar-poller-elx-mtls" "poller-elx" || POLLER_OK=1
-AGENT_OK=0; check_container "serviceradar-agent-elx-mtls" "agent-elx" || AGENT_OK=1
+GATEWAY_OK=0; check_container "serviceradar-agent-gateway-mtls" "agent-gateway" || GATEWAY_OK=1
+AGENT_OK=0; check_container "serviceradar-agent-mtls" "agent" || AGENT_OK=1
 echo ""
 
-if [ $CORE_OK -ne 0 ] || [ $POLLER_OK -ne 0 ] || [ $AGENT_OK -ne 0 ]; then
+if [ $CORE_OK -ne 0 ] || [ $GATEWAY_OK -ne 0 ] || [ $AGENT_OK -ne 0 ]; then
     echo -e "${YELLOW}Warning: Some cluster containers are not running${NC}"
     echo "Start them with: docker compose up -d"
     echo ""
@@ -68,8 +68,8 @@ check_host() {
 echo "Hostname resolution:"
 HOSTS_OK=0
 check_host "core-elx" || HOSTS_OK=1
-check_host "poller-elx" || HOSTS_OK=1
-check_host "agent-elx" || HOSTS_OK=1
+check_host "agent-gateway" || HOSTS_OK=1
+check_host "agent" || HOSTS_OK=1
 echo ""
 
 if [ $HOSTS_OK -ne 0 ]; then
@@ -104,7 +104,7 @@ export CNPG_TLS_SERVER_NAME="${CNPG_TLS_SERVER_NAME:-cnpg}"
 # Cluster configuration
 export CLUSTER_ENABLED="true"
 export RELEASE_COOKIE="serviceradar_dev_cookie"
-export CLUSTER_HOSTS="serviceradar_core@core-elx,serviceradar_poller@poller-elx,serviceradar_agent@agent-elx"
+export CLUSTER_HOSTS="serviceradar_core@core-elx,serviceradar_agent_gateway@agent-gateway"
 
 # Use "web-ng" as the hostname to match docker CLUSTER_HOSTS expectations
 # The docker containers expect serviceradar_web_ng@web-ng

@@ -1,6 +1,6 @@
 # Secure Edge Onboarding
 
-This guide explains how to deploy ServiceRadar edge components (pollers, agents, and checkers) using the zero-touch provisioning system. The web UI handles certificate generation, configuration bundling, and provides one-liner install commands for quick deployment.
+This guide explains how to deploy ServiceRadar edge components (gateways, agents, and checkers) using the zero-touch provisioning system. The web UI handles certificate generation, configuration bundling, and provides one-liner install commands for quick deployment.
 
 > **What's New**
 >
@@ -18,9 +18,9 @@ This guide explains how to deploy ServiceRadar edge components (pollers, agents,
 1. Log into the web UI and navigate to **Admin → Edge Onboarding**
 2. Click **New Package**
 3. Fill in the form:
-   - **Label**: A descriptive name (e.g., "production-poller-01")
-   - **Component Type**: Poller, Agent, or Checker
-   - **Parent Poller ID** (for agents/checkers): The poller this component reports to
+   - **Label**: A descriptive name (e.g., "production-gateway-01")
+   - **Component Type**: Gateway, Agent, or Checker
+   - **Parent Gateway ID** (for agents/checkers): The gateway this component reports to
 4. Click **Create Package**
 
 The system automatically:
@@ -36,10 +36,10 @@ After creation, you'll see one-liner install commands. Choose your platform:
 ```bash
 curl -fsSL "https://app.serviceradar.cloud/api/edge-packages/<id>/bundle?token=<token>" | tar xzf - && \
 cd edge-package-<id> && \
-docker run -d --name serviceradar-poller \
+docker run -d --name serviceradar-agent-gateway \
   -v $(pwd)/certs:/etc/serviceradar/certs:ro \
   -v $(pwd)/config:/etc/serviceradar/config:ro \
-  ghcr.io/carverauto/serviceradar-poller:latest
+  ghcr.io/carverauto/serviceradar-agent-gateway:latest
 ```
 
 **systemd**
@@ -69,14 +69,14 @@ The package status will change:
 
 | Component | Purpose | Parent | Use Case |
 |-----------|---------|--------|----------|
-| **Poller** | Edge site controller | None | Main entry point for each edge location |
-| **Agent** | Workload runner | Poller | Runs checkers and collects metrics |
+| **Gateway** | Edge site controller | None | Main entry point for each edge location |
+| **Agent** | Workload runner | Gateway | Runs checkers and collects metrics |
 | **Checker** | Specific monitor | Agent | SNMP, sysmon, ping, custom checks |
 
 ### Component Hierarchy
 
 ```
-Poller (edge site)
+Gateway (edge site)
 ├── Agent (workload runner)
 │   ├── Checker (SNMP)
 │   ├── Checker (sysmon)
@@ -128,7 +128,7 @@ sudo cp certs/* /etc/serviceradar/certs/
 sudo cp config/* /etc/serviceradar/config/
 
 # Use the compose file
-docker compose -f docker/compose/poller-stack.compose.yml up -d
+docker compose -f docker/compose/gateway-stack.compose.yml up -d
 ```
 
 ### Kubernetes
@@ -193,7 +193,7 @@ Component certificates follow the naming convention:
 
 For example:
 ```
-poller-prod-01.datacenter-west.acme-corp.serviceradar
+gateway-prod-01.datacenter-west.acme-corp.serviceradar
 ```
 
 ### Certificate Validity
@@ -259,8 +259,8 @@ serviceradar-cli edge package revoke \
 serviceradar-cli edge package create \
   --core-url https://app.serviceradar.cloud \
   --api-key "$SERVICERADAR_API_KEY" \
-  --label "production-poller-01" \
-  --component-type poller
+  --label "production-gateway-01" \
+  --component-type gateway
 ```
 
 ### List Packages
@@ -300,18 +300,18 @@ serviceradar-cli edge package download \
 
 **Docker:**
 ```bash
-docker logs serviceradar-poller
+docker logs serviceradar-agent-gateway
 docker logs serviceradar-agent
 ```
 
 **Kubernetes:**
 ```bash
-kubectl logs -n serviceradar deployment/serviceradar-poller
+kubectl logs -n serviceradar deployment/serviceradar-agent-gateway
 ```
 
 **systemd:**
 ```bash
-journalctl -u serviceradar-poller -f
+journalctl -u serviceradar-agent-gateway -f
 ```
 
 ---

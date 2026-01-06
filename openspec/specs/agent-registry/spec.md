@@ -15,23 +15,23 @@ The system SHALL store agent metadata in a dedicated `ocsf_agents` table aligned
 - `vendor_name` (TEXT) - Agent vendor name
 - `uid_alt` (TEXT) - Alternate unique identifier
 - `policies` (JSONB) - Applied policies array
-- `poller_id` (TEXT) - Parent poller reference
+- `gateway_id` (TEXT) - Parent gateway reference
 - `capabilities` (TEXT[]) - Registered checker capabilities
 - `ip` (TEXT) - Agent IP address
 - `first_seen_time` (TIMESTAMPTZ) - When agent first registered
 - `last_seen_time` (TIMESTAMPTZ) - Last heartbeat time
 - `metadata` (JSONB) - Additional agent metadata
 
-#### Scenario: Agent registers via poller heartbeat
+#### Scenario: Agent registers via gateway heartbeat
 
-- **GIVEN** a poller sends a status report containing an agent_id
+- **GIVEN** a gateway sends a status report containing an agent_id
 - **WHEN** the core processes the status report
 - **THEN** the agent SHALL be registered in `ocsf_agents` with uid matching the agent_id
 - **AND** the agent SHALL NOT be created as a device in `ocsf_devices`
 
 #### Scenario: Agent with version metadata
 
-- **GIVEN** a poller sends a status report with agent version in metadata
+- **GIVEN** a gateway sends a status report with agent version in metadata
 - **WHEN** the core processes the status report
 - **THEN** the agent record SHALL have the `version` field populated
 - **AND** `vendor_name` SHALL be set to "ServiceRadar"
@@ -109,7 +109,7 @@ The system SHALL update `last_seen_time` on each agent heartbeat.
 #### Scenario: Heartbeat updates last seen
 
 - **GIVEN** an agent with `last_seen_time` of 10 minutes ago
-- **WHEN** a poller sends a status report including that agent
+- **WHEN** a gateway sends a status report including that agent
 - **THEN** the agent's `last_seen_time` SHALL be updated to the current time
 
 #### Scenario: First registration sets first seen
@@ -129,13 +129,13 @@ The SRQL service SHALL support querying the `ocsf_agents` table via the `agents`
 
 - **WHEN** a client sends `POST /api/query` with body `{"query": "agents"}`
 - **THEN** the response SHALL contain an array of agent records from `ocsf_agents`
-- **AND** each record SHALL include uid, name, type_id, type, version, poller_id, capabilities, last_seen_time
+- **AND** each record SHALL include uid, name, type_id, type, version, gateway_id, capabilities, last_seen_time
 
-#### Scenario: Filter agents by poller
+#### Scenario: Filter agents by gateway
 
-- **GIVEN** agents registered under poller "poller-001" and "poller-002"
-- **WHEN** a client sends query `agents | filter poller_id = "poller-001"`
-- **THEN** the response SHALL contain only agents with poller_id = "poller-001"
+- **GIVEN** agents registered under gateway "gateway-001" and "gateway-002"
+- **WHEN** a client sends query `agents | filter gateway_id = "gateway-001"`
+- **THEN** the response SHALL contain only agents with gateway_id = "gateway-001"
 
 #### Scenario: Filter agents by type
 
@@ -174,7 +174,7 @@ The web-ng application SHALL provide an Agent List view accessible from the main
 #### Scenario: Agent list table columns
 
 - **WHEN** the agent list view is rendered
-- **THEN** the table SHALL display columns: Name, Type, Version, Poller, Capabilities, Last Seen, Status
+- **THEN** the table SHALL display columns: Name, Type, Version, Gateway, Capabilities, Last Seen, Status
 - **AND** the Status column SHALL show health based on last_seen_time (healthy if < 5 minutes, warning if < 15 minutes, offline otherwise)
 
 #### Scenario: Agent list pagination
@@ -203,7 +203,7 @@ The web-ng application SHALL provide an Agent Detail view showing complete OCSF 
 
 - **WHEN** the agent detail view is rendered
 - **THEN** the view SHALL display all OCSF fields: uid, name, type, type_id, version, vendor_name, uid_alt
-- **AND** the view SHALL display ServiceRadar fields: poller_id, capabilities, ip, first_seen_time, last_seen_time
+- **AND** the view SHALL display ServiceRadar fields: gateway_id, capabilities, ip, first_seen_time, last_seen_time
 - **AND** capabilities SHALL be displayed as badge tags
 
 #### Scenario: Agent health indicator

@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     Metrics
                   </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Poller</th>
+                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Gateway</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>
@@ -197,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="text-xs">
                       <.risk_level_badge risk_level={Map.get(row, "risk_level")} />
                     </td>
-                    <td class="font-mono text-xs">{Map.get(row, "poller_id") || "—"}</td>
+                    <td class="font-mono text-xs">{Map.get(row, "gateway_id") || "—"}</td>
                     <td class="font-mono text-xs">
                       <.srql_cell col="last_seen" value={Map.get(row, "last_seen")} />
                     </td>

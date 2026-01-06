@@ -16,7 +16,7 @@
 
 // @title ServiceRadar API
 // @version 1.0
-// @description API for monitoring and managing service pollers in the ServiceRadar system
+// @description API for monitoring and managing service gateways in the ServiceRadar system
 // @termsOfService https://serviceradar.cloud/terms/
 
 // @contact.name API Support
