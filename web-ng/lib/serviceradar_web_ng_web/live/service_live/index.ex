@@ -10,8 +10,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @max_limit 200
   @summary_window "last_1h"
   @summary_limit 2000
-  @pollers_default_limit 10
-  @pollers_max_limit 50
+  @gateways_default_limit 10
+  @gateways_max_limit 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -22,9 +22,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:summary, %{total: 0, available: 0, unavailable: 0, by_type: %{}, check_count: 0})
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
-     |> assign(:pollers, [])
-     |> assign(:pollers_limit, @pollers_default_limit)
-     |> assign(:pollers_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
+     |> assign(:gateways, [])
+     |> assign(:gateways_limit, @gateways_default_limit)
+     |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
      |> SRQLPage.init("services", default_limit: @default_limit)}
   end
 
@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     socket =
       socket
       |> assign(:summary, summary)
-      |> load_pollers(params)
+      |> load_gateways(params)
 
     {:noreply, socket}
   end
@@ -90,23 +90,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
     query = Map.get(assigns.srql, :query, "")
     has_filter = is_binary(query) and Regex.match?(~r/(?:^|\s)(?:service_type|type):/, query)
-    pollers_pagination = Map.get(assigns, :pollers_pagination, %{}) || %{}
+    gateways_pagination = Map.get(assigns, :gateways_pagination, %{}) || %{}
 
     assigns =
       assigns
       |> assign(:pagination, pagination)
       |> assign(:has_filter, has_filter)
-      |> assign(:pollers_pagination, pollers_pagination)
+      |> assign(:gateways_pagination, gateways_pagination)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <.pollers_panel
+          <.gateways_panel
             params={@params}
-            pollers={@pollers}
-            pagination={@pollers_pagination}
-            limit={@pollers_limit}
+            gateways={@gateways}
+            pagination={@gateways_pagination}
+            limit={@gateways_limit}
           />
           <.service_summary summary={@summary} has_filter={@has_filter} />
 
@@ -140,23 +140,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   attr :params, :map, default: %{}
-  attr :pollers, :list, default: []
+  attr :gateways, :list, default: []
   attr :pagination, :map, default: %{}
-  attr :limit, :integer, default: @pollers_default_limit
+  attr :limit, :integer, default: @gateways_default_limit
 
-  defp pollers_panel(assigns) do
-    pollers = assigns.pollers || []
+  defp gateways_panel(assigns) do
+    gateways = assigns.gateways || []
     prev_cursor = Map.get(assigns.pagination, "prev_cursor")
     next_cursor = Map.get(assigns.pagination, "next_cursor")
 
     assigns =
       assigns
-      |> assign(:pollers, pollers)
+      |> assign(:gateways, gateways)
       |> assign(:prev_cursor, prev_cursor)
       |> assign(:next_cursor, next_cursor)
       |> assign(:has_prev, is_binary(prev_cursor) and prev_cursor != "")
       |> assign(:has_next, is_binary(next_cursor) and next_cursor != "")
-      |> assign(:showing_text, pollers_pagination_text(length(pollers)))
+      |> assign(:showing_text, gateways_pagination_text(length(gateways)))
 
     ~H"""
     <.ui_panel>
@@ -195,35 +195,35 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
             </tr>
           </thead>
           <tbody>
-            <tr :if={@pollers == []}>
+            <tr :if={@gateways == []}>
               <td colspan="4" class="text-sm text-base-content/60 py-6 text-center">
                 No gateways found.
               </td>
             </tr>
 
-            <%= for {poller, idx} <- Enum.with_index(@pollers) do %>
+            <%= for {gateway, idx} <- Enum.with_index(@gateways) do %>
               <tr
                 id={"services-gateway-row-#{idx}"}
                 class="hover:bg-base-200/40 cursor-pointer transition-colors"
-                phx-click={JS.navigate(~p"/gateways/#{poller_id(poller)}")}
+                phx-click={JS.navigate(~p"/gateways/#{gateway_id(gateway)}")}
               >
                 <td
                   class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
-                  title={poller_id(poller)}
+                  title={gateway_id(gateway)}
                 >
-                  {poller_id(poller)}
+                  {gateway_id(gateway)}
                 </td>
                 <td class="whitespace-nowrap text-xs">
-                  <.poller_status_badge poller={poller} />
+                  <.gateway_status_badge gateway={gateway} />
                 </td>
                 <td
                   class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
-                  title={poller_address(poller)}
+                  title={gateway_address(gateway)}
                 >
-                  {poller_address(poller)}
+                  {gateway_address(gateway)}
                 </td>
                 <td class="whitespace-nowrap text-xs font-mono">
-                  {poller_last_seen(poller)}
+                  {gateway_last_seen(gateway)}
                 </td>
               </tr>
             <% end %>
@@ -236,7 +236,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
         <div class="join">
           <.link
             :if={@has_prev}
-            patch={pollers_page_href(@params, @limit, @prev_cursor)}
+            patch={gateways_page_href(@params, @limit, @prev_cursor)}
             class="join-item btn btn-sm btn-outline"
           >
             <.icon name="hero-chevron-left" class="size-4" /> Previous
@@ -247,7 +247,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
           <.link
             :if={@has_next}
-            patch={pollers_page_href(@params, @limit, @next_cursor)}
+            patch={gateways_page_href(@params, @limit, @next_cursor)}
             class="join-item btn btn-sm btn-outline"
           >
             Next <.icon name="hero-chevron-right" class="size-4" />
@@ -261,10 +261,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :poller, :map, required: true
+  attr :gateway, :map, required: true
 
-  defp poller_status_badge(assigns) do
-    active = Map.get(assigns.poller, "is_active")
+  defp gateway_status_badge(assigns) do
+    active = Map.get(assigns.gateway, "is_active")
 
     {label, variant} =
       case active do
@@ -280,26 +280,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  defp poller_id(%{} = poller) do
-    Map.get(poller, "poller_id") || Map.get(poller, "id") || "unknown"
+  defp gateway_id(%{} = gateway) do
+    Map.get(gateway, "gateway_id") || Map.get(gateway, "id") || "unknown"
   end
 
-  defp poller_id(_), do: "unknown"
+  defp gateway_id(_), do: "unknown"
 
-  defp poller_address(%{} = poller) do
-    Map.get(poller, "address") ||
-      Map.get(poller, "poller_address") ||
-      Map.get(poller, "host") ||
-      Map.get(poller, "hostname") ||
-      Map.get(poller, "ip") ||
-      Map.get(poller, "ip_address") ||
+  defp gateway_address(%{} = gateway) do
+    Map.get(gateway, "address") ||
+      Map.get(gateway, "gateway_address") ||
+      Map.get(gateway, "host") ||
+      Map.get(gateway, "hostname") ||
+      Map.get(gateway, "ip") ||
+      Map.get(gateway, "ip_address") ||
       "—"
   end
 
-  defp poller_address(_), do: "—"
+  defp gateway_address(_), do: "—"
 
-  defp poller_last_seen(%{} = poller) do
-    ts = Map.get(poller, "last_seen") || Map.get(poller, "updated_at")
+  defp gateway_last_seen(%{} = gateway) do
+    ts = Map.get(gateway, "last_seen") || Map.get(gateway, "updated_at")
 
     case parse_timestamp(ts) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
@@ -307,20 +307,20 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end
   end
 
-  defp poller_last_seen(_), do: "—"
+  defp gateway_last_seen(_), do: "—"
 
-  defp pollers_pagination_text(count) when is_integer(count) and count > 0 do
-    "Showing #{count} poller#{if count != 1, do: "s", else: ""}"
+  defp gateways_pagination_text(count) when is_integer(count) and count > 0 do
+    "Showing #{count} gateway#{if count != 1, do: "s", else: ""}"
   end
 
-  defp pollers_pagination_text(_), do: "No pollers"
+  defp gateways_pagination_text(_), do: "No gateways"
 
-  defp pollers_page_href(params, limit, cursor) do
+  defp gateways_page_href(params, limit, cursor) do
     base =
       params
       |> normalize_params()
-      |> Map.put("pollers_limit", limit)
-      |> Map.put("pollers_cursor", cursor)
+      |> Map.put("gateways_limit", limit)
+      |> Map.put("gateways_cursor", cursor)
       |> Map.reject(fn {_k, v} -> is_nil(v) or v == "" end)
 
     qs = URI.encode_query(base)
@@ -338,10 +338,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp normalize_params(_), do: %{}
 
-  defp load_pollers(socket, params) when is_map(params) do
-    limit = parse_pollers_limit(Map.get(params, "pollers_limit"))
-    cursor = normalize_optional_string(Map.get(params, "pollers_cursor"))
-    query = "in:pollers sort:last_seen:desc limit:#{limit}"
+  defp load_gateways(socket, params) when is_map(params) do
+    limit = parse_gateways_limit(Map.get(params, "gateways_limit"))
+    cursor = normalize_optional_string(Map.get(params, "gateways_cursor"))
+    query = "in:gateways sort:last_seen:desc limit:#{limit}"
     actor = get_actor(socket)
 
     case srql_module().query(query, %{cursor: cursor, limit: limit, actor: actor}) do
@@ -353,33 +353,33 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
           end
 
         socket
-        |> assign(:pollers, results)
-        |> assign(:pollers_limit, limit)
-        |> assign(:pollers_pagination, pagination)
+        |> assign(:gateways, results)
+        |> assign(:gateways_limit, limit)
+        |> assign(:gateways_pagination, pagination)
 
       _ ->
         socket
-        |> assign(:pollers, [])
-        |> assign(:pollers_limit, limit)
-        |> assign(:pollers_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
+        |> assign(:gateways, [])
+        |> assign(:gateways_limit, limit)
+        |> assign(:gateways_pagination, %{"prev_cursor" => nil, "next_cursor" => nil})
     end
   end
 
-  defp load_pollers(socket, _), do: socket
+  defp load_gateways(socket, _), do: socket
 
-  defp parse_pollers_limit(nil), do: @pollers_default_limit
+  defp parse_gateways_limit(nil), do: @gateways_default_limit
 
-  defp parse_pollers_limit(value) when is_integer(value) and value > 0,
-    do: min(value, @pollers_max_limit)
+  defp parse_gateways_limit(value) when is_integer(value) and value > 0,
+    do: min(value, @gateways_max_limit)
 
-  defp parse_pollers_limit(value) when is_binary(value) do
+  defp parse_gateways_limit(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {n, ""} -> parse_pollers_limit(n)
-      _ -> @pollers_default_limit
+      {n, ""} -> parse_gateways_limit(n)
+      _ -> @gateways_default_limit
     end
   end
 
-  defp parse_pollers_limit(_), do: @pollers_default_limit
+  defp parse_gateways_limit(_), do: @gateways_default_limit
 
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(""), do: nil
@@ -777,7 +777,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     end
   end
 
-  # Compute summary stats from unique service instances (deduplicated by poller/agent + service identity)
+  # Compute summary stats from unique service instances (deduplicated by gateway/agent + service identity)
   # This prevents showing N status checks for the same service instance as "N services".
   #
   # Note: `in:services` is backed by the `service_status` table, which does NOT include `uid`.
@@ -800,12 +800,12 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   defp service_identity_key(svc) do
-    poller_id = Map.get(svc, "poller_id") || ""
+    gateway_id = Map.get(svc, "gateway_id") || ""
     agent_id = Map.get(svc, "agent_id") || ""
     service_type = service_type_value(svc) || ""
     service_name = service_name_value(svc) || ""
 
-    "#{poller_id}:#{agent_id}:#{service_type}:#{service_name}"
+    "#{gateway_id}:#{agent_id}:#{service_type}:#{service_name}"
   end
 
   defp base_summary(check_count) do

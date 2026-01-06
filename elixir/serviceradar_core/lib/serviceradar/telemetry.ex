@@ -3,7 +3,7 @@ defmodule ServiceRadar.Telemetry do
   Shared telemetry definitions for ServiceRadar distributed cluster.
 
   This module defines telemetry events, metrics, and helpers used across
-  all ServiceRadar components (core, poller, agent).
+  all ServiceRadar components (core, gateway, agent).
 
   ## Event Naming Convention
 
@@ -13,7 +13,7 @@ defmodule ServiceRadar.Telemetry do
   ```
 
   Where:
-  - `component`: cluster, poller, agent, registry, etc.
+  - `component`: cluster, gateway, agent, registry, etc.
   - `action`: connect, disconnect, register, heartbeat, etc.
   - `status`: start, stop, exception (optional)
 
@@ -29,7 +29,7 @@ defmodule ServiceRadar.Telemetry do
   Common metadata fields:
   - `node`: The node name
   - `partition_id`: The partition identifier
-  - `poller_id`: The poller identifier
+  - `gateway_id`: The gateway identifier
   - `agent_id`: The agent identifier
   - `spiffe_id`: The SPIFFE identity
 
@@ -58,7 +58,7 @@ defmodule ServiceRadar.Telemetry do
     :topology_changed
   ]
 
-  @poller_events [
+  @gateway_events [
     :registered,
     :unregistered,
     :heartbeat,
@@ -91,7 +91,7 @@ defmodule ServiceRadar.Telemetry do
 
   ## Examples
 
-      ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"poller@10.0.0.1"}, %{})
+      ServiceRadar.Telemetry.emit_cluster_event(:node_connected, %{node: :"gateway@10.0.0.1"}, %{})
   """
   @spec emit_cluster_event(atom(), map(), map()) :: :ok
   def emit_cluster_event(event, metadata \\ %{}, measurements \\ %{})
@@ -100,12 +100,12 @@ defmodule ServiceRadar.Telemetry do
   end
 
   @doc """
-  Emits a poller-related telemetry event.
+  Emits a gateway-related telemetry event.
   """
-  @spec emit_poller_event(atom(), map(), map()) :: :ok
-  def emit_poller_event(event, metadata \\ %{}, measurements \\ %{})
-      when event in @poller_events do
-    emit(@prefix ++ [:poller, event], measurements, enrich_metadata(metadata))
+  @spec emit_gateway_event(atom(), map(), map()) :: :ok
+  def emit_gateway_event(event, metadata \\ %{}, measurements \\ %{})
+      when event in @gateway_events do
+    emit(@prefix ++ [:gateway, event], measurements, enrich_metadata(metadata))
   end
 
   @doc """
@@ -132,7 +132,7 @@ defmodule ServiceRadar.Telemetry do
 
   ## Examples
 
-      ServiceRadar.Telemetry.span([:serviceradar, :poller, :check], %{target: "192.168.1.1"}, fn ->
+      ServiceRadar.Telemetry.span([:serviceradar, :gateway, :check], %{target: "192.168.1.1"}, fn ->
         # perform check
         {:ok, result}
       end)
@@ -172,40 +172,40 @@ defmodule ServiceRadar.Telemetry do
         description: "Current number of nodes in the cluster"
       ),
 
-      # Poller metrics
-      counter("serviceradar.poller.registered.count",
-        tags: [:partition_id, :poller_id],
-        description: "Number of pollers registered"
+      # Gateway metrics
+      counter("serviceradar.gateway.registered.count",
+        tags: [:partition_id, :gateway_id],
+        description: "Number of gateways registered"
       ),
-      counter("serviceradar.poller.heartbeat.count",
-        tags: [:partition_id, :poller_id],
-        description: "Number of heartbeats received from pollers"
+      counter("serviceradar.gateway.heartbeat.count",
+        tags: [:partition_id, :gateway_id],
+        description: "Number of heartbeats received from gateways"
       ),
-      counter("serviceradar.poller.heartbeat_missed.count",
-        tags: [:partition_id, :poller_id],
+      counter("serviceradar.gateway.heartbeat_missed.count",
+        tags: [:partition_id, :gateway_id],
         description: "Number of missed heartbeats"
       ),
-      last_value("serviceradar.poller.active.count",
+      last_value("serviceradar.gateway.active.count",
         tags: [:partition_id],
-        description: "Current number of active pollers"
+        description: "Current number of active gateways"
       ),
-      distribution("serviceradar.poller.task.duration",
+      distribution("serviceradar.gateway.task.duration",
         tags: [:partition_id, :task_type],
         unit: {:native, :millisecond},
-        description: "Duration of poller tasks"
+        description: "Duration of gateway tasks"
       ),
 
       # Agent metrics
       counter("serviceradar.agent.connected.count",
-        tags: [:partition_id, :poller_id],
+        tags: [:partition_id, :gateway_id],
         description: "Number of agents connected"
       ),
       counter("serviceradar.agent.disconnected.count",
-        tags: [:partition_id, :poller_id],
+        tags: [:partition_id, :gateway_id],
         description: "Number of agents disconnected"
       ),
       last_value("serviceradar.agent.active.count",
-        tags: [:partition_id, :poller_id],
+        tags: [:partition_id, :gateway_id],
         description: "Current number of active agents"
       ),
       distribution("serviceradar.agent.check.duration",
@@ -329,12 +329,12 @@ defmodule ServiceRadar.Telemetry do
       agents = list_registry_processes(ServiceRadar.AgentRegistry)
 
       agents
-      |> Enum.group_by(fn {{partition_id, poller_id, _}, _} -> {partition_id, poller_id} end)
-      |> Enum.each(fn {{partition_id, poller_id}, partition_agents} ->
+      |> Enum.group_by(fn {{partition_id, gateway_id, _}, _} -> {partition_id, gateway_id} end)
+      |> Enum.each(fn {{partition_id, gateway_id}, partition_agents} ->
         emit(
           @prefix ++ [:agent, :active],
           %{count: length(partition_agents)},
-          %{partition_id: partition_id, poller_id: poller_id}
+          %{partition_id: partition_id, gateway_id: gateway_id}
         )
       end)
     end
@@ -354,9 +354,9 @@ defmodule ServiceRadar.Telemetry do
     events = [
       @prefix ++ [:cluster, :node_connected],
       @prefix ++ [:cluster, :node_disconnected],
-      @prefix ++ [:poller, :registered],
-      @prefix ++ [:poller, :unregistered],
-      @prefix ++ [:poller, :heartbeat_missed],
+      @prefix ++ [:gateway, :registered],
+      @prefix ++ [:gateway, :unregistered],
+      @prefix ++ [:gateway, :heartbeat_missed],
       @prefix ++ [:agent, :connected],
       @prefix ++ [:agent, :disconnected]
     ]

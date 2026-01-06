@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
 
   Provides real-time visibility into:
   - ERTS cluster topology and node status
-  - Horde-managed pollers (standalone Elixir releases)
+  - Horde-managed gateways (standalone Elixir releases)
   - Horde-managed agents (standalone Elixir releases)
   - Cluster health metrics
 
@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
 
   ServiceRadar implements a "one big brain" architecture:
 
-  1. **Mesh Network**: All nodes (web-ng, pollers, agents) connect via mesh VPN
+  1. **Mesh Network**: All nodes (web-ng, gateways, agents) connect via mesh VPN
      (Tailscale/Nebula) providing flat network connectivity with mTLS encryption.
 
   2. **Horde Registries**: Global process addressing with partition-based namespacing.
@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
      data isolation at the framework level.
 
   5. **Distributed Observer**: Run `:observer.start()` to visualize processes
-     across all nodes, including remote edge pollers behind firewalls.
+    across all nodes, including remote edge gateways behind firewalls.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Cluster Dashboard</h1>
             <p class="text-sm text-base-content/60">
-              Distributed ERTS cluster with standalone Elixir pollers and agents connected via mTLS.
+              Distributed ERTS cluster with standalone Elixir gateways and agents connected via mTLS.
             </p>
           </div>
           <.ui_button variant="ghost" size="sm" phx-click="refresh">
@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
           />
           <.health_card
             title="Pollers"
-            value={@cluster_health.poller_count}
+            value={@cluster_health.gateway_count}
             variant="info"
             icon="hero-cpu-chip"
           />
@@ -179,7 +179,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <div>
               <div class="text-sm font-semibold">Cluster Nodes</div>
               <p class="text-xs text-base-content/60">
-                ERTS nodes connected via mTLS (web-ng, pollers, agents)
+                ERTS nodes connected via mTLS (web-ng, gateways, agents)
               </p>
             </div>
           </:header>
@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
             <div>
               <div class="text-sm font-semibold">Pollers</div>
               <p class="text-xs text-base-content/60">
-                {@cluster_health.poller_count} standalone Elixir poller(s) in the distributed cluster
+                {@cluster_health.gateway_count} standalone Elixir gateway(s) in the distributed cluster
               </p>
             </div>
           </:header>
@@ -314,7 +314,7 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                       <td class="font-mono text-xs max-w-[12rem] truncate">
                         {Map.get(agent, :agent_id, "—")}
                       </td>
-                      <td class="font-mono text-xs">{format_node(Map.get(agent, :poller_node))}</td>
+                      <td class="font-mono text-xs">{format_node(Map.get(agent, :gateway_node))}</td>
                       <td>
                         <div class="flex flex-wrap gap-1">
                           <%= for cap <- Map.get(agent, :capabilities, []) do %>
@@ -485,12 +485,12 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
     status = ClusterStatus.get_status()
 
     %{
-      poller_count: status.poller_count,
+      gateway_count: status.gateway_count,
       agent_count: status.agent_count,
       status: status.status
     }
   rescue
-    _ -> %{poller_count: 0, agent_count: 0, status: :unknown}
+    _ -> %{gateway_count: 0, agent_count: 0, status: :unknown}
   end
 
   defp load_gateways do

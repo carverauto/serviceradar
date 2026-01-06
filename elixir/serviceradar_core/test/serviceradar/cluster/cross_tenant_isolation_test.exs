@@ -52,20 +52,20 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
   end
 
   describe "registry isolation" do
-    test "tenant A cannot see tenant B's pollers", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+    test "tenant A cannot see tenant B's gateways", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       # Ensure registries are fully initialized
       assert Process.whereis(TenantRegistry.registry_name(tenant_a)) != nil
       assert Process.whereis(TenantRegistry.registry_name(tenant_b)) != nil
 
-      # Register pollers in both tenants
+      # Register gateways in both tenants
       {:ok, pid_a} =
-        TenantRegistry.register_poller(tenant_a, "poller-a1", %{
+        TenantRegistry.register_gateway(tenant_a, "gateway-a1", %{
           partition_id: "partition-1",
           status: :available
         })
 
       {:ok, pid_b} =
-        TenantRegistry.register_poller(tenant_b, "poller-b1", %{
+        TenantRegistry.register_gateway(tenant_b, "gateway-b1", %{
           partition_id: "partition-1",
           status: :available
         })
@@ -74,28 +74,28 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
       assert is_pid(pid_a)
       assert is_pid(pid_b)
 
-      # Tenant A should only see its own poller
-      pollers_a = TenantRegistry.find_pollers(tenant_a)
-      assert length(pollers_a) == 1
-      assert hd(pollers_a)[:key] == {:poller, "poller-a1"}
+      # Tenant A should only see its own gateway
+      gateways_a = TenantRegistry.find_gateways(tenant_a)
+      assert length(gateways_a) == 1
+      assert hd(gateways_a)[:key] == {:gateway, "gateway-a1"}
 
-      # Tenant B should only see its own poller
-      pollers_b = TenantRegistry.find_pollers(tenant_b)
-      assert length(pollers_b) == 1,
-             "Expected 1 poller for tenant B, got #{length(pollers_b)}: #{inspect(pollers_b)}"
+      # Tenant B should only see its own gateway
+      gateways_b = TenantRegistry.find_gateways(tenant_b)
+      assert length(gateways_b) == 1,
+             "Expected 1 gateway for tenant B, got #{length(gateways_b)}: #{inspect(gateways_b)}"
 
-      assert hd(pollers_b)[:key] == {:poller, "poller-b1"}
+      assert hd(gateways_b)[:key] == {:gateway, "gateway-b1"}
     end
 
-    test "tenant A cannot look up tenant B's poller by key", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+    test "tenant A cannot look up tenant B's gateway by key", %{tenant_a: tenant_a, tenant_b: tenant_b} do
       {:ok, _} =
-        TenantRegistry.register_poller(tenant_b, "shared-name", %{status: :available})
+        TenantRegistry.register_gateway(tenant_b, "shared-name", %{status: :available})
 
       # Tenant A tries to look up the same key - should not find it
-      assert [] = TenantRegistry.lookup(tenant_a, {:poller, "shared-name"})
+      assert [] = TenantRegistry.lookup(tenant_a, {:gateway, "shared-name"})
 
       # Tenant B can find its own
-      assert [{_, _}] = TenantRegistry.lookup(tenant_b, {:poller, "shared-name"})
+      assert [{_, _}] = TenantRegistry.lookup(tenant_b, {:gateway, "shared-name"})
     end
 
     test "tenant A cannot see tenant B's agents", %{tenant_a: tenant_a, tenant_b: tenant_b} do
@@ -118,41 +118,41 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
     end
 
     test "count is isolated per tenant", %{tenant_a: tenant_a, tenant_b: tenant_b} do
-      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p1", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p2", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_a, "p3", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_b, "p1", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_a, "g1", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_a, "g2", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_a, "g3", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_b, "g1", %{})
 
       assert TenantRegistry.count(tenant_a) == 3
       assert TenantRegistry.count(tenant_b) == 1
     end
 
-    test "heartbeat only affects correct tenant's poller", %{tenant_a: tenant_a, tenant_b: tenant_b} do
-      {:ok, _} = TenantRegistry.register_poller(tenant_a, "poller-1", %{})
-      {:ok, _} = TenantRegistry.register_poller(tenant_b, "poller-1", %{})
+    test "heartbeat only affects correct tenant's gateway", %{tenant_a: tenant_a, tenant_b: tenant_b} do
+      {:ok, _} = TenantRegistry.register_gateway(tenant_a, "gateway-1", %{})
+      {:ok, _} = TenantRegistry.register_gateway(tenant_b, "gateway-1", %{})
 
       # Get initial heartbeats
-      [poller_a_before] = TenantRegistry.find_pollers(tenant_a)
-      [poller_b_before] = TenantRegistry.find_pollers(tenant_b)
+      [gateway_a_before] = TenantRegistry.find_gateways(tenant_a)
+      [gateway_b_before] = TenantRegistry.find_gateways(tenant_b)
 
       Process.sleep(10)
 
       # Update only tenant A's heartbeat
-      :ok = TenantRegistry.poller_heartbeat(tenant_a, "poller-1")
+      :ok = TenantRegistry.gateway_heartbeat(tenant_a, "gateway-1")
 
-      [poller_a_after] = TenantRegistry.find_pollers(tenant_a)
-      [poller_b_after] = TenantRegistry.find_pollers(tenant_b)
+      [gateway_a_after] = TenantRegistry.find_gateways(tenant_a)
+      [gateway_b_after] = TenantRegistry.find_gateways(tenant_b)
 
       # Tenant A's heartbeat should be updated
       assert DateTime.compare(
-               poller_a_after[:last_heartbeat],
-               poller_a_before[:last_heartbeat]
+               gateway_a_after[:last_heartbeat],
+               gateway_a_before[:last_heartbeat]
              ) == :gt
 
       # Tenant B's heartbeat should be unchanged
       assert DateTime.compare(
-               poller_b_after[:last_heartbeat],
-               poller_b_before[:last_heartbeat]
+               gateway_b_after[:last_heartbeat],
+               gateway_b_before[:last_heartbeat]
              ) == :eq
     end
   end
@@ -242,22 +242,22 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
 
   describe "combined registry + guard isolation" do
     test "attacker scenario: cannot discover and call cross-tenant processes", %{tenant_a: tenant_a, tenant_b: tenant_b} do
-      # Scenario: Attacker is on tenant B, tries to access tenant A's poller
+      # Scenario: Attacker is on tenant B, tries to access tenant A's gateway
 
-      # Tenant A registers a poller
+      # Tenant A registers a gateway
       {:ok, _} =
-        TenantRegistry.register_poller(tenant_a, "secret-poller", %{
+        TenantRegistry.register_gateway(tenant_a, "secret-gateway", %{
           partition_id: "partition-1",
           status: :available
         })
 
-      # Attacker (tenant B) tries to discover tenant A's pollers
+      # Attacker (tenant B) tries to discover tenant A's gateways
       # This should return empty - first line of defense
-      attacker_discovered_pollers = TenantRegistry.find_pollers(tenant_b)
-      assert attacker_discovered_pollers == []
+      attacker_discovered_gateways = TenantRegistry.find_gateways(tenant_b)
+      assert attacker_discovered_gateways == []
 
       # Attacker tries to guess the key - also fails
-      assert [] = TenantRegistry.lookup(tenant_b, {:poller, "secret-poller"})
+      assert [] = TenantRegistry.lookup(tenant_b, {:gateway, "secret-gateway"})
 
       # Even if attacker somehow got a PID (e.g., via observer before we added isolation),
       # TenantGuard would block the call - defense in depth
@@ -265,24 +265,24 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
     end
 
     test "legitimate same-tenant operations work correctly", %{tenant_a: tenant_a} do
-      # Tenant A's poller registration
+      # Tenant A's gateway registration
       {:ok, _} =
-        TenantRegistry.register_poller(tenant_a, "my-poller", %{
+        TenantRegistry.register_gateway(tenant_a, "my-gateway", %{
           partition_id: "partition-1",
           status: :available
         })
 
-      # Tenant A can find its poller
-      pollers = TenantRegistry.find_pollers(tenant_a)
-      assert length(pollers) == 1
+      # Tenant A can find its gateway
+      gateways = TenantRegistry.find_gateways(tenant_a)
+      assert length(gateways) == 1
 
       # Tenant A can look it up
-      assert [{pid, metadata}] = TenantRegistry.lookup(tenant_a, {:poller, "my-poller"})
+      assert [{pid, metadata}] = TenantRegistry.lookup(tenant_a, {:gateway, "my-gateway"})
       assert is_pid(pid)
       assert metadata[:partition_id] == "partition-1"
 
       # Tenant A can update heartbeat
-      :ok = TenantRegistry.poller_heartbeat(tenant_a, "my-poller")
+      :ok = TenantRegistry.gateway_heartbeat(tenant_a, "my-gateway")
     end
   end
 

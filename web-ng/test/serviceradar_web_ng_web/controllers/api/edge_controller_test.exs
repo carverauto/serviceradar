@@ -61,8 +61,8 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
   describe "POST /api/admin/edge-packages" do
     test "creates a package", %{conn: conn} do
       params = %{
-        "label" => "new-poller",
-        "component_type" => "poller",
+        "label" => "new-gateway",
+        "component_type" => "gateway",
         "site" => "datacenter-1"
       }
 
@@ -70,8 +70,8 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
       result = json_response(conn, 201)
 
       assert result["package"]["package_id"] != nil
-      assert result["package"]["label"] == "new-poller"
-      assert result["package"]["component_type"] == "poller"
+      assert result["package"]["label"] == "new-gateway"
+      assert result["package"]["component_type"] == "gateway"
       assert result["package"]["site"] == "datacenter-1"
       assert result["package"]["status"] == "issued"
       assert result["join_token"] != nil
@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
     end
 
     test "returns 422 for missing label", %{conn: conn} do
-      params = %{"component_type" => "poller"}
+      params = %{"component_type" => "gateway"}
 
       conn = post(conn, ~p"/api/admin/edge-packages", params)
 
@@ -366,8 +366,8 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
     test "complete flow: create -> download bundle -> package delivered", %{conn: conn} do
       # Step 1: Create package via API
       params = %{
-        "label" => "integration-test-poller",
-        "component_type" => "poller",
+        "label" => "integration-test-gateway",
+        "component_type" => "gateway",
         "site" => "test-site"
       }
 

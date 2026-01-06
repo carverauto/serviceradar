@@ -19,7 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   ```json
   {
     "timestamp": "2024-01-01T00:00:00Z",
-    "poller_id": "poller-1",
+    "gateway_id": "gateway-1",
     "agent_id": "agent-1",
     "device_id": "router-1",
     "flow_direction": "ingress",
@@ -186,7 +186,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
         name: FieldParser.get_field(json, "device_id", "deviceId")
       ),
 
-      # Actor (the poller/collector)
+      # Actor (the gateway/collector)
       actor: OCSF.build_actor(
         app_name: "ServiceRadar NetFlow Collector",
         app_ver: "1.0.0"
@@ -208,8 +208,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       # Multi-tenancy
       tenant_id: tenant_id,
 
-      # Poller/Agent tracking
-      poller_id: FieldParser.get_field(json, "poller_id", "pollerId"),
+      # Gateway/Agent tracking
+      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
 
       # Record timestamp
@@ -283,7 +283,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   defp extract_unmapped(json) do
     known_fields = ~w(
-      timestamp poller_id pollerId agent_id agentId device_id deviceId
+      timestamp gateway_id gatewayId agent_id agentId device_id deviceId
       flow_direction flowDirection src_addr srcAddr sourceAddress
       dst_addr dstAddr destinationAddress src_port srcPort sourcePort
       dst_port dstPort destinationPort protocol packets octets bytes

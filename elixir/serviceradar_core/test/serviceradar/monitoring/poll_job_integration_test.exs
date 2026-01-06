@@ -131,14 +131,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       {:ok, failed} =
         dispatching
         |> Ash.Changeset.for_update(:fail, %{
-          error_message: "No poller available",
-          error_code: "NO_POLLER"
+          error_message: "No gateway available",
+          error_code: "NO_GATEWAY"
         }, authorize?: false)
         |> Ash.update()
 
       assert failed.status == :failed
-      assert failed.error_message == "No poller available"
-      assert failed.error_code == "NO_POLLER"
+      assert failed.error_message == "No gateway available"
+      assert failed.error_code == "NO_GATEWAY"
     end
 
     test "can transition to failed from running", %{tenant_id: tenant_id, schedule_id: schedule_id} do

@@ -37,7 +37,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           :create,
           %{
             label: "Expired Package",
-            component_type: :poller,
+            component_type: :gateway,
             site: "test-site"
           },
           actor: system_actor(),
@@ -70,7 +70,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           :create,
           %{
             label: "Valid Package",
-            component_type: :poller,
+            component_type: :gateway,
             site: "test-site"
           },
           actor: system_actor(),

@@ -54,7 +54,7 @@ defmodule ServiceRadar.Monitoring.EventTest do
     end
 
     test "supports all category types", %{tenant: tenant} do
-      for category <- [:check, :alert, :agent, :poller, :device, :system, :audit] do
+      for category <- [:check, :alert, :agent, :gateway, :device, :system, :audit] do
         event =
           event_fixture(tenant, %{
             category: category,
@@ -102,8 +102,8 @@ defmodule ServiceRadar.Monitoring.EventTest do
     end
 
     test "can record event with related entities", %{tenant: tenant} do
-      poller = poller_fixture(tenant)
-      agent = agent_fixture(poller)
+      gateway = gateway_fixture(tenant)
+      agent = agent_fixture(gateway)
 
       {:ok, event} =
         Event
@@ -112,14 +112,14 @@ defmodule ServiceRadar.Monitoring.EventTest do
           %{
             category: :agent,
             event_type: "agent.connected",
-            message: "Agent connected to poller",
+            message: "Agent connected to gateway",
             agent_uid: agent.uid,
             source_type: :agent,
             source_id: agent.uid,
             source_name: agent.name || agent.uid,
-            target_type: :poller,
-            target_id: poller.id,
-            target_name: poller.id
+            target_type: :gateway,
+            target_id: gateway.id,
+            target_name: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Monitoring.EventTest do
 
       assert event.agent_uid == agent.uid
       assert event.source_type == :agent
-      assert event.target_type == :poller
+      assert event.target_type == :gateway
     end
   end
 
@@ -301,8 +301,8 @@ defmodule ServiceRadar.Monitoring.EventTest do
   describe "event with agent relationship" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      agent = agent_fixture(poller, %{uid: "event-agent-test"})
+      gateway = gateway_fixture(tenant)
+      agent = agent_fixture(gateway, %{uid: "event-agent-test"})
       {:ok, tenant: tenant, agent: agent}
     end
 
@@ -408,7 +408,7 @@ defmodule ServiceRadar.Monitoring.EventTest do
         check: "Check",
         alert: "Alert",
         agent: "Agent",
-        poller: "Poller",
+        gateway: "Gateway",
         device: "Device",
         system: "System",
         audit: "Audit"

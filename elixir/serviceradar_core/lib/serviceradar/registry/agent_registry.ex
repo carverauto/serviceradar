@@ -5,10 +5,10 @@ defmodule ServiceRadar.AgentRegistry do
   ## Architecture: Go Agents via gRPC
 
   Agents are Go-based processes running in customer networks. They do NOT
-  join the ERTS cluster - instead, they expose a gRPC endpoint that pollers
+  join the ERTS cluster - instead, they expose a gRPC endpoint that gateways
   call to execute monitoring checks.
 
-  The registry tracks agent metadata including gRPC addresses so pollers
+  The registry tracks agent metadata including gRPC addresses so gateways
   can discover and communicate with their assigned agents.
 
   ## Multi-Tenant Isolation
@@ -64,7 +64,7 @@ defmodule ServiceRadar.AgentRegistry do
 
       register_agent("tenant-uuid", "agent-001", %{
         partition_id: "partition-1",
-        poller_node: node(),
+        gateway_node: node(),
         capabilities: [:icmp_sweep, :tcp_sweep],
         status: :connected
       })
@@ -77,8 +77,8 @@ defmodule ServiceRadar.AgentRegistry do
       tenant_id: tenant_id,
       partition_id: Map.get(agent_info, :partition_id),
       domain: Map.get(agent_info, :domain),
-      poller_node: Map.get(agent_info, :poller_node, Node.self()),
-      # gRPC connection details for poller-initiated communication
+      gateway_node: Map.get(agent_info, :gateway_node, Node.self()),
+      # gRPC connection details for gateway-initiated communication
       grpc_host: Map.get(agent_info, :grpc_host),
       grpc_port: Map.get(agent_info, :grpc_port),
       capabilities: Map.get(agent_info, :capabilities, []),
@@ -219,12 +219,12 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Find agents connected to a specific poller node within a tenant.
+  Find agents connected to a specific gateway node within a tenant.
   """
-  @spec find_agents_for_poller(String.t(), node()) :: [map()]
-  def find_agents_for_poller(tenant_id, poller_node) when is_binary(tenant_id) do
+  @spec find_agents_for_gateway(String.t(), node()) :: [map()]
+  def find_agents_for_gateway(tenant_id, gateway_node) when is_binary(tenant_id) do
     find_agents_for_tenant(tenant_id)
-    |> Enum.filter(&(&1[:poller_node] == poller_node))
+    |> Enum.filter(&(&1[:gateway_node] == gateway_node))
   end
 
   @doc """
@@ -262,7 +262,7 @@ defmodule ServiceRadar.AgentRegistry do
   @doc """
   Find all agents with gRPC addresses available for a tenant.
 
-  Used by pollers to discover agents they can communicate with.
+  Used by gateways to discover agents they can communicate with.
   """
   @spec find_agents_with_grpc(String.t()) :: [map()]
   def find_agents_with_grpc(tenant_id) when is_binary(tenant_id) do

@@ -18,8 +18,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   ```json
   {
     "event_type": "state_change",
-    "entity_type": "poller",
-    "entity_id": "poller-123",
+    "entity_type": "gateway",
+    "entity_id": "gateway-123",
     "tenant_id": "uuid",
     "tenant_slug": "acme",
     "partition_id": "uuid",
@@ -35,8 +35,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
       # Publish a state change event
       EventPublisher.publish_state_change(
-        entity_type: :poller,
-        entity_id: "poller-123",
+        entity_type: :gateway,
+        entity_id: "gateway-123",
         tenant_id: tenant.id,
         tenant_slug: tenant.slug,
         old_state: :healthy,
@@ -45,17 +45,17 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       )
 
       # Or use the shorthand for after_transition hooks
-      EventPublisher.on_state_transition(poller, :healthy, :degraded, %{})
+      EventPublisher.on_state_transition(gateway, :healthy, :degraded, %{})
   """
 
   alias ServiceRadar.NATS.Connection
 
   require Logger
 
-  @entity_types [:poller, :agent, :checker, :collector]
+  @entity_types [:gateway, :agent, :checker, :collector]
   @event_types [:state_change, :registered, :deregistered, :health_change, :heartbeat_timeout]
 
-  @type entity_type :: :poller | :agent | :checker | :collector
+  @type entity_type :: :gateway | :agent | :checker | :collector
   @type event_type :: :state_change | :registered | :deregistered | :health_change | :heartbeat_timeout
 
   @doc """

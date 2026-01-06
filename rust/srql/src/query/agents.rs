@@ -9,7 +9,7 @@ use crate::{
         capabilities as col_capabilities, created_time as col_created_time,
         first_seen_time as col_first_seen_time, ip as col_ip,
         last_seen_time as col_last_seen_time, modified_time as col_modified_time,
-        name as col_name, ocsf_agents, poller_id as col_poller_id, type_id as col_type_id,
+        name as col_name, ocsf_agents, gateway_id as col_gateway_id, type_id as col_type_id,
         uid as col_uid, vendor_name as col_vendor_name, version as col_version,
     },
     time::TimeRange,
@@ -103,8 +103,8 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
         "name" => {
             query = apply_text_filter!(query, filter, col_name)?;
         }
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "version" => {
             query = apply_text_filter!(query, filter, col_version)?;
@@ -186,7 +186,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "uid" | "name" | "poller_id" | "version" | "vendor_name" | "ip" => {
+        "uid" | "name" | "gateway_id" | "version" | "vendor_name" | "ip" => {
             collect_text_params(params, filter)
         }
         "type_id" => {
@@ -266,9 +266,9 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_type_id.asc()),
             OrderDirection::Desc => query.order(col_type_id.desc()),
         },
-        "poller_id" => match direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         _ => query,
     }
@@ -308,9 +308,9 @@ fn apply_secondary_order<'a>(
             OrderDirection::Asc => query.then_order_by(col_type_id.asc()),
             OrderDirection::Desc => query.then_order_by(col_type_id.desc()),
         },
-        "poller_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_poller_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_poller_id.desc()),
+        "gateway_id" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_gateway_id.asc()),
+            OrderDirection::Desc => query.then_order_by(col_gateway_id.desc()),
         },
         _ => query,
     }
@@ -356,13 +356,13 @@ mod tests {
     }
 
     #[test]
-    fn builds_query_with_poller_filter() {
+    fn builds_query_with_gateway_filter() {
         let plan = QueryPlan {
             entity: Entity::Agents,
             filters: vec![Filter {
-                field: "poller_id".into(),
+                field: "gateway_id".into(),
                 op: FilterOp::Eq,
-                value: FilterValue::Scalar("poller-1".to_string()),
+                value: FilterValue::Scalar("gateway-1".to_string()),
             }],
             order: Vec::new(),
             limit: 50,
@@ -374,7 +374,7 @@ mod tests {
         };
 
         let result = build_query(&plan);
-        assert!(result.is_ok(), "should build query with poller filter");
+        assert!(result.is_ok(), "should build query with gateway filter");
     }
 
     #[test]

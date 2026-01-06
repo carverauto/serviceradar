@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
           agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
           tenant_id: Map.get(agent, :tenant_id),
           partition_id: Map.get(agent, :partition_id),
-          poller_node: Map.get(agent, :poller_node),
+          gateway_node: Map.get(agent, :gateway_node),
           capabilities: Map.get(agent, :capabilities, []),
           status: Map.get(agent, :status, :unknown),
           connected_at: Map.get(agent, :connected_at),
@@ -243,9 +243,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
-                title={to_string(agent.poller_node)}
+                title={to_string(agent.gateway_node)}
               >
-                {format_node(agent.poller_node)}
+                {format_node(agent.gateway_node)}
               </td>
               <td class="text-xs">
                 <.capabilities_list capabilities={agent.capabilities} />
@@ -356,9 +356,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
-                title={agent_poller(agent)}
+                title={agent_gateway(agent)}
               >
-                {agent_poller(agent)}
+                {agent_gateway(agent)}
               </td>
               <td class="text-xs">
                 <.capabilities_list capabilities={Map.get(agent, "capabilities", [])} />
@@ -420,8 +420,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     Map.get(agent, "name") || "—"
   end
 
-  defp agent_poller(agent) do
-    Map.get(agent, "poller_id") || "—"
+  defp agent_gateway(agent) do
+    Map.get(agent, "gateway_id") || "—"
   end
 
   defp format_timestamp(agent) do

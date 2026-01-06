@@ -26,12 +26,6 @@ service AgentService {
   rpc StreamResults(ResultsRequest) returns (stream ResultsChunk) {}
 }
 
-// Deprecated: Use AgentGatewayService instead. PollerService will be removed in a future release.
-service PollerService {
-  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
-  rpc StreamStatus(stream PollerStatusChunk) returns (PollerStatusResponse) {}
-}
-
 // AgentGatewayService receives status pushes from agents.
 // Agents connect outbound to the gateway and push their status/results.
 service AgentGatewayService {
@@ -55,21 +49,19 @@ message StatusRequest {
   string service_name = 1; // Type of service to check (process, port, dusk)
   string service_type = 2; // Type of service (process, port, grpc, etc)
   string agent_id = 3;     // Agent ID for traceability
-  string poller_id = 4;    // Poller ID for traceability (legacy)
+  string gateway_id = 4;   // Gateway ID for traceability
   string details = 5;      // Additional details (e.g., process name)
   int32 port = 6;          // Port number for port checks
-  string gateway_id = 7;   // Gateway ID for traceability
 }
 
 message ResultsRequest {
   string service_name = 1; // Name of the service to get results from
   string service_type = 2; // Type of service (grpc, etc)
   string agent_id = 3;     // Agent ID for traceability
-  string poller_id = 4;    // Poller ID for traceability (legacy)
+  string gateway_id = 4;   // Gateway ID for traceability
   string details = 5;      // Additional details
-  string last_sequence = 6; // Last sequence received by poller
-  SweepCompletionStatus completion_status = 7; // Completion status reported by poller
-  string gateway_id = 8;   // Gateway ID for traceability
+  string last_sequence = 6; // Last sequence received by gateway
+  SweepCompletionStatus completion_status = 7; // Completion status reported by gateway
 }
 
 message StatusResponse {
@@ -79,8 +71,7 @@ message StatusResponse {
   string service_type = 4;
   int64 response_time = 5;
   string agent_id = 6;
-  string poller_id = 7;    // Poller ID for traceability (legacy)
-  string gateway_id = 8;   // Gateway ID for traceability
+  string gateway_id = 7;   // Gateway ID for traceability
 }
 
 message ResultsResponse {
@@ -90,39 +81,11 @@ message ResultsResponse {
   string service_type = 4;
   int64 response_time = 5;
   string agent_id = 6;
-  string poller_id = 7;    // Poller ID for traceability (legacy)
+  string gateway_id = 7;   // Gateway ID for traceability
   int64 timestamp = 8;     // When results were generated
   string current_sequence = 9; // Current sequence of this response
   bool has_new_data = 10;     // Whether data changed since last_sequence
   SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
-  string gateway_id = 12;   // Gateway ID for traceability
-}
-
-message PollerStatusRequest {
-  repeated ServiceStatus services = 1;
-  string poller_id = 2;
-  string agent_id = 3; // Agent ID for traceability
-  int64 timestamp = 4;
-  string partition = 5; // Partition identifier (REQUIRED)
-  string source_ip = 6; // Host IP where poller/agent is running (REQUIRED)
-  string kv_store_id = 7; // KV store identifier this service is using
-}
-
-message PollerStatusResponse {
-  bool received = 1;
-}
-
-message ServiceStatus {
-  string service_name = 1;
-  bool available = 2;
-  bytes message = 3; // Changed to bytes
-  string service_type = 4;
-  int64 response_time = 5;
-  string agent_id = 6;     // Agent ID for traceability
-  string poller_id = 7;     // Poller ID for traceability
-  string partition = 8; // Partition identifier
-  string source = 9;      // Source of the message: "status" or "results"
-  string kv_store_id = 10; // KV store identifier this service is using
 }
 
 message SweepServiceStatus {
@@ -163,18 +126,6 @@ message SweepCompletionStatus {
   string error_message = 6;   // Error details if status is FAILED
 }
 
-message PollerStatusChunk {
-  repeated ServiceStatus services = 1; // Chunk of service statuses
-  string poller_id = 2;
-  string agent_id = 3;
-  int64 timestamp = 4;
-  string partition = 5;
-  string source_ip = 6;
-  bool is_final = 7;           // Whether this is the last chunk
-  int32 chunk_index = 8;       // Order of this chunk
-  int32 total_chunks = 9;      // Total number of chunks
-  string kv_store_id = 10;     // KV store identifier this service is using
-}
 
 // GatewayStatusRequest is sent by agents to push their status to the gateway.
 message GatewayStatusRequest {

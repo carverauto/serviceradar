@@ -15,7 +15,7 @@ struct TestCase<'a> {
 async fn comprehensive_queries_match_fixtures() {
     let test_cases = vec![
         TestCase {
-            query: "in:pollers status:active",
+            query: "in:gateways status:active",
             expected_count: 2,
             validator: None,
         },

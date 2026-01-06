@@ -486,7 +486,7 @@ defmodule ServiceRadar.Actors.Device do
           os: device.os
         }
 
-        %{state | identity: identity, partition_id: state.partition_id || device.poller_id}
+        %{state | identity: identity, partition_id: state.partition_id || device.gateway_id}
 
       {:error, _} ->
         Logger.debug("Device not found in DB: #{state.device_id}")

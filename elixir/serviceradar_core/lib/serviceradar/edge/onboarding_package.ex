@@ -11,7 +11,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
   ## Component Types
 
-  - `:poller` - Polling service component
+  - `:gateway` - Agent gateway component
   - `:agent` - Agent component
   - `:checker` - Checker component
   - `:sync` - Sync service component
@@ -108,7 +108,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         :component_type,
         :parent_type,
         :parent_id,
-        :poller_id,
+        :gateway_id,
         :site,
         :security_mode,
         :selectors,
@@ -242,15 +242,15 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
 
     attribute :component_type, :atom do
-      default :poller
+      default :gateway
       public? true
-      constraints one_of: [:poller, :agent, :checker, :sync]
+      constraints one_of: [:gateway, :agent, :checker, :sync]
       description "Type of component being onboarded"
     end
 
     attribute :parent_type, :atom do
       public? true
-      constraints one_of: [:poller, :agent, :checker, :sync]
+      constraints one_of: [:gateway, :agent, :checker, :sync]
       description "Parent component type (for hierarchical components)"
     end
 
@@ -259,9 +259,9 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       description "Parent component ID"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Associated poller ID"
+      description "Associated gateway ID"
     end
 
     attribute :site, :string do

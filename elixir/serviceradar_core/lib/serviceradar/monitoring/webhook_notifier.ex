@@ -36,7 +36,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
         level: :warning,
         title: "Node Offline",
         message: "Agent agent-1 is not responding",
-        poller_id: "poller-1",
+        gateway_id: "gateway-1",
         details: %{"last_seen" => "2025-01-01T00:00:00Z"}
       }
 
@@ -63,7 +63,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
             title: String.t(),
             message: String.t(),
             timestamp: String.t(),
-            poller_id: String.t(),
+            gateway_id: String.t(),
             service_name: String.t() | nil,
             details: map()
           }
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
       :title,
       :message,
       :timestamp,
-      :poller_id,
+      :gateway_id,
       :service_name,
       details: %{}
     ]
@@ -145,11 +145,11 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
   end
 
   @doc """
-  Mark a poller as recovered (clears the node down state).
+  Mark a gateway as recovered (clears the node down state).
   """
-  @spec mark_poller_recovered(String.t()) :: :ok
-  def mark_poller_recovered(poller_id) do
-    GenServer.cast(__MODULE__, {:mark_poller_recovered, poller_id})
+  @spec mark_gateway_recovered(String.t()) :: :ok
+  def mark_gateway_recovered(gateway_id) do
+    GenServer.cast(__MODULE__, {:mark_gateway_recovered, gateway_id})
   catch
     :exit, {:noproc, _} -> :ok
   end
@@ -224,9 +224,9 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
   end
 
   @impl true
-  def handle_cast({:mark_poller_recovered, poller_id}, state) do
-    Logger.debug("Marked poller #{poller_id} as recovered")
-    new_states = Map.put(state.node_down_states, poller_id, false)
+  def handle_cast({:mark_gateway_recovered, gateway_id}, state) do
+    Logger.debug("Marked gateway #{gateway_id} as recovered")
+    new_states = Map.put(state.node_down_states, gateway_id, false)
     {:noreply, %{state | node_down_states: new_states}}
   end
 
@@ -263,11 +263,11 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
     # Check for duplicate "Node Offline" alert
     state =
       if alert.title == "Node Offline" do
-        if Map.get(state.node_down_states, alert.poller_id) do
-          Logger.debug("Skipping duplicate 'Node Offline' alert for node: #{alert.poller_id}")
+        if Map.get(state.node_down_states, alert.gateway_id) do
+          Logger.debug("Skipping duplicate 'Node Offline' alert for node: #{alert.gateway_id}")
           throw({:duplicate, state})
         else
-          new_states = Map.put(state.node_down_states, alert.poller_id, true)
+          new_states = Map.put(state.node_down_states, alert.gateway_id, true)
           %{state | node_down_states: new_states}
         end
       else
@@ -284,7 +284,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
     errors = Enum.filter(results, fn {result, _} -> result == :error end)
 
     # Update cooldown times
-    alert_key = {alert.poller_id, alert.title, alert.service_name || ""}
+    alert_key = {alert.gateway_id, alert.title, alert.service_name || ""}
 
     new_last_alert_times =
       Map.put(state.last_alert_times, alert_key, System.monotonic_time(:millisecond))
@@ -308,7 +308,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
 
   defp send_to_webhook(alert, webhook, state) do
     # Check cooldown
-    alert_key = {alert.poller_id, alert.title, alert.service_name || ""}
+    alert_key = {alert.gateway_id, alert.title, alert.service_name || ""}
 
     case check_cooldown(alert_key, webhook.cooldown, state.last_alert_times) do
       :ok ->
@@ -317,7 +317,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
 
       {:error, :cooldown} ->
         Logger.debug(
-          "Alert '#{alert.title}' for poller '#{alert.poller_id}' is within cooldown period"
+          "Alert '#{alert.title}' for gateway '#{alert.gateway_id}' is within cooldown period"
         )
 
         {:error, :cooldown}
@@ -349,7 +349,7 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
       title: alert.title,
       message: alert.message,
       timestamp: alert.timestamp,
-      poller_id: alert.poller_id,
+      gateway_id: alert.gateway_id,
       service_name: alert.service_name,
       details: alert.details
     }

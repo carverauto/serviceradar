@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   Monitors infrastructure components and triggers state transitions.
 
   Periodically checks:
-  - Pollers for heartbeat timeouts (last_seen)
+  - Gateways for heartbeat timeouts (last_seen)
   - Agents for reachability (last_seen_time)
   - Checkers for consecutive failures
   - Cross-references Horde registry state with database state
@@ -22,8 +22,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       config :serviceradar_core, ServiceRadar.Infrastructure.StateMonitor,
         # How often to run health checks (default: 30 seconds)
         check_interval: 30_000,
-        # Poller heartbeat timeout (default: 2 minutes)
-        poller_timeout: 120_000,
+        # Gateway heartbeat timeout (default: 2 minutes)
+        gateway_timeout: 120_000,
         # Agent heartbeat timeout (default: 5 minutes)
         agent_timeout: 300_000,
         # Consecutive failures before marking checker as failing
@@ -43,18 +43,18 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Infrastructure.{Poller, Agent, Checker}
+  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
 
   require Logger
 
   @default_check_interval :timer.seconds(30)
-  @default_poller_timeout :timer.minutes(2)
+  @default_gateway_timeout :timer.minutes(2)
   @default_agent_timeout :timer.minutes(5)
   @default_checker_failure_threshold 3
 
   defstruct [
     :check_interval,
-    :poller_timeout,
+    :gateway_timeout,
     :agent_timeout,
     :checker_failure_threshold,
     :last_check,
@@ -108,7 +108,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     state = %__MODULE__{
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
-      poller_timeout: Keyword.get(merged_opts, :poller_timeout, @default_poller_timeout),
+      gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
       checker_failure_threshold: Keyword.get(merged_opts, :checker_failure_threshold, @default_checker_failure_threshold),
       distributed: distributed,
@@ -134,7 +134,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   def handle_call(:status, _from, state) do
     status = %{
       check_interval: state.check_interval,
-      poller_timeout: state.poller_timeout,
+      gateway_timeout: state.gateway_timeout,
       agent_timeout: state.agent_timeout,
       checker_failure_threshold: state.checker_failure_threshold,
       last_check: state.last_check,
@@ -226,7 +226,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     # Run checks in parallel
     tasks = [
-      Task.async(fn -> check_pollers(state) end),
+      Task.async(fn -> check_gateways(state) end),
       Task.async(fn -> check_agents(state) end),
       Task.async(fn -> check_checkers(state) end),
       Task.async(fn -> reconcile_horde_state() end)
@@ -240,7 +240,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       [:serviceradar, :infrastructure, :state_monitor, :check_completed],
       %{duration: duration},
       %{
-        pollers_checked: Enum.at(results, 0),
+        gateways_checked: Enum.at(results, 0),
         agents_checked: Enum.at(results, 1),
         checkers_checked: Enum.at(results, 2),
         horde_reconciled: Enum.at(results, 3)
@@ -267,29 +267,29 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       0
   end
 
-  defp check_pollers(state) do
-    timeout_threshold = DateTime.add(DateTime.utc_now(), -state.poller_timeout, :millisecond)
+  defp check_gateways(state) do
+    timeout_threshold = DateTime.add(DateTime.utc_now(), -state.gateway_timeout, :millisecond)
 
-    # Find pollers that haven't been seen recently
-    case list_stale_pollers(timeout_threshold) do
-      {:ok, pollers} ->
-        Enum.each(pollers, fn poller ->
-          handle_stale_poller(poller, state)
+    # Find gateways that haven't been seen recently
+    case list_stale_gateways(timeout_threshold) do
+      {:ok, gateways} ->
+        Enum.each(gateways, fn gateway ->
+          handle_stale_gateway(gateway, state)
         end)
 
-        length(pollers)
+        length(gateways)
 
       {:error, reason} ->
-        Logger.error("Failed to check pollers: #{inspect(reason)}")
+        Logger.error("Failed to check gateways: #{inspect(reason)}")
         0
     end
   end
 
-  defp list_stale_pollers(timeout_threshold) do
-    # Query pollers that are healthy/degraded but last_seen is before threshold
+  defp list_stale_gateways(timeout_threshold) do
+    # Query gateways that are healthy/degraded but last_seen is before threshold
     require Ash.Query
 
-    Poller
+    Gateway
     |> Ash.Query.filter(
       status in [:healthy, :degraded] and
         (is_nil(last_seen) or last_seen < ^timeout_threshold)
@@ -297,25 +297,25 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     |> Ash.read(authorize?: false)
   end
 
-  defp handle_stale_poller(poller, _state) do
-    Logger.info("Poller #{poller.id} heartbeat timeout, transitioning to degraded/offline")
+  defp handle_stale_gateway(gateway, _state) do
+    Logger.info("Gateway #{gateway.id} heartbeat timeout, transitioning to degraded/offline")
 
-    old_state = poller.status
+    old_state = gateway.status
     action = if old_state == :healthy, do: :degrade, else: :go_offline
 
     # The actions have PublishStateChange attached which handles
-    # health event recording - no need to call publish_poller_event manually
+    # health event recording - no need to call publish_gateway_event manually
     result =
-      poller
+      gateway
       |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"})
       |> Ash.update(authorize?: false)
 
     case result do
-      {:ok, _updated_poller} ->
+      {:ok, _updated_gateway} ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition poller #{poller.id}: #{inspect(reason)}")
+        Logger.error("Failed to transition gateway #{gateway.id}: #{inspect(reason)}")
     end
   end
 

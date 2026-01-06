@@ -366,7 +366,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   defp is_service_device?(device_id) do
     # Service devices have specific prefixes
-    String.starts_with?(device_id, "poller:") or
+    String.starts_with?(device_id, "gateway:") or
       String.starts_with?(device_id, "agent:") or
       String.starts_with?(device_id, "svc:")
   end

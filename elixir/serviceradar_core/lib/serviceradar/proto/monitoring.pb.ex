@@ -26,10 +26,9 @@ defmodule Monitoring.StatusRequest do
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :service_type, 2, type: :string, json_name: "serviceType"
   field :agent_id, 3, type: :string, json_name: "agentId"
-  field :poller_id, 4, type: :string, json_name: "pollerId"
+  field :gateway_id, 4, type: :string, json_name: "gatewayId"
   field :details, 5, type: :string
   field :port, 6, type: :int32
-  field :gateway_id, 7, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.ResultsRequest do
@@ -40,14 +39,13 @@ defmodule Monitoring.ResultsRequest do
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :service_type, 2, type: :string, json_name: "serviceType"
   field :agent_id, 3, type: :string, json_name: "agentId"
-  field :poller_id, 4, type: :string, json_name: "pollerId"
+  field :gateway_id, 4, type: :string, json_name: "gatewayId"
   field :details, 5, type: :string
   field :last_sequence, 6, type: :string, json_name: "lastSequence"
 
   field :completion_status, 7,
     type: Monitoring.SweepCompletionStatus,
     json_name: "completionStatus"
-  field :gateway_id, 8, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.StatusResponse do
@@ -61,8 +59,7 @@ defmodule Monitoring.StatusResponse do
   field :service_type, 4, type: :string, json_name: "serviceType"
   field :response_time, 5, type: :int64, json_name: "responseTime"
   field :agent_id, 6, type: :string, json_name: "agentId"
-  field :poller_id, 7, type: :string, json_name: "pollerId"
-  field :gateway_id, 8, type: :string, json_name: "gatewayId"
+  field :gateway_id, 7, type: :string, json_name: "gatewayId"
 end
 
 defmodule Monitoring.ResultsResponse do
@@ -76,7 +73,7 @@ defmodule Monitoring.ResultsResponse do
   field :service_type, 4, type: :string, json_name: "serviceType"
   field :response_time, 5, type: :int64, json_name: "responseTime"
   field :agent_id, 6, type: :string, json_name: "agentId"
-  field :poller_id, 7, type: :string, json_name: "pollerId"
+  field :gateway_id, 7, type: :string, json_name: "gatewayId"
   field :timestamp, 8, type: :int64
   field :current_sequence, 9, type: :string, json_name: "currentSequence"
   field :has_new_data, 10, type: :bool, json_name: "hasNewData"
@@ -84,46 +81,6 @@ defmodule Monitoring.ResultsResponse do
   field :sweep_completion, 11,
     type: Monitoring.SweepCompletionStatus,
     json_name: "sweepCompletion"
-  field :gateway_id, 12, type: :string, json_name: "gatewayId"
-end
-
-defmodule Monitoring.PollerStatusRequest do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :services, 1, repeated: true, type: Monitoring.ServiceStatus
-  field :poller_id, 2, type: :string, json_name: "pollerId"
-  field :agent_id, 3, type: :string, json_name: "agentId"
-  field :timestamp, 4, type: :int64
-  field :partition, 5, type: :string
-  field :source_ip, 6, type: :string, json_name: "sourceIp"
-  field :kv_store_id, 7, type: :string, json_name: "kvStoreId"
-end
-
-defmodule Monitoring.PollerStatusResponse do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :received, 1, type: :bool
-end
-
-defmodule Monitoring.ServiceStatus do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :service_name, 1, type: :string, json_name: "serviceName"
-  field :available, 2, type: :bool
-  field :message, 3, type: :bytes
-  field :service_type, 4, type: :string, json_name: "serviceType"
-  field :response_time, 5, type: :int64, json_name: "responseTime"
-  field :agent_id, 6, type: :string, json_name: "agentId"
-  field :poller_id, 7, type: :string, json_name: "pollerId"
-  field :partition, 8, type: :string
-  field :source, 9, type: :string
-  field :kv_store_id, 10, type: :string, json_name: "kvStoreId"
 end
 
 defmodule Monitoring.SweepServiceStatus do
@@ -171,23 +128,6 @@ defmodule Monitoring.SweepCompletionStatus do
   field :total_targets, 4, type: :int32, json_name: "totalTargets"
   field :completed_targets, 5, type: :int32, json_name: "completedTargets"
   field :error_message, 6, type: :string, json_name: "errorMessage"
-end
-
-defmodule Monitoring.PollerStatusChunk do
-  @moduledoc false
-
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
-
-  field :services, 1, repeated: true, type: Monitoring.ServiceStatus
-  field :poller_id, 2, type: :string, json_name: "pollerId"
-  field :agent_id, 3, type: :string, json_name: "agentId"
-  field :timestamp, 4, type: :int64
-  field :partition, 5, type: :string
-  field :source_ip, 6, type: :string, json_name: "sourceIp"
-  field :is_final, 7, type: :bool, json_name: "isFinal"
-  field :chunk_index, 8, type: :int32, json_name: "chunkIndex"
-  field :total_chunks, 9, type: :int32, json_name: "totalChunks"
-  field :kv_store_id, 10, type: :string, json_name: "kvStoreId"
 end
 
 defmodule Monitoring.GatewayStatusRequest do
@@ -359,22 +299,6 @@ defmodule Monitoring.AgentService.Stub do
   @moduledoc false
 
   use GRPC.Stub, service: Monitoring.AgentService.Service
-end
-
-defmodule Monitoring.PollerService.Service do
-  @moduledoc false
-
-  use GRPC.Service, name: "monitoring.PollerService", protoc_gen_elixir_version: "0.15.0"
-
-  rpc :ReportStatus, Monitoring.PollerStatusRequest, Monitoring.PollerStatusResponse
-
-  rpc :StreamStatus, stream(Monitoring.PollerStatusChunk), Monitoring.PollerStatusResponse
-end
-
-defmodule Monitoring.PollerService.Stub do
-  @moduledoc false
-
-  use GRPC.Stub, service: Monitoring.PollerService.Service
 end
 
 defmodule Monitoring.AgentGatewayService.Service do

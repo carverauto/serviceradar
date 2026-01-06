@@ -373,7 +373,7 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     attribute :source_type, :atom do
       public? true
-      constraints one_of: [:service_check, :device, :poller, :agent, :system, :external]
+      constraints one_of: [:service_check, :device, :gateway, :agent, :system, :external]
       description "Type of source that generated this alert"
     end
 

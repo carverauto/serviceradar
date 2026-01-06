@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   Records health state changes for all infrastructure entities.
 
   HealthEvents provide a historical record of health status changes for:
-  - Pollers (job orchestrators)
+  - Gateways (job orchestrators)
   - Agents (check executors)
   - Checkers (service check definitions)
   - Collectors (data aggregation points)
@@ -19,7 +19,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
   ## Entity Types
 
-  - `:poller` - Polling orchestrators
+  - `:gateway` - Gateway orchestrators
   - `:agent` - Check executors
   - `:checker` - Service check definitions
   - `:collector` - Data aggregators
@@ -43,7 +43,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   ## Querying History
 
       # Get health timeline for an entity
-      HealthEvent.timeline(:poller, "poller-001", tenant_id, last: 24, unit: :hour)
+      HealthEvent.timeline(:gateway, "gateway-001", tenant_id, last: 24, unit: :hour)
 
       # Get current health status
       HealthEvent.current_status(:agent, "agent-uid", tenant_id)
@@ -119,7 +119,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
       argument :entity_type, :atom do
         allow_nil? false
-        constraints one_of: [:poller, :agent, :checker, :collector, :core, :web, :custom]
+        constraints one_of: [:gateway, :agent, :checker, :collector, :core, :web, :custom]
       end
 
       argument :entity_id, :string, allow_nil?: false
@@ -141,7 +141,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
       argument :entity_type, :atom do
         allow_nil? false
-        constraints one_of: [:poller, :agent, :checker, :collector, :core, :web, :custom]
+        constraints one_of: [:gateway, :agent, :checker, :collector, :core, :web, :custom]
       end
 
       argument :entity_id, :string, allow_nil?: false
@@ -207,7 +207,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     attribute :entity_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:poller, :agent, :checker, :collector, :core, :web, :custom]
+      constraints one_of: [:gateway, :agent, :checker, :collector, :core, :web, :custom]
       description "Type of entity this event is for"
     end
 

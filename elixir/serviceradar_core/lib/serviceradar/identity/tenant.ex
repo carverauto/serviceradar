@@ -2,7 +2,7 @@ defmodule ServiceRadar.Identity.Tenant do
   @moduledoc """
   Represents a tenant (organization) in the multi-tenant system.
 
-  Tenants own users, devices, pollers, and all other tenant-scoped resources.
+  Tenants own users, devices, gateways, and all other tenant-scoped resources.
   Each tenant has isolated data with configurable plan limits.
 
   ## Statuses
@@ -195,7 +195,7 @@ defmodule ServiceRadar.Identity.Tenant do
       Generate a per-tenant Certificate Authority for edge component isolation.
 
       Creates an intermediate CA signed by the platform root CA. All edge
-      components (pollers, agents, checkers) for this tenant will receive
+      components (gateways, agents, checkers) for this tenant will receive
       certificates signed by this CA, ensuring network-level tenant isolation.
 
       This action is idempotent - if an active CA already exists, it returns

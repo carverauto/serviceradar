@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
   Tests for infrastructure component state machines.
 
   Verifies:
-  - Poller state transitions
+  - Gateway state transitions
   - Agent state transitions
   - Checker state transitions
   - Invalid transition handling
@@ -11,7 +11,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Infrastructure.{Poller, Agent, Checker}
+  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
 
   @moduletag :database
 
@@ -22,43 +22,43 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     {:ok, tenant_id: tenant_id, partition_id: partition_id}
   end
 
-  describe "Poller state machine" do
+  describe "Gateway state machine" do
     test "registers in healthy state", %{tenant_id: tenant_id} do
-      {:ok, poller} =
-        Poller
+      {:ok, gateway} =
+        Gateway
         |> Ash.Changeset.for_create(:register, %{
-          id: "poller-#{System.unique_integer([:positive])}"
+          id: "gateway-#{System.unique_integer([:positive])}"
         })
         |> Ash.create(authorize?: false, tenant: tenant_id)
 
-      assert poller.status == :healthy
-      assert poller.is_healthy == true
+      assert gateway.status == :healthy
+      assert gateway.is_healthy == true
     end
 
     test "transitions from healthy to degraded", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
-      assert poller.status == :healthy
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
+      assert gateway.status == :healthy
 
-      {:ok, degraded} = Ash.update(poller, :degrade, %{reason: "test"}, authorize?: false)
+      {:ok, degraded} = Ash.update(gateway, :degrade, %{reason: "test"}, authorize?: false)
 
       assert degraded.status == :degraded
       assert degraded.is_healthy == false
     end
 
     test "transitions from healthy to offline", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
-      {:ok, offline} = Ash.update(poller, :go_offline, %{reason: "shutdown"}, authorize?: false)
+      {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "shutdown"}, authorize?: false)
 
       assert offline.status == :offline
       assert offline.is_healthy == false
     end
 
     test "transitions through maintenance cycle", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
       # Start maintenance
-      {:ok, in_maintenance} = Ash.update(poller, :start_maintenance, %{}, authorize?: false)
+      {:ok, in_maintenance} = Ash.update(gateway, :start_maintenance, %{}, authorize?: false)
       assert in_maintenance.status == :maintenance
 
       # End maintenance
@@ -68,10 +68,10 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     end
 
     test "transitions through draining cycle", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
       # Start draining
-      {:ok, draining} = Ash.update(poller, :start_draining, %{}, authorize?: false)
+      {:ok, draining} = Ash.update(gateway, :start_draining, %{}, authorize?: false)
       assert draining.status == :draining
 
       # Finish draining
@@ -80,10 +80,10 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     end
 
     test "transitions through recovery cycle", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
       # Go offline
-      {:ok, offline} = Ash.update(poller, :go_offline, %{reason: "failure"}, authorize?: false)
+      {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "failure"}, authorize?: false)
       assert offline.status == :offline
 
       # Start recovery
@@ -97,25 +97,25 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
     end
 
     test "deactivate works from any state", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
-      {:ok, inactive} = Ash.update(poller, :deactivate, %{}, authorize?: false)
+      {:ok, inactive} = Ash.update(gateway, :deactivate, %{}, authorize?: false)
       assert inactive.status == :inactive
       assert inactive.is_healthy == false
     end
 
     test "rejects invalid transitions", %{tenant_id: tenant_id} do
-      {:ok, poller} = create_healthy_poller(tenant_id)
+      {:ok, gateway} = create_healthy_gateway(tenant_id)
 
       # Cannot recover from healthy (only from degraded/offline/recovering)
-      {:error, changeset} = Ash.update(poller, :recover, %{}, authorize?: false)
+      {:error, changeset} = Ash.update(gateway, :recover, %{}, authorize?: false)
       assert changeset.errors != []
     end
 
-    defp create_healthy_poller(tenant_id) do
-      Poller
+    defp create_healthy_gateway(tenant_id) do
+      Gateway
       |> Ash.Changeset.for_create(:register, %{
-        id: "poller-#{System.unique_integer([:positive])}"
+        id: "gateway-#{System.unique_integer([:positive])}"
       })
       |> Ash.create(authorize?: false, tenant: tenant_id)
     end

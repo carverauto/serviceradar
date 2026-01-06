@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:filter_status, nil)
       |> assign(:filter_component_type, nil)
       |> assign(:security_mode, security_mode)
-      |> assign(:selected_component_type, "poller")
+      |> assign(:selected_component_type, "gateway")
       |> assign(:checker_templates, [])
       |> load_templates(security_mode)
 
@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:show_create_modal, true)
      |> assign(:create_form, build_create_form(tenant_id, security_mode))
      |> assign(:created_tokens, nil)
-     |> assign(:selected_component_type, "poller")}
+     |> assign(:selected_component_type, "gateway")}
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
-    component_type = params["component_type"] || "poller"
+    component_type = params["component_type"] || "gateway"
 
     form =
       socket.assigns.create_form
@@ -250,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Edge Onboarding</h1>
             <p class="text-sm text-base-content/60">
-              Manage edge component onboarding packages for pollers, agents, checkers, and sync.
+              Manage edge component onboarding packages for gateways, agents, checkers, and sync.
             </p>
           </div>
           <.ui_button variant="primary" size="sm" phx-click="open_create_modal">
@@ -284,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 phx-change="filter"
               >
                 <option value="">All Types</option>
-                <option value="poller" selected={@filter_component_type == "poller"}>Poller</option>
+                <option value="gateway" selected={@filter_component_type == "gateway"}>Gateway</option>
                 <option value="agent" selected={@filter_component_type == "agent"}>Agent</option>
                 <option value="checker" selected={@filter_component_type == "checker"}>
                   Checker
@@ -442,7 +442,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 field={@form[:label]}
                 type="text"
                 label="Label"
-                placeholder="e.g., production-poller-01"
+                placeholder="e.g., production-gateway-01"
                 required
               />
               <p class="text-xs text-base-content/60 -mt-2 ml-1">
@@ -455,7 +455,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 label="Component Type"
                 value={@selected_component_type}
                 options={[
-                  {"Poller", :poller},
+                  {"Gateway", :gateway},
                   {"Agent", :agent},
                   {"Checker", :checker},
                   {"Sync", :sync}
@@ -464,16 +464,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
               <%= if @selected_component_type in ["agent", "checker"] do %>
                 <.input
-                  field={@form[:poller_id]}
+                  field={@form[:gateway_id]}
                   type="text"
-                  label="Parent Poller ID"
-                  placeholder="Enter the poller ID this component reports to"
+                  label="Parent Gateway ID"
+                  placeholder="Enter the gateway ID this component reports to"
                 />
                 <p class="text-xs text-base-content/60 -mt-2 ml-1">
                   <%= if @selected_component_type == "agent" do %>
-                    The poller that will manage this agent.
+                    The gateway that will manage this agent.
                   <% else %>
-                    The poller that will run this checker.
+                    The gateway that will run this checker.
                   <% end %>
                 </p>
               <% end %>
@@ -771,11 +771,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@package.id}</code>
           </div>
 
-          <%= if @package.poller_id do %>
+          <%= if @package.gateway_id do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Poller ID</div>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Gateway ID</div>
               <code class="text-sm font-mono bg-base-200 p-2 rounded block">
-                {@package.poller_id}
+                {@package.gateway_id}
               </code>
             </div>
           <% end %>
@@ -1000,7 +1000,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp build_package_attrs_from_form(params, security_mode) do
-    component_type = params["component_type"] || "poller"
+    component_type = params["component_type"] || "gateway"
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
 
@@ -1008,7 +1008,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       label: label,
       component_id: component_id,
       component_type: component_type,
-      poller_id: params["poller_id"],
+      gateway_id: params["gateway_id"],
       security_mode: security_mode,
       notes: params["notes"],
       parent_id: params["parent_id"],
@@ -1019,7 +1019,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   # Generate a component_id from label and type
-  # e.g., "Production Poller 01" -> "poller-production-poller-01"
+  # e.g., "Production Gateway 01" -> "gateway-production-gateway-01"
   defp generate_component_id(label, component_type) when is_binary(label) and label != "" do
     slug =
       label
@@ -1048,16 +1048,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     end
   end
 
-  defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "poller")
+  defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")
   defp add_parent_type(attrs, "checker"), do: Map.put(attrs, :parent_type, "agent")
   defp add_parent_type(attrs, _), do: attrs
 
   defp component_type_from_params(%{"component_type" => type})
-       when type in ["poller", "agent", "checker", "sync"] do
+       when type in ["gateway", "agent", "checker", "sync"] do
     type
   end
 
-  defp component_type_from_params(_params), do: "poller"
+  defp component_type_from_params(_params), do: "gateway"
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_error/1)

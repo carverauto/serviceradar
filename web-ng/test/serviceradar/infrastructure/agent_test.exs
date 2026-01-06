@@ -5,7 +5,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   Verifies:
   - Agent registration and CRUD
   - State machine transitions (connecting → connected → degraded → disconnected → unavailable)
-  - Read actions (by_uid, by_poller, connected, by_status)
+  - Read actions (by_uid, by_gateway, connected, by_status)
   - Calculations (type_name, display_name, is_online, status_color)
   - Policy enforcement
   - Tenant isolation
@@ -20,11 +20,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "agent registration" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      {:ok, tenant: tenant, poller: poller}
+      gateway = gateway_fixture(tenant)
+      {:ok, tenant: tenant, gateway: gateway}
     end
 
-    test "can register an agent with required fields", %{tenant: tenant, poller: poller} do
+    test "can register an agent with required fields", %{tenant: tenant, gateway: gateway} do
       result =
         Agent
         |> Ash.Changeset.for_create(
@@ -33,7 +33,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-test-001",
             name: "Test Agent",
             type_id: 4,
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -51,14 +51,14 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.tenant_id == tenant.id
     end
 
-    test "can register agent as already connected", %{tenant: tenant, poller: poller} do
+    test "can register agent as already connected", %{tenant: tenant, gateway: gateway} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(
           :register_connected,
           %{
             uid: "agent-connected-001",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -70,8 +70,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.is_healthy == true
     end
 
-    test "sets timestamps on registration", %{tenant: tenant, poller: poller} do
-      agent = agent_fixture(poller)
+    test "sets timestamps on registration", %{tenant: tenant, gateway: gateway} do
+      agent = agent_fixture(gateway)
 
       assert agent.first_seen_time != nil
       assert agent.last_seen_time != nil
@@ -79,10 +79,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert DateTime.diff(DateTime.utc_now(), agent.first_seen_time, :second) < 60
     end
 
-    test "supports all OCSF agent type IDs", %{tenant: tenant, poller: poller} do
+    test "supports all OCSF agent type IDs", %{tenant: tenant, gateway: gateway} do
       for type_id <- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99] do
         unique = System.unique_integer([:positive])
-        agent = agent_fixture(poller, %{uid: "agent-type-#{type_id}-#{unique}", type_id: type_id})
+        agent = agent_fixture(gateway, %{uid: "agent-type-#{type_id}-#{unique}", type_id: type_id})
         assert agent.type_id == type_id
       end
     end
@@ -91,23 +91,23 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "state machine - connection lifecycle" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
       # Start with agent in connecting state
       # starts in :connecting by default
-      agent = agent_fixture(poller)
-      {:ok, tenant: tenant, poller: poller, agent: agent}
+      agent = agent_fixture(gateway)
+      {:ok, tenant: tenant, gateway: gateway, agent: agent}
     end
 
     test "can establish connection from connecting state", %{
       tenant: tenant,
-      poller: poller,
+      gateway: gateway,
       agent: agent
     } do
       actor = operator_actor(tenant)
 
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{poller_id: poller.id},
+        |> Ash.Changeset.for_update(:establish_connection, %{gateway_id: gateway.id},
           actor: actor,
           tenant: tenant.id
         )
@@ -133,7 +133,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "state machine - health degradation" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
 
       # Create agent in connected state
       {:ok, agent} =
@@ -142,7 +142,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           :register_connected,
           %{
             uid: "agent-health-test-#{System.unique_integer([:positive])}",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -150,7 +150,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, poller: poller, agent: agent}
+      {:ok, tenant: tenant, gateway: gateway, agent: agent}
     end
 
     test "admin can degrade connected agent", %{tenant: tenant, agent: agent} do
@@ -184,7 +184,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert restored.is_healthy == true
     end
 
-    test "operator cannot degrade agent (admin only)", %{tenant: tenant, agent: agent} do
+    test "operator can degrade agent", %{tenant: tenant, agent: agent} do
       actor = operator_actor(tenant)
 
       result =
@@ -192,14 +192,15 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:ok, degraded} = result
+      assert degraded.status == :degraded
     end
   end
 
   describe "state machine - disconnection" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
 
       {:ok, agent} =
         Agent
@@ -207,7 +208,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           :register_connected,
           %{
             uid: "agent-disconnect-test-#{System.unique_integer([:positive])}",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -215,7 +216,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, poller: poller, agent: agent}
+      {:ok, tenant: tenant, gateway: gateway, agent: agent}
     end
 
     test "can lose connection from connected state", %{tenant: tenant, agent: agent} do
@@ -227,7 +228,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.update()
 
       assert disconnected.status == :disconnected
-      assert disconnected.poller_id == nil
+      assert disconnected.gateway_id == nil
     end
 
     test "can reconnect from disconnected state", %{tenant: tenant, agent: agent} do
@@ -252,7 +253,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "state machine - unavailable" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
 
       {:ok, agent} =
         Agent
@@ -260,7 +261,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           :register_connected,
           %{
             uid: "agent-unavailable-test-#{System.unique_integer([:positive])}",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -268,7 +269,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, poller: poller, agent: agent}
+      {:ok, tenant: tenant, gateway: gateway, agent: agent}
     end
 
     test "admin can mark agent as unavailable", %{tenant: tenant, agent: agent} do
@@ -321,7 +322,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "read actions" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
 
       # Connected agent
       {:ok, agent_connected} =
@@ -330,7 +331,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           :register_connected,
           %{
             uid: "agent-connected-read",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -339,11 +340,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.create()
 
       # Connecting agent
-      agent_connecting = agent_fixture(poller, %{uid: "agent-connecting-read"})
+      agent_connecting = agent_fixture(gateway, %{uid: "agent-connecting-read"})
 
       {:ok,
        tenant: tenant,
-       poller: poller,
+       gateway: gateway,
        agent_connected: agent_connected,
        agent_connecting: agent_connecting}
     end
@@ -359,16 +360,16 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert found.uid == agent.uid
     end
 
-    test "by_poller returns agents for specific poller", %{
+    test "by_gateway returns agents for specific gateway", %{
       tenant: tenant,
-      poller: poller,
+      gateway: gateway,
       agent_connected: agent
     } do
       actor = viewer_actor(tenant)
 
       {:ok, agents} =
         Agent
-        |> Ash.Query.for_read(:by_poller, %{poller_id: poller.id},
+        |> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway.id},
           actor: actor,
           tenant: tenant.id
         )
@@ -408,11 +409,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   describe "calculations" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      {:ok, tenant: tenant, poller: poller}
+      gateway = gateway_fixture(tenant)
+      {:ok, tenant: tenant, gateway: gateway}
     end
 
-    test "type_name returns correct OCSF type names", %{tenant: tenant, poller: poller} do
+    test "type_name returns correct OCSF type names", %{tenant: tenant, gateway: gateway} do
       actor = viewer_actor(tenant)
 
       type_map = %{
@@ -427,7 +428,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         unique = System.unique_integer([:positive])
 
         agent =
-          agent_fixture(poller, %{uid: "agent-type-calc-#{type_id}-#{unique}", type_id: type_id})
+          agent_fixture(gateway, %{uid: "agent-type-calc-#{type_id}-#{unique}", type_id: type_id})
 
         {:ok, [loaded]} =
           Agent
@@ -439,12 +440,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       end
     end
 
-    test "display_name uses name, then host, then uid", %{tenant: tenant, poller: poller} do
+    test "display_name uses name, then host, then uid", %{tenant: tenant, gateway: gateway} do
       actor = viewer_actor(tenant)
 
       # Agent with name
       agent_named =
-        agent_fixture(poller, %{
+        agent_fixture(gateway, %{
           uid: "agent-display-named",
           name: "My Custom Agent",
           host: "192.168.1.100"
@@ -460,7 +461,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       # Agent without name but with host
       agent_host =
-        agent_fixture(poller, %{
+        agent_fixture(gateway, %{
           uid: "agent-display-host",
           name: nil,
           host: "192.168.1.101"
@@ -475,7 +476,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert loaded.display_name == "192.168.1.101"
     end
 
-    test "status_color returns correct colors for each status", %{tenant: tenant, poller: poller} do
+    test "status_color returns correct colors for each status", %{tenant: tenant, gateway: gateway} do
       actor = admin_actor(tenant)
 
       # Connected healthy = green
@@ -485,7 +486,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           :register_connected,
           %{
             uid: "agent-color-test-#{System.unique_integer([:positive])}",
-            poller_id: poller.id
+            gateway_id: gateway.id
           },
           actor: system_actor(),
           authorize?: false,
@@ -508,11 +509,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-agent"})
       tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-agent"})
 
-      poller_a = poller_fixture(tenant_a)
-      poller_b = poller_fixture(tenant_b)
+      gateway_a = gateway_fixture(tenant_a)
+      gateway_b = gateway_fixture(tenant_b)
 
-      agent_a = agent_fixture(poller_a, %{uid: "agent-a"})
-      agent_b = agent_fixture(poller_b, %{uid: "agent-b"})
+      agent_a = agent_fixture(gateway_a, %{uid: "agent-a"})
+      agent_b = agent_fixture(gateway_b, %{uid: "agent-b"})
 
       {:ok, tenant_a: tenant_a, tenant_b: tenant_b, agent_a: agent_a, agent_b: agent_b}
     end

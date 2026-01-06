@@ -117,8 +117,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     # Subscribe to agent registration events (global topic for all tenants)
     Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
 
-    # Subscribe to poller registration events
-    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "poller:registrations")
+    # Subscribe to gateway registration events
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:registrations")
 
     Logger.info("HealthCheckRegistrar started, subscribed to registration events")
 
@@ -170,19 +170,19 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     {:noreply, state}
   end
 
-  def handle_info({:poller_registered, _poller_info}, state) do
-    # Pollers don't monitor services directly, but we log for visibility
-    Logger.debug("Poller registered event received")
+  def handle_info({:gateway_registered, _gateway_info}, state) do
+    # Gateways don't monitor services directly, but we log for visibility
+    Logger.debug("Gateway registered event received")
     {:noreply, state}
   end
 
-  def handle_info({:poller_disconnected, _poller_id}, state) do
-    Logger.debug("Poller disconnected event received")
+  def handle_info({:gateway_disconnected, _gateway_id}, state) do
+    Logger.debug("Gateway disconnected event received")
     {:noreply, state}
   end
 
-  def handle_info({:poller_disconnected, _poller_id, _tenant_id}, state) do
-    Logger.debug("Poller disconnected event received")
+  def handle_info({:gateway_disconnected, _gateway_id, _tenant_id}, state) do
+    Logger.debug("Gateway disconnected event received")
     {:noreply, state}
   end
 

@@ -7,7 +7,7 @@ use crate::{
         agent_id as col_agent_id, available_bytes as col_available_bytes,
         device_id as col_device_id, device_name as col_device_name, disk_metrics,
         host_id as col_host_id, mount_point as col_mount_point, partition as col_partition,
-        poller_id as col_poller_id, timestamp as col_timestamp, total_bytes as col_total_bytes,
+        gateway_id as col_gateway_id, timestamp as col_timestamp, total_bytes as col_total_bytes,
         usage_percent as col_usage_percent, used_bytes as col_used_bytes,
     },
     time::TimeRange,
@@ -94,8 +94,8 @@ fn build_query(plan: &QueryPlan) -> Result<DiskQuery<'static>> {
 
 fn apply_filter<'a>(mut query: DiskQuery<'a>, filter: &Filter) -> Result<DiskQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -191,7 +191,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "mount_point"
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "mount_point"
         | "device_name" => collect_text_params(params, filter),
         "usage_percent" => {
             params.push(BindParam::Float(parse_f64(filter.value.as_scalar()?)?));
@@ -235,9 +235,9 @@ fn apply_primary_order<'a>(query: DiskQuery<'a>, clause: &OrderClause) -> DiskQu
             OrderDirection::Asc => query.order(col_usage_percent.asc()),
             OrderDirection::Desc => query.order(col_usage_percent.desc()),
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => query.order(col_device_id.asc()),
@@ -267,9 +267,9 @@ fn apply_secondary_order<'a>(query: DiskQuery<'a>, clause: &OrderClause) -> Disk
                 diesel::QueryDsl::then_order_by(query, col_usage_percent.desc())
             }
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_poller_id.asc()),
-            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_gateway_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_device_id.asc()),

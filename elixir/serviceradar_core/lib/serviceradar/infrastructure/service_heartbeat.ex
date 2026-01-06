@@ -2,7 +2,7 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   @moduledoc """
   GenServer for Elixir service self-reporting via heartbeats.
 
-  Runs in each Elixir service node (core, web-ng, poller) and periodically
+  Runs in each Elixir service node (core, web-ng, gateway) and periodically
   reports health status to the HealthTracker. This enables:
 
   - Automatic health monitoring of Elixir services
@@ -12,7 +12,7 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   ## Architecture
 
       ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-      │  Core Node      │     │  Web Node       │     │  Poller Node    │
+      │  Core Node      │     │  Web Node       │     │  Gateway Node   │
       │  (ServiceHB)    │     │  (ServiceHB)    │     │  (ServiceHB)    │
       └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
                │                       │                       │
@@ -35,7 +35,7 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   ## Configuration
 
       config :serviceradar_core, ServiceRadar.Infrastructure.ServiceHeartbeat,
-        service_type: :core,           # :core | :web | :poller
+        service_type: :core,           # :core | :web | :gateway
         tenant_id: "platform",         # Platform-level tenant for system services
         interval: 30_000,              # Heartbeat interval in ms
         enabled: true

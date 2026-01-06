@@ -378,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       |> String.split("/")
       |> Enum.reject(&(&1 == ""))
 
-    # Treat agents and pollers as children of infrastructure
+    # Treat agents and gateways as children of infrastructure
     segments = normalize_infrastructure_path(segments)
 
     case segments do
@@ -415,13 +415,13 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp build_breadcrumbs(_), do: []
 
-  # Normalize paths so agents and pollers appear under infrastructure
+  # Normalize paths so agents and gateways appear under infrastructure
   defp normalize_infrastructure_path(["agents" | rest]) do
     ["infrastructure", "agents" | rest]
   end
 
-  defp normalize_infrastructure_path(["pollers" | rest]) do
-    ["infrastructure", "pollers" | rest]
+  defp normalize_infrastructure_path(["gateways" | rest]) do
+    ["infrastructure", "gateways" | rest]
   end
 
   defp normalize_infrastructure_path(segments), do: segments
@@ -429,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"
   defp section_label("infrastructure"), do: "Infrastructure"
-  defp section_label("pollers"), do: "Pollers"
+  defp section_label("gateways"), do: "Gateways"
   defp section_label("agents"), do: "Agents"
   defp section_label("nodes"), do: "Nodes"
   defp section_label("events"), do: "Events"
@@ -444,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("analytics"), do: "hero-chart-bar-micro"
   defp section_icon("devices"), do: "hero-server-micro"
   defp section_icon("infrastructure"), do: "hero-cpu-chip-micro"
-  defp section_icon("pollers"), do: "hero-cog-6-tooth-micro"
+  defp section_icon("gateways"), do: "hero-cog-6-tooth-micro"
   defp section_icon("agents"), do: "hero-cube-micro"
   defp section_icon("nodes"), do: "hero-server-stack-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"

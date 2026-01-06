@@ -13,7 +13,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
       # Process sweep host results
       device_updates = ResultProcessor.process_host_results(
         hosts,
-        poller_id: "poller-1",
+        gateway_id: "gateway-1",
         partition: "default",
         agent_id: "agent-1"
       )
@@ -49,7 +49,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
   @type device_update :: %{
           agent_id: String.t(),
-          poller_id: String.t(),
+          gateway_id: String.t(),
           partition: String.t(),
           device_id: String.t() | nil,
           source: atom(),
@@ -66,9 +66,9 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
   ## Options
 
-  - `:poller_id` - ID of the poller that ran the sweep (required)
+  - `:gateway_id` - ID of the gateway that ran the sweep (required)
   - `:partition` - Partition context (required)
-  - `:agent_id` - ID of the agent managing the poller (required)
+  - `:agent_id` - ID of the agent managing the gateway (required)
   - `:timestamp` - Timestamp for the results (default: now)
   - `:resolve_identities` - Whether to lookup canonical identities (default: true)
   - `:actor` - Actor for authorization context
@@ -81,14 +81,14 @@ defmodule ServiceRadar.Core.ResultProcessor do
       ]
 
       updates = ResultProcessor.process_host_results(hosts,
-        poller_id: "poller-1",
+        gateway_id: "gateway-1",
         partition: "default",
         agent_id: "agent-1"
       )
   """
   @spec process_host_results([host_result()], keyword()) :: [device_update()]
   def process_host_results(hosts, opts \\ []) do
-    poller_id = Keyword.fetch!(opts, :poller_id)
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
     partition = Keyword.fetch!(opts, :partition)
     agent_id = Keyword.fetch!(opts, :agent_id)
     timestamp = Keyword.get(opts, :timestamp, DateTime.utc_now())
@@ -110,7 +110,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
     |> Enum.filter(&valid_host?/1)
     |> Enum.map(fn host ->
       build_device_update(host, %{
-        poller_id: poller_id,
+        gateway_id: gateway_id,
         partition: partition,
         agent_id: agent_id,
         timestamp: timestamp,
@@ -151,7 +151,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
     update = %{
       agent_id: context.agent_id,
-      poller_id: context.poller_id,
+      gateway_id: context.gateway_id,
       partition: context.partition,
       device_id: nil,
       source: :sweep,

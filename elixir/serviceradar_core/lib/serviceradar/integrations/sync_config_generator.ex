@@ -87,7 +87,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "poll_interval" => format_duration(source.poll_interval_seconds),
       "sweep_interval" => format_duration(source.sweep_interval_seconds),
       "agent_id" => source.agent_id,
-      "poller_id" => source.poller_id,
+      "gateway_id" => source.gateway_id,
       "partition" => source.partition,
       "network_blacklist" => source.network_blacklist,
       "custom_field" => first_custom_field(source.custom_fields),

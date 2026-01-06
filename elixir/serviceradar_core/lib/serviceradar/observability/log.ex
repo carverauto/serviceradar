@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.Log do
   Log entry resource for observability (OpenTelemetry-aligned).
 
   Maps to the `logs` table with OpenTelemetry Logs Data Model attributes.
-  Logs are ingested from pollers, agents, and external sources via OTLP.
+  Logs are ingested from gateways, agents, and external sources via OTLP.
 
   ## OpenTelemetry Severity Numbers
 

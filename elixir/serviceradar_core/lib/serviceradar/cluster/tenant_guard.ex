@@ -242,8 +242,8 @@ defmodule ServiceRadar.Cluster.TenantGuard do
 
   defp get_tenant_from_node(node_name) do
     # Node name format options:
-    # 1. poller-001@partition-1.acme-corp.serviceradar (tenant in hostname)
-    # 2. poller-001@10.0.0.1 (no tenant info, use certificate)
+    # 1. gateway-001@partition-1.acme-corp.serviceradar (tenant in hostname)
+    # 2. gateway-001@10.0.0.1 (no tenant info, use certificate)
 
     node_str = Atom.to_string(node_name)
 

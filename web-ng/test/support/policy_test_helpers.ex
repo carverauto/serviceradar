@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
 
     case resource do
       ServiceRadar.Inventory.Device -> device_fixture(tenant)
-      ServiceRadar.Infrastructure.Poller -> poller_fixture(tenant)
+      ServiceRadar.Infrastructure.Gateway -> gateway_fixture(tenant)
       ServiceRadar.Identity.User -> user_fixture(tenant)
       ServiceRadar.Monitoring.Alert -> alert_fixture(tenant)
       ServiceRadar.Monitoring.Event -> event_fixture(tenant)

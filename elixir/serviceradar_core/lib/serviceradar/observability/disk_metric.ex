@@ -56,7 +56,7 @@ defmodule ServiceRadar.Observability.DiskMetric do
     create :create do
       accept [
         :timestamp,
-        :poller_id,
+        :gateway_id,
         :agent_id,
         :host_id,
         :mount_point,
@@ -92,9 +92,9 @@ defmodule ServiceRadar.Observability.DiskMetric do
       description "When the metric was recorded"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller that collected this metric"
+      description "Gateway that collected this metric"
     end
 
     attribute :agent_id, :string do

@@ -5,13 +5,13 @@ defmodule ServiceRadar.SPIFFETest do
 
   describe "parse_spiffe_id/1" do
     test "parses valid SPIFFE ID with partition" do
-      spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
       assert {:ok, parsed} = SPIFFE.parse_spiffe_id(spiffe_id)
       assert parsed.trust_domain == "serviceradar.local"
-      assert parsed.node_type == :poller
+      assert parsed.node_type == :gateway
       assert parsed.partition_id == "partition-1"
-      assert parsed.node_id == "poller-001"
+      assert parsed.node_id == "gateway-001"
     end
 
     test "parses valid SPIFFE ID without partition" do
@@ -50,9 +50,9 @@ defmodule ServiceRadar.SPIFFETest do
 
   describe "build_spiffe_id/3" do
     test "builds SPIFFE ID with default trust domain" do
-      result = SPIFFE.build_spiffe_id(:poller, "partition-1", "poller-001")
+      result = SPIFFE.build_spiffe_id(:gateway, "partition-1", "gateway-001")
 
-      assert result == "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      assert result == "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
     end
 
     test "builds SPIFFE ID with custom trust domain" do
@@ -71,25 +71,25 @@ defmodule ServiceRadar.SPIFFETest do
 
   describe "authorized?/2" do
     test "returns true for matching node type and trust domain" do
-      spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
-      assert SPIFFE.authorized?(spiffe_id, :poller) == true
+      assert SPIFFE.authorized?(spiffe_id, :gateway) == true
     end
 
     test "returns false for non-matching node type" do
-      spiffe_id = "spiffe://serviceradar.local/poller/partition-1/poller-001"
+      spiffe_id = "spiffe://serviceradar.local/gateway/partition-1/gateway-001"
 
       assert SPIFFE.authorized?(spiffe_id, :agent) == false
     end
 
     test "returns false for non-matching trust domain" do
-      spiffe_id = "spiffe://other-domain.local/poller/partition-1/poller-001"
+      spiffe_id = "spiffe://other-domain.local/gateway/partition-1/gateway-001"
 
-      assert SPIFFE.authorized?(spiffe_id, :poller) == false
+      assert SPIFFE.authorized?(spiffe_id, :gateway) == false
     end
 
     test "returns false for invalid SPIFFE ID" do
-      assert SPIFFE.authorized?("invalid", :poller) == false
+      assert SPIFFE.authorized?("invalid", :gateway) == false
     end
   end
 

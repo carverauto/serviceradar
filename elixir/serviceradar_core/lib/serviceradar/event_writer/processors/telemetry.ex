@@ -12,7 +12,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   ```json
   {
     "timestamp": "2024-01-01T00:00:00Z",
-    "poller_id": "poller-1",
+    "gateway_id": "gateway-1",
     "agent_id": "agent-1",
     "metric_name": "cpu_usage",
     "metric_type": "gauge",
@@ -28,7 +28,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   ```sql
   CREATE TABLE timeseries_metrics (
     timestamp TIMESTAMPTZ NOT NULL,
-    poller_id TEXT NOT NULL,
+    gateway_id TEXT NOT NULL,
     agent_id TEXT,
     metric_name TEXT NOT NULL,
     metric_type TEXT NOT NULL,
@@ -99,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
     %{
       timestamp: timestamp,
-      poller_id: FieldParser.get_field(json, "poller_id", "pollerId", "unknown"),
+      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId", "unknown"),
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
       metric_name: FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
       metric_type: FieldParser.get_field(json, "metric_type", "metricType") || json["type"] || "gauge",

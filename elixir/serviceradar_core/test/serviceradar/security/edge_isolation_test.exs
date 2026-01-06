@@ -5,7 +5,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   Verifies that:
   - Edge nodes (Go agents) cannot RPC to core nodes (9.1)
   - Edge nodes cannot enumerate Horde registries (9.2)
-  - The ERTS cluster only contains core/poller nodes, no edge agents
+  - The ERTS cluster only contains core/gateway nodes, no edge agents
   - Go agents can only communicate via gRPC, not ERTS
 
   ## Security Model
@@ -13,7 +13,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   With the removal of Elixir edge agents, the security model is:
 
   1. **Core nodes** - Full ERTS cluster members, can communicate via RPC
-  2. **Poller nodes** - ERTS cluster members in secure network zone
+  2. **Gateway nodes** - ERTS cluster members in secure network zone
   3. **Go agents** - External to ERTS, communicate only via gRPC with mTLS
 
   This test suite validates that the architecture enforces these boundaries.
@@ -42,13 +42,13 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
     test "cluster topology identifies node types correctly" do
       node_str = Atom.to_string(node())
 
-      # Current node should be identifiable as core, poller, or web - never agent
+      # Current node should be identifiable as core, gateway, or web - never agent
       node_type = detect_node_type(node_str)
 
       refute node_type == :agent,
         "Test is running on an agent node, but agents should not be ERTS cluster members"
 
-      assert node_type in [:core, :poller, :web, :test, :unknown],
+      assert node_type in [:core, :gateway, :web, :test, :unknown],
         "Node type #{node_type} should be a valid cluster node type"
     end
 
@@ -192,7 +192,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   defp detect_node_type(node_str) do
     cond do
       String.contains?(node_str, "core") -> :core
-      String.contains?(node_str, "poller") -> :poller
+      String.contains?(node_str, "gateway") -> :gateway
       String.contains?(node_str, "web") -> :web
       String.contains?(node_str, "agent") -> :agent
       String.contains?(node_str, "test") or String.contains?(node_str, "nonode") -> :test

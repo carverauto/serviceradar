@@ -5,7 +5,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   Creates alerts from various monitoring events:
   - Service state changes (up/down)
   - Device availability changes
-  - Poller/agent health issues
+  - Gateway/agent health issues
   - Metric threshold violations
   - Stats anomalies
 
@@ -15,7 +15,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       AlertGenerator.service_down(
         service_check_id: "check-123",
         service_name: "web-server",
-        poller_id: "poller-1",
+        gateway_id: "gateway-1",
         device_uid: "device-456",
         details: %{"error" => "Connection refused"}
       )
@@ -57,9 +57,9 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   - `:service_check_id` - Service check ID (required)
   - `:service_name` - Name of the service
-  - `:poller_id` - Poller that detected the outage
+  - `:gateway_id` - Gateway that detected the outage
   - `:device_uid` - Device the service runs on
-  - `:agent_uid` - Agent managing the poller
+  - `:agent_uid` - Agent managing the gateway
   - `:error` - Error message/details
   - `:tenant_id` - Tenant ID (required)
   - `:details` - Additional details map
@@ -142,25 +142,25 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   end
 
   @doc """
-  Generate alert for a poller going offline.
+  Generate alert for a gateway going offline.
 
   ## Options
 
-  - `:poller_id` - Poller ID (required)
+  - `:gateway_id` - Gateway ID (required)
   - `:agent_uid` - Agent UID
-  - `:partition` - Partition the poller belongs to
+  - `:partition` - Partition the gateway belongs to
   - `:tenant_id` - Tenant ID (required)
   """
-  @spec poller_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
-  def poller_offline(opts) do
-    poller_id = Keyword.fetch!(opts, :poller_id)
+  @spec gateway_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
+  def gateway_offline(opts) do
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
 
     attrs = %{
       title: "Node Offline",
-      description: "Poller #{poller_id} is not responding",
+      description: "Gateway #{gateway_id} is not responding",
       severity: :critical,
-      source_type: :poller,
-      source_id: poller_id,
+      source_type: :gateway,
+      source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
       metadata: build_metadata(opts),
       tenant_id: Keyword.fetch!(opts, :tenant_id)
@@ -170,21 +170,21 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   end
 
   @doc """
-  Generate alert for a poller recovery.
+  Generate alert for a gateway recovery.
   """
-  @spec poller_recovered(keyword()) :: {:ok, Alert.t()} | {:error, term()}
-  def poller_recovered(opts) do
-    poller_id = Keyword.fetch!(opts, :poller_id)
+  @spec gateway_recovered(keyword()) :: {:ok, Alert.t()} | {:error, term()}
+  def gateway_recovered(opts) do
+    gateway_id = Keyword.fetch!(opts, :gateway_id)
 
-    # Mark poller as recovered in webhook notifier
-    WebhookNotifier.mark_poller_recovered(poller_id)
+    # Mark gateway as recovered in webhook notifier
+    WebhookNotifier.mark_gateway_recovered(gateway_id)
 
     attrs = %{
       title: "Node Online",
-      description: "Poller #{poller_id} is now responding",
+      description: "Gateway #{gateway_id} is now responding",
       severity: :info,
-      source_type: :poller,
-      source_id: poller_id,
+      source_type: :gateway,
+      source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
       metadata: build_metadata(opts),
       tenant_id: Keyword.fetch!(opts, :tenant_id)
@@ -305,7 +305,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
           title: "Non-canonical devices filtered from stats",
           message: message,
           timestamp: DateTime.to_iso8601(now),
-          poller_id: "core",
+          gateway_id: "core",
           details: details
         }
 
@@ -334,7 +334,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       message:
         "ServiceRadar core service initialized at #{DateTime.to_iso8601(DateTime.utc_now())}",
       timestamp: DateTime.to_iso8601(DateTime.utc_now()),
-      poller_id: "core",
+      gateway_id: "core",
       details: %{
         "version" => version,
         "hostname" => hostname
@@ -360,7 +360,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       message:
         "ServiceRadar core service shutting down at #{DateTime.to_iso8601(DateTime.utc_now())}",
       timestamp: DateTime.to_iso8601(DateTime.utc_now()),
-      poller_id: "core",
+      gateway_id: "core",
       details: %{
         "hostname" => hostname
       }
@@ -396,7 +396,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       title: alert.title,
       message: alert.description,
       timestamp: alert.triggered_at |> DateTime.to_iso8601(),
-      poller_id: Keyword.get(opts, :poller_id, "core"),
+      gateway_id: Keyword.get(opts, :gateway_id, "core"),
       service_name: nil,
       details: alert.metadata || %{}
     }
@@ -424,7 +424,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
     base_metadata =
       %{}
-      |> maybe_put("poller_id", Keyword.get(opts, :poller_id))
+      |> maybe_put("gateway_id", Keyword.get(opts, :gateway_id))
       |> maybe_put("partition", Keyword.get(opts, :partition))
       |> maybe_put("ip", Keyword.get(opts, :ip))
       |> maybe_put("error", Keyword.get(opts, :error))

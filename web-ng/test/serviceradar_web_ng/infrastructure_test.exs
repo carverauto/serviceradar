@@ -4,29 +4,29 @@ defmodule ServiceRadarWebNG.InfrastructureTest do
   alias ServiceRadarWebNG.Infrastructure
   alias ServiceRadarWebNG.Repo
 
-  test "list_pollers returns pollers ordered by last_seen desc" do
+  test "list_gateways returns gateways ordered by last_seen desc" do
     {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
 
-    Repo.insert_all("pollers", [
+    Repo.insert_all("gateways", [
       %{
-        poller_id: "test-poller-1",
+        gateway_id: "test-gateway-1",
         last_seen: ~U[2025-01-01 00:00:00Z],
         tenant_id: tenant_uuid
       },
       %{
-        poller_id: "test-poller-2",
+        gateway_id: "test-gateway-2",
         last_seen: ~U[2025-02-01 00:00:00Z],
         tenant_id: tenant_uuid
       }
     ])
 
-    pollers = Infrastructure.list_pollers(limit: 10)
-    ids = Enum.map(pollers, & &1.id)
+    gateways = Infrastructure.list_gateways(limit: 10)
+    ids = Enum.map(gateways, & &1.id)
 
-    assert "test-poller-2" in ids
-    assert "test-poller-1" in ids
+    assert "test-gateway-2" in ids
+    assert "test-gateway-1" in ids
 
-    assert Enum.find_index(ids, &(&1 == "test-poller-2")) <
-             Enum.find_index(ids, &(&1 == "test-poller-1"))
+    assert Enum.find_index(ids, &(&1 == "test-gateway-2")) <
+             Enum.find_index(ids, &(&1 == "test-gateway-1"))
   end
 end

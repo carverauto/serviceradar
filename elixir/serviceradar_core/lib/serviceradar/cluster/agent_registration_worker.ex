@@ -9,12 +9,12 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   ## Configuration
 
-  Start with partition and poller configuration:
+  Start with partition and gateway configuration:
 
       {ServiceRadar.Agent.RegistrationWorker, [
         partition_id: "partition-1",
         agent_id: "agent-001",
-        poller_id: "poller-001",
+        gateway_id: "gateway-001",
         capabilities: [:snmp, :wmi, :disk]
       ]}
 
@@ -33,7 +33,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :agent_id, :poller_id, :capabilities, :status, :registered_at]
+  defstruct [:tenant_id, :partition_id, :agent_id, :gateway_id, :capabilities, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -44,14 +44,14 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
     tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
     agent_id = Keyword.fetch!(opts, :agent_id)
-    poller_id = Keyword.get(opts, :poller_id)
+    gateway_id = Keyword.get(opts, :gateway_id)
     capabilities = Keyword.get(opts, :capabilities, [])
 
     state = %__MODULE__{
       tenant_id: tenant_id,
       partition_id: partition_id,
       agent_id: agent_id,
-      poller_id: poller_id,
+      gateway_id: gateway_id,
       capabilities: capabilities,
       status: :available,
       registered_at: DateTime.utc_now()
@@ -61,7 +61,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
     case register_agent(state) do
       {:ok, _pid} ->
         Logger.info(
-          "Agent registered: tenant=#{tenant_id} partition=#{partition_id} agent_id=#{agent_id} poller=#{poller_id || "none"} node=#{Node.self()}"
+          "Agent registered: tenant=#{tenant_id} partition=#{partition_id} agent_id=#{agent_id} gateway=#{gateway_id || "none"} node=#{Node.self()}"
         )
 
         schedule_heartbeat()
@@ -107,7 +107,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
       tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       agent_id: state.agent_id,
-      poller_id: state.poller_id,
+      gateway_id: state.gateway_id,
       capabilities: state.capabilities,
       node: Node.self(),
       status: state.status,
@@ -183,7 +183,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   defp register_agent(state) do
     metadata = %{
       partition_id: state.partition_id,
-      poller_id: state.poller_id,
+      gateway_id: state.gateway_id,
       capabilities: state.capabilities,
       node: Node.self(),
       status: state.status

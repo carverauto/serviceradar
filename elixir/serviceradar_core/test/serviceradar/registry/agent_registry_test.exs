@@ -5,7 +5,7 @@ defmodule ServiceRadar.AgentRegistryTest do
   Verifies that:
   - Agents can be registered with gRPC connection details
   - gRPC addresses can be looked up by agent ID
-  - Registry properly supports poller discovery of agents
+  - Registry properly supports gateway discovery of agents
   - Multi-tenant isolation works for registry operations
   """
 

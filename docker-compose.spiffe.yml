@@ -121,14 +121,6 @@ services:
       - ./docker/compose/update-config.sh:/usr/local/bin/update-config.sh:ro
     environment:
       - SYSMON_OSX_ADDRESS=${SYSMON_OSX_ADDRESS:-192.168.1.219:50110}
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
-      - POLLERS_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - POLLERS_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - POLLERS_SPIRE_UPSTREAM_ADDRESS=${POLLERS_SPIRE_UPSTREAM_ADDRESS:-spire-server}
-      - POLLERS_SPIRE_UPSTREAM_PORT=${POLLERS_SPIRE_UPSTREAM_PORT:-8081}
-      - POLLERS_SPIRE_INSECURE_BOOTSTRAP=${POLLERS_SPIRE_INSECURE_BOOTSTRAP:-true}
-      - POLLERS_SPIRE_PARENT_ID=${POLLERS_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
-      - POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=${POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
     depends_on:
       cert-generator:
         condition: service_completed_successfully
@@ -276,74 +268,6 @@ services:
     restart: unless-stopped
 
 
-  # ServiceRadar Poller Service
-  poller:
-    image: ghcr.io/carverauto/serviceradar-poller:${APP_TAG:-latest}
-    container_name: serviceradar-poller
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - poller-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-      - spire-agent-sockets:/run/spire/sockets:ro
-    environment:
-      # Config path
-      - CONFIG_SOURCE=kv
-      - CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - CORE_ADDRESS=serviceradar-core:50052
-      - CORE_SEC_MODE=spiffe
-      - CORE_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - CORE_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/core
-      - CORE_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - CORE_CERT_DIR=/etc/serviceradar/certs
-      - KV_ADDRESS=serviceradar-datasvc:50057
-      - KV_SEC_MODE=spiffe
-      - KV_TRUST_DOMAIN=${SPIRE_TRUST_DOMAIN:-carverauto.dev}
-      - KV_SERVER_SPIFFE_ID=spiffe://carverauto.dev/services/datasvc
-      - KV_WORKLOAD_SOCKET=unix://${SPIRE_AGENT_SOCKET:-/run/spire/sockets/agent.sock}
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - POLLERS_SECURITY_MODE=${POLLERS_SECURITY_MODE:-spiffe}
-      - MANAGE_NESTED_SPIRE=${MANAGE_NESTED_SPIRE:-disabled}
-      - POLLERS_TRUST_DOMAIN=${POLLERS_TRUST_DOMAIN:-carverauto.dev}
-      - NESTED_SPIRE_CONFIG_DIR=/etc/serviceradar/config/poller-spire
-      - NESTED_SPIRE_PARENT_ID=${NESTED_SPIRE_PARENT_ID:-spiffe://carverauto.dev/ns/edge/poller-nested-spire}
-      - NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=${NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID:-spiffe://carverauto.dev/services/poller}
-      - NESTED_SPIRE_AGENT_SPIFFE_ID=${NESTED_SPIRE_AGENT_SPIFFE_ID:-spiffe://carverauto.dev/services/agent}
-      - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN:-}
-      - NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_UPSTREAM_JOIN_TOKEN_FILE:-}
-      - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE:-}
-      - NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE=${NESTED_SPIRE_UPSTREAM_TRUST_BUNDLE_FILE:-}
-      - NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN=${NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN:-}
-      - NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN_FILE=${NESTED_SPIRE_DOWNSTREAM_JOIN_TOKEN_FILE:-}
-      - NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN=${NESTED_SPIRE_AUTO_GENERATE_DOWNSTREAM_TOKEN:-1}
-      - NESTED_SPIRE_SERVER_SOCKET=${NESTED_SPIRE_SERVER_SOCKET:-/run/spire/nested/server/api.sock}
-      - ENABLE_POLLER_JOIN_TOKEN=${ENABLE_POLLER_JOIN_TOKEN:-enabled}
-      - DOWNSTREAM_REGISTRATION_MODE=${DOWNSTREAM_REGISTRATION_MODE:-disabled}
-      # Logging
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      cert-generator:
-        condition: service_completed_successfully
-      config-updater:
-        condition: service_completed_successfully
-      core:
-        condition: service_healthy
-      poller-kv-seed:
-        condition: service_completed_successfully
-      spire-agent:
-        condition: service_healthy
-    command: ["/usr/local/bin/serviceradar-poller","-config","/etc/serviceradar/config/poller.json"]
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep -f serviceradar-poller >/dev/null"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    networks:
-      serviceradar-net:
-        aliases:
-          - poller.serviceradar
-    restart: unless-stopped
 
   # ServiceRadar Agent Service
   agent:
@@ -472,30 +396,6 @@ services:
           - datasvc.serviceradar
     restart: unless-stopped
 
-  # Seed poller configuration/template into KV so the Admin UI has defaults.
-  poller-kv-seed:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
-    container_name: serviceradar-poller-kv-seed
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-      - generated-config:/etc/serviceradar/config:ro
-      - ./docker/compose/seed-poller-kv.sh:/usr/local/bin/seed-poller-kv.sh:ro
-    environment:
-      - POLLERS_CONFIG_PATH=/etc/serviceradar/config/poller.json
-      - POLLERS_POLLER_ID=${POLLERS_POLLER_ID:-}
-      - KV_BUCKET=${KV_BUCKET:-serviceradar-datasvc}
-      - NATS_SERVER=${NATS_SERVER:-tls://serviceradar-nats:4222}
-    depends_on:
-      config-updater:
-        condition: service_completed_successfully
-      datasvc:
-        condition: service_healthy
-      nats:
-        condition: service_started
-    entrypoint: ["/bin/bash", "/usr/local/bin/seed-poller-kv.sh"]
-    restart: "no"
-    networks:
-      - serviceradar-net
 
   # ServiceRadar OTEL Service (OpenTelemetry collector)
   otel:
@@ -921,8 +821,6 @@ volumes:
   generated-config:
     driver: local
   core-data:
-    driver: local
-  poller-data:
     driver: local
   agent-data:
     driver: local

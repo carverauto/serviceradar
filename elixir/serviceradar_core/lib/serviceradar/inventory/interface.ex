@@ -53,7 +53,7 @@ defmodule ServiceRadar.Inventory.Interface do
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]
-    define :list_by_poller, action: :by_poller, args: [:poller_id]
+    define :list_by_gateway, action: :by_gateway, args: [:gateway_id]
   end
 
   actions do
@@ -73,10 +73,10 @@ defmodule ServiceRadar.Inventory.Interface do
       filter expr(device_id == ^arg(:device_id) and if_index == ^arg(:if_index))
     end
 
-    read :by_poller do
-      description "Get interfaces discovered by a specific poller"
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
+    read :by_gateway do
+      description "Get interfaces discovered by a specific gateway"
+      argument :gateway_id, :string, allow_nil?: false
+      filter expr(gateway_id == ^arg(:gateway_id))
     end
 
     read :latest do
@@ -135,9 +135,9 @@ defmodule ServiceRadar.Inventory.Interface do
       description "Agent that discovered this interface"
     end
 
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller that discovered this interface"
+      description "Gateway that discovered this interface"
     end
 
     attribute :device_ip, :string do

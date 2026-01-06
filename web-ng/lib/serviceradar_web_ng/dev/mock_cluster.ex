@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   Manually set up mock cluster data (gateways and agents).
   """
   def setup(opts \\ []) do
-    gateway_count = Keyword.get(opts, :gateways, Keyword.get(opts, :pollers, 2))
+    gateway_count = Keyword.get(opts, :gateways, 2)
     agent_count = Keyword.get(opts, :agents, 3)
 
     register_mock_gateways(gateway_count)
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
 
   @impl true
   def init(opts) do
-    gateway_count = Keyword.get(opts, :gateways, Keyword.get(opts, :pollers, 2))
+    gateway_count = Keyword.get(opts, :gateways, 2)
     agent_count = Keyword.get(opts, :agents, 3)
 
     Logger.info("[MockCluster] Starting with #{gateway_count} gateways and #{agent_count} agents")

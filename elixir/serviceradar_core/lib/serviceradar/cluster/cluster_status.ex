@@ -17,9 +17,9 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   ├─────────────────────────────────────────────────────────────────────┤
   │                                                                     │
   │  ┌───────────────┐      ┌───────────────┐      ┌───────────────┐   │
-  │  │   core-elx    │      │    web-ng     │      │  poller-elx   │   │
+  │  │   core-elx    │      │    web-ng     │      │  gateway-elx  │   │
   │  │               │      │               │      │               │   │
-  │  │ • ClusterSupv │      │ • LiveViews   │      │ • PollerProc  │   │
+  │  │ • ClusterSupv │      │ • LiveViews   │      │ • GatewayProc │   │
   │  │ • ClusterHlth │◄────►│ • ClusterStat │◄────►│ • Horde reg   │   │
   │  │ • AshOban     │      │ • Telemetry   │      │ • No DB       │   │
   │  │ • PollOrch    │      │ • DB access   │      │               │   │
@@ -54,8 +54,8 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
     - Has database access for Ash resources
     - Does NOT run ClusterSupervisor/ClusterHealth
 
-  - **poller-elx** (cluster_coordinator=false):
-    - Runs PollerProcess for executing monitoring jobs
+  - **gateway-elx** (cluster_coordinator=false):
+    - Runs gateway processes for executing monitoring jobs
     - Registers in Horde for discovery by core-elx
     - No direct database access (uses gRPC to core)
     - Does NOT run ClusterSupervisor/ClusterHealth
@@ -120,7 +120,7 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
       connected_nodes: node_info.connected_nodes,
       node_count: node_info.node_count,
       topologies: get_topologies(),
-      poller_count: counts.poller_count,
+      gateway_count: counts.gateway_count,
       agent_count: counts.agent_count,
       status: health.status,
       last_check: health.last_check
@@ -150,11 +150,11 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   """
   @spec registry_counts() :: map()
   def registry_counts do
-    poller_count = safe_call(fn -> GatewayRegistry.count() end, 0)
+    gateway_count = safe_call(fn -> GatewayRegistry.count() end, 0)
     agent_count = safe_call(fn -> AgentRegistry.count() end, 0)
 
     %{
-      poller_count: poller_count,
+      gateway_count: gateway_count,
       agent_count: agent_count
     }
   end
@@ -222,12 +222,12 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
       %{
         status: health.status || :healthy,
         last_check: health.last_check,
-        poller_count: health.poller_count || 0,
+        gateway_count: health.gateway_count || 0,
         agent_count: health.agent_count || 0
       }
     rescue
       _ ->
-        %{status: :unknown, last_check: nil, poller_count: 0, agent_count: 0}
+        %{status: :unknown, last_check: nil, gateway_count: 0, agent_count: 0}
     end
   end
 
@@ -235,24 +235,24 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
     case find_coordinator() do
       nil ->
         # No coordinator found - return basic status
-        %{status: :no_coordinator, last_check: nil, poller_count: 0, agent_count: 0}
+        %{status: :no_coordinator, last_check: nil, gateway_count: 0, agent_count: 0}
 
       coordinator_node ->
         # RPC to coordinator for health status
         case :rpc.call(coordinator_node, ServiceRadar.ClusterHealth, :get_health, [], 5000) do
           {:badrpc, _reason} ->
-            %{status: :rpc_error, last_check: nil, poller_count: 0, agent_count: 0}
+            %{status: :rpc_error, last_check: nil, gateway_count: 0, agent_count: 0}
 
           health when is_map(health) or is_struct(health) ->
             %{
               status: Map.get(health, :status, :healthy),
               last_check: Map.get(health, :last_check),
-              poller_count: Map.get(health, :poller_count, 0),
+              gateway_count: Map.get(health, :gateway_count, 0),
               agent_count: Map.get(health, :agent_count, 0)
             }
 
           _ ->
-            %{status: :unknown, last_check: nil, poller_count: 0, agent_count: 0}
+            %{status: :unknown, last_check: nil, gateway_count: 0, agent_count: 0}
         end
     end
   end

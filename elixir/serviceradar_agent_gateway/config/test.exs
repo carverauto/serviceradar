@@ -7,7 +7,7 @@ config :swoosh, :api_client, false
 config :serviceradar_core, ServiceRadar.Mailer,
   adapter: Swoosh.Adapters.Test
 
-# Disable Repo and Oban for standalone poller tests (no database needed)
+# Disable Repo and Oban for standalone agent gateway tests (no database needed)
 config :serviceradar_core,
   repo_enabled: false
 

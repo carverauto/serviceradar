@@ -555,9 +555,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           />
 
           <.input
-            field={@form[:poller_id]}
+            field={@form[:gateway_id]}
             type="text"
-            label="Poller ID (Optional)"
+            label="Gateway ID (Optional)"
             placeholder="Poller to assign this source to"
           />
 
@@ -647,7 +647,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             options={@agent_options}
             prompt="Auto-assign to any connected agent"
           />
-          <.input field={@form[:poller_id]} type="text" label="Poller ID (Optional)" />
+          <.input field={@form[:gateway_id]} type="text" label="Gateway ID (Optional)" />
 
           <.input
             field={@form[:poll_interval_seconds]}
@@ -749,10 +749,10 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </div>
           <% end %>
 
-          <%= if @source.poller_id do %>
+          <%= if @source.gateway_id do %>
             <div>
-              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Poller ID</div>
-              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.poller_id}</code>
+              <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Gateway ID</div>
+              <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.gateway_id}</code>
             </div>
           <% end %>
 
@@ -998,7 +998,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp normalize_optional_params(params) do
     params
     |> normalize_blank_param("agent_id")
-    |> normalize_blank_param("poller_id")
+    |> normalize_blank_param("gateway_id")
     |> normalize_blank_param("partition")
   end
 

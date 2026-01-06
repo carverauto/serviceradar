@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   Agent resource for managing Go agents (OCSF v1.4.0 Agent object).
 
   Agents are Go processes that run on monitored hosts, proxying service checks
-  to local checkers. They connect to pollers via gRPC and are tracked in the
+  to local checkers. They connect to gateways via gRPC and are tracked in the
   AgentRegistry (Horde.Registry).
 
   ## Role
@@ -101,12 +101,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       # Read operations
       get :by_uid
       index :read
-      index :by_poller, route: "/by-poller/:poller_id"
+      index :by_gateway, route: "/by-gateway/:gateway_id"
 
       # Admin/onboarding creates agent records (host:port known from onboarding package)
       post :register
 
-      # Poller updates agent status after connecting via gRPC
+      # Gateway updates agent status after connecting via gRPC
       patch :establish_connection, route: "/:id/connect"
       patch :heartbeat, route: "/:id/heartbeat"
       patch :lose_connection, route: "/:id/disconnect"
@@ -145,7 +145,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   code_interface do
     define :get_by_uid, action: :by_uid, args: [:uid]
-    define :list_by_poller, action: :by_poller, args: [:poller_id]
+    define :list_by_gateway, action: :by_gateway, args: [:gateway_id]
     define :list_connected, action: :connected
   end
 
@@ -158,9 +158,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
       filter expr(uid == ^arg(:uid))
     end
 
-    read :by_poller do
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(poller_id == ^arg(:poller_id))
+    read :by_gateway do
+      argument :gateway_id, :string, allow_nil?: false
+      filter expr(gateway_id == ^arg(:gateway_id))
     end
 
     read :by_device do
@@ -203,7 +203,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :vendor_name,
         :version,
         :policies,
-        :poller_id,
+        :gateway_id,
         :device_uid,
         :capabilities,
         :host,
@@ -235,7 +235,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :vendor_name,
         :version,
         :policies,
-        :poller_id,
+        :gateway_id,
         :device_uid,
         :capabilities,
         :host,
@@ -255,7 +255,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :vendor_name,
         :version,
         :policies,
-        :poller_id,
+        :gateway_id,
         :device_uid,
         :capabilities,
         :host,
@@ -306,7 +306,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"
-      accept [:poller_id]
+      accept [:gateway_id]
       require_atomic? false
 
       change transition_state(:connected)
@@ -350,7 +350,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       require_atomic? false
 
       change transition_state(:disconnected)
-      change set_attribute(:poller_id, nil)
+      change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
@@ -386,8 +386,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     # Legacy compatibility actions (mapped to state machine)
     update :connect do
-      description "Mark agent as connected to a poller (legacy - use establish_connection)"
-      accept [:poller_id]
+      description "Mark agent as connected to a gateway (legacy - use establish_connection)"
+      accept [:gateway_id]
       require_atomic? false
 
       change transition_state(:connected)
@@ -402,7 +402,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
       require_atomic? false
 
       change transition_state(:disconnected)
-      change set_attribute(:poller_id, nil)
+      change set_attribute(:gateway_id, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
       change {ServiceRadar.Infrastructure.Changes.PublishStateChange, entity_type: :agent, new_state: :disconnected}
     end
@@ -489,9 +489,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
 
     # ServiceRadar-specific fields
-    attribute :poller_id, :string do
+    attribute :gateway_id, :string do
       public? true
-      description "Poller this agent is connected to"
+      description "Gateway this agent is connected to"
     end
 
     attribute :device_uid, :string do
@@ -571,7 +571,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   relationships do
     belongs_to :gateway, ServiceRadar.Infrastructure.Gateway do
-      source_attribute :poller_id
+      source_attribute :gateway_id
       destination_attribute :id
       allow_nil? true
       public? true

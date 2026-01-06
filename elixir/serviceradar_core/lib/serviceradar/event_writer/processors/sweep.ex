@@ -19,7 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   ```json
   {
     "host_ip": "192.168.1.100",
-    "poller_id": "poller-1",
+    "gateway_id": "gateway-1",
     "agent_id": "agent-1",
     "partition": "default",
     "network_cidr": "192.168.1.0/24",
@@ -163,9 +163,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       # Response time as duration
       duration: FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs"),
 
-      # Device (the poller that performed the sweep)
+      # Device (the gateway that performed the sweep)
       device: OCSF.build_device(
-        name: FieldParser.get_field(json, "poller_id", "pollerId")
+        name: FieldParser.get_field(json, "gateway_id", "gatewayId")
       ),
 
       # Actor (the agent)
@@ -190,8 +190,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       # Multi-tenancy
       tenant_id: tenant_id,
 
-      # Poller/Agent tracking
-      poller_id: FieldParser.get_field(json, "poller_id", "pollerId"),
+      # Gateway/Agent tracking
+      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
 
       # Record timestamp
@@ -263,7 +263,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   defp extract_unmapped(json) do
     known_fields = ~w(
-      host_ip hostIp ip poller_id pollerId agent_id agentId partition
+      host_ip hostIp ip gateway_id gatewayId agent_id agentId partition
       network_cidr networkCidr hostname mac icmp_available icmpAvailable
       icmp_response_time_ns icmpResponseTimeNs icmp_packet_loss icmpPacketLoss
       tcp_ports_scanned tcpPortsScanned tcp_ports_open tcpPortsOpen

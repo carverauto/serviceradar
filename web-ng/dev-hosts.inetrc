@@ -4,5 +4,5 @@
 
 {lookup, [file, native, dns]}.
 {host, {172,18,0,2}, ["core-elx"]}.
-{host, {172,18,0,3}, ["poller-elx"]}.
-{host, {172,18,0,4}, ["agent-elx"]}.
+{host, {172,18,0,3}, ["agent-gateway"]}.
+{host, {172,18,0,4}, ["agent"]}.

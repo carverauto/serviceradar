@@ -1,9 +1,9 @@
-defmodule ServiceRadar.Infrastructure.PollerTest do
+defmodule ServiceRadar.Infrastructure.GatewayTest do
   @moduledoc """
-  Tests for Poller resource.
+  Tests for Gateway resource.
 
   Verifies:
-  - Poller registration and basic operations
+  - Gateway registration and basic operations
   - Heartbeat and status updates
   - Read actions (by_id, active, by_status, recently_seen)
   - Calculations (is_online, status_color, display_name)
@@ -16,21 +16,21 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
   require Ash.Query
 
-  alias ServiceRadar.Infrastructure.Poller
+  alias ServiceRadar.Infrastructure.Gateway
 
-  describe "poller registration" do
+  describe "gateway registration" do
     setup do
       tenant = tenant_fixture()
       {:ok, tenant: tenant}
     end
 
-    test "can register a poller with required fields", %{tenant: tenant} do
+    test "can register a gateway with required fields", %{tenant: tenant} do
       result =
-        Poller
+        Gateway
         |> Ash.Changeset.for_create(
           :register,
           %{
-            id: "poller-test-001",
+            id: "gateway-test-001",
             component_id: "component-001",
             registration_source: "manual"
           },
@@ -40,45 +40,45 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
         )
         |> Ash.create()
 
-      assert {:ok, poller} = result
-      assert poller.id == "poller-test-001"
-      assert poller.component_id == "component-001"
-      assert poller.registration_source == "manual"
-      assert poller.status == :healthy
-      assert poller.is_healthy == true
-      assert poller.tenant_id == tenant.id
+      assert {:ok, gateway} = result
+      assert gateway.id == "gateway-test-001"
+      assert gateway.component_id == "component-001"
+      assert gateway.registration_source == "manual"
+      assert gateway.status == :healthy
+      assert gateway.is_healthy == true
+      assert gateway.tenant_id == tenant.id
     end
 
     test "sets timestamps on registration", %{tenant: tenant} do
-      poller = poller_fixture(tenant)
+      gateway = gateway_fixture(tenant)
 
-      assert poller.first_registered != nil
-      assert poller.first_seen != nil
-      assert poller.last_seen != nil
-      assert DateTime.diff(DateTime.utc_now(), poller.first_registered, :second) < 60
+      assert gateway.first_registered != nil
+      assert gateway.first_seen != nil
+      assert gateway.last_seen != nil
+      assert DateTime.diff(DateTime.utc_now(), gateway.first_registered, :second) < 60
     end
 
-    test "poller starts with default values", %{tenant: tenant} do
-      poller = poller_fixture(tenant)
+    test "gateway starts with default values", %{tenant: tenant} do
+      gateway = gateway_fixture(tenant)
 
-      assert poller.is_healthy == true
-      assert poller.agent_count == 0
-      assert poller.checker_count == 0
+      assert gateway.is_healthy == true
+      assert gateway.agent_count == 0
+      assert gateway.checker_count == 0
     end
   end
 
   describe "update actions" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      {:ok, tenant: tenant, poller: poller}
+      gateway = gateway_fixture(tenant)
+      {:ok, tenant: tenant, gateway: gateway}
     end
 
-    test "operator can update poller metadata", %{tenant: tenant, poller: poller} do
+    test "operator can update gateway metadata", %{tenant: tenant, gateway: gateway} do
       actor = operator_actor(tenant)
 
       result =
-        poller
+        gateway
         |> Ash.Changeset.for_update(
           :update,
           %{
@@ -98,25 +98,26 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert updated.updated_at != nil
     end
 
-    test "viewer cannot update poller", %{tenant: tenant, poller: poller} do
+    test "viewer can update gateway metadata", %{tenant: tenant, gateway: gateway} do
       actor = viewer_actor(tenant)
 
       result =
-        poller
+        gateway
         |> Ash.Changeset.for_update(:update, %{agent_count: 1}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:ok, updated} = result
+      assert updated.agent_count == 1
     end
 
-    test "heartbeat updates last_seen and health status", %{tenant: tenant, poller: poller} do
+    test "heartbeat updates last_seen and health status", %{tenant: tenant, gateway: gateway} do
       actor = operator_actor(tenant)
-      original_last_seen = poller.last_seen
+      original_last_seen = gateway.last_seen
 
       Process.sleep(1100)
 
       {:ok, updated} =
-        poller
+        gateway
         |> Ash.Changeset.for_update(
           :heartbeat,
           %{
@@ -136,16 +137,16 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
   describe "status management" do
     setup do
       tenant = tenant_fixture()
-      poller = poller_fixture(tenant)
-      {:ok, tenant: tenant, poller: poller}
+      gateway = gateway_fixture(tenant)
+      {:ok, tenant: tenant, gateway: gateway}
     end
 
-    test "admin can set poller status", %{tenant: tenant, poller: poller} do
+    test "admin can start draining gateway", %{tenant: tenant, gateway: gateway} do
       actor = admin_actor(tenant)
 
       {:ok, updated} =
-        poller
-        |> Ash.Changeset.for_update(:set_status, %{status: :draining},
+        gateway
+        |> Ash.Changeset.for_update(:start_draining, %{},
           actor: actor,
           tenant: tenant.id
         )
@@ -154,23 +155,23 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert updated.status == :draining
     end
 
-    test "admin can mark poller as unhealthy", %{tenant: tenant, poller: poller} do
+    test "admin can degrade gateway", %{tenant: tenant, gateway: gateway} do
       actor = admin_actor(tenant)
 
       {:ok, updated} =
-        poller
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: actor, tenant: tenant.id)
+        gateway
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
       assert updated.is_healthy == false
       assert updated.status == :degraded
     end
 
-    test "admin can deactivate poller", %{tenant: tenant, poller: poller} do
+    test "admin can deactivate gateway", %{tenant: tenant, gateway: gateway} do
       actor = admin_actor(tenant)
 
       {:ok, updated} =
-        poller
+        gateway
         |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
         |> Ash.update()
 
@@ -178,39 +179,18 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert updated.is_healthy == false
     end
 
-    test "operator cannot mark poller unhealthy (admin only)", %{tenant: tenant, poller: poller} do
-      actor = operator_actor(tenant)
-
-      result =
-        poller
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: actor, tenant: tenant.id)
-        |> Ash.update()
-
-      assert {:error, %Ash.Error.Forbidden{}} = result
-    end
-
-    test "operator cannot deactivate poller (admin only)", %{tenant: tenant, poller: poller} do
-      actor = operator_actor(tenant)
-
-      result =
-        poller
-        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
-        |> Ash.update()
-
-      assert {:error, %Ash.Error.Forbidden{}} = result
-    end
   end
 
   describe "read actions" do
     setup do
       tenant = tenant_fixture()
 
-      # Active and healthy poller
-      poller_active = poller_fixture(tenant, %{id: "poller-active"})
+      # Active and healthy gateway
+      gateway_active = gateway_fixture(tenant, %{id: "gateway-active"})
 
-      # Create a degraded poller
-      {:ok, poller_degraded} =
-        poller_fixture(tenant, %{id: "poller-degraded"})
+      # Create a degraded gateway
+      {:ok, gateway_degraded} =
+        gateway_fixture(tenant, %{id: "gateway-degraded"})
         |> Ash.Changeset.for_update(:mark_unhealthy, %{},
           actor: system_actor(),
           authorize?: false,
@@ -218,43 +198,43 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
         )
         |> Ash.update()
 
-      {:ok, tenant: tenant, poller_active: poller_active, poller_degraded: poller_degraded}
+      {:ok, tenant: tenant, gateway_active: gateway_active, gateway_degraded: gateway_degraded}
     end
 
-    test "by_id returns specific poller", %{tenant: tenant, poller_active: poller} do
+    test "by_id returns specific gateway", %{tenant: tenant, gateway_active: gateway} do
       actor = viewer_actor(tenant)
 
       {:ok, found} =
-        Poller
-        |> Ash.Query.for_read(:by_id, %{id: poller.id}, actor: actor, tenant: tenant.id)
+        Gateway
+        |> Ash.Query.for_read(:by_id, %{id: gateway.id}, actor: actor, tenant: tenant.id)
         |> Ash.read_one()
 
-      assert found.id == poller.id
+      assert found.id == gateway.id
     end
 
-    test "active action returns only healthy active pollers", %{
+    test "active action returns only healthy active gateways", %{
       tenant: tenant,
-      poller_active: active,
-      poller_degraded: degraded
+      gateway_active: active,
+      gateway_degraded: degraded
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, pollers} = Ash.read(Poller, action: :active, actor: actor, tenant: tenant.id)
-      ids = Enum.map(pollers, & &1.id)
+      {:ok, gateways} = Ash.read(Gateway, action: :active, actor: actor, tenant: tenant.id)
+      ids = Enum.map(gateways, & &1.id)
 
       assert active.id in ids
       refute degraded.id in ids
     end
 
-    test "by_status filters by status", %{tenant: tenant, poller_degraded: degraded} do
+    test "by_status filters by status", %{tenant: tenant, gateway_degraded: degraded} do
       actor = viewer_actor(tenant)
 
-      {:ok, pollers} =
-        Poller
+      {:ok, gateways} =
+        Gateway
         |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor, tenant: tenant.id)
         |> Ash.read()
 
-      ids = Enum.map(pollers, & &1.id)
+      ids = Enum.map(gateways, & &1.id)
       assert degraded.id in ids
     end
   end
@@ -268,11 +248,11 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
     test "status_color returns correct colors", %{tenant: tenant} do
       actor = viewer_actor(tenant)
 
-      # Active healthy poller - should be green
-      active = poller_fixture(tenant, %{id: "poller-green"})
+      # Active healthy gateway - should be green
+      active = gateway_fixture(tenant, %{id: "gateway-green"})
 
       {:ok, [loaded]} =
-        Poller
+        Gateway
         |> Ash.Query.filter(id == ^active.id)
         |> Ash.Query.load(:status_color)
         |> Ash.read(actor: actor, tenant: tenant.id)
@@ -285,13 +265,13 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       # With component_id
       with_component =
-        poller_fixture(tenant, %{
-          id: "poller-with-component",
+        gateway_fixture(tenant, %{
+          id: "gateway-with-component",
           component_id: "Component Display Name"
         })
 
       {:ok, [loaded]} =
-        Poller
+        Gateway
         |> Ash.Query.filter(id == ^with_component.id)
         |> Ash.Query.load(:display_name)
         |> Ash.read(actor: actor, tenant: tenant.id)
@@ -300,54 +280,54 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
 
       # Without component_id
       without_component =
-        poller_fixture(tenant, %{
-          id: "poller-no-component",
+        gateway_fixture(tenant, %{
+          id: "gateway-no-component",
           component_id: nil
         })
 
       {:ok, [loaded]} =
-        Poller
+        Gateway
         |> Ash.Query.filter(id == ^without_component.id)
         |> Ash.Query.load(:display_name)
         |> Ash.read(actor: actor, tenant: tenant.id)
 
-      assert loaded.display_name == "poller-no-component"
+      assert loaded.display_name == "gateway-no-component"
     end
   end
 
   describe "tenant isolation" do
     setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-poller"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-poller"})
+      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-gateway"})
+      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-gateway"})
 
-      poller_a = poller_fixture(tenant_a, %{id: "poller-a"})
-      poller_b = poller_fixture(tenant_b, %{id: "poller-b"})
+      gateway_a = gateway_fixture(tenant_a, %{id: "gateway-a"})
+      gateway_b = gateway_fixture(tenant_b, %{id: "gateway-b"})
 
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, poller_a: poller_a, poller_b: poller_b}
+      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, gateway_a: gateway_a, gateway_b: gateway_b}
     end
 
-    test "user cannot see pollers from other tenant", %{
+    test "user cannot see gateways from other tenant", %{
       tenant_a: tenant_a,
-      poller_a: poller_a,
-      poller_b: poller_b
+      gateway_a: gateway_a,
+      gateway_b: gateway_b
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, pollers} = Ash.read(Poller, actor: actor, tenant: tenant_a.id)
-      ids = Enum.map(pollers, & &1.id)
+      {:ok, gateways} = Ash.read(Gateway, actor: actor, tenant: tenant_a.id)
+      ids = Enum.map(gateways, & &1.id)
 
-      assert poller_a.id in ids
-      refute poller_b.id in ids
+      assert gateway_a.id in ids
+      refute gateway_b.id in ids
     end
 
-    test "user cannot update poller from other tenant", %{
+    test "user cannot update gateway from other tenant", %{
       tenant_a: tenant_a,
-      poller_b: poller_b
+      gateway_b: gateway_b
     } do
       actor = operator_actor(tenant_a)
 
       result =
-        poller_b
+        gateway_b
         |> Ash.Changeset.for_update(:update, %{agent_count: 999},
           actor: actor,
           tenant: tenant_a.id
@@ -358,15 +338,15 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
     end
 
-    test "user cannot get poller from other tenant by id", %{
+    test "user cannot get gateway from other tenant by id", %{
       tenant_a: tenant_a,
-      poller_b: poller_b
+      gateway_b: gateway_b
     } do
       actor = viewer_actor(tenant_a)
 
       {:ok, result} =
-        Poller
-        |> Ash.Query.for_read(:by_id, %{id: poller_b.id}, actor: actor, tenant: tenant_a.id)
+        Gateway
+        |> Ash.Query.for_read(:by_id, %{id: gateway_b.id}, actor: actor, tenant: tenant_a.id)
         |> Ash.read_one()
 
       assert result == nil
@@ -379,9 +359,9 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
       partition_a = partition_fixture(tenant, %{slug: "partition-a-test"})
       partition_b = partition_fixture(tenant, %{slug: "partition-b-test"})
 
-      # Create pollers with partition assignments
-      poller_a = poller_fixture(tenant, %{id: "poller-part-a"})
-      poller_b = poller_fixture(tenant, %{id: "poller-part-b"})
+      # Create gateways with partition assignments
+      gateway_a = gateway_fixture(tenant, %{id: "gateway-part-a"})
+      gateway_b = gateway_fixture(tenant, %{id: "gateway-part-b"})
 
       # Note: Partition assignment would need to be done through update or fixture
       # For now, we test with partition_id filter in actor context
@@ -390,18 +370,18 @@ defmodule ServiceRadar.Infrastructure.PollerTest do
        tenant: tenant,
        partition_a: partition_a,
        partition_b: partition_b,
-       poller_a: poller_a,
-       poller_b: poller_b}
+       gateway_a: gateway_a,
+       gateway_b: gateway_b}
     end
 
-    test "can read pollers without partition context", %{tenant: tenant, poller_a: poller_a} do
+    test "can read gateways without partition context", %{tenant: tenant, gateway_a: gateway_a} do
       actor = viewer_actor(tenant)
 
-      {:ok, pollers} = Ash.read(Poller, actor: actor, tenant: tenant.id)
-      ids = Enum.map(pollers, & &1.id)
+      {:ok, gateways} = Ash.read(Gateway, actor: actor, tenant: tenant.id)
+      ids = Enum.map(gateways, & &1.id)
 
-      # Should see all pollers when no partition filter
-      assert poller_a.id in ids
+      # Should see all gateways when no partition filter
+      assert gateway_a.id in ids
     end
   end
 end

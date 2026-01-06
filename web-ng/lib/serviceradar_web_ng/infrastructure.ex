@@ -6,50 +6,50 @@ defmodule ServiceRadarWebNG.Infrastructure do
   to the underlying Ash resources in ServiceRadar.Infrastructure.
   """
 
-  alias ServiceRadar.Infrastructure.{Poller, Agent}
+  alias ServiceRadar.Infrastructure.{Agent, Gateway}
 
   require Ash.Query
 
   @doc """
-  Lists pollers with pagination.
+  Lists gateways with pagination.
 
   ## Options
-    * `:limit` - Maximum number of pollers to return (default: 200)
-    * `:offset` - Number of pollers to skip (default: 0)
+    * `:limit` - Maximum number of gateways to return (default: 200)
+    * `:offset` - Number of gateways to skip (default: 0)
     * `:actor` - The actor for authorization (optional for backward compat)
   """
-  def list_pollers(opts \\ []) do
+  def list_gateways(opts \\ []) do
     limit = Keyword.get(opts, :limit, 200)
     offset = Keyword.get(opts, :offset, 0)
     actor = Keyword.get(opts, :actor)
 
     query_opts = build_query_opts(actor)
 
-    Poller
+    Gateway
     |> Ash.Query.sort(last_seen: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.Query.offset(offset)
     |> Ash.read(query_opts)
     |> case do
-      {:ok, pollers} -> pollers
+      {:ok, gateways} -> gateways
       {:error, _} -> []
     end
   end
 
   @doc """
-  Gets a poller by ID.
+  Gets a gateway by ID.
 
-  Returns `nil` if poller not found.
+  Returns `nil` if gateway not found.
   """
-  def get_poller(id, opts \\ []) do
+  def get_gateway(id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     query_opts = build_query_opts(actor)
 
-    Poller
+    Gateway
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one(query_opts)
     |> case do
-      {:ok, poller} -> poller
+      {:ok, gateway} -> gateway
       {:error, _} -> nil
     end
   end
@@ -99,14 +99,14 @@ defmodule ServiceRadarWebNG.Infrastructure do
   end
 
   @doc """
-  Lists agents by poller.
+  Lists agents by gateway.
   """
-  def list_agents_by_poller(poller_id, opts \\ []) do
+  def list_agents_by_gateway(gateway_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     query_opts = build_query_opts(actor)
 
     Agent
-    |> Ash.Query.filter(poller_id == ^poller_id)
+    |> Ash.Query.filter(gateway_id == ^gateway_id)
     |> Ash.read(query_opts)
     |> case do
       {:ok, agents} -> agents
@@ -115,17 +115,17 @@ defmodule ServiceRadarWebNG.Infrastructure do
   end
 
   @doc """
-  Lists healthy pollers (seen within last 5 minutes).
+  Lists healthy gateways (seen within last 5 minutes).
   """
-  def list_healthy_pollers(opts \\ []) do
+  def list_healthy_gateways(opts \\ []) do
     actor = Keyword.get(opts, :actor)
     query_opts = build_query_opts(actor)
 
-    Poller
+    Gateway
     |> Ash.Query.for_read(:healthy)
     |> Ash.read(query_opts)
     |> case do
-      {:ok, pollers} -> pollers
+      {:ok, gateways} -> gateways
       {:error, _} -> []
     end
   end

@@ -72,13 +72,12 @@ defmodule ServiceRadarAgentGateway.Application do
 
   @impl true
   def start(_type, _args) do
-    partition_id =
-      System.get_env("GATEWAY_PARTITION_ID", System.get_env("POLLER_PARTITION_ID", "default"))
+    partition_id = System.get_env("GATEWAY_PARTITION_ID", "default")
 
     gateway_id = System.get_env("GATEWAY_ID", generate_gateway_id())
-    domain = System.get_env("GATEWAY_DOMAIN", System.get_env("POLLER_DOMAIN", "default"))
-    tenant_id = System.get_env("GATEWAY_TENANT_ID", System.get_env("POLLER_TENANT_ID"))
-    tenant_slug = System.get_env("GATEWAY_TENANT_SLUG", System.get_env("POLLER_TENANT_SLUG"))
+    domain = System.get_env("GATEWAY_DOMAIN", "default")
+    tenant_id = System.get_env("GATEWAY_TENANT_ID")
+    tenant_slug = System.get_env("GATEWAY_TENANT_SLUG")
 
     # Gateway gRPC server configuration
     grpc_port = get_grpc_port()

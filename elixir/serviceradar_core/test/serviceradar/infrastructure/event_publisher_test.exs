@@ -16,8 +16,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
       # In production, this would go to NATS JetStream
 
       event_opts = [
-        entity_type: :poller,
-        entity_id: "poller-123",
+        entity_type: :gateway,
+        entity_id: "gateway-123",
         tenant_id: "tenant-uuid",
         tenant_slug: "acme",
         partition_id: "partition-uuid",
@@ -39,8 +39,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
       # Missing tenant_slug should raise
       assert_raise KeyError, fn ->
         EventPublisher.publish_state_change(
-          entity_type: :poller,
-          entity_id: "poller-123",
+          entity_type: :gateway,
+          entity_id: "gateway-123",
           tenant_id: "tenant-uuid",
           # missing tenant_slug
           old_state: :healthy,
@@ -54,7 +54,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     test "returns supported entity types" do
       types = EventPublisher.entity_types()
 
-      assert :poller in types
+      assert :gateway in types
       assert :agent in types
       assert :checker in types
       assert :collector in types
@@ -77,8 +77,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     test "builds correct event for registration" do
       result =
         EventPublisher.publish_registered(
-          :poller,
-          "poller-123",
+          :gateway,
+          "gateway-123",
           "tenant-uuid",
           "acme",
           initial_state: :healthy,
@@ -111,8 +111,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     test "builds correct event for heartbeat timeout" do
       result =
         EventPublisher.publish_heartbeat_timeout(
-          :poller,
-          "poller-123",
+          :gateway,
+          "gateway-123",
           "tenant-uuid",
           "acme",
           last_seen: DateTime.utc_now(),

@@ -29,9 +29,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.Changeset.for_create(
           :create,
           %{
-            label: "Test Poller Package",
-            component_id: "test-poller-001",
-            component_type: :poller,
+            label: "Test Gateway Package",
+            component_id: "test-gateway-001",
+            component_type: :gateway,
             site: "datacenter-1"
           },
           actor: system_actor(),
@@ -41,9 +41,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.create()
 
       assert {:ok, package} = result
-      assert package.label == "Test Poller Package"
-      assert package.component_id == "test-poller-001"
-      assert package.component_type == :poller
+      assert package.label == "Test Gateway Package"
+      assert package.component_id == "test-gateway-001"
+      assert package.component_type == :gateway
       assert package.status == :issued
       assert package.tenant_id == tenant.id
     end
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     end
 
     test "supports all component types", %{tenant: tenant} do
-      for component_type <- [:poller, :agent, :checker] do
+      for component_type <- [:gateway, :agent, :checker] do
         package = onboarding_package_fixture(tenant, %{component_type: component_type})
         assert package.component_type == component_type
       end
@@ -144,7 +144,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
           :activate,
           %{
             activated_from_ip: "192.168.1.100",
-            last_seen_spiffe_id: "spiffe://example.org/poller/test"
+            last_seen_spiffe_id: "spiffe://example.org/gateway/test"
           },
           actor: actor,
           tenant: tenant.id
@@ -155,7 +155,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert activated.status == :activated
       assert activated.activated_at != nil
       assert activated.activated_from_ip == "192.168.1.100"
-      assert activated.last_seen_spiffe_id == "spiffe://example.org/poller/test"
+      assert activated.last_seen_spiffe_id == "spiffe://example.org/gateway/test"
     end
 
     test "cannot activate from issued state (must deliver first)", %{tenant: tenant} do

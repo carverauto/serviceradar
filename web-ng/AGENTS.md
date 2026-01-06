@@ -65,7 +65,7 @@ test "creates device" do
 end
 ```
 
-Available fixtures: `tenant_fixture/1`, `user_fixture/2`, `device_fixture/2`, `poller_fixture/2`, `agent_fixture/2`, `alert_fixture/2`, etc.
+Available fixtures: `tenant_fixture/1`, `user_fixture/2`, `device_fixture/2`, `gateway_fixture/2`, `agent_fixture/2`, `alert_fixture/2`, etc.
 
 Available actors: `system_actor/0`, `admin_actor/1`, `operator_actor/1`, `viewer_actor/1`
 

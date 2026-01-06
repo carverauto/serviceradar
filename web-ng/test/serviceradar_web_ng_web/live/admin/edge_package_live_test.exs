@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "lists existing packages", %{conn: conn, user: user} do
       {:ok, _} =
         OnboardingPackages.create(
-          %{label: "test-display-pkg", component_type: :poller},
+          %{label: "test-display-pkg", component_type: :gateway},
           tenant: user.tenant_id
         )
 
@@ -57,23 +57,23 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ "Checker Kind"
     end
 
-    test "shows poller_id only for agents and checkers", %{conn: conn} do
+    test "shows gateway_id only for agents and checkers", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
 
       # Open modal
       lv |> element("button", "New Package") |> render_click()
 
-      # Default is poller - should not show poller_id
+      # Default is gateway - should not show gateway_id
       html = render(lv)
-      refute html =~ "Parent Poller ID"
+      refute html =~ "Parent Gateway ID"
 
-      # Change to agent - should show poller_id
+      # Change to agent - should show gateway_id
       html =
         lv
         |> form("#create_package_form", form: %{component_type: "agent"})
         |> render_change()
 
-      assert html =~ "Parent Poller ID"
+      assert html =~ "Parent Gateway ID"
     end
 
     test "has advanced options collapse", %{conn: conn} do
@@ -117,8 +117,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
         lv
         |> form("#create_package_form",
           form: %{
-            label: "test-new-poller",
-            component_type: "poller"
+            label: "test-new-gateway",
+            component_type: "gateway"
           }
         )
         |> render_submit()
@@ -134,19 +134,19 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "auto-generates component_id from label", %{conn: conn, user: user} do
       # Create a package via the UI flow
       attrs = %{
-        label: "Production Poller 01",
-        component_type: :poller
+        label: "Production Gateway 01",
+        component_type: :gateway
       }
 
       # The build_package_attrs_from_form function is tested indirectly
       # by verifying packages have component_ids that match the expected format
       {:ok, result} =
         OnboardingPackages.create(
-          Map.put(attrs, :component_id, "poller-production-poller-01"),
+          Map.put(attrs, :component_id, "gateway-production-gateway-01"),
           tenant: user.tenant_id
         )
 
-      assert result.package.component_id == "poller-production-poller-01"
+      assert result.package.component_id == "gateway-production-gateway-01"
     end
   end
 
@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "filters by status", %{conn: conn, user: user} do
       {:ok, r1} =
         OnboardingPackages.create(
-          %{label: "filter-test-issued", component_type: :poller},
+          %{label: "filter-test-issued", component_type: :gateway},
           tenant: user.tenant_id
         )
 
@@ -195,7 +195,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "shows package details", %{conn: conn, user: user} do
       {:ok, result} =
         OnboardingPackages.create(
-          %{label: "detail-view-test", component_type: :poller, notes: "Test notes here"},
+          %{label: "detail-view-test", component_type: :gateway, notes: "Test notes here"},
           tenant: user.tenant_id
         )
 
@@ -210,7 +210,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "closes details modal", %{conn: conn, user: user} do
       {:ok, result} =
         OnboardingPackages.create(
-          %{label: "close-modal-test", component_type: :poller},
+          %{label: "close-modal-test", component_type: :gateway},
           tenant: user.tenant_id
         )
 
@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
     test "revokes a package", %{conn: conn, user: user} do
       {:ok, result} =
         OnboardingPackages.create(
-          %{label: "revoke-test", component_type: :poller},
+          %{label: "revoke-test", component_type: :gateway},
           tenant: user.tenant_id
         )
 

@@ -3,7 +3,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   Tests for the Infrastructure.Agent resource.
 
   Tests agent registration, state machine transitions, and API operations
-  that pollers use to manage agent lifecycle.
+  that gateways use to manage agent lifecycle.
   """
 
   use ExUnit.Case, async: false
@@ -190,7 +190,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.update()
 
       assert disconnected.status == :disconnected
-      assert disconnected.poller_id == nil
+      assert disconnected.gateway_id == nil
     end
 
     test "reconnect: disconnected -> connecting", %{agent: agent, actor: actor} do
@@ -300,7 +300,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "queries" do
     setup %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
-      # Create multiple agents in different states (without poller FK constraint)
+      # Create multiple agents in different states (without gateway FK constraint)
       {:ok, connected_agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{

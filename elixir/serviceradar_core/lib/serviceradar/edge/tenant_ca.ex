@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.TenantCA do
   Per-tenant Certificate Authority for edge component isolation.
 
   Each tenant has its own intermediate CA signed by the platform root CA.
-  Edge components (pollers, agents, checkers) receive certificates signed
+  Edge components (gateways, agents, checkers) receive certificates signed
   by their tenant's CA, ensuring:
 
   - Network-level isolation: Components can only connect to same-tenant services
@@ -15,10 +15,10 @@ defmodule ServiceRadar.Edge.TenantCA do
   ```
   Platform Root CA (long-lived, offline)
   ├── Tenant-A Intermediate CA
-  │   ├── poller.partition-1.tenant-a.serviceradar
+  │   ├── gateway.partition-1.tenant-a.serviceradar
   │   └── agent-001.partition-1.tenant-a.serviceradar
   ├── Tenant-B Intermediate CA
-  │   └── poller.partition-1.tenant-b.serviceradar
+  │   └── gateway.partition-1.tenant-b.serviceradar
   └── Platform Services CA (shared infrastructure)
       └── core-elx.serviceradar
   ```

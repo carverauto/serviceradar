@@ -85,8 +85,8 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
   ## Example
 
       EventBatcher.queue_event(:state_change, %{
-        entity_type: :poller,
-        entity_id: "poller-001",
+        entity_type: :gateway,
+        entity_id: "gateway-001",
         tenant_id: "uuid",
         tenant_slug: "acme",
         old_state: :healthy,

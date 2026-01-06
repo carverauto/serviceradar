@@ -16,7 +16,7 @@ defmodule ServiceRadar.ClusterHealth do
 
   The health status includes:
   - Node count and list
-  - Poller registry count
+  - Gateway registry count
   - Agent registry count
   - EventWriter status (enabled, running, healthy)
   - Last check timestamp
@@ -32,7 +32,7 @@ defmodule ServiceRadar.ClusterHealth do
     :last_check,
     :node_count,
     :connected_nodes,
-    :poller_count,
+    :gateway_count,
     :agent_count,
     :event_writer,
     :status
@@ -156,7 +156,7 @@ defmodule ServiceRadar.ClusterHealth do
         self: to_string(Node.self()),
         connected_nodes: Enum.map(health.connected_nodes, &to_string/1),
         node_count: health.node_count,
-        poller_count: health.poller_count,
+        gateway_count: health.gateway_count,
         agent_count: health.agent_count,
         last_check: health.last_check
       }
@@ -176,7 +176,7 @@ defmodule ServiceRadar.ClusterHealth do
     connected_nodes = Node.list()
     node_count = length(connected_nodes) + 1
 
-    poller_count = safe_count(ServiceRadar.GatewayRegistry)
+    gateway_count = safe_count(ServiceRadar.GatewayRegistry)
     agent_count = safe_count(ServiceRadar.AgentRegistry)
     event_writer = get_event_writer_status()
 
@@ -186,7 +186,7 @@ defmodule ServiceRadar.ClusterHealth do
       last_check: DateTime.utc_now(),
       node_count: node_count,
       connected_nodes: connected_nodes,
-      poller_count: poller_count,
+      gateway_count: gateway_count,
       agent_count: agent_count,
       event_writer: event_writer,
       status: status
@@ -194,7 +194,7 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   defp safe_count(registry) do
-    # PollerRegistry and AgentRegistry are modules that delegate to TenantRegistry
+    # GatewayRegistry and AgentRegistry are modules that delegate to TenantRegistry
     # They don't have a GenServer process, so we call count() directly
     registry.count()
   rescue
@@ -246,7 +246,7 @@ defmodule ServiceRadar.ClusterHealth do
       [:serviceradar, :cluster, :health_check],
       %{
         node_count: state.node_count,
-        poller_count: state.poller_count,
+        gateway_count: state.gateway_count,
         agent_count: state.agent_count,
         event_writer_running: if(event_writer_running, do: 1, else: 0)
       },

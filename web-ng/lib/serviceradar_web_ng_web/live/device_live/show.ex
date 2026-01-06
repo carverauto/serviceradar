@@ -183,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
               <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
               <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
-              <.kv_inline label="Poller" value={Map.get(@device_row, "poller_id")} mono />
+              <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
@@ -258,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       "metadata",
       "hostname",
       "ip",
-      "poller_id",
+      "gateway_id",
       "last_seen",
       "os_info",
       "version_info",
@@ -1575,8 +1575,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:service, "agent", agent_id} ->
         {:ok, service_query(%{"agent_id" => agent_id})}
 
-      {:service, "poller", poller_id} ->
-        {:ok, service_query(%{"poller_id" => poller_id})}
+      {:service, "gateway", gateway_id} ->
+        {:ok, service_query(%{"gateway_id" => gateway_id})}
 
       {:service, _service_type, service_id} ->
         {:ok, service_query(%{"service_name" => service_id})}

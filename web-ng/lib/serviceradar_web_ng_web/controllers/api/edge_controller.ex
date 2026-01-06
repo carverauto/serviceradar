@@ -36,8 +36,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   Query params:
     - status: comma-separated list of statuses (e.g., "issued,delivered")
-    - component_type: comma-separated list of types (e.g., "poller,checker")
-    - poller_id: filter by poller ID
+    - component_type: comma-separated list of types (e.g., "gateway,checker")
+    - gateway_id: filter by gateway ID
     - component_id: filter by component ID
     - parent_id: filter by parent ID
     - limit: max results (default: 100)
@@ -60,11 +60,11 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
     attrs = %{
       label: params["label"],
-      component_id: params["component_id"] || params["poller_id"],
-      component_type: params["component_type"] || "poller",
+      component_id: params["component_id"] || params["gateway_id"],
+      component_type: params["component_type"] || "gateway",
       parent_type: params["parent_type"],
       parent_id: params["parent_id"],
-      poller_id: params["poller_id"],
+      gateway_id: params["gateway_id"],
       site: params["site"],
       security_mode: params["security_mode"] || "spire",
       selectors: params["selectors"] || [],
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Lists available component templates from KV store.
 
   Query params:
-    - component_type: filter by component type (e.g., "checker", "poller")
+    - component_type: filter by component type (e.g., "checker", "gateway")
     - security_mode: filter by security mode (e.g., "mtls", "insecure")
 
   If both filters are provided, returns templates matching both criteria.
@@ -345,7 +345,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     %{}
     |> maybe_add_filter(:status, parse_list(params["status"]))
     |> maybe_add_filter(:component_type, parse_list(params["component_type"]))
-    |> maybe_add_filter(:poller_id, params["poller_id"])
+    |> maybe_add_filter(:gateway_id, params["gateway_id"])
     |> maybe_add_filter(:component_id, params["component_id"])
     |> maybe_add_filter(:parent_id, params["parent_id"])
     |> maybe_add_filter(:limit, parse_int(params["limit"]))
@@ -410,10 +410,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       package_id: package.id,
       label: package.label,
       component_id: to_str(package.component_id),
-      component_type: package.component_type || "poller",
+      component_type: package.component_type || "gateway",
       parent_type: to_str(package.parent_type),
       parent_id: to_str(package.parent_id),
-      poller_id: to_str(package.poller_id),
+      gateway_id: to_str(package.gateway_id),
       site: to_str(package.site),
       status: package.status,
       security_mode: package.security_mode || "spire",

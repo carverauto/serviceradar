@@ -24,7 +24,7 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   │  │  │ Horde.Registry  │  │ Horde.DynamicSupervisor │           │ │
   │  │  │ (T_abc123.Reg)  │  │ (T_abc123.Sup)          │           │ │
   │  │  │                 │  │                         │           │ │
-  │  │  │ - pollers       │  │ - poller workers        │           │ │
+  │  │  │ - gateways      │  │ - gateway workers       │           │ │
   │  │  │ - agents        │  │ - agent workers         │           │ │
   │  │  └─────────────────┘  └─────────────────────────┘           │ │
   │  └─────────────────────────────────────────────────────────────┘ │
@@ -40,7 +40,7 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
 
   Tenant registries are created:
   1. On tenant creation (via Ash lifecycle hook)
-  2. On first poller/agent connection (lazy initialization)
+  2. On first gateway/agent connection (lazy initialization)
 
   ## Naming Convention
 
@@ -61,11 +61,11 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   # Ensure registry exists (lazy or explicit creation)
   {:ok, registry} = TenantRegistry.ensure_registry("tenant-uuid")
 
-  # Register a poller
-  TenantRegistry.register_poller("tenant-uuid", "poller-001", %{...})
+  # Register a gateway
+  TenantRegistry.register_gateway("tenant-uuid", "gateway-001", %{...})
 
   # Lookup within tenant's registry only
-  TenantRegistry.lookup("tenant-uuid", {:poller, "poller-001"})
+  TenantRegistry.lookup("tenant-uuid", {:gateway, "gateway-001"})
 
   # Start a process under tenant's supervisor
   TenantRegistry.start_child("tenant-uuid", child_spec)
@@ -378,12 +378,12 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   ## Parameters
 
     - `tenant_id` - Tenant UUID
-    - `key` - Registration key (e.g., `{:poller, "poller-001"}`)
+    - `key` - Registration key (e.g., `{:gateway, "gateway-001"}`)
     - `metadata` - Process metadata
 
   ## Examples
 
-      TenantRegistry.register("tenant-uuid", {:poller, "poller-001"}, %{
+      TenantRegistry.register("tenant-uuid", {:gateway, "gateway-001"}, %{
         partition_id: "partition-1",
         node: node(),
         status: :available
@@ -452,12 +452,12 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   ## Parameters
 
     - `tenant_id` - Tenant UUID
-    - `type` - Process type atom (`:poller`, `:agent`, `:checker`)
+    - `type` - Process type atom (`:gateway`, `:agent`, `:checker`)
 
   ## Examples
 
-      # Find all pollers for a tenant
-      TenantRegistry.select_by_type("tenant-uuid", :poller)
+      # Find all gateways for a tenant
+      TenantRegistry.select_by_type("tenant-uuid", :gateway)
   """
   @spec select_by_type(String.t(), atom()) :: [{term(), pid(), map()}]
   def select_by_type(tenant_id, type) do
@@ -512,23 +512,8 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   end
 
   # ============================================================================
-  # Convenience Functions for Pollers/Agents
+  # Convenience Functions for Agents
   # ============================================================================
-
-  @doc """
-  Registers a poller in the tenant's registry.
-  """
-  @spec register_poller(String.t(), String.t(), map()) ::
-          {:ok, pid()} | {:error, term()}
-  def register_poller(tenant_id, poller_id, metadata) do
-    full_metadata =
-      metadata
-      |> Map.put(:type, :poller)
-      |> Map.put(:registered_at, DateTime.utc_now())
-      |> Map.put(:last_heartbeat, DateTime.utc_now())
-
-    register(tenant_id, {:poller, poller_id}, full_metadata)
-  end
 
   @doc """
   Registers an agent in the tenant's registry.
@@ -546,17 +531,6 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   end
 
   @doc """
-  Finds all pollers for a tenant.
-  """
-  @spec find_pollers(String.t()) :: [map()]
-  def find_pollers(tenant_id) do
-    select_by_type(tenant_id, :poller)
-    |> Enum.map(fn {key, pid, metadata} ->
-      Map.merge(metadata, %{key: key, pid: pid})
-    end)
-  end
-
-  @doc """
   Finds all agents for a tenant.
   """
   @spec find_agents(String.t()) :: [map()]
@@ -565,28 +539,6 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
     |> Enum.map(fn {key, pid, metadata} ->
       Map.merge(metadata, %{key: key, pid: pid})
     end)
-  end
-
-  @doc """
-  Finds available pollers for a tenant.
-  """
-  @spec find_available_pollers(String.t()) :: [map()]
-  def find_available_pollers(tenant_id) do
-    find_pollers(tenant_id)
-    |> Enum.filter(&(&1[:status] == :available))
-  end
-
-  @doc """
-  Updates heartbeat for a poller.
-  """
-  @spec poller_heartbeat(String.t(), String.t()) :: :ok | :error
-  def poller_heartbeat(tenant_id, poller_id) do
-    case update_value(tenant_id, {:poller, poller_id}, fn meta ->
-           %{meta | last_heartbeat: DateTime.utc_now()}
-         end) do
-      {_new, _old} -> :ok
-      :error -> :error
-    end
   end
 
   # ============================================================================

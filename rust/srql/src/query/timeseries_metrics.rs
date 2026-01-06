@@ -8,7 +8,7 @@ use crate::{
     schema::timeseries_metrics::dsl::{
         agent_id as col_agent_id, device_id as col_device_id, if_index as col_if_index,
         metric_name as col_metric_name, metric_type as col_metric_type, partition as col_partition,
-        poller_id as col_poller_id, target_device_ip as col_target_device_ip, timeseries_metrics,
+        gateway_id as col_gateway_id, target_device_ip as col_target_device_ip, timeseries_metrics,
         timestamp as col_timestamp, value as col_value,
     },
     time::TimeRange,
@@ -122,8 +122,8 @@ fn apply_filter<'a>(
     filter: &Filter,
 ) -> Result<TimeseriesQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -182,7 +182,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
+        "gateway_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
         | "target_device_ip" | "partition" => collect_text_params(params, filter),
         "if_index" => {
             let value = filter
@@ -285,9 +285,9 @@ fn apply_primary_order<'a>(
             OrderDirection::Asc => query.order(col_timestamp.asc()),
             OrderDirection::Desc => query.order(col_timestamp.desc()),
         },
-        "poller_id" => match direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         "metric_name" => match direction {
             OrderDirection::Asc => query.order(col_metric_name.asc()),
@@ -319,9 +319,9 @@ fn apply_secondary_order<'a>(
             OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
             OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
         },
-        "poller_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_poller_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_poller_id.desc()),
+        "gateway_id" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_gateway_id.asc()),
+            OrderDirection::Desc => query.then_order_by(col_gateway_id.desc()),
         },
         "metric_name" => match direction {
             OrderDirection::Asc => query.then_order_by(col_metric_name.asc()),

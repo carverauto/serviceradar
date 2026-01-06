@@ -99,12 +99,12 @@ mod devices;
 mod disk_metrics;
 mod downsample;
 mod events;
+mod gateways;
 mod graph_cypher;
 mod interfaces;
 mod logs;
 mod memory_metrics;
 mod otel_metrics;
-mod pollers;
 mod process_metrics;
 mod services;
 mod timeseries_metrics;
@@ -179,7 +179,7 @@ impl QueryEngine {
                 Entity::Events => events::execute(&mut conn, &plan).await?,
                 Entity::Interfaces => interfaces::execute(&mut conn, &plan).await?,
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
-                Entity::Pollers => pollers::execute(&mut conn, &plan).await?,
+                Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
                 Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                     timeseries_metrics::execute(&mut conn, &plan).await?
@@ -535,7 +535,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Events => events::to_sql_and_params(&plan)?,
             Entity::Interfaces => interfaces::to_sql_and_params(&plan)?,
             Entity::Logs => logs::to_sql_and_params(&plan)?,
-            Entity::Pollers => pollers::to_sql_and_params(&plan)?,
+            Entity::Gateways => gateways::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
             Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                 timeseries_metrics::to_sql_and_params(&plan)?
@@ -571,7 +571,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
 
 #[cfg(test)]
 mod tests {
-    use super::{devices, interfaces, pollers, *};
+    use super::{devices, gateways, interfaces, *};
     use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
     use chrono::Duration as ChronoDuration;
     use std::time::Duration as StdDuration;
@@ -702,18 +702,18 @@ mod tests {
     }
 
     #[test]
-    fn pollers_docs_example_health_and_status() {
-        let query = "in:pollers is_healthy:true status:ready sort:agent_count:desc limit:10";
+    fn gateways_docs_example_health_and_status() {
+        let query = "in:gateways is_healthy:true status:ready sort:agent_count:desc limit:10";
         let plan = plan_for(query);
 
-        assert!(matches!(plan.entity, Entity::Pollers));
+        assert!(matches!(plan.entity, Entity::Gateways));
         assert_eq!(plan.limit, 10);
         assert_eq!(plan.order[0].field, "agent_count");
-        let (sql, _) = pollers::to_sql_and_params(&plan).expect("should build pollers SQL");
+        let (sql, _) = gateways::to_sql_and_params(&plan).expect("should build gateways SQL");
         let lower = sql.to_lowercase();
         assert!(
-            lower.contains("\"pollers\".\"is_healthy\" =")
-                && lower.contains("\"pollers\".\"status\" ="),
+            lower.contains("\"gateways\".\"is_healthy\" =")
+                && lower.contains("\"gateways\".\"status\" ="),
             "expected bool + status filters in SQL, got: {sql}"
         );
     }
@@ -785,7 +785,7 @@ mod tests {
                 mode: None,
             },
             QueryRequest {
-                query: "in:pollers is_healthy:true status:ready sort:agent_count:desc".to_string(),
+                query: "in:gateways is_healthy:true status:ready sort:agent_count:desc".to_string(),
                 limit: Some(10),
                 cursor: None,
                 direction: QueryDirection::Next,

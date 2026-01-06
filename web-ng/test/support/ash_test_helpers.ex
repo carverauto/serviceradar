@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   alias ServiceRadar.Identity.{Tenant, User, ApiToken}
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Infrastructure.{Poller, Agent, Checker, Partition}
+  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker, Partition}
   alias ServiceRadar.Monitoring.{Alert, Event, ServiceCheck, PollingSchedule}
   alias ServiceRadar.Edge.OnboardingPackage
 
@@ -303,26 +303,26 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates a poller belonging to the given tenant.
+  Creates a gateway belonging to the given tenant.
   """
-  def poller_fixture(tenant, attrs \\ %{})
+  def gateway_fixture(tenant, attrs \\ %{})
 
-  def poller_fixture(%Tenant{} = tenant, attrs) do
-    poller_fixture(tenant.id, attrs)
+  def gateway_fixture(%Tenant{} = tenant, attrs) do
+    gateway_fixture(tenant.id, attrs)
   end
 
-  def poller_fixture(tenant_id, attrs) when is_binary(tenant_id) do
+  def gateway_fixture(tenant_id, attrs) when is_binary(tenant_id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
-      id: "poller-#{unique}",
+      id: "gateway-#{unique}",
       component_id: "component-#{unique}",
       registration_source: "manual"
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
-    Poller
+    Gateway
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
       authorize?: false,
@@ -332,18 +332,18 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates an agent belonging to the given poller.
+  Creates an agent belonging to the given gateway.
   """
-  def agent_fixture(poller, attrs \\ %{})
+  def agent_fixture(gateway, attrs \\ %{})
 
-  def agent_fixture(%Poller{} = poller, attrs) do
+  def agent_fixture(%Gateway{} = gateway, attrs) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
       uid: "agent-#{unique}",
       name: "Test Agent #{unique}",
       type_id: 0,
-      poller_id: poller.id
+      gateway_id: gateway.id
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))
@@ -352,7 +352,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
       authorize?: false,
-      tenant: poller.tenant_id
+      tenant: gateway.tenant_id
     )
     |> Ash.create!()
   end
@@ -529,8 +529,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     defaults = %{
       label: "Onboarding Package #{unique}",
       component_id: "component-#{unique}",
-      component_type: :poller,
-      poller_id: "poller-#{unique}",
+      component_type: :gateway,
+      gateway_id: "gateway-#{unique}",
       site: "site-#{unique}",
       security_mode: :spire
     }
@@ -563,7 +563,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
           operator: ...,
           viewer: ...,
           device: ...,
-          poller: ...
+          gateway: ...
         },
         tenant_b: %{...}
       }
@@ -579,7 +579,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   defp build_tenant_resources(tenant) do
-    poller = poller_fixture(tenant)
+    gateway = gateway_fixture(tenant)
 
     %{
       tenant: tenant,
@@ -587,8 +587,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       operator: operator_user_fixture(tenant),
       viewer: user_fixture(tenant),
       device: device_fixture(tenant),
-      poller: poller,
-      agent: agent_fixture(poller)
+      gateway: gateway,
+      agent: agent_fixture(gateway)
     }
   end
 
@@ -599,7 +599,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       %{
         tenant: ...,
         partition: ...,
-        poller: ...,
+        gateway: ...,
         agents: [...],
         checkers: [...],
         devices: [...]
@@ -611,11 +611,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     tenant = tenant_fixture()
     partition = partition_fixture(tenant)
-    poller = poller_fixture(tenant, %{partition_id: partition.id})
+    gateway = gateway_fixture(tenant, %{partition_id: partition.id})
 
     agents =
       for _ <- 1..agent_count do
-        agent_fixture(poller)
+        agent_fixture(gateway)
       end
 
     checkers =
@@ -634,7 +634,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     %{
       tenant: tenant,
       partition: partition,
-      poller: poller,
+      gateway: gateway,
       agents: agents,
       checkers: checkers,
       devices: devices

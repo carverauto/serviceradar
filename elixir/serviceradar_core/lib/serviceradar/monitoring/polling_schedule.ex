@@ -4,7 +4,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
   PollingSchedules define when and how service checks should be executed.
   They can group multiple checks into batches and assign them to specific
-  pollers or partitions for distributed execution.
+  gateways or partitions for distributed execution.
 
   ## Schedule Types
 
@@ -14,15 +14,15 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
   ## Assignment Modes
 
-  - `:any` - Any available poller can execute
-  - `:partition` - Only pollers in the assigned partition
-  - `:specific` - Only the specifically assigned poller
+  - `:any` - Any available gateway can execute
+  - `:partition` - Only gateways in the assigned partition
+  - `:specific` - Only the specifically assigned gateway
 
   ## Execution Flow
 
   1. AshOban scheduler triggers `execute` action based on cron
   2. `execute` finds all enabled checks in this schedule
-  3. Jobs are enqueued to pollers based on assignment mode
+  3. Jobs are enqueued to gateways based on assignment mode
   4. Results are recorded via `record_result` action
   """
 
@@ -99,9 +99,9 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       filter expr(assigned_partition_id == ^arg(:partition_id))
     end
 
-    read :by_poller do
-      argument :poller_id, :string, allow_nil?: false
-      filter expr(assigned_poller_id == ^arg(:poller_id))
+    read :by_gateway do
+      argument :gateway_id, :string, allow_nil?: false
+      filter expr(assigned_gateway_id == ^arg(:gateway_id))
     end
 
     create :create do
@@ -112,7 +112,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :interval_seconds,
         :cron_expression,
         :assignment_mode,
-        :assigned_poller_id,
+        :assigned_gateway_id,
         :assigned_partition_id,
         :assigned_domain,
         :priority,
@@ -149,7 +149,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :interval_seconds,
         :cron_expression,
         :assignment_mode,
-        :assigned_poller_id,
+        :assigned_gateway_id,
         :assigned_partition_id,
         :assigned_domain,
         :priority,
@@ -178,7 +178,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         require Logger
         Logger.info("Executing polling schedule: #{schedule.name} (#{schedule.id})")
 
-        # Dispatch to poller and collect results
+        # Dispatch to gateway and collect results
         result = ServiceRadar.Monitoring.PollOrchestrator.execute_schedule(schedule)
 
         # Update tracking based on result
@@ -355,12 +355,12 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       default :any
       public? true
       constraints one_of: [:any, :partition, :domain, :specific]
-      description "How to assign checks to pollers: any (random), partition, domain, or specific"
+      description "How to assign checks to gateways: any (random), partition, domain, or specific"
     end
 
-    attribute :assigned_poller_id, :string do
+    attribute :assigned_gateway_id, :string do
       public? true
-      description "Specific poller ID (for specific mode)"
+      description "Specific gateway ID (for specific mode)"
     end
 
     attribute :assigned_partition_id, :uuid do

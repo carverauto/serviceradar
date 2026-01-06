@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @type filter :: %{
           optional(:status) => [String.t()],
           optional(:component_type) => [String.t()],
-          optional(:poller_id) => String.t(),
+          optional(:gateway_id) => String.t(),
           optional(:component_id) => String.t(),
           optional(:parent_id) => String.t(),
           optional(:limit) => pos_integer()
@@ -24,8 +24,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   ## Options
 
     * `:status` - List of status values to filter by (e.g., ["issued", "delivered"])
-    * `:component_type` - List of component types to filter by (e.g., ["poller", "checker"])
-    * `:poller_id` - Filter by poller_id
+    * `:component_type` - List of component types to filter by (e.g., ["gateway", "checker"])
+    * `:gateway_id` - Filter by gateway_id
     * `:component_id` - Filter by component_id
     * `:parent_id` - Filter by parent_id
     * `:limit` - Maximum number of results (default: 100)
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   ## Examples
 
       iex> create_with_tenant_cert(
-      ...>   %{label: "prod-poller-01", component_type: :poller},
+      ...>   %{label: "prod-gateway-01", component_type: :gateway},
       ...>   tenant: "tenant-uuid",
       ...>   actor: current_user
       ...> )

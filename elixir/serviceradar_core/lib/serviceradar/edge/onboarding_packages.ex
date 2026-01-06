@@ -26,7 +26,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   @type filter :: %{
           optional(:status) => [atom()],
           optional(:component_type) => [atom()],
-          optional(:poller_id) => String.t(),
+          optional(:gateway_id) => String.t(),
           optional(:component_id) => String.t(),
           optional(:parent_id) => String.t(),
           optional(:limit) => pos_integer()
@@ -38,8 +38,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   ## Options
 
     * `:status` - List of status atoms to filter by (e.g., [:issued, :delivered])
-    * `:component_type` - List of component types to filter by (e.g., [:poller, :checker, :sync])
-    * `:poller_id` - Filter by poller_id
+    * `:component_type` - List of component types to filter by (e.g., [:gateway, :checker, :sync])
+    * `:gateway_id` - Filter by gateway_id
     * `:component_id` - Filter by component_id
     * `:parent_id` - Filter by parent_id
     * `:limit` - Maximum number of results (default: 100)
@@ -349,7 +349,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     query
     |> maybe_filter_status(Map.get(filters, :status))
     |> maybe_filter_component_type(Map.get(filters, :component_type))
-    |> maybe_filter_poller_id(Map.get(filters, :poller_id))
+    |> maybe_filter_gateway_id(Map.get(filters, :gateway_id))
     |> maybe_filter_component_id(Map.get(filters, :component_id))
     |> maybe_filter_parent_id(Map.get(filters, :parent_id))
   end
@@ -368,11 +368,11 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     Ash.Query.filter(query, expr(component_type in ^types))
   end
 
-  defp maybe_filter_poller_id(query, nil), do: query
-  defp maybe_filter_poller_id(query, ""), do: query
+  defp maybe_filter_gateway_id(query, nil), do: query
+  defp maybe_filter_gateway_id(query, ""), do: query
 
-  defp maybe_filter_poller_id(query, value) do
-    Ash.Query.filter(query, expr(poller_id == ^value))
+  defp maybe_filter_gateway_id(query, value) do
+    Ash.Query.filter(query, expr(gateway_id == ^value))
   end
 
   defp maybe_filter_component_id(query, nil), do: query
@@ -453,7 +453,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
     * `tenant_id` - The tenant UUID
     * `component_id` - Unique component identifier
-    * `component_type` - :poller, :agent, :checker, or :sync
+    * `component_type` - :gateway, :agent, :checker, or :sync
     * `partition_id` - Network partition identifier (default: "default")
     * `opts` - Additional options:
       * `:validity_days` - Certificate validity (default: 365)
@@ -504,7 +504,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     cert_validity = Keyword.get(opts, :cert_validity_days, 365)
 
     component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
-    component_type = attrs[:component_type] || :poller
+    component_type = attrs[:component_type] || :gateway
 
     # Generate component certificate
     with {:ok, cert_data} <- generate_component_certificate(

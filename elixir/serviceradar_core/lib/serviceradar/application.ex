@@ -11,32 +11,32 @@ defmodule ServiceRadar.Application do
   ## Multi-Tenant Process Isolation
 
   The TenantRegistry provides per-tenant Horde registries and DynamicSupervisors
-  for multi-tenant process isolation. Edge components (pollers, agents) can only
+  for multi-tenant process isolation. Edge components (gateways, agents) can only
   discover processes within their tenant, preventing cross-tenant enumeration.
 
-  PollerRegistry and AgentRegistry delegate to TenantRegistry for all operations.
+  GatewayRegistry and AgentRegistry delegate to TenantRegistry for all operations.
 
   This application can run standalone or as a dependency of
-  serviceradar_web or serviceradar_poller.
+  serviceradar_web or serviceradar_agent_gateway.
 
   ## Configuration
 
   - `:repo_enabled` - Whether to start the database connection pool (default: true)
     - core-elx: true (central coordinator with DB access)
     - web-ng: true (web frontend with DB access)
-    - poller-elx: false (edge component, no direct DB access)
+    - agent-gateway: false (edge component, no direct DB access)
   - `:oban_enabled` - Whether to start Oban job processor (default: true)
   - `:cluster_enabled` - Whether ERTS distribution is enabled (default: false)
   - `:cluster_coordinator` - Whether to run ClusterSupervisor/ClusterHealth (default: same as cluster_enabled)
     - core-elx: true (it's the coordinator)
-    - web-ng, poller-elx: false (they join cluster but don't coordinate)
+    - web-ng, agent-gateway: false (they join cluster but don't coordinate)
   - `:registries_enabled` - Whether to start TenantRegistry (default: true)
   - `:start_ash_oban_scheduler` - Whether to start AshOban schedulers (default: false)
     - Only core-elx should set this to true
 
   ## DB Access Boundaries
 
-  Only core-elx and web-ng have direct database access. Edge components (pollers, agents)
+  Only core-elx and web-ng have direct database access. Edge components (gateways, agents)
   communicate with the database via:
   1. Horde registries for process discovery (synced via ERTS)
   2. gRPC calls to core-elx for data operations
@@ -59,7 +59,7 @@ defmodule ServiceRadar.Application do
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
-        # Local registry for process lookups (pollers, agents)
+        # Local registry for process lookups (gateways, agents)
         {Registry, keys: :unique, name: ServiceRadar.LocalRegistry},
 
         # Oban job processor (can be disabled for standalone tests)
@@ -181,7 +181,7 @@ defmodule ServiceRadar.Application do
       [
         # Per-tenant Horde registries and DynamicSupervisors
         # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
-        # PollerRegistry and AgentRegistry now delegate to TenantRegistry
+        # GatewayRegistry and AgentRegistry now delegate to TenantRegistry
         ServiceRadar.Cluster.TenantRegistry,
         # Platform-level gateway tracker (gateways serve all tenants)
         ServiceRadar.GatewayTracker,
@@ -237,7 +237,7 @@ defmodule ServiceRadar.Application do
 
     # cluster_coordinator controls whether this node runs ClusterHealth
     # - core-elx sets this to true (it's the coordinator)
-    # - web-ng/poller-elx/agent-gateway should have it false (they join cluster but don't coordinate)
+    # - web-ng/agent-gateway should have it false (they join cluster but don't coordinate)
     # Defaults to cluster_enabled for backwards compatibility
     cluster_coordinator =
       Application.get_env(:serviceradar_core, :cluster_coordinator, cluster_enabled)

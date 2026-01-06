@@ -116,8 +116,8 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       last_value("serviceradar.cluster.nodes.count",
         description: "Number of connected ERTS nodes"
       ),
-      last_value("serviceradar.cluster.pollers.count",
-        description: "Number of registered pollers in Horde"
+      last_value("serviceradar.cluster.gateways.count",
+        description: "Number of registered gateways in Horde"
       ),
       last_value("serviceradar.cluster.agents.count",
         description: "Number of registered agents in Horde"
@@ -152,19 +152,19 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
       %{}
     )
 
-    # Poller and agent registry counts (via ClusterStatus which works from any node)
+    # Gateway and agent registry counts (via ClusterStatus which works from any node)
     # web-ng doesn't run ClusterHealth - those only run on core-elx
-    {poller_count, agent_count} =
+    {gateway_count, agent_count} =
       try do
         status = ServiceRadar.Cluster.ClusterStatus.get_status()
-        {status.poller_count, status.agent_count}
+        {status.gateway_count, status.agent_count}
       catch
         :exit, _ -> {0, 0}
       end
 
     :telemetry.execute(
-      [:serviceradar, :cluster, :pollers],
-      %{count: poller_count},
+      [:serviceradar, :cluster, :gateways],
+      %{count: gateway_count},
       %{}
     )
 

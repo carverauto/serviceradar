@@ -1,5 +1,5 @@
 [Unit]
-Description=ServiceRadar Poller (Elixir)
+Description=ServiceRadar Agent Gateway (Elixir)
 Documentation=https://github.com/carverauto/serviceradar
 After=network-online.target
 Wants=network-online.target
@@ -12,21 +12,21 @@ User=serviceradar
 Group=serviceradar
 
 # Working directory and paths
-WorkingDirectory=/opt/serviceradar/poller
-ExecStart=/opt/serviceradar/poller/bin/serviceradar_poller start
-ExecStop=/opt/serviceradar/poller/bin/serviceradar_poller stop
-ExecReload=/opt/serviceradar/poller/bin/serviceradar_poller restart
+WorkingDirectory=/opt/serviceradar/agent-gateway
+ExecStart=/opt/serviceradar/agent-gateway/bin/serviceradar_agent_gateway start
+ExecStop=/opt/serviceradar/agent-gateway/bin/serviceradar_agent_gateway stop
+ExecReload=/opt/serviceradar/agent-gateway/bin/serviceradar_agent_gateway restart
 
 # Environment configuration
-EnvironmentFile=-/etc/serviceradar/poller.env
+EnvironmentFile=-/etc/serviceradar/agent-gateway.env
 
 # Default environment variables
 Environment=RELEASE_DISTRIBUTION=name
 Environment=CLUSTER_ENABLED=true
 Environment=CLUSTER_STRATEGY=epmd
-Environment=POLLER_PARTITION_ID=default
+Environment=GATEWAY_PARTITION_ID=default
 Environment=SPIFFE_CERT_DIR=/etc/serviceradar/certs
-Environment=ERL_CRASH_DUMP=/var/log/serviceradar/poller_crash.dump
+Environment=ERL_CRASH_DUMP=/var/log/serviceradar/agent_gateway_crash.dump
 
 # Restart configuration
 Restart=on-failure
@@ -60,7 +60,7 @@ AmbientCapabilities=CAP_NET_RAW
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=serviceradar-poller
+SyslogIdentifier=serviceradar-agent-gateway
 
 [Install]
 WantedBy=multi-user.target
