@@ -9,7 +9,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "poller_id",
+      "source": "gateway_id",
       "type": "text"
     },
     {
@@ -179,14 +179,14 @@
     {
       "all_tenants?": false,
       "base_filter": null,
-      "index_name": "pollers_unique_poller_id_index",
+      "index_name": "gateways_unique_gateway_id_index",
       "keys": [
         {
           "type": "atom",
-          "value": "poller_id"
+          "value": "gateway_id"
         }
       ],
-      "name": "unique_poller_id",
+      "name": "unique_gateway_id",
       "nils_distinct?": true,
       "where": null
     }
@@ -198,5 +198,5 @@
   },
   "repo": "Elixir.ServiceRadarWebNG.Repo",
   "schema": null,
-  "table": "pollers"
+  "table": "gateways"
 }

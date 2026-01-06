@@ -38,7 +38,7 @@
     },
     {
       "allow_nil?": true,
-      "default": "\"poller\"",
+      "default": "\"gateway\"",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
@@ -81,7 +81,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "poller_id",
+      "source": "gateway_id",
       "type": "text"
     },
     {

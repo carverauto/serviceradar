@@ -93,7 +93,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "assigned_poller_id",
+      "source": "assigned_gateway_id",
       "type": "text"
     },
     {

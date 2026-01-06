@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreatePollingSchedule do
       add :interval_seconds, :bigint
       add :cron_expression, :text
       add :assignment_mode, :text, null: false, default: "any"
-      add :assigned_poller_id, :text
+      add :assigned_gateway_id, :text
 
       add :assigned_partition_id,
           references(:partitions,
@@ -93,7 +93,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreatePollingSchedule do
       remove :priority
       remove :enabled
       remove :assigned_partition_id
-      remove :assigned_poller_id
+      remove :assigned_gateway_id
       remove :assignment_mode
       remove :cron_expression
       remove :interval_seconds

@@ -1,11 +1,11 @@
 defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
   @moduledoc """
-  Creates partitions and checkers tables, and adds partition_id to pollers.
+  Creates partitions and checkers tables, and adds partition_id to gateways.
 
   This migration adds:
   - partitions table for network partition management
   - checkers table for service check configuration
-  - partition_id column on pollers for partition assignment
+  - partition_id column on gateways for partition assignment
   - Foreign key relationships
   """
 
@@ -41,12 +41,12 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
 
     create index(:partitions, [:tenant_id])
 
-    # Add partition_id to pollers
-    alter table(:pollers) do
+    # Add partition_id to gateways
+    alter table(:gateways) do
       add :partition_id, references(:partitions, column: :id, type: :uuid, on_delete: :nilify_all)
     end
 
-    create index(:pollers, [:partition_id])
+    create index(:gateways, [:partition_id])
 
     # Create checkers table
     create table(:checkers, primary_key: false) do
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
     drop constraint(:checkers, "checkers_agent_uid_fkey")
     drop table(:checkers)
 
-    alter table(:pollers) do
+    alter table(:gateways) do
       remove :partition_id
     end
 
