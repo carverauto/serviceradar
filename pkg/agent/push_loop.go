@@ -762,14 +762,14 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 			Msg("Added/updated check from gateway config")
 	}
 
-	// Optionally: remove checks that are no longer in the config
-	// (commented out for now - may want to keep local file-based checks)
-	// for name := range p.server.checkerConfs {
-	// 	if !seenChecks[name] {
-	// 		delete(p.server.checkerConfs, name)
-	// 		p.logger.Info().Str("name", name).Msg("Removed stale check")
-	// 	}
-	// }
+	// Remove checks that are no longer in the gateway config.
+	// Gateway config is the source of truth for all checker configurations.
+	for name := range p.server.checkerConfs {
+		if !seenChecks[name] {
+			delete(p.server.checkerConfs, name)
+			p.logger.Info().Str("name", name).Msg("Removed stale check")
+		}
+	}
 }
 
 // Default timeout for checks when not specified or invalid
