@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp apply_action(socket, :index, _params), do: socket
+
   defp apply_action(socket, :new, _params) do
     tenant_id = get_tenant_id(socket)
 
@@ -736,7 +737,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               <div class="text-xs uppercase tracking-wide text-base-content/60 mb-1">Agent ID</div>
               <% agent = Map.get(@agent_index, @source.agent_id) %>
               <div class="flex flex-col gap-2">
-                <code class="text-sm font-mono bg-base-200 p-2 rounded block">{@source.agent_id}</code>
+                <code class="text-sm font-mono bg-base-200 p-2 rounded block">
+                  {@source.agent_id}
+                </code>
                 <%= if agent do %>
                   <.agent_status_badge agent={agent} />
                 <% else %>

@@ -393,8 +393,19 @@ func TestBuildResultsChunks(t *testing.T) {
 	})
 
 	t.Run("splits large payloads", func(t *testing.T) {
+		chunkLimit := resultsChunkMaxSize
+		if testing.Short() {
+			originalLimit := resultsChunkMaxSize
+			chunkLimit = 256 * 1024
+			resultsChunkMaxSize = chunkLimit
+			t.Cleanup(func() { resultsChunkMaxSize = originalLimit })
+		}
+
+		payloadSize := chunkLimit / 64
+		deviceCount := (chunkLimit / payloadSize) + 2
+		largePayload := strings.Repeat("a", payloadSize)
 		var devices []*models.DeviceUpdate
-		for i := 0; i < 20000; i++ {
+		for i := 0; i < deviceCount; i++ {
 			devices = append(devices, &models.DeviceUpdate{
 				DeviceID:    fmt.Sprintf("device-%d", i),
 				IP:          fmt.Sprintf("192.168.1.%d", i%255),
@@ -404,6 +415,9 @@ func TestBuildResultsChunks(t *testing.T) {
 				Timestamp:   time.Now(),
 				IsAvailable: true,
 				Confidence:  100,
+				Metadata: map[string]string{
+					"blob": largePayload,
+				},
 			})
 		}
 
@@ -414,7 +428,7 @@ func TestBuildResultsChunks(t *testing.T) {
 		for i, chunk := range chunks {
 			assert.Equal(t, safeIntToInt32(i), chunk.ChunkIndex)
 			assert.Equal(t, safeIntToInt32(len(chunks)), chunk.TotalChunks)
-			assert.LessOrEqual(t, len(chunk.Data), 3*1024*1024)
+			assert.LessOrEqual(t, len(chunk.Data), chunkLimit)
 		}
 	})
 }
@@ -478,11 +492,20 @@ func TestBuildResultsChunksSizeBudget(t *testing.T) {
 	}, nil, log)
 	require.NoError(t, err)
 
-	const maxChunkSize = 3 * 1024 * 1024
-	largeValue := strings.Repeat("a", 1024*1024)
+	chunkLimit := resultsChunkMaxSize
+	if testing.Short() {
+		originalLimit := resultsChunkMaxSize
+		chunkLimit = 256 * 1024
+		resultsChunkMaxSize = chunkLimit
+		t.Cleanup(func() { resultsChunkMaxSize = originalLimit })
+	}
+
+	payloadSize := chunkLimit / 4
+	deviceCount := 5
+	largeValue := strings.Repeat("a", payloadSize)
 
 	var devices []*models.DeviceUpdate
-	for i := 0; i < 6; i++ {
+	for i := 0; i < deviceCount; i++ {
 		devices = append(devices, &models.DeviceUpdate{
 			DeviceID:    fmt.Sprintf("device-%d", i),
 			IP:          fmt.Sprintf("10.0.0.%d", i+1),
@@ -504,7 +527,7 @@ func TestBuildResultsChunksSizeBudget(t *testing.T) {
 
 	var decodedCount int
 	for _, chunk := range chunks {
-		require.LessOrEqual(t, len(chunk.Data), maxChunkSize)
+		require.LessOrEqual(t, len(chunk.Data), chunkLimit)
 
 		var updates []*models.DeviceUpdate
 		require.NoError(t, json.Unmarshal(chunk.Data, &updates))

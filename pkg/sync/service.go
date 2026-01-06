@@ -17,12 +17,12 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +49,7 @@ const (
 var (
 	errTaskPanic          = errors.New("panic in sync task")
 	errGatewayNotEnrolled = errors.New("gateway enrollment pending")
+	resultsChunkMaxSize   = 3 * 1024 * 1024
 )
 
 // safeIntToInt32 safely converts an int to int32, capping at int32 max value
@@ -1076,7 +1077,7 @@ func (s *SimpleSyncService) buildResultsChunks(
 	allDeviceUpdates []*models.DeviceUpdate,
 	sequence string,
 ) ([]*proto.ResultsChunk, error) {
-	const maxChunkSize = 3 * 1024 * 1024 // 3MB, keep under default 4MB gRPC limit
+	maxChunkSize := resultsChunkMaxSize // keep under default 4MB gRPC limit
 
 	if len(allDeviceUpdates) == 0 {
 		return []*proto.ResultsChunk{{
@@ -1090,33 +1091,52 @@ func (s *SimpleSyncService) buildResultsChunks(
 	}
 
 	var payloads [][]byte
-	var current []*models.DeviceUpdate
-	var currentData []byte
+	var buf bytes.Buffer
+	deviceCount := 0
+
+	flush := func() {
+		if deviceCount == 0 {
+			return
+		}
+		_ = buf.WriteByte(']')
+		payload := make([]byte, buf.Len())
+		copy(payload, buf.Bytes())
+		payloads = append(payloads, payload)
+		buf.Reset()
+		deviceCount = 0
+	}
 
 	for _, device := range allDeviceUpdates {
-		candidate := append(slices.Clone(current), device)
-		data, err := json.Marshal(candidate)
+		data, err := json.Marshal(device)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal chunk candidate: %w", err)
+			return nil, fmt.Errorf("failed to marshal device update: %w", err)
 		}
 
-		if len(data) > maxChunkSize && len(current) > 0 {
-			payloads = append(payloads, currentData)
-			current = []*models.DeviceUpdate{device}
-			currentData, err = json.Marshal(current)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal chunk: %w", err)
-			}
-			continue
+		if buf.Len() == 0 {
+			_ = buf.WriteByte('[')
 		}
 
-		current = candidate
-		currentData = data
+		separatorLen := 0
+		if deviceCount > 0 {
+			separatorLen = 1
+		}
+
+		projectedLen := buf.Len() + separatorLen + len(data) + 1
+		if deviceCount > 0 && projectedLen > maxChunkSize {
+			flush()
+			_ = buf.WriteByte('[')
+			separatorLen = 0
+		}
+
+		if separatorLen == 1 {
+			_ = buf.WriteByte(',')
+		}
+
+		_, _ = buf.Write(data)
+		deviceCount++
 	}
 
-	if len(current) > 0 {
-		payloads = append(payloads, currentData)
-	}
+	flush()
 
 	totalChunks := len(payloads)
 	chunks := make([]*proto.ResultsChunk, 0, totalChunks)

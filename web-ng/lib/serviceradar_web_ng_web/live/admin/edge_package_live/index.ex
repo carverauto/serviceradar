@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp apply_action(socket, :index, _params), do: socket
+
   defp apply_action(socket, :new, params) do
     socket
     |> assign(:show_create_modal, true)

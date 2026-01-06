@@ -570,6 +570,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
         app.kubernetes.io/name: serviceradar-#{component_type}
         app.kubernetes.io/component: #{component_type}
         app.kubernetes.io/part-of: serviceradar
+        serviceradar.io/component-id: "#{component_id}"
     binaryData:
       config.yaml: #{config_b64}
       config.json: #{config_json_b64}
