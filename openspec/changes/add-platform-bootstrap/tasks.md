@@ -12,6 +12,7 @@
 - [ ] 1.1.6 Implement `ensure_tenant_membership/2` - owner role for admin
 - [ ] 1.1.7 Add `status/0` public API for health checks
 - [ ] 1.1.8 Add structured logging with `[PLATFORM BOOTSTRAP]` prefix
+- [ ] 1.1.9 Ensure the first user created is a platform owner with `:super_admin` role
 
 ### 1.2 Credential Storage Module
 

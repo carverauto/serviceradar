@@ -237,9 +237,62 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     end
   end
 
+  @doc """
+  Plug for routes that require Oban Web access.
+
+  Access is allowed for platform tenant users and tenant admins.
+  """
+  def require_oban_access(conn, _opts) do
+    scope = conn.assigns[:current_scope]
+
+    cond do
+      scope == nil or scope.user == nil ->
+        conn
+        |> put_flash(:error, "You must log in to access this page.")
+        |> maybe_store_return_to()
+        |> redirect(to: ~p"/users/log-in")
+        |> halt()
+
+      oban_access?(scope) ->
+        conn
+
+      true ->
+        conn
+        |> put_flash(:error, "You don't have permission to access this page.")
+        |> redirect(to: ~p"/analytics")
+        |> halt()
+    end
+  end
+
   defp maybe_store_return_to(%{method: "GET"} = conn) do
     put_session(conn, :user_return_to, current_path(conn))
   end
 
   defp maybe_store_return_to(conn), do: conn
+
+  defp oban_access?(%Scope{} = scope) do
+    platform_tenant?(scope.active_tenant) || tenant_admin?(scope)
+  end
+
+  defp oban_access?(_), do: false
+
+  defp platform_tenant?(%{is_platform_tenant: true}), do: true
+  defp platform_tenant?(_), do: false
+
+  defp tenant_admin?(%Scope{user: %{role: role}} = scope) do
+    admin_role?(role) || membership_admin?(scope.active_tenant, scope.tenant_memberships)
+  end
+
+  defp tenant_admin?(_), do: false
+
+  defp admin_role?(role), do: role in [:admin, :super_admin]
+
+  defp membership_admin?(%{id: tenant_id}, memberships) do
+    Enum.any?(memberships || [], fn membership ->
+      to_string(membership.tenant_id) == to_string(tenant_id) and
+        membership.role in [:admin, :owner]
+    end)
+  end
+
+  defp membership_admin?(_, _), do: false
 end

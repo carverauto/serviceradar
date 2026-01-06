@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   import ServiceRadarWebNGWeb.AdminComponents
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
 
   @default_per_page 20
@@ -129,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   def handle_event("trigger_job", %{"id" => encoded_id}, socket) do
     with {:ok, id} <- decode_job_id(encoded_id),
-         {:ok, job} <- JobCatalog.get_job(id),
+         {:ok, job} <- JobCatalog.get_job(id, job_scope_opts(socket)),
          {:ok, _oban_job} <- JobCatalog.trigger_job(job) do
       {:noreply,
        socket
@@ -180,7 +181,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
             <.ui_button variant="ghost" size="sm" phx-click="refresh">
               <.icon name="hero-arrow-path" class="size-4" /> Refresh
             </.ui_button>
-            <.ui_button variant="outline" size="sm" href={~p"/admin/oban"}>
+            <.ui_button :if={@show_oban_web} variant="outline" size="sm" href={~p"/admin/oban"}>
               Open Oban Web
             </.ui_button>
           </div>
@@ -190,12 +191,27 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
           <.ui_panel class="md:col-span-2">
             <:header>
               <div>
-                <div class="text-sm font-semibold">Scheduler Status</div>
-                <p class="text-xs text-base-content/60">Leader and configuration overview.</p>
+                <div class="text-sm font-semibold">
+                  <%= if @show_leader_info do %>
+                    Scheduler Status
+                  <% else %>
+                    Scheduler Overview
+                  <% end %>
+                </div>
+                <p class="text-xs text-base-content/60">
+                  <%= if @show_leader_info do %>
+                    Leader and configuration overview.
+                  <% else %>
+                    Job configuration overview.
+                  <% end %>
+                </p>
               </div>
             </:header>
             <div class="grid gap-3 sm:grid-cols-3">
-              <div class="rounded-lg border border-base-200/60 bg-base-200/30 p-3">
+              <div
+                :if={@show_leader_info}
+                class="rounded-lg border border-base-200/60 bg-base-200/30 p-3"
+              >
                 <div class="text-[11px] uppercase tracking-wide text-base-content/60">
                   Leader Node
                 </div>
@@ -233,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
               <p>
                 <strong>AshOban triggers</strong> execute actions on Ash resources based on queries.
               </p>
-              <p>Use Oban Web for detailed job monitoring and management.</p>
+              <p :if={@show_oban_web}>Use Oban Web for detailed job monitoring and management.</p>
             </div>
           </.ui_panel>
         </div>
@@ -508,6 +524,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   defp load_jobs(socket) do
+    job_scope = job_scope_opts(socket)
+
     filters = [
       source: socket.assigns.filter_source,
       search: socket.assigns.search,
@@ -517,14 +535,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
       per_page: socket.assigns.per_page
     ]
 
-    {jobs, filtered_count} = JobCatalog.list_jobs(filters)
-    all_jobs = JobCatalog.list_all_jobs()
+    {jobs, filtered_count} = JobCatalog.list_jobs(filters, job_scope)
+    all_jobs = JobCatalog.list_all_jobs(job_scope)
 
     cron_count = Enum.count(all_jobs, &(&1.source == :cron_plugin))
     ash_oban_count = Enum.count(all_jobs, &(&1.source == :ash_oban))
 
     total_pages = ceil(filtered_count / socket.assigns.per_page)
-    leader = get_leader_node()
+
+    scope = socket.assigns.current_scope || %{}
+    show_oban_web = show_oban_web?(scope)
+    show_leader_info = show_leader_info?(scope)
+    leader = if show_leader_info, do: get_leader_node(), else: nil
 
     socket
     |> assign(:jobs, jobs)
@@ -534,7 +556,76 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:cron_job_count, cron_count)
     |> assign(:ash_oban_count, ash_oban_count)
     |> assign(:leader_node, leader)
+    |> assign(:show_oban_web, show_oban_web)
+    |> assign(:show_leader_info, show_leader_info)
   end
+
+  defp job_scope_opts(socket) do
+    scope = socket.assigns.current_scope || %{}
+    tenant_id = Scope.tenant_id(scope)
+    platform_admin? = platform_owner_admin?(scope)
+
+    [tenant_id: tenant_id, platform_admin?: platform_admin?]
+  end
+
+  defp platform_owner_admin?(%{
+         user: %{role: role} = user,
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
+    admin_role?(role) && platform_tenant?(tenant) && platform_owner?(user, tenant, memberships)
+  end
+
+  defp platform_owner_admin?(_), do: false
+
+  defp admin_role?(role), do: role in [:admin, :super_admin]
+
+  defp platform_tenant?(%{is_platform_tenant: true}), do: true
+  defp platform_tenant?(_), do: false
+
+  defp platform_owner?(user, tenant, memberships) do
+    tenant_owner? = Map.get(tenant, :owner_id) == user.id
+
+    membership_owner? =
+      Enum.any?(memberships || [], fn membership ->
+        to_string(membership.tenant_id) == to_string(tenant.id) and membership.role == :owner
+      end)
+
+    tenant_owner? || membership_owner?
+  end
+
+  defp show_oban_web?(%{
+         user: %{role: role},
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
+    platform_tenant?(tenant) || tenant_admin?(role, tenant, memberships)
+  end
+
+  defp show_oban_web?(_), do: false
+
+  defp show_leader_info?(%{
+         user: %{role: role},
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
+    platform_tenant?(tenant) && tenant_admin?(role, tenant, memberships)
+  end
+
+  defp show_leader_info?(_), do: false
+
+  defp tenant_admin?(role, tenant, memberships) do
+    admin_role?(role) || membership_admin?(tenant, memberships)
+  end
+
+  defp membership_admin?(%{id: tenant_id}, memberships) do
+    Enum.any?(memberships || [], fn membership ->
+      to_string(membership.tenant_id) == to_string(tenant_id) and
+        membership.role in [:admin, :owner]
+    end)
+  end
+
+  defp membership_admin?(_, _), do: false
 
   defp schedule_refresh(socket) do
     interval_ms = socket.assigns.refresh_interval * 1000
