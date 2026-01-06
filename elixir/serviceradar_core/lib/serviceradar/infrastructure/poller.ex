@@ -145,6 +145,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :activate do
       description "Activate an inactive poller"
+      require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
@@ -156,6 +157,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     update :degrade do
       description "Mark poller as degraded"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -165,6 +167,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :heartbeat_timeout do
       description "Mark poller as degraded due to heartbeat timeout"
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -175,6 +178,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
     update :go_offline do
       description "Mark poller as offline"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
@@ -184,6 +188,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :recover do
       description "Start recovery from degraded/offline"
+      require_atomic? false
 
       change transition_state(:recovering)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -192,6 +197,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :restore_health do
       description "Restore poller to healthy state"
+      require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
@@ -202,6 +208,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :start_maintenance do
       description "Put poller into maintenance"
+      require_atomic? false
 
       change transition_state(:maintenance)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -210,6 +217,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :end_maintenance do
       description "End maintenance mode"
+      require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
@@ -219,6 +227,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :start_draining do
       description "Start draining poller"
+      require_atomic? false
 
       change transition_state(:draining)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -227,6 +236,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :finish_draining do
       description "Finish draining and go offline"
+      require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
@@ -236,6 +246,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :deactivate do
       description "Deactivate poller"
+      require_atomic? false
 
       change transition_state(:inactive)
       change set_attribute(:is_healthy, false)
@@ -245,6 +256,7 @@ defmodule ServiceRadar.Infrastructure.Poller do
 
     update :mark_unhealthy do
       description "Legacy: mark poller as unhealthy"
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)

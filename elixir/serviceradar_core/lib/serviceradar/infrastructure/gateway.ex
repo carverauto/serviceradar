@@ -231,6 +231,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
   update :activate do
     description "Activate an inactive gateway"
+    require_atomic? false
 
     change transition_state(:activate)
     change set_attribute(:is_healthy, true)
@@ -242,6 +243,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     update :degrade do
       description "Mark gateway as degraded (having issues)"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -251,6 +253,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :heartbeat_timeout do
       description "Mark gateway as degraded due to heartbeat timeout"
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -261,6 +264,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     update :go_offline do
       description "Mark gateway as offline"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
@@ -270,6 +274,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :lose_connection do
       description "Mark gateway as offline due to lost connection"
+      require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
@@ -279,6 +284,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :recover do
       description "Start recovery process for degraded/offline gateway"
+      require_atomic? false
 
       change transition_state(:recovering)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -287,6 +293,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :restore_health do
       description "Restore gateway to healthy state"
+      require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
@@ -297,6 +304,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :start_maintenance do
       description "Put gateway into maintenance mode"
+      require_atomic? false
 
       change transition_state(:maintenance)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -305,6 +313,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :end_maintenance do
       description "End maintenance mode, return to healthy"
+      require_atomic? false
 
       change transition_state(:healthy)
       change set_attribute(:is_healthy, true)
@@ -314,6 +323,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :start_draining do
       description "Start graceful shutdown (draining)"
+      require_atomic? false
 
       change transition_state(:draining)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -322,6 +332,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :finish_draining do
       description "Finish draining, go offline"
+      require_atomic? false
 
       change transition_state(:offline)
       change set_attribute(:is_healthy, false)
@@ -331,6 +342,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :deactivate do
       description "Deactivate a gateway (admin action)"
+      require_atomic? false
 
       change transition_state(:inactive)
       change set_attribute(:is_healthy, false)
@@ -341,6 +353,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     # Legacy compatibility aliases
     update :mark_unhealthy do
       description "Mark gateway as unhealthy (legacy - use degrade)"
+      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
