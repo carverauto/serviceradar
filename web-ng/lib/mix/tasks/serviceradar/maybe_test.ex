@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
 
     if db_reachable?(hostname, port) do
       Mix.Task.run("app.start")
-      Mix.Task.run("ecto.migrate", ["--quiet"])
+      maybe_migrate()
       Mix.Tasks.Test.run(args)
     else
       message =
@@ -29,6 +29,21 @@ defmodule Mix.Tasks.Serviceradar.MaybeTest do
       else
         Mix.shell().info(message)
       end
+    end
+  end
+
+  defp maybe_migrate do
+    repo = ServiceRadar.Repo
+
+    case Ecto.Adapters.SQL.query(repo, "SELECT to_regclass('public.user_tokens')", []) do
+      {:ok, %{rows: [[nil]]}} ->
+        Mix.Task.run("ecto.migrate", ["--quiet"])
+
+      {:ok, _} ->
+        Mix.shell().info("Skipping ecto.migrate; schema already present")
+
+      {:error, reason} ->
+        Mix.shell().info("Skipping ecto.migrate; probe failed: #{inspect(reason)}")
     end
   end
 

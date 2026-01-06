@@ -13,8 +13,20 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-md p-6">
-        <div class="text-center mb-6">
-          <h1 class="text-2xl font-bold">
+        <div class="text-center mb-8 space-y-3">
+          <div class="flex items-center justify-center gap-3">
+            <img
+              src={~p"/images/logo.svg"}
+              alt="ServiceRadar"
+              class="h-10 w-auto"
+              width="40"
+              height="40"
+            />
+            <span class="text-3xl font-semibold tracking-tight text-base-content">
+              ServiceRadar
+            </span>
+          </div>
+          <h1 class="text-xl font-semibold">
             <%= if @live_action == :register do %>
               Create an account
             <% else %>

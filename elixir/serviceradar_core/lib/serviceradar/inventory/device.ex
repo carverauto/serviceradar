@@ -222,19 +222,33 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   policies do
-    # Allow all reads - tenant isolation will be enforced at query level
-    # when we have proper tenant context from the Go pollers
+    # Super admins bypass all policies
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :super_admin)
+    end
+
+    # Read access: authenticated users in same tenant
     policy action_type(:read) do
-      authorize_if always()
+      authorize_if expr(
+                     ^actor(:role) in [:viewer, :operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
     end
 
-    # Allow create/update for authenticated users
+    # Create devices: operators/admins in same tenant
     policy action_type(:create) do
-      authorize_if always()
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
     end
 
+    # Update devices: operators/admins in same tenant
     policy action_type(:update) do
-      authorize_if always()
+      authorize_if expr(
+                     ^actor(:role) in [:operator, :admin] and
+                       tenant_id == ^actor(:tenant_id)
+                   )
     end
   end
 

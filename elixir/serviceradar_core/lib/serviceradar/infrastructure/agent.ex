@@ -244,13 +244,38 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :metadata
       ]
 
+      upsert? true
+      upsert_identity :unique_uid
+
+      upsert_fields [
+        :name,
+        :type_id,
+        :type,
+        :uid_alt,
+        :vendor_name,
+        :version,
+        :policies,
+        :poller_id,
+        :device_uid,
+        :capabilities,
+        :host,
+        :port,
+        :spiffe_identity,
+        :metadata,
+        :last_seen_time,
+        :modified_time,
+        :status,
+        :is_healthy
+      ]
+
       change fn changeset, _context ->
         now = DateTime.utc_now()
 
         changeset
-        |> Ash.Changeset.change_attribute(:first_seen_time, now)
+        |> Ash.Changeset.change_new_attribute(:first_seen_time, now)
         |> Ash.Changeset.change_attribute(:last_seen_time, now)
-        |> Ash.Changeset.change_attribute(:created_time, now)
+        |> Ash.Changeset.change_new_attribute(:created_time, now)
+        |> Ash.Changeset.change_attribute(:modified_time, now)
         |> Ash.Changeset.change_attribute(:status, :connected)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end

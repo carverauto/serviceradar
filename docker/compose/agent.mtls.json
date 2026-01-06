@@ -12,8 +12,8 @@
     "server_name": "agent-gateway.serviceradar",
     "role": "agent",
     "tls": {
-      "cert_file": "tenants/default/components/agent-001-default-chain.pem",
-      "key_file": "tenants/default/components/agent-001-default-key.pem",
+      "cert_file": "tenants/platform/components/docker-agent-default-chain.pem",
+      "key_file": "tenants/platform/components/docker-agent-default-key.pem",
       "ca_file": "root.pem"
     }
   },

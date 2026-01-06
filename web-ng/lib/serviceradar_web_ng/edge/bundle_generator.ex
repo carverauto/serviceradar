@@ -467,7 +467,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     # Create tarball entries
     entries =
       Enum.map(files, fn {name, content} ->
-        {String.to_charlist(name), content}
+        data =
+          case content do
+            nil -> ""
+            _ -> IO.iodata_to_binary(content)
+          end
+
+        {String.to_charlist(name), data}
       end)
 
     # Create the tarball in memory

@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Edge.TenantCA
 
+  require Ash.Query
+
   # Create a tenant for all tests
   setup do
     {:ok, tenant} =

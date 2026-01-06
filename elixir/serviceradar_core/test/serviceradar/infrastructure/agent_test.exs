@@ -90,6 +90,42 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.status == :connected
       assert agent.is_healthy == true
     end
+
+    test "upserts existing agent without resetting first_seen_time", %{
+      tenant_id: tenant_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "agent-connected-upsert-#{unique_id}"
+
+      {:ok, agent} =
+        Agent
+        |> Ash.Changeset.for_create(:register_connected, %{
+          uid: agent_uid,
+          name: "Initial Agent",
+          host: "192.168.1.101",
+          port: 50051
+        }, actor: actor, tenant: tenant_id, authorize?: false)
+        |> Ash.create()
+
+      {:ok, updated} =
+        Agent
+        |> Ash.Changeset.for_create(:register_connected, %{
+          uid: agent_uid,
+          name: "Updated Agent",
+          host: "192.168.1.200",
+          port: 50052
+        }, actor: actor, tenant: tenant_id, authorize?: false)
+        |> Ash.create()
+
+      assert updated.uid == agent.uid
+      assert updated.first_seen_time == agent.first_seen_time
+      assert DateTime.compare(updated.last_seen_time, agent.last_seen_time) != :lt
+      assert updated.host == "192.168.1.200"
+      assert updated.port == 50052
+      assert updated.status == :connected
+      assert updated.is_healthy == true
+    end
   end
 
   describe "state machine transitions" do

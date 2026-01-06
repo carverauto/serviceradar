@@ -13,6 +13,11 @@ defmodule ServiceRadarWebNGWeb.AuthOverrides do
     set(:label, "Sign in with email")
   end
 
+  # Hide the default banner so AuthLive.SignIn can render custom branding.
+  override AshAuthentication.Phoenix.Components.SignIn do
+    set(:show_banner, false)
+  end
+
   # Override the registration form
   override AshAuthentication.Phoenix.Components.Password.RegisterForm do
     set(:label, "Create an account")

@@ -19,6 +19,8 @@ defmodule ServiceRadar.Identity.Tenant do
   - `enterprise` - Custom limits and features
   """
 
+  require Ash.Query
+
   use Ash.Resource,
     domain: ServiceRadar.Identity,
     data_layer: AshPostgres.DataLayer,
