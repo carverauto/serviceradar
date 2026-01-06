@@ -8,6 +8,9 @@ common --announce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
 common --curses=yes
+common --repository_cache=third_party/bazel-repo-cache
+common --disk_cache=third_party/bazel-disk-cache
+common --distdir=third_party/distdir
 
 build --keep_going
 build --jobs=auto
