@@ -108,6 +108,12 @@ ssl_server_name =
     System.get_env("SRQL_TEST_DATABASE_SERVER_NAME") ||
     System.get_env("CNPG_TLS_SERVER_NAME")
 
+ssl_server_name =
+  case ssl_server_name do
+    value when is_binary(value) and value != "" -> to_charlist(value)
+    _ -> nil
+  end
+
 ssl_enabled =
   cond do
     ssl_mode in ~w(disable allow prefer) -> false

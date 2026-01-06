@@ -206,6 +206,7 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
 	db_url="$${SERVICERADAR_TEST_DATABASE_URL:-$${SRQL_TEST_DATABASE_URL:-}}"; \
+	admin_url="$${SERVICERADAR_TEST_ADMIN_URL:-$${SRQL_TEST_ADMIN_URL:-}}"; \
 	if [ -z "$${db_url}" ]; then \
 	  if [ -n "$${CNPG_HOST:-}" ] || [ -n "$${CNPG_PASSWORD:-}" ]; then \
 	    db_host="$${CNPG_HOST:-localhost}"; \
@@ -225,6 +226,12 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	if [ -z "$${db_url}" ]; then \
 	  echo "Set SERVICERADAR_TEST_DATABASE_URL, SRQL_TEST_DATABASE_URL, or CNPG_* env vars." >&2; \
 	  exit 1; \
+	fi; \
+	if [ -n "$${admin_url}" ]; then \
+	  export PGSSLROOTCERT="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT:-$${SRQL_TEST_DATABASE_CA_CERT:-}}}"; \
+	  export PGSSLCERT="$${PGSSLCERT:-$${SERVICERADAR_TEST_DATABASE_CERT:-$${SRQL_TEST_DATABASE_CERT:-}}}"; \
+	  export PGSSLKEY="$${PGSSLKEY:-$${SERVICERADAR_TEST_DATABASE_KEY:-$${SRQL_TEST_DATABASE_KEY:-}}}"; \
+	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
 	fi; \
 	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
 	cd elixir/serviceradar_core; \
@@ -318,7 +325,6 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"

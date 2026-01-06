@@ -210,37 +210,6 @@ PACKAGES = {
             "/etc/serviceradar/datasvc.json",
         ],
     },
-    "sync": {
-        "package_name": "serviceradar-sync",
-        "description": "ServiceRadar Sync Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/sync:sync",
-            "dest": "/usr/local/bin/serviceradar-sync",
-        },
-        "files": [
-            {
-                "src": "config/sync.json",
-                "dest": "/etc/serviceradar/sync.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-sync.service",
-            "dest": "/lib/systemd/system/serviceradar-sync.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/sync.json",
-        ],
-    },
     "event-writer": {
         "package_name": "serviceradar-event-writer",
         "description": "ServiceRadar DB Event Writer Service",

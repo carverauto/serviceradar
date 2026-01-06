@@ -35,6 +35,10 @@ spec:
       max_connections: "200"
       shared_buffers: 512MB
 
+  certificates:
+    serverAltDNSNames:
+      - srql-fixture.serviceradar.cloud
+
   managed:
     roles:
       - name: srql

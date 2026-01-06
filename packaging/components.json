@@ -482,53 +482,6 @@
     "architecture": "amd64",
     "binary": {
       "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-sync",
-      "source_path": "cmd/sync"
-    },
-    "conffiles": [
-      "/etc/serviceradar/sync.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/sync.json",
-        "source": "packaging/sync/config/sync.json"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar Key-Value store Sync service",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "sync",
-    "package_name": "serviceradar-sync",
-    "postinst": {
-      "source": "packaging/sync/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/sync/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-sync.service",
-      "source": "packaging/sync/systemd/serviceradar-sync.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-dusk-checker",
       "source_path": "cmd/checkers/dusk"
     },
