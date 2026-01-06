@@ -455,6 +455,10 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
+    # Global email identity required by AshAuthentication for password/magic_link strategies.
+    # Email is globally unique - users access multiple tenants via memberships.
+    identity :email, [:email]
+    # Composite identity for multi-tenant queries (kept for backwards compatibility)
     identity :unique_email_per_tenant, [:tenant_id, :email]
   end
 end

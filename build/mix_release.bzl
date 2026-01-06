@@ -139,7 +139,11 @@ if [ -n "{hex_cache_tar}" ] && [ -f "$EXECROOT/{hex_cache_tar}" ]; then
     *.tar.gz|*.tgz) tar -xzf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
     *) tar -xf "$EXECROOT/{hex_cache_tar}" -C "$HOME" ;;
   esac
-  export HEX_OFFLINE=1
+  # NOTE: We intentionally do NOT set HEX_OFFLINE=1 here.
+  # The hex_cache is an optimization to pre-seed packages, but if any
+  # packages are missing or outdated, Mix should be allowed to fetch them.
+  # This avoids the need to manually regenerate hex_cache.tar.gz every time
+  # dependencies change.
 fi
 if [ -d /cache ] && [ -w /cache ]; then
   export CARGO_HOME="/cache/cargo"
