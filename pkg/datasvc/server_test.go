@@ -56,7 +56,7 @@ func setupServer(t *testing.T) (*Server, *MockKVStore) {
 			Roles []RBACRule `json:"roles"`
 		}{
 			Roles: []RBACRule{
-				{Identity: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller", Role: RoleReader},
+				{Identity: "spiffe://carverauto.dev/ns/demo/sa/serviceradar-gateway", Role: RoleReader},
 				{Identity: "CN=reader-client", Role: RoleReader},
 				{Identity: "CN=writer-client", Role: RoleWriter},
 			},
@@ -102,7 +102,7 @@ func TestExtractIdentity(t *testing.T) {
 	t.Run("PrefersSPIFFE", func(t *testing.T) {
 		s, _ := setupServer(t)
 
-		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-poller")
+		uri, err := url.Parse("spiffe://carverauto.dev/ns/demo/sa/serviceradar-gateway")
 		require.NoError(t, err)
 
 		cert := &x509.Certificate{

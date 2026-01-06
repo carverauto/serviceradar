@@ -213,7 +213,7 @@ func (p *PushLoop) buildSyncConfig() *syncsvc.Config {
 	syncCfg := &syncsvc.Config{
 		Sources:         map[string]*models.SourceConfig{},
 		AgentID:         cfg.AgentID,
-		PollerID:        "",
+		GatewayID:        "",
 		Security:        cfg.Security,
 		Logging:         cfg.Logging,
 		GatewayAddr:     cfg.GatewayAddr,

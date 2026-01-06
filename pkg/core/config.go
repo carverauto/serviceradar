@@ -35,7 +35,7 @@ import (
 
 const (
 	defaultMetricsRetention        = 100
-	defaultMetricsMaxPollers       = 10000
+	defaultMetricsMaxGateways       = 10000
 	defaultDeviceRetentionDays     = 3
 	jwtAlgorithmRS256              = "RS256"
 	defaultSRQLBaseURL             = "http://srql:8080"
@@ -66,8 +66,8 @@ func normalizeConfig(config *models.CoreServiceConfig) *models.CoreServiceConfig
 		normalized.Metrics.Retention = defaultMetricsRetention
 	}
 
-	if normalized.Metrics.MaxPollers == 0 {
-		normalized.Metrics.MaxPollers = defaultMetricsMaxPollers
+	if normalized.Metrics.MaxGateways == 0 {
+		normalized.Metrics.MaxGateways = defaultMetricsMaxGateways
 	}
 
 	if normalized.Metrics.DeviceRetentionDays == 0 {

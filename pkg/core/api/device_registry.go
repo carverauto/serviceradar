@@ -33,7 +33,7 @@ import (
 // DeviceRegistryInfo represents service registry information for a device.
 type DeviceRegistryInfo struct {
 	DeviceID           string            `json:"device_id"`
-	DeviceType         string            `json:"device_type"` // poller, agent, checker, or empty
+	DeviceType         string            `json:"device_type"` // gateway, agent, checker, or empty
 	RegistrationSource string            `json:"registration_source,omitempty"`
 	FirstRegistered    *time.Time        `json:"first_registered,omitempty"`
 	FirstSeen          *time.Time        `json:"first_seen,omitempty"`
@@ -41,13 +41,13 @@ type DeviceRegistryInfo struct {
 	Status             string            `json:"status,omitempty"`
 	SPIFFEIdentity     string            `json:"spiffe_identity,omitempty"`
 	Metadata           map[string]string `json:"metadata,omitempty"`
-	ParentID           string            `json:"parent_id,omitempty"` // poller_id for agents, agent_id for checkers
+	ParentID           string            `json:"parent_id,omitempty"` // gateway_id for agents, agent_id for checkers
 	ComponentID        string            `json:"component_id,omitempty"`
 	CheckerKind        string            `json:"checker_kind,omitempty"` // for checkers only
 }
 
 // @Summary Get device registry information
-// @Description Get service registry information for a device (poller, agent, or checker)
+// @Description Get service registry information for a device (gateway, agent, or checker)
 // @Tags Devices
 // @Produce json
 // @Param id path string true "Device ID"
@@ -73,25 +73,25 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 	deviceType := getDeviceType(deviceID)
 	info.DeviceType = deviceType
 
-	// If it's a service component (poller, agent, checker), query service registry
+	// If it's a service component (gateway, agent, checker), query service registry
 	if s.serviceRegistry != nil && deviceType != "" {
 		switch deviceType {
-		case componentTypePoller:
-			poller, err := s.serviceRegistry.GetPoller(ctx, deviceID)
+		case componentTypeGateway:
+			gateway, err := s.serviceRegistry.GetGateway(ctx, deviceID)
 			if err != nil {
-				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Poller not found in service registry")
-				writeError(w, "Poller not found in service registry", http.StatusNotFound)
+				s.logger.Debug().Err(err).Str("device_id", deviceID).Msg("Gateway not found in service registry")
+				writeError(w, "Gateway not found in service registry", http.StatusNotFound)
 				return
 			}
 
-			info.RegistrationSource = string(poller.RegistrationSource)
-			info.FirstRegistered = &poller.FirstRegistered
-			info.FirstSeen = poller.FirstSeen
-			info.LastSeen = poller.LastSeen
-			info.Status = string(poller.Status)
-			info.SPIFFEIdentity = poller.SPIFFEIdentity
-			info.Metadata = poller.Metadata
-			info.ComponentID = poller.ComponentID
+			info.RegistrationSource = string(gateway.RegistrationSource)
+			info.FirstRegistered = &gateway.FirstRegistered
+			info.FirstSeen = gateway.FirstSeen
+			info.LastSeen = gateway.LastSeen
+			info.Status = string(gateway.Status)
+			info.SPIFFEIdentity = gateway.SPIFFEIdentity
+			info.Metadata = gateway.Metadata
+			info.ComponentID = gateway.ComponentID
 
 		case componentTypeAgent:
 			agent, err := s.serviceRegistry.GetAgent(ctx, deviceID)
@@ -108,7 +108,7 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 			info.Status = string(agent.Status)
 			info.SPIFFEIdentity = agent.SPIFFEIdentity
 			info.Metadata = agent.Metadata
-			info.ParentID = agent.PollerID
+			info.ParentID = agent.GatewayID
 			info.ComponentID = agent.ComponentID
 
 		case componentTypeChecker:
@@ -133,7 +133,7 @@ func (s *APIServer) getDeviceRegistryInfo(w http.ResponseWriter, r *http.Request
 	} else {
 		// Not a service component, return minimal info
 		s.logger.Debug().Str("device_id", deviceID).Str("type", deviceType).Msg("Device is not a service component")
-		writeError(w, "Device is not a service component (poller/agent/checker)", http.StatusNotFound)
+		writeError(w, "Device is not a service component (gateway/agent/checker)", http.StatusNotFound)
 		return
 	}
 
@@ -338,8 +338,8 @@ func (s *APIServer) deleteDevice(w http.ResponseWriter, r *http.Request) {
 
 // getDeviceType determines the device type based on device_id prefix
 func getDeviceType(deviceID string) string {
-	if strings.HasPrefix(deviceID, "serviceradar:poller:") {
-		return "poller"
+	if strings.HasPrefix(deviceID, "serviceradar:gateway:") {
+		return "gateway"
 	}
 	if strings.HasPrefix(deviceID, "serviceradar:agent:") {
 		return "agent"

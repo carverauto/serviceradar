@@ -150,18 +150,18 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 	}
 
 	agentIDForMapperCall := req.AgentId
-	pollerIDForMapperCall := req.PollerId
+	gatewayIDForMapperCall := req.GatewayId
 
 	// Construct the request for the new/modified gRPC method
 	latestResultsReq := &discovery.GetLatestCachedResultsRequest{ // Assuming this new request type
 		AgentId:        agentIDForMapperCall,
-		PollerId:       pollerIDForMapperCall,
+		GatewayId:       gatewayIDForMapperCall,
 		IncludeRawData: checkerDetails.IncludeRawData,
 	}
 
 	mdc.logger.Info().
 		Str("agentID", agentIDForMapperCall).
-		Str("pollerID", pollerIDForMapperCall).
+		Str("gatewayID", gatewayIDForMapperCall).
 		Bool("includeRaw", checkerDetails.IncludeRawData).
 		Msg("Requesting latest cached results")
 
@@ -190,7 +190,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		case discovery.DiscoveryStatus_COMPLETED:
 			// Data is complete from mapper's perspective.
 			// 'isDataUsable' can further check if devices were actually found.
-			isDataUsable, responseData = mdc.formatFinalResults(resultsResp, agentIDForMapperCall, pollerIDForMapperCall)
+			isDataUsable, responseData = mdc.formatFinalResults(resultsResp, agentIDForMapperCall, gatewayIDForMapperCall)
 		case discovery.DiscoveryStatus_RUNNING:
 			// Mapper is actively running its scheduled job. Data might be partial or from a previous run.
 			mdc.logger.Info().Float32("progress", resultsResp.Progress).Msg("Mapper status is RUNNING")
@@ -276,16 +276,16 @@ func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.R
 func (mdc *MapperDiscoveryChecker) formatFinalResults(
 	resultsResp *discovery.ResultsResponse,
 	requestingAgentID string,
-	requestingPollerID string) (bool, json.RawMessage) {
-	// The AgentID and PollerID in the SNMPDiscoveryDataPayload should ideally reflect the context
+	requestingGatewayID string) (bool, json.RawMessage) {
+	// The AgentID and GatewayID in the SNMPDiscoveryDataPayload should ideally reflect the context
 	// of the data generation. If the mapper's ResultsResponse includes this (e.g., in metadata),
-	// it should be used. Otherwise, using the requesting agent/poller IDs provides retrieval context.
+	// it should be used. Otherwise, using the requesting agent/gateway IDs provides retrieval context.
 	payload := models.SNMPDiscoveryDataPayload{
 		Devices:    resultsResp.Devices,
 		Interfaces: resultsResp.Interfaces,
 		Topology:   resultsResp.Topology,
 		AgentID:    requestingAgentID,  // Context of who is requesting/retrieving the cache
-		PollerID:   requestingPollerID, // Context of who is requesting/retrieving the cache
+		GatewayID:   requestingGatewayID, // Context of who is requesting/retrieving the cache
 	}
 
 	data, err := json.Marshal(payload)

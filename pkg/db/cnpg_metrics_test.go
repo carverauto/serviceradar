@@ -32,12 +32,12 @@ func TestBuildTimeseriesMetricArgs(t *testing.T) {
 		Metadata:       `{"foo":"bar"}`,
 	}
 
-	args, err := buildTimeseriesMetricArgs("poller-a", metric)
+	args, err := buildTimeseriesMetricArgs("gateway-a", metric)
 	require.NoError(t, err)
 	require.Len(t, args, 15)
 
 	assert.Equal(t, fixed, args[0])
-	assert.Equal(t, "poller-a", args[1])
+	assert.Equal(t, "gateway-a", args[1])
 	assert.Empty(t, args[2])
 	assert.Equal(t, "ifInOctets", args[3])
 	assert.Equal(t, "counter", args[4])
@@ -54,12 +54,12 @@ func TestBuildTimeseriesMetricArgs(t *testing.T) {
 	assert.True(t, ok, "metadata should marshal to JSON raw message")
 
 	metric.Metadata = ""
-	args, err = buildTimeseriesMetricArgs("poller-a", metric)
+	args, err = buildTimeseriesMetricArgs("gateway-a", metric)
 	require.NoError(t, err)
 	assert.Nil(t, args[14])
 
 	metric.Metadata = "{invalid"
-	_, err = buildTimeseriesMetricArgs("poller-a", metric)
+	_, err = buildTimeseriesMetricArgs("gateway-a", metric)
 	require.Error(t, err)
 }
 
@@ -71,7 +71,7 @@ func TestBuildDiskMetricArgs(t *testing.T) {
 		UsedBytes:  400,
 	}
 
-	args := buildDiskMetricArgs("poller", "agent", "host", "device", "partition", disk, ts)
+	args := buildDiskMetricArgs("gateway", "agent", "host", "device", "partition", disk, ts)
 	require.Len(t, args, 12)
 
 	assert.Equal(t, ts, args[0])
@@ -89,7 +89,7 @@ func TestBuildMemoryMetricArgs(t *testing.T) {
 		UsedBytes:  1024,
 	}
 
-	args := buildMemoryMetricArgs("poller", "agent", "host", "device", "partition", memory, ts)
+	args := buildMemoryMetricArgs("gateway", "agent", "host", "device", "partition", memory, ts)
 	require.Len(t, args, 10)
 
 	assert.Equal(t, ts, args[0])

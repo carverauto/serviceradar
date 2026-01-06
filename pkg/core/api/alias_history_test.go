@@ -16,7 +16,7 @@ func TestBuildAliasHistory(t *testing.T) {
 			"_alias_collector_ip":                   "10.42.111.114",
 			"_alias_last_seen_service_id":           "serviceradar:agent:k8s-agent",
 			"_alias_last_seen_ip":                   "10.0.0.5",
-			"service_alias:serviceradar:poller:k8s": "2025-11-03T14:00:00Z",
+			"service_alias:serviceradar:gateway:k8s": "2025-11-03T14:00:00Z",
 			"ip_alias:10.0.0.8":                     "2025-11-03T14:30:00Z",
 		},
 	}
@@ -34,7 +34,7 @@ func TestBuildAliasHistory(t *testing.T) {
 		LastSeenAt: "2025-11-03T15:00:00Z",
 	})
 	assert.Contains(t, history.Services, DeviceAliasRecord{
-		ID:         "serviceradar:poller:k8s",
+		ID:         "serviceradar:gateway:k8s",
 		LastSeenAt: "2025-11-03T14:00:00Z",
 	})
 

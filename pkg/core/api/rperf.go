@@ -28,21 +28,21 @@ import (
 )
 
 // @Summary Get rperf metrics
-// @Description Retrieves network performance metrics measured by rperf for a specific poller within a time range
+// @Description Retrieves network performance metrics measured by rperf for a specific gateway within a time range
 // @Tags Rperf
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.RperfMetric "Network performance metrics data"
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 404 {object} models.ErrorResponse "No rperf metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error or rperf manager not configured"
-// @Router /pollers/{id}/rperf [get]
+// @Router /gateways/{id}/rperf [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
-	pollerID := mux.Vars(r)["id"]
+	gatewayID := mux.Vars(r)["id"]
 
 	// set a context with a timeout of 10 seconds
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
@@ -60,12 +60,12 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Debug().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("start_time", startTime.Format(time.RFC3339)).
 		Str("end_time", endTime.Format(time.RFC3339)).
 		Msg("Querying rperf metrics")
 
-	resp := s.processRperfMetrics(ctx, pollerID, startTime, endTime)
+	resp := s.processRperfMetrics(ctx, gatewayID, startTime, endTime)
 	if resp.Err != nil {
 		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
 		return
@@ -76,16 +76,16 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSONResponse(w, resp.Metrics, pollerID)
+	s.writeJSONResponse(w, resp.Metrics, gatewayID)
 }
 
-// processRperfMetrics fetches and processes rperf metrics for a poller.
+// processRperfMetrics fetches and processes rperf metrics for a gateway.
 // @ignore This is an internal helper function, not directly exposed as an API endpoint
 func (s *APIServer) processRperfMetrics(
-	ctx context.Context, pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
-	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, pollerID, startTime, endTime)
+	ctx context.Context, gatewayID string, startTime, endTime time.Time) models.RperfMetricResponse {
+	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, gatewayID, startTime, endTime)
 	if err != nil {
-		s.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Error fetching rperf metrics")
+		s.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Error fetching rperf metrics")
 		return models.RperfMetricResponse{Err: err}
 	}
 

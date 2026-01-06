@@ -136,7 +136,7 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 			Endpoint:  "https://armis.example.com",
 			Prefix:    "armis/",
 			AgentID:   "test-agent",
-			PollerID:  "test-poller",
+			GatewayID:  "test-gateway",
 			Partition: "test-partition",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
@@ -224,7 +224,7 @@ func verifyArmisResults(t *testing.T, events []*models.DeviceUpdate, err error, 
 		exp := expectedDevices[i]
 
 		require.Equal(t, extractFirstIP(exp.IPAddress), ev.IP)
-		require.Equal(t, "test-poller", ev.PollerID)
+		require.Equal(t, "test-gateway", ev.GatewayID)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 			Endpoint:  "https://armis.example.com",
 			Prefix:    "armis/",
 			AgentID:   "test-agent",
-			PollerID:  "test-poller",
+			GatewayID:  "test-gateway",
 			Partition: "test-partition",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
@@ -708,7 +708,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 // TestProcessDevices verifies that Armis devices are converted into DeviceUpdate events.
 func TestProcessDevices(t *testing.T) {
 	integ := &ArmisIntegration{
-		Config: &models.SourceConfig{AgentID: "test-agent", PollerID: "poller", Partition: "part"},
+		Config: &models.SourceConfig{AgentID: "test-agent", GatewayID: "gateway", Partition: "part"},
 		Logger: logger.NewTestLogger(),
 	}
 
@@ -729,7 +729,7 @@ func TestProcessDevices(t *testing.T) {
 
 	// Check first event
 	assert.Equal(t, "test-agent", events[0].AgentID)
-	assert.Equal(t, "poller", events[0].PollerID)
+	assert.Equal(t, "gateway", events[0].GatewayID)
 	assert.Equal(t, "192.168.1.1", events[0].IP)
 	assert.Empty(t, events[0].DeviceID) // Empty - registry will generate ServiceRadar UUID
 	assert.Equal(t, "part", events[0].Partition)
@@ -747,7 +747,7 @@ func TestProcessDevices(t *testing.T) {
 
 	// Check second event
 	assert.Equal(t, "test-agent", events[1].AgentID)
-	assert.Equal(t, "poller", events[1].PollerID)
+	assert.Equal(t, "gateway", events[1].GatewayID)
 	assert.Equal(t, "192.168.1.2", events[1].IP)
 	assert.Empty(t, events[1].DeviceID) // Empty - registry will generate ServiceRadar UUID
 	assert.Equal(t, "part", events[1].Partition)

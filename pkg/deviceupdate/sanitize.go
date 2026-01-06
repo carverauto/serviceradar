@@ -116,7 +116,7 @@ func isProtectedKey(key string) bool {
 		"mac",
 		"ip",
 		"device_id",
-		"poller_id",
+		"gateway_id",
 		"agent_id",
 		"_merged_into",
 		"_deleted",

@@ -24,14 +24,14 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/pollers": {
+        "/api/gateways": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves a list of all known pollers",
+                "description": "Retrieves a list of all known gateways",
                 "consumes": [
                     "application/json"
                 ],
@@ -39,16 +39,16 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Pollers"
+                    "Gateways"
                 ],
-                "summary": "Get all pollers",
+                "summary": "Get all gateways",
                 "responses": {
                     "200": {
-                        "description": "List of poller statuses",
+                        "description": "List of gateway statuses",
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.PollerStatus"
+                                "$ref": "#/definitions/api.GatewayStatus"
                             }
                         }
                     },
@@ -61,14 +61,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}": {
+        "/api/gateways/{id}": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves detailed information about a specific poller",
+                "description": "Retrieves detailed information about a specific gateway",
                 "consumes": [
                     "application/json"
                 ],
@@ -76,13 +76,13 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Pollers"
+                    "Gateways"
                 ],
-                "summary": "Get poller details",
+                "summary": "Get gateway details",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -90,13 +90,13 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Poller status details",
+                        "description": "Gateway status details",
                         "schema": {
-                            "$ref": "#/definitions/api.PollerStatus"
+                            "$ref": "#/definitions/api.GatewayStatus"
                         }
                     },
                     "404": {
-                        "description": "Poller not found",
+                        "description": "Gateway not found",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -110,14 +110,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}/history": {
+        "/api/gateways/{id}/history": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves historical status information for a specific poller",
+                "description": "Retrieves historical status information for a specific gateway",
                 "consumes": [
                     "application/json"
                 ],
@@ -125,13 +125,13 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "Pollers"
+                    "Gateways"
                 ],
-                "summary": "Get poller history",
+                "summary": "Get gateway history",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -143,7 +143,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/api.PollerHistoryPoint"
+                                "$ref": "#/definitions/api.GatewayHistoryPoint"
                             }
                         }
                     },
@@ -156,14 +156,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}/metrics": {
+        "/api/gateways/{id}/metrics": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves performance metrics for a specific poller",
+                "description": "Retrieves performance metrics for a specific gateway",
                 "consumes": [
                     "application/json"
                 ],
@@ -173,11 +173,11 @@ const docTemplate = `{
                 "tags": [
                     "Metrics"
                 ],
-                "summary": "Get poller metrics",
+                "summary": "Get gateway metrics",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -185,7 +185,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Poller metrics data",
+                        "description": "Gateway metrics data",
                         "schema": {
                             "type": "array",
                             "items": {
@@ -208,14 +208,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}/services": {
+        "/api/gateways/{id}/services": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves all services monitored by a specific poller",
+                "description": "Retrieves all services monitored by a specific gateway",
                 "consumes": [
                     "application/json"
                 ],
@@ -225,11 +225,11 @@ const docTemplate = `{
                 "tags": [
                     "Services"
                 ],
-                "summary": "Get poller services",
+                "summary": "Get gateway services",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -246,7 +246,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Poller not found",
+                        "description": "Gateway not found",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -260,14 +260,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}/services/{service}": {
+        "/api/gateways/{id}/services/{service}": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves detailed information about a specific service monitored by a poller",
+                "description": "Retrieves detailed information about a specific service monitored by a gateway",
                 "consumes": [
                     "application/json"
                 ],
@@ -281,7 +281,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -302,7 +302,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Poller or service not found",
+                        "description": "Gateway or service not found",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -316,14 +316,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/pollers/{id}/snmp": {
+        "/api/gateways/{id}/snmp": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves SNMP metrics data for a specific poller within the given time range",
+                "description": "Retrieves SNMP metrics data for a specific gateway within the given time range",
                 "consumes": [
                     "application/json"
                 ],
@@ -337,7 +337,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -446,7 +446,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves overall system status including counts of total and healthy pollers",
+                "description": "Retrieves overall system status including counts of total and healthy gateways",
                 "consumes": [
                     "application/json"
                 ],
@@ -665,14 +665,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/pollers/{id}/rperf": {
+        "/gateways/{id}/rperf": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves network performance metrics measured by rperf for a specific poller within a time range",
+                "description": "Retrieves network performance metrics measured by rperf for a specific gateway within a time range",
                 "consumes": [
                     "application/json"
                 ],
@@ -686,7 +686,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -735,14 +735,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/pollers/{id}/sysmon/cpu": {
+        "/gateways/{id}/sysmon/cpu": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves CPU usage metrics for a specific poller within a time range",
+                "description": "Retrieves CPU usage metrics for a specific gateway within a time range",
                 "consumes": [
                     "application/json"
                 ],
@@ -756,7 +756,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -811,14 +811,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/pollers/{id}/sysmon/disk": {
+        "/gateways/{id}/sysmon/disk": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves disk usage metrics for a specific poller within a time range",
+                "description": "Retrieves disk usage metrics for a specific gateway within a time range",
                 "consumes": [
                     "application/json"
                 ],
@@ -832,7 +832,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -893,14 +893,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/pollers/{id}/sysmon/memory": {
+        "/gateways/{id}/sysmon/memory": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "Retrieves memory usage metrics for a specific poller within a time range",
+                "description": "Retrieves memory usage metrics for a specific gateway within a time range",
                 "consumes": [
                     "application/json"
                 ],
@@ -914,7 +914,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Poller ID",
+                        "description": "Gateway ID",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -986,7 +986,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.PollerHistoryPoint": {
+        "api.GatewayHistoryPoint": {
             "type": "object",
             "properties": {
                 "is_healthy": {
@@ -997,7 +997,7 @@ const docTemplate = `{
                 }
             }
         },
-        "api.PollerStatus": {
+        "api.GatewayStatus": {
             "type": "object",
             "properties": {
                 "first_seen": {
@@ -1015,7 +1015,7 @@ const docTemplate = `{
                         "$ref": "#/definitions/models.MetricPoint"
                     }
                 },
-                "poller_id": {
+                "gateway_id": {
                     "type": "string"
                 },
                 "services": {
@@ -1091,13 +1091,13 @@ const docTemplate = `{
         "api.SystemStatus": {
             "type": "object",
             "properties": {
-                "healthy_pollers": {
+                "healthy_gateways": {
                     "type": "integer"
                 },
                 "last_update": {
                     "type": "string"
                 },
-                "total_pollers": {
+                "total_gateways": {
                     "type": "integer"
                 }
             }
@@ -1377,7 +1377,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
 	Title:            "ServiceRadar API",
-	Description:      "API for monitoring and managing service pollers in the ServiceRadar system",
+	Description:      "API for monitoring and managing service gateways in the ServiceRadar system",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

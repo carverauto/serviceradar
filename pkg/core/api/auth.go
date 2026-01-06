@@ -112,7 +112,7 @@ type configDescriptorResponse struct {
 	KVKeyTemplate  string `json:"kv_key_template,omitempty"`
 	Format         string `json:"format"`
 	RequiresAgent  bool   `json:"requires_agent"`
-	RequiresPoller bool   `json:"requires_poller"`
+	RequiresGateway bool   `json:"requires_gateway"`
 }
 
 // @Summary List managed config descriptors
@@ -134,7 +134,7 @@ func (s *APIServer) handleListConfigDescriptors(w http.ResponseWriter, r *http.R
 			KVKeyTemplate:  desc.KVKeyTemplate,
 			Format:         string(desc.Format),
 			RequiresAgent:  desc.Scope == config.ConfigScopeAgent && desc.KVKeyTemplate != "",
-			RequiresPoller: desc.Scope == config.ConfigScopePoller && desc.KVKeyTemplate != "",
+			RequiresGateway: desc.Scope == config.ConfigScopeGateway && desc.KVKeyTemplate != "",
 		})
 	}
 
@@ -316,18 +316,18 @@ func (s *APIServer) remoteWatcherTargets(ctx context.Context) []remoteWatcherTar
 	}
 
 	if s.dbService != nil {
-		if pollerIDs, err := s.dbService.ListPollers(ctx); err != nil {
-			s.logger.Warn().Err(err).Msg("failed to list pollers for remote watcher targets")
+		if gatewayIDs, err := s.dbService.ListGateways(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("failed to list gateways for remote watcher targets")
 		} else {
-			for _, pollerID := range pollerIDs {
-				if pollerID == "" {
+			for _, gatewayID := range gatewayIDs {
+				if gatewayID == "" {
 					continue
 				}
-				addTarget("poller", pollerID)
+				addTarget("gateway", gatewayID)
 			}
 		}
 
-		if agents, err := s.dbService.ListAgentsWithPollers(ctx); err != nil {
+		if agents, err := s.dbService.ListAgentsWithGateways(ctx); err != nil {
 			s.logger.Warn().Err(err).Msg("failed to list agents for remote watcher targets")
 		} else {
 			for _, agent := range agents {
@@ -600,7 +600,7 @@ func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 // @Tags Admin
 // @Accept json
 // @Produce json
-// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param service path string true "Service name (core, sync, gateway, agent)"
 // @Param kvStore query string false "KV store identifier (default: local)"
 // @Success 200 {object} map[string]interface{} "Service configuration"
 // @Failure 400 {object} models.ErrorResponse "Invalid service"
@@ -614,7 +614,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 	key := r.URL.Query().Get("key")
 	agentID := r.URL.Query().Get("agent_id")
-	pollerID := r.URL.Query().Get("poller_id")
+	gatewayID := r.URL.Query().Get("gateway_id")
 	serviceType := r.URL.Query().Get("service_type")
 	kvStoreID := r.URL.Query().Get("kv_store_id")
 	if kvStoreID == "" {
@@ -625,13 +625,13 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	var hasDescriptor bool
 	if key == "" {
 		var err error
-		desc, key, hasDescriptor, err = s.resolveServiceKey(service, serviceType, agentID, pollerID)
+		desc, key, hasDescriptor, err = s.resolveServiceKey(service, serviceType, agentID, gatewayID)
 		if err != nil {
 			s.writeAPIError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	} else {
-		desc, hasDescriptor = s.lookupServiceDescriptor(service, serviceType, agentID, pollerID)
+		desc, hasDescriptor = s.lookupServiceDescriptor(service, serviceType, agentID, gatewayID)
 	}
 
 	rawMode := isRawConfigRequested(r)
@@ -733,7 +733,7 @@ func (s *APIServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 // @Tags Admin
 // @Accept json
 // @Produce json
-// @Param service path string true "Service name (core, sync, poller, agent)"
+// @Param service path string true "Service name (core, sync, gateway, agent)"
 // @Param kvStore query string false "KV store identifier (default: local)"
 // @Param config body map[string]interface{} true "Configuration object"
 // @Success 200 {object} map[string]interface{} "Update result"
@@ -750,7 +750,7 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Preferred: explicit KV key via ?key=. Otherwise derive from service_type and agent_id
 	key := r.URL.Query().Get("key")
 	agentID := r.URL.Query().Get("agent_id")
-	pollerID := r.URL.Query().Get("poller_id")
+	gatewayID := r.URL.Query().Get("gateway_id")
 	serviceType := r.URL.Query().Get("service_type")
 	kvStoreID := r.URL.Query().Get("kv_store_id")
 	if kvStoreID == "" {
@@ -762,7 +762,7 @@ func (s *APIServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	if key == "" {
 		var err error
-		_, key, _, err = s.resolveServiceKey(service, serviceType, agentID, pollerID)
+		_, key, _, err = s.resolveServiceKey(service, serviceType, agentID, gatewayID)
 		if err != nil {
 			s.writeAPIError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1207,19 +1207,19 @@ func serviceLevelKeyFor(service string) (string, bool) {
 		return "config/otel.toml", true
 	case "trapd":
 		return "config/trapd.json", true
-	case "core", "sync", "poller", serviceAgent, "db-event-writer", "zen-consumer":
+	case "core", "sync", "gateway", serviceAgent, "db-event-writer", "zen-consumer":
 		return fmt.Sprintf("config/%s.json", service), true
 	default:
 		return "", false
 	}
 }
 
-func (s *APIServer) resolveServiceKey(service, serviceType, agentID, pollerID string) (config.ServiceDescriptor, string, bool, error) {
-	desc, hasDescriptor := s.lookupServiceDescriptor(service, serviceType, agentID, pollerID)
+func (s *APIServer) resolveServiceKey(service, serviceType, agentID, gatewayID string) (config.ServiceDescriptor, string, bool, error) {
+	desc, hasDescriptor := s.lookupServiceDescriptor(service, serviceType, agentID, gatewayID)
 	if hasDescriptor {
 		key, err := desc.ResolveKVKey(config.KeyContext{
 			AgentID:  agentID,
-			PollerID: pollerID,
+			GatewayID: gatewayID,
 		})
 		if err != nil {
 			return desc, "", true, err
@@ -1245,7 +1245,7 @@ func (s *APIServer) resolveServiceKey(service, serviceType, agentID, pollerID st
 	return config.ServiceDescriptor{}, "", false, errConfigKeyUnresolved
 }
 
-func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID, pollerID string) (config.ServiceDescriptor, bool) {
+func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID, gatewayID string) (config.ServiceDescriptor, bool) {
 	candidates := uniqueStrings(service, serviceType)
 
 	if agentID != "" {
@@ -1256,9 +1256,9 @@ func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID, polle
 		}
 	}
 
-	if pollerID != "" {
+	if gatewayID != "" {
 		for _, candidate := range candidates {
-			if desc, ok := config.ServiceDescriptorByType(candidate, config.ConfigScopePoller); ok {
+			if desc, ok := config.ServiceDescriptorByType(candidate, config.ConfigScopeGateway); ok {
 				return desc, true
 			}
 		}
@@ -1269,7 +1269,7 @@ func (s *APIServer) lookupServiceDescriptor(service, serviceType, agentID, polle
 			if desc.Scope == config.ConfigScopeAgent && agentID == "" {
 				continue
 			}
-			if desc.Scope == config.ConfigScopePoller && pollerID == "" {
+			if desc.Scope == config.ConfigScopeGateway && gatewayID == "" {
 				continue
 			}
 			return desc, true

@@ -519,9 +519,9 @@ func getLogTools() []map[string]interface{} {
 						"type":        "integer",
 						"description": "Maximum number of logs to return (default: 100)",
 					},
-					"poller_id": map[string]interface{}{
+					"gateway_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional poller ID filter",
+						"description": "Optional gateway ID filter",
 					},
 				},
 			},

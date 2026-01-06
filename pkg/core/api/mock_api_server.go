@@ -42,40 +42,40 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 
 // SRQL and MCP-related methods removed from Service interface
 
-// SetKnownPollers mocks base method.
-func (m *MockService) SetKnownPollers(knownPollers []string) {
+// SetKnownGateways mocks base method.
+func (m *MockService) SetKnownGateways(knownGateways []string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetKnownPollers", knownPollers)
+	m.ctrl.Call(m, "SetKnownGateways", knownGateways)
 }
 
-// SetKnownPollers indicates an expected call of SetKnownPollers.
-func (mr *MockServiceMockRecorder) SetKnownPollers(knownPollers any) *gomock.Call {
+// SetKnownGateways indicates an expected call of SetKnownGateways.
+func (mr *MockServiceMockRecorder) SetKnownGateways(knownGateways any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetKnownPollers", reflect.TypeOf((*MockService)(nil).SetKnownPollers), knownPollers)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetKnownGateways", reflect.TypeOf((*MockService)(nil).SetKnownGateways), knownGateways)
 }
 
-// SetDynamicPollers mocks base method.
-func (m *MockService) SetDynamicPollers(pollerIDs []string) {
+// SetDynamicGateways mocks base method.
+func (m *MockService) SetDynamicGateways(gatewayIDs []string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetDynamicPollers", pollerIDs)
+	m.ctrl.Call(m, "SetDynamicGateways", gatewayIDs)
 }
 
-// SetDynamicPollers indicates an expected call of SetDynamicPollers.
-func (mr *MockServiceMockRecorder) SetDynamicPollers(pollerIDs any) *gomock.Call {
+// SetDynamicGateways indicates an expected call of SetDynamicGateways.
+func (mr *MockServiceMockRecorder) SetDynamicGateways(gatewayIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDynamicPollers", reflect.TypeOf((*MockService)(nil).SetDynamicPollers), pollerIDs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDynamicGateways", reflect.TypeOf((*MockService)(nil).SetDynamicGateways), gatewayIDs)
 }
 
-// SetPollerHistoryHandler mocks base method.
-func (m *MockService) SetPollerHistoryHandler(ctx context.Context, handler func(string) ([]PollerHistoryPoint, error)) {
+// SetGatewayHistoryHandler mocks base method.
+func (m *MockService) SetGatewayHistoryHandler(ctx context.Context, handler func(string) ([]GatewayHistoryPoint, error)) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPollerHistoryHandler", ctx, handler)
+	m.ctrl.Call(m, "SetGatewayHistoryHandler", ctx, handler)
 }
 
-// SetPollerHistoryHandler indicates an expected call of SetPollerHistoryHandler.
-func (mr *MockServiceMockRecorder) SetPollerHistoryHandler(ctx, handler any) *gomock.Call {
+// SetGatewayHistoryHandler indicates an expected call of SetGatewayHistoryHandler.
+func (mr *MockServiceMockRecorder) SetGatewayHistoryHandler(ctx, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPollerHistoryHandler", reflect.TypeOf((*MockService)(nil).SetPollerHistoryHandler), ctx, handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGatewayHistoryHandler", reflect.TypeOf((*MockService)(nil).SetGatewayHistoryHandler), ctx, handler)
 }
 
 // Start mocks base method.
@@ -92,14 +92,14 @@ func (mr *MockServiceMockRecorder) Start(addr any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockService)(nil).Start), addr)
 }
 
-// UpdatePollerStatus mocks base method.
-func (m *MockService) UpdatePollerStatus(pollerID string, status *PollerStatus) {
+// UpdateGatewayStatus mocks base method.
+func (m *MockService) UpdateGatewayStatus(gatewayID string, status *GatewayStatus) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdatePollerStatus", pollerID, status)
+	m.ctrl.Call(m, "UpdateGatewayStatus", gatewayID, status)
 }
 
-// UpdatePollerStatus indicates an expected call of UpdatePollerStatus.
-func (mr *MockServiceMockRecorder) UpdatePollerStatus(pollerID, status any) *gomock.Call {
+// UpdateGatewayStatus indicates an expected call of UpdateGatewayStatus.
+func (mr *MockServiceMockRecorder) UpdateGatewayStatus(gatewayID, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePollerStatus", reflect.TypeOf((*MockService)(nil).UpdatePollerStatus), pollerID, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGatewayStatus", reflect.TypeOf((*MockService)(nil).UpdateGatewayStatus), gatewayID, status)
 }

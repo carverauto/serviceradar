@@ -19,7 +19,7 @@ package models
 type ServiceRole string
 
 const (
-	RolePoller      ServiceRole = "poller"  // Client and Server
+	RoleGateway      ServiceRole = "gateway"  // Client and Server
 	RoleAgent       ServiceRole = "agent"   // Server only
 	RoleCore        ServiceRole = "core"    // Server only
 	RoleKVStore     ServiceRole = "kv"      // Server only

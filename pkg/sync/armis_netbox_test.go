@@ -38,19 +38,19 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 	// Create test config with both Armis and NetBox sources
 	config := &Config{
 		AgentID:           "test-agent",
-		PollerID:          "test-poller",
+		GatewayID:          "test-gateway",
 		DiscoveryInterval: models.Duration(30 * time.Second),
 		UpdateInterval:    models.Duration(60 * time.Second),
 		Sources: map[string]*models.SourceConfig{
 			"armis": {
 				Type:     "armis",
 				AgentID:  "test-agent",
-				PollerID: "test-poller",
+				GatewayID: "test-gateway",
 			},
 			"netbox": {
 				Type:     "netbox",
 				AgentID:  "test-agent",
-				PollerID: "test-poller",
+				GatewayID: "test-gateway",
 			},
 		},
 	}
@@ -75,7 +75,7 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		{
 			DeviceID:    "test:192.168.1.1",
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Source:      models.DiscoverySourceArmis,
 			IP:          "192.168.1.1",
 			IsAvailable: true,
@@ -88,7 +88,7 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		{
 			DeviceID:    "test:192.168.1.2",
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Source:      models.DiscoverySourceArmis,
 			IP:          "192.168.1.2",
 			IsAvailable: true,
@@ -104,7 +104,7 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		{
 			DeviceID:    "test:10.0.0.1",
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Source:      models.DiscoverySourceNetbox,
 			IP:          "10.0.0.1",
 			IsAvailable: false, // NetBox doesn't set this to true
@@ -117,7 +117,7 @@ func TestArmisNetBoxStreamResults(t *testing.T) {
 		{
 			DeviceID:    "test:10.0.0.2",
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Source:      models.DiscoverySourceNetbox,
 			IP:          "10.0.0.2",
 			IsAvailable: false, // NetBox doesn't set this to true

@@ -100,7 +100,7 @@ const (
 	typeDusk    = "dusk"
 )
 
-// Supported actions for update-poller.
+// Supported actions for update-gateway.
 const (
 	actionAdd    = "add"
 	actionRemove = "remove"
@@ -394,25 +394,25 @@ func (UpdateConfigHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
-// UpdatePollerHandler handles flags for the update-poller subcommand
-type UpdatePollerHandler struct{}
+// UpdateGatewayHandler handles flags for the update-gateway subcommand
+type UpdateGatewayHandler struct{}
 
-// Parse processes the command-line arguments for the update-poller subcommand.
-func (UpdatePollerHandler) Parse(args []string, cfg *CmdConfig) error {
-	fs := flag.NewFlagSet("update-poller", flag.ExitOnError)
-	pollerFile := fs.String("file", "", "path to poller.json config file")
+// Parse processes the command-line arguments for the update-gateway subcommand.
+func (UpdateGatewayHandler) Parse(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("update-gateway", flag.ExitOnError)
+	gatewayFile := fs.String("file", "", "path to gateway.json config file")
 	action := fs.String("action", "add", "action to perform: add or remove")
-	agent := fs.String("agent", "local-agent", "agent name in poller.json")
+	agent := fs.String("agent", "local-agent", "agent name in gateway.json")
 	serviceType := fs.String("type", "", "service type (e.g., sysmon, rperf-checker, snmp)")
 	serviceName := fs.String("name", "", "service name")
 	serviceDetails := fs.String("details", "", "service details (e.g., IP:port for grpc)")
 	enableAll := fs.Bool("enable-all", false, "enable all standard checkers")
 
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("parsing update-poller flags: %w", err)
+		return fmt.Errorf("parsing update-gateway flags: %w", err)
 	}
 
-	cfg.PollerFile = *pollerFile
+	cfg.GatewayFile = *gatewayFile
 	cfg.Action = *action
 	cfg.Agent = *agent
 	cfg.ServiceType = *serviceType
@@ -436,7 +436,7 @@ func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
 	ttl := fs.Int("ttl", 0, "Join token TTL in seconds")
 	agentID := fs.String("agent-spiffe-id", "", "Optional alias SPIFFE ID to assign to the agent")
 	noDownstream := fs.Bool("no-downstream", false, "Do not register a downstream entry")
-	downstreamID := fs.String("downstream-spiffe-id", "", "SPIFFE ID for the downstream poller SPIRE server")
+	downstreamID := fs.String("downstream-spiffe-id", "", "SPIFFE ID for the downstream gateway SPIRE server")
 	x509TTL := fs.Int("x509-ttl", 0, "Downstream X.509 SVID TTL in seconds")
 	jwtTTL := fs.Int("jwt-ttl", 0, "Downstream JWT SVID TTL in seconds")
 	downstreamAdmin := fs.Bool("downstream-admin", false, "Mark downstream entry as admin")
@@ -610,10 +610,10 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	label := fs.String("label", "", "Display label for the package (required)")
 	componentID := fs.String("component-id", "", "Optional component identifier (defaults to generated slug)")
-	componentType := fs.String("component-type", "poller", "Component type (poller, agent, checker[:kind])")
-	parentType := fs.String("parent-type", "", "Parent component type (poller, agent, checker)")
+	componentType := fs.String("component-type", "gateway", "Component type (gateway, agent, checker[:kind])")
+	parentType := fs.String("parent-type", "", "Parent component type (gateway, agent, checker)")
 	parentID := fs.String("parent-id", "", "Parent component identifier")
-	pollerID := fs.String("poller-id", "", "Poller identifier override")
+	gatewayID := fs.String("gateway-id", "", "Gateway identifier override")
 	site := fs.String("site", "", "Optional site/location note")
 	metadataJSON := fs.String("metadata-json", "", "Metadata JSON payload for endpoints and SPIRE config")
 	metadataFile := fs.String("metadata-file", "", "Path to metadata JSON on disk")
@@ -641,7 +641,7 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	cfg.EdgePackageComponentID = *componentID
 	cfg.EdgePackageParentType = strings.ToLower(strings.TrimSpace(*parentType))
 	cfg.EdgePackageParentID = strings.TrimSpace(*parentID)
-	cfg.EdgePackagePollerID = strings.TrimSpace(*pollerID)
+	cfg.EdgePackageGatewayID = strings.TrimSpace(*gatewayID)
 	cfg.EdgePackageSite = strings.TrimSpace(*site)
 	cfg.EdgePackageSelectors = append([]string(nil), selectors...)
 	cfg.EdgePackageNotes = *notes
@@ -667,7 +667,7 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 
 	componentTypeValue := strings.ToLower(strings.TrimSpace(*componentType))
 	if componentTypeValue == "" {
-		componentTypeValue = componentTypePoller
+		componentTypeValue = componentTypeGateway
 	}
 	checkerPrefix := componentTypeChecker + ":"
 	if strings.HasPrefix(componentTypeValue, checkerPrefix) {
@@ -676,7 +676,7 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 		if cfg.EdgePackageCheckerKind == "" {
 			cfg.EdgePackageCheckerKind = kind
 		}
-	} else if componentTypeValue != componentTypePoller && componentTypeValue != componentTypeAgent && componentTypeValue != componentTypeChecker {
+	} else if componentTypeValue != componentTypeGateway && componentTypeValue != componentTypeAgent && componentTypeValue != componentTypeChecker {
 		if cfg.EdgePackageCheckerKind == "" {
 			cfg.EdgePackageCheckerKind = componentTypeValue
 		}
@@ -706,7 +706,7 @@ func parseEdgePackageListFlags(args []string, cfg *CmdConfig) error {
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
 	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	limit := fs.Int("limit", 50, "Maximum number of packages to return")
-	pollerID := fs.String("poller-id", "", "Filter by poller identifier")
+	gatewayID := fs.String("gateway-id", "", "Filter by gateway identifier")
 	parentID := fs.String("parent-id", "", "Filter by parent identifier")
 	componentID := fs.String("component-id", "", "Filter by component identifier")
 	output := fs.String("output", "text", "Output format: text or json")
@@ -726,7 +726,7 @@ func parseEdgePackageListFlags(args []string, cfg *CmdConfig) error {
 	cfg.BearerToken = *bearer
 	cfg.TLSSkipVerify = *skipTLS
 	cfg.EdgePackageLimit = *limit
-	cfg.EdgePackagePollerFilter = strings.TrimSpace(*pollerID)
+	cfg.EdgePackageGatewayFilter = strings.TrimSpace(*gatewayID)
 	cfg.EdgePackageParentFilter = strings.TrimSpace(*parentID)
 	cfg.EdgePackageComponentFilter = strings.TrimSpace(*componentID)
 	cfg.EdgePackageStatuses = append([]string(nil), statuses...)
@@ -861,7 +861,7 @@ func ParseFlags() (*CmdConfig, error) {
 	// Define subcommands and their handlers
 	subcommands := map[string]SubcommandHandler{
 		"update-config":         UpdateConfigHandler{},
-		"update-poller":         UpdatePollerHandler{},
+		"update-gateway":         UpdateGatewayHandler{},
 		"generate-tls":          GenerateTLSHandler{},
 		"generate-jwt-keys":     GenerateJWTKeysHandler{},
 		"spire-join-token":      SpireJoinTokenHandler{},
@@ -883,14 +883,14 @@ func ParseFlags() (*CmdConfig, error) {
 	return cfg, nil
 }
 
-// RunUpdatePoller handles the update-poller subcommand.
-func RunUpdatePoller(cfg *CmdConfig) error {
-	if err := validatePollerFile(cfg.PollerFile); err != nil {
+// RunUpdateGateway handles the update-gateway subcommand.
+func RunUpdateGateway(cfg *CmdConfig) error {
+	if err := validateGatewayFile(cfg.GatewayFile); err != nil {
 		return err
 	}
 
 	if cfg.EnableAllOnInit {
-		return enableAllCheckers(cfg.PollerFile, cfg.Agent)
+		return enableAllCheckers(cfg.GatewayFile, cfg.Agent)
 	}
 
 	if err := validateServiceType(cfg.ServiceType); err != nil {
@@ -915,16 +915,16 @@ func RunUpdatePoller(cfg *CmdConfig) error {
 
 	// Execute action
 	if cfg.Action == actionAdd {
-		return addChecker(cfg.PollerFile, cfg.Agent, normalizedType, serviceName, serviceDetails, cfg.ServicePort)
+		return addChecker(cfg.GatewayFile, cfg.Agent, normalizedType, serviceName, serviceDetails, cfg.ServicePort)
 	}
 
-	return removeChecker(cfg.PollerFile, cfg.Agent, normalizedType, serviceName)
+	return removeChecker(cfg.GatewayFile, cfg.Agent, normalizedType, serviceName)
 }
 
-// validatePollerFile checks if the poller file is specified.
-func validatePollerFile(pollerFile string) error {
-	if pollerFile == "" {
-		return errRequiresPollerFile
+// validateGatewayFile checks if the gateway file is specified.
+func validateGatewayFile(gatewayFile string) error {
+	if gatewayFile == "" {
+		return errRequiresGatewayFile
 	}
 
 	return nil
@@ -986,20 +986,20 @@ func getServiceDetails(details, serviceType, serviceName string) (string, error)
 	}
 }
 
-// writePollerConfig writes the updated configuration back to the file.
-func writePollerConfig(pollerFile string, config *PollerConfig) error {
+// writeGatewayConfig writes the updated configuration back to the file.
+func writeGatewayConfig(gatewayFile string, config *GatewayConfig) error {
 	updatedData, err := json.MarshalIndent(config, "", "    ")
 	if err != nil {
-		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
+		return fmt.Errorf("%w: %w", errUpdatingGatewayConfig, err)
 	}
 
-	if err := os.WriteFile(pollerFile, updatedData, defaultFilePerms); err != nil {
-		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
+	if err := os.WriteFile(gatewayFile, updatedData, defaultFilePerms); err != nil {
+		return fmt.Errorf("%w: %w", errUpdatingGatewayConfig, err)
 	}
 
-	fmt.Printf("Successfully updated %s\n", pollerFile)
-	fmt.Println("Remember to restart the ServiceRadar poller service:")
-	fmt.Println("  systemctl restart serviceradar-poller")
+	fmt.Printf("Successfully updated %s\n", gatewayFile)
+	fmt.Println("Remember to restart the ServiceRadar gateway service:")
+	fmt.Println("  systemctl restart serviceradar-gateway")
 
 	return nil
 }

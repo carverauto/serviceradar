@@ -115,38 +115,6 @@ PACKAGES = {
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },
-    "poller": {
-        "package_name": "serviceradar-poller",
-        "description": "ServiceRadar Poller Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/poller:poller",
-            "dest": "/usr/local/bin/serviceradar-poller",
-        },
-        "files": [
-            {
-                "src": "config/poller.json",
-                "dest": "/etc/serviceradar/poller.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-                "allow_empty": True,
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-poller.service",
-            "dest": "/lib/systemd/system/serviceradar-poller.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/poller.json",
-        ],
-    },
     "mapper": {
         "package_name": "serviceradar-mapper",
         "description": "ServiceRadar Mapper Service",

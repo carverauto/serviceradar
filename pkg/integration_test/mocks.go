@@ -94,10 +94,10 @@ func (m *MockCoreService) EXPECT() *MockCoreServiceMockRecorder {
 }
 
 // ReportStatus mocks base method.
-func (m *MockCoreService) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+func (m *MockCoreService) ReportStatus(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReportStatus", ctx, req)
-	ret0, _ := ret[0].(*proto.PollerStatusResponse)
+	ret0, _ := ret[0].(*proto.GatewayStatusResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

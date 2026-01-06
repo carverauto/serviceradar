@@ -12,7 +12,7 @@ import (
 
 func TestProcessDevices_UsesIDs(t *testing.T) {
 	integ := &NetboxIntegration{
-		Config: &models.SourceConfig{AgentID: "agent", PollerID: "poller", Partition: "test-partition"},
+		Config: &models.SourceConfig{AgentID: "agent", GatewayID: "gateway", Partition: "test-partition"},
 		Logger: logger.NewTestLogger(),
 	}
 
@@ -39,7 +39,7 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 
 	require.Len(t, events, 1)
 	require.Equal(t, "10.0.0.1", events[0].IP)
-	require.Equal(t, "poller", events[0].PollerID)
+	require.Equal(t, "gateway", events[0].GatewayID)
 	require.Equal(t, models.DiscoverySourceNetbox, events[0].Source)
 	require.Equal(t, "test-partition", events[0].Partition)
 }

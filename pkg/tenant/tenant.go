@@ -138,14 +138,14 @@ func (i Info) NATSPrefix() string {
 }
 
 // PrefixChannel returns a NATS channel name prefixed with the tenant slug.
-// Example: "events.poller.health" -> "acme-corp.events.poller.health"
+// Example: "events.gateway.health" -> "acme-corp.events.gateway.health"
 func (i Info) PrefixChannel(channel string) string {
 	return i.TenantSlug + "." + channel
 }
 
 // PrefixChannelWithSlug returns a NATS channel name prefixed with the given tenant slug.
 // This is a standalone function for use when only the slug is available.
-// Example: PrefixChannelWithSlug("acme-corp", "events.poller.health") -> "acme-corp.events.poller.health"
+// Example: PrefixChannelWithSlug("acme-corp", "events.gateway.health") -> "acme-corp.events.gateway.health"
 func PrefixChannelWithSlug(tenantSlug, channel string) string {
 	if tenantSlug == "" {
 		return channel

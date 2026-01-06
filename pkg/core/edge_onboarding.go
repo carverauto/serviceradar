@@ -42,7 +42,7 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-//nolint:gochecknoglobals // cached set of statuses for allowed pollers.
+//nolint:gochecknoglobals // cached set of statuses for allowed gateways.
 var onboardingAllowedStatuses = []models.EdgeOnboardingStatus{
 	models.EdgeOnboardingStatusIssued,
 	models.EdgeOnboardingStatusDelivered,
@@ -54,22 +54,22 @@ const (
 	securityModeMTLS   = "mtls"
 	defaultCertDir     = "/etc/serviceradar/certs"
 	defaultMTLSCertTTL = 30 * 24 * time.Hour
-	defaultPollerSNI   = "poller.serviceradar"
+	defaultGatewaySNI   = "gateway.serviceradar"
 	defaultCoreSNI     = "core.serviceradar"
 )
 
 // ServiceManager provides service registration operations for edge onboarding.
 // Defined here to avoid import cycles with pkg/registry.
 type ServiceManager interface {
-	RegisterPoller(ctx context.Context, reg *PollerRegistration) error
+	RegisterGateway(ctx context.Context, reg *GatewayRegistration) error
 	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
 	RegisterChecker(ctx context.Context, reg *CheckerRegistration) error
 }
 
 // Service registration types - mirror registry package to avoid import cycle
 type (
-	PollerRegistration struct {
-		PollerID           string
+	GatewayRegistration struct {
+		GatewayID           string
 		ComponentID        string
 		RegistrationSource string
 		Metadata           map[string]string
@@ -79,7 +79,7 @@ type (
 
 	AgentRegistration struct {
 		AgentID            string
-		PollerID           string
+		GatewayID           string
 		ComponentID        string
 		RegistrationSource string
 		Metadata           map[string]string
@@ -90,7 +90,7 @@ type (
 	CheckerRegistration struct {
 		CheckerID          string
 		AgentID            string
-		PollerID           string
+		GatewayID           string
 		CheckerKind        string
 		ComponentID        string
 		RegistrationSource string
@@ -106,12 +106,12 @@ const (
 	downstreamX509TTL            = 4 * time.Hour
 	downstreamJWTTTL             = 30 * time.Minute
 	downloadTokenBytes           = 24
-	defaultPollerRefreshInterval = 5 * time.Minute
-	defaultPollerRefreshTimeout  = 5 * time.Second
+	defaultGatewayRefreshInterval = 5 * time.Minute
+	defaultGatewayRefreshTimeout  = 5 * time.Second
 )
 
 var (
-	pollerSlugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+	gatewaySlugRegex = regexp.MustCompile(`[^a-z0-9]+`)
 
 	// ErrUnsupportedComponentType is returned when an unknown component type is encountered during onboarding.
 	ErrUnsupportedComponentType = errors.New("unsupported component type")
@@ -196,7 +196,7 @@ type mtlsPackageParams struct {
 	ComponentType models.EdgeOnboardingComponentType
 	ParentID      string
 	ParentType    models.EdgeOnboardingComponentType
-	PollerID      string
+	GatewayID      string
 	Site          string
 	MetadataJSON  string
 	MetadataMap   map[string]string
@@ -338,8 +338,8 @@ func (s *edgeOnboardingService) activationCacheStorePackage(pkg *models.EdgeOnbo
 	}
 
 	s.activationCacheStore(pkg.ComponentType, pkg.ComponentID, pkg, true)
-	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller {
-		s.activationCacheStore(models.EdgeOnboardingComponentTypePoller, pkg.PollerID, pkg, true)
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypeGateway {
+		s.activationCacheStore(models.EdgeOnboardingComponentTypeGateway, pkg.GatewayID, pkg, true)
 	}
 }
 
@@ -421,8 +421,8 @@ func newEdgeOnboardingService(cfg *models.EdgeOnboardingConfig, spireCfg *models
 		activationCache:    make(map[string]activationCacheEntry),
 		activationCacheTTL: time.Minute,
 
-		refreshInterval: defaultPollerRefreshInterval,
-		refreshTimeout:  defaultPollerRefreshTimeout,
+		refreshInterval: defaultGatewayRefreshInterval,
+		refreshTimeout:  defaultGatewayRefreshTimeout,
 	}
 
 	if cfg != nil && len(cfg.DefaultMetadata) > 0 {
@@ -483,8 +483,8 @@ func (s *edgeOnboardingService) Start(ctx context.Context) error {
 		parent = context.Background()
 	}
 
-	if err := s.refreshAllowedPollers(parent); err != nil {
-		s.logger.Warn().Err(err).Msg("edge onboarding: initial poller refresh failed")
+	if err := s.refreshAllowedGateways(parent); err != nil {
+		s.logger.Warn().Err(err).Msg("edge onboarding: initial gateway refresh failed")
 	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -555,14 +555,14 @@ func (s *edgeOnboardingService) refreshLoop(runCtx context.Context, parent conte
 		case <-parent.Done():
 			return
 		case <-ticker.C:
-			if err := s.refreshAllowedPollers(parent); err != nil {
-				s.logger.Warn().Err(err).Msg("edge onboarding: periodic poller refresh failed")
+			if err := s.refreshAllowedGateways(parent); err != nil {
+				s.logger.Warn().Err(err).Msg("edge onboarding: periodic gateway refresh failed")
 			}
 		}
 	}
 }
 
-func (s *edgeOnboardingService) refreshAllowedPollers(ctx context.Context) error {
+func (s *edgeOnboardingService) refreshAllowedGateways(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
@@ -574,28 +574,28 @@ func (s *edgeOnboardingService) refreshAllowedPollers(ctx context.Context) error
 	refreshCtx, cancel := context.WithTimeout(ctx, s.refreshTimeout)
 	defer cancel()
 
-	ids, err := s.db.ListEdgeOnboardingPollerIDs(refreshCtx, onboardingAllowedStatuses...)
+	ids, err := s.db.ListEdgeOnboardingGatewayIDs(refreshCtx, onboardingAllowedStatuses...)
 	if err != nil {
-		return fmt.Errorf("edge onboarding: list poller ids: %w", err)
+		return fmt.Errorf("edge onboarding: list gateway ids: %w", err)
 	}
 
 	next := make(map[string]struct{}, len(ids))
-	pollers := make([]string, 0, len(ids))
+	gateways := make([]string, 0, len(ids))
 	for _, id := range ids {
 		next[id] = struct{}{}
-		pollers = append(pollers, id)
+		gateways = append(gateways, id)
 	}
 
 	s.mu.Lock()
 	s.allowed = next
 	s.mu.Unlock()
 
-	s.notifyAllowedPollers(pollers)
+	s.notifyAllowedGateways(gateways)
 
 	return nil
 }
 
-func (s *edgeOnboardingService) allowedPollersSnapshot() []string {
+func (s *edgeOnboardingService) allowedGatewaysSnapshot() []string {
 	if s == nil {
 		return nil
 	}
@@ -603,24 +603,24 @@ func (s *edgeOnboardingService) allowedPollersSnapshot() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	pollers := make([]string, 0, len(s.allowed))
+	gateways := make([]string, 0, len(s.allowed))
 	for id := range s.allowed {
-		pollers = append(pollers, id)
+		gateways = append(gateways, id)
 	}
 
-	return pollers
+	return gateways
 }
 
-func (s *edgeOnboardingService) notifyAllowedPollers(pollerIDs []string) {
+func (s *edgeOnboardingService) notifyAllowedGateways(gatewayIDs []string) {
 	s.callbackMu.RLock()
 	cb := s.allowedCallback
 	s.callbackMu.RUnlock()
 	if cb != nil {
-		cb(pollerIDs)
+		cb(gatewayIDs)
 	}
 }
 
-func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
+func (s *edgeOnboardingService) SetAllowedGatewayCallback(cb func([]string)) {
 	if s == nil {
 		return
 	}
@@ -630,7 +630,7 @@ func (s *edgeOnboardingService) SetAllowedPollerCallback(cb func([]string)) {
 	s.callbackMu.Unlock()
 
 	if cb != nil {
-		cb(s.allowedPollersSnapshot())
+		cb(s.allowedGatewaysSnapshot())
 	}
 }
 
@@ -648,31 +648,31 @@ func (s *edgeOnboardingService) broadcastAllowedSnapshot() {
 	if s == nil {
 		return
 	}
-	s.notifyAllowedPollers(s.allowedPollersSnapshot())
+	s.notifyAllowedGateways(s.allowedGatewaysSnapshot())
 }
 
-func (s *edgeOnboardingService) isPollerAllowed(ctx context.Context, pollerID string) bool {
+func (s *edgeOnboardingService) isGatewayAllowed(ctx context.Context, gatewayID string) bool {
 	if s == nil {
 		return false
 	}
 
 	s.mu.RLock()
-	_, ok := s.allowed[pollerID]
+	_, ok := s.allowed[gatewayID]
 	s.mu.RUnlock()
 	if ok {
 		return true
 	}
 
-	if err := s.refreshAllowedPollers(ctx); err != nil {
+	if err := s.refreshAllowedGateways(ctx); err != nil {
 		s.logger.Warn().
 			Err(err).
-			Msg("edge onboarding: failed to refresh poller cache during lookup")
+			Msg("edge onboarding: failed to refresh gateway cache during lookup")
 
 		return false
 	}
 
 	s.mu.RLock()
-	_, ok = s.allowed[pollerID]
+	_, ok = s.allowed[gatewayID]
 	s.mu.RUnlock()
 	return ok
 }
@@ -786,7 +786,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	componentType := req.ComponentType
 	if componentType == models.EdgeOnboardingComponentTypeNone {
-		componentType = models.EdgeOnboardingComponentTypePoller
+		componentType = models.EdgeOnboardingComponentTypeGateway
 	}
 
 	normalizedMetadata, err := s.mergeMetadataDefaults(componentType, metadataJSON)
@@ -819,8 +819,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		metadataMap["datasvc_endpoint"] = req.DataSvcEndpoint
 	}
 
-	if componentType == models.EdgeOnboardingComponentTypePoller {
-		if err := validatePollerMetadata(metadataMap); err != nil {
+	if componentType == models.EdgeOnboardingComponentTypeGateway {
+		if err := validateGatewayMetadata(metadataMap); err != nil {
 			return nil, err
 		}
 	}
@@ -837,7 +837,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	componentID := strings.TrimSpace(req.ComponentID)
 	if componentID == "" {
-		componentID = strings.TrimSpace(req.PollerID)
+		componentID = strings.TrimSpace(req.GatewayID)
 	}
 
 	checkerKind := strings.TrimSpace(req.CheckerKind)
@@ -848,15 +848,15 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	now := s.now().UTC()
 
-	var pollerID string
+	var gatewayID string
 	switch componentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		resolvedPollerID, err := s.resolvePollerID(ctx, label, componentID)
+	case models.EdgeOnboardingComponentTypeGateway:
+		resolvedGatewayID, err := s.resolveGatewayID(ctx, label, componentID)
 		if err != nil {
 			return nil, err
 		}
-		componentID = resolvedPollerID
-		pollerID = resolvedPollerID
+		componentID = resolvedGatewayID
+		gatewayID = resolvedGatewayID
 		parentType = models.EdgeOnboardingComponentTypeNone
 		parentID = ""
 		checkerKind = ""
@@ -865,13 +865,13 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		if strings.TrimSpace(parentID) == "" {
 			return nil, fmt.Errorf("%w: parent_id is required for agent packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		parentType = models.EdgeOnboardingComponentTypePoller
+		parentType = models.EdgeOnboardingComponentTypeGateway
 		resolvedID, err := s.resolveComponentIdentifier(ctx, models.EdgeOnboardingComponentTypeAgent, componentID, label, parentID)
 		if err != nil {
 			return nil, err
 		}
 		componentID = resolvedID
-		pollerID = parentID
+		gatewayID = parentID
 	case models.EdgeOnboardingComponentTypeChecker:
 		if strings.TrimSpace(parentID) == "" {
 			return nil, fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
@@ -882,13 +882,13 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 			return nil, err
 		}
 		componentID = resolvedID
-		pollerID = strings.TrimSpace(req.PollerID)
-		if pollerID == "" {
-			resolvedPoller, lookupErr := s.lookupPollerForAgent(ctx, parentID)
+		gatewayID = strings.TrimSpace(req.GatewayID)
+		if gatewayID == "" {
+			resolvedGateway, lookupErr := s.lookupGatewayForAgent(ctx, parentID)
 			if lookupErr != nil {
 				return nil, lookupErr
 			}
-			pollerID = resolvedPoller
+			gatewayID = resolvedGateway
 		}
 	case models.EdgeOnboardingComponentTypeSync:
 		return nil, fmt.Errorf("%w: sync component type not yet supported for edge onboarding", models.ErrEdgeOnboardingInvalidRequest)
@@ -902,8 +902,8 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		return nil, fmt.Errorf("%w: component_id could not be determined", models.ErrEdgeOnboardingInvalidRequest)
 	}
 
-	if pollerID == "" {
-		pollerID = componentID
+	if gatewayID == "" {
+		gatewayID = componentID
 	}
 
 	if securityMode == securityModeMTLS {
@@ -914,7 +914,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 			ComponentType: componentType,
 			ParentID:      parentID,
 			ParentType:    parentType,
-			PollerID:      pollerID,
+			GatewayID:      gatewayID,
 			Site:          strings.TrimSpace(req.Site),
 			MetadataJSON:  metadata,
 			MetadataMap:   metadataMap,
@@ -1003,7 +1003,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 		ComponentType:          componentType,
 		ParentType:             parentType,
 		ParentID:               parentID,
-		PollerID:               pollerID,
+		GatewayID:               gatewayID,
 		Site:                   strings.TrimSpace(req.Site),
 		SecurityMode:           securityMode,
 		Status:                 models.EdgeOnboardingStatusIssued,
@@ -1047,7 +1047,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 
 	// Register service in service registry
 	if s.serviceRegistry != nil {
-		if err := s.registerServiceComponent(ctx, componentType, componentID, pollerID, parentID, checkerKind, downstreamID, metadataMap, createdBy); err != nil {
+		if err := s.registerServiceComponent(ctx, componentType, componentID, gatewayID, parentID, checkerKind, downstreamID, metadataMap, createdBy); err != nil {
 			s.logger.Warn().Err(err).
 				Str("component_type", string(componentType)).
 				Str("component_id", componentID).
@@ -1056,7 +1056,7 @@ func (s *edgeOnboardingService) CreatePackage(ctx context.Context, req *models.E
 	}
 
 	s.mu.Lock()
-	s.allowed[pollerID] = struct{}{}
+	s.allowed[gatewayID] = struct{}{}
 	s.mu.Unlock()
 	s.broadcastAllowedSnapshot()
 
@@ -1270,7 +1270,7 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 	}
 
 	s.mu.Lock()
-	delete(s.allowed, pkg.PollerID)
+	delete(s.allowed, pkg.GatewayID)
 	s.mu.Unlock()
 	s.broadcastAllowedSnapshot()
 
@@ -1279,7 +1279,7 @@ func (s *edgeOnboardingService) RevokePackage(ctx context.Context, req *models.E
 		s.logger.Warn().
 			Err(err).
 			Str("package_id", pkg.PackageID).
-			Str("poller_id", pkg.PollerID).
+			Str("gateway_id", pkg.GatewayID).
 			Msg("edge onboarding: failed to mark service device as unavailable")
 	}
 
@@ -1347,8 +1347,8 @@ func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID str
 		return fmt.Errorf("edge onboarding: delete package: %w", err)
 	}
 	s.activationCacheStoreMiss(pkg.ComponentType, pkg.ComponentID)
-	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller && pkg.PollerID != "" {
-		s.activationCacheStoreMiss(models.EdgeOnboardingComponentTypePoller, pkg.PollerID)
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypeGateway && pkg.GatewayID != "" {
+		s.activationCacheStoreMiss(models.EdgeOnboardingComponentTypeGateway, pkg.GatewayID)
 	}
 
 	if err := s.db.InsertEdgeOnboardingEvent(ctx, &models.EdgeOnboardingEvent{
@@ -1360,9 +1360,9 @@ func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID str
 		return fmt.Errorf("edge onboarding: record delete event: %w", err)
 	}
 
-	if pkg.ComponentType == models.EdgeOnboardingComponentTypePoller || pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
+	if pkg.ComponentType == models.EdgeOnboardingComponentTypeGateway || pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
 		s.mu.Lock()
-		delete(s.allowed, pkg.PollerID)
+		delete(s.allowed, pkg.GatewayID)
 		s.mu.Unlock()
 		s.broadcastAllowedSnapshot()
 	}
@@ -1370,7 +1370,7 @@ func (s *edgeOnboardingService) DeletePackage(ctx context.Context, packageID str
 	return nil
 }
 
-func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, pollerID, sourceIP, spiffeID string, seenAt time.Time) error {
+func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, gatewayID, sourceIP, spiffeID string, seenAt time.Time) error {
 	if s == nil {
 		return nil
 	}
@@ -1397,9 +1397,9 @@ func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentT
 
 	sourceIP = strings.TrimSpace(sourceIP)
 	spiffeID = strings.TrimSpace(spiffeID)
-	pollerID = strings.TrimSpace(pollerID)
+	gatewayID = strings.TrimSpace(gatewayID)
 
-	statusChanged, updated := s.updatePackageActivation(pkg, now, sourceIP, spiffeID, pollerID)
+	statusChanged, updated := s.updatePackageActivation(pkg, now, sourceIP, spiffeID, gatewayID)
 	if !updated {
 		return nil
 	}
@@ -1412,7 +1412,7 @@ func (s *edgeOnboardingService) RecordActivation(ctx context.Context, componentT
 	s.activationCacheStorePackage(pkg)
 
 	if statusChanged {
-		if err := s.recordActivationEvent(ctx, pkg, componentType, pollerID, sourceIP, spiffeID, now); err != nil {
+		if err := s.recordActivationEvent(ctx, pkg, componentType, gatewayID, sourceIP, spiffeID, now); err != nil {
 			return err
 		}
 	}
@@ -1448,8 +1448,8 @@ func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, co
 	}
 
 	switch componentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		filter.PollerID = componentID
+	case models.EdgeOnboardingComponentTypeGateway:
+		filter.GatewayID = componentID
 	case models.EdgeOnboardingComponentTypeAgent:
 		filter.ComponentID = componentID
 	case models.EdgeOnboardingComponentTypeChecker, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
@@ -1494,7 +1494,7 @@ func (s *edgeOnboardingService) findPackageForActivation(ctx context.Context, co
 	return pkg, nil
 }
 
-func (s *edgeOnboardingService) updatePackageActivation(pkg *models.EdgeOnboardingPackage, now time.Time, sourceIP, spiffeID, pollerID string) (statusChanged, updated bool) {
+func (s *edgeOnboardingService) updatePackageActivation(pkg *models.EdgeOnboardingPackage, now time.Time, sourceIP, spiffeID, gatewayID string) (statusChanged, updated bool) {
 	switch pkg.Status {
 	case models.EdgeOnboardingStatusIssued, models.EdgeOnboardingStatusDelivered:
 		pkg.Status = models.EdgeOnboardingStatusActivated
@@ -1530,20 +1530,20 @@ func (s *edgeOnboardingService) updatePackageActivation(pkg *models.EdgeOnboardi
 		}
 	}
 
-	if pollerID != "" && pkg.PollerID == "" {
-		pkg.PollerID = pollerID
+	if gatewayID != "" && pkg.GatewayID == "" {
+		pkg.GatewayID = gatewayID
 		updated = true
 	}
 
 	return statusChanged, updated
 }
 
-func (s *edgeOnboardingService) recordActivationEvent(ctx context.Context, pkg *models.EdgeOnboardingPackage, componentType models.EdgeOnboardingComponentType, pollerID, sourceIP, spiffeID string, now time.Time) error {
+func (s *edgeOnboardingService) recordActivationEvent(ctx context.Context, pkg *models.EdgeOnboardingPackage, componentType models.EdgeOnboardingComponentType, gatewayID, sourceIP, spiffeID string, now time.Time) error {
 	details := map[string]string{
 		"component_type": string(componentType),
 	}
-	if pollerID != "" {
-		details["poller_id"] = pollerID
+	if gatewayID != "" {
+		details["gateway_id"] = gatewayID
 	}
 	if spiffeID != "" {
 		details["spiffe_id"] = spiffeID
@@ -1575,31 +1575,31 @@ func (s *edgeOnboardingService) recordActivationEvent(ctx context.Context, pkg *
 	return nil
 }
 
-func (s *edgeOnboardingService) resolvePollerID(ctx context.Context, label, override string) (string, error) {
+func (s *edgeOnboardingService) resolveGatewayID(ctx context.Context, label, override string) (string, error) {
 	candidate := strings.TrimSpace(strings.ToLower(override))
 	if candidate != "" {
-		candidate = sanitizePollerID(candidate)
+		candidate = sanitizeGatewayID(candidate)
 		if candidate == "" {
-			return "", fmt.Errorf("%w: poller_id contains no valid characters", models.ErrEdgeOnboardingInvalidRequest)
+			return "", fmt.Errorf("%w: gateway_id contains no valid characters", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		if err := s.ensurePollerIDAvailable(ctx, candidate); err != nil {
+		if err := s.ensureGatewayIDAvailable(ctx, candidate); err != nil {
 			return "", err
 		}
 		return candidate, nil
 	}
 
-	base := sanitizePollerID(label)
+	base := sanitizeGatewayID(label)
 	if base == "" {
-		base = "edge-poller"
+		base = "edge-gateway"
 	}
-	if s.cfg.PollerIDPrefix != "" {
-		base = sanitizePollerID(strings.ToLower(s.cfg.PollerIDPrefix) + "-" + base)
+	if s.cfg.GatewayIDPrefix != "" {
+		base = sanitizeGatewayID(strings.ToLower(s.cfg.GatewayIDPrefix) + "-" + base)
 	}
 
 	candidate = base
-	if err := s.ensurePollerIDAvailable(ctx, candidate); err == nil {
+	if err := s.ensureGatewayIDAvailable(ctx, candidate); err == nil {
 		return candidate, nil
-	} else if !errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
+	} else if !errors.Is(err, models.ErrEdgeOnboardingGatewayConflict) {
 		return "", err
 	}
 
@@ -1609,29 +1609,29 @@ func (s *edgeOnboardingService) resolvePollerID(ctx context.Context, label, over
 			return "", err
 		}
 		candidate = fmt.Sprintf("%s-%s", base, suffix)
-		if err := s.ensurePollerIDAvailable(ctx, candidate); err == nil {
+		if err := s.ensureGatewayIDAvailable(ctx, candidate); err == nil {
 			return candidate, nil
-		} else if !errors.Is(err, models.ErrEdgeOnboardingPollerConflict) {
+		} else if !errors.Is(err, models.ErrEdgeOnboardingGatewayConflict) {
 			return "", err
 		}
 	}
 
-	return "", fmt.Errorf("%w: unable to generate unique poller_id", models.ErrEdgeOnboardingPollerConflict)
+	return "", fmt.Errorf("%w: unable to generate unique gateway_id", models.ErrEdgeOnboardingGatewayConflict)
 }
 
-func (s *edgeOnboardingService) ensurePollerIDAvailable(ctx context.Context, pollerID string) error {
+func (s *edgeOnboardingService) ensureGatewayIDAvailable(ctx context.Context, gatewayID string) error {
 	filter := &models.EdgeOnboardingListFilter{
-		PollerID: pollerID,
+		GatewayID: gatewayID,
 		Statuses: onboardingAllowedStatuses,
-		Types:    []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypePoller},
+		Types:    []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypeGateway},
 		Limit:    1,
 	}
 	pkgs, err := s.db.ListEdgeOnboardingPackages(ctx, filter)
 	if err != nil {
-		return fmt.Errorf("edge onboarding: check poller id: %w", err)
+		return fmt.Errorf("edge onboarding: check gateway id: %w", err)
 	}
 	if len(pkgs) > 0 {
-		return models.ErrEdgeOnboardingPollerConflict
+		return models.ErrEdgeOnboardingGatewayConflict
 	}
 	return nil
 }
@@ -1654,12 +1654,12 @@ func (s *edgeOnboardingService) ensureComponentAvailable(ctx context.Context, co
 }
 
 func (s *edgeOnboardingService) resolveComponentIdentifier(ctx context.Context, componentType models.EdgeOnboardingComponentType, candidate, label, parentID string) (string, error) {
-	base := sanitizePollerID(candidate)
+	base := sanitizeGatewayID(candidate)
 	if base == "" {
-		base = sanitizePollerID(label)
+		base = sanitizeGatewayID(label)
 	}
 	if base == "" && parentID != "" {
-		base = sanitizePollerID(fmt.Sprintf("%s-%s", parentID, string(componentType)))
+		base = sanitizeGatewayID(fmt.Sprintf("%s-%s", parentID, string(componentType)))
 	}
 	if base == "" {
 		return "", fmt.Errorf("%w: component_id is required", models.ErrEdgeOnboardingInvalidRequest)
@@ -1676,7 +1676,7 @@ func (s *edgeOnboardingService) resolveComponentIdentifier(ctx context.Context, 
 		if err != nil {
 			return "", err
 		}
-		candidateID := sanitizePollerID(fmt.Sprintf("%s-%s", base, strings.ToLower(suffix)))
+		candidateID := sanitizeGatewayID(fmt.Sprintf("%s-%s", base, strings.ToLower(suffix)))
 		if candidateID == "" {
 			continue
 		}
@@ -1690,7 +1690,7 @@ func (s *edgeOnboardingService) resolveComponentIdentifier(ctx context.Context, 
 	return "", fmt.Errorf("%w: unable to generate unique component_id", models.ErrEdgeOnboardingComponentConflict)
 }
 
-func (s *edgeOnboardingService) lookupPollerForAgent(ctx context.Context, agentID string) (string, error) {
+func (s *edgeOnboardingService) lookupGatewayForAgent(ctx context.Context, agentID string) (string, error) {
 	filter := &models.EdgeOnboardingListFilter{
 		ComponentID: agentID,
 		Types:       []models.EdgeOnboardingComponentType{models.EdgeOnboardingComponentTypeAgent},
@@ -1702,18 +1702,18 @@ func (s *edgeOnboardingService) lookupPollerForAgent(ctx context.Context, agentI
 		return "", fmt.Errorf("edge onboarding: lookup agent %s: %w", agentID, err)
 	}
 	if len(pkgs) == 0 {
-		agents, svcErr := s.db.ListAgentsWithPollers(ctx)
+		agents, svcErr := s.db.ListAgentsWithGateways(ctx)
 		if svcErr != nil {
 			return "", fmt.Errorf("edge onboarding: lookup agent %s from services: %w", agentID, svcErr)
 		}
 		for _, agent := range agents {
 			if strings.TrimSpace(agent.AgentID) == agentID {
-				return agent.PollerID, nil
+				return agent.GatewayID, nil
 			}
 		}
 		return "", fmt.Errorf("%w: parent agent %s not found", models.ErrEdgeOnboardingInvalidRequest, agentID)
 	}
-	return pkgs[0].PollerID, nil
+	return pkgs[0].GatewayID, nil
 }
 
 func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(componentID, override string) (string, error) {
@@ -1736,9 +1736,9 @@ func (s *edgeOnboardingService) deriveDownstreamSPIFFEID(componentID, override s
 		return template, nil
 	}
 
-	slug := sanitizePollerID(componentID)
-	result := strings.ReplaceAll(template, "{poller_id}", componentID)
-	result = strings.ReplaceAll(result, "{poller_id_slug}", slug)
+	slug := sanitizeGatewayID(componentID)
+	result := strings.ReplaceAll(template, "{gateway_id}", componentID)
+	result = strings.ReplaceAll(result, "{gateway_id_slug}", slug)
 	if strings.Contains(result, "{trust_domain}") {
 		if s.trustDomain == "" {
 			return "", fmt.Errorf("%w: downstream template requires trust_domain but none configured", models.ErrEdgeOnboardingInvalidRequest)
@@ -1958,8 +1958,8 @@ func templateComponentDir(componentType models.EdgeOnboardingComponentType) stri
 	switch componentType {
 	case models.EdgeOnboardingComponentTypeAgent:
 		return "agents"
-	case models.EdgeOnboardingComponentTypePoller:
-		return "pollers"
+	case models.EdgeOnboardingComponentTypeGateway:
+		return "gateways"
 	case models.EdgeOnboardingComponentTypeSync:
 		return "sync"
 	case models.EdgeOnboardingComponentTypeChecker, models.EdgeOnboardingComponentTypeNone:
@@ -2081,7 +2081,7 @@ func (s *edgeOnboardingService) createMTLSPackage(ctx context.Context, params *m
 		ComponentType:          params.ComponentType,
 		ParentType:             params.ParentType,
 		ParentID:               params.ParentID,
-		PollerID:               params.PollerID,
+		GatewayID:               params.GatewayID,
 		Site:                   params.Site,
 		SecurityMode:           securityModeMTLS,
 		Status:                 models.EdgeOnboardingStatusIssued,
@@ -2135,20 +2135,20 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 	if serverName == "" {
 		switch componentType {
 		case models.EdgeOnboardingComponentTypeChecker:
-			serverName = defaultPollerSNI
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
+			serverName = defaultGatewaySNI
+		case models.EdgeOnboardingComponentTypeGateway, models.EdgeOnboardingComponentTypeAgent, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			serverName = defaultCoreSNI
 		}
 	}
 
-	pollerEndpoint := metadataValue(metadata, componentType, "poller_endpoint")
+	gatewayEndpoint := metadataValue(metadata, componentType, "gateway_endpoint")
 	coreEndpoint := metadataValue(metadata, componentType, "core_endpoint", "core_address")
 	kvEndpoint := metadataValue(metadata, componentType, "kv_endpoint", "kv_address")
 	checkerEndpoint := metadataValue(metadata, componentType, "checker_endpoint", "checker_address")
 
 	endpoints := make(map[string]string)
-	if pollerEndpoint != "" {
-		endpoints["poller"] = pollerEndpoint
+	if gatewayEndpoint != "" {
+		endpoints["gateway"] = gatewayEndpoint
 	}
 	if coreEndpoint != "" {
 		endpoints["core"] = coreEndpoint
@@ -2162,9 +2162,9 @@ func (s *edgeOnboardingService) buildMTLSBundle(componentType models.EdgeOnboard
 		endpoints["checker"] = checkerEndpoint
 	}
 
-	// Provide a sensible default for checkers if no poller endpoint set
-	if componentType == models.EdgeOnboardingComponentTypeChecker && endpoints["poller"] == "" {
-		endpoints["poller"] = "localhost:50053"
+	// Provide a sensible default for checkers if no gateway endpoint set
+	if componentType == models.EdgeOnboardingComponentTypeChecker && endpoints["gateway"] == "" {
+		endpoints["gateway"] = "localhost:50053"
 	}
 
 	clientCertTTL := defaultMTLSCertTTL
@@ -2270,7 +2270,7 @@ func mintClientCertificate(caCert *x509.Certificate, caKey crypto.Signer, client
 	dnsNames := uniqueNonEmpty(clientName, fmt.Sprintf("%s.serviceradar", clientName), serverName)
 	var ipAddresses []net.IP
 
-	for _, ep := range []string{endpoints["poller"], endpoints["core"], endpoints["checker"]} {
+	for _, ep := range []string{endpoints["gateway"], endpoints["core"], endpoints["checker"]} {
 		host := endpointHost(ep)
 		if host == "" {
 			continue
@@ -2482,7 +2482,7 @@ func uniqueNonEmpty(values ...string) []string {
 	return uniqueStrings(values)
 }
 
-func validatePollerMetadata(meta map[string]string) error {
+func validateGatewayMetadata(meta map[string]string) error {
 	required := []string{
 		"core_address",
 		"core_spiffe_id",
@@ -2493,7 +2493,7 @@ func validatePollerMetadata(meta map[string]string) error {
 
 	for _, key := range required {
 		if strings.TrimSpace(meta[key]) == "" {
-			return fmt.Errorf("%w: metadata_json missing required key %q for poller packages", models.ErrEdgeOnboardingInvalidRequest, key)
+			return fmt.Errorf("%w: metadata_json missing required key %q for gateway packages", models.ErrEdgeOnboardingInvalidRequest, key)
 		}
 	}
 
@@ -2516,7 +2516,7 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 
 	componentType := pkg.ComponentType
 	if componentType == models.EdgeOnboardingComponentTypeNone {
-		componentType = models.EdgeOnboardingComponentTypePoller
+		componentType = models.EdgeOnboardingComponentTypeGateway
 	}
 
 	// For checkers, write the checker config directly to KV
@@ -2575,20 +2575,20 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 
 		pkg.KVRevision = revision
 
-		// Also update the poller's config to include this checker in the polling list
-		if err := s.addCheckerToPollerConfig(ctx, pkg); err != nil {
+		// Also update the gateway's config to include this checker in the polling list
+		if err := s.addCheckerToGatewayConfig(ctx, pkg); err != nil {
 			s.logger.Warn().
 				Err(err).
 				Str("checker_kind", pkg.CheckerKind).
-				Str("poller_id", pkg.PollerID).
-				Msg("Failed to add checker to poller config (checker config was written successfully)")
+				Str("gateway_id", pkg.GatewayID).
+				Msg("Failed to add checker to gateway config (checker config was written successfully)")
 			// Don't return error - checker config was written, this is a non-fatal enhancement
 		}
 
 		return nil
 	}
 
-	// For pollers and agents, write the full metadata document
+	// For gateways and agents, write the full metadata document
 	metadata := json.RawMessage(nil)
 	if strings.TrimSpace(pkg.MetadataJSON) != "" {
 		metadata = json.RawMessage(pkg.MetadataJSON)
@@ -2613,8 +2613,8 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 	if pkg.ParentType != models.EdgeOnboardingComponentTypeNone {
 		doc["parent_type"] = string(pkg.ParentType)
 	}
-	if pkg.PollerID != "" {
-		doc["poller_id"] = pkg.PollerID
+	if pkg.GatewayID != "" {
+		doc["gateway_id"] = pkg.GatewayID
 	}
 	if metadata != nil {
 		doc["metadata"] = metadata
@@ -2653,26 +2653,26 @@ func (s *edgeOnboardingService) applyComponentKVUpdates(ctx context.Context, pkg
 }
 
 func (s *edgeOnboardingService) kvKeyForPackage(pkg *models.EdgeOnboardingPackage) (string, error) {
-	componentID := sanitizePollerID(pkg.ComponentID)
+	componentID := sanitizeGatewayID(pkg.ComponentID)
 	if componentID == "" {
 		return "", fmt.Errorf("%w: component_id is required", models.ErrEdgeOnboardingInvalidRequest)
 	}
 
 	switch pkg.ComponentType {
-	case models.EdgeOnboardingComponentTypeNone, models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync:
-		return fmt.Sprintf("config/pollers/%s.json", componentID), nil
+	case models.EdgeOnboardingComponentTypeNone, models.EdgeOnboardingComponentTypeGateway, models.EdgeOnboardingComponentTypeSync:
+		return fmt.Sprintf("config/gateways/%s.json", componentID), nil
 	case models.EdgeOnboardingComponentTypeAgent:
-		pollerID := sanitizePollerID(pkg.PollerID)
-		if pollerID == "" {
-			return "", fmt.Errorf("%w: poller_id is required for agent packages", models.ErrEdgeOnboardingInvalidRequest)
+		gatewayID := sanitizeGatewayID(pkg.GatewayID)
+		if gatewayID == "" {
+			return "", fmt.Errorf("%w: gateway_id is required for agent packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		return fmt.Sprintf("config/pollers/%s/agents/%s.json", pollerID, componentID), nil
+		return fmt.Sprintf("config/gateways/%s/agents/%s.json", gatewayID, componentID), nil
 	case models.EdgeOnboardingComponentTypeChecker:
-		agentID := sanitizePollerID(pkg.ParentID)
+		agentID := sanitizeGatewayID(pkg.ParentID)
 		if agentID == "" {
 			return "", fmt.Errorf("%w: parent_id is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
-		checkerKind := sanitizePollerID(pkg.CheckerKind)
+		checkerKind := sanitizeGatewayID(pkg.CheckerKind)
 		if checkerKind == "" {
 			return "", fmt.Errorf("%w: checker_kind is required for checker packages", models.ErrEdgeOnboardingInvalidRequest)
 		}
@@ -2727,35 +2727,35 @@ func (s *edgeOnboardingService) putKVDocument(ctx context.Context, key string, v
 	return 0, nil
 }
 
-// pollerCheckConfig is a minimal struct matching the poller's Check type for JSON operations.
-type pollerCheckConfig struct {
+// gatewayCheckConfig is a minimal struct matching the gateway's Check type for JSON operations.
+type gatewayCheckConfig struct {
 	Type    string `json:"service_type"`
 	Name    string `json:"service_name"`
 	Details string `json:"details,omitempty"`
 	Port    int32  `json:"port,omitempty"`
 }
 
-// pollerAgentConfig is a minimal struct for agent entries in the poller config.
-type pollerAgentConfig struct {
+// gatewayAgentConfig is a minimal struct for agent entries in the gateway config.
+type gatewayAgentConfig struct {
 	Address  string              `json:"address"`
-	Checks   []pollerCheckConfig `json:"checks"`
+	Checks   []gatewayCheckConfig `json:"checks"`
 	Security json.RawMessage     `json:"security,omitempty"`
 }
 
-// addCheckerToPollerConfig adds a new check entry to the poller's KV config.
-// This ensures the poller knows to start polling the newly registered checker.
-func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
+// addCheckerToGatewayConfig adds a new check entry to the gateway's KV config.
+// This ensures the gateway knows to start polling the newly registered checker.
+func (s *edgeOnboardingService) addCheckerToGatewayConfig(ctx context.Context, pkg *models.EdgeOnboardingPackage) error {
 	if s.kvClient == nil {
 		return nil
 	}
 
-	// We need the poller ID - for checkers, this comes from the parent chain
-	pollerID := pkg.PollerID
-	if pollerID == "" {
+	// We need the gateway ID - for checkers, this comes from the parent chain
+	gatewayID := pkg.GatewayID
+	if gatewayID == "" {
 		s.logger.Debug().
 			Str("checker_kind", pkg.CheckerKind).
 			Str("parent_id", pkg.ParentID).
-			Msg("Checker has no poller_id, skipping poller config update")
+			Msg("Checker has no gateway_id, skipping gateway config update")
 		return nil
 	}
 
@@ -2764,45 +2764,45 @@ func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pk
 	if agentID == "" {
 		s.logger.Debug().
 			Str("checker_kind", pkg.CheckerKind).
-			Str("poller_id", pollerID).
-			Msg("Checker has no parent_id (agent), skipping poller config update")
+			Str("gateway_id", gatewayID).
+			Msg("Checker has no parent_id (agent), skipping gateway config update")
 		return nil
 	}
 
-	// Build the poller config key
-	sanitizedPollerID := sanitizePollerID(pollerID)
-	pollerConfigKey := fmt.Sprintf("config/pollers/%s.json", sanitizedPollerID)
+	// Build the gateway config key
+	sanitizedGatewayID := sanitizeGatewayID(gatewayID)
+	gatewayConfigKey := fmt.Sprintf("config/gateways/%s.json", sanitizedGatewayID)
 
-	// Read the current poller config
-	existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: pollerConfigKey})
+	// Read the current gateway config
+	existing, err := s.kvClient.Get(ctx, &proto.GetRequest{Key: gatewayConfigKey})
 	if err != nil {
-		return fmt.Errorf("failed to read poller config from %s: %w", pollerConfigKey, err)
+		return fmt.Errorf("failed to read gateway config from %s: %w", gatewayConfigKey, err)
 	}
 
 	if !existing.GetFound() {
 		s.logger.Warn().
-			Str("poller_id", pollerID).
-			Str("key", pollerConfigKey).
-			Msg("Poller config not found in KV, cannot add checker to polling list")
+			Str("gateway_id", gatewayID).
+			Str("key", gatewayConfigKey).
+			Msg("Gateway config not found in KV, cannot add checker to polling list")
 		return nil
 	}
 
-	// Parse the poller config - we use a flexible map structure to preserve unknown fields
-	var pollerConfig map[string]json.RawMessage
-	if err := json.Unmarshal(existing.GetValue(), &pollerConfig); err != nil {
-		return fmt.Errorf("failed to parse poller config: %w", err)
+	// Parse the gateway config - we use a flexible map structure to preserve unknown fields
+	var gatewayConfig map[string]json.RawMessage
+	if err := json.Unmarshal(existing.GetValue(), &gatewayConfig); err != nil {
+		return fmt.Errorf("failed to parse gateway config: %w", err)
 	}
 
 	// Get or create the agents map
-	var agents map[string]pollerAgentConfig
-	if agentsRaw, ok := pollerConfig["agents"]; ok {
+	var agents map[string]gatewayAgentConfig
+	if agentsRaw, ok := gatewayConfig["agents"]; ok {
 		if err := json.Unmarshal(agentsRaw, &agents); err != nil {
-			return fmt.Errorf("failed to parse agents in poller config: %w", err)
+			return fmt.Errorf("failed to parse agents in gateway config: %w", err)
 		}
 	}
 
 	if agents == nil {
-		agents = make(map[string]pollerAgentConfig)
+		agents = make(map[string]gatewayAgentConfig)
 	}
 
 	// Find or create the agent entry
@@ -2810,14 +2810,14 @@ func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pk
 	if !ok {
 		s.logger.Warn().
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
-			Msg("Agent not found in poller config, cannot add checker")
+			Str("gateway_id", gatewayID).
+			Msg("Agent not found in gateway config, cannot add checker")
 		return nil
 	}
 
 	normalizedKind := strings.ToLower(strings.TrimSpace(pkg.CheckerKind))
 	// For gRPC-based checkers, the agent expects service_type="grpc" and service_name=<kind>.
-	newCheck := pollerCheckConfig{
+	newCheck := gatewayCheckConfig{
 		Type: "grpc",
 		Name: pkg.CheckerKind,
 	}
@@ -2840,7 +2840,7 @@ func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pk
 			s.logger.Debug().
 				Str("checker_kind", pkg.CheckerKind).
 				Str("agent_id", agentID).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Msg("Checker type already exists in agent's check list, skipping")
 			return nil
 		}
@@ -2855,29 +2855,29 @@ func (s *edgeOnboardingService) addCheckerToPollerConfig(ctx context.Context, pk
 	if err != nil {
 		return fmt.Errorf("failed to marshal updated agents: %w", err)
 	}
-	pollerConfig["agents"] = agentsJSON
+	gatewayConfig["agents"] = agentsJSON
 
 	// Marshal the full config
-	updatedConfig, err := json.Marshal(pollerConfig)
+	updatedConfig, err := json.Marshal(gatewayConfig)
 	if err != nil {
-		return fmt.Errorf("failed to marshal updated poller config: %w", err)
+		return fmt.Errorf("failed to marshal updated gateway config: %w", err)
 	}
 
 	// Write back using update to maintain revision
 	if _, err := s.kvClient.Update(ctx, &proto.UpdateRequest{
-		Key:      pollerConfigKey,
+		Key:      gatewayConfigKey,
 		Value:    updatedConfig,
 		Revision: existing.GetRevision(),
 	}); err != nil {
-		return fmt.Errorf("failed to update poller config: %w", err)
+		return fmt.Errorf("failed to update gateway config: %w", err)
 	}
 
 	s.logger.Info().
 		Str("checker_kind", pkg.CheckerKind).
 		Str("agent_id", agentID).
-		Str("poller_id", pollerID).
-		Str("key", pollerConfigKey).
-		Msg("Added checker to poller config")
+		Str("gateway_id", gatewayID).
+		Str("key", gatewayConfigKey).
+		Msg("Added checker to gateway config")
 
 	return nil
 }
@@ -2911,7 +2911,7 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 		"cert_dir":         true,
 		"server_name":      true,
 		"client_cert_name": true,
-		"poller_endpoint":  true,
+		"gateway_endpoint":  true,
 		"checker_endpoint": true,
 		"checker_address":  true,
 		"core_endpoint":    true,
@@ -2947,10 +2947,10 @@ func (s *edgeOnboardingService) substituteTemplateVariables(templateJSON string,
 	if serverName == "" {
 		switch pkg.ComponentType {
 		case models.EdgeOnboardingComponentTypeChecker:
-			serverName = defaultPollerSNI
+			serverName = defaultGatewaySNI
 		case models.EdgeOnboardingComponentTypeAgent:
-			serverName = defaultPollerSNI
-		case models.EdgeOnboardingComponentTypePoller, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
+			serverName = defaultGatewaySNI
+		case models.EdgeOnboardingComponentTypeGateway, models.EdgeOnboardingComponentTypeSync, models.EdgeOnboardingComponentTypeNone:
 			serverName = defaultCoreSNI
 		default:
 			serverName = defaultCoreSNI
@@ -3141,26 +3141,26 @@ func (s *edgeOnboardingService) markServiceDeviceUnavailable(ctx context.Context
 	if cb == nil {
 		s.logger.Debug().
 			Str("package_id", pkg.PackageID).
-			Str("poller_id", pkg.PollerID).
+			Str("gateway_id", pkg.GatewayID).
 			Msg("edge onboarding: device registry callback not set, skipping device cleanup")
 		return nil
 	}
 
-	// Create tombstone update for the poller
-	serviceType := models.ServiceTypePoller
+	// Create tombstone update for the gateway
+	serviceType := models.ServiceTypeGateway
 	tombstone := &models.DeviceUpdate{
-		DeviceID:    models.GenerateServiceDeviceID(serviceType, pkg.PollerID),
+		DeviceID:    models.GenerateServiceDeviceID(serviceType, pkg.GatewayID),
 		ServiceType: &serviceType,
-		ServiceID:   pkg.PollerID,
-		PollerID:    pkg.PollerID,
+		ServiceID:   pkg.GatewayID,
+		GatewayID:    pkg.GatewayID,
 		Partition:   models.ServiceDevicePartition,
 		Source:      models.DiscoverySourceServiceRadar,
 		Timestamp:   s.now(),
 		IsAvailable: false, // Mark as unavailable
 		Confidence:  models.ConfidenceHighSelfReported,
 		Metadata: map[string]string{
-			"component_type": "poller",
-			"poller_id":      pkg.PollerID,
+			"component_type": "gateway",
+			"gateway_id":      pkg.GatewayID,
 			"revoked":        "true",
 			"revoked_at":     pkg.RevokedAt.Format(time.RFC3339),
 		},
@@ -3172,7 +3172,7 @@ func (s *edgeOnboardingService) markServiceDeviceUnavailable(ctx context.Context
 
 	s.logger.Info().
 		Str("package_id", pkg.PackageID).
-		Str("poller_id", pkg.PollerID).
+		Str("gateway_id", pkg.GatewayID).
 		Str("device_id", tombstone.DeviceID).
 		Msg("edge onboarding: marked service device as unavailable")
 
@@ -3197,9 +3197,9 @@ func hashDownloadToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func sanitizePollerID(raw string) string {
+func sanitizeGatewayID(raw string) string {
 	lowered := strings.ToLower(strings.TrimSpace(raw))
-	sanitized := pollerSlugRegex.ReplaceAllString(lowered, "-")
+	sanitized := gatewaySlugRegex.ReplaceAllString(lowered, "-")
 	sanitized = strings.Trim(sanitized, "-")
 	if len(sanitized) > 63 {
 		sanitized = sanitized[:63]
@@ -3209,15 +3209,15 @@ func sanitizePollerID(raw string) string {
 }
 
 // registerServiceComponent registers a service component in the service registry based on its type.
-func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, pollerID, parentID, checkerKind, spiffeID string, metadata map[string]string, createdBy string) error {
+func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, componentType models.EdgeOnboardingComponentType, componentID, gatewayID, parentID, checkerKind, spiffeID string, metadata map[string]string, createdBy string) error {
 	if s.serviceRegistry == nil {
 		return nil
 	}
 
 	switch componentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		return s.serviceRegistry.RegisterPoller(ctx, &PollerRegistration{
-			PollerID:           componentID,
+	case models.EdgeOnboardingComponentTypeGateway:
+		return s.serviceRegistry.RegisterGateway(ctx, &GatewayRegistration{
+			GatewayID:           componentID,
 			ComponentID:        componentID,
 			RegistrationSource: "edge_onboarding",
 			Metadata:           metadata,
@@ -3228,7 +3228,7 @@ func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, co
 	case models.EdgeOnboardingComponentTypeAgent:
 		return s.serviceRegistry.RegisterAgent(ctx, &AgentRegistration{
 			AgentID:            componentID,
-			PollerID:           pollerID,
+			GatewayID:           gatewayID,
 			ComponentID:        componentID,
 			RegistrationSource: "edge_onboarding",
 			Metadata:           metadata,
@@ -3240,7 +3240,7 @@ func (s *edgeOnboardingService) registerServiceComponent(ctx context.Context, co
 		return s.serviceRegistry.RegisterChecker(ctx, &CheckerRegistration{
 			CheckerID:          componentID,
 			AgentID:            parentID,
-			PollerID:           pollerID,
+			GatewayID:           gatewayID,
 			CheckerKind:        checkerKind,
 			ComponentID:        componentID,
 			RegistrationSource: "edge_onboarding",

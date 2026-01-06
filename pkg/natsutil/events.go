@@ -84,16 +84,16 @@ func (p *EventPublisher) SetTenantPrefixing(enabled bool) {
 	p.tenantPrefixing = enabled
 }
 
-// PublishPollerHealthEvent publishes a poller health event to the events stream.
-func (p *EventPublisher) PublishPollerHealthEvent(
-	ctx context.Context, _, _, _ string, data *models.PollerHealthEventData) error {
+// PublishGatewayHealthEvent publishes a gateway health event to the events stream.
+func (p *EventPublisher) PublishGatewayHealthEvent(
+	ctx context.Context, _, _, _ string, data *models.GatewayHealthEventData) error {
 	event := models.CloudEvent{
 		SpecVersion:     "1.0",
 		ID:              uuid.New().String(),
 		Source:          "serviceradar/core",
-		Type:            "com.carverauto.serviceradar.poller.health",
+		Type:            "com.carverauto.serviceradar.gateway.health",
 		DataContentType: "application/json",
-		Subject:         "events.poller.health",
+		Subject:         "events.gateway.health",
 		Time:            &data.Timestamp,
 		Data:            data,
 	}
@@ -101,11 +101,11 @@ func (p *EventPublisher) PublishPollerHealthEvent(
 	return p.publishEvent(ctx, &event)
 }
 
-// PublishPollerRecoveryEvent publishes a poller recovery event.
-func (p *EventPublisher) PublishPollerRecoveryEvent(
-	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:       pollerID,
+// PublishGatewayRecoveryEvent publishes a gateway recovery event.
+func (p *EventPublisher) PublishGatewayRecoveryEvent(
+	ctx context.Context, gatewayID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:       gatewayID,
 		PreviousState:  "unhealthy",
 		CurrentState:   "healthy",
 		Timestamp:      time.Now(),
@@ -116,14 +116,14 @@ func (p *EventPublisher) PublishPollerRecoveryEvent(
 		RecoveryReason: "status_report_received",
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "unhealthy", "healthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "unhealthy", "healthy", data)
 }
 
-// PublishPollerOfflineEvent publishes a poller offline event.
-func (p *EventPublisher) PublishPollerOfflineEvent(
-	ctx context.Context, pollerID, sourceIP, partition string, lastSeen time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:      pollerID,
+// PublishGatewayOfflineEvent publishes a gateway offline event.
+func (p *EventPublisher) PublishGatewayOfflineEvent(
+	ctx context.Context, gatewayID, sourceIP, partition string, lastSeen time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:      gatewayID,
 		PreviousState: "healthy",
 		CurrentState:  "unhealthy",
 		Timestamp:     time.Now(),
@@ -133,14 +133,14 @@ func (p *EventPublisher) PublishPollerOfflineEvent(
 		AlertSent:     true,
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "healthy", "unhealthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "healthy", "unhealthy", data)
 }
 
-// PublishPollerFirstSeenEvent publishes an event when a poller reports for the first time.
-func (p *EventPublisher) PublishPollerFirstSeenEvent(
-	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:      pollerID,
+// PublishGatewayFirstSeenEvent publishes an event when a gateway reports for the first time.
+func (p *EventPublisher) PublishGatewayFirstSeenEvent(
+	ctx context.Context, gatewayID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:      gatewayID,
 		PreviousState: "unknown",
 		CurrentState:  "healthy",
 		Timestamp:     timestamp,
@@ -150,7 +150,7 @@ func (p *EventPublisher) PublishPollerFirstSeenEvent(
 		RemoteAddr:    remoteAddr,
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "unknown", "healthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "unknown", "healthy", data)
 }
 
 // PublishDeviceLifecycleEvent publishes lifecycle changes (delete, restore, etc.) for a device.
@@ -350,7 +350,7 @@ func CreateEventPublisherWithDomain(
 	}
 
 	if len(subjects) == 0 {
-		subjects = []string{"events.poller.*", "events.syslog.*", "events.snmp.*"}
+		subjects = []string{"events.gateway.*", "events.syslog.*", "events.snmp.*"}
 	}
 
 	streamSubjects := append([]string(nil), subjects...)

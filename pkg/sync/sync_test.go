@@ -34,7 +34,7 @@ func TestNew(t *testing.T) {
 	ctx := context.Background()
 	config := &Config{
 		AgentID:           "test-agent",
-		PollerID:          "test-poller",
+		GatewayID:          "test-gateway",
 		ListenAddr:        ":8080",
 		DiscoveryInterval: models.Duration(60 * time.Second),
 		UpdateInterval:    models.Duration(300 * time.Second),
@@ -54,14 +54,14 @@ func TestNew(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 	assert.Equal(t, config.AgentID, service.config.AgentID)
-	assert.Equal(t, config.PollerID, service.config.PollerID)
+	assert.Equal(t, config.GatewayID, service.config.GatewayID)
 }
 
 func TestNewDefault(t *testing.T) {
 	ctx := context.Background()
 	config := &Config{
 		AgentID:           "test-agent",
-		PollerID:          "test-poller",
+		GatewayID:          "test-gateway",
 		ListenAddr:        ":8080",
 		DiscoveryInterval: models.Duration(60 * time.Second),
 		UpdateInterval:    models.Duration(300 * time.Second),
@@ -300,7 +300,7 @@ func TestCreateSimpleSyncService(t *testing.T) {
 	ctx := context.Background()
 	config := &Config{
 		AgentID:           "test-agent",
-		PollerID:          "test-poller",
+		GatewayID:          "test-gateway",
 		ListenAddr:        ":8080",
 		DiscoveryInterval: models.Duration(60 * time.Second),
 		UpdateInterval:    models.Duration(300 * time.Second),
@@ -477,7 +477,7 @@ func BenchmarkNewArmisIntegration(b *testing.B) {
 func createTestConfig() *Config {
 	return &Config{
 		AgentID:           "test-agent",
-		PollerID:          "test-poller",
+		GatewayID:          "test-gateway",
 		ListenAddr:        ":8080",
 		DiscoveryInterval: models.Duration(60 * time.Second),
 		UpdateInterval:    models.Duration(300 * time.Second),

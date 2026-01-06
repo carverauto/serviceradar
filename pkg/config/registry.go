@@ -9,7 +9,7 @@ import (
 var (
 	errNoKVKeyDefined         = fmt.Errorf("descriptor does not define a KV key")
 	errAgentIDRequired        = fmt.Errorf("descriptor requires agent_id")
-	errPollerIDRequired       = fmt.Errorf("descriptor requires poller_id")
+	errGatewayIDRequired       = fmt.Errorf("descriptor requires gateway_id")
 	errUnresolvedTemplateVars = fmt.Errorf("descriptor has unresolved template variables")
 )
 
@@ -28,7 +28,7 @@ type ConfigScope string
 
 const (
 	ConfigScopeGlobal ConfigScope = "global"
-	ConfigScopePoller ConfigScope = "poller"
+	ConfigScopeGateway ConfigScope = "gateway"
 	ConfigScopeAgent  ConfigScope = "agent"
 )
 
@@ -47,7 +47,7 @@ type ServiceDescriptor struct {
 // KeyContext supplies identity information used to resolve scoped KV keys.
 type KeyContext struct {
 	AgentID  string
-	PollerID string
+	GatewayID string
 }
 
 //nolint:gochecknoglobals // Service registry must be package-level
@@ -64,12 +64,12 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 			"auth.jwt_public_key_pem",
 		},
 	},
-	"poller": {
-		Name:          "poller",
-		DisplayName:   "Poller",
-		ServiceType:   "poller",
-		Scope:         ConfigScopePoller,
-		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+	"gateway": {
+		Name:          "gateway",
+		DisplayName:   "Gateway",
+		ServiceType:   "gateway",
+		Scope:         ConfigScopeGateway,
+		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
 		Format:        ConfigFormatJSON,
 		CriticalFields: []string{
 			"kv_address",
@@ -261,28 +261,28 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		KVKeyTemplate: "agents/{{agent_id}}/checkers/sysmon/sysmon.json",
 		Format:        ConfigFormatJSON,
 	},
-	"poller-icmp": {
-		Name:          "poller-icmp",
+	"gateway-icmp": {
+		Name:          "gateway-icmp",
 		DisplayName:   "ICMP Check",
 		ServiceType:   "icmp",
-		Scope:         ConfigScopePoller,
-		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Scope:         ConfigScopeGateway,
+		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
 		Format:        ConfigFormatJSON,
 	},
-	"poller-port": {
-		Name:          "poller-port",
+	"gateway-port": {
+		Name:          "gateway-port",
 		DisplayName:   "Port Check",
 		ServiceType:   "port",
-		Scope:         ConfigScopePoller,
-		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Scope:         ConfigScopeGateway,
+		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
 		Format:        ConfigFormatJSON,
 	},
-	"poller-process": {
-		Name:          "poller-process",
+	"gateway-process": {
+		Name:          "gateway-process",
 		DisplayName:   "Process Check",
 		ServiceType:   "process",
-		Scope:         ConfigScopePoller,
-		KVKeyTemplate: "config/pollers/{{poller_id}}.json",
+		Scope:         ConfigScopeGateway,
+		KVKeyTemplate: "config/gateways/{{gateway_id}}.json",
 		Format:        ConfigFormatJSON,
 	},
 }
@@ -337,11 +337,11 @@ func (sd ServiceDescriptor) ResolveKVKey(ctx KeyContext) (string, error) {
 		}
 		key = strings.ReplaceAll(key, "{{agent_id}}", ctx.AgentID)
 	}
-	if strings.Contains(key, "{{poller_id}}") {
-		if ctx.PollerID == "" {
-			return "", fmt.Errorf("%w: %s", errPollerIDRequired, sd.Name)
+	if strings.Contains(key, "{{gateway_id}}") {
+		if ctx.GatewayID == "" {
+			return "", fmt.Errorf("%w: %s", errGatewayIDRequired, sd.Name)
 		}
-		key = strings.ReplaceAll(key, "{{poller_id}}", ctx.PollerID)
+		key = strings.ReplaceAll(key, "{{gateway_id}}", ctx.GatewayID)
 	}
 	if strings.Contains(key, "{{") {
 		return "", fmt.Errorf("%w: %s", errUnresolvedTemplateVars, sd.Name)

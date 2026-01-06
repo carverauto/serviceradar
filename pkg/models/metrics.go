@@ -36,8 +36,8 @@ type MetricPoint struct {
 	Partition string `json:"partition,omitempty" example:"default"`
 	// The agent ID that collected this metric
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
-	// The poller ID that requested this metric
-	PollerID string `json:"poller_id,omitempty" example:"demo-staging"`
+	// The gateway ID that requested this metric
+	GatewayID string `json:"gateway_id,omitempty" example:"demo-staging"`
 }
 
 // MetricsConfig contains configuration for metrics collection.
@@ -47,8 +47,8 @@ type MetricsConfig struct {
 	Enabled bool `json:"metrics_enabled" example:"true"`
 	// How long metrics are kept before being purged (in days)
 	Retention int32 `json:"metrics_retention" example:"30"`
-	// Maximum number of pollers to track metrics for
-	MaxPollers int32 `json:"max_pollers" example:"1000"`
+	// Maximum number of gateways to track metrics for
+	MaxGateways int32 `json:"max_gateways" example:"1000"`
 }
 
 const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name
@@ -222,7 +222,7 @@ type SysmonMetricData struct {
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
-	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
+	GatewayID       string    `json:"gateway_id"` // Unique identifier for the gateway that collected this metric
 	Name           string    `json:"name"`
 	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
 	DeviceID       string    `json:"device_id"`        // Device identifier in format "partition:ip"
@@ -265,7 +265,7 @@ type SNMPMetric struct {
 // SweepResult represents a single sweep result to be stored.
 type SweepResult struct {
 	AgentID         string            `json:"agent_id"`
-	PollerID        string            `json:"poller_id"`
+	GatewayID        string            `json:"gateway_id"`
 	Partition       string            `json:"partition"`
 	DeviceID        string            `json:"device_id"`
 	DiscoverySource string            `json:"discovery_source"`

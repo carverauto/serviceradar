@@ -38,7 +38,7 @@ func TestSweepJSONParsing(t *testing.T) {
 		{
 			name: "single_json_object",
 			serviceData: `{
-				"poller_id": "demo-staging",
+				"gateway_id": "demo-staging",
 				"agent_id": "default-agent",
 				"network": "192.168.1.0/24",
 				"total_hosts": 2,
@@ -61,7 +61,7 @@ func TestSweepJSONParsing(t *testing.T) {
 		{
 			name: "concatenated_json_objects",
 			serviceData: `{
-				"poller_id": "demo-staging",
+				"gateway_id": "demo-staging",
 				"agent_id": "default-agent",
 				"network": "192.168.1.0/24",
 				"total_hosts": 1,
@@ -69,7 +69,7 @@ func TestSweepJSONParsing(t *testing.T) {
 				"last_sweep": 1735857600,
 				"hosts": []
 			}{
-				"poller_id": "demo-staging",
+				"gateway_id": "demo-staging",
 				"agent_id": "local-agent",
 				"network": "192.168.1.0/24",
 				"total_hosts": 3,
@@ -98,9 +98,9 @@ func TestSweepJSONParsing(t *testing.T) {
 		},
 		{
 			name: "real_world_scenario",
-			serviceData: `{"poller_id":"demo-staging","agent_id":"default-agent","network":"192.168.1.0/24",` +
+			serviceData: `{"gateway_id":"demo-staging","agent_id":"default-agent","network":"192.168.1.0/24",` +
 				`"total_hosts":256,"available_hosts":0,"last_sweep":1735857600,"ports":[],"hosts":[]}` +
-				`{"poller_id":"demo-staging","agent_id":"local-agent","network":"192.168.1.0/24",` +
+				`{"gateway_id":"demo-staging","agent_id":"local-agent","network":"192.168.1.0/24",` +
 				`"total_hosts":256,"available_hosts":3,"last_sweep":1735857600,"ports":[],` +
 				`"hosts":[{"host":"192.168.1.1","available":true,` +
 				`"first_seen":"2025-01-02T20:00:00Z","last_seen":"2025-01-02T20:00:00Z","response_time":1000000},` +

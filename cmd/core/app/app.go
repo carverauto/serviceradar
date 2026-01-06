@@ -181,7 +181,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Create gRPC service registrar
 	registerService := func(s *grpc.Server) error {
-		proto.RegisterPollerServiceServer(s, server)
+		proto.RegisterGatewayServiceServer(s, server)
 		proto.RegisterCoreServiceServer(s, server)
 		return nil
 	}

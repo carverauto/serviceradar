@@ -97,7 +97,7 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 		"process_name": p.ProcessName,
 		"active":       isActive,
 		"agent_id":     req.AgentId,
-		"poller_id":    req.PollerId,
+		"gateway_id":    req.GatewayId,
 	}
 
 	data, err := json.Marshal(resp)

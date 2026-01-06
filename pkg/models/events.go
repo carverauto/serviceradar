@@ -61,7 +61,7 @@ func (c *EventsConfig) Validate() error {
 
 	if len(c.Subjects) == 0 {
 		// Default subjects for events stream
-		c.Subjects = []string{"events.poller.*", "events.syslog.*", "events.snmp.*"}
+		c.Subjects = []string{"events.gateway.*", "events.syslog.*", "events.snmp.*"}
 	}
 
 	return nil
@@ -97,9 +97,9 @@ type EventRow struct {
 	RawData         string
 }
 
-// PollerHealthEventData represents the data payload for poller health events.
-type PollerHealthEventData struct {
-	PollerID       string    `json:"poller_id"`
+// GatewayHealthEventData represents the data payload for gateway health events.
+type GatewayHealthEventData struct {
+	GatewayID       string    `json:"gateway_id"`
 	PreviousState  string    `json:"previous_state"`
 	CurrentState   string    `json:"current_state"`
 	Timestamp      time.Time `json:"timestamp"`

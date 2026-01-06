@@ -23,7 +23,7 @@ const (
 	insertTimeseriesMetricsSQL = `
 INSERT INTO public.timeseries_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	metric_name,
 	metric_type,
@@ -46,7 +46,7 @@ INSERT INTO public.timeseries_metrics (
 	insertCPUMetricsSQL = `
 INSERT INTO public.cpu_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	host_id,
 	core_id,
@@ -64,7 +64,7 @@ INSERT INTO public.cpu_metrics (
 	insertCPUClusterMetricsSQL = `
 INSERT INTO public.cpu_cluster_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	host_id,
 	cluster,
@@ -78,7 +78,7 @@ INSERT INTO public.cpu_cluster_metrics (
 	insertDiskMetricsSQL = `
 INSERT INTO public.disk_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	host_id,
 	mount_point,
@@ -96,7 +96,7 @@ INSERT INTO public.disk_metrics (
 	insertMemoryMetricsSQL = `
 INSERT INTO public.memory_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	host_id,
 	total_bytes,
@@ -112,7 +112,7 @@ INSERT INTO public.memory_metrics (
 	insertProcessMetricsSQL = `
 INSERT INTO public.process_metrics (
 	timestamp,
-	poller_id,
+	gateway_id,
 	agent_id,
 	host_id,
 	pid,
@@ -128,7 +128,7 @@ INSERT INTO public.process_metrics (
 )`
 )
 
-func (db *DB) cnpgInsertTimeseriesMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
+func (db *DB) cnpgInsertTimeseriesMetrics(ctx context.Context, gatewayID string, metrics []*models.TimeseriesMetric) error {
 	if len(metrics) == 0 || !db.useCNPGWrites() {
 		return nil
 	}
@@ -141,11 +141,11 @@ func (db *DB) cnpgInsertTimeseriesMetrics(ctx context.Context, pollerID string, 
 			continue
 		}
 
-		args, err := buildTimeseriesMetricArgs(pollerID, metric)
+		args, err := buildTimeseriesMetricArgs(gatewayID, metric)
 		if err != nil {
 			db.logger.Warn().
 				Err(err).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("metric_name", metric.Name).
 				Msg("skipping CNPG timeseries metric")
 			continue
@@ -164,7 +164,7 @@ func (db *DB) cnpgInsertTimeseriesMetrics(ctx context.Context, pollerID string, 
 
 func (db *DB) cnpgInsertCPUMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	cpus []models.CPUMetric,
 	timestamp time.Time,
 ) error {
@@ -177,7 +177,7 @@ func (db *DB) cnpgInsertCPUMetrics(
 	}
 
 	db.logger.Info().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("device_id", deviceID).
 		Int("cpu_count", len(cpus)).
 		Time("timestamp", timestamp).
@@ -187,7 +187,7 @@ func (db *DB) cnpgInsertCPUMetrics(
 	queued := 0
 
 	for _, cpu := range cpus {
-		args := buildCPUMetricArgs(pollerID, agentID, hostID, deviceID, partition, cpu, timestamp)
+		args := buildCPUMetricArgs(gatewayID, agentID, hostID, deviceID, partition, cpu, timestamp)
 		batch.Queue(insertCPUMetricsSQL, args...)
 		queued++
 	}
@@ -219,7 +219,7 @@ func (db *DB) cnpgInsertCPUMetrics(
 
 func (db *DB) cnpgInsertCPUClusterMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	clusters []models.CPUClusterMetric,
 	timestamp time.Time,
 ) error {
@@ -231,7 +231,7 @@ func (db *DB) cnpgInsertCPUClusterMetrics(
 	queued := 0
 
 	for _, cluster := range clusters {
-		args := buildCPUClusterMetricArgs(pollerID, agentID, hostID, deviceID, partition, cluster, timestamp)
+		args := buildCPUClusterMetricArgs(gatewayID, agentID, hostID, deviceID, partition, cluster, timestamp)
 		batch.Queue(insertCPUClusterMetricsSQL, args...)
 		queued++
 	}
@@ -245,7 +245,7 @@ func (db *DB) cnpgInsertCPUClusterMetrics(
 
 func (db *DB) cnpgInsertDiskMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	disks []models.DiskMetric,
 	timestamp time.Time,
 ) error {
@@ -257,7 +257,7 @@ func (db *DB) cnpgInsertDiskMetrics(
 	queued := 0
 
 	for _, disk := range disks {
-		args := buildDiskMetricArgs(pollerID, agentID, hostID, deviceID, partition, disk, timestamp)
+		args := buildDiskMetricArgs(gatewayID, agentID, hostID, deviceID, partition, disk, timestamp)
 		batch.Queue(insertDiskMetricsSQL, args...)
 		queued++
 	}
@@ -271,7 +271,7 @@ func (db *DB) cnpgInsertDiskMetrics(
 
 func (db *DB) cnpgInsertMemoryMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	memory *models.MemoryMetric,
 	timestamp time.Time,
 ) error {
@@ -283,7 +283,7 @@ func (db *DB) cnpgInsertMemoryMetrics(
 		return nil
 	}
 
-	args := buildMemoryMetricArgs(pollerID, agentID, hostID, deviceID, partition, memory, timestamp)
+	args := buildMemoryMetricArgs(gatewayID, agentID, hostID, deviceID, partition, memory, timestamp)
 
 	batch := &pgx.Batch{}
 	batch.Queue(insertMemoryMetricsSQL, args...)
@@ -293,7 +293,7 @@ func (db *DB) cnpgInsertMemoryMetrics(
 
 func (db *DB) cnpgInsertProcessMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	processes []models.ProcessMetric,
 	timestamp time.Time,
 ) error {
@@ -305,7 +305,7 @@ func (db *DB) cnpgInsertProcessMetrics(
 	queued := 0
 
 	for i := range processes {
-		args := buildProcessMetricArgs(pollerID, agentID, hostID, deviceID, partition, &processes[i], timestamp)
+		args := buildProcessMetricArgs(gatewayID, agentID, hostID, deviceID, partition, &processes[i], timestamp)
 		batch.Queue(insertProcessMetricsSQL, args...)
 		queued++
 	}
@@ -335,7 +335,7 @@ func (db *DB) sendCNPG(ctx context.Context, batch *pgx.Batch, name string) (err 
 	return nil
 }
 
-func buildTimeseriesMetricArgs(pollerID string, metric *models.TimeseriesMetric) ([]interface{}, error) {
+func buildTimeseriesMetricArgs(gatewayID string, metric *models.TimeseriesMetric) ([]interface{}, error) {
 	if metric == nil {
 		return nil, ErrTimeseriesMetricNil
 	}
@@ -349,7 +349,7 @@ func buildTimeseriesMetricArgs(pollerID string, metric *models.TimeseriesMetric)
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		"", // agent_id is not set for these metrics today
 		metric.Name,
 		metric.Type,
@@ -367,7 +367,7 @@ func buildTimeseriesMetricArgs(pollerID string, metric *models.TimeseriesMetric)
 }
 
 func buildCPUMetricArgs(
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	cpu models.CPUMetric,
 	timestamp time.Time,
 ) []interface{} {
@@ -375,7 +375,7 @@ func buildCPUMetricArgs(
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		agentID,
 		hostID,
 		cpu.CoreID,
@@ -389,7 +389,7 @@ func buildCPUMetricArgs(
 }
 
 func buildCPUClusterMetricArgs(
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	cluster models.CPUClusterMetric,
 	timestamp time.Time,
 ) []interface{} {
@@ -397,7 +397,7 @@ func buildCPUClusterMetricArgs(
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		agentID,
 		hostID,
 		cluster.Name,
@@ -408,7 +408,7 @@ func buildCPUClusterMetricArgs(
 }
 
 func buildDiskMetricArgs(
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	disk models.DiskMetric,
 	timestamp time.Time,
 ) []interface{} {
@@ -428,7 +428,7 @@ func buildDiskMetricArgs(
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		agentID,
 		hostID,
 		disk.MountPoint,
@@ -443,7 +443,7 @@ func buildDiskMetricArgs(
 }
 
 func buildMemoryMetricArgs(
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	memory *models.MemoryMetric,
 	timestamp time.Time,
 ) []interface{} {
@@ -468,7 +468,7 @@ func buildMemoryMetricArgs(
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		agentID,
 		hostID,
 		int64(total),
@@ -481,7 +481,7 @@ func buildMemoryMetricArgs(
 }
 
 func buildProcessMetricArgs(
-	pollerID, agentID, hostID, deviceID, partition string,
+	gatewayID, agentID, hostID, deviceID, partition string,
 	process *models.ProcessMetric,
 	timestamp time.Time,
 ) []interface{} {
@@ -490,7 +490,7 @@ func buildProcessMetricArgs(
 	if process == nil {
 		return []interface{}{
 			ts,
-			pollerID,
+			gatewayID,
 			agentID,
 			hostID,
 			uint32(0),
@@ -506,7 +506,7 @@ func buildProcessMetricArgs(
 
 	return []interface{}{
 		ts,
-		pollerID,
+		gatewayID,
 		agentID,
 		hostID,
 		process.PID,

@@ -147,8 +147,8 @@ func (m *MCPServer) registerSRQLHelpTool() {
 				},
 				{
 					"category":    "devices",
-					"description": "Get devices from specific poller",
-					"query":       "SHOW devices WHERE poller_id = 'poller-001'",
+					"description": "Get devices from specific gateway",
+					"query":       "SHOW devices WHERE gateway_id = 'gateway-001'",
 				},
 				{
 					"category":    "devices",
@@ -187,8 +187,8 @@ func (m *MCPServer) registerSRQLHelpTool() {
 				},
 				{
 					"category":    "aggregation",
-					"description": "Count devices by poller",
-					"query":       "COUNT devices GROUP BY poller_id",
+					"description": "Count devices by gateway",
+					"query":       "COUNT devices GROUP BY gateway_id",
 				},
 				{
 					"category":    "aggregation",
@@ -242,22 +242,22 @@ func (*MCPServer) getAllEntitiesSchema() map[string]interface{} {
 		{
 			"name":        "devices",
 			"description": "Device discovery and availability information",
-			"fields":      []string{"device_id", "ip", "hostname", "poller_id", "timestamp", "available"},
+			"fields":      []string{"device_id", "ip", "hostname", "gateway_id", "timestamp", "available"},
 		},
 		{
 			"name":        "logs",
 			"description": "System and application log entries",
-			"fields":      []string{"timestamp", "level", "message", "poller_id", "source"},
+			"fields":      []string{"timestamp", "level", "message", "gateway_id", "source"},
 		},
 		{
 			"name":        "events",
 			"description": "System and network events",
-			"fields":      []string{"timestamp", "event_type", "severity", "message", "poller_id"},
+			"fields":      []string{"timestamp", "event_type", "severity", "message", "gateway_id"},
 		},
 		{
 			"name":        "sweep_results",
 			"description": "Network sweep and discovery results",
-			"fields":      []string{"timestamp", "network", "poller_id", "discovered_devices"},
+			"fields":      []string{"timestamp", "network", "gateway_id", "discovered_devices"},
 		},
 	}
 

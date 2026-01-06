@@ -30,7 +30,7 @@ import (
 
 func (s *Server) ensureServiceDevice(
 	ctx context.Context,
-	agentID, pollerID, partition string,
+	agentID, gatewayID, partition string,
 	svc *proto.ServiceStatus,
 	serviceData json.RawMessage,
 	timestamp time.Time,
@@ -55,21 +55,21 @@ func (s *Server) ensureServiceDevice(
 		return
 	}
 
-	// Check if the reported host_ip matches the collector's (agent/poller) registered IP.
+	// Check if the reported host_ip matches the collector's (agent/gateway) registered IP.
 	// If so, skip device creation - this is the collector itself, not a monitoring target.
-	collectorIP := s.getCollectorIP(ctx, agentID, pollerID)
+	collectorIP := s.getCollectorIP(ctx, agentID, gatewayID)
 	if collectorIP != "" && hostIP == collectorIP {
 		s.logger.Debug().
 			Str("host_ip", hostIP).
 			Str("collector_ip", collectorIP).
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Str("service_name", svc.ServiceName).
 			Msg("Skipping device creation: host_ip matches collector IP (this is the collector, not a target)")
 		return
 	}
 
-	// Also skip if the IP is in a common Docker bridge network range and matches agent/poller characteristics.
+	// Also skip if the IP is in a common Docker bridge network range and matches agent/gateway characteristics.
 	// This catches cases where the collector IP couldn't be looked up but the IP is clearly ephemeral.
 	if s.isEphemeralCollectorIP(hostIP, hostname, hostID) {
 		s.logger.Debug().
@@ -77,7 +77,7 @@ func (s *Server) ensureServiceDevice(
 			Str("hostname", hostname).
 			Str("host_id", hostID).
 			Str("service_name", svc.ServiceName).
-			Msg("Skipping device creation: detected ephemeral collector IP with agent/poller hostname")
+			Msg("Skipping device creation: detected ephemeral collector IP with agent/gateway hostname")
 		return
 	}
 
@@ -102,8 +102,8 @@ func (s *Server) ensureServiceDevice(
 		metadata["collector_agent_id"] = agentID
 	}
 
-	if pollerID != "" {
-		metadata["collector_poller_id"] = pollerID
+	if gatewayID != "" {
+		metadata["collector_gateway_id"] = gatewayID
 	}
 
 	if hostID != "" {
@@ -114,7 +114,7 @@ func (s *Server) ensureServiceDevice(
 
 	deviceUpdate := &models.DeviceUpdate{
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:    gatewayID,
 		Partition:   partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSelfReported,
@@ -139,11 +139,11 @@ func (s *Server) ensureServiceDevice(
 	}
 
 	capabilities := normalizeCapabilities([]string{svc.ServiceType, svc.ServiceName})
-	s.upsertCollectorCapabilities(ctx, deviceID, capabilities, agentID, pollerID, svc.ServiceName, timestamp)
+	s.upsertCollectorCapabilities(ctx, deviceID, capabilities, agentID, gatewayID, svc.ServiceName, timestamp)
 
 	eventMetadata := map[string]any{
 		"agent_id":             agentID,
-		"poller_id":            pollerID,
+		"gateway_id":            gatewayID,
 		"partition":            partition,
 		"checker_service":      svc.ServiceName,
 		"checker_service_type": svc.ServiceType,
@@ -162,7 +162,7 @@ func (s *Server) ensureServiceDevice(
 			Capability:  capability,
 			ServiceID:   svc.ServiceName,
 			ServiceType: svc.ServiceType,
-			RecordedBy:  pollerID,
+			RecordedBy:  gatewayID,
 			Enabled:     true,
 			Success:     true,
 			CheckedAt:   timestamp,
@@ -346,9 +346,9 @@ func cloneDeviceUpdate(update *models.DeviceUpdate) *models.DeviceUpdate {
 	return &cloned
 }
 
-// getCollectorIP retrieves the registered IP address for the agent or poller that is running the checker.
+// getCollectorIP retrieves the registered IP address for the agent or gateway that is running the checker.
 // This is used to detect when a checker is reporting its own collector's IP rather than a monitoring target.
-func (s *Server) getCollectorIP(ctx context.Context, agentID, pollerID string) string {
+func (s *Server) getCollectorIP(ctx context.Context, agentID, gatewayID string) string {
 	// Try to get the agent's IP from the service registry
 	if agentID != "" && s.ServiceRegistry != nil {
 		if agent, err := s.ServiceRegistry.GetAgent(ctx, agentID); err == nil && agent != nil {
@@ -358,18 +358,18 @@ func (s *Server) getCollectorIP(ctx context.Context, agentID, pollerID string) s
 		}
 	}
 
-	// Fall back to poller's IP
-	if pollerID != "" && s.ServiceRegistry != nil {
-		if poller, err := s.ServiceRegistry.GetPoller(ctx, pollerID); err == nil && poller != nil {
-			if ip := extractIPFromMetadata(poller.Metadata); ip != "" {
+	// Fall back to gateway's IP
+	if gatewayID != "" && s.ServiceRegistry != nil {
+		if gateway, err := s.ServiceRegistry.GetGateway(ctx, gatewayID); err == nil && gateway != nil {
+			if ip := extractIPFromMetadata(gateway.Metadata); ip != "" {
 				return ip
 			}
 		}
 	}
 
 	// Try the database as a last resort
-	if pollerID != "" && s.DB != nil {
-		if status, err := s.DB.GetPollerStatus(ctx, pollerID); err == nil && status != nil {
+	if gatewayID != "" && s.DB != nil {
+		if status, err := s.DB.GetGatewayStatus(ctx, gatewayID); err == nil && status != nil {
 			if ip := normalizeHostIP(status.HostIP); ip != "" {
 				return ip
 			}
@@ -396,7 +396,7 @@ func extractIPFromMetadata(metadata map[string]string) string {
 }
 
 // isEphemeralCollectorIP checks if the given IP appears to be an ephemeral container IP
-// belonging to the collector (agent/poller) rather than a monitoring target.
+// belonging to the collector (agent/gateway) rather than a monitoring target.
 // This is a heuristic to catch phantom devices when the collector IP lookup fails.
 func (s *Server) isEphemeralCollectorIP(hostIP, hostname, hostID string) bool {
 	// Check if IP is in common Docker bridge network ranges
@@ -404,11 +404,11 @@ func (s *Server) isEphemeralCollectorIP(hostIP, hostname, hostID string) bool {
 		return false
 	}
 
-	// Check if hostname suggests this is an agent or poller
+	// Check if hostname suggests this is an agent or gateway
 	lowerHostname := strings.ToLower(hostname)
 	lowerHostID := strings.ToLower(hostID)
 
-	collectorIndicators := []string{"agent", "poller", "collector"}
+	collectorIndicators := []string{"agent", "gateway", "collector"}
 	for _, indicator := range collectorIndicators {
 		if strings.Contains(lowerHostname, indicator) || strings.Contains(lowerHostID, indicator) {
 			return true
@@ -455,11 +455,11 @@ func isDockerBridgeIP(ipStr string) bool {
 // createSNMPTargetDeviceUpdate creates a DeviceUpdate for an SNMP target device.
 // This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
 func (s *Server) createSNMPTargetDeviceUpdate(
-	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
+	agentID, gatewayID, partition, targetIP, hostname string, timestamp time.Time, available bool) *models.DeviceUpdate {
 	if targetIP == "" {
 		s.logger.Debug().
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Str("partition", partition).
 			Str("target_ip", targetIP).
 			Msg("Skipping SNMP target device update due to empty target IP")
@@ -471,7 +471,7 @@ func (s *Server) createSNMPTargetDeviceUpdate(
 
 	s.logger.Debug().
 		Str("agent_id", agentID).
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("partition", partition).
 		Str("target_ip", targetIP).
 		Str("device_id", deviceID).
@@ -480,7 +480,7 @@ func (s *Server) createSNMPTargetDeviceUpdate(
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:    gatewayID,
 		Partition:   partition,
 		Source:      models.DiscoverySourceSNMP,
 		IP:          targetIP,

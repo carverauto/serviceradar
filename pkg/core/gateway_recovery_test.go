@@ -32,22 +32,22 @@ const (
 	testHostID = "test-host"
 )
 
-func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
+func TestGatewayRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 	tests := []struct {
 		name             string
-		pollerID         string
+		gatewayID         string
 		lastSeen         time.Time
-		getCurrentPoller *models.PollerStatus
+		getCurrentGateway *models.GatewayStatus
 		dbError          error
 		alertError       error
 		expectError      string
 	}{
 		{
 			name:     "successful_recovery_with_cooldown",
-			pollerID: "test-poller",
+			gatewayID: "test-gateway",
 			lastSeen: time.Now(),
-			getCurrentPoller: &models.PollerStatus{
-				PollerID:  "test-poller",
+			getCurrentGateway: &models.GatewayStatus{
+				GatewayID:  "test-gateway",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -55,30 +55,30 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		},
 		{
 			name:     "successful_recovery_no_cooldown",
-			pollerID: "test-poller",
+			gatewayID: "test-gateway",
 			lastSeen: time.Now(),
-			getCurrentPoller: &models.PollerStatus{
-				PollerID:  "test-poller",
+			getCurrentGateway: &models.GatewayStatus{
+				GatewayID:  "test-gateway",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
 		},
 		{
 			name:     "already_healthy",
-			pollerID: "test-poller",
+			gatewayID: "test-gateway",
 			lastSeen: time.Now(),
-			getCurrentPoller: &models.PollerStatus{
-				PollerID:  "test-poller",
+			getCurrentGateway: &models.GatewayStatus{
+				GatewayID:  "test-gateway",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
 		},
 		{
 			name:        "db_error",
-			pollerID:    "test-poller",
+			gatewayID:    "test-gateway",
 			lastSeen:    time.Now(),
 			dbError:     db.ErrDatabaseError,
-			expectError: "get poller status",
+			expectError: "get gateway status",
 		},
 	}
 
@@ -90,24 +90,24 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			mockAlerter := alerts.NewMockAlertService(ctrl)
 
-			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetPollerStatus(gomock.Any(), tt.pollerID).Return(tt.getCurrentPoller, tt.dbError)
+			// Setup GetGatewayStatus expectation
+			mockDB.EXPECT().GetGatewayStatus(gomock.Any(), tt.gatewayID).Return(tt.getCurrentGateway, tt.dbError)
 
-			if tt.getCurrentPoller != nil && !tt.getCurrentPoller.IsHealthy && tt.dbError == nil {
-				// Expect poller status update
-				mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+			if tt.getCurrentGateway != nil && !tt.getCurrentGateway.IsHealthy && tt.dbError == nil {
+				// Expect gateway status update
+				mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 				// Expect alert attempt
 				mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(tt.alertError)
 			}
 
-			mgr := &PollerRecoveryManager{
+			mgr := &GatewayRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
 				getHostname: func() string { return testHostID },
 			}
 
-			err := mgr.processRecovery(context.Background(), tt.pollerID, tt.lastSeen)
+			err := mgr.processRecovery(context.Background(), tt.gatewayID, tt.lastSeen)
 
 			if tt.expectError != "" {
 				assert.ErrorContains(t, err, tt.expectError)
@@ -118,20 +118,20 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 	}
 }
 
-func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
+func TestGatewayRecoveryManager_ProcessRecovery(t *testing.T) {
 	tests := []struct {
 		name          string
-		pollerID      string
-		currentStatus *models.PollerStatus
+		gatewayID      string
+		currentStatus *models.GatewayStatus
 		dbError       error
 		expectAlert   bool
 		expectedError string
 	}{
 		{
 			name:     "successful_recovery",
-			pollerID: "test-poller",
-			currentStatus: &models.PollerStatus{
-				PollerID:  "test-poller",
+			gatewayID: "test-gateway",
+			currentStatus: &models.GatewayStatus{
+				GatewayID:  "test-gateway",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -139,18 +139,18 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 		},
 		{
 			name:     "already_healthy",
-			pollerID: "test-poller",
-			currentStatus: &models.PollerStatus{
-				PollerID:  "test-poller",
+			gatewayID: "test-gateway",
+			currentStatus: &models.GatewayStatus{
+				GatewayID:  "test-gateway",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
 		},
 		{
 			name:          "db_error",
-			pollerID:      "test-poller",
+			gatewayID:      "test-gateway",
 			dbError:       db.ErrDatabaseError,
-			expectedError: "get poller status",
+			expectedError: "get gateway status",
 		},
 	}
 
@@ -162,25 +162,25 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 			mockDB := db.NewMockService(ctrl)
 			mockAlerter := alerts.NewMockAlertService(ctrl)
 
-			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetPollerStatus(gomock.Any(), tt.pollerID).Return(tt.currentStatus, tt.dbError)
+			// Setup GetGatewayStatus expectation
+			mockDB.EXPECT().GetGatewayStatus(gomock.Any(), tt.gatewayID).Return(tt.currentStatus, tt.dbError)
 
 			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy && tt.dbError == nil {
-				// Expect poller status update
-				mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+				// Expect gateway status update
+				mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 				if tt.expectAlert {
 					mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
 				}
 			}
 
-			mgr := &PollerRecoveryManager{
+			mgr := &GatewayRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
 				getHostname: func() string { return testHostID },
 			}
 
-			err := mgr.processRecovery(context.Background(), tt.pollerID, time.Now())
+			err := mgr.processRecovery(context.Background(), tt.gatewayID, time.Now())
 
 			if tt.expectedError != "" {
 				assert.ErrorContains(t, err, tt.expectedError)
@@ -191,12 +191,12 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 	}
 }
 
-func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
+func TestGatewayRecoveryManager_SendRecoveryAlert(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockAlerter := alerts.NewMockAlertService(ctrl)
-	mgr := &PollerRecoveryManager{
+	mgr := &GatewayRecoveryManager{
 		alerter:     mockAlerter,
 		getHostname: func() string { return testHostID },
 	}
@@ -206,14 +206,14 @@ func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
 		Alert(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, alert *alerts.WebhookAlert) error {
 			assert.Equal(t, alerts.Info, alert.Level)
-			assert.Equal(t, "Poller Recovered", alert.Title)
-			assert.Equal(t, "test-poller", alert.PollerID)
+			assert.Equal(t, "Gateway Recovered", alert.Title)
+			assert.Equal(t, "test-gateway", alert.GatewayID)
 			assert.Equal(t, testHostID, alert.Details["hostname"])
-			assert.Contains(t, alert.Message, "test-poller")
+			assert.Contains(t, alert.Message, "test-gateway")
 
 			return nil
 		})
 
-	err := mgr.sendRecoveryAlert(context.Background(), "test-poller", time.Now())
+	err := mgr.sendRecoveryAlert(context.Background(), "test-gateway", time.Now())
 	assert.NoError(t, err)
 }

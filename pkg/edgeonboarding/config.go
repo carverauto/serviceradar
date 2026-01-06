@@ -43,8 +43,8 @@ var (
 	ErrAgentSPIFFEIDNotFound = errors.New("agent_spiffe_id not found in metadata")
 	// ErrSPIREUpstreamPortNotFound is returned when spire_upstream_port is missing from metadata.
 	ErrSPIREUpstreamPortNotFound = errors.New("spire_upstream_port not found in metadata")
-	// ErrPollerIDNotFound is returned when poller_id is missing from metadata.
-	ErrPollerIDNotFound = errors.New("poller_id not found in metadata")
+	// ErrGatewayIDNotFound is returned when gateway_id is missing from metadata.
+	ErrGatewayIDNotFound = errors.New("gateway_id not found in metadata")
 	// ErrKVAddressNotFound is returned when kv_address is missing from metadata.
 	ErrKVAddressNotFound = errors.New("kv_address not found in metadata")
 	// ErrKVSPIFFEIDNotFound is returned when kv_spiffe_id is missing from metadata.
@@ -56,7 +56,7 @@ var (
 )
 
 // generateServiceConfig generates configuration files for the service based on:
-// - Component type (poller, agent, checker; sync packages map to agent bootstrap config)
+// - Component type (gateway, agent, checker; sync packages map to agent bootstrap config)
 	// - Deployment type (docker, kubernetes, bare-metal)
 	// - Package metadata (contains service-specific config from KV)
 func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
@@ -73,8 +73,8 @@ func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 
 	// Component-specific configuration
 	switch b.pkg.ComponentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		return b.generatePollerConfig(ctx, metadata)
+	case models.EdgeOnboardingComponentTypeGateway:
+		return b.generateGatewayConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeAgent:
 		return b.generateAgentConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeChecker:
@@ -102,11 +102,11 @@ func (b *Bootstrapper) parseMetadata() (map[string]interface{}, error) {
 	return metadata, nil
 }
 
-// generatePollerConfig generates configuration for a poller service.
-func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[string]interface{}) error {
+// generateGatewayConfig generates configuration for a gateway service.
+func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx // future enhancement: use context for cancellation when fetching remote metadata
 
-	b.logger.Debug().Msg("Generating poller configuration")
+	b.logger.Debug().Msg("Generating gateway configuration")
 
 	// Extract required metadata fields
 	coreAddress, ok := metadata["core_address"].(string)
@@ -144,9 +144,9 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 	}
 	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
 
-	// Generate poller config JSON
+	// Generate gateway config JSON
 	config := map[string]interface{}{
-		"poller_id":    b.pkg.ComponentID,
+		"gateway_id":    b.pkg.ComponentID,
 		"label":        b.pkg.Label,
 		"component_id": b.pkg.ComponentID,
 
@@ -155,10 +155,10 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 		"kv_address":   kvAddr,
 
 		// Agent configuration
-		"agent_address": "localhost:50051", // Agent shares network namespace with poller
+		"agent_address": "localhost:50051", // Agent shares network namespace with gateway
 
 		// SPIFFE configuration
-		"poller_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		"gateway_spiffe_id": b.pkg.DownstreamSPIFFEID,
 		"core_spiffe_id":   coreSPIFFEID,
 		"agent_spiffe_id":  agentSPIFFEID,
 
@@ -167,7 +167,7 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 		"spire_parent_id":        spireParentID,
 
 		// Storage paths
-		"data_dir":   filepath.Join(b.cfg.StoragePath, "poller"),
+		"data_dir":   filepath.Join(b.cfg.StoragePath, "gateway"),
 		"spire_dir":  filepath.Join(b.cfg.StoragePath, "spire"),
 		"config_dir": filepath.Join(b.cfg.StoragePath, "config"),
 
@@ -186,16 +186,16 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal poller config: %w", err)
+		return fmt.Errorf("marshal gateway config: %w", err)
 	}
 
-	b.generatedConfigs["poller.json"] = configJSON
+	b.generatedConfigs["gateway.json"] = configJSON
 
 	b.logger.Debug().
-		Str("poller_id", b.pkg.ComponentID).
+		Str("gateway_id", b.pkg.ComponentID).
 		Str("core_address", coreAddr).
 		Str("kv_address", kvAddr).
-		Msg("Generated poller configuration")
+		Msg("Generated gateway configuration")
 
 	return nil
 }

@@ -22,14 +22,14 @@ func TestRperfManager_StoreAndGetRperfMetric(t *testing.T) {
 	// Set up expectation for StoreMetrics
 	mockDB.EXPECT().StoreMetrics(
 		gomock.Any(),  // Context
-		"test-poller", // PollerID
+		"test-gateway", // GatewayID
 		gomock.Any(),  // Slice of TimeseriesMetric
 	).Return(nil).Times(1)
 
 	// Set up expectation for GetMetricsByType
 	mockDB.EXPECT().GetMetricsByType(
 		gomock.Any(),  // Context
-		"test-poller", // PollerID
+		"test-gateway", // GatewayID
 		"rperf",       // Metric type
 		gomock.Any(),  // Start time
 		gomock.Any(),  // End time
@@ -54,10 +54,10 @@ func TestRperfManager_StoreAndGetRperfMetric(t *testing.T) {
 		LossPercent: 0.1,
 	}
 
-	err := manager.StoreRperfMetric(context.Background(), "test-poller", metric, time.Now())
+	err := manager.StoreRperfMetric(context.Background(), "test-gateway", metric, time.Now())
 	require.NoError(t, err)
 
-	metrics, err := manager.GetRperfMetrics(context.Background(), "test-poller", time.Now().Add(-1*time.Hour), time.Now())
+	metrics, err := manager.GetRperfMetrics(context.Background(), "test-gateway", time.Now().Add(-1*time.Hour), time.Now())
 	require.NoError(t, err)
 	assert.NotEmpty(t, metrics)
 	assert.Equal(t, "test-target", metrics[0].Target)

@@ -808,7 +808,7 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 
 	event := &models.DeviceUpdate{
 		AgentID:   a.Config.AgentID,
-		PollerID:  a.Config.PollerID,
+		GatewayID:  a.Config.GatewayID,
 		Source:    models.DiscoverySourceArmis,
 		DeviceID:  "", // Let registry generate ServiceRadar UUID
 		Partition: a.Config.Partition,

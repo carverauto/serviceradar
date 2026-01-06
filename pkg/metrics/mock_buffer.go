@@ -43,15 +43,15 @@ func (m *MockMetricStore) EXPECT() *MockMetricStoreMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockMetricStore) Add(timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID, pollerID string) {
+func (m *MockMetricStore) Add(timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID, gatewayID string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Add", timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID)
+	m.ctrl.Call(m, "Add", timestamp, responseTime, serviceName, deviceID, partition, agentID, gatewayID)
 }
 
 // Add indicates an expected call of Add.
-func (mr *MockMetricStoreMockRecorder) Add(timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID any) *gomock.Call {
+func (mr *MockMetricStoreMockRecorder) Add(timestamp, responseTime, serviceName, deviceID, partition, agentID, gatewayID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockMetricStore)(nil).Add), timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockMetricStore)(nil).Add), timestamp, responseTime, serviceName, deviceID, partition, agentID, gatewayID)
 }
 
 // GetLastPoint mocks base method.
@@ -120,16 +120,16 @@ func (mr *MockMetricCollectorMockRecorder) AddMetric(nodeID, timestamp, response
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddMetric", reflect.TypeOf((*MockMetricCollector)(nil).AddMetric), nodeID, timestamp, responseTime, serviceName, deviceID, partition, agentID)
 }
 
-// CleanupStalePollers mocks base method.
-func (m *MockMetricCollector) CleanupStalePollers(staleDuration time.Duration) {
+// CleanupStaleGateways mocks base method.
+func (m *MockMetricCollector) CleanupStaleGateways(staleDuration time.Duration) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CleanupStalePollers", staleDuration)
+	m.ctrl.Call(m, "CleanupStaleGateways", staleDuration)
 }
 
-// CleanupStalePollers indicates an expected call of CleanupStalePollers.
-func (mr *MockMetricCollectorMockRecorder) CleanupStalePollers(staleDuration any) *gomock.Call {
+// CleanupStaleGateways indicates an expected call of CleanupStaleGateways.
+func (mr *MockMetricCollectorMockRecorder) CleanupStaleGateways(staleDuration any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStalePollers", reflect.TypeOf((*MockMetricCollector)(nil).CleanupStalePollers), staleDuration)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleGateways", reflect.TypeOf((*MockMetricCollector)(nil).CleanupStaleGateways), staleDuration)
 }
 
 // GetDevicesWithActiveMetrics mocks base method.
@@ -199,106 +199,106 @@ func (m *MockStructuredMetricCollector) EXPECT() *MockStructuredMetricCollectorM
 }
 
 // GetAllDiskMetrics mocks base method.
-func (m *MockStructuredMetricCollector) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+func (m *MockStructuredMetricCollector) GetAllDiskMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllDiskMetrics", ctx, pollerID, start, end)
+	ret := m.ctrl.Call(m, "GetAllDiskMetrics", ctx, gatewayID, start, end)
 	ret0, _ := ret[0].([]models.DiskMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAllDiskMetrics indicates an expected call of GetAllDiskMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) GetAllDiskMetrics(ctx, pollerID, start, end any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) GetAllDiskMetrics(ctx, gatewayID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetAllDiskMetrics), ctx, pollerID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetAllDiskMetrics), ctx, gatewayID, start, end)
 }
 
 // GetCPUMetrics mocks base method.
-func (m *MockStructuredMetricCollector) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+func (m *MockStructuredMetricCollector) GetCPUMetrics(ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCPUMetrics", ctx, pollerID, coreID, start, end)
+	ret := m.ctrl.Call(m, "GetCPUMetrics", ctx, gatewayID, coreID, start, end)
 	ret0, _ := ret[0].([]models.CPUMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCPUMetrics indicates an expected call of GetCPUMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, end any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) GetCPUMetrics(ctx, gatewayID, coreID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetCPUMetrics), ctx, gatewayID, coreID, start, end)
 }
 
 // GetDiskMetrics mocks base method.
-func (m *MockStructuredMetricCollector) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+func (m *MockStructuredMetricCollector) GetDiskMetrics(ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDiskMetrics", ctx, pollerID, mountPoint, start, end)
+	ret := m.ctrl.Call(m, "GetDiskMetrics", ctx, gatewayID, mountPoint, start, end)
 	ret0, _ := ret[0].([]models.DiskMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetDiskMetrics indicates an expected call of GetDiskMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) GetDiskMetrics(ctx, pollerID, mountPoint, start, end any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) GetDiskMetrics(ctx, gatewayID, mountPoint, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiskMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetDiskMetrics), ctx, pollerID, mountPoint, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiskMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetDiskMetrics), ctx, gatewayID, mountPoint, start, end)
 }
 
 // GetMemoryMetrics mocks base method.
-func (m *MockStructuredMetricCollector) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
+func (m *MockStructuredMetricCollector) GetMemoryMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.MemoryMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMemoryMetrics", ctx, pollerID, start, end)
+	ret := m.ctrl.Call(m, "GetMemoryMetrics", ctx, gatewayID, start, end)
 	ret0, _ := ret[0].([]models.MemoryMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetMemoryMetrics indicates an expected call of GetMemoryMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) GetMemoryMetrics(ctx, pollerID, start, end any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) GetMemoryMetrics(ctx, gatewayID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetMemoryMetrics), ctx, pollerID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetMemoryMetrics), ctx, gatewayID, start, end)
 }
 
 // GetRperfMetrics mocks base method.
-func (m *MockStructuredMetricCollector) GetRperfMetrics(ctx context.Context, pollerID, target string, start, end time.Time) ([]models.RperfMetric, error) {
+func (m *MockStructuredMetricCollector) GetRperfMetrics(ctx context.Context, gatewayID, target string, start, end time.Time) ([]models.RperfMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRperfMetrics", ctx, pollerID, target, start, end)
+	ret := m.ctrl.Call(m, "GetRperfMetrics", ctx, gatewayID, target, start, end)
 	ret0, _ := ret[0].([]models.RperfMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetRperfMetrics indicates an expected call of GetRperfMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) GetRperfMetrics(ctx, pollerID, target, start, end any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) GetRperfMetrics(ctx, gatewayID, target, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRperfMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetRperfMetrics), ctx, pollerID, target, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRperfMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).GetRperfMetrics), ctx, gatewayID, target, start, end)
 }
 
 // StoreRperfMetrics mocks base method.
-func (m *MockStructuredMetricCollector) StoreRperfMetrics(ctx context.Context, pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error {
+func (m *MockStructuredMetricCollector) StoreRperfMetrics(ctx context.Context, gatewayID string, metrics *models.RperfMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreRperfMetrics", ctx, pollerID, metrics, timestamp)
+	ret := m.ctrl.Call(m, "StoreRperfMetrics", ctx, gatewayID, metrics, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreRperfMetrics indicates an expected call of StoreRperfMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) StoreRperfMetrics(ctx, pollerID, metrics, timestamp any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) StoreRperfMetrics(ctx, gatewayID, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreRperfMetrics), ctx, pollerID, metrics, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreRperfMetrics), ctx, gatewayID, metrics, timestamp)
 }
 
 // StoreSysmonMetrics mocks base method.
-func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, gatewayID, agentID, hostID, partition, hostIP, deviceID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, gatewayID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
-func (mr *MockStructuredMetricCollectorMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp any) *gomock.Call {
+func (mr *MockStructuredMetricCollectorMockRecorder) StoreSysmonMetrics(ctx, gatewayID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreSysmonMetrics), ctx, gatewayID, agentID, hostID, partition, hostIP, deviceID, metrics, timestamp)
 }
 
 // MockSysmonMetricsProvider is a mock of SysmonMetricsProvider interface.
@@ -326,76 +326,76 @@ func (m *MockSysmonMetricsProvider) EXPECT() *MockSysmonMetricsProviderMockRecor
 }
 
 // GetAllCPUMetrics mocks base method.
-func (m *MockSysmonMetricsProvider) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+func (m *MockSysmonMetricsProvider) GetAllCPUMetrics(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllCPUMetrics", ctx, pollerID, start, end)
+	ret := m.ctrl.Call(m, "GetAllCPUMetrics", ctx, gatewayID, start, end)
 	ret0, _ := ret[0].([]models.SysmonCPUResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAllCPUMetrics indicates an expected call of GetAllCPUMetrics.
-func (mr *MockSysmonMetricsProviderMockRecorder) GetAllCPUMetrics(ctx, pollerID, start, end any) *gomock.Call {
+func (mr *MockSysmonMetricsProviderMockRecorder) GetAllCPUMetrics(ctx, gatewayID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllCPUMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllCPUMetrics), ctx, pollerID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllCPUMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllCPUMetrics), ctx, gatewayID, start, end)
 }
 
 // GetAllDiskMetricsGrouped mocks base method.
-func (m *MockSysmonMetricsProvider) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+func (m *MockSysmonMetricsProvider) GetAllDiskMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAllDiskMetricsGrouped", ctx, pollerID, start, end)
+	ret := m.ctrl.Call(m, "GetAllDiskMetricsGrouped", ctx, gatewayID, start, end)
 	ret0, _ := ret[0].([]models.SysmonDiskResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAllDiskMetricsGrouped indicates an expected call of GetAllDiskMetricsGrouped.
-func (mr *MockSysmonMetricsProviderMockRecorder) GetAllDiskMetricsGrouped(ctx, pollerID, start, end any) *gomock.Call {
+func (mr *MockSysmonMetricsProviderMockRecorder) GetAllDiskMetricsGrouped(ctx, gatewayID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetricsGrouped", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllDiskMetricsGrouped), ctx, pollerID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetricsGrouped", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetAllDiskMetricsGrouped), ctx, gatewayID, start, end)
 }
 
 // GetCPUMetrics mocks base method.
-func (m *MockSysmonMetricsProvider) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+func (m *MockSysmonMetricsProvider) GetCPUMetrics(ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCPUMetrics", ctx, pollerID, coreID, start, end)
+	ret := m.ctrl.Call(m, "GetCPUMetrics", ctx, gatewayID, coreID, start, end)
 	ret0, _ := ret[0].([]models.CPUMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetCPUMetrics indicates an expected call of GetCPUMetrics.
-func (mr *MockSysmonMetricsProviderMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, end any) *gomock.Call {
+func (mr *MockSysmonMetricsProviderMockRecorder) GetCPUMetrics(ctx, gatewayID, coreID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetCPUMetrics), ctx, gatewayID, coreID, start, end)
 }
 
 // GetDiskMetrics mocks base method.
-func (m *MockSysmonMetricsProvider) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+func (m *MockSysmonMetricsProvider) GetDiskMetrics(ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDiskMetrics", ctx, pollerID, mountPoint, start, end)
+	ret := m.ctrl.Call(m, "GetDiskMetrics", ctx, gatewayID, mountPoint, start, end)
 	ret0, _ := ret[0].([]models.DiskMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetDiskMetrics indicates an expected call of GetDiskMetrics.
-func (mr *MockSysmonMetricsProviderMockRecorder) GetDiskMetrics(ctx, pollerID, mountPoint, start, end any) *gomock.Call {
+func (mr *MockSysmonMetricsProviderMockRecorder) GetDiskMetrics(ctx, gatewayID, mountPoint, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiskMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetDiskMetrics), ctx, pollerID, mountPoint, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDiskMetrics", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetDiskMetrics), ctx, gatewayID, mountPoint, start, end)
 }
 
 // GetMemoryMetricsGrouped mocks base method.
-func (m *MockSysmonMetricsProvider) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+func (m *MockSysmonMetricsProvider) GetMemoryMetricsGrouped(ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMemoryMetricsGrouped", ctx, pollerID, start, end)
+	ret := m.ctrl.Call(m, "GetMemoryMetricsGrouped", ctx, gatewayID, start, end)
 	ret0, _ := ret[0].([]models.SysmonMemoryResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetMemoryMetricsGrouped indicates an expected call of GetMemoryMetricsGrouped.
-func (mr *MockSysmonMetricsProviderMockRecorder) GetMemoryMetricsGrouped(ctx, pollerID, start, end any) *gomock.Call {
+func (mr *MockSysmonMetricsProviderMockRecorder) GetMemoryMetricsGrouped(ctx, gatewayID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetricsGrouped", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetMemoryMetricsGrouped), ctx, pollerID, start, end)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetricsGrouped", reflect.TypeOf((*MockSysmonMetricsProvider)(nil).GetMemoryMetricsGrouped), ctx, gatewayID, start, end)
 }

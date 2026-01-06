@@ -28,7 +28,7 @@ func LegacyDeviceFromRecord(record *DeviceRecord) *models.Device {
 	device := &models.Device{
 		DeviceID:         record.DeviceID,
 		AgentID:          record.AgentID,
-		PollerID:         record.PollerID,
+		GatewayID:         record.GatewayID,
 		DiscoverySources: append([]string(nil), record.DiscoverySources...),
 		IP:               record.IP,
 		FirstSeen:        record.FirstSeen,
@@ -86,7 +86,7 @@ func DeviceRecordFromOCSF(device *models.OCSFDevice) *DeviceRecord {
 	record := &DeviceRecord{
 		DeviceID:   strings.TrimSpace(device.UID),
 		IP:         strings.TrimSpace(device.IP),
-		PollerID:   device.PollerID,
+		GatewayID:   device.GatewayID,
 		AgentID:    device.AgentID,
 		DeviceType: device.GetTypeName(),
 	}
@@ -144,7 +144,7 @@ func OCSFDeviceFromRecord(record *DeviceRecord) *models.OCSFDevice {
 	device := &models.OCSFDevice{
 		UID:              record.DeviceID,
 		IP:               record.IP,
-		PollerID:         record.PollerID,
+		GatewayID:         record.GatewayID,
 		AgentID:          record.AgentID,
 		DiscoverySources: append([]string(nil), record.DiscoverySources...),
 	}

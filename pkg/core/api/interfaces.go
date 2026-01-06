@@ -29,10 +29,10 @@ import (
 // Service represents the API server functionality.
 type Service interface {
 	Start(addr string) error
-	UpdatePollerStatus(pollerID string, status *PollerStatus)
-	SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
-	SetKnownPollers(knownPollers []string)
-	SetDynamicPollers(pollerIDs []string)
+	UpdateGatewayStatus(gatewayID string, status *GatewayStatus)
+	SetGatewayHistoryHandler(ctx context.Context, handler func(gatewayID string) ([]GatewayHistoryPoint, error))
+	SetKnownGateways(knownGateways []string)
+	SetDynamicGateways(gatewayIDs []string)
 }
 
 // MCPRouteRegistrar interface for registering MCP routes
@@ -41,10 +41,10 @@ type MCPRouteRegistrar interface {
 	Stop() error
 }
 
-// ServiceRegistryService represents the service registry interface for managing pollers, agents, and checkers
+// ServiceRegistryService represents the service registry interface for managing gateways, agents, and checkers
 type ServiceRegistryService interface {
-	// GetPoller retrieves a registered poller by ID
-	GetPoller(ctx context.Context, pollerID string) (*registry.RegisteredPoller, error)
+	// GetGateway retrieves a registered gateway by ID
+	GetGateway(ctx context.Context, gatewayID string) (*registry.RegisteredGateway, error)
 	// GetAgent retrieves a registered agent by ID
 	GetAgent(ctx context.Context, agentID string) (*registry.RegisteredAgent, error)
 	// GetChecker retrieves a registered checker by ID

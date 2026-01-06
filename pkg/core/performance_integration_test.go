@@ -99,7 +99,7 @@ func TestSyncResultsPerformanceOptimization(t *testing.T) {
 			start := time.Now()
 			err = discoveryService.ProcessSyncResults(
 				ctx,
-				"test-poller",
+				"test-gateway",
 				"test-partition",
 				serviceStatus,
 				sightingsJSON,
@@ -160,7 +160,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 
 	// Execute first call
 	start := time.Now()
-	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
+	err := discoveryService.ProcessSyncResults(ctx, "test-gateway", "test", serviceStatus, sightingsJSON, time.Now())
 	firstCallDuration := time.Since(start)
 
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestRepeatedSyncCallsPerformance(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		start = time.Now()
-		err = discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
+		err = discoveryService.ProcessSyncResults(ctx, "test-gateway", "test", serviceStatus, sightingsJSON, time.Now())
 		duration := time.Since(start)
 		subsequentDurations = append(subsequentDurations, duration)
 
@@ -236,7 +236,7 @@ func TestDatabaseCallCounting(t *testing.T) {
 		Return([]*models.OCSFDevice{}, nil).
 		AnyTimes()
 
-	err := discoveryService.ProcessSyncResults(ctx, "test-poller", "test", serviceStatus, sightingsJSON, time.Now())
+	err := discoveryService.ProcessSyncResults(ctx, "test-gateway", "test", serviceStatus, sightingsJSON, time.Now())
 	require.NoError(t, err)
 
 	// Verify publish call count
@@ -251,7 +251,7 @@ func createSyncSightings(count int) []*models.SweepResult {
 	for i := 0; i < count; i++ {
 		sightings[i] = &models.SweepResult{
 			AgentID:         "test-agent",
-			PollerID:        "test-poller",
+			GatewayID:        "test-gateway",
 			Partition:       "test",
 			DiscoverySource: "armis",
 			IP:              fmt.Sprintf("192.168.%d.%d", (i/254)+1, (i%254)+1),

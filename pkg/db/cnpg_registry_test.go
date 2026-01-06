@@ -12,10 +12,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func TestUpsertPollerStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
-	normalized := strings.Join(strings.Fields(upsertPollerStatusSQL), " ")
+func TestUpsertGatewayStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
+	normalized := strings.Join(strings.Fields(upsertGatewayStatusSQL), " ")
 
-	assert.Contains(t, normalized, "ON CONFLICT (poller_id) DO UPDATE SET")
+	assert.Contains(t, normalized, "ON CONFLICT (gateway_id) DO UPDATE SET")
 
 	assert.Contains(t, normalized, "last_seen = EXCLUDED.last_seen")
 	assert.Contains(t, normalized, "is_healthy = EXCLUDED.is_healthy")
@@ -33,20 +33,20 @@ func TestUpsertPollerStatusSQL_PreservesRegistrationMetadata(t *testing.T) {
 	assert.NotContains(t, normalized, "first_registered = EXCLUDED.first_registered")
 }
 
-func TestBuildCNPGPollerStatusArgs(t *testing.T) {
+func TestBuildCNPGGatewayStatusArgs(t *testing.T) {
 	now := time.Date(2025, time.June, 10, 12, 0, 0, 0, time.UTC)
-	status := &models.PollerStatus{
-		PollerID:  "poller-1",
+	status := &models.GatewayStatus{
+		GatewayID:  "gateway-1",
 		IsHealthy: true,
 		FirstSeen: now.Add(-time.Hour),
 		LastSeen:  now,
 	}
 
-	args, err := buildCNPGPollerStatusArgs(status)
+	args, err := buildCNPGGatewayStatusArgs(status)
 	require.NoError(t, err)
 	require.Len(t, args, 14)
 
-	assert.Equal(t, "poller-1", args[0])
+	assert.Equal(t, "gateway-1", args[0])
 	assert.Equal(t, "implicit", args[2])
 	assert.Equal(t, "active", args[3])
 	assert.Equal(t, now.UTC(), args[7])
@@ -58,7 +58,7 @@ func TestBuildCNPGPollerStatusArgs(t *testing.T) {
 
 func TestBuildCNPGServiceStatusArgs(t *testing.T) {
 	status := &models.ServiceStatus{
-		PollerID:    "poller-1",
+		GatewayID:    "gateway-1",
 		AgentID:     "agent-1",
 		ServiceName: "postgres",
 		ServiceType: "database",
@@ -74,7 +74,7 @@ func TestBuildCNPGServiceStatusArgs(t *testing.T) {
 	require.Len(t, args, 9)
 
 	assert.Equal(t, status.Timestamp, args[0])
-	assert.Equal(t, status.PollerID, args[1])
+	assert.Equal(t, status.GatewayID, args[1])
 	assert.Equal(t, status.Message, args[6])
 	assert.Equal(t, status.Partition, args[8])
 	assert.Equal(t, status.Details, args[7])
@@ -82,7 +82,7 @@ func TestBuildCNPGServiceStatusArgs(t *testing.T) {
 
 func TestBuildCNPGServiceArgs(t *testing.T) {
 	service := &models.Service{
-		PollerID:    "poller-1",
+		GatewayID:    "gateway-1",
 		ServiceName: "svc",
 		ServiceType: "process",
 		AgentID:     "agent-1",
@@ -98,7 +98,7 @@ func TestBuildCNPGServiceArgs(t *testing.T) {
 	require.Len(t, args, 7)
 
 	assert.Equal(t, service.Timestamp, args[0])
-	assert.Equal(t, service.PollerID, args[1])
+	assert.Equal(t, service.GatewayID, args[1])
 	assert.Equal(t, service.ServiceType, args[4])
 	assert.Equal(t, service.Partition, args[6])
 	assertJSONRawEquals(t, map[string]string{"interval": "30s"}, args[5])

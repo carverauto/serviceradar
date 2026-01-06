@@ -41,9 +41,9 @@ func TestParseCN(t *testing.T) {
 		},
 		{
 			name: "valid CN with dashes in tenant",
-			cn:   "poller-main.us-east-1.my-company-inc.serviceradar",
+			cn:   "gateway-main.us-east-1.my-company-inc.serviceradar",
 			wantInfo: &Info{
-				ComponentID: "poller-main",
+				ComponentID: "gateway-main",
 				PartitionID: "us-east-1",
 				TenantSlug:  "my-company-inc",
 			},
@@ -167,7 +167,7 @@ func TestInfo_PrefixChannel(t *testing.T) {
 		channel string
 		want    string
 	}{
-		{"events.poller.health", "acme-corp.events.poller.health"},
+		{"events.gateway.health", "acme-corp.events.gateway.health"},
 		{"agents.status", "acme-corp.agents.status"},
 		{"jobs.dispatch", "acme-corp.jobs.dispatch"},
 	}
@@ -308,9 +308,9 @@ func TestPrefixChannelWithSlug(t *testing.T) {
 		channel string
 		want    string
 	}{
-		{"acme-corp", "events.poller.health", "acme-corp.events.poller.health"},
+		{"acme-corp", "events.gateway.health", "acme-corp.events.gateway.health"},
 		{"xyz-inc", "events.syslog.processed", "xyz-inc.events.syslog.processed"},
-		{"", "events.poller.health", "events.poller.health"}, // empty slug returns original
+		{"", "events.gateway.health", "events.gateway.health"}, // empty slug returns original
 	}
 
 	for _, tt := range tests {
@@ -332,14 +332,14 @@ func TestPrefixChannelFromContext(t *testing.T) {
 		{
 			name:    "with tenant",
 			ctx:     WithContext(context.Background(), &Info{TenantSlug: "acme-corp"}),
-			channel: "events.poller.health",
-			want:    "acme-corp.events.poller.health",
+			channel: "events.gateway.health",
+			want:    "acme-corp.events.gateway.health",
 		},
 		{
 			name:    "without tenant",
 			ctx:     context.Background(),
-			channel: "events.poller.health",
-			want:    "events.poller.health", // returns original
+			channel: "events.gateway.health",
+			want:    "events.gateway.health", // returns original
 		},
 	}
 

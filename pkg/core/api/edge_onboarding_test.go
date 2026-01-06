@@ -99,7 +99,7 @@ func (s *stubEdgeOnboardingService) MetadataDefaults() map[models.EdgeOnboarding
 	return result
 }
 
-func (s *stubEdgeOnboardingService) SetAllowedPollerCallback(func([]string)) {}
+func (s *stubEdgeOnboardingService) SetAllowedGatewayCallback(func([]string)) {}
 
 func (s *stubEdgeOnboardingService) SetDeviceRegistryCallback(func(context.Context, []*models.DeviceUpdate) error) {
 }
@@ -114,7 +114,7 @@ func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	service := &stubEdgeOnboardingService{
 		selectors: []string{"unix:uid:0", "unix:user:root"},
 		metadata: map[models.EdgeOnboardingComponentType]map[string]string{
-			models.EdgeOnboardingComponentTypePoller: {
+			models.EdgeOnboardingComponentTypeGateway: {
 				"core_address":   "core:50052",
 				"core_spiffe_id": "spiffe://example.org/ns/demo/sa/serviceradar-core",
 			},
@@ -138,8 +138,8 @@ func TestHandleGetEdgePackageDefaultsSuccess(t *testing.T) {
 	var payload edgePackageDefaultsResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
 	assert.ElementsMatch(t, []string{"unix:uid:0", "unix:user:root"}, payload.Selectors)
-	require.Contains(t, payload.Metadata, "poller")
-	assert.Equal(t, "core:50052", payload.Metadata["poller"]["core_address"])
+	require.Contains(t, payload.Metadata, "gateway")
+	assert.Equal(t, "core:50052", payload.Metadata["gateway"]["core_address"])
 }
 
 func TestHandleGetEdgePackageDefaultsDisabled(t *testing.T) {
@@ -206,14 +206,14 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 		createResult: &models.EdgeOnboardingCreateResult{
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
-				Label:                  "Edge Poller",
-				ComponentID:            "edge-poller",
-				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				Label:                  "Edge Gateway",
+				ComponentID:            "edge-gateway",
+				ComponentType:          models.EdgeOnboardingComponentTypeGateway,
 				ParentType:             models.EdgeOnboardingComponentTypeNone,
 				ParentID:               "",
-				PollerID:               "edge-poller",
+				GatewayID:               "edge-gateway",
 				Status:                 models.EdgeOnboardingStatusIssued,
-				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
+				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-gateway",
 				JoinTokenExpiresAt:     time.Now().Add(5 * time.Minute),
 				DownloadTokenExpiresAt: time.Now().Add(24 * time.Hour),
 				CreatedBy:              "tester@example.com",
@@ -229,7 +229,7 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 
 	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
 
-	body, _ := json.Marshal(edgePackageCreateRequest{Label: "Edge Poller"})
+	body, _ := json.Marshal(edgePackageCreateRequest{Label: "Edge Gateway"})
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -247,8 +247,8 @@ func TestHandleCreateEdgePackageSuccess(t *testing.T) {
 	assert.Equal(t, "join-token", payload.JoinToken)
 	assert.Equal(t, "download-token", payload.DownloadToken)
 	assert.Equal(t, "PEM", payload.BundlePEM)
-	assert.Equal(t, "Edge Poller", payload.Package.Label)
-	assert.Equal(t, "edge-poller", payload.Package.ComponentID)
+	assert.Equal(t, "Edge Gateway", payload.Package.Label)
+	assert.Equal(t, "edge-gateway", payload.Package.ComponentID)
 	assert.Equal(t, "spire", payload.Package.SecurityMode)
 }
 
@@ -256,7 +256,7 @@ func TestHandleCreateEdgePackageInvalid(t *testing.T) {
 	service := &stubEdgeOnboardingService{}
 	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages", bytes.NewReader([]byte(`{"poller_id":"edge"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages", bytes.NewReader([]byte(`{"gateway_id":"edge"}`)))
 	rec := httptest.NewRecorder()
 
 	server.handleCreateEdgePackage(rec, req)
@@ -266,11 +266,11 @@ func TestHandleCreateEdgePackageInvalid(t *testing.T) {
 
 func TestHandleCreateEdgePackageConflict(t *testing.T) {
 	service := &stubEdgeOnboardingService{
-		createErr: models.ErrEdgeOnboardingPollerConflict,
+		createErr: models.ErrEdgeOnboardingGatewayConflict,
 	}
 	server := NewAPIServer(models.CORSConfig{}, WithEdgeOnboarding(service))
 
-	body, _ := json.Marshal(edgePackageCreateRequest{Label: "Edge Poller"})
+	body, _ := json.Marshal(edgePackageCreateRequest{Label: "Edge Gateway"})
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/edge-packages", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 
@@ -296,14 +296,14 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 		deliverResult: &models.EdgeOnboardingDeliverResult{
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:              "pkg-1",
-				Label:                  "Edge Poller",
-				ComponentID:            "edge-poller",
-				ComponentType:          models.EdgeOnboardingComponentTypePoller,
+				Label:                  "Edge Gateway",
+				ComponentID:            "edge-gateway",
+				ComponentType:          models.EdgeOnboardingComponentTypeGateway,
 				ParentType:             models.EdgeOnboardingComponentTypeNone,
 				ParentID:               "",
-				PollerID:               "edge-poller",
+				GatewayID:               "edge-gateway",
 				Status:                 models.EdgeOnboardingStatusIssued,
-				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-poller",
+				DownstreamSPIFFEID:     "spiffe://example.org/ns/edge/edge-gateway",
 				JoinTokenExpiresAt:     now.Add(5 * time.Minute),
 				DownloadTokenExpiresAt: now.Add(30 * time.Minute),
 				CreatedAt:              now,
@@ -329,9 +329,9 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "application/gzip", resp.Header.Get("Content-Type"))
-	assert.Contains(t, resp.Header.Get("Content-Disposition"), "edge-package-edge-poller")
+	assert.Contains(t, resp.Header.Get("Content-Disposition"), "edge-package-edge-gateway")
 	assert.Equal(t, "pkg-1", resp.Header.Get("X-Edge-Package-ID"))
-	assert.Equal(t, "edge-poller", resp.Header.Get("X-Edge-Poller-ID"))
+	assert.Equal(t, "edge-gateway", resp.Header.Get("X-Edge-Gateway-ID"))
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
@@ -357,18 +357,18 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 		files[hdr.Name] = content
 	}
 
-	require.Contains(t, files, "edge-poller.env")
+	require.Contains(t, files, "edge-gateway.env")
 	require.Contains(t, files, "README.txt")
 	require.Contains(t, files, "metadata.json")
 	require.Contains(t, files, "spire/upstream-join-token")
 	require.Contains(t, files, "spire/upstream-bundle.pem")
 
-	envContent := string(files["edge-poller.env"])
+	envContent := string(files["edge-gateway.env"])
 	assert.Contains(t, envContent, "CORE_ADDRESS=core:50052")
-	assert.Contains(t, envContent, "POLLERS_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-poller")
+	assert.Contains(t, envContent, "GATEWAYS_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-gateway")
 	assert.Contains(t, envContent, "NESTED_SPIRE_PARENT_ID=spiffe://example.org/spire/agent/upstream")
 	assert.Contains(t, envContent, "NESTED_SPIRE_AGENT_SPIFFE_ID=spiffe://example.org/services/agent")
-	assert.Contains(t, envContent, "NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-poller")
+	assert.Contains(t, envContent, "NESTED_SPIRE_DOWNSTREAM_SPIFFE_ID=spiffe://example.org/ns/edge/edge-gateway")
 
 	assert.Equal(t, "join-token\n", string(files["spire/upstream-join-token"]))
 	assert.Equal(t, "bundle\n", string(files["spire/upstream-bundle.pem"]))
@@ -376,7 +376,7 @@ func TestHandleDownloadEdgePackageSuccess(t *testing.T) {
 	var metaPayload map[string]interface{}
 	require.NoError(t, json.Unmarshal(files["metadata.json"], &metaPayload))
 	assert.Equal(t, "pkg-1", metaPayload["package_id"])
-	assert.Equal(t, "edge-poller", metaPayload["poller_id"])
+	assert.Equal(t, "edge-gateway", metaPayload["gateway_id"])
 
 	readme := string(files["README.txt"])
 	assert.Contains(t, readme, "Package ID: pkg-1")
@@ -440,13 +440,13 @@ func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
 		deliverResult: &models.EdgeOnboardingDeliverResult{
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:          "pkg-json",
-				Label:              "JSON Poller",
-				ComponentID:        "json-poller",
-				ComponentType:      models.EdgeOnboardingComponentTypePoller,
-				PollerID:           "json-poller",
+				Label:              "JSON Gateway",
+				ComponentID:        "json-gateway",
+				ComponentType:      models.EdgeOnboardingComponentTypeGateway,
+				GatewayID:           "json-gateway",
 				Status:             models.EdgeOnboardingStatusIssued,
 				SecurityMode:       "spire",
-				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/json-poller",
+				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/json-gateway",
 				MetadataJSON:       `{"core_address":"core:50052"}`,
 				JoinTokenExpiresAt: now.Add(5 * time.Minute),
 				CreatedAt:          now,
@@ -473,7 +473,7 @@ func TestHandleDownloadEdgePackageJSONResponse(t *testing.T) {
 
 	var payload edgePackageDeliverResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
-	assert.Equal(t, "json-poller", payload.Package.ComponentID)
+	assert.Equal(t, "json-gateway", payload.Package.ComponentID)
 	assert.Equal(t, "pkg-json", payload.Package.PackageID)
 	assert.Equal(t, "join-json", payload.JoinToken)
 	assert.Equal(t, "bundle-json", payload.BundlePEM)
@@ -491,10 +491,10 @@ func TestHandleDownloadEdgePackageMTLSJSON(t *testing.T) {
 				ComponentType:          models.EdgeOnboardingComponentTypeChecker,
 				ParentType:             models.EdgeOnboardingComponentTypeAgent,
 				ParentID:               "agent-1",
-				PollerID:               "edge-poller",
+				GatewayID:               "edge-gateway",
 				Status:                 models.EdgeOnboardingStatusIssued,
 				SecurityMode:           "mtls",
-				MetadataJSON:           `{"security_mode":"mtls","poller_endpoint":"edge:50053"}`,
+				MetadataJSON:           `{"security_mode":"mtls","gateway_endpoint":"edge:50053"}`,
 				JoinTokenExpiresAt:     now.Add(5 * time.Minute),
 				DownloadTokenExpiresAt: now.Add(15 * time.Minute),
 				CreatedAt:              now,
@@ -567,12 +567,12 @@ func TestHandleRevokeEdgePackageSuccess(t *testing.T) {
 		revokeResult: &models.EdgeOnboardingRevokeResult{
 			Package: &models.EdgeOnboardingPackage{
 				PackageID:          "pkg-2",
-				Label:              "Edge Poller",
-				ComponentID:        "edge-poller",
-				ComponentType:      models.EdgeOnboardingComponentTypePoller,
-				PollerID:           "edge-poller",
+				Label:              "Edge Gateway",
+				ComponentID:        "edge-gateway",
+				ComponentType:      models.EdgeOnboardingComponentTypeGateway,
+				GatewayID:           "edge-gateway",
 				Status:             models.EdgeOnboardingStatusRevoked,
-				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/edge-poller",
+				DownstreamSPIFFEID: "spiffe://example.org/ns/edge/edge-gateway",
 				CreatedAt:          now,
 				UpdatedAt:          now,
 				RevokedAt:          &now,

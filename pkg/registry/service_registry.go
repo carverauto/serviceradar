@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	// ErrPollerAlreadyRegistered is returned when a poller is already registered.
-	ErrPollerAlreadyRegistered = errors.New("poller already registered")
-	// ErrParentPollerNotFound is returned when a parent poller is not found.
-	ErrParentPollerNotFound = errors.New("parent poller not found")
+	// ErrGatewayAlreadyRegistered is returned when a gateway is already registered.
+	ErrGatewayAlreadyRegistered = errors.New("gateway already registered")
+	// ErrParentGatewayNotFound is returned when a parent gateway is not found.
+	ErrParentGatewayNotFound = errors.New("parent gateway not found")
 	// ErrAgentAlreadyRegistered is returned when an agent is already registered.
 	ErrAgentAlreadyRegistered = errors.New("agent already registered")
 	// ErrParentAgentNotFound is returned when a parent agent is not found.
@@ -34,14 +34,14 @@ var (
 )
 
 const (
-	// pollerCacheTTL defines how long to cache IsKnownPoller results
-	pollerCacheTTL = 5 * time.Minute
+	// gatewayCacheTTL defines how long to cache IsKnownGateway results
+	gatewayCacheTTL = 5 * time.Minute
 )
 
 const (
-	cnpgUpsertPollerSQL = `
-INSERT INTO pollers (
-	poller_id,
+	cnpgUpsertGatewaySQL = `
+INSERT INTO gateways (
+	gateway_id,
 	component_id,
 	registration_source,
 	status,
@@ -56,7 +56,7 @@ INSERT INTO pollers (
 ) VALUES (
 	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 )
-ON CONFLICT (poller_id) DO UPDATE SET
+ON CONFLICT (gateway_id) DO UPDATE SET
 	component_id = EXCLUDED.component_id,
 	registration_source = EXCLUDED.registration_source,
 	status = EXCLUDED.status,
@@ -73,7 +73,7 @@ ON CONFLICT (poller_id) DO UPDATE SET
 	cnpgUpsertAgentSQL = `
 INSERT INTO agents (
 	agent_id,
-	poller_id,
+	gateway_id,
 	component_id,
 	status,
 	registration_source,
@@ -88,7 +88,7 @@ INSERT INTO agents (
 	$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 )
 ON CONFLICT (agent_id) DO UPDATE SET
-	poller_id = EXCLUDED.poller_id,
+	gateway_id = EXCLUDED.gateway_id,
 	component_id = EXCLUDED.component_id,
 	status = EXCLUDED.status,
 	registration_source = EXCLUDED.registration_source,
@@ -105,7 +105,7 @@ ON CONFLICT (agent_id) DO UPDATE SET
 INSERT INTO checkers (
 	checker_id,
 	agent_id,
-	poller_id,
+	gateway_id,
 	checker_kind,
 	component_id,
 	status,
@@ -121,7 +121,7 @@ INSERT INTO checkers (
 )
 ON CONFLICT (checker_id) DO UPDATE SET
 	agent_id = EXCLUDED.agent_id,
-	poller_id = EXCLUDED.poller_id,
+	gateway_id = EXCLUDED.gateway_id,
 	checker_kind = EXCLUDED.checker_kind,
 	component_id = EXCLUDED.component_id,
 	status = EXCLUDED.status,
@@ -134,22 +134,22 @@ ON CONFLICT (checker_id) DO UPDATE SET
 	created_by = EXCLUDED.created_by,
 	updated_at = now()`
 
-	cnpgDeletePollerSQL  = `DELETE FROM pollers WHERE poller_id = $1`
+	cnpgDeleteGatewaySQL  = `DELETE FROM gateways WHERE gateway_id = $1`
 	cnpgDeleteAgentSQL   = `DELETE FROM agents WHERE agent_id = $1`
 	cnpgDeleteCheckerSQL = `DELETE FROM checkers WHERE checker_id = $1`
 )
 
 // ServiceRegistry implements the ServiceManager interface.
-// It manages the lifecycle and registration of all services (pollers, agents, checkers).
+// It manages the lifecycle and registration of all services (gateways, agents, checkers).
 type ServiceRegistry struct {
 	db          *db.DB
 	logger      zerolog.Logger
 	cnpgClient  cnpgRegistryClient
 	eventWriter registrationEventWriter
 
-	// Cache for IsKnownPoller() - invalidated on registration changes
-	pollerCacheMu sync.RWMutex
-	pollerCache   map[string]bool
+	// Cache for IsKnownGateway() - invalidated on registration changes
+	gatewayCacheMu sync.RWMutex
+	gatewayCache   map[string]bool
 	cacheExpiry   time.Time
 }
 
@@ -164,28 +164,28 @@ func NewServiceRegistry(database *db.DB, log logger.Logger) *ServiceRegistry {
 		logger:      log.WithComponent("service-registry"),
 		cnpgClient:  database,
 		eventWriter: database,
-		pollerCache: make(map[string]bool),
+		gatewayCache: make(map[string]bool),
 	}
 }
 
-// RegisterPoller explicitly registers a new poller.
-func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistration) error {
+// RegisterGateway explicitly registers a new gateway.
+func (r *ServiceRegistry) RegisterGateway(ctx context.Context, reg *GatewayRegistration) error {
 	now := time.Now().UTC()
 
 	// Check if already exists
-	existing, err := r.GetPoller(ctx, reg.PollerID)
+	existing, err := r.GetGateway(ctx, reg.GatewayID)
 	if err == nil && existing != nil {
 		r.logger.Warn().
-			Str("poller_id", reg.PollerID).
+			Str("gateway_id", reg.GatewayID).
 			Str("status", string(existing.Status)).
-			Msg("Poller already registered")
-		return fmt.Errorf("%w: %s with status %s", ErrPollerAlreadyRegistered, reg.PollerID, existing.Status)
+			Msg("Gateway already registered")
+		return fmt.Errorf("%w: %s with status %s", ErrGatewayAlreadyRegistered, reg.GatewayID, existing.Status)
 	}
 
 	firstSeen := now
 	lastSeen := now
-	pollerRecord := &RegisteredPoller{
-		PollerID:           reg.PollerID,
+	gatewayRecord := &RegisteredGateway{
+		GatewayID:           reg.GatewayID,
 		ComponentID:        reg.ComponentID,
 		Status:             ServiceStatusPending,
 		RegistrationSource: reg.RegistrationSource,
@@ -197,7 +197,7 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 		CreatedBy:          reg.CreatedBy,
 	}
 
-	if err := r.upsertCNPGPoller(ctx, pollerRecord); err != nil {
+	if err := r.upsertCNPGGateway(ctx, gatewayRecord); err != nil {
 		return err
 	}
 
@@ -208,33 +208,33 @@ func (r *ServiceRegistry) RegisterPoller(ctx context.Context, reg *PollerRegistr
 	if reg.SPIFFEIdentity != "" {
 		eventMetadata["spiffe_id"] = reg.SPIFFEIdentity
 	}
-	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypePoller, reg.PollerID, "", reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
+	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypeGateway, reg.GatewayID, "", reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit registration event")
 	}
 
 	// Invalidate cache
-	r.invalidatePollerCache()
+	r.invalidateGatewayCache()
 
 	r.logger.Info().
-		Str("poller_id", reg.PollerID).
+		Str("gateway_id", reg.GatewayID).
 		Str("component_id", reg.ComponentID).
 		Str("source", string(reg.RegistrationSource)).
-		Msg("Registered poller")
+		Msg("Registered gateway")
 
 	return nil
 }
 
-// RegisterAgent explicitly registers a new agent under a poller.
+// RegisterAgent explicitly registers a new agent under a gateway.
 func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistration) error {
 	now := time.Now().UTC()
 
 	// Skip parent validation for implicit (auto-registration) to avoid timing issues
-	// with versioned_kv materialization - we know the poller just heartbeated
+	// with versioned_kv materialization - we know the gateway just heartbeated
 	if reg.RegistrationSource != RegistrationSourceImplicit {
-		// Verify parent poller exists for explicit registrations
-		poller, err := r.GetPoller(ctx, reg.PollerID)
-		if err != nil || poller == nil {
-			return fmt.Errorf("%w: %s", ErrParentPollerNotFound, reg.PollerID)
+		// Verify parent gateway exists for explicit registrations
+		gateway, err := r.GetGateway(ctx, reg.GatewayID)
+		if err != nil || gateway == nil {
+			return fmt.Errorf("%w: %s", ErrParentGatewayNotFound, reg.GatewayID)
 		}
 	}
 
@@ -252,7 +252,7 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 	lastSeen := now
 	agentRecord := &RegisteredAgent{
 		AgentID:            reg.AgentID,
-		PollerID:           reg.PollerID,
+		GatewayID:           reg.GatewayID,
 		ComponentID:        reg.ComponentID,
 		Status:             ServiceStatusPending,
 		RegistrationSource: reg.RegistrationSource,
@@ -271,18 +271,18 @@ func (r *ServiceRegistry) RegisterAgent(ctx context.Context, reg *AgentRegistrat
 	// Emit registration event
 	eventMetadata := map[string]string{
 		"component_id": reg.ComponentID,
-		"poller_id":    reg.PollerID,
+		"gateway_id":    reg.GatewayID,
 	}
 	if reg.SPIFFEIdentity != "" {
 		eventMetadata["spiffe_id"] = reg.SPIFFEIdentity
 	}
-	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypeAgent, reg.AgentID, reg.PollerID, reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
+	if err := r.emitRegistrationEvent(ctx, "registered", serviceTypeAgent, reg.AgentID, reg.GatewayID, reg.RegistrationSource, reg.CreatedBy, eventMetadata); err != nil {
 		r.logger.Warn().Err(err).Msg("Failed to emit registration event")
 	}
 
 	r.logger.Info().
 		Str("agent_id", reg.AgentID).
-		Str("poller_id", reg.PollerID).
+		Str("gateway_id", reg.GatewayID).
 		Str("component_id", reg.ComponentID).
 		Str("source", string(reg.RegistrationSource)).
 		Msg("Registered agent")
@@ -319,7 +319,7 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 	checkerRecord := &RegisteredChecker{
 		CheckerID:          reg.CheckerID,
 		AgentID:            reg.AgentID,
-		PollerID:           reg.PollerID,
+		GatewayID:           reg.GatewayID,
 		CheckerKind:        reg.CheckerKind,
 		ComponentID:        reg.ComponentID,
 		Status:             ServiceStatusPending,
@@ -340,7 +340,7 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 	eventMetadata := map[string]string{
 		"component_id": reg.ComponentID,
 		"agent_id":     reg.AgentID,
-		"poller_id":    reg.PollerID,
+		"gateway_id":    reg.GatewayID,
 		"checker_kind": reg.CheckerKind,
 	}
 	if reg.SPIFFEIdentity != "" {
@@ -353,7 +353,7 @@ func (r *ServiceRegistry) RegisterChecker(ctx context.Context, reg *CheckerRegis
 	r.logger.Info().
 		Str("checker_id", reg.CheckerID).
 		Str("agent_id", reg.AgentID).
-		Str("poller_id", reg.PollerID).
+		Str("gateway_id", reg.GatewayID).
 		Str("checker_kind", reg.CheckerKind).
 		Str("source", string(reg.RegistrationSource)).
 		Msg("Registered checker")
@@ -369,12 +369,12 @@ func (r *ServiceRegistry) RecordHeartbeat(ctx context.Context, heartbeat *Servic
 	}
 
 	switch heartbeat.ServiceType {
-	case serviceTypePoller:
-		return r.recordPollerHeartbeat(ctx, heartbeat.PollerID, now, heartbeat.SourceIP)
+	case serviceTypeGateway:
+		return r.recordGatewayHeartbeat(ctx, heartbeat.GatewayID, now, heartbeat.SourceIP)
 	case serviceTypeAgent:
-		return r.recordAgentHeartbeat(ctx, heartbeat.AgentID, heartbeat.PollerID, now, heartbeat.SourceIP)
+		return r.recordAgentHeartbeat(ctx, heartbeat.AgentID, heartbeat.GatewayID, now, heartbeat.SourceIP)
 	case serviceTypeChecker:
-		return r.recordCheckerHeartbeat(ctx, heartbeat.CheckerID, heartbeat.AgentID, heartbeat.PollerID, now)
+		return r.recordCheckerHeartbeat(ctx, heartbeat.CheckerID, heartbeat.AgentID, heartbeat.GatewayID, now)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnknownServiceType, heartbeat.ServiceType)
 	}
@@ -394,85 +394,85 @@ func (r *ServiceRegistry) RecordBatchHeartbeats(ctx context.Context, heartbeats 
 	return nil
 }
 
-// recordPollerHeartbeat updates poller last_seen and activates if pending.
-func (r *ServiceRegistry) recordPollerHeartbeat(ctx context.Context, pollerID string, timestamp time.Time, sourceIP string) error {
+// recordGatewayHeartbeat updates gateway last_seen and activates if pending.
+func (r *ServiceRegistry) recordGatewayHeartbeat(ctx context.Context, gatewayID string, timestamp time.Time, sourceIP string) error {
 	// For ReplacingMergeTree, we insert a new row with updated values
 	// The engine will keep the latest based on updated_at
 
 	// First, get current state
-	poller, err := r.GetPoller(ctx, pollerID)
+	gateway, err := r.GetGateway(ctx, gatewayID)
 	if err != nil {
-		// Poller not registered yet - register implicitly
-		if err := r.RegisterPoller(ctx, &PollerRegistration{
-			PollerID:           pollerID,
-			ComponentID:        pollerID,
+		// Gateway not registered yet - register implicitly
+		if err := r.RegisterGateway(ctx, &GatewayRegistration{
+			GatewayID:           gatewayID,
+			ComponentID:        gatewayID,
 			RegistrationSource: RegistrationSourceImplicit,
 			CreatedBy:          "system",
 		}); err != nil {
-			return fmt.Errorf("failed to auto-register poller: %w", err)
+			return fmt.Errorf("failed to auto-register gateway: %w", err)
 		}
-		poller, _ = r.GetPoller(ctx, pollerID)
+		gateway, _ = r.GetGateway(ctx, gatewayID)
 	}
 
 	// Determine new status
-	newStatus := poller.Status
-	if poller.Status == ServiceStatusPending {
+	newStatus := gateway.Status
+	if gateway.Status == ServiceStatusPending {
 		newStatus = ServiceStatusActive
 	}
 
 	// Set first_seen if this is the first report
-	firstSeen := poller.FirstSeen
+	firstSeen := gateway.FirstSeen
 	if firstSeen == nil {
 		firstSeen = &timestamp
 	}
 
-	updatedPoller := &RegisteredPoller{
-		PollerID:           poller.PollerID,
-		ComponentID:        poller.ComponentID,
+	updatedGateway := &RegisteredGateway{
+		GatewayID:           gateway.GatewayID,
+		ComponentID:        gateway.ComponentID,
 		Status:             newStatus,
-		RegistrationSource: poller.RegistrationSource,
-		FirstRegistered:    poller.FirstRegistered,
+		RegistrationSource: gateway.RegistrationSource,
+		FirstRegistered:    gateway.FirstRegistered,
 		FirstSeen:          firstSeen,
 		LastSeen:           &timestamp,
-		Metadata:           poller.Metadata,
-		SPIFFEIdentity:     poller.SPIFFEIdentity,
-		CreatedBy:          poller.CreatedBy,
-		AgentCount:         poller.AgentCount,
-		CheckerCount:       poller.CheckerCount,
+		Metadata:           gateway.Metadata,
+		SPIFFEIdentity:     gateway.SPIFFEIdentity,
+		CreatedBy:          gateway.CreatedBy,
+		AgentCount:         gateway.AgentCount,
+		CheckerCount:       gateway.CheckerCount,
 	}
 
-	if err := r.upsertCNPGPoller(ctx, updatedPoller); err != nil {
+	if err := r.upsertCNPGGateway(ctx, updatedGateway); err != nil {
 		return err
 	}
 
 	// Emit activation event if transitioned to active
-	if poller.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
+	if gateway.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
 		eventMetadata := map[string]string{
-			"component_id": poller.ComponentID,
+			"component_id": gateway.ComponentID,
 		}
 		if sourceIP != "" {
 			eventMetadata["source_ip"] = sourceIP
 		}
-		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypePoller, pollerID, "", poller.RegistrationSource, "system", eventMetadata); err != nil {
+		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeGateway, gatewayID, "", gateway.RegistrationSource, "system", eventMetadata); err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to emit activation event")
 		}
 		r.logger.Info().
-			Str("poller_id", pollerID).
-			Msg("Poller activated on first heartbeat")
+			Str("gateway_id", gatewayID).
+			Msg("Gateway activated on first heartbeat")
 	}
 
 	return nil
 }
 
 // recordAgentHeartbeat updates agent last_seen and activates if pending.
-func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pollerID string, timestamp time.Time, sourceIP string) error {
+func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, gatewayID string, timestamp time.Time, sourceIP string) error {
 	// Get current state
 	agent, err := r.GetAgent(ctx, agentID)
 	if err != nil {
 		// Agent not registered yet - register implicitly
 		if err := r.RegisterAgent(ctx, &AgentRegistration{
 			AgentID:            agentID,
-			PollerID:           pollerID,
+			GatewayID:           gatewayID,
 			ComponentID:        agentID,
 			RegistrationSource: RegistrationSourceImplicit,
 			CreatedBy:          "system",
@@ -496,7 +496,7 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 
 	updatedAgent := &RegisteredAgent{
 		AgentID:            agent.AgentID,
-		PollerID:           agent.PollerID,
+		GatewayID:           agent.GatewayID,
 		ComponentID:        agent.ComponentID,
 		Status:             newStatus,
 		RegistrationSource: agent.RegistrationSource,
@@ -517,17 +517,17 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 	if agent.Status == ServiceStatusPending && newStatus == ServiceStatusActive {
 		eventMetadata := map[string]string{
 			"component_id": agent.ComponentID,
-			"poller_id":    pollerID,
+			"gateway_id":    gatewayID,
 		}
 		if sourceIP != "" {
 			eventMetadata["source_ip"] = sourceIP
 		}
-		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeAgent, agentID, pollerID, agent.RegistrationSource, "system", eventMetadata); err != nil {
+		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeAgent, agentID, gatewayID, agent.RegistrationSource, "system", eventMetadata); err != nil {
 			r.logger.Warn().Err(err).Msg("Failed to emit activation event")
 		}
 		r.logger.Info().
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Agent activated on first heartbeat")
 	}
 
@@ -535,7 +535,7 @@ func (r *ServiceRegistry) recordAgentHeartbeat(ctx context.Context, agentID, pol
 }
 
 // recordCheckerHeartbeat updates checker last_seen and activates if pending.
-func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID, agentID, pollerID string, timestamp time.Time) error {
+func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID, agentID, gatewayID string, timestamp time.Time) error {
 	// Get current state
 	checker, err := r.GetChecker(ctx, checkerID)
 	if err != nil {
@@ -543,7 +543,7 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 		r.logger.Warn().
 			Str("checker_id", checkerID).
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Received heartbeat from unregistered checker")
 		return nil
 	}
@@ -563,7 +563,7 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 	updatedChecker := &RegisteredChecker{
 		CheckerID:          checker.CheckerID,
 		AgentID:            checker.AgentID,
-		PollerID:           checker.PollerID,
+		GatewayID:           checker.GatewayID,
 		CheckerKind:        checker.CheckerKind,
 		ComponentID:        checker.ComponentID,
 		Status:             newStatus,
@@ -585,7 +585,7 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 		eventMetadata := map[string]string{
 			"component_id": checker.ComponentID,
 			"agent_id":     agentID,
-			"poller_id":    pollerID,
+			"gateway_id":    gatewayID,
 			"checker_kind": checker.CheckerKind,
 		}
 		if err := r.emitRegistrationEvent(ctx, "activated", serviceTypeChecker, checkerID, agentID, checker.RegistrationSource, "system", eventMetadata); err != nil {
@@ -594,7 +594,7 @@ func (r *ServiceRegistry) recordCheckerHeartbeat(ctx context.Context, checkerID,
 		r.logger.Info().
 			Str("checker_id", checkerID).
 			Str("agent_id", agentID).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Checker activated on first heartbeat")
 	}
 
@@ -626,12 +626,12 @@ func (r *ServiceRegistry) emitRegistrationEvent(ctx context.Context, eventType, 
 	return writer.InsertServiceRegistrationEvents(ctx, []*db.ServiceRegistrationEvent{event})
 }
 
-// invalidatePollerCache clears the poller cache.
-func (r *ServiceRegistry) invalidatePollerCache() {
-	r.pollerCacheMu.Lock()
-	defer r.pollerCacheMu.Unlock()
+// invalidateGatewayCache clears the gateway cache.
+func (r *ServiceRegistry) invalidateGatewayCache() {
+	r.gatewayCacheMu.Lock()
+	defer r.gatewayCacheMu.Unlock()
 
-	r.pollerCache = make(map[string]bool)
+	r.gatewayCache = make(map[string]bool)
 	r.cacheExpiry = time.Time{} // Zero time = expired
 }
 
@@ -647,12 +647,12 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 	)
 
 	switch serviceType {
-	case serviceTypePoller:
-		var poller *RegisteredPoller
-		poller, err = r.GetPoller(ctx, serviceID)
-		if err == nil && poller != nil {
-			status = poller.Status
-			source = poller.RegistrationSource
+	case serviceTypeGateway:
+		var gateway *RegisteredGateway
+		gateway, err = r.GetGateway(ctx, serviceID)
+		if err == nil && gateway != nil {
+			status = gateway.Status
+			source = gateway.RegistrationSource
 		}
 	case serviceTypeAgent:
 		var agent *RegisteredAgent
@@ -692,9 +692,9 @@ func (r *ServiceRegistry) DeleteService(ctx context.Context, serviceType, servic
 		return err
 	}
 
-	// Invalidate cache if it's a poller
-	if serviceType == serviceTypePoller {
-		r.invalidatePollerCache()
+	// Invalidate cache if it's a gateway
+	if serviceType == serviceTypeGateway {
+		r.invalidateGatewayCache()
 	}
 
 	r.logger.Info().
@@ -722,15 +722,15 @@ func (r *ServiceRegistry) PurgeInactive(ctx context.Context, retentionPeriod tim
 	rows, err := r.queryCNPGRows(ctx, `
 		SELECT service_type, service_id
 		FROM (
-			SELECT 'poller' AS service_type, poller_id AS service_id, last_seen, status
-			FROM pollers
+			SELECT 'gateway' AS service_type, gateway_id AS service_id, last_seen, status
+			FROM gateways
 			WHERE status IN ('inactive', 'revoked', 'deleted')
 			  AND last_seen < $1
 
 			UNION ALL
 
-			SELECT 'poller', poller_id, first_registered AS last_seen, status
-			FROM pollers
+			SELECT 'gateway', gateway_id, first_registered AS last_seen, status
+			FROM gateways
 			WHERE status = 'pending'
 			  AND first_seen IS NULL
 			  AND first_registered < $2
@@ -875,31 +875,31 @@ func marshalServiceMetadata(metadata map[string]string) ([]byte, error) {
 	return json.Marshal(metadata)
 }
 
-func (r *ServiceRegistry) upsertCNPGPoller(ctx context.Context, poller *RegisteredPoller) error {
-	if poller == nil || !r.shouldWriteCNPG() {
+func (r *ServiceRegistry) upsertCNPGGateway(ctx context.Context, gateway *RegisteredGateway) error {
+	if gateway == nil || !r.shouldWriteCNPG() {
 		return nil
 	}
 
-	metadataJSON, err := marshalServiceMetadata(poller.Metadata)
+	metadataJSON, err := marshalServiceMetadata(gateway.Metadata)
 	if err != nil {
-		return fmt.Errorf("marshal poller metadata: %w", err)
+		return fmt.Errorf("marshal gateway metadata: %w", err)
 	}
 
-	if err := r.execCNPGWrite(ctx, cnpgUpsertPollerSQL,
-		poller.PollerID,
-		poller.ComponentID,
-		string(poller.RegistrationSource),
-		string(poller.Status),
-		poller.SPIFFEIdentity,
-		poller.FirstRegistered,
-		poller.FirstSeen,
-		poller.LastSeen,
+	if err := r.execCNPGWrite(ctx, cnpgUpsertGatewaySQL,
+		gateway.GatewayID,
+		gateway.ComponentID,
+		string(gateway.RegistrationSource),
+		string(gateway.Status),
+		gateway.SPIFFEIdentity,
+		gateway.FirstRegistered,
+		gateway.FirstSeen,
+		gateway.LastSeen,
 		metadataJSON,
-		poller.CreatedBy,
-		poller.AgentCount,
-		poller.CheckerCount,
+		gateway.CreatedBy,
+		gateway.AgentCount,
+		gateway.CheckerCount,
 	); err != nil {
-		return fmt.Errorf("cnpg upsert poller: %w", err)
+		return fmt.Errorf("cnpg upsert gateway: %w", err)
 	}
 
 	return nil
@@ -917,7 +917,7 @@ func (r *ServiceRegistry) upsertCNPGAgent(ctx context.Context, agent *Registered
 
 	if err := r.execCNPGWrite(ctx, cnpgUpsertAgentSQL,
 		agent.AgentID,
-		agent.PollerID,
+		agent.GatewayID,
 		agent.ComponentID,
 		string(agent.Status),
 		string(agent.RegistrationSource),
@@ -948,7 +948,7 @@ func (r *ServiceRegistry) upsertCNPGChecker(ctx context.Context, checker *Regist
 	if err := r.execCNPGWrite(ctx, cnpgUpsertCheckerSQL,
 		checker.CheckerID,
 		checker.AgentID,
-		checker.PollerID,
+		checker.GatewayID,
 		checker.CheckerKind,
 		checker.ComponentID,
 		string(checker.Status),
@@ -974,8 +974,8 @@ func (r *ServiceRegistry) deleteServiceCNPG(ctx context.Context, serviceType, se
 	var query string
 
 	switch serviceType {
-	case serviceTypePoller:
-		query = cnpgDeletePollerSQL
+	case serviceTypeGateway:
+		query = cnpgDeleteGatewaySQL
 	case serviceTypeAgent:
 		query = cnpgDeleteAgentSQL
 	case serviceTypeChecker:

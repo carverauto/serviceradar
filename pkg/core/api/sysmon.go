@@ -53,11 +53,11 @@ func (s *APIServer) resolveSysmonMetricsProvider() (db.SysmonMetricsProvider, bo
 // fetchMetrics is a generic helper to fetch metrics and handle errors.
 func fetchMetrics[T any](
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	startTime, endTime time.Time,
 	getMetrics func(context.Context, string, time.Time, time.Time) ([]T, error),
 ) (interface{}, error) {
-	metrics, err := getMetrics(ctx, pollerID, startTime, endTime)
+	metrics, err := getMetrics(ctx, gatewayID, startTime, endTime)
 	if err != nil {
 		return nil, &httpError{"Internal server error", http.StatusInternalServerError}
 	}
@@ -77,7 +77,7 @@ func (s *APIServer) getSysmonMetrics(
 	fetchMetrics func(
 		ctx context.Context,
 		provider db.SysmonMetricsProvider,
-		pollerID string,
+		gatewayID string,
 		startTime, endTime time.Time) (interface{}, error),
 	metricType string,
 ) {
@@ -85,7 +85,7 @@ func (s *APIServer) getSysmonMetrics(
 
 	vars := mux.Vars(r)
 
-	pollerID := vars["id"]
+	gatewayID := vars["id"]
 
 	// Parse time range
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
@@ -98,14 +98,14 @@ func (s *APIServer) getSysmonMetrics(
 	// Validate metrics provider
 	metricsProvider, ok := s.resolveSysmonMetricsProvider()
 	if !ok {
-		s.logger.Warn().Str("poller_id", pollerID).Msg("No sysmon metrics provider available")
+		s.logger.Warn().Str("gateway_id", gatewayID).Msg("No sysmon metrics provider available")
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
 	}
 
 	// Fetch metrics
-	metrics, err := fetchMetrics(ctx, metricsProvider, pollerID, startTime, endTime)
+	metrics, err := fetchMetrics(ctx, metricsProvider, gatewayID, startTime, endTime)
 	if err != nil {
 		var httpErr *httpError
 
@@ -113,14 +113,14 @@ func (s *APIServer) getSysmonMetrics(
 			s.logger.Error().
 				Err(err).
 				Str("metric_type", metricType).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Msg("Error fetching metrics")
 			writeError(w, httpErr.Message, httpErr.Status)
 		} else {
 			s.logger.Error().
 				Err(err).
 				Str("metric_type", metricType).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Msg("Unexpected error fetching metrics")
 			writeError(w, "Internal server error", http.StatusInternalServerError)
 		}
@@ -133,27 +133,27 @@ func (s *APIServer) getSysmonMetrics(
 	case "CPU":
 		s.logger.Debug().
 			Int("metric_count", len(metrics.([]models.SysmonCPUResponse))).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Fetched CPU metrics")
 	case "memory":
 		s.logger.Debug().
 			Int("metric_count", len(metrics.([]models.SysmonMemoryResponse))).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Fetched memory metrics")
 	case "disk":
 		s.logger.Debug().
 			Int("metric_count", len(metrics.([]models.SysmonDiskResponse))).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Fetched disk metrics")
 	case "process":
 		s.logger.Debug().
 			Int("metric_count", len(metrics.([]models.SysmonProcessResponse))).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Fetched process metrics")
 	default:
 		s.logger.Debug().
 			Int("metric_count", len(metrics.([]models.SysmonDiskResponse))).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Fetched unknown metrics")
 
 		return
@@ -163,17 +163,17 @@ func (s *APIServer) getSysmonMetrics(
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
-		s.logger.Error().Err(err).Str("metric_type", metricType).Str("poller_id", pollerID).Msg("Error encoding metrics response")
+		s.logger.Error().Err(err).Str("metric_type", metricType).Str("gateway_id", gatewayID).Msg("Error encoding metrics response")
 		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
 
 // @Summary Get CPU metrics
-// @Description Retrieves CPU usage metrics for a specific poller within a time range
+// @Description Retrieves CPU usage metrics for a specific gateway within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.CPUMetric "CPU metrics data"
@@ -181,25 +181,25 @@ func (s *APIServer) getSysmonMetrics(
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/cpu [get]
+// @Router /gateways/{id}/sysmon/cpu [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(
 		ctx context.Context,
 		provider db.SysmonMetricsProvider,
-		pollerID string,
+		gatewayID string,
 		startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[models.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
+		return fetchMetrics[models.SysmonCPUResponse](ctx, gatewayID, startTime, endTime, provider.GetAllCPUMetrics)
 	}
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
 
 // @Summary Get memory metrics
-// @Description Retrieves memory usage metrics for a specific poller within a time range
+// @Description Retrieves memory usage metrics for a specific gateway within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.SysmonMemoryResponse "Memory metrics data grouped by timestamp"
@@ -207,15 +207,15 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/memory [get]
+// @Router /gateways/{id}/sysmon/memory [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(
 		ctx context.Context,
 		provider db.SysmonMetricsProvider,
-		pollerID string,
+		gatewayID string,
 		startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[models.SysmonMemoryResponse](ctx, pollerID, startTime,
+		return fetchMetrics[models.SysmonMemoryResponse](ctx, gatewayID, startTime,
 			endTime, provider.GetMemoryMetricsGrouped)
 	}
 
@@ -227,13 +227,13 @@ func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Reques
 func (*APIServer) fetchDiskMetrics(
 	ctx context.Context,
 	provider db.SysmonMetricsProvider,
-	pollerID, mountPoint string,
+	gatewayID, mountPoint string,
 	startTime, endTime time.Time,
 ) (interface{}, error) {
 	if mountPoint != "" {
-		metrics, err := fetchMetrics[models.DiskMetric](ctx, pollerID, startTime, endTime,
-			func(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.DiskMetric, error) {
-				return provider.GetDiskMetrics(ctx, pollerID, mountPoint, startTime, endTime)
+		metrics, err := fetchMetrics[models.DiskMetric](ctx, gatewayID, startTime, endTime,
+			func(ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]models.DiskMetric, error) {
+				return provider.GetDiskMetrics(ctx, gatewayID, mountPoint, startTime, endTime)
 			})
 		if err != nil {
 			return nil, err
@@ -242,15 +242,15 @@ func (*APIServer) fetchDiskMetrics(
 		return groupDiskMetricsByTimestamp(metrics.([]models.DiskMetric)), nil
 	}
 
-	return fetchMetrics[models.SysmonDiskResponse](ctx, pollerID, startTime, endTime, provider.GetAllDiskMetricsGrouped)
+	return fetchMetrics[models.SysmonDiskResponse](ctx, gatewayID, startTime, endTime, provider.GetAllDiskMetricsGrouped)
 }
 
 // @Summary Get disk metrics
-// @Description Retrieves disk usage metrics for a specific poller within a time range
+// @Description Retrieves disk usage metrics for a specific gateway within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param mount_point query string false "Filter by specific mount point"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
@@ -259,28 +259,28 @@ func (*APIServer) fetchDiskMetrics(
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/disk [get]
+// @Router /gateways/{id}/sysmon/disk [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(
 		ctx context.Context,
 		provider db.SysmonMetricsProvider,
-		pollerID string,
+		gatewayID string,
 		startTime, endTime time.Time) (interface{}, error) {
 		mountPoint := r.URL.Query().Get("mount_point")
 
-		return s.fetchDiskMetrics(ctx, provider, pollerID, mountPoint, startTime, endTime)
+		return s.fetchDiskMetrics(ctx, provider, gatewayID, mountPoint, startTime, endTime)
 	}
 
 	s.getSysmonMetrics(w, r, fetch, "disk")
 }
 
 // @Summary Get process metrics
-// @Description Retrieves process metrics for a specific poller within a time range
+// @Description Retrieves process metrics for a specific gateway within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Gateway ID"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.SysmonProcessResponse "Process metrics data grouped by timestamp"
@@ -288,15 +288,15 @@ func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request)
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/processes [get]
+// @Router /gateways/{id}/sysmon/processes [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonProcessMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(
 		ctx context.Context,
 		provider db.SysmonMetricsProvider,
-		pollerID string,
+		gatewayID string,
 		startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[models.SysmonProcessResponse](ctx, pollerID, startTime, endTime, provider.GetAllProcessMetricsGrouped)
+		return fetchMetrics[models.SysmonProcessResponse](ctx, gatewayID, startTime, endTime, provider.GetAllProcessMetricsGrouped)
 	}
 	s.getSysmonMetrics(w, r, fetch, "process")
 }

@@ -120,8 +120,8 @@ func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration,
 // connectToCore creates a gRPC connection to the Core service using the security configuration.
 // Uses SPIFFE mTLS if configured, otherwise falls back based on security settings.
 //
-//nolint:staticcheck // SA1019: PollerServiceClient is deprecated but still used for legacy support
-func (s *Server) connectToCore(ctx context.Context, endpoint string, security *models.SecurityConfig) (*grpc.Client, proto.PollerServiceClient, error) {
+//nolint:staticcheck // SA1019: GatewayServiceClient is deprecated but still used for legacy support
+func (s *Server) connectToCore(ctx context.Context, endpoint string, security *models.SecurityConfig) (*grpc.Client, proto.GatewayServiceClient, error) {
 	log.Printf("Connecting to Core at %s for registration", endpoint)
 
 	// Create security provider
@@ -147,7 +147,7 @@ func (s *Server) connectToCore(ctx context.Context, endpoint string, security *m
 		return nil, nil, fmt.Errorf("failed to create Core client: %w", err)
 	}
 
-	coreClient := proto.NewPollerServiceClient(client.GetConnection())
+	coreClient := proto.NewGatewayServiceClient(client.GetConnection())
 
 	return client, coreClient, nil
 }
@@ -155,8 +155,8 @@ func (s *Server) connectToCore(ctx context.Context, endpoint string, security *m
 // registerWithCore sends a registration request to Core using the standard ReportStatus RPC.
 // This reuses the existing service registration infrastructure.
 //
-//nolint:staticcheck // SA1019: PollerServiceClient is deprecated but still used for legacy support
-func (s *Server) registerWithCore(ctx context.Context, client proto.PollerServiceClient, instanceID, endpoint, spiffeID string) error {
+//nolint:staticcheck // SA1019: GatewayServiceClient is deprecated but still used for legacy support
+func (s *Server) registerWithCore(ctx context.Context, client proto.GatewayServiceClient, instanceID, endpoint, spiffeID string) error {
 	// Get source IP from the endpoint
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil {
@@ -170,13 +170,13 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.PollerServic
 		Available:   true,
 		Message:     []byte(fmt.Sprintf(`{"endpoint":"%s","spiffe_id":"%s"}`, endpoint, spiffeID)),
 		AgentId:     instanceID,
-		PollerId:    instanceID, // DataSvc acts as its own "poller"
+		GatewayId:    instanceID, // DataSvc acts as its own "gateway"
 		KvStoreId:   endpoint,   // Store endpoint in kv_store_id for easy retrieval
 	}
 
-	req := &proto.PollerStatusRequest{
+	req := &proto.GatewayStatusRequest{
 		Services:  []*proto.ServiceStatus{serviceStatus},
-		PollerId:  instanceID,
+		GatewayId:  instanceID,
 		AgentId:   instanceID,
 		Timestamp: time.Now().Unix(),
 		Partition: "core", // DataSvc lives in core partition

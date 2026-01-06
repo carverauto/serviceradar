@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package core /pkg/core/poller_recovery.go
+// Package core /pkg/core/gateway_recovery.go
 package core
 
 import (
@@ -28,55 +28,55 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 )
 
-// PollerRecoveryManager handles poller recovery state transitions.
-type PollerRecoveryManager struct {
+// GatewayRecoveryManager handles gateway recovery state transitions.
+type GatewayRecoveryManager struct {
 	db          db.Service
 	alerter     alerts.AlertService
 	getHostname func() string
 }
 
-func (m *PollerRecoveryManager) processRecovery(ctx context.Context, pollerID string, lastSeen time.Time) error {
-	// Get the current poller status
-	status, err := m.db.GetPollerStatus(ctx, pollerID)
+func (m *GatewayRecoveryManager) processRecovery(ctx context.Context, gatewayID string, lastSeen time.Time) error {
+	// Get the current gateway status
+	status, err := m.db.GetGatewayStatus(ctx, gatewayID)
 	if err != nil {
-		return fmt.Errorf("get poller status: %w", err)
+		return fmt.Errorf("get gateway status: %w", err)
 	}
 
-	// Early return if the poller is already healthy
+	// Early return if the gateway is already healthy
 	if status.IsHealthy {
 		return nil
 	}
 
-	// Update poller status
+	// Update gateway status
 	status.IsHealthy = true
 	status.LastSeen = lastSeen
 
 	// Update the database BEFORE trying to send the alert
-	if err = m.db.UpdatePollerStatus(ctx, status); err != nil {
-		return fmt.Errorf("update poller status: %w", err)
+	if err = m.db.UpdateGatewayStatus(ctx, status); err != nil {
+		return fmt.Errorf("update gateway status: %w", err)
 	}
 
 	// Send alert
-	if err = m.sendRecoveryAlert(ctx, pollerID, lastSeen); err != nil {
+	if err = m.sendRecoveryAlert(ctx, gatewayID, lastSeen); err != nil {
 		// Only treat the cooldown as non-error
 		if !errors.Is(err, alerts.ErrWebhookCooldown) {
 			return fmt.Errorf("send recovery alert: %w", err)
 		}
 
 		// Log the cooldown but proceed with the recovery
-		log.Printf("Recovery alert for poller %s rate limited, but poller marked as recovered", pollerID)
+		log.Printf("Recovery alert for gateway %s rate limited, but gateway marked as recovered", gatewayID)
 	}
 
 	return nil
 }
 
 // sendRecoveryAlert handles alert creation and sending.
-func (m *PollerRecoveryManager) sendRecoveryAlert(ctx context.Context, pollerID string, lastSeen time.Time) error {
+func (m *GatewayRecoveryManager) sendRecoveryAlert(ctx context.Context, gatewayID string, lastSeen time.Time) error {
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
-		Title:     "Poller Recovered",
-		Message:   fmt.Sprintf("Poller '%s' is back online", pollerID),
-		PollerID:  pollerID,
+		Title:     "Gateway Recovered",
+		Message:   fmt.Sprintf("Gateway '%s' is back online", gatewayID),
+		GatewayID:  gatewayID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname":      m.getHostname(),

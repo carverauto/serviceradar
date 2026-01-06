@@ -43,8 +43,8 @@ type Manager struct {
 var _ SysmonMetricsProvider = (*Manager)(nil)
 
 func NewManager(cfg models.MetricsConfig, d db.Service, l logger.Logger) *Manager {
-	if cfg.MaxPollers == 0 {
-		cfg.MaxPollers = 10000 // Reasonable default
+	if cfg.MaxGateways == 0 {
+		cfg.MaxGateways = 10000 // Reasonable default
 	}
 
 	return &Manager{
@@ -55,7 +55,7 @@ func NewManager(cfg models.MetricsConfig, d db.Service, l logger.Logger) *Manage
 	}
 }
 
-func (m *Manager) CleanupStalePollers(staleDuration time.Duration) {
+func (m *Manager) CleanupStaleGateways(staleDuration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -95,7 +95,7 @@ func (m *Manager) AddMetric(
 	m.updateNodeLRU(nodeID)
 
 	// Check if we need to evict
-	if m.nodeCount.Load() >= int64(m.config.MaxPollers) {
+	if m.nodeCount.Load() >= int64(m.config.MaxGateways) {
 		if err := m.evictOldest(); err != nil {
 			m.logger.Error().Err(err).Msg("Failed to evict old node")
 		}
@@ -216,19 +216,19 @@ func (m *Manager) GetDevicesWithActiveMetrics() []string {
 	return deviceIDs
 }
 
-// GetAllMountPoints retrieves all unique mount points for a given poller.
-func (m *Manager) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
-	m.logger.Info().Str("pollerID", pollerID).Msg("Retrieving all mount points for poller")
+// GetAllMountPoints retrieves all unique mount points for a given gateway.
+func (m *Manager) GetAllMountPoints(ctx context.Context, gatewayID string) ([]string, error) {
+	m.logger.Info().Str("gatewayID", gatewayID).Msg("Retrieving all mount points for gateway")
 
 	// Call the database service to get all mount points
-	mountPoints, err := m.db.GetAllMountPoints(ctx, pollerID)
+	mountPoints, err := m.db.GetAllMountPoints(ctx, gatewayID)
 	if err != nil {
-		m.logger.Error().Str("pollerID", pollerID).Err(err).Msg("Error retrieving mount points for poller")
+		m.logger.Error().Str("gatewayID", gatewayID).Err(err).Msg("Error retrieving mount points for gateway")
 		return nil, err
 	}
 
 	if len(mountPoints) == 0 {
-		m.logger.Info().Str("pollerID", pollerID).Msg("No mount points found for poller")
+		m.logger.Info().Str("gatewayID", gatewayID).Msg("No mount points found for gateway")
 		return []string{}, nil
 	}
 

@@ -379,10 +379,13 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 	s.discoveryInterval = newDisc
 	s.armisUpdateInterval = newUpd
 	// Rebuild integrations even when sources are cleared.
+	// Use fallback values from the new config being applied.
+	agentID := newCfg.AgentID
+	gatewayID := newCfg.GatewayID
 	s.sources = make(map[string]Integration)
 	for name, src := range newCfg.Sources {
 		if f, ok := s.registry[src.Type]; ok {
-			s.sources[name] = s.createIntegration(s.ctx, src, f)
+			s.sources[name] = s.createIntegration(s.ctx, src, f, agentID, gatewayID)
 		}
 	}
 	if intervalsChanged {
@@ -717,9 +720,13 @@ func (s *SimpleSyncService) GetStatus(_ context.Context, req *proto.StatusReques
 		return nil, status.Errorf(codes.Internal, "failed to marshal health data: %v", err)
 	}
 
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	s.configMu.RUnlock()
+
 	return &proto.StatusResponse{
 		Available:   true,
-		AgentId:     s.config.AgentID,
+		AgentId:     agentID,
 		Message:     healthJSON,
 		ServiceName: req.ServiceName,
 		ServiceType: syncServiceType, // Always return "sync" as service type regardless of request
@@ -792,11 +799,16 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 		return errGatewayNotEnrolled
 	}
 
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	partition := s.config.Partition
+	s.configMu.RUnlock()
+
 	req := &proto.AgentHelloRequest{
-		AgentId:       s.config.AgentID,
+		AgentId:       agentID,
 		Version:       "",
 		Capabilities:  []string{"sync"},
-		Partition:     s.config.Partition,
+		Partition:     partition,
 		ConfigVersion: s.getConfigVersion(),
 	}
 
@@ -840,7 +852,11 @@ func (s *SimpleSyncService) applyConfigPayload(payload *gatewaySyncPayload, conf
 		sources = map[string]*models.SourceConfig{}
 	}
 
-	updatedCfg := s.config
+	// Clone config under read lock to prevent race with concurrent updates
+	s.configMu.RLock()
+	updatedCfg := s.config.Clone()
+	s.configMu.RUnlock()
+
 	if payload.AgentID != "" {
 		updatedCfg.AgentID = payload.AgentID
 	}
@@ -897,8 +913,12 @@ func (s *SimpleSyncService) fetchAndApplyConfig(ctx context.Context) error {
 		return err
 	}
 
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	s.configMu.RUnlock()
+
 	configReq := &proto.AgentConfigRequest{
-		AgentId:       s.config.AgentID,
+		AgentId:       agentID,
 		ConfigVersion: s.getConfigVersion(),
 	}
 
@@ -1077,7 +1097,12 @@ func (s *SimpleSyncService) tenantInfo() (string, string) {
 		return tenantID, tenantSlug
 	}
 
-	return s.config.TenantID, s.config.TenantSlug
+	s.configMu.RLock()
+	cfgTenantID := s.config.TenantID
+	cfgTenantSlug := s.config.TenantSlug
+	s.configMu.RUnlock()
+
+	return cfgTenantID, cfgTenantSlug
 }
 
 func (s *SimpleSyncService) buildResultsChunks(
@@ -1171,6 +1196,11 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 	tenantID string,
 	tenantSlug string,
 ) []*proto.GatewayStatusChunk {
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	partition := s.config.Partition
+	s.configMu.RUnlock()
+
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
 	for _, chunk := range chunks {
@@ -1184,9 +1214,9 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 			Message:      chunk.Data,
 			ServiceType:  syncServiceType,
 			ResponseTime: 0,
-			AgentId:      s.config.AgentID,
+			AgentId:      agentID,
 			GatewayId:    "",
-			Partition:    s.config.Partition,
+			Partition:    partition,
 			Source:       syncResultsSource,
 			KvStoreId:    "",
 			TenantId:     tenantID,
@@ -1196,9 +1226,9 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
 			GatewayId:   "",
-			AgentId:     s.config.AgentID,
+			AgentId:     agentID,
 			Timestamp:   chunk.Timestamp,
-			Partition:   s.config.Partition,
+			Partition:   partition,
 			IsFinal:     chunk.IsFinal,
 			ChunkIndex:  chunk.ChunkIndex,
 			TotalChunks: chunk.TotalChunks,
@@ -1278,15 +1308,20 @@ func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
 		return nil
 	}
 
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	partition := s.config.Partition
+	s.configMu.RUnlock()
+
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  syncServiceName,
 		Available:    true,
 		Message:      nil,
 		ServiceType:  syncServiceType,
 		ResponseTime: 0,
-		AgentId:      s.config.AgentID,
+		AgentId:      agentID,
 		GatewayId:    "",
-		Partition:    s.config.Partition,
+		Partition:    partition,
 		Source:       syncStatusSource,
 		KvStoreId:    "",
 		TenantId:     tenantID,
@@ -1296,9 +1331,9 @@ func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
 	request := &proto.GatewayStatusRequest{
 		Services:   []*proto.GatewayServiceStatus{status},
 		GatewayId:  "",
-		AgentId:    s.config.AgentID,
+		AgentId:    agentID,
 		Timestamp:  time.Now().Unix(),
-		Partition:  s.config.Partition,
+		Partition:  partition,
 		TenantId:   tenantID,
 		TenantSlug: tenantSlug,
 	}
@@ -1339,7 +1374,7 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 		Str("service_name", req.ServiceName).
 		Str("service_type", req.ServiceType).
 		Str("agent_id", req.AgentId).
-		Str("poller_id", req.PollerId).
+		Str("gateway_id", req.GatewayId).
 		Msg("StreamResults called - sync service received request")
 
 	return status.Errorf(codes.Unimplemented, "sync pull results are deprecated")
@@ -1347,6 +1382,11 @@ func (s *SimpleSyncService) StreamResults(req *proto.ResultsRequest, stream prot
 
 // initializeIntegrations creates integrations for all configured sources
 func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
+	// At initialization time, no concurrency is possible, but we still
+	// access config consistently for future-proofing.
+	agentID := s.config.AgentID
+	gatewayID := s.config.GatewayID
+
 	for name, src := range s.config.Sources {
 		factory, ok := s.registry[src.Type]
 		if !ok {
@@ -1354,7 +1394,7 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 			continue
 		}
 
-		s.sources[name] = s.createIntegration(ctx, src, factory)
+		s.sources[name] = s.createIntegration(ctx, src, factory, agentID, gatewayID)
 	}
 }
 
@@ -1362,6 +1402,12 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	grouped, slugs := s.groupSourcesByTenant(sources, scope)
 	tenantIntegrations := make(map[string]map[string]Integration, len(grouped))
 	tenantResults := make(map[string]*StreamingResultsStore, len(grouped))
+
+	// Read fallback values under lock
+	s.configMu.RLock()
+	agentID := s.config.AgentID
+	gatewayID := s.config.GatewayID
+	s.configMu.RUnlock()
 
 	for tenantID, sourceMap := range grouped {
 		integrations := make(map[string]Integration, len(sourceMap))
@@ -1375,7 +1421,7 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 				continue
 			}
 
-			integrations[name] = s.createIntegration(s.ctx, src, factory)
+			integrations[name] = s.createIntegration(s.ctx, src, factory, agentID, gatewayID)
 		}
 
 		if len(integrations) == 0 {
@@ -1561,15 +1607,22 @@ func (s *SimpleSyncService) applyTenantSourceBlacklist(
 	return filteredDevices
 }
 
-// createIntegration creates a single integration instance
-func (s *SimpleSyncService) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
+// createIntegration creates a single integration instance.
+// agentID and gatewayID are fallback values if not set in src.
+// Callers must ensure these values are obtained under proper synchronization.
+func (s *SimpleSyncService) createIntegration(
+	ctx context.Context,
+	src *models.SourceConfig,
+	factory IntegrationFactory,
+	agentID, gatewayID string,
+) Integration {
 	cfgCopy := *src
 	if cfgCopy.AgentID == "" {
-		cfgCopy.AgentID = s.config.AgentID
+		cfgCopy.AgentID = agentID
 	}
 
-	if cfgCopy.PollerID == "" {
-		cfgCopy.PollerID = s.config.PollerID
+	if cfgCopy.GatewayID == "" {
+		cfgCopy.GatewayID = gatewayID
 	}
 
 	if cfgCopy.Partition == "" {

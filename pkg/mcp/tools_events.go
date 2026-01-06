@@ -82,7 +82,7 @@ func (m *MCPServer) registerGetAlertsTool() {
 			var alertArgs struct {
 				Limit     int        `json:"limit,omitempty"`      // Max results (default 50)
 				StartTime *time.Time `json:"start_time,omitempty"` // Start time filter
-				PollerID  string     `json:"poller_id,omitempty"`  // Optional poller filter
+				GatewayID  string     `json:"gateway_id,omitempty"`  // Optional gateway filter
 			}
 			if err := json.Unmarshal(args, &alertArgs); err != nil {
 				return nil, fmt.Errorf("invalid alert arguments: %w", err)
@@ -98,9 +98,9 @@ func (m *MCPServer) registerGetAlertsTool() {
 			var queryParams []any
 			filters = append(filters, "severity IN ('critical', 'high', 'alert')")
 
-			if alertArgs.PollerID != "" {
-				filters = append(filters, "poller_id = $1")
-				queryParams = append(queryParams, alertArgs.PollerID)
+			if alertArgs.GatewayID != "" {
+				filters = append(filters, "gateway_id = $1")
+				queryParams = append(queryParams, alertArgs.GatewayID)
 			}
 
 			if alertArgs.StartTime != nil {
@@ -128,7 +128,7 @@ func (m *MCPServer) registerGetAlertsTool() {
 				"count":  len(results),
 				"query":  query,
 				"filters": map[string]interface{}{
-					"poller_id":  alertArgs.PollerID,
+					"gateway_id":  alertArgs.GatewayID,
 					"start_time": alertArgs.StartTime,
 					"filter":     combinedFilter,
 				},

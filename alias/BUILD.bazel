@@ -206,12 +206,6 @@ alias(
     actual = "//pkg/natsutil:natsutil",
 )
 
-# pkg/poller
-alias(
-    name = "poller",
-    actual = "//pkg/poller:poller",
-)
-
 # pkg/registry
 alias(
     name = "registry",

@@ -89,7 +89,7 @@ func (m *MCPServer) registerLogTools() {
 		Handler: func(ctx context.Context, args json.RawMessage) (interface{}, error) {
 			var recentArgs struct {
 				Limit    int    `json:"limit,omitempty"`     // Max results (default 100)
-				PollerID string `json:"poller_id,omitempty"` // Optional poller filter
+				GatewayID string `json:"gateway_id,omitempty"` // Optional gateway filter
 			}
 			if err := json.Unmarshal(args, &recentArgs); err != nil {
 				return nil, fmt.Errorf("invalid recent logs arguments: %w", err)
@@ -102,9 +102,9 @@ func (m *MCPServer) registerLogTools() {
 
 			var filter string
 			var queryParams []any
-			if recentArgs.PollerID != "" {
-				filter = "poller_id = $1"
-				queryParams = []any{recentArgs.PollerID}
+			if recentArgs.GatewayID != "" {
+				filter = "gateway_id = $1"
+				queryParams = []any{recentArgs.GatewayID}
 			}
 
 			// Build SRQL query for recent logs
@@ -112,7 +112,7 @@ func (m *MCPServer) registerLogTools() {
 
 			m.logger.Debug().
 				Str("query", query).
-				Str("poller_id", recentArgs.PollerID).
+				Str("gateway_id", recentArgs.GatewayID).
 				Int("limit", limit).
 				Msg("Executing recent logs query")
 
@@ -127,7 +127,7 @@ func (m *MCPServer) registerLogTools() {
 				"count":     len(results),
 				"query":     query,
 				"limit":     limit,
-				"poller_id": recentArgs.PollerID,
+				"gateway_id": recentArgs.GatewayID,
 			}, nil
 		},
 	}

@@ -56,7 +56,7 @@ func TestNewServer(t *testing.T) {
 				Metrics: models.Metrics{
 					Enabled:    true,
 					Retention:  100,
-					MaxPollers: 1000,
+					MaxGateways: 1000,
 				},
 				DBPath: "", // Will be overridden in the test
 			},
@@ -117,7 +117,7 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:    normalizedConfig.Metrics.Enabled,
 		Retention:  normalizedConfig.Metrics.Retention,
-		MaxPollers: normalizedConfig.Metrics.MaxPollers,
+		MaxGateways: normalizedConfig.Metrics.MaxGateways,
 	}, database, logger.NewTestLogger())
 
 	dbPath := getDBPath(normalizedConfig.DBPath)
@@ -135,7 +135,7 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
-		pollerPatterns:      normalizedConfig.PollerPatterns,
+		gatewayPatterns:      normalizedConfig.GatewayPatterns,
 		metrics:             metricsManager,
 		snmpManager:         metricstore.NewSNMPManager(database),
 		config:              normalizedConfig,
@@ -144,8 +144,8 @@ func newServerWithDB(_ context.Context, config *models.CoreServiceConfig, databa
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
-		pollerStatusCache:   make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
 		logger:              logger.NewTestLogger(),
 		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
@@ -165,19 +165,19 @@ func TestReportStatus(t *testing.T) {
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:    true,
 		Retention:  100,
-		MaxPollers: 1000,
+		MaxGateways: 1000,
 	}, mockDB, logger.NewTestLogger())
 
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
-		PollerID:  "test-poller",
+	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
+		GatewayID:  "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now(),
 	}, nil).AnyTimes()
 
-	mockDB.EXPECT().UpdatePollerStatus(
-		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
-		assert.Equal(t, "test-poller", status.PollerID)
+	mockDB.EXPECT().UpdateGatewayStatus(
+		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.GatewayStatus) error {
+		assert.Equal(t, "test-gateway", status.GatewayID)
 		assert.True(t, status.IsHealthy)
 		return nil
 	}).AnyTimes()
@@ -204,40 +204,40 @@ func TestReportStatus(t *testing.T) {
 	mockDB.EXPECT().UpsertOCSFAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Expect StoreMetrics for icmp-service
-	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
-		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
-		t.Logf("TestReportStatus: StoreMetrics called for poller %s with %d metrics", pollerID, len(metrics))
+	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-gateway",
+		gomock.Any()).DoAndReturn(func(_ context.Context, gatewayID string, metrics []*models.TimeseriesMetric) error {
+		t.Logf("TestReportStatus: StoreMetrics called for gateway %s with %d metrics", gatewayID, len(metrics))
 		return nil
 	}).AnyTimes()
 
-	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
+	mockAPI.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
 		DB:                  mockDB,
-		config:              &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
+		config:              &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
 		metrics:             metricsManager,
 		apiServer:           mockAPI,
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
-		pollerStatusCache:   make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
 		logger:              logger.NewTestLogger(),
 		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
-	// Test unknown poller
+	// Test unknown gateway
 	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	server.serviceBufferMu.Unlock()
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers before unknown-poller: %+v", server.serviceBuffers)
+	t.Logf("TestReportStatus: serviceBuffers before unknown-gateway: %+v", server.serviceBuffers)
 
-	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
-		PollerId:  "unknown-poller",
+	resp, err := server.ReportStatus(context.Background(), &proto.GatewayStatusRequest{
+		GatewayId:  "unknown-gateway",
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
 	})
@@ -252,20 +252,20 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers after unknown-poller: %+v", server.serviceBuffers)
+	t.Logf("TestReportStatus: serviceBuffers after unknown-gateway: %+v", server.serviceBuffers)
 
-	// Test valid poller with ICMP service
+	// Test valid gateway with ICMP service
 	server.serviceBufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	server.serviceBufferMu.Unlock()
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers before test-poller: %+v", server.serviceBuffers)
+	t.Logf("TestReportStatus: serviceBuffers before test-gateway: %+v", server.serviceBuffers)
 
 	icmpMessage := `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`
-	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
-		PollerId:  "test-poller",
+	resp, err = server.ReportStatus(context.Background(), &proto.GatewayStatusRequest{
+		GatewayId:  "test-gateway",
 		Timestamp: time.Now().Unix(),
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
@@ -290,7 +290,7 @@ func TestReportStatus(t *testing.T) {
 	server.serviceListBufferMu.Lock()
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.serviceListBufferMu.Unlock()
-	t.Logf("TestReportStatus: serviceBuffers after test-poller: %+v", server.serviceBuffers)
+	t.Logf("TestReportStatus: serviceBuffers after test-gateway: %+v", server.serviceBuffers)
 }
 
 // getSweepTestCases returns test cases for TestProcessSweepData
@@ -455,7 +455,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	// Expect StoreMetrics to be called once with two metrics
-	mockDB.EXPECT().StoreMetrics(gomock.Any(), gomock.Eq("test-poller"), gomock.Len(2)).Return(nil)
+	mockDB.EXPECT().StoreMetrics(gomock.Any(), gomock.Eq("test-gateway"), gomock.Len(2)).Return(nil)
 	mockDB.EXPECT().PublishDeviceUpdate(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	server := &Server{
@@ -465,7 +465,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 		tracer:        otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	now := time.Now()
 
 	// Test data
@@ -494,42 +494,42 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	err = server.processSNMPMetrics(
-		context.Background(), pollerID, "test-partition", "127.0.0.1", "test-agent", details, now)
+		context.Background(), gatewayID, "test-partition", "127.0.0.1", "test-agent", details, now)
 	require.NoError(t, err)
 
 	// Trigger flush to store buffered metrics
 	server.flushAllBuffers(context.Background())
 }
 
-func TestUpdatePollerStatus(t *testing.T) {
+func TestUpdateGatewayStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
 
-	// Mock GetPollerStatus to simulate existing poller
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
-		PollerID:  "test-poller",
+	// Mock GetGatewayStatus to simulate existing gateway
+	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
+		GatewayID:  "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now(),
 	}, nil)
 
-	// Mock UpdatePollerStatus
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+	// Mock UpdateGatewayStatus
+	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 	server := &Server{
 		DB:                  mockDB,
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
 		logger:              logger.NewTestLogger(),
 		tracer:              otel.Tracer("serviceradar-core-test"),
 	}
 
-	err := server.updatePollerStatus(context.Background(), "test-poller", true, time.Now())
+	err := server.updateGatewayStatus(context.Background(), "test-gateway", true, time.Now())
 	assert.NoError(t, err)
 }
 
-func TestHandlePollerRecovery(t *testing.T) {
+func TestHandleGatewayRecovery(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -542,19 +542,19 @@ func TestHandlePollerRecovery(t *testing.T) {
 		tracer:   otel.Tracer("serviceradar-core-test"),
 	}
 
-	pollerID := testPollerID
-	apiStatus := &api.PollerStatus{
-		PollerID:   pollerID,
+	gatewayID := testGatewayID
+	apiStatus := &api.GatewayStatus{
+		GatewayID:   gatewayID,
 		IsHealthy:  true,
 		LastUpdate: time.Now(),
 	}
 
-	server.handlePollerRecovery(context.Background(), pollerID, apiStatus, time.Now(), nil)
+	server.handleGatewayRecovery(context.Background(), gatewayID, apiStatus, time.Now(), nil)
 }
 
-func TestHandlePollerDown(t *testing.T) {
+func TestHandleGatewayDown(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping poller down test in short mode")
+		t.Skip("Skipping gateway down test in short mode")
 	}
 
 	ctrl := gomock.NewController(t)
@@ -566,49 +566,49 @@ func TestHandlePollerDown(t *testing.T) {
 	server := &Server{
 		DB:                      mockDB,
 		webhooks:                []alerts.AlertService{mockAlerter},
-		pollerStatusCache:       make(map[string]*models.PollerStatus),
-		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
+		gatewayStatusCache:       make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates:     make(map[string]*models.GatewayStatus),
 		ShutdownChan:            make(chan struct{}),
 		cacheMutex:              sync.RWMutex{},
-		pollerStatusUpdateMutex: sync.Mutex{},
+		gatewayStatusUpdateMutex: sync.Mutex{},
 		logger:                  logger.NewTestLogger(),
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
-	server.pollerStatusInterval = 10 * time.Millisecond
+	server.gatewayStatusInterval = 10 * time.Millisecond
 
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	lastSeen := time.Now().Add(-10 * time.Minute)
 	firstSeen := lastSeen.Add(-1 * time.Hour)
 
-	// Set up poller status cache
-	server.pollerStatusCache[pollerID] = &models.PollerStatus{
-		PollerID:  pollerID,
+	// Set up gateway status cache
+	server.gatewayStatusCache[gatewayID] = &models.GatewayStatus{
+		GatewayID:  gatewayID,
 		FirstSeen: firstSeen,
 	}
 
 	// Expect the alert to be sent
 	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
 
-	// Expect the poller status update
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+	// Expect the gateway status update
+	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil)
 
-	// Start the flushPollerStatusUpdates goroutine
+	// Start the flushGatewayStatusUpdates goroutine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go server.flushPollerStatusUpdates(ctx)
+	go server.flushGatewayStatusUpdates(ctx)
 
-	// Call handlePollerDown
-	err := server.handlePollerDown(ctx, pollerID, lastSeen)
+	// Call handleGatewayDown
+	err := server.handleGatewayDown(ctx, gatewayID, lastSeen)
 	if err != nil {
-		t.Fatalf("handlePollerDown failed: %v", err)
+		t.Fatalf("handleGatewayDown failed: %v", err)
 	}
 
 	// Wait for the flush to complete (give it some time to process)
-	time.Sleep(5 * server.pollerStatusIntervalOrDefault())
+	time.Sleep(5 * server.gatewayStatusIntervalOrDefault())
 }
 
-func TestEvaluatePollerHealth(t *testing.T) {
+func TestEvaluateGatewayHealth(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -616,27 +616,27 @@ func TestEvaluatePollerHealth(t *testing.T) {
 	mockWebhook := alerts.NewMockAlertService(ctrl)
 	mockAPI := api.NewMockService(ctrl)
 
-	// Mock GetPollerStatus
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
-		PollerID:  "test-poller",
+	// Mock GetGatewayStatus
+	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), "test-gateway").Return(&models.GatewayStatus{
+		GatewayID:  "test-gateway",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
 		LastSeen:  time.Now().Add(-10 * time.Minute),
 	}, nil).AnyTimes()
 
-	// Mock UpdatePollerStatus for offline case
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// Mock UpdateGatewayStatus for offline case
+	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Mock alert and API update for offline case
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return().AnyTimes() // Fixed: Removed Return(nil)
+	mockAPI.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return().AnyTimes() // Fixed: Removed Return(nil)
 
 	server := &Server{
 		DB:                  mockDB,
 		webhooks:            []alerts.AlertService{mockWebhook},
 		apiServer:           mockAPI,
-		pollerStatusCache:   make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		gatewayStatusCache:   make(map[string]*models.GatewayStatus),
+		gatewayStatusUpdates: make(map[string]*models.GatewayStatus),
 		alertThreshold:      5 * time.Minute, // Set threshold to match test
 		logger:              logger.NewTestLogger(),
 		tracer:              otel.Tracer("serviceradar-core-test"),
@@ -645,7 +645,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 	now := time.Now()
 	threshold := now.Add(-5 * time.Minute)
 
-	err := server.evaluatePollerHealth(context.Background(), "test-poller", now.Add(-10*time.Minute), true, threshold)
+	err := server.evaluateGatewayHealth(context.Background(), "test-gateway", now.Add(-10*time.Minute), true, threshold)
 	assert.NoError(t, err)
 }
 
@@ -664,71 +664,71 @@ func setupAlerter(cooldown time.Duration, setupFunc func(*alerts.WebhookAlerter)
 
 func TestWebhookAlerter_FirstAlertNoCooldown(t *testing.T) {
 	alerter := setupAlerter(time.Minute, nil)
-	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-gateway", "Service Failure", "service-1")
 	assert.NoError(t, err, "First alert should not be in cooldown")
 }
 
 func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-gateway", "Service Failure", "service-1")
 	assert.ErrorIs(t, err, alerts.ErrWebhookCooldown, "Repeat alert within cooldown should return error")
 }
 
-func TestWebhookAlerter_DifferentPollerSameAlert(t *testing.T) {
+func TestWebhookAlerter_DifferentGatewaySameAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("other-poller", "Service Failure", "service-1")
-	assert.NoError(t, err, "Different poller should not be affected by other poller's cooldown")
+	err := alerter.CheckCooldown("other-gateway", "Service Failure", "service-1")
+	assert.NoError(t, err, "Different gateway should not be affected by other gateway's cooldown")
 }
 
-func TestWebhookAlerter_SamePollerDifferentAlert(t *testing.T) {
+func TestWebhookAlerter_SameGatewayDifferentAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-poller", "Poller Recovery", "")
+	err := alerter.CheckCooldown("test-gateway", "Gateway Recovery", "")
 	assert.NoError(t, err, "Different alert type should not be affected by other alert's cooldown")
 }
 
 func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
 	alerter := setupAlerter(time.Microsecond, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now().Add(-time.Second)
 	})
-	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-gateway", "Service Failure", "service-1")
 	assert.NoError(t, err, "Alert after cooldown period should not return error")
 }
 
 func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
 	alerter := setupAlerter(0, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-gateway", "Service Failure", "service-1")
 	assert.NoError(t, err, "Alert should not be blocked when cooldown is disabled")
 }
 
-func TestWebhookAlerter_SamePollerSameAlertDifferentService(t *testing.T) {
+func TestWebhookAlerter_SameGatewaySameAlertDifferentService(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-2")
-	assert.NoError(t, err, "Different service on same poller should not be affected by cooldown")
+	err := alerter.CheckCooldown("test-gateway", "Service Failure", "service-2")
+	assert.NoError(t, err, "Different service on same gateway should not be affected by cooldown")
 }
 
-func TestWebhookAlerter_SamePollerServiceFailureThenPollerOffline(t *testing.T) {
+func TestWebhookAlerter_SameGatewayServiceFailureThenGatewayOffline(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{GatewayID: "test-gateway", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-poller", "Poller Offline", "")
-	assert.NoError(t, err, "Poller Offline alert should not be blocked by Service Failure cooldown")
+	err := alerter.CheckCooldown("test-gateway", "Gateway Offline", "")
+	assert.NoError(t, err, "Gateway Offline alert should not be blocked by Service Failure cooldown")
 }
 
 // setupTestServer creates a server with mock dependencies for testing
@@ -747,11 +747,11 @@ func setupTestServer(
 		webhooks:                []alerts.AlertService{mockAlerter},
 		apiServer:               mockAPIServer,
 		serviceBuffers:          make(map[string][]*models.ServiceStatus),
-		pollerStatusUpdateMutex: sync.Mutex{},
-		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
-		pollerStatusCache:       make(map[string]*models.PollerStatus),
+		gatewayStatusUpdateMutex: sync.Mutex{},
+		gatewayStatusUpdates:     make(map[string]*models.GatewayStatus),
+		gatewayStatusCache:       make(map[string]*models.GatewayStatus),
 		ShutdownChan:            make(chan struct{}),
-		config:                  &models.CoreServiceConfig{KnownPollers: []string{"test-poller"}},
+		config:                  &models.CoreServiceConfig{KnownGateways: []string{"test-gateway"}},
 		logger:                  logger.NewTestLogger(),
 		tracer:                  otel.Tracer("serviceradar-core-test"),
 	}
@@ -772,13 +772,13 @@ func setupTestServer(
 	t.Logf("Initial serviceBuffers: %+v", server.serviceBuffers)
 
 	server.cacheMutex.Lock()
-	server.pollerStatusCache = make(map[string]*models.PollerStatus)
+	server.gatewayStatusCache = make(map[string]*models.GatewayStatus)
 	server.cacheLastUpdated = time.Time{}
 	server.cacheMutex.Unlock()
 
-	server.pollerStatusUpdateMutex.Lock()
-	server.pollerStatusUpdates = make(map[string]*models.PollerStatus)
-	server.pollerStatusUpdateMutex.Unlock()
+	server.gatewayStatusUpdateMutex.Lock()
+	server.gatewayStatusUpdates = make(map[string]*models.GatewayStatus)
+	server.gatewayStatusUpdateMutex.Unlock()
 
 	dbService = *mockDB
 	alertService = *mockAlerter
@@ -787,12 +787,12 @@ func setupTestServer(
 	return server, dbService, alertService, apiService
 }
 
-// createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
-func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
+// createTestRequest creates a test GatewayStatusRequest with the given gateway and agent IDs
+func createTestRequest(gatewayID, agentID string, now time.Time) *proto.GatewayStatusRequest {
 	statusMessage := `{"status":"ok"}`
 
-	return &proto.PollerStatusRequest{
-		PollerId:  pollerID,
+	return &proto.GatewayStatusRequest{
+		GatewayId:  gatewayID,
 		Timestamp: now.Unix(),
 		Partition: "test-partition",
 		SourceIp:  "192.168.1.100",
@@ -803,7 +803,7 @@ func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerSta
 				Available:   true,
 				Message:     []byte(statusMessage), // Convert string to []byte
 				AgentId:     agentID,
-				PollerId:    pollerID,
+				GatewayId:    gatewayID,
 			},
 		},
 	}
@@ -813,16 +813,16 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	agentID := "agent-123"
 	now := time.Now()
 
 	server, mockDB, mockAlerter, mockAPIServer := setupTestServer(t, ctrl)
-	req := createTestRequest(pollerID, agentID, now)
+	req := createTestRequest(gatewayID, agentID, now)
 
 	// Setup mock expectations
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), pollerID).Return(&models.PollerStatus{
-		PollerID:  pollerID,
+	mockDB.EXPECT().GetGatewayStatus(gomock.Any(), gatewayID).Return(&models.GatewayStatus{
+		GatewayID:  gatewayID,
 		IsHealthy: false,
 		FirstSeen: now.Add(-1 * time.Hour),
 		LastSeen:  now.Add(-10 * time.Minute),
@@ -830,12 +830,12 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	mockDB.EXPECT().UpsertOCSFAgent(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	mockDB.EXPECT().UpdateGatewayStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(),
 		gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		t.Logf("UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		assert.Len(t, statuses, 1, "Expected exactly one status")
-		assert.Equal(t, pollerID, statuses[0].PollerID)
+		assert.Equal(t, gatewayID, statuses[0].GatewayID)
 		assert.Equal(t, "test-service", statuses[0].ServiceName)
 		assert.Equal(t, "test", statuses[0].ServiceType)
 		assert.True(t, statuses[0].Available)
@@ -847,7 +847,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 		t.Logf("StoreServices called with %d services", len(services))
 		return nil
 	}).AnyTimes()
-	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)
+	mockAPIServer.EXPECT().UpdateGatewayStatus(gatewayID, gomock.Any()).Return().Times(1)
 	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	ctx := context.Background()
@@ -863,9 +863,9 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 
 	// Test the ReportStatus function
 	reportStatusCount := 0
-	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+	wrappedReportStatus := func(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 		reportStatusCount++
-		t.Logf("ReportStatus called %d times with PollerID: %s", reportStatusCount, req.PollerId)
+		t.Logf("ReportStatus called %d times with GatewayID: %s", reportStatusCount, req.GatewayId)
 
 		return server.ReportStatus(ctx, req)
 	}

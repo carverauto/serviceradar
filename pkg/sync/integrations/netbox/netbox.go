@@ -213,7 +213,7 @@ func (n *NetboxIntegration) generateRetractionEvents(
 					"_deleted": "true",
 				},
 				AgentID:   n.Config.AgentID,
-				PollerID:  n.Config.PollerID,
+				GatewayID:  n.Config.GatewayID,
 				Partition: n.Config.Partition,
 			}
 
@@ -355,7 +355,7 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 	events = make([]*models.DeviceUpdate, 0, len(deviceResp.Results))
 
 	agentID := n.Config.AgentID
-	pollerID := n.Config.PollerID
+	gatewayID := n.Config.GatewayID
 	partition := n.Config.Partition
 
 	contexts := make([]netboxDeviceContext, 0, len(deviceResp.Results))
@@ -394,7 +394,7 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 
 		event := &models.DeviceUpdate{
 			AgentID:   agentID,
-			PollerID:  pollerID,
+			GatewayID:  gatewayID,
 			Source:    models.DiscoverySourceNetbox,
 			DeviceID:  deviceID,
 			Partition: partition,

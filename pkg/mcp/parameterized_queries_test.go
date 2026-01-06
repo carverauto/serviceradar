@@ -62,7 +62,7 @@ func TestDevicesGetDeviceBindsDeviceID(t *testing.T) {
 	require.Equal(t, []any{payload["device_id"]}, exec.lastParams)
 }
 
-func TestLogsGetRecentLogsBindsPollerID(t *testing.T) {
+func TestLogsGetRecentLogsBindsGatewayID(t *testing.T) {
 	exec := &recordingParameterizedExecutor{
 		results: []map[string]interface{}{{"log": "ok"}},
 	}
@@ -70,7 +70,7 @@ func TestLogsGetRecentLogsBindsPollerID(t *testing.T) {
 	tool := server.tools["logs.getRecentLogs"]
 
 	raw, err := json.Marshal(map[string]any{
-		"poller_id": "poller' OR '1'='1",
+		"gateway_id": "gateway' OR '1'='1",
 		"limit":     5,
 	})
 	require.NoError(t, err)
@@ -80,8 +80,8 @@ func TestLogsGetRecentLogsBindsPollerID(t *testing.T) {
 
 	require.Equal(t, 0, exec.calledPlain)
 	require.Equal(t, 1, exec.calledWithParam)
-	require.Equal(t, "SHOW logs WHERE poller_id = $1 ORDER BY timestamp DESC LIMIT 5", exec.lastQuery)
-	require.Equal(t, []any{"poller' OR '1'='1"}, exec.lastParams)
+	require.Equal(t, "SHOW logs WHERE gateway_id = $1 ORDER BY timestamp DESC LIMIT 5", exec.lastQuery)
+	require.Equal(t, []any{"gateway' OR '1'='1"}, exec.lastParams)
 }
 
 func TestEventsGetEventsBindsMappedFilters(t *testing.T) {

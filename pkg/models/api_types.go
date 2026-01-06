@@ -23,7 +23,7 @@ import (
 )
 
 // ServiceStatus represents the status of a monitored service.
-// @Description Status information about a service monitored by a poller.
+// @Description Status information about a service monitored by a gateway.
 type ServiceStatus struct {
 	// Name of the service
 	Name string `json:"name" example:"postgres"`
@@ -35,7 +35,7 @@ type ServiceStatus struct {
 	Type string `json:"type" example:"database"`
 	// Detailed service-specific information as a JSON object
 	Details     json.RawMessage `json:"details,omitempty"`
-	PollerID    string          `json:"poller_id" example:"poller-prod-east-01"`
+	GatewayID    string          `json:"gateway_id" example:"gateway-prod-east-01"`
 	AgentID     string          `json:"agent_id" example:"agent-prod-east-01"`
 	ServiceName string          `json:"service_name" example:"postgres"`
 	ServiceType string          `json:"service_type" example:"database"`
@@ -44,61 +44,61 @@ type ServiceStatus struct {
 	Timestamp   time.Time       `json:"timestamp" example:"2020-11-10T23:00:00+09:00"`
 }
 
-// PollerStatus represents the status of a poller.
-// @Description Status information about a service poller.
-type PollerStatus struct {
-	// Unique identifier for the poller
-	PollerID string `json:"poller_id" example:"poller-prod-east-01"`
-	// Whether the poller is currently healthy
+// GatewayStatus represents the status of a gateway.
+// @Description Status information about a service gateway.
+type GatewayStatus struct {
+	// Unique identifier for the gateway
+	GatewayID string `json:"gateway_id" example:"gateway-prod-east-01"`
+	// Whether the gateway is currently healthy
 	IsHealthy bool `json:"is_healthy" example:"true"`
-	// List of services monitored by this poller
+	// List of services monitored by this gateway
 	Services []ServiceStatus `json:"services"`
-	// How long the poller has been running
+	// How long the gateway has been running
 	UpTime string `json:"uptime" example:"3d 2h 15m"`
-	// When the poller was first seen by the system
+	// When the gateway was first seen by the system
 	FirstSeen time.Time `json:"first_seen" example:"2025-04-20T10:00:00Z"`
-	// Last time the poller reported its status
+	// Last time the gateway reported its status
 	LastSeen time.Time `json:"last_seen" example:"2025-04-24T14:15:22Z"`
-	// IP address of the host where the poller is running
+	// IP address of the host where the gateway is running
 	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// Optional metrics data points
 	Metrics []MetricPoint `json:"metrics,omitempty"`
-	// Metadata about the poller
+	// Metadata about the gateway
 	LastEvaluated time.Time `json:"last_evaluated" example:"2025-04-24T14:15:22Z"`
-	// AlertSent indicates if an alert has been sent for this poller
+	// AlertSent indicates if an alert has been sent for this gateway
 	AlertSent bool `json:"alert_sent" example:"false"`
 }
 
 // SystemStatus represents the overall system status.
 // @Description Overall system status information.
 type SystemStatus struct {
-	// Total number of pollers in the system
-	TotalPollers int `json:"total_pollers" example:"15"`
-	// Number of pollers that are currently healthy
-	HealthyPollers int `json:"healthy_pollers" example:"12"`
+	// Total number of gateways in the system
+	TotalGateways int `json:"total_gateways" example:"15"`
+	// Number of gateways that are currently healthy
+	HealthyGateways int `json:"healthy_gateways" example:"12"`
 	// Last time the system status was updated
 	LastUpdate time.Time `json:"last_update" example:"2025-04-24T14:15:22Z"`
 }
 
-// PollerHistory represents historical status of a poller.
-// @Description Historical status information for a poller.
-type PollerHistory struct {
-	// Unique identifier for the poller
-	PollerID string `json:"poller_id" example:"poller-prod-east-01"`
+// GatewayHistory represents historical status of a gateway.
+// @Description Historical status information for a gateway.
+type GatewayHistory struct {
+	// Unique identifier for the gateway
+	GatewayID string `json:"gateway_id" example:"gateway-prod-east-01"`
 	// When this status was recorded
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
-	// Whether the poller was healthy at this time
+	// Whether the gateway was healthy at this time
 	IsHealthy bool `json:"is_healthy" example:"true"`
 	// Services status at this time
 	Services []ServiceStatus `json:"services"`
 }
 
-// PollerHistoryPoint represents a simplified historical health state.
-// @Description Simplified historical health state for a poller.
-type PollerHistoryPoint struct {
+// GatewayHistoryPoint represents a simplified historical health state.
+// @Description Simplified historical health state for a gateway.
+type GatewayHistoryPoint struct {
 	// When this status was recorded
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
-	// Whether the poller was healthy at this time
+	// Whether the gateway was healthy at this time
 	IsHealthy bool `json:"is_healthy" example:"true"`
 }
 

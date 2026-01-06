@@ -44,7 +44,7 @@ type Config struct {
 	DiscoveryInterval models.Duration                 `json:"discovery_interval" hot:"reload"` // Fetch cadence
 	UpdateInterval    models.Duration                 `json:"update_interval" hot:"reload"`    // External update cadence
 	AgentID           string                          `json:"agent_id"`
-	PollerID          string                          `json:"poller_id"`
+	GatewayID          string                          `json:"gateway_id"`
 	Security          *models.SecurityConfig          `json:"security" hot:"rebuild"`
 	Logging           *logger.Config                  `json:"logging"`
 	GatewayAddr       string                          `json:"gateway_addr"`          // Agent-gateway address for push mode
@@ -62,7 +62,7 @@ func (c *Config) Clone() Config {
 		DiscoveryInterval: c.DiscoveryInterval,
 		UpdateInterval:    c.UpdateInterval,
 		AgentID:           c.AgentID,
-		PollerID:          c.PollerID,
+		GatewayID:          c.GatewayID,
 		GatewayAddr:       c.GatewayAddr,
 		TenantID:          c.TenantID,
 		TenantSlug:        c.TenantSlug,

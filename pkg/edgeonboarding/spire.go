@@ -30,7 +30,7 @@ import (
 var errBootstrapperPackageNotInitialized = errors.New("bootstrapper package is not initialized")
 
 // configureSPIRE sets up SPIRE credentials for the service.
-// For pollers: Configures nested SPIRE server
+// For gateways: Configures nested SPIRE server
 // For agents/checkers: Configures SPIRE agent workload API access
 func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	b.logger.Info().
@@ -56,8 +56,8 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 
 	// Component-specific configuration
 	switch b.pkg.ComponentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		return b.configurePollerSPIRE(ctx, spireDir)
+	case models.EdgeOnboardingComponentTypeGateway:
+		return b.configureGatewaySPIRE(ctx, spireDir)
 	case models.EdgeOnboardingComponentTypeAgent:
 		return b.configureAgentSPIRE(ctx, spireDir)
 	case models.EdgeOnboardingComponentTypeChecker:
@@ -69,12 +69,12 @@ func (b *Bootstrapper) configureSPIRE(ctx context.Context) error {
 	}
 }
 
-// configurePollerSPIRE configures nested SPIRE server for edge pollers.
-// Pollers run their own SPIRE server that attests to the upstream (k8s) SPIRE server.
-func (b *Bootstrapper) configurePollerSPIRE(ctx context.Context, spireDir string) error {
+// configureGatewaySPIRE configures nested SPIRE server for edge gateways.
+// Gateways run their own SPIRE server that attests to the upstream (k8s) SPIRE server.
+func (b *Bootstrapper) configureGatewaySPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Configuring nested SPIRE server for poller")
+	b.logger.Debug().Msg("Configuring nested SPIRE server for gateway")
 
 	// Write join token (one-time use for initial attestation)
 	tokenPath := filepath.Join(spireDir, "upstream-join-token")
@@ -106,7 +106,7 @@ func (b *Bootstrapper) configurePollerSPIRE(ctx context.Context, spireDir string
 		Str("spire_port", spirePort).
 		Msg("Generated nested SPIRE server configuration")
 
-	// Generate nested SPIRE agent configuration (local agent for poller itself)
+	// Generate nested SPIRE agent configuration (local agent for gateway itself)
 	agentConfig, err := b.generateNestedSPIREAgentConfig(spireDir)
 	if err != nil {
 		return fmt.Errorf("generate SPIRE agent config: %w", err)
@@ -120,14 +120,14 @@ func (b *Bootstrapper) configurePollerSPIRE(ctx context.Context, spireDir string
 }
 
 // configureAgentSPIRE configures SPIRE agent workload API access for agents.
-// Agents connect to their parent poller's nested SPIRE server.
+// Agents connect to their parent gateway's nested SPIRE server.
 func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
 	b.logger.Debug().Msg("Configuring SPIRE agent workload API access")
 
-	// For agents, we expect to be running in the same network namespace as the poller
-	// So we access the poller's SPIRE agent socket directly
+	// For agents, we expect to be running in the same network namespace as the gateway
+	// So we access the gateway's SPIRE agent socket directly
 
 	// Store workload API socket path in config
 	workloadAPIPath := filepath.Join(spireDir, "nested", "workload", "agent.sock")
@@ -141,14 +141,14 @@ func (b *Bootstrapper) configureAgentSPIRE(ctx context.Context, spireDir string)
 }
 
 // configureCheckerSPIRE configures SPIRE access for checkers.
-// Checkers also use the workload API, either from local agent or shared poller.
+// Checkers also use the workload API, either from local agent or shared gateway.
 func (b *Bootstrapper) configureCheckerSPIRE(ctx context.Context, spireDir string) error {
 	_ = ctx
 
 	b.logger.Debug().Msg("Configuring SPIRE access for checker")
 
 	// Similar to agents, checkers use workload API
-	// TODO: Determine if checker has dedicated SPIRE agent or shares with agent/poller
+	// TODO: Determine if checker has dedicated SPIRE agent or shares with agent/gateway
 	workloadAPIPath := filepath.Join(spireDir, "workload", "agent.sock")
 	b.generatedConfigs["spire-workload-api-socket"] = []byte(workloadAPIPath)
 
@@ -254,7 +254,7 @@ agent {
 }
 
 // extractTrustDomain extracts the trust domain from a SPIFFE ID.
-// Example: spiffe://carverauto.dev/ns/edge/poller-1 -> carverauto.dev
+// Example: spiffe://carverauto.dev/ns/edge/gateway-1 -> carverauto.dev
 func extractTrustDomain(spiffeID string) string {
 	// Remove spiffe:// prefix
 	id := strings.TrimPrefix(spiffeID, "spiffe://")

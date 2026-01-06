@@ -157,8 +157,8 @@ func TryOnboard(ctx context.Context, componentType models.EdgeOnboardingComponen
 // getConfigKeyForComponent returns the config key for each component type.
 func getConfigKeyForComponent(componentType models.EdgeOnboardingComponentType) string {
 	switch componentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		return "poller.json"
+	case models.EdgeOnboardingComponentTypeGateway:
+		return "gateway.json"
 	case models.EdgeOnboardingComponentTypeAgent:
 		return "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:
@@ -183,8 +183,8 @@ func writeGeneratedConfig(componentType models.EdgeOnboardingComponentType, data
 	// Determine filename
 	var filename string
 	switch componentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		filename = "poller.json"
+	case models.EdgeOnboardingComponentTypeGateway:
+		filename = "gateway.json"
 	case models.EdgeOnboardingComponentTypeAgent:
 		filename = "agent.json"
 	case models.EdgeOnboardingComponentTypeChecker:

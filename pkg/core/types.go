@@ -55,7 +55,7 @@ type sysmonStreamState struct {
 
 // Server represents the core ServiceRadar server instance with all its dependencies and configuration.
 type Server struct {
-	proto.UnimplementedPollerServiceServer
+	proto.UnimplementedGatewayServiceServer
 	proto.UnimplementedCoreServiceServer
 	mu                  sync.RWMutex
 	DB                  db.Service
@@ -63,7 +63,7 @@ type Server struct {
 	webhooks            []alerts.AlertService
 	apiServer           api.Service
 	ShutdownChan        chan struct{}
-	pollerPatterns      []string
+	gatewayPatterns      []string
 	grpcServer          *grpc.Server
 	metrics             *metrics.Manager
 	snmpManager         metricstore.SNMPManager
@@ -94,10 +94,10 @@ type Server struct {
 	sysmonStallMu           sync.Mutex
 	serviceDeviceMu         sync.Mutex
 	serviceDeviceBuffer     map[string]*models.DeviceUpdate
-	pollerStatusCache       map[string]*models.PollerStatus
-	pollerStatusUpdates     map[string]*models.PollerStatus
-	pollerStatusUpdateMutex sync.Mutex
-	pollerStatusInterval    time.Duration
+	gatewayStatusCache       map[string]*models.GatewayStatus
+	gatewayStatusUpdates     map[string]*models.GatewayStatus
+	gatewayStatusUpdateMutex sync.Mutex
+	gatewayStatusInterval    time.Duration
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
 	logger                  logger.Logger
@@ -122,7 +122,7 @@ type OIDStatusData struct {
 
 // ServiceStatus represents the status of a monitored service.
 type ServiceStatus struct {
-	PollerID    string
+	GatewayID    string
 	ServiceName string
 	ServiceType string
 	Available   bool

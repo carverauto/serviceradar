@@ -246,7 +246,7 @@ func (i *OCSFTypeInference) inferFromServiceType(serviceType string) (int, strin
 
 	// ServiceRadar infrastructure components are typically servers/virtual machines
 	switch {
-	case strings.Contains(serviceTypeLower, "poller"),
+	case strings.Contains(serviceTypeLower, "gateway"),
 		strings.Contains(serviceTypeLower, "agent"),
 		strings.Contains(serviceTypeLower, "core"),
 		strings.Contains(serviceTypeLower, "checker"):

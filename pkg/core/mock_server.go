@@ -61,10 +61,10 @@ func (mr *MockNodeServiceMockRecorder) CheckNodeHealth(nodeID any) *gomock.Call 
 }
 
 // GetNodeHistory mocks base method.
-func (m *MockNodeService) GetNodeHistory(nodeID string, limit int) ([]api.PollerHistoryPoint, error) {
+func (m *MockNodeService) GetNodeHistory(nodeID string, limit int) ([]api.GatewayHistoryPoint, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNodeHistory", nodeID, limit)
-	ret0, _ := ret[0].([]api.PollerHistoryPoint)
+	ret0, _ := ret[0].([]api.GatewayHistoryPoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -76,10 +76,10 @@ func (mr *MockNodeServiceMockRecorder) GetNodeHistory(nodeID, limit any) *gomock
 }
 
 // GetNodeStatus mocks base method.
-func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.PollerStatus, error) {
+func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.GatewayStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNodeStatus", nodeID)
-	ret0, _ := ret[0].(*api.PollerStatus)
+	ret0, _ := ret[0].(*api.GatewayStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -91,7 +91,7 @@ func (mr *MockNodeServiceMockRecorder) GetNodeStatus(nodeID any) *gomock.Call {
 }
 
 // UpdateNodeStatus mocks base method.
-func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.PollerStatus) error {
+func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.GatewayStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateNodeStatus", nodeID, status)
 	ret0, _ := ret[0].(error)
@@ -143,7 +143,7 @@ func (mr *MockCoreServiceMockRecorder) GetMetricsManager() *gomock.Call {
 }
 
 // ReportStatus mocks base method.
-func (m *MockCoreService) ReportStatus(ctx context.Context, nodeID string, status *api.PollerStatus) error {
+func (m *MockCoreService) ReportStatus(ctx context.Context, nodeID string, status *api.GatewayStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReportStatus", ctx, nodeID, status)
 	ret0, _ := ret[0].(error)
@@ -209,29 +209,29 @@ func (m *MockDiscoveryService) EXPECT() *MockDiscoveryServiceMockRecorder {
 }
 
 // ProcessSNMPDiscoveryResults mocks base method.
-func (m *MockDiscoveryService) ProcessSNMPDiscoveryResults(ctx context.Context, reportingPollerID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
+func (m *MockDiscoveryService) ProcessSNMPDiscoveryResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessSNMPDiscoveryResults", ctx, reportingPollerID, partition, svc, details, timestamp)
+	ret := m.ctrl.Call(m, "ProcessSNMPDiscoveryResults", ctx, reportingGatewayID, partition, svc, details, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ProcessSNMPDiscoveryResults indicates an expected call of ProcessSNMPDiscoveryResults.
-func (mr *MockDiscoveryServiceMockRecorder) ProcessSNMPDiscoveryResults(ctx, reportingPollerID, partition, svc, details, timestamp any) *gomock.Call {
+func (mr *MockDiscoveryServiceMockRecorder) ProcessSNMPDiscoveryResults(ctx, reportingGatewayID, partition, svc, details, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSNMPDiscoveryResults", reflect.TypeOf((*MockDiscoveryService)(nil).ProcessSNMPDiscoveryResults), ctx, reportingPollerID, partition, svc, details, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSNMPDiscoveryResults", reflect.TypeOf((*MockDiscoveryService)(nil).ProcessSNMPDiscoveryResults), ctx, reportingGatewayID, partition, svc, details, timestamp)
 }
 
 // ProcessSyncResults mocks base method.
-func (m *MockDiscoveryService) ProcessSyncResults(ctx context.Context, reportingPollerID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
+func (m *MockDiscoveryService) ProcessSyncResults(ctx context.Context, reportingGatewayID, partition string, svc *proto.ServiceStatus, details json.RawMessage, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessSyncResults", ctx, reportingPollerID, partition, svc, details, timestamp)
+	ret := m.ctrl.Call(m, "ProcessSyncResults", ctx, reportingGatewayID, partition, svc, details, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ProcessSyncResults indicates an expected call of ProcessSyncResults.
-func (mr *MockDiscoveryServiceMockRecorder) ProcessSyncResults(ctx, reportingPollerID, partition, svc, details, timestamp any) *gomock.Call {
+func (mr *MockDiscoveryServiceMockRecorder) ProcessSyncResults(ctx, reportingGatewayID, partition, svc, details, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSyncResults", reflect.TypeOf((*MockDiscoveryService)(nil).ProcessSyncResults), ctx, reportingPollerID, partition, svc, details, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessSyncResults", reflect.TypeOf((*MockDiscoveryService)(nil).ProcessSyncResults), ctx, reportingGatewayID, partition, svc, details, timestamp)
 }

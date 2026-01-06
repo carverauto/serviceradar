@@ -15,7 +15,7 @@ type CollectorCapabilityResponse struct {
 	SupportsSysmon bool       `json:"supports_sysmon"`
 	Capabilities   []string   `json:"capabilities,omitempty"`
 	AgentID        string     `json:"agent_id,omitempty"`
-	PollerID       string     `json:"poller_id,omitempty"`
+	GatewayID       string     `json:"gateway_id,omitempty"`
 	ServiceName    string     `json:"service_name,omitempty"`
 	LastSeen       *time.Time `json:"last_seen,omitempty"`
 }
@@ -29,7 +29,7 @@ func toCollectorCapabilityResponse(record *models.CollectorCapability) *Collecto
 		HasCollector: true,
 		Capabilities: append([]string(nil), record.Capabilities...),
 		AgentID:      record.AgentID,
-		PollerID:     record.PollerID,
+		GatewayID:     record.GatewayID,
 		ServiceName:  record.ServiceName,
 	}
 

@@ -78,7 +78,7 @@ type DiscoveryParams struct {
 	Timeout     time.Duration     // Timeout for each operation
 	Retries     int               // Number of retries for failed operations
 	AgentID     string            // ID of the agent performing discovery
-	PollerID    string            // ID of the poller initiating discovery
+	GatewayID    string            // ID of the gateway initiating discovery
 }
 
 // SNMPCredentials contains information needed to authenticate with SNMP devices.
@@ -151,7 +151,7 @@ type DiscoveryResults struct {
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
-	DeviceID    string // Unique identifier for the device (agentID:pollerID:deviceIP)
+	DeviceID    string // Unique identifier for the device (agentID:gatewayID:deviceIP)
 	IP          string
 	MAC         string
 	Hostname    string
@@ -261,7 +261,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			InterfaceStream      string `json:"interface_stream"`
 			TopologyStream       string `json:"topology_stream"`
 			AgentID              string `json:"agent_id"`
-			PollerID             string `json:"poller_id"`
+			GatewayID             string `json:"gateway_id"`
 			Partition            string `json:"partition"`
 			PublishBatchSize     int    `json:"publish_batch_size"`
 			PublishRetries       int    `json:"publish_retries"`
@@ -347,7 +347,7 @@ type StreamConfig struct {
 	InterfaceStream      string
 	TopologyStream       string
 	AgentID              string
-	PollerID             string
+	GatewayID             string
 	Partition            string
 	PublishBatchSize     int
 	PublishRetries       int

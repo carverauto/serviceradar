@@ -35,7 +35,7 @@ go_library(
         "metrics.go",
         "mock_db.go",
         "netflow.go",
-        "pollers.go",
+        "gateways.go",
         "pgx_batch_helper.go",
         "sql_parser.go",
         "services.go",

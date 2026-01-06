@@ -71,7 +71,7 @@ SELECT
 	org,
 	groups,
 	agent_list,
-	poller_id,
+	gateway_id,
 	agent_id,
 	discovery_sources,
 	is_available,
@@ -110,7 +110,7 @@ func (db *DB) UpsertOCSFDevice(ctx context.Context, device *models.OCSFDevice) e
 		first_seen_time, last_seen_time, created_time, modified_time,
 		risk_level_id, risk_level, risk_score, is_managed, is_compliant, is_trusted,
 		os, hw_info, network_interfaces, owner, org, groups, agent_list,
-		poller_id, agent_id, discovery_sources, is_available, metadata
+		gateway_id, agent_id, discovery_sources, is_available, metadata
 	) VALUES (
 		$1, $2, $3, $4, $5, $6, $7,
 		$8, $9, $10, $11, $12, $13, $14, $15,
@@ -149,7 +149,7 @@ func (db *DB) UpsertOCSFDevice(ctx context.Context, device *models.OCSFDevice) e
 		org = COALESCE(EXCLUDED.org, ocsf_devices.org),
 		groups = COALESCE(EXCLUDED.groups, ocsf_devices.groups),
 		agent_list = COALESCE(EXCLUDED.agent_list, ocsf_devices.agent_list),
-		poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), ocsf_devices.poller_id),
+		gateway_id = COALESCE(NULLIF(EXCLUDED.gateway_id, ''), ocsf_devices.gateway_id),
 		agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), ocsf_devices.agent_id),
 		discovery_sources = (
 			SELECT array_agg(DISTINCT src) FROM unnest(
@@ -192,7 +192,7 @@ func (db *DB) UpsertOCSFDevice(ctx context.Context, device *models.OCSFDevice) e
 		nullableBytes(orgJSON),
 		nullableBytes(groupsJSON),
 		nullableBytes(agentListJSON),
-		nullableString(device.PollerID),
+		nullableString(device.GatewayID),
 		nullableString(device.AgentID),
 		device.DiscoverySources,
 		device.IsAvailable,
@@ -245,7 +245,7 @@ func (db *DB) UpsertOCSFDeviceBatch(ctx context.Context, devices []*models.OCSFD
 				first_seen_time, last_seen_time, created_time, modified_time,
 				risk_level_id, risk_level, risk_score, is_managed, is_compliant, is_trusted,
 				os, hw_info, network_interfaces, owner, org, groups, agent_list,
-				poller_id, agent_id, discovery_sources, is_available, metadata
+				gateway_id, agent_id, discovery_sources, is_available, metadata
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7,
 				$8, $9, $10, $11, $12, $13, $14, $15,
@@ -274,7 +274,7 @@ func (db *DB) UpsertOCSFDeviceBatch(ctx context.Context, devices []*models.OCSFD
 				os = COALESCE(EXCLUDED.os, ocsf_devices.os),
 				hw_info = COALESCE(EXCLUDED.hw_info, ocsf_devices.hw_info),
 				network_interfaces = COALESCE(EXCLUDED.network_interfaces, ocsf_devices.network_interfaces),
-				poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), ocsf_devices.poller_id),
+				gateway_id = COALESCE(NULLIF(EXCLUDED.gateway_id, ''), ocsf_devices.gateway_id),
 				agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), ocsf_devices.agent_id),
 				discovery_sources = (
 					SELECT array_agg(DISTINCT src) FROM unnest(
@@ -315,7 +315,7 @@ func (db *DB) UpsertOCSFDeviceBatch(ctx context.Context, devices []*models.OCSFD
 			nullableBytes(orgJSON),
 			nullableBytes(groupsJSON),
 			nullableBytes(agentListJSON),
-			nullableString(device.PollerID),
+			nullableString(device.GatewayID),
 			nullableString(device.AgentID),
 			device.DiscoverySources,
 			device.IsAvailable,
@@ -510,7 +510,7 @@ type ocsfDeviceScanTargets struct {
 	isManaged         sql.NullBool
 	isCompliant       sql.NullBool
 	isTrusted         sql.NullBool
-	pollerID          sql.NullString
+	gatewayID          sql.NullString
 	agentID           sql.NullString
 	isAvailable       sql.NullBool
 	osJSON            []byte
@@ -561,7 +561,7 @@ func scanOCSFDevice(row pgx.Row) (*models.OCSFDevice, error) {
 		&t.orgJSON,
 		&t.groupsJSON,
 		&t.agentListJSON,
-		&t.pollerID,
+		&t.gatewayID,
 		&t.agentID,
 		&t.discoverySources,
 		&t.isAvailable,
@@ -593,7 +593,7 @@ func mapOCSFDeviceNullableFields(d *models.OCSFDevice, t *ocsfDeviceScanTargets)
 	d.VlanUID = nullStringValue(t.vlanUID)
 	d.Region = nullStringValue(t.region)
 	d.RiskLevel = nullStringValue(t.riskLevel)
-	d.PollerID = nullStringValue(t.pollerID)
+	d.GatewayID = nullStringValue(t.gatewayID)
 	d.AgentID = nullStringValue(t.agentID)
 
 	// Time fields

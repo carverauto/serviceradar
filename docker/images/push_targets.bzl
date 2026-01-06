@@ -18,7 +18,6 @@ GHCR_PUSH_TARGETS = [
     {"image": "otel_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-otel"},
     {"image": "snmp_checker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-snmp-checker"},
     {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
-    {"image": "poller_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-poller"},
     {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-faker"},
     {"image": "zen_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-zen"},

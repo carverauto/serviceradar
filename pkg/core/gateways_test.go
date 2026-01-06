@@ -20,14 +20,14 @@ func TestResolveServiceHostIPFallsBackToStoredStatus(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockDB.EXPECT().
-		GetPollerStatus(gomock.Any(), "poller-1").
-		Return(&models.PollerStatus{HostIP: "10.0.0.5"}, nil)
+		GetGatewayStatus(gomock.Any(), "gateway-1").
+		Return(&models.GatewayStatus{HostIP: "10.0.0.5"}, nil)
 
 	server := &Server{
 		DB: mockDB,
 	}
 
-	ip := server.resolveServiceHostIP(ctx, "poller-1", "", "")
+	ip := server.resolveServiceHostIP(ctx, "gateway-1", "", "")
 
 	require.Equal(t, "10.0.0.5", ip)
 }

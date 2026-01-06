@@ -76,7 +76,7 @@ func NewDiscoveryService(dbSvc db.Service, reg registry.Manager, log logger.Logg
 // It handles the discovery data, extracts relevant information, and stores it in the database.
 func (s *discoveryService) ProcessSyncResults(
 	ctx context.Context,
-	reportingPollerID string,
+	reportingGatewayID string,
 	_ string, // partition is not used in sync results
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
@@ -87,7 +87,7 @@ func (s *discoveryService) ProcessSyncResults(
 	// Quickly detect lightweight status payloads without allocating large objects.
 	if s.isStatusPayload(details) {
 		s.logger.Debug().
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Msg("Skipping status payload for sync service")
 
 		return nil
@@ -109,7 +109,7 @@ func (s *discoveryService) ProcessSyncResults(
 			if stats.samplesLogged[src] < maxSyncSamplesPerSource {
 				s.logger.Debug().
 					Str("source", src).
-					Str("poller_id", reportingPollerID).
+					Str("gateway_id", reportingGatewayID).
 					Str("service_name", svc.ServiceName).
 					Str("ip", update.IP).
 					Str("device_id", update.DeviceID).
@@ -134,7 +134,7 @@ func (s *discoveryService) ProcessSyncResults(
 	if err := s.streamSyncDeviceUpdates(details, chunkHandler); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Msg("Error processing sync discovery sightings")
 
 		return err
@@ -142,7 +142,7 @@ func (s *discoveryService) ProcessSyncResults(
 
 	if stats.totalSightings == 0 {
 		s.logger.Debug().
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Str("service_name", svc.ServiceName).
 			Msg("No sightings found in sync discovery data")
 
@@ -151,7 +151,7 @@ func (s *discoveryService) ProcessSyncResults(
 
 	s.logger.Info().
 		Int("sighting_count", stats.totalSightings).
-		Str("poller_id", reportingPollerID).
+		Str("gateway_id", reportingGatewayID).
 		Str("service_name", svc.ServiceName).
 		Str("top_source", stats.primarySource()).
 		Interface("source_counts", stats.sourceCounts).
@@ -294,7 +294,7 @@ func estimateDeviceUpdateSize(update *models.DeviceUpdate) int {
 	}
 
 	size := 64 // base overhead for struct metadata
-	size += len(update.AgentID) + len(update.PollerID) + len(update.DeviceID) + len(update.Partition)
+	size += len(update.AgentID) + len(update.GatewayID) + len(update.DeviceID) + len(update.Partition)
 	size += len(update.IP)
 
 	if update.MAC != nil {
@@ -347,7 +347,7 @@ func isLoopbackIP(ipStr string) bool {
 // ProcessSNMPDiscoveryResults handles the data from SNMP discovery.
 func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	ctx context.Context,
-	reportingPollerID string,
+	reportingGatewayID string,
 	partition string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
@@ -358,7 +358,7 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	if err := json.Unmarshal(details, &payload); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Str("service_name", svc.ServiceName).
 			Str("payload", string(details)).
 			Msg("Error unmarshaling SNMP discovery data")
@@ -367,24 +367,24 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 	}
 
 	discoveryAgentID := payload.AgentID
-	discoveryInitiatorPollerID := payload.PollerID
+	discoveryInitiatorGatewayID := payload.GatewayID
 
 	// Fallback for discovery-specific IDs if not provided in payload
 	if discoveryAgentID == "" {
 		s.logger.Warn().
-			Str("reporting_poller_id", reportingPollerID).
+			Str("reporting_gateway_id", reportingGatewayID).
 			Str("fallback_agent_id", svc.AgentId).
 			Msg("SNMPDiscoveryDataPayload.AgentID is empty, falling back to svc.AgentID")
 
 		discoveryAgentID = svc.AgentId
 	}
 
-	if discoveryInitiatorPollerID == "" {
+	if discoveryInitiatorGatewayID == "" {
 		s.logger.Warn().
-			Str("reporting_poller_id", reportingPollerID).
-			Msg("SNMPDiscoveryDataPayload.PollerID is empty, falling back to reportingPollerID")
+			Str("reporting_gateway_id", reportingGatewayID).
+			Msg("SNMPDiscoveryDataPayload.GatewayID is empty, falling back to reportingGatewayID")
 
-		discoveryInitiatorPollerID = reportingPollerID
+		discoveryInitiatorGatewayID = reportingGatewayID
 	}
 
 	// Create a map of discovered devices for easy lookup by IP.
@@ -399,19 +399,19 @@ func (s *discoveryService) ProcessSNMPDiscoveryResults(
 
 	// Process each type of discovery data
 	if len(payload.Devices) > 0 {
-		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID,
-			partition, reportingPollerID, timestamp)
+		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorGatewayID,
+			partition, reportingGatewayID, timestamp)
 	}
 
 	if len(payload.Interfaces) > 0 {
 		// Pass the deviceMap to the interface processor to enrich sightings.
-		s.processDiscoveredInterfaces(ctx, payload.Interfaces, deviceMap, discoveryAgentID, discoveryInitiatorPollerID,
-			partition, reportingPollerID, timestamp)
+		s.processDiscoveredInterfaces(ctx, payload.Interfaces, deviceMap, discoveryAgentID, discoveryInitiatorGatewayID,
+			partition, reportingGatewayID, timestamp)
 	}
 
 	if len(payload.Topology) > 0 {
-		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID,
-			partition, reportingPollerID, timestamp)
+		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorGatewayID,
+			partition, reportingGatewayID, timestamp)
 	}
 
 	return nil
@@ -422,9 +422,9 @@ func (s *discoveryService) processDiscoveredDevices(
 	ctx context.Context,
 	devices []*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
+	discoveryInitiatorGatewayID string,
 	partition string,
-	reportingPollerID string,
+	reportingGatewayID string,
 	timestamp time.Time,
 ) {
 	resultsToStore := make([]*models.DeviceUpdate, 0, len(devices))
@@ -440,7 +440,7 @@ func (s *discoveryService) processDiscoveredDevices(
 
 		result := &models.DeviceUpdate{
 			AgentID:     discoveryAgentID,
-			PollerID:    discoveryInitiatorPollerID,
+			GatewayID:    discoveryInitiatorGatewayID,
 			DeviceID:    fmt.Sprintf("%s:%s", partition, protoDevice.Ip),
 			Partition:   partition,
 			Source:      models.DiscoverySourceMapper, // Mapper discovery: devices found by the mapper component using SNMP
@@ -460,7 +460,7 @@ func (s *discoveryService) processDiscoveredDevices(
 		if err := s.reg.ProcessBatchDeviceUpdates(ctx, resultsToStore); err != nil {
 			s.logger.Error().
 				Err(err).
-				Str("poller_id", reportingPollerID).
+				Str("gateway_id", reportingGatewayID).
 				Msg("Error processing discovered device sightings")
 		}
 	}
@@ -667,7 +667,7 @@ func (s *discoveryService) createModelInterfaces(
 	deviceToInterfacesMap map[string][]*discoverypb.DiscoveredInterface,
 	partition string,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
+	discoveryInitiatorGatewayID string,
 	timestamp time.Time,
 ) []*models.DiscoveredInterface {
 	allModelInterfaces := make([]*models.DiscoveredInterface, 0)
@@ -680,7 +680,7 @@ func (s *discoveryService) createModelInterfaces(
 			modelIface := &models.DiscoveredInterface{
 				Timestamp:     timestamp,
 				AgentID:       discoveryAgentID,
-				PollerID:      discoveryInitiatorPollerID,
+				GatewayID:      discoveryInitiatorGatewayID,
 				DeviceIP:      protoIface.DeviceIp,
 				DeviceID:      provisionalDeviceID, // Use the provisional ID for this raw data.
 				IfIndex:       protoIface.IfIndex,
@@ -734,7 +734,7 @@ func (s *discoveryService) createCorrelationSighting(
 	deviceMap map[string]*discoverypb.DiscoveredDevice,
 	partition string,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
+	discoveryInitiatorGatewayID string,
 	timestamp time.Time,
 ) *models.DeviceUpdate {
 	// Initialize metadata from the parent device, if it exists in the map.
@@ -763,7 +763,7 @@ func (s *discoveryService) createCorrelationSighting(
 	// Create the single, enriched sighting for this device.
 	return &models.DeviceUpdate{
 		AgentID:     discoveryAgentID,
-		PollerID:    discoveryInitiatorPollerID,
+		GatewayID:    discoveryInitiatorGatewayID,
 		DeviceID:    fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
 		Partition:   partition,
 		IP:          deviceIP, // The primary IP from this discovery event.
@@ -779,9 +779,9 @@ func (s *discoveryService) processDiscoveredInterfaces(
 	interfaces []*discoverypb.DiscoveredInterface,
 	deviceMap map[string]*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
+	discoveryInitiatorGatewayID string,
 	partition string,
-	reportingPollerID string,
+	reportingGatewayID string,
 	timestamp time.Time,
 ) {
 	if len(interfaces) == 0 {
@@ -796,14 +796,14 @@ func (s *discoveryService) processDiscoveredInterfaces(
 		deviceToInterfacesMap,
 		partition,
 		discoveryAgentID,
-		discoveryInitiatorPollerID,
+		discoveryInitiatorGatewayID,
 		timestamp,
 	)
 
 	if err := s.db.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Msg("Error publishing batch discovered interfaces")
 	}
 
@@ -821,7 +821,7 @@ func (s *discoveryService) processDiscoveredInterfaces(
 			deviceMap,
 			partition,
 			discoveryAgentID,
-			discoveryInitiatorPollerID,
+			discoveryInitiatorGatewayID,
 			timestamp,
 		)
 
@@ -923,9 +923,9 @@ func (s *discoveryService) processDiscoveredTopology(
 	ctx context.Context,
 	topology []*discoverypb.TopologyLink,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
+	discoveryInitiatorGatewayID string,
 	partition string,
-	reportingPollerID string,
+	reportingGatewayID string,
 	timestamp time.Time,
 ) {
 	modelTopologyEvents := make([]*models.TopologyDiscoveryEvent, 0, len(topology))
@@ -941,7 +941,7 @@ func (s *discoveryService) processDiscoveredTopology(
 		modelEvent := &models.TopologyDiscoveryEvent{
 			Timestamp:              timestamp,
 			AgentID:                discoveryAgentID,
-			PollerID:               discoveryInitiatorPollerID,
+			GatewayID:               discoveryInitiatorGatewayID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
 			LocalIfIndex:           protoLink.LocalIfIndex,
@@ -967,7 +967,7 @@ func (s *discoveryService) processDiscoveredTopology(
 	if err := s.db.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
 		s.logger.Error().
 			Err(err).
-			Str("poller_id", reportingPollerID).
+			Str("gateway_id", reportingGatewayID).
 			Msg("Error publishing batch topology discovery events")
 	}
 

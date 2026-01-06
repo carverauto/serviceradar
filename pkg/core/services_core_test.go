@@ -134,7 +134,7 @@ func TestFindCoreServiceType(t *testing.T) {
 			services: []*proto.ServiceStatus{
 				{ServiceName: "sysmon-checker", ServiceType: "grpc"},
 				{ServiceName: "otel-collector", ServiceType: "otel"},
-				{ServiceName: "snmp-poller", ServiceType: "snmp"},
+				{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 			},
 			expectedType:     models.ServiceTypeOtel,
 			expectedServiceID: "otel-collector",
@@ -152,7 +152,7 @@ func TestFindCoreServiceType(t *testing.T) {
 			name: "returns empty for non-core services",
 			services: []*proto.ServiceStatus{
 				{ServiceName: "sysmon-checker", ServiceType: "grpc"},
-				{ServiceName: "snmp-poller", ServiceType: "snmp"},
+				{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 			},
 			expectedType:     "",
 			expectedServiceID: "",
@@ -293,7 +293,7 @@ func TestRegisterServiceOrCoreDevice_CoreService(t *testing.T) {
 
 	server.registerServiceOrCoreDevice(
 		context.Background(),
-		"datasvc-primary", // pollerID
+		"datasvc-primary", // gatewayID
 		"core",            // partition
 		"172.18.0.5",      // Docker IP - should still work for core service
 		services,
@@ -301,7 +301,7 @@ func TestRegisterServiceOrCoreDevice_CoreService(t *testing.T) {
 	)
 }
 
-func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
+func TestRegisterServiceOrCoreDevice_RegularGateway(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -314,7 +314,7 @@ func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
 
 	now := time.Now()
 
-	// Expect regular poller device registration (partition:IP format)
+	// Expect regular gateway device registration (partition:IP format)
 	mockRegistry.EXPECT().
 		ProcessDeviceUpdate(gomock.Any(), gomock.AssignableToTypeOf(&models.DeviceUpdate{})).
 		DoAndReturn(func(_ context.Context, update *models.DeviceUpdate) error {
@@ -325,12 +325,12 @@ func TestRegisterServiceOrCoreDevice_RegularPoller(t *testing.T) {
 
 	services := []*proto.ServiceStatus{
 		{ServiceName: "sysmon-checker", ServiceType: "grpc"},
-		{ServiceName: "snmp-poller", ServiceType: "snmp"},
+		{ServiceName: "snmp-gateway", ServiceType: "snmp"},
 	}
 
 	server.registerServiceOrCoreDevice(
 		context.Background(),
-		"edge-poller-01", // pollerID
+		"edge-gateway-01", // gatewayID
 		"edge",           // partition
 		"192.168.1.100",  // regular IP
 		services,

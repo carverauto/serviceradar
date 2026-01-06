@@ -16,7 +16,7 @@ func TestBuildAgeGraphParams_DeviceCollectorsAndEdges(t *testing.T) {
 			DeviceID: "sr:device-1",
 			IP:       "192.168.1.10",
 			AgentID:  "docker-agent",
-			PollerID: "docker-poller",
+			GatewayID: "docker-gateway",
 			Hostname: &host,
 		},
 	})
@@ -24,7 +24,7 @@ func TestBuildAgeGraphParams_DeviceCollectorsAndEdges(t *testing.T) {
 	require.NotNil(t, params)
 	assert.Len(t, params.Devices, 1)
 	assert.Equal(t, "sr:device-1", params.Devices[0].ID)
-	assert.Len(t, params.Collectors, 2, "agent and poller collectors should be present")
+	assert.Len(t, params.Collectors, 2, "agent and gateway collectors should be present")
 	assert.Len(t, params.ReportedBy, 2, "device should have edges to both collectors")
 	assert.Empty(t, params.Services)
 }
@@ -36,15 +36,15 @@ func TestBuildAgeGraphParams_AgentCollectorOnly(t *testing.T) {
 			DeviceID:    models.GenerateServiceDeviceID(models.ServiceTypeAgent, "docker-agent"),
 			ServiceType: serviceTypePtr(models.ServiceTypeAgent),
 			IP:          "172.18.0.5",
-			PollerID:    "docker-poller",
+			GatewayID:    "docker-gateway",
 			Hostname:    &host,
 		},
 	})
 
 	require.NotNil(t, params)
 	assert.Empty(t, params.Devices, "service devices should not create Device nodes")
-	assert.Len(t, params.Collectors, 2, "agent collector plus parent poller collector")
-	assert.Len(t, params.ReportedBy, 1, "agent should link back to its poller")
+	assert.Len(t, params.Collectors, 2, "agent collector plus parent gateway collector")
+	assert.Len(t, params.ReportedBy, 1, "agent should link back to its gateway")
 	assert.Empty(t, params.Services)
 }
 

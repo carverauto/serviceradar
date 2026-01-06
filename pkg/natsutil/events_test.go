@@ -25,26 +25,26 @@ func TestEnsureSubjectList(t *testing.T) {
 		{
 			name:     "adds subject when list empty",
 			subjects: nil,
-			subject:  "events.poller.health",
-			want:     []string{"events.poller.health"},
+			subject:  "events.gateway.health",
+			want:     []string{"events.gateway.health"},
 		},
 		{
 			name:     "keeps list when wildcard matches",
-			subjects: []string{"events.poller.*"},
-			subject:  "events.poller.health",
-			want:     []string{"events.poller.*"},
+			subjects: []string{"events.gateway.*"},
+			subject:  "events.gateway.health",
+			want:     []string{"events.gateway.*"},
 		},
 		{
 			name:     "keeps list when greater wildcard matches",
 			subjects: []string{"events.>"},
-			subject:  "events.poller.health",
+			subject:  "events.gateway.health",
 			want:     []string{"events.>"},
 		},
 		{
 			name:     "appends when unmatched",
 			subjects: []string{"events.syslog.*"},
-			subject:  "events.poller.health",
-			want:     []string{"events.syslog.*", "events.poller.health"},
+			subject:  "events.gateway.health",
+			want:     []string{"events.syslog.*", "events.gateway.health"},
 		},
 	}
 
@@ -75,11 +75,11 @@ func TestMatchesSubject(t *testing.T) {
 		subject  string
 		expected bool
 	}{
-		{"exact match", "events.poller.health", "events.poller.health", true},
-		{"single wildcard", "events.*.health", "events.poller.health", true},
-		{"greater wildcard", "events.>", "events.poller.health", true},
-		{"no match length", "events.*", "events.poller.health", false},
-		{"no match tokens", "events.syslog.*", "events.poller.health", false},
+		{"exact match", "events.gateway.health", "events.gateway.health", true},
+		{"single wildcard", "events.*.health", "events.gateway.health", true},
+		{"greater wildcard", "events.>", "events.gateway.health", true},
+		{"no match length", "events.*", "events.gateway.health", false},
+		{"no match tokens", "events.syslog.*", "events.gateway.health", false},
 	}
 
 	for _, tc := range tests {
@@ -160,29 +160,29 @@ func TestApplyTenantPrefix(t *testing.T) {
 			name:            "prefixing enabled with tenant in context",
 			prefixingEnabled: true,
 			tenantSlug:      "acme-corp",
-			subject:         "events.poller.health",
-			expected:        "acme-corp.events.poller.health",
+			subject:         "events.gateway.health",
+			expected:        "acme-corp.events.gateway.health",
 		},
 		{
 			name:            "prefixing enabled without tenant defaults to 'default'",
 			prefixingEnabled: true,
 			tenantSlug:      "",
-			subject:         "events.poller.health",
-			expected:        "default.events.poller.health",
+			subject:         "events.gateway.health",
+			expected:        "default.events.gateway.health",
 		},
 		{
 			name:            "prefixing disabled returns original subject",
 			prefixingEnabled: false,
 			tenantSlug:      "acme-corp",
-			subject:         "events.poller.health",
-			expected:        "events.poller.health",
+			subject:         "events.gateway.health",
+			expected:        "events.gateway.health",
 		},
 		{
 			name:            "prefixing disabled without tenant returns original",
 			prefixingEnabled: false,
 			tenantSlug:      "",
-			subject:         "events.poller.health",
-			expected:        "events.poller.health",
+			subject:         "events.gateway.health",
+			expected:        "events.gateway.health",
 		},
 	}
 

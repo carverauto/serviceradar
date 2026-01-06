@@ -64,7 +64,7 @@ func testServiceWithMocks(
 		context.Background(),
 		&Config{
 			AgentID:           "test-agent",
-			PollerID:          "test-poller",
+			GatewayID:          "test-gateway",
 			DiscoveryInterval: models.Duration(time.Minute),
 			UpdateInterval:    models.Duration(time.Minute),
 			ListenAddr:        ":50051",
@@ -270,7 +270,7 @@ func TestSafelyRunTask(t *testing.T) {
 				context.Background(),
 				&Config{
 					AgentID:           "test-agent",
-					PollerID:          "test-poller",
+					GatewayID:          "test-gateway",
 					DiscoveryInterval: models.Duration(time.Minute),
 					UpdateInterval:    models.Duration(time.Minute),
 					ListenAddr:        ":50051",
@@ -347,7 +347,7 @@ func TestErrorChannelOverflow(t *testing.T) {
 		context.Background(),
 		&Config{
 			AgentID:           "test-agent",
-			PollerID:          "test-poller",
+			GatewayID:          "test-gateway",
 			DiscoveryInterval: models.Duration(time.Minute),
 			UpdateInterval:    models.Duration(time.Minute),
 			ListenAddr:        ":50051",
@@ -409,7 +409,7 @@ func TestGracefulShutdown(t *testing.T) {
 		context.Background(),
 		&Config{
 			AgentID:           "test-agent",
-			PollerID:          "test-poller",
+			GatewayID:          "test-gateway",
 			DiscoveryInterval: models.Duration(time.Hour), // Won't trigger
 			UpdateInterval:    models.Duration(time.Hour),
 			ListenAddr:        ":50051",
