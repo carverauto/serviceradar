@@ -14,7 +14,7 @@ The system SHALL generate a unique intermediate CA for each tenant, signed by th
 - **AND** the CA certificate and key are stored securely
 
 #### Scenario: Tenant CA used for edge certificates
-- **WHEN** an edge component (agent, gateway, checker) is onboarded for a tenant
+- **WHEN** an edge component (agent, checker) is onboarded for a tenant
 - **THEN** the component certificate is signed by that tenant's intermediate CA
 - **AND** the certificate CN includes the tenant ID (e.g., `agent-001.tenant-12345.serviceradar`)
 
@@ -71,18 +71,14 @@ The onboarding system SHALL generate download packages containing tenant-specifi
 
 All NATS messages from edge components SHALL use tenant-prefixed channel names.
 
-#### Scenario: Gateway heartbeat uses tenant prefix
-- **WHEN** gateway publishes heartbeat message
-- **THEN** message is published to `<tenant-id>.gateways.heartbeat`
+#### Scenario: Gateway status uses tenant prefix
+- **WHEN** gateway publishes a status update
+- **THEN** message is published to `<tenant-id>.gateways.status`
 - **AND** only subscribers with matching tenant prefix receive the message
 
 #### Scenario: Agent status uses tenant prefix
 - **WHEN** agent publishes status update
 - **THEN** message is published to `<tenant-id>.agents.status`
-
-#### Scenario: Job dispatch uses tenant prefix
-- **WHEN** gateway dispatches job to agent
-- **THEN** message is published to `<tenant-id>.jobs.<agent-id>`
 
 ### Requirement: Platform Admin Access
 
