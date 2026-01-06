@@ -2,13 +2,13 @@
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
     "alert_threshold": "5m",
-    "known_pollers": [
-        "default-poller"
+    "known_gateways": [
+        "default-gateway"
     ],
     "metrics": {
         "enabled": true,
         "retention": 100,
-        "max_pollers": 10000
+        "max_gateways": 10000
     },
     "database": {
         "addresses": [
@@ -77,7 +77,7 @@
     "events": {
         "enabled": true,
         "stream_name": "events",
-        "subjects": ["poller.health.*", "poller.status.*"]
+        "subjects": ["gateway.health.*", "gateway.status.*"]
     },
     "auth": {
         "jwt_secret": "PLACEHOLDER_WILL_BE_REPLACED",

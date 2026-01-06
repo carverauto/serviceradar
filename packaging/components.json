@@ -6,7 +6,6 @@
           "core",
           "srql",
           "agent",
-          "poller",
           "kv",
           "sync",
           "event-writer",

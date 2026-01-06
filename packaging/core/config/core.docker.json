@@ -2,8 +2,8 @@
   "listen_addr": ":8090",
   "grpc_addr": ":50052",
   "alert_threshold": "5m",
-  "known_pollers": [
-    "docker-poller"
+  "known_gateways": [
+    "docker-gateway"
   ],
   "srql": {
     "enabled": true,
@@ -14,7 +14,7 @@
   "metrics": {
     "enabled": true,
     "retention": 100,
-    "max_pollers": 10000
+    "max_gateways": 10000
   },
     "database": {
         "addresses": [

@@ -981,8 +981,6 @@ func (s *SimpleSyncService) configPollLoop(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-s.ctx.Done():
-			return s.ctx.Err()
 		case <-timer.C:
 			if err := s.fetchAndApplyConfig(ctx); err != nil {
 				if errors.Is(err, errGatewayNotEnrolled) {
@@ -1008,8 +1006,6 @@ func (s *SimpleSyncService) heartbeatLoop(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-s.ctx.Done():
-			return s.ctx.Err()
 		case <-timer.C:
 			if err := s.pushHeartbeat(ctx); err != nil {
 				s.logger.Error().Err(err).Msg("Failed to push sync heartbeat")
