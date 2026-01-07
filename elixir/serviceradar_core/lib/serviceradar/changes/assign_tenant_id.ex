@@ -38,9 +38,12 @@ defmodule ServiceRadar.Changes.AssignTenantId do
   end
 
   defp resolve_tenant_id(changeset) do
-    with %{tenant_id: tenant_id} when is_binary(tenant_id) <- changeset.actor do
-      tenant_id
-    else
+    actor = get_in(changeset.context, [:private, :actor])
+
+    case actor do
+      %{tenant_id: tenant_id} when is_binary(tenant_id) ->
+        tenant_id
+
       _ ->
         case changeset.tenant do
           tenant_id when is_binary(tenant_id) ->

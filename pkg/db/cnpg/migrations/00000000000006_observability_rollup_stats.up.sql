@@ -41,9 +41,34 @@ ON logs_severity_stats_5m (bucket DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_severity_stats_5m_service_bucket
 ON logs_severity_stats_5m (service_name, bucket DESC);
 
-COMMENT ON MATERIALIZED VIEW logs_severity_stats_5m IS
-'Pre-computed log severity counts in 5-minute buckets for dashboard stats cards.
-Severity normalization handles case variations and common synonyms.';
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_matviews
+        WHERE schemaname = 'public'
+          AND matviewname = 'logs_severity_stats_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON MATERIALIZED VIEW %I IS %L',
+            'logs_severity_stats_5m',
+            'Pre-computed log severity counts in 5-minute buckets for dashboard stats cards.
+Severity normalization handles case variations and common synonyms.'
+        );
+    ELSIF EXISTS (
+        SELECT 1
+        FROM pg_views
+        WHERE schemaname = 'public'
+          AND viewname = 'logs_severity_stats_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON VIEW %I IS %L',
+            'logs_severity_stats_5m',
+            'Pre-computed log severity counts in 5-minute buckets for dashboard stats cards.
+Severity normalization handles case variations and common synonyms.'
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- traces_stats_5m
@@ -82,10 +107,36 @@ ON traces_stats_5m (bucket DESC);
 CREATE INDEX IF NOT EXISTS idx_traces_stats_5m_service_bucket
 ON traces_stats_5m (service_name, bucket DESC);
 
-COMMENT ON MATERIALIZED VIEW traces_stats_5m IS
-'Pre-computed trace statistics from root spans in 5-minute buckets.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_matviews
+        WHERE schemaname = 'public'
+          AND matviewname = 'traces_stats_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON MATERIALIZED VIEW %I IS %L',
+            'traces_stats_5m',
+            'Pre-computed trace statistics from root spans in 5-minute buckets.
 Only root spans (parent_span_id IS NULL) are counted to avoid double-counting.
-Duration is computed in milliseconds from nanosecond timestamps.';
+Duration is computed in milliseconds from nanosecond timestamps.'
+        );
+    ELSIF EXISTS (
+        SELECT 1
+        FROM pg_views
+        WHERE schemaname = 'public'
+          AND viewname = 'traces_stats_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON VIEW %I IS %L',
+            'traces_stats_5m',
+            'Pre-computed trace statistics from root spans in 5-minute buckets.
+Only root spans (parent_span_id IS NULL) are counted to avoid double-counting.
+Duration is computed in milliseconds from nanosecond timestamps.'
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- services_availability_5m
@@ -119,10 +170,36 @@ ON services_availability_5m (bucket DESC);
 CREATE INDEX IF NOT EXISTS idx_services_availability_5m_type_bucket
 ON services_availability_5m (service_type, bucket DESC);
 
-COMMENT ON MATERIALIZED VIEW services_availability_5m IS
-'Pre-computed service availability counts in 5-minute buckets.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_matviews
+        WHERE schemaname = 'public'
+          AND matviewname = 'services_availability_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON MATERIALIZED VIEW %I IS %L',
+            'services_availability_5m',
+            'Pre-computed service availability counts in 5-minute buckets.
 Unique services are identified by (gateway_id, agent_id, service_name) tuple.
-Counts are broken down by service_type for filtering.';
+Counts are broken down by service_type for filtering.'
+        );
+    ELSIF EXISTS (
+        SELECT 1
+        FROM pg_views
+        WHERE schemaname = 'public'
+          AND viewname = 'services_availability_5m'
+    ) THEN
+        EXECUTE format(
+            'COMMENT ON VIEW %I IS %L',
+            'services_availability_5m',
+            'Pre-computed service availability counts in 5-minute buckets.
+Unique services are identified by (gateway_id, agent_id, service_name) tuple.
+Counts are broken down by service_type for filtering.'
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- Role grants

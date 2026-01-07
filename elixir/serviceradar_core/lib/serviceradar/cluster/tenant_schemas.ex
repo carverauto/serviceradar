@@ -102,6 +102,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     run_migrations = Keyword.get(opts, :run_migrations, true)
 
     try do
+      if reset_tenant_schemas?() do
+        Logger.warning("Resetting tenant schema before create: #{schema_name}")
+        drop_schema_name!(schema_name)
+      end
+
       # Create schema (safe against injection via sanitized name)
       Ecto.Adapters.SQL.query!(
         Repo,
@@ -291,7 +296,19 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   """
   @spec run_all_tenant_migrations!() :: :ok
   def run_all_tenant_migrations! do
-    for schema <- list_schemas() do
+    schemas = list_schemas()
+
+    schemas =
+      if reset_tenant_schemas?() and schemas != [] do
+        Logger.warning("Resetting #{length(schemas)} tenant schemas before migrations")
+
+        Enum.each(schemas, &drop_schema_name!/1)
+        []
+      else
+        schemas
+      end
+
+    for schema <- schemas do
       run_tenant_migrations!(schema)
     end
 
@@ -414,6 +431,18 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     """
 
     Ecto.Adapters.SQL.query!(Repo, query)
+  end
+
+  defp reset_tenant_schemas? do
+    Application.get_env(:serviceradar_core, :reset_tenant_schemas, false)
+  end
+
+  defp drop_schema_name!(schema_name) do
+    unless Regex.match?(~r/^tenant_[a-z0-9_]+$/, schema_name) do
+      raise ArgumentError, "Refusing to drop unexpected schema #{inspect(schema_name)}"
+    end
+
+    Ecto.Adapters.SQL.query!(Repo, "DROP SCHEMA IF EXISTS #{schema_name} CASCADE")
   end
 
   defp uuid_string?(value) do

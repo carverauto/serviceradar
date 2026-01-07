@@ -36,8 +36,11 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, tenant ->
-      initialize_tenant(tenant)
+    Ash.Changeset.after_transaction(changeset, fn _changeset, result ->
+      case result do
+        {:ok, tenant} -> initialize_tenant(tenant)
+        {:error, _reason} -> result
+      end
     end)
   end
 

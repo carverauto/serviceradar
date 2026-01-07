@@ -9,6 +9,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   require Ash.Query
 
   alias ServiceRadar.Identity.Tenant
+  alias ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
 
   @zero_uuid "00000000-0000-0000-0000-000000000000"
 
@@ -19,7 +20,11 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   @impl true
   def init(_opts) do
     if repo_enabled?() do
-      ensure_platform_tenant!()
+      if platform_bootstrap_enabled?() do
+        ensure_platform_tenant!()
+      else
+        load_platform_tenant()
+      end
     else
       Logger.debug("[PlatformTenantBootstrap] Repo disabled; skipping")
     end
@@ -44,6 +49,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
       {:ok, [tenant]} ->
         validate_platform_tenant!(tenant, platform_slug)
+        ensure_platform_tenant_infrastructure!(tenant)
         set_platform_tenant_id!(tenant.id, platform_slug)
         :ok
 
@@ -54,6 +60,41 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
       {:error, reason} ->
         Logger.error("[PlatformTenantBootstrap] Failed to load platform tenant: #{inspect(reason)}")
         raise "failed to load platform tenant"
+    end
+  end
+
+  defp load_platform_tenant do
+    platform_slug = platform_tenant_slug()
+
+    query =
+      Tenant
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(is_platform_tenant == true)
+      |> Ash.Query.select([:id, :slug, :is_platform_tenant])
+
+    case Ash.read(query, authorize?: false) do
+      {:ok, []} ->
+        Logger.warning(
+          "[PlatformTenantBootstrap] Platform tenant missing; bootstrap disabled, skipping"
+        )
+
+        :ok
+
+      {:ok, [tenant]} ->
+        validate_platform_tenant!(tenant, platform_slug)
+        set_platform_tenant_id!(tenant.id, platform_slug)
+        :ok
+
+      {:ok, tenants} ->
+        Logger.error("[PlatformTenantBootstrap] Multiple platform tenants detected: #{length(tenants)}")
+        raise "multiple platform tenants detected"
+
+      {:error, reason} ->
+        Logger.warning(
+          "[PlatformTenantBootstrap] Failed to load platform tenant: #{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 
@@ -72,6 +113,20 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
       {:error, reason} ->
         Logger.error("[PlatformTenantBootstrap] Failed to create platform tenant: #{inspect(reason)}")
         raise "failed to create platform tenant"
+    end
+  end
+
+  defp ensure_platform_tenant_infrastructure!(tenant) do
+    case InitializeTenantInfrastructure.initialize_tenant(tenant) do
+      {:ok, _tenant} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error(
+          "[PlatformTenantBootstrap] Failed to initialize platform tenant infrastructure: #{inspect(reason)}"
+        )
+
+        raise "failed to initialize platform tenant infrastructure"
     end
   end
 
@@ -106,6 +161,14 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   defp platform_tenant_slug do
     Application.get_env(:serviceradar_core, :platform_tenant_slug, "platform")
+  end
+
+  defp platform_bootstrap_enabled? do
+    Application.get_env(
+      :serviceradar_core,
+      :platform_tenant_bootstrap_enabled,
+      Application.get_env(:serviceradar_core, :cluster_coordinator, true)
+    )
   end
 
   defp repo_enabled? do

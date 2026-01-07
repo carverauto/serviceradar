@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Plug.Conn
   import Phoenix.Controller
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
 
   @doc """
@@ -41,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
     with token when is_binary(token) <- get_session(conn, "user_token"),
          {:ok, user, claims} <- verify_token(token) do
-      active_tenant_id = get_session(conn, "active_tenant_id") || Map.get(claims, "tenant")
+      active_tenant_id = get_session(conn, "active_tenant_id") || Map.get(claims, "tenant_id")
 
       conn
       |> assign(:current_scope, Scope.for_user(user, active_tenant_id: active_tenant_id))
@@ -183,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       {user, tenant_claim} =
         with token when is_binary(token) <- session["user_token"],
              {:ok, user, claims} <- verify_token(token) do
-          {user, Map.get(claims, "tenant")}
+          {user, Map.get(claims, "tenant_id")}
         else
           _ -> {nil, nil}
         end
@@ -219,10 +220,25 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp token_tenant(token) do
     case AshAuthentication.Jwt.peek(token) do
-      {:ok, claims} -> Map.get(claims, "tenant")
-      _ -> nil
+      {:ok, claims} ->
+        case Map.get(claims, "tenant") do
+          tenant when is_binary(tenant) ->
+            tenant
+
+          _ ->
+            claims
+            |> Map.get("tenant_id")
+            |> tenant_schema_from_id()
+        end
+
+      _ ->
+        nil
     end
   end
+
+  defp tenant_schema_from_id(nil), do: nil
+  defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
+    do: TenantSchemas.schema_for_id(tenant_id)
 
   defp tenant_opts(nil), do: []
   defp tenant_opts(tenant), do: [tenant: tenant]

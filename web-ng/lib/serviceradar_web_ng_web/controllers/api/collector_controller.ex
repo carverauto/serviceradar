@@ -498,7 +498,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     |> json(%{error: message})
   end
 
-  defp handle_download_error(conn, :not_found), do: {:error, :not_found}
+  defp handle_download_error(_conn, :not_found), do: {:error, :not_found}
 
   defp handle_download_error(conn, :not_ready) do
     return_error(conn, :conflict, "package is not ready for download")
@@ -516,7 +516,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     return_error(conn, :internal_server_error, "download failed: #{inspect(reason)}")
   end
 
-  defp handle_bundle_error(conn, :not_found), do: {:error, :not_found}
+  defp handle_bundle_error(_conn, :not_found), do: {:error, :not_found}
 
   defp handle_bundle_error(conn, :not_ready) do
     return_error(conn, :conflict, "package is not ready for download")
