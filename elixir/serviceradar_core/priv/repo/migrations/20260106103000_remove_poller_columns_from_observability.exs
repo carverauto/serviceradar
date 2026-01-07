@@ -28,13 +28,33 @@ defmodule ServiceRadar.Repo.Migrations.RemovePollerColumnsFromObservability do
     execute "CREATE INDEX IF NOT EXISTS ocsf_network_activity_gateway_id_index ON ocsf_network_activity (gateway_id) WHERE gateway_id IS NOT NULL"
 
     execute "ALTER TABLE IF EXISTS logs DROP COLUMN IF EXISTS poller_id"
-    execute "ALTER TABLE IF EXISTS otel_trace_summaries DROP COLUMN IF EXISTS poller_id"
+    execute """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_class
+        WHERE relname = 'otel_trace_summaries' AND relkind = 'r'
+      ) THEN
+        ALTER TABLE otel_trace_summaries DROP COLUMN IF EXISTS poller_id;
+      END IF;
+    END $$;
+    """
     execute "ALTER TABLE IF EXISTS device_groups DROP COLUMN IF EXISTS poller_id"
   end
 
   def down do
     execute "ALTER TABLE IF EXISTS device_groups ADD COLUMN IF NOT EXISTS poller_id TEXT"
-    execute "ALTER TABLE IF EXISTS otel_trace_summaries ADD COLUMN IF NOT EXISTS poller_id TEXT"
+    execute """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_class
+        WHERE relname = 'otel_trace_summaries' AND relkind = 'r'
+      ) THEN
+        ALTER TABLE otel_trace_summaries ADD COLUMN IF NOT EXISTS poller_id TEXT;
+      END IF;
+    END $$;
+    """
     execute "ALTER TABLE IF EXISTS logs ADD COLUMN IF NOT EXISTS poller_id TEXT"
 
     execute "DROP INDEX IF EXISTS ocsf_network_activity_gateway_id_index"

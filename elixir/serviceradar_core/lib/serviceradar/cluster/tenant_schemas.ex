@@ -110,6 +110,8 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
       Logger.info("Created PostgreSQL schema: #{schema_name}")
 
+      ensure_schema_migrations_table!(schema_name)
+
       # Run tenant migrations if requested
       if run_migrations do
         run_tenant_migrations!(schema_name)
@@ -369,6 +371,14 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   defp run_migrations!(migrations_path, prefix, label) do
     if File.dir?(migrations_path) do
       try do
+        if prefix do
+          Ecto.Migration.SchemaMigration.ensure_schema_migrations_table!(
+            Repo,
+            Repo.config(),
+            prefix: prefix
+          )
+        end
+
         Ecto.Migrator.run(Repo, migrations_path, :up, all: true, prefix: prefix)
 
         Logger.info("Ran #{label} migrations#{maybe_prefix_label(prefix)}")
@@ -389,4 +399,15 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
   defp maybe_prefix_label(nil), do: ""
   defp maybe_prefix_label(prefix), do: " for schema #{prefix}"
+
+  defp ensure_schema_migrations_table!(schema_name) do
+    query = """
+    CREATE TABLE IF NOT EXISTS #{schema_name}.schema_migrations (
+      version bigint PRIMARY KEY,
+      inserted_at timestamp without time zone
+    )
+    """
+
+    Ecto.Adapters.SQL.query!(Repo, query)
+  end
 end

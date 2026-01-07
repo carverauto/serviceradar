@@ -7,7 +7,7 @@ This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture t
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3`.
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3` (matches `docker-compose.yml`).
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -67,5 +67,6 @@ export SRQL_TEST_DATABASE_CA_CERT=/tmp/srql-fixture-ca.crt
 bash k8s/srql-fixtures/reset-db.sh
 ```
 
+- After bumping the CNPG image tag, re-apply `cnpg-cluster.yaml` and run the reset script so extensions are recreated on the new image.
 - To reset the cluster manually, delete the PVCs labeled `cnpg.io/cluster=srql-fixture` in the namespace and re-apply `cnpg-cluster.yaml`.
-- Keep the CNPG image tag in sync with `k8s/demo/base/spire/cnpg-cluster.yaml`.
+- Keep the CNPG image tag in sync with `docker-compose.yml` and `k8s/demo/base/spire/cnpg-cluster.yaml`.

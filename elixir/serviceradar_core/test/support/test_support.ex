@@ -5,7 +5,14 @@ defmodule ServiceRadar.TestSupport do
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
 
     if Process.whereis(ServiceRadar.Repo) do
-      Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :auto)
+      mode =
+        case System.get_env("SERVICERADAR_TEST_SANDBOX_MODE") do
+          "shared" -> {:shared, self()}
+          "manual" -> :manual
+          _ -> :auto
+        end
+
+      Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, mode)
     end
 
     :ok
