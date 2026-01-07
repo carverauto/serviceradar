@@ -16,8 +16,11 @@ defmodule ServiceRadarWebNG.DataCase do
 
   use ExUnit.CaseTemplate
 
+  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
+
   # Default test tenant ID - must match the UUID format
   @test_tenant_id "00000000-0000-0000-0000-000000000099"
+  @test_tenant_slug "test-tenant"
 
   using do
     quote do
@@ -65,7 +68,7 @@ defmodule ServiceRadarWebNG.DataCase do
             %{
               id: tenant_uuid,
               name: "Test Tenant",
-              slug: "test-tenant",
+              slug: @test_tenant_slug,
               status: "active",
               plan: "enterprise",
               max_devices: 1000,
@@ -80,6 +83,12 @@ defmodule ServiceRadarWebNG.DataCase do
 
       _tenant ->
         :ok
+    end
+
+    TenantRegistry.register_slug(@test_tenant_slug, tenant_id)
+
+    if not TenantSchemas.schema_exists?(@test_tenant_slug) do
+      {:ok, _schema} = TenantSchemas.create_schema(@test_tenant_slug)
     end
   end
 

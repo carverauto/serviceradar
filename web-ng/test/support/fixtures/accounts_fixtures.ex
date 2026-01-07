@@ -78,14 +78,19 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
     # since the Ash change_password action requires current_password
     hashed = Bcrypt.hash_pwd_salt(valid_user_password())
 
+    tenant_schema =
+      ServiceRadar.Cluster.TenantSchemas.schema_for_id(user.tenant_id) ||
+        raise "Missing tenant schema for #{inspect(user.tenant_id)}"
+
     {1, nil} =
       ServiceRadarWebNG.Repo.update_all(
         from(u in "ng_users", where: u.id == type(^user.id, Ecto.UUID)),
-        set: [hashed_password: hashed]
+        set: [hashed_password: hashed],
+        prefix: tenant_schema
       )
 
     # Re-fetch the user from Ash
-    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id)
+    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id, tenant: tenant_schema)
     updated_user
   end
 end
