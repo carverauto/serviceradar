@@ -160,6 +160,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
     update :dispatch do
       description "Mark job as dispatching (finding a gateway)"
       accept [:gateway_id]
+      require_atomic? false
 
       change transition_state(:dispatching)
       change set_attribute(:dispatched_at, &DateTime.utc_now/0)

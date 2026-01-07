@@ -213,6 +213,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
 
     update :update do
       accept [:metadata, :agent_count, :checker_count]
+      require_atomic? false
       change set_attribute(:updated_at, &DateTime.utc_now/0)
     end
 

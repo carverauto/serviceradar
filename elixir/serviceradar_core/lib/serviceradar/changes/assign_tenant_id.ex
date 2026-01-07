@@ -21,6 +21,22 @@ defmodule ServiceRadar.Changes.AssignTenantId do
     end
   end
 
+  @impl true
+  def atomic(changeset, _opts, _context) do
+    if changeset.action_type == :create &&
+         Ash.Resource.Info.attribute(changeset.resource, :tenant_id) do
+      tenant_id = resolve_tenant_id(changeset)
+
+      if tenant_id && is_nil(Ash.Changeset.get_attribute(changeset, :tenant_id)) do
+        {:atomic, %{tenant_id: tenant_id}}
+      else
+        :ok
+      end
+    else
+      :ok
+    end
+  end
+
   defp resolve_tenant_id(changeset) do
     with %{tenant_id: tenant_id} when is_binary(tenant_id) <- changeset.actor do
       tenant_id

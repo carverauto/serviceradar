@@ -179,6 +179,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :provision do
       description "Mark package as provisioning"
       accept []
+      require_atomic? false
     end
 
     update :ready do
@@ -254,6 +255,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :install do
       description "Mark package as installed"
       accept []
+      require_atomic? false
 
       change set_attribute(:installed_at, &DateTime.utc_now/0)
     end

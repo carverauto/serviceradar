@@ -182,6 +182,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :record_success do
       description "Record a successful check result"
+      require_atomic? false
 
       change set_attribute(:consecutive_failures, 0)
       change set_attribute(:last_success, &DateTime.utc_now/0)

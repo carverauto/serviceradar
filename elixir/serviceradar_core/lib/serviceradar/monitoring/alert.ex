@@ -196,6 +196,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Acknowledge an alert"
       argument :acknowledged_by, :string, allow_nil?: false
       argument :note, :string
+      require_atomic? false
 
       change transition_state(:acknowledged)
       change set_attribute(:acknowledged_at, &DateTime.utc_now/0)

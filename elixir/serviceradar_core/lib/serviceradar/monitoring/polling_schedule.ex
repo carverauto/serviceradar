@@ -158,13 +158,16 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :timeout_seconds,
         :metadata
       ]
+      require_atomic? false
     end
 
     update :enable do
+      require_atomic? false
       change set_attribute(:enabled, true)
     end
 
     update :disable do
+      require_atomic? false
       change set_attribute(:enabled, false)
     end
 
@@ -269,6 +272,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :release_lock do
       description "Release distributed lock"
+      require_atomic? false
 
       change set_attribute(:lock_token, nil)
       change set_attribute(:locked_at, nil)

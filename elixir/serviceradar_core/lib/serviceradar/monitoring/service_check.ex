@@ -152,9 +152,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         :agent_uid,
         :metadata
       ]
+      require_atomic? false
     end
 
     update :enable do
+      require_atomic? false
       change set_attribute(:enabled, true)
     end
 
