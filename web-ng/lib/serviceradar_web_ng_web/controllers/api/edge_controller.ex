@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Accounts.Scope
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -44,7 +45,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def index(conn, params) do
     filters = build_filters(params)
-    packages = OnboardingPackages.list(filters)
+    tenant_id = get_tenant_id(conn)
+    opts = if tenant_id, do: [tenant: tenant_id], else: []
+    packages = OnboardingPackages.list(filters, opts)
 
     json(conn, Enum.map(packages, &package_to_json/1))
   end
@@ -57,6 +60,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def create(conn, params) do
     actor = get_actor(conn)
     source_ip = get_client_ip(conn)
+    tenant_id = get_tenant_id(conn)
 
     attrs = %{
       label: params["label"],
@@ -80,7 +84,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
       download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
       actor: actor,
-      source_ip: source_ip
+      source_ip: source_ip,
+      tenant: tenant_id
     ]
 
     case OnboardingPackages.create(attrs, opts) do
@@ -105,7 +110,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Gets a single package by ID.
   """
   def show(conn, %{"id" => id}) do
-    case OnboardingPackages.get(id) do
+    tenant_id = get_tenant_id(conn)
+    opts = if tenant_id, do: [tenant: tenant_id], else: []
+
+    case OnboardingPackages.get(id, opts) do
       {:ok, package} ->
         json(conn, package_to_json(package))
 
@@ -122,8 +130,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def delete(conn, %{"id" => id}) do
     actor = get_actor(conn)
     source_ip = get_client_ip(conn)
+    tenant_id = get_tenant_id(conn)
 
-    case OnboardingPackages.delete(id, actor: actor, source_ip: source_ip) do
+    case OnboardingPackages.delete(id, actor: actor, source_ip: source_ip, tenant: tenant_id) do
       {:ok, _package} ->
         send_resp(conn, :no_content, "")
 
@@ -147,9 +156,12 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   defp events_list(conn, package_id, limit) do
     # First verify package exists
-    case OnboardingPackages.get(package_id) do
+    tenant_id = get_tenant_id(conn)
+    opts = if tenant_id, do: [tenant: tenant_id], else: []
+
+    case OnboardingPackages.get(package_id, opts) do
       {:ok, _package} ->
-        events = OnboardingEvents.list_for_package(package_id, limit: limit)
+        events = OnboardingEvents.list_for_package(package_id, Keyword.put(opts, :limit, limit))
         json(conn, Enum.map(events, &event_to_json/1))
 
       {:error, :not_found} ->
@@ -165,21 +177,33 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def download(conn, %{"id" => id} = params) do
     download_token = params["download_token"]
+    tenant_id = get_tenant_id(conn)
 
-    if is_nil(download_token) or download_token == "" do
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "download_token is required"})
-    else
-      do_download(conn, id, download_token)
+    cond do
+      is_nil(download_token) or download_token == "" ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "download_token is required"})
+
+      is_nil(tenant_id) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "x-tenant-id is required"})
+
+      true ->
+        do_download(conn, id, download_token, tenant_id)
     end
   end
 
-  defp do_download(conn, id, download_token) do
+  defp do_download(conn, id, download_token, tenant_id) do
     actor = get_actor(conn)
     source_ip = get_client_ip(conn)
 
-    case OnboardingPackages.deliver(id, download_token, actor: actor, source_ip: source_ip) do
+    case OnboardingPackages.deliver(id, download_token,
+           actor: actor,
+           source_ip: source_ip,
+           tenant: tenant_id
+         ) do
       {:ok, result} ->
         json(conn, %{
           package: package_to_json(result.package),
@@ -221,29 +245,36 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
     source_ip = get_client_ip(conn)
+    tenant_id = get_tenant_id(conn)
 
-    case OnboardingPackages.deliver(id, download_token, source_ip: source_ip) do
-      {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} ->
-        case BundleGenerator.create_tarball(package, bundle_pem || "", join_token) do
-          {:ok, tarball} ->
-            filename = BundleGenerator.bundle_filename(package)
+    if is_nil(tenant_id) do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "x-tenant-id is required"})
+    else
+      case OnboardingPackages.deliver(id, download_token, source_ip: source_ip, tenant: tenant_id) do
+        {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} ->
+          case BundleGenerator.create_tarball(package, bundle_pem || "", join_token) do
+            {:ok, tarball} ->
+              filename = BundleGenerator.bundle_filename(package)
 
-            conn
-            |> put_resp_content_type("application/gzip")
-            |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-            |> send_resp(200, tarball)
+              conn
+              |> put_resp_content_type("application/gzip")
+              |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+              |> send_resp(200, tarball)
 
-          {:error, reason} ->
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
-        end
+            {:error, reason} ->
+              conn
+              |> put_status(:internal_server_error)
+              |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+          end
 
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "package not found"})
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "package not found"})
 
-      {:error, reason} ->
-        handle_download_error(conn, reason)
+        {:error, reason} ->
+          handle_download_error(conn, reason)
+      end
     end
   end
 
@@ -262,8 +293,14 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     actor = get_actor(conn)
     source_ip = get_client_ip(conn)
     reason = params["reason"]
+    tenant_id = get_tenant_id(conn)
 
-    case OnboardingPackages.revoke(id, actor: actor, source_ip: source_ip, reason: reason) do
+    case OnboardingPackages.revoke(id,
+           actor: actor,
+           source_ip: source_ip,
+           reason: reason,
+           tenant: tenant_id
+         ) do
       {:ok, package} ->
         json(conn, package_to_json(package))
 
@@ -383,6 +420,13 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     end
   end
 
+  defp get_tenant_id(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{} = scope -> Scope.tenant_id(scope)
+      _ -> tenant_from_header(conn)
+    end
+  end
+
   defp get_client_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
@@ -395,6 +439,22 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
         conn.remote_ip
         |> :inet.ntoa()
         |> to_string()
+    end
+  end
+
+  defp tenant_from_header(conn) do
+    case get_req_header(conn, "x-tenant-id") do
+      [tenant_id | _] -> cast_uuid(tenant_id)
+      _ -> nil
+    end
+  end
+
+  defp cast_uuid(nil), do: nil
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
     end
   end
 

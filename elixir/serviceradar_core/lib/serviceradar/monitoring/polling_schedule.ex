@@ -38,10 +38,13 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger to execute due polling schedules
       trigger :execute_schedules do
-        queue :service_checks
+        queue ServiceRadar.Oban.AshObanQueueResolver.queue_for(:service_checks)
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_execution
         scheduler_cron "* * * * *"
         action :execute

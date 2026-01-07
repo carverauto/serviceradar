@@ -12,7 +12,9 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
     max_attempts: 3,
     unique: [period: 60, keys: [:package_id, :event_type, :event_time]]
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingEvent
+  alias ServiceRadar.Oban.Router
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -30,8 +32,13 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
       details_json: args["details"] || %{}
     }
 
+    tenant_schema =
+      args
+      |> Map.get("tenant_schema")
+      |> TenantSchemas.schema_for_tenant()
+
     case OnboardingEvent
-         |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+         |> Ash.Changeset.for_create(:record, attrs, actor: actor, tenant: tenant_schema)
          |> Ash.create() do
       {:ok, _event} -> :ok
       {:error, error} -> {:error, error}
@@ -53,12 +60,13 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
       "event_time" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "actor" => Keyword.get(opts, :actor),
       "source_ip" => Keyword.get(opts, :source_ip),
-      "details" => Keyword.get(opts, :details, %{})
+      "details" => Keyword.get(opts, :details, %{}),
+      "tenant_schema" => Keyword.get(opts, :tenant_schema)
     }
 
     %{args: args}
     |> new()
-    |> Oban.insert()
+    |> Router.insert()
   end
 
   defp parse_event_time(nil), do: DateTime.utc_now()

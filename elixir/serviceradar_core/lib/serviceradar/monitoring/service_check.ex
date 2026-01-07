@@ -48,10 +48,13 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger to execute due checks
       trigger :execute_due_checks do
-        queue :service_checks
+        queue ServiceRadar.Oban.AshObanQueueResolver.queue_for(:service_checks)
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_check
         scheduler_cron "* * * * *"
         action :execute

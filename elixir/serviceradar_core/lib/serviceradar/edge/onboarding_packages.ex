@@ -170,7 +170,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         # Record creation event
         OnboardingEvents.record(package.id, :created,
           actor: get_actor_name(actor),
-          source_ip: source_ip
+          source_ip: source_ip,
+          tenant_id: package.tenant_id
         )
 
         {:ok,
@@ -233,7 +234,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
-            source_ip: source_ip
+            source_ip: source_ip,
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok,
@@ -274,7 +276,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :revoked,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason}
+            details: %{reason: reason},
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok, updated_package}
@@ -311,7 +314,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :deleted,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason}
+            details: %{reason: reason},
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok, updated_package}
@@ -532,7 +536,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
             |> Ash.Changeset.for_update(:update_tokens, %{
               bundle_ciphertext: bundle_ciphertext,
               downstream_spiffe_id: cert_data.spiffe_id
-            }, authorize?: false)
+            }, authorize?: false, tenant: tenant_id)
             |> Ash.update!()
 
           {:ok, Map.put(result, :package, updated)
@@ -546,6 +550,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   # Gets the active tenant CA, generating one if it doesn't exist
   defp get_tenant_ca(tenant_id) do
     case TenantCA
+         |> Ash.Query.set_tenant(tenant_id)
          |> Ash.Query.filter(tenant_id == ^tenant_id and status == :active)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} ->
@@ -568,7 +573,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   # Decrypts the CA private key for signing (AshCloak handles decryption)
   defp decrypt_ca_private_key(tenant_ca) do
     # Load with decryption - AshCloak will decrypt the private key
-    case Ash.get(TenantCA, tenant_ca.id, authorize?: false, load: [:tenant]) do
+    case Ash.get(TenantCA, tenant_ca.id, tenant: tenant_ca.tenant_id, authorize?: false, load: [:tenant]) do
       {:ok, ca} -> {:ok, ca}
       error -> error
     end

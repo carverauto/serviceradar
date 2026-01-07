@@ -13,10 +13,15 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   def child_spec(_opts) do
     %{
       id: __MODULE__,
-      start: {Task, :start_link, [fn -> run!() end]},
+      start: {__MODULE__, :start_link, [[]]},
       restart: :temporary,
       shutdown: :infinity
     }
+  end
+
+  def start_link(_opts) do
+    run!()
+    :ignore
   end
 
   @spec run!() :: :ok

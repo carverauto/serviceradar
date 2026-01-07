@@ -6,6 +6,7 @@
 - [ ] 2.1 Update tenant-scoped Ash resources to use context-based multitenancy.
 - [ ] 2.2 Ensure shared resources remain in public schema with attribute multitenancy as needed.
 - [ ] 2.3 Add tenant schema creation and tenant migration execution to tenant provisioning flows.
+- [ ] 2.4 Move tenant AshOban schedules/Oban jobs into tenant schemas; keep platform jobs public.
 
 ## 3. Startup Migrations
 - [ ] 3.1 Add core-elx startup migration runner for public and tenant schemas using Ash migrations.

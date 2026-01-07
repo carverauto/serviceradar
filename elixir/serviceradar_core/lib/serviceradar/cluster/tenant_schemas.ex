@@ -72,6 +72,8 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   """
 
   alias ServiceRadar.Repo
+  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Identity.Tenant
 
   require Logger
 
@@ -172,6 +174,49 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
       |> String.trim("_")
 
     "#{@tenant_prefix}#{safe_slug}"
+  end
+
+  @doc """
+  Returns the schema name for a tenant struct or slug.
+
+  Accepts `ServiceRadar.Identity.Tenant`, maps, or raw slugs.
+  """
+  @spec schema_for_tenant(Tenant.t() | map() | String.t() | nil) :: String.t() | nil
+  def schema_for_tenant(nil), do: nil
+
+  def schema_for_tenant(%Tenant{slug: slug}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(%{slug: slug}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(tenant_slug) when is_binary(tenant_slug) do
+    if String.starts_with?(tenant_slug, @tenant_prefix) do
+      tenant_slug
+    else
+      schema_for(tenant_slug)
+    end
+  end
+
+  @doc """
+  Resolves a tenant schema name from a tenant UUID.
+
+  Attempts the in-memory registry first and falls back to a DB lookup.
+  """
+  @spec schema_for_id(String.t()) :: String.t() | nil
+  def schema_for_id(tenant_id) when is_binary(tenant_id) do
+    case TenantRegistry.slug_for_tenant_id(tenant_id) do
+      {:ok, slug} ->
+        schema_for(slug)
+
+      :error ->
+        case Ash.get(Tenant, tenant_id, authorize?: false) do
+          {:ok, tenant} -> schema_for(tenant.slug)
+          _ -> nil
+        end
+    end
   end
 
   @doc """

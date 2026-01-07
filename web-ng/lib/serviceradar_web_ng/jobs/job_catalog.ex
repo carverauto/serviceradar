@@ -13,7 +13,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Oban.Router
 
   @type job_entry :: %{
           id: String.t(),
@@ -158,6 +160,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp tenant_scoped_resource?(resource) when is_atom(resource) do
     case Ash.Resource.Info.multitenancy_strategy(resource) do
+      :context -> true
       :attribute -> true
       _ -> false
     end
@@ -165,9 +168,13 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     _ -> false
   end
 
-  defp maybe_filter_tenant_runs(query, _tenant_id, true), do: query
+  defp maybe_filter_runs_for_scope(query, _tenant_id, _platform_admin?, prefix) when is_binary(prefix) do
+    query
+  end
 
-  defp maybe_filter_tenant_runs(query, tenant_id, false) when is_binary(tenant_id) do
+  defp maybe_filter_runs_for_scope(query, _tenant_id, true, _prefix), do: query
+
+  defp maybe_filter_runs_for_scope(query, tenant_id, false, _prefix) when is_binary(tenant_id) do
     import Ecto.Query
 
     where(
@@ -178,10 +185,19 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     )
   end
 
-  defp maybe_filter_tenant_runs(query, _tenant_id, false) do
+  defp maybe_filter_runs_for_scope(query, _tenant_id, false, _prefix) do
     import Ecto.Query
     where(query, [j], false)
   end
+
+  defp job_prefix(:ash_oban, tenant_id) when is_binary(tenant_id) do
+    TenantSchemas.schema_for_id(tenant_id)
+  end
+
+  defp job_prefix(_source, _tenant_id), do: nil
+
+  defp repo_all(query, nil), do: ServiceRadar.Repo.all(query)
+  defp repo_all(query, prefix), do: ServiceRadar.Repo.all(query, prefix: prefix)
 
   @doc """
   List jobs configured via Oban.Plugins.Cron in config.
@@ -259,17 +275,21 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     limit = Keyword.get(opts, :limit, 5)
     tenant_id = Keyword.get(opts, :tenant_id)
     platform_admin? = Keyword.get(opts, :platform_admin?, false)
+    source = Keyword.get(opts, :source)
     worker_str = inspect(worker)
+    prefix = job_prefix(source, tenant_id)
 
     import Ecto.Query
 
     try do
-      Oban.Job
-      |> where([j], j.worker == ^worker_str)
-      |> maybe_filter_tenant_runs(tenant_id, platform_admin?)
-      |> order_by([j], desc: j.inserted_at)
-      |> limit(^limit)
-      |> ServiceRadar.Repo.all()
+      query =
+        Oban.Job
+        |> where([j], j.worker == ^worker_str)
+        |> maybe_filter_runs_for_scope(tenant_id, platform_admin?, prefix)
+        |> order_by([j], desc: j.inserted_at)
+        |> limit(^limit)
+
+      repo_all(query, prefix)
     rescue
       _ -> []
     end
@@ -281,8 +301,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   For cron jobs, this inserts a new job into the Oban queue.
   For AshOban jobs, this triggers the scheduled action.
   """
-  @spec trigger_job(job_entry()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def trigger_job(%{source: :cron_plugin, worker: worker}) when not is_nil(worker) do
+  @spec trigger_job(job_entry(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def trigger_job(job, opts \\ [])
+
+  def trigger_job(%{source: :cron_plugin, worker: worker}, _opts) when not is_nil(worker) do
     try do
       job = worker.new(%{})
       Oban.insert(job)
@@ -291,17 +313,19 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     end
   end
 
-  def trigger_job(%{source: :ash_oban, worker: worker}) when not is_nil(worker) do
+  def trigger_job(%{source: :ash_oban, worker: worker}, opts) when not is_nil(worker) do
     # For AshOban, we insert the scheduler worker which will process due records
     try do
-      job = worker.new(%{})
-      Oban.insert(job)
+      tenant_id = Keyword.get(opts, :tenant_id)
+      args = if is_binary(tenant_id), do: %{"tenant_id" => tenant_id}, else: %{}
+      job = worker.new(args)
+      Router.insert(job)
     rescue
       e -> {:error, Exception.message(e)}
     end
   end
 
-  def trigger_job(_job), do: {:error, :no_worker}
+  def trigger_job(_job, _opts), do: {:error, :no_worker}
 
   @doc """
   Get execution statistics for a worker over a time period.
@@ -313,7 +337,9 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     hours = Keyword.get(opts, :hours, 24)
     tenant_id = Keyword.get(opts, :tenant_id)
     platform_admin? = Keyword.get(opts, :platform_admin?, false)
+    source = Keyword.get(opts, :source)
     worker_str = inspect(worker)
+    prefix = job_prefix(source, tenant_id)
 
     import Ecto.Query
 
@@ -321,17 +347,18 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
       # Get all jobs in the time range
-      jobs =
+      jobs_query =
         Oban.Job
         |> where([j], j.worker == ^worker_str)
         |> where([j], j.inserted_at >= ^since)
-        |> maybe_filter_tenant_runs(tenant_id, platform_admin?)
+        |> maybe_filter_runs_for_scope(tenant_id, platform_admin?, prefix)
         |> select([j], %{
           state: j.state,
           inserted_at: j.inserted_at,
           completed_at: j.completed_at
         })
-        |> ServiceRadar.Repo.all()
+
+      jobs = repo_all(jobs_query, prefix)
 
       # Bucket by hour
       jobs
@@ -364,24 +391,27 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     hours = Keyword.get(opts, :hours, 24)
     tenant_id = Keyword.get(opts, :tenant_id)
     platform_admin? = Keyword.get(opts, :platform_admin?, false)
+    source = Keyword.get(opts, :source)
     worker_str = inspect(worker)
+    prefix = job_prefix(source, tenant_id)
 
     import Ecto.Query
 
     try do
       since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
-      stats =
+      stats_query =
         Oban.Job
         |> where([j], j.worker == ^worker_str)
         |> where([j], j.inserted_at >= ^since)
-        |> maybe_filter_tenant_runs(tenant_id, platform_admin?)
+        |> maybe_filter_runs_for_scope(tenant_id, platform_admin?, prefix)
         |> select([j], %{
           state: j.state,
           attempted_at: j.attempted_at,
           completed_at: j.completed_at
         })
-        |> ServiceRadar.Repo.all()
+
+      stats = repo_all(stats_query, prefix)
 
       total = length(stats)
       completed = Enum.count(stats, &(&1.state == "completed"))

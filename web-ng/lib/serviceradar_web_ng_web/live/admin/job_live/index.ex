@@ -129,9 +129,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   def handle_event("trigger_job", %{"id" => encoded_id}, socket) do
+    job_scope = job_scope_opts(socket)
+
     with {:ok, id} <- decode_job_id(encoded_id),
-         {:ok, job} <- JobCatalog.get_job(id, job_scope_opts(socket)),
-         {:ok, _oban_job} <- JobCatalog.trigger_job(job) do
+         {:ok, job} <- JobCatalog.get_job(id, job_scope),
+         {:ok, _oban_job} <- JobCatalog.trigger_job(job, job_scope) do
       {:noreply,
        socket
        |> put_flash(:info, "Job '#{job.name}' triggered successfully")

@@ -34,6 +34,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Cluster.TenantSchemas
+
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
@@ -158,9 +160,17 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           __MODULE__.broadcast_created(package)
 
           # Enqueue async provisioning
-          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id) do
-            {:ok, _job} -> {:ok, package}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(package.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, package}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -269,10 +279,15 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
           if package.nats_credential_id do
-            case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id, authorize?: false) do
+            case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
+                   tenant: package.tenant_id,
+                   authorize?: false
+                 ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
-                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
+                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
+                  tenant: package.tenant_id
+                )
                 |> Ash.update(authorize?: false)
 
               _ ->

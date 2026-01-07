@@ -29,7 +29,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec list_for_package(String.t(), keyword()) :: [OnboardingEvent.t()]
   def list_for_package(package_id, opts \\ []) do
-    opts_with_actor = Keyword.put(opts, :actor, system_actor())
+    opts_with_actor =
+      opts
+      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put_new(:tenant, default_tenant())
+
     AshEvents.list_for_package!(package_id, opts_with_actor)
   end
 
@@ -54,7 +58,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @spec record(String.t(), String.t() | atom(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
-    AshEvents.record(package_id, event_type, opts)
+    opts_with_tenant = Keyword.put_new(opts, :tenant, default_tenant())
+    AshEvents.record(package_id, event_type, opts_with_tenant)
   end
 
   @doc """
@@ -74,7 +79,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @spec record_sync(String.t(), String.t() | atom(), keyword()) ::
           {:ok, OnboardingEvent.t()} | {:error, Ash.Error.t()}
   def record_sync(package_id, event_type, opts \\ []) do
-    opts_with_actor = Keyword.put_new(opts, :actor_user, system_actor())
+    opts_with_actor =
+      opts
+      |> Keyword.put_new(:actor_user, system_actor())
+      |> Keyword.put_new(:tenant, default_tenant())
+
     AshEvents.record_sync(package_id, event_type, opts_with_actor)
   end
 
@@ -84,7 +93,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec record!(String.t(), String.t() | atom(), keyword()) :: :ok
   def record!(package_id, event_type, opts \\ []) do
-    AshEvents.record!(package_id, event_type, opts)
+    opts_with_tenant = Keyword.put_new(opts, :tenant, default_tenant())
+    AshEvents.record!(package_id, event_type, opts_with_tenant)
   end
 
   @doc """
@@ -94,7 +104,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec recent(keyword()) :: [OnboardingEvent.t()]
   def recent(opts \\ []) do
-    opts_with_actor = Keyword.put(opts, :actor, system_actor())
+    opts_with_actor =
+      opts
+      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put_new(:tenant, default_tenant())
+
     AshEvents.recent!(opts_with_actor)
   end
 
@@ -106,5 +120,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
       email: "system@serviceradar.local",
       role: :super_admin
     }
+  end
+
+  defp default_tenant do
+    case Application.get_env(:serviceradar_web_ng, :env) do
+      :test -> "00000000-0000-0000-0000-000000000099"
+      _ -> "00000000-0000-0000-0000-000000000000"
+    end
   end
 end

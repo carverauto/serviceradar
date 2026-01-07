@@ -14,7 +14,7 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
         oban do
           triggers do
             trigger :my_action do
-              queue {:mfa, {ServiceRadar.Oban.AshObanQueueResolver, :resolve, [:sync]}}
+              queue {:mfa, {ServiceRadar.Oban.AshObanQueueResolver, :resolve, [:integrations]}}
               worker MyWorker
             end
           end
@@ -30,10 +30,14 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
   ## Queue Type Mapping
 
   The resolver maps AshOban trigger queues to tenant queue types:
-  - `:sync` → tenant's sync queue
-  - `:polling` → tenant's polling queue
+  - `:service_checks` → tenant's service check queue
   - `:alerts` → tenant's alerts queue
+  - `:notifications` → tenant's notification queue
+  - `:onboarding` → tenant's onboarding queue
   - `:events` → tenant's events queue
+  - `:integrations` → tenant's integrations queue
+  - `:edge` → tenant's edge queue
+  - `:sweeps` → tenant's sweeps queue
   - `:default` → tenant's default queue
   """
 
@@ -45,16 +49,16 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
   Resolves the queue name for an AshOban trigger.
 
   Called by AshOban with the record and queue_type.
-  Returns the tenant-specific queue name.
+  Returns the tenant queue name for the tenant-scoped Oban instance.
 
   ## Parameters
 
     - `record` - The Ash resource record triggering the job
-    - `queue_type` - The queue type atom (:sync, :polling, :alerts, etc.)
+    - `queue_type` - The queue type atom (:service_checks, :alerts, :notifications, etc.)
 
   ## Returns
 
-  The queue name atom (e.g., `:t_a1b2c3d4_sync`)
+  The queue name atom (e.g., `:alerts`)
   """
   @spec resolve(Ash.Resource.record(), atom()) :: atom()
   def resolve(record, queue_type \\ :default) do
@@ -112,7 +116,7 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
             worker MyWorker
             on_insert? true
             # Add tenant metadata to job
-            worker_meta {:mfa, {AshObanQueueResolver, :job_meta, []}}
+            extra_args &AshObanQueueResolver.job_meta/1
           end
         end
       end

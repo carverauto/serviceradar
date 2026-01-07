@@ -92,8 +92,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
   def handle_event("trigger_job", _params, socket) do
     job = socket.assigns.job
+    job_scope = job_scope_opts(socket)
 
-    case JobCatalog.trigger_job(job) do
+    case JobCatalog.trigger_job(job, job_scope) do
       {:ok, _oban_job} ->
         {:noreply,
          socket
@@ -534,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     recent_runs =
       if job.worker do
-        JobCatalog.get_recent_runs(job.worker, Keyword.merge(job_scope, limit: 20))
+        JobCatalog.get_recent_runs(job.worker, Keyword.merge(job_scope, limit: 20, source: job.source))
       else
         []
       end
@@ -563,7 +564,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     chart_data =
       if job.worker do
-        JobCatalog.get_execution_stats(job.worker, Keyword.merge(job_scope, hours: hours))
+        JobCatalog.get_execution_stats(job.worker, Keyword.merge(job_scope, hours: hours, source: job.source))
       else
         []
       end

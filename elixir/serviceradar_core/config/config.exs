@@ -33,7 +33,9 @@ config :ash,
   policies: [no_filter_static_forbidden_reads?: false]
 
 # AshOban configuration
-config :ash_oban, oban_name: Oban
+config :ash_oban,
+  oban_name: Oban,
+  oban_module: ServiceRadar.Oban.Router
 
 # Spark configuration (Ash DSL)
 config :spark,

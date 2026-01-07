@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     socket =
       socket
       |> assign(:page_title, "Edge Onboarding")
-      |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+      |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant_id))
       |> assign(:show_create_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_package, nil)
@@ -54,9 +54,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
-    case OnboardingPackages.get(id) do
+    tenant_id = get_tenant_id(socket)
+
+    case OnboardingPackages.get(id, tenant: tenant_id) do
       {:ok, package} ->
-        events = OnboardingEvents.list_for_package(id, limit: 20)
+        events = OnboardingEvents.list_for_package(id, limit: 20, tenant: tenant_id)
 
         socket
         |> assign(:selected_package, package)
@@ -143,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            socket
            |> assign(:creating, false)
            |> assign(:created_tokens, package_result)
-           |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+           |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant_id))
            |> assign(:create_form, build_create_form(tenant_id, security_mode))
            |> put_flash(:info, "Package created with certificates")}
 
@@ -184,12 +186,17 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("revoke_package", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
     actor = if user, do: user.email, else: "system"
+    tenant_id = get_tenant_id(socket)
 
-    case OnboardingPackages.revoke(id, actor: actor, reason: "Revoked from admin UI") do
+    case OnboardingPackages.revoke(id,
+           actor: actor,
+           reason: "Revoked from admin UI",
+           tenant: tenant_id
+         ) do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant_id))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package revoked successfully")}
@@ -205,12 +212,17 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("delete_package", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
     actor = if user, do: user.email, else: "system"
+    tenant_id = get_tenant_id(socket)
 
-    case OnboardingPackages.delete(id, actor: actor, reason: "Deleted from admin UI") do
+    case OnboardingPackages.delete(id,
+           actor: actor,
+           reason: "Deleted from admin UI",
+           tenant: tenant_id
+         ) do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant_id))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package deleted successfully")}
@@ -224,12 +236,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     filters = %{limit: 50}
     filters = if status != "", do: Map.put(filters, :status, [status]), else: filters
     filters = if type != "", do: Map.put(filters, :component_type, [type]), else: filters
+    tenant_id = get_tenant_id(socket)
 
     {:noreply,
      socket
      |> assign(:filter_status, if(status == "", do: nil, else: status))
      |> assign(:filter_component_type, if(type == "", do: nil, else: type))
-     |> assign(:packages, OnboardingPackages.list(filters))}
+     |> assign(:packages, OnboardingPackages.list(filters, tenant: tenant_id))}
   end
 
   def handle_event("copy_token", %{"token" => token}, socket) do

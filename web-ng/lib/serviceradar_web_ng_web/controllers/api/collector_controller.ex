@@ -130,38 +130,45 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     download_token = params["download_token"]
     source_ip = get_client_ip(conn)
 
-    if is_nil(download_token) or download_token == "" do
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "download_token is required"})
-    else
-      case do_download(id, download_token, tenant_id, source_ip) do
-        {:ok, result} ->
-          json(conn, result)
+    cond do
+      is_nil(download_token) or download_token == "" ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "download_token is required"})
 
-        {:error, :not_found} ->
-          {:error, :not_found}
+      is_nil(tenant_id) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "x-tenant-id is required"})
 
-        {:error, :not_ready} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package is not ready for download"})
+      true ->
+        case do_download(id, download_token, tenant_id, source_ip) do
+          {:ok, result} ->
+            json(conn, result)
 
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "invalid download token"})
+          {:error, :not_found} ->
+            {:error, :not_found}
 
-        {:error, :token_expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "download token expired"})
+          {:error, :not_ready} ->
+            conn
+            |> put_status(:conflict)
+            |> json(%{error: "package is not ready for download"})
 
-        {:error, reason} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "download failed: #{inspect(reason)}"})
-      end
+          {:error, :invalid_token} ->
+            conn
+            |> put_status(:unauthorized)
+            |> json(%{error: "invalid download token"})
+
+          {:error, :token_expired} ->
+            conn
+            |> put_status(:gone)
+            |> json(%{error: "download token expired"})
+
+          {:error, reason} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "download failed: #{inspect(reason)}"})
+        end
     end
   end
 
@@ -182,56 +189,63 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     download_token = params["token"]
     source_ip = get_client_ip(conn)
 
-    if is_nil(download_token) or download_token == "" do
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "token query parameter is required"})
-    else
-      case do_bundle_download(id, download_token, tenant_id, source_ip) do
-        {:ok, tarball, filename} ->
-          conn
-          |> put_resp_content_type("application/gzip")
-          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-          |> send_resp(200, tarball)
+    cond do
+      is_nil(download_token) or download_token == "" ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "token query parameter is required"})
 
-        {:error, :not_found} ->
-          {:error, :not_found}
+      is_nil(tenant_id) ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "x-tenant-id is required"})
 
-        {:error, :not_ready} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package is not ready for download"})
+      true ->
+        case do_bundle_download(id, download_token, tenant_id, source_ip) do
+          {:ok, tarball, filename} ->
+            conn
+            |> put_resp_content_type("application/gzip")
+            |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+            |> send_resp(200, tarball)
 
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "invalid download token"})
+          {:error, :not_found} ->
+            {:error, :not_found}
 
-        {:error, :token_expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "download token expired"})
+          {:error, :not_ready} ->
+            conn
+            |> put_status(:conflict)
+            |> json(%{error: "package is not ready for download"})
 
-        {:error, :nats_creds_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "NATS credentials not provisioned"})
+          {:error, :invalid_token} ->
+            conn
+            |> put_status(:unauthorized)
+            |> json(%{error: "invalid download token"})
 
-        {:error, :tls_key_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "TLS certificates not provisioned"})
+          {:error, :token_expired} ->
+            conn
+            |> put_status(:gone)
+            |> json(%{error: "download token expired"})
 
-        {:error, :tls_cert_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "TLS certificates not provisioned"})
+          {:error, :nats_creds_not_found} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "NATS credentials not provisioned"})
 
-        {:error, reason} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
-      end
+          {:error, :tls_key_not_found} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "TLS certificates not provisioned"})
+
+          {:error, :tls_cert_not_found} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "TLS certificates not provisioned"})
+
+          {:error, reason} ->
+            conn
+            |> put_status(:internal_server_error)
+            |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
+        end
     end
   end
 
@@ -255,7 +269,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         case package
              |> Ash.Changeset.for_update(:revoke)
              |> Ash.Changeset.set_argument(:reason, reason)
-             |> Ash.update(authorize?: false) do
+             |> Ash.update(authorize?: false, tenant: tenant_id) do
           {:ok, updated_package} ->
             json(conn, package_to_json(updated_package))
 
@@ -550,7 +564,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   defp get_tenant_id(conn) do
     case conn.assigns[:current_scope] do
       %Scope{} = scope -> Scope.tenant_id(scope)
-      _ -> nil
+      _ -> tenant_from_header(conn)
     end
   end
 
@@ -573,6 +587,22 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         conn.remote_ip
         |> :inet.ntoa()
         |> to_string()
+    end
+  end
+
+  defp tenant_from_header(conn) do
+    case get_req_header(conn, "x-tenant-id") do
+      [tenant_id | _] -> cast_uuid(tenant_id)
+      _ -> nil
+    end
+  end
+
+  defp cast_uuid(nil), do: nil
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
     end
   end
 

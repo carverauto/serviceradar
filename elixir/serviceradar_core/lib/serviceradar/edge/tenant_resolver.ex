@@ -45,6 +45,8 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
+
   @type tenant_info :: %{
           tenant_slug: String.t(),
           component_id: String.t(),
@@ -106,7 +108,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
   def resolve_from_cert_with_issuer(cert_der, opts) when is_binary(cert_der) do
     with {:ok, resolved} <- resolve_from_cert_only(cert_der),
          {:ok, issuer_spki} <- issuer_spki_sha256(opts),
-         {:ok, tenant_ca} <- lookup_tenant_ca_by_spki(issuer_spki),
+         {:ok, tenant_ca} <- lookup_tenant_ca_by_spki(issuer_spki, resolved.tenant_slug),
          {:ok, tenant} <- ensure_tenant_loaded(tenant_ca),
          :ok <- validate_tenant_slug(resolved.tenant_slug, tenant.slug) do
       {:ok,
@@ -274,9 +276,12 @@ defmodule ServiceRadar.Edge.TenantResolver do
     end
   end
 
-  defp lookup_tenant_ca_by_spki(spki_sha256) do
+  defp lookup_tenant_ca_by_spki(spki_sha256, tenant_slug) do
+    tenant_schema = TenantSchemas.schema_for(tenant_slug)
+
     ServiceRadar.Edge.TenantCA
     |> Ash.Query.for_read(:by_spki, %{spki_sha256: spki_sha256})
+    |> Ash.Query.set_tenant(tenant_schema)
     |> Ash.read_one(authorize?: false, load: [:tenant])
     |> case do
       {:ok, %ServiceRadar.Edge.TenantCA{} = tenant_ca} -> {:ok, tenant_ca}

@@ -38,6 +38,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.EdgeSite
+
   postgres do
     table "nats_leaf_servers"
     repo ServiceRadar.Repo
@@ -84,9 +87,17 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue async provisioning
-          case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, leaf_server}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -160,9 +171,17 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue provisioning job
-          case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, leaf_server}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -426,14 +445,20 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         :offline -> :go_offline
       end
 
-    case Ash.get(ServiceRadar.Edge.EdgeSite, leaf_server.edge_site_id, authorize?: false) do
-      {:ok, site} when site.status != new_status ->
-        site
-        |> Ash.Changeset.for_update(action, %{})
-        |> Ash.update(authorize?: false)
-
-      _ ->
+    case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+      nil ->
         :ok
+
+      tenant_schema ->
+        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, authorize?: false) do
+          {:ok, site} when site.status != new_status ->
+            site
+            |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
+            |> Ash.update(authorize?: false)
+
+          _ ->
+            :ok
+        end
     end
   end
 end

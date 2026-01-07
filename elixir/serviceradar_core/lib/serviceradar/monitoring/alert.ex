@@ -68,10 +68,13 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do
-        queue :alerts
+        queue ServiceRadar.Oban.AshObanQueueResolver.queue_for(:alerts)
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :pending
         scheduler_cron "*/5 * * * *"
         action :escalate
@@ -89,7 +92,8 @@ defmodule ServiceRadar.Monitoring.Alert do
 
       # Scheduled trigger for sending notifications on new/escalated alerts
       trigger :send_notifications do
-        queue :notifications
+        queue ServiceRadar.Oban.AshObanQueueResolver.queue_for(:notifications)
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :needs_notification
         scheduler_cron "* * * * *"
         action :send_notification

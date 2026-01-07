@@ -68,6 +68,9 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
+        # Per-tenant Oban supervisors (after Oban)
+        tenant_oban_supervisor_child(),
+
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
@@ -182,6 +185,15 @@ defmodule ServiceRadar.Application do
     if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
          Application.get_env(:serviceradar_core, Oban) do
       ServiceRadar.Oban.TenantQueues
+    else
+      nil
+    end
+  end
+
+  defp tenant_oban_supervisor_child do
+    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+         Application.get_env(:serviceradar_core, Oban) do
+      ServiceRadar.Oban.TenantSupervisor
     else
       nil
     end

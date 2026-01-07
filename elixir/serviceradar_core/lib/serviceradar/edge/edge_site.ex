@@ -38,6 +38,8 @@ defmodule ServiceRadar.Edge.EdgeSite do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Cluster.TenantSchemas
+
   postgres do
     table "edge_sites"
     repo ServiceRadar.Repo
@@ -243,14 +245,21 @@ defmodule ServiceRadar.Edge.EdgeSite do
   defp create_nats_leaf_server(site) do
     # Get platform NATS URL from config
     upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
+    tenant_schema = TenantSchemas.schema_for_id(site.tenant_id)
 
-    ServiceRadar.Edge.NatsLeafServer
-    |> Ash.Changeset.for_create(:create, %{
-      edge_site_id: site.id,
-      tenant_id: site.tenant_id,
-      upstream_url: upstream_url,
-      local_listen: "0.0.0.0:4222"
-    })
-    |> Ash.create(authorize?: false)
+    case tenant_schema do
+      nil ->
+        {:error, :tenant_schema_not_found}
+
+      _ ->
+        ServiceRadar.Edge.NatsLeafServer
+        |> Ash.Changeset.for_create(:create, %{
+          edge_site_id: site.id,
+          tenant_id: site.tenant_id,
+          upstream_url: upstream_url,
+          local_listen: "0.0.0.0:4222"
+        }, tenant: tenant_schema)
+        |> Ash.create(authorize?: false)
+    end
   end
 end
