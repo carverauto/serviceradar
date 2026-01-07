@@ -88,8 +88,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                OnboardingPackages.get(Ecto.UUID.generate(), tenant: tenant_id)
     end
 
-    test "returns {:error, :not_found} for nil" do
-      assert {:error, :not_found} = OnboardingPackages.get(nil)
+    test "returns {:error, :not_found} for nil", %{tenant_id: tenant_id} do
+      assert {:error, :not_found} = OnboardingPackages.get(nil, tenant: tenant_id)
     end
   end
 

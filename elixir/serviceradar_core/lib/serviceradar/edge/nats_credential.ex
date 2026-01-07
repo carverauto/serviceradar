@@ -94,7 +94,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
     update :revoke do
       description "Revoke a credential"
       accept []
-      require_atomic? false
 
       argument :reason, :string
 
@@ -113,7 +112,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
     update :expire do
       description "Mark a credential as expired (state machine transition)"
       accept []
-      require_atomic? false
     end
   end
 

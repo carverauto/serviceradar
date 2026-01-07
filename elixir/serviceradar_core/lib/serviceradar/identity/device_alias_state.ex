@@ -117,7 +117,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "Record a new sighting and confirm if threshold is met"
       accept [:metadata]
       argument :confirm_threshold, :integer, default: 3
-      require_atomic? false
 
       change atomic_update(:last_seen_at, expr(now()))
       change atomic_update(:sighting_count, expr(sighting_count + 1))
@@ -137,7 +136,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     # State machine transition actions
     update :confirm do
       description "Confirm alias as stable (seen multiple times)"
-      require_atomic? false
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -146,7 +144,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     update :update_metadata do
       description "Update alias metadata (triggers updated state)"
       accept [:metadata]
-      require_atomic? false
 
       change transition_state(:updated)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -154,14 +151,12 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :mark_stale do
       description "Mark alias as stale (not seen recently)"
-      require_atomic? false
 
       change transition_state(:stale)
     end
 
     update :reactivate do
       description "Reactivate a stale alias"
-      require_atomic? false
 
       change transition_state(:confirmed)
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
@@ -170,7 +165,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     update :replace do
       description "Mark alias as replaced by a new alias"
       argument :replaced_by_id, :uuid
-      require_atomic? false
 
       change transition_state(:replaced)
 
@@ -184,7 +178,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :archive do
       description "Archive a replaced or stale alias"
-      require_atomic? false
 
       change transition_state(:archived)
     end

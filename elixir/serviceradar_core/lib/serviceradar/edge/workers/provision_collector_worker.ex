@@ -80,7 +80,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
          :ok <- validate_tenant_nats_ready(tenant),
          {:ok, account_seed} <- get_account_seed(tenant),
          {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
-         {:ok, tenant_ca} <- get_tenant_ca(tenant, tenant_schema),
+         {:ok, tenant_ca} <- get_tenant_ca(tenant),
          {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, package),
          {:ok, credential} <- create_credential_record(package, user_creds, tenant_schema),
          {:ok, _package} <-
@@ -303,10 +303,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.create(authorize?: false)
   end
 
-  defp get_tenant_ca(tenant, tenant_schema) do
+  defp get_tenant_ca(tenant) do
     case TenantCA
          |> Ash.Query.for_read(:active)
-         |> Ash.Query.set_tenant(tenant_schema)
+         |> Ash.Query.set_tenant(tenant)
          |> Ash.Query.filter(tenant_id == ^tenant.id)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}

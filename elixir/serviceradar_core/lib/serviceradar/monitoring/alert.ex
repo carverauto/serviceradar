@@ -196,7 +196,6 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Acknowledge an alert"
       argument :acknowledged_by, :string, allow_nil?: false
       argument :note, :string
-      require_atomic? false
 
       change transition_state(:acknowledged)
       change set_attribute(:acknowledged_at, &DateTime.utc_now/0)
@@ -207,7 +206,6 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Resolve an alert"
       argument :resolved_by, :string
       argument :resolution_note, :string
-      require_atomic? false
 
       change transition_state(:resolved)
       change set_attribute(:resolved_at, &DateTime.utc_now/0)
@@ -218,7 +216,6 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :escalate do
       description "Escalate an alert"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:escalated)
       change set_attribute(:escalated_at, &DateTime.utc_now/0)
@@ -233,7 +230,6 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :suppress do
       description "Suppress alert notifications"
       argument :until, :utc_datetime
-      require_atomic? false
 
       change transition_state(:suppressed)
       change set_attribute(:suppressed_until, arg(:until))
@@ -242,7 +238,6 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :reopen do
       description "Reopen a resolved or suppressed alert"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:pending)
       change set_attribute(:resolved_at, nil)
@@ -252,7 +247,6 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :record_notification do
       description "Record that a notification was sent"
-      require_atomic? false
 
       change fn changeset, _context ->
         current_count = changeset.data.notification_count || 0
@@ -265,7 +259,6 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :send_notification do
       description "Send notification for an alert (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         alert = changeset.data
@@ -289,7 +282,6 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :update_metadata do
       accept [:metadata, :tags]
-      require_atomic? false
     end
   end
 

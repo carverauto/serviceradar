@@ -143,7 +143,6 @@ defmodule ServiceRadar.Edge.TenantCA do
 
     update :revoke do
       description "Revoke a tenant CA (invalidates all edge certs)"
-      require_atomic? false
       argument :reason, :string
 
       change set_attribute(:status, :revoked)
@@ -157,7 +156,6 @@ defmodule ServiceRadar.Edge.TenantCA do
 
     update :increment_serial do
       description "Increment the next serial number for child certificates"
-      require_atomic? false
 
       change fn changeset, _context ->
         current = Ash.Changeset.get_data(changeset).next_child_serial

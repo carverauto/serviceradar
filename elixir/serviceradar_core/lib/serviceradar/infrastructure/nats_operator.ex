@@ -94,7 +94,6 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
     update :set_ready do
       description "Mark operator as ready after successful bootstrap"
       accept []
-      require_atomic? false
 
       argument :public_key, :string, allow_nil?: false
       argument :operator_jwt, :string, allow_nil?: false
@@ -113,7 +112,6 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
     update :set_error do
       description "Record bootstrap failure"
       accept []
-      require_atomic? false
 
       argument :error_message, :string, allow_nil?: false
 

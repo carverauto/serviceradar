@@ -8,7 +8,7 @@ ServiceRadar currently relies on attribute-based multitenancy in public schema t
   - Run Ash migrations on core-elx startup and fail fast on errors.
 - Non-Goals:
   - Redesign OTEL routing or NATS tenant stream/account architecture.
-  - Change edge onboarding package behavior in this change.
+  - Change the onboarding UI/UX beyond enforcing tenant context at the API boundary.
 
 ## Decisions
 - Use `strategy :context` for tenant-scoped Ash resources and apply tenant schema prefixes via the core repository.
@@ -18,6 +18,7 @@ ServiceRadar currently relies on attribute-based multitenancy in public schema t
 - core-elx runs Ash migrations on startup for the public schema and all tenant schemas. Startup fails if migrations cannot be applied.
 - Tenant-scoped tokens (API tokens, user tokens) live in tenant schemas and require tenant context for lookup.
 - Tenant AshOban job schedules and tenant Oban jobs live in tenant schemas; platform jobs remain in public.
+- Tenant context MUST come from Ash scope/actor or onboarding token lookup; request-supplied tenant headers are not accepted for tenant selection.
 
 ## Resource Inventory (Tenant vs Public)
 Tenant-scoped resources (schema-based `:context`):

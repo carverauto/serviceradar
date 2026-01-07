@@ -108,7 +108,6 @@ defmodule ServiceRadar.Identity.Tenant do
     update :set_nats_account do
       description "Set NATS account credentials after successful provisioning"
       accept []
-      require_atomic? false
 
       argument :account_public_key, :string, allow_nil?: false
       argument :account_seed, :string, allow_nil?: false
@@ -131,7 +130,6 @@ defmodule ServiceRadar.Identity.Tenant do
     update :set_nats_account_error do
       description "Record NATS account provisioning failure"
       accept []
-      require_atomic? false
 
       argument :error_message, :string, allow_nil?: false
 
@@ -155,7 +153,6 @@ defmodule ServiceRadar.Identity.Tenant do
     update :update_nats_account_jwt do
       description "Update NATS account JWT (after re-signing)"
       accept []
-      require_atomic? false
 
       argument :account_jwt, :string, allow_nil?: false
 
@@ -171,7 +168,6 @@ defmodule ServiceRadar.Identity.Tenant do
     update :clear_nats_account do
       description "Clear NATS account credentials (revoke/reset)"
       accept []
-      require_atomic? false
 
       argument :reason, :string, allow_nil?: true
 

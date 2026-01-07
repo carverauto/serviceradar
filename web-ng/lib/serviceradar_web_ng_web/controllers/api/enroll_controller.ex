@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
 
@@ -44,7 +45,6 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   def enroll(conn, %{"package_id" => package_id} = params) do
     token_secret = params["token"]
     source_ip = get_client_ip(conn)
-    tenant_id = tenant_from_header(conn)
 
     cond do
       is_nil(token_secret) or token_secret == "" ->
@@ -52,45 +52,50 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
         |> put_status(:bad_request)
         |> json(%{error: "token query parameter is required"})
 
-      is_nil(tenant_id) ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "x-tenant-id is required"})
-
       true ->
-        case do_enrollment(package_id, token_secret, source_ip, tenant_id) do
-          {:ok, result} ->
-            json(conn, result)
+        case find_package_across_tenants(package_id) do
+          {:ok, package, tenant_schema} ->
+            case do_enrollment(package, token_secret, source_ip, tenant_schema) do
+              {:ok, result} ->
+                json(conn, result)
+
+              {:error, :not_ready} ->
+                conn
+                |> put_status(:conflict)
+                |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
+
+              {:error, :invalid_token} ->
+                conn
+                |> put_status(:unauthorized)
+                |> json(%{error: "invalid enrollment token"})
+
+              {:error, :token_expired} ->
+                conn
+                |> put_status(:gone)
+                |> json(%{error: "enrollment token has expired, please generate a new package"})
+
+              {:error, :already_enrolled} ->
+                conn
+                |> put_status(:conflict)
+                |> json(%{error: "this package has already been enrolled"})
+
+              {:error, :nats_creds_not_found} ->
+                conn
+                |> put_status(:internal_server_error)
+                |> json(%{error: "NATS credentials not provisioned yet"})
+
+              {:error, reason} ->
+                Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
+
+                conn
+                |> put_status(:internal_server_error)
+                |> json(%{error: "enrollment failed"})
+            end
 
           {:error, :not_found} ->
             conn
             |> put_status(:not_found)
             |> json(%{error: "package not found"})
-
-          {:error, :not_ready} ->
-            conn
-            |> put_status(:conflict)
-            |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
-
-          {:error, :invalid_token} ->
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "invalid enrollment token"})
-
-          {:error, :token_expired} ->
-            conn
-            |> put_status(:gone)
-            |> json(%{error: "enrollment token has expired, please generate a new package"})
-
-          {:error, :already_enrolled} ->
-            conn
-            |> put_status(:conflict)
-            |> json(%{error: "this package has already been enrolled"})
-
-          {:error, :nats_creds_not_found} ->
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "NATS credentials not provisioned yet"})
 
           {:error, reason} ->
             Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
@@ -104,25 +109,13 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
 
   # Private helpers
 
-  defp do_enrollment(package_id, token_secret, source_ip, tenant_id) do
-    with {:ok, package} <- get_package(package_id, tenant_id),
-         :ok <- validate_package_ready(package),
+  defp do_enrollment(package, token_secret, source_ip, tenant_schema) do
+    with :ok <- validate_package_ready(package),
          :ok <- validate_token(package, token_secret),
          :ok <- validate_not_already_enrolled(package),
          {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, _updated} <- mark_enrolled(package, source_ip, tenant_id) do
+         {:ok, _updated} <- mark_enrolled(package, source_ip, tenant_schema) do
       {:ok, build_enrollment_response(package, creds_content)}
-    end
-  end
-
-  defp get_package(package_id, tenant_id) do
-    case CollectorPackage
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^package_id)
-         |> Ash.read_one(authorize?: false, tenant: tenant_id) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, package} -> {:ok, package}
-      {:error, _} -> {:error, :not_found}
     end
   end
 
@@ -179,11 +172,11 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     end
   end
 
-  defp mark_enrolled(package, source_ip, tenant_id) do
+  defp mark_enrolled(package, source_ip, tenant_schema) do
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:source_ip, source_ip)
-    |> Ash.update(authorize?: false, tenant: tenant_id)
+    |> Ash.update(authorize?: false, tenant: tenant_schema)
   end
 
   defp build_enrollment_response(package, nats_creds) do
@@ -232,20 +225,23 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     encode_yaml(config)
   end
 
-  defp tenant_from_header(conn) do
-    case get_req_header(conn, "x-tenant-id") do
-      [tenant_id | _] -> cast_uuid(tenant_id)
-      _ -> nil
-    end
-  end
+  defp find_package_across_tenants(package_id) do
+    TenantSchemas.list_schemas()
+    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      case CollectorPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^package_id)
+           |> Ash.read_one(tenant: schema, authorize?: false) do
+        {:ok, nil} ->
+          {:cont, {:error, :not_found}}
 
-  defp cast_uuid(nil), do: nil
+        {:ok, package} ->
+          {:halt, {:ok, package, schema}}
 
-  defp cast_uuid(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> uuid
-      :error -> nil
-    end
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp add_collector_defaults(config, :flowgger) do

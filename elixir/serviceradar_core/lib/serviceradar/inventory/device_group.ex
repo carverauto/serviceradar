@@ -82,16 +82,13 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
 
     update :update do
       accept [:name, :desc, :type, :parent_id, :metadata]
-      require_atomic? false
     end
 
     update :increment_count do
-      require_atomic? false
       change atomic_update(:device_count, expr(device_count + 1))
     end
 
     update :decrement_count do
-      require_atomic? false
       change atomic_update(:device_count, expr(device_count - 1))
     end
   end

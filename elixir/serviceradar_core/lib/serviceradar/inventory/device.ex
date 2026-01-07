@@ -170,7 +170,6 @@ defmodule ServiceRadar.Inventory.Device do
         :metadata,
         :group_id
       ]
-      require_atomic? false
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
@@ -178,19 +177,16 @@ defmodule ServiceRadar.Inventory.Device do
     update :assign_to_group do
       description "Assign device to a group"
       accept [:group_id]
-      require_atomic? false
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :touch do
       description "Update last_seen_time without other changes"
-      require_atomic? false
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
     end
 
     update :set_availability do
       accept [:is_available]
-      require_atomic? false
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 

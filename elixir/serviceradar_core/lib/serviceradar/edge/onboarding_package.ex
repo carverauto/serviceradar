@@ -132,7 +132,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :update_tokens do
       description "Update token fields after generation"
-      require_atomic? false
 
       accept [
         :join_token_ciphertext,
@@ -147,13 +146,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :update_metadata do
       description "Update metadata fields for the package"
-      require_atomic? false
       accept [:metadata_json]
     end
 
     update :deliver do
       description "Mark package as delivered (downloaded)"
-      require_atomic? false
       change transition_state(:delivered)
       change set_attribute(:delivered_at, &DateTime.utc_now/0)
     end
@@ -161,7 +158,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     update :activate do
       description "Mark package as activated (edge component running)"
       accept [:activated_from_ip, :last_seen_spiffe_id]
-      require_atomic? false
 
       change transition_state(:activated)
       change set_attribute(:activated_at, &DateTime.utc_now/0)
@@ -170,7 +166,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     update :revoke do
       description "Revoke an issued or delivered package"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:revoked)
       change set_attribute(:revoked_at, &DateTime.utc_now/0)
@@ -178,14 +173,12 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :expire do
       description "Mark package as expired (automatic)"
-      require_atomic? false
       change transition_state(:expired)
     end
 
     update :soft_delete do
       description "Soft delete a package"
       accept [:deleted_by, :deleted_reason]
-      require_atomic? false
 
       change transition_state(:deleted)
       change set_attribute(:deleted_at, &DateTime.utc_now/0)

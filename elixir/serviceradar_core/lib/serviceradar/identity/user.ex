@@ -186,12 +186,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update do
       accept [:display_name]
-      require_atomic? false
     end
 
     update :update_email do
       accept [:email]
-      require_atomic? false
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
@@ -199,12 +197,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
-      require_atomic? false
     end
 
     update :change_password do
       description "Change a user's password"
-      require_atomic? false
 
       argument :current_password, :string do
         # Allow nil here - the change block handles validation based on whether user has a password

@@ -117,7 +117,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :update do
-      require_atomic? false
 
       accept [
         :name,
@@ -159,7 +158,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :enable do
-      require_atomic? false
       change set_attribute(:enabled, true)
 
       change after_action(fn _changeset, record, _context ->
@@ -169,7 +167,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :disable do
-      require_atomic? false
       change set_attribute(:enabled, false)
 
       change after_action(fn _changeset, record, _context ->
@@ -180,7 +177,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
     update :record_sync do
       description "Record sync execution results"
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -221,7 +217,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     destroy :delete do
-      require_atomic? false
 
       change after_action(fn changeset, record, _context ->
                publish_integration_event(record, :delete, changeset)

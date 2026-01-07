@@ -139,7 +139,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :pause do
       description "Pause the checker (temporarily stop execution)"
-      require_atomic? false
 
       change transition_state(:paused)
       change set_attribute(:updated_at, &DateTime.utc_now/0)
@@ -148,7 +147,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :resume do
       description "Resume a paused checker"
-      require_atomic? false
 
       change transition_state(:active)
       change set_attribute(:enabled, true)
@@ -159,7 +157,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
     update :mark_failing do
       description "Mark checker as failing due to consecutive failures"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:failing)
       change set_attribute(:failure_reason, arg(:reason))
@@ -170,7 +167,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :clear_failure do
       description "Clear failure state after successful check"
-      require_atomic? false
 
       change transition_state(:active)
       change set_attribute(:consecutive_failures, 0)
@@ -182,7 +178,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :record_success do
       description "Record a successful check result"
-      require_atomic? false
 
       change set_attribute(:consecutive_failures, 0)
       change set_attribute(:last_success, &DateTime.utc_now/0)
@@ -192,7 +187,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
     update :record_failure do
       description "Record a failed check result"
       argument :reason, :string
-      require_atomic? false
 
       change fn changeset, _context ->
         current = Ash.Changeset.get_attribute(changeset, :consecutive_failures) || 0
@@ -207,7 +201,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :enable do
       description "Enable a disabled checker"
-      require_atomic? false
 
       change transition_state(:active)
       change set_attribute(:enabled, true)
@@ -217,7 +210,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :disable do
       description "Disable the checker"
-      require_atomic? false
 
       change transition_state(:disabled)
       change set_attribute(:enabled, false)

@@ -158,22 +158,18 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         :timeout_seconds,
         :metadata
       ]
-      require_atomic? false
     end
 
     update :enable do
-      require_atomic? false
       change set_attribute(:enabled, true)
     end
 
     update :disable do
-      require_atomic? false
       change set_attribute(:enabled, false)
     end
 
     update :execute do
       description "Execute this polling schedule (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data
@@ -213,7 +209,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :record_result do
       description "Record the result of a schedule execution"
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -255,7 +250,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :acquire_lock do
       description "Acquire distributed lock for execution"
-      require_atomic? false
 
       argument :node_id, :string, allow_nil?: false
 
@@ -272,7 +266,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :release_lock do
       description "Release distributed lock"
-      require_atomic? false
 
       change set_attribute(:lock_token, nil)
       change set_attribute(:locked_at, nil)
@@ -281,7 +274,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :trigger_manual do
       description "Manually trigger schedule execution"
-      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data

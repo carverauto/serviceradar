@@ -106,7 +106,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :provision do
       description "Mark server as provisioned with certificates"
       accept []
-      require_atomic? false
 
       argument :leaf_cert_pem, :string, allow_nil?: false, sensitive?: true
       argument :leaf_key_pem, :string, allow_nil?: false, sensitive?: true
@@ -134,7 +133,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :connect do
       description "Mark server as connected to SaaS"
       accept []
-      require_atomic? false
 
       change set_attribute(:connected_at, &DateTime.utc_now/0)
 
@@ -150,7 +148,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :disconnect do
       description "Mark server as disconnected from SaaS"
       accept []
-      require_atomic? false
 
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
 
@@ -166,7 +163,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :reprovision do
       description "Request re-provisioning of certificates"
       accept []
-      require_atomic? false
 
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->

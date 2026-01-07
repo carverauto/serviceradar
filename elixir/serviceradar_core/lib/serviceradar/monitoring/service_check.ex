@@ -152,23 +152,19 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         :agent_uid,
         :metadata
       ]
-      require_atomic? false
     end
 
     update :enable do
-      require_atomic? false
       change set_attribute(:enabled, true)
     end
 
     update :disable do
-      require_atomic? false
       change set_attribute(:enabled, false)
     end
 
     update :record_result do
       description "Record the result of a check execution"
       accept [:last_response_time_ms, :last_error]
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -195,13 +191,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     update :reset_failures do
       description "Reset consecutive failure count"
-      require_atomic? false
       change set_attribute(:consecutive_failures, 0)
     end
 
     update :execute do
       description "Execute this service check (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         # Mark check as starting execution

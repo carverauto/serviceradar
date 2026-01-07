@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Identity.Tenant
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -40,7 +41,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def list(filters \\ %{}, opts \\ []) do
     # Convert string statuses to atoms if present
     filters = normalize_filters(filters)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
     opts = [actor: system_actor(), authorize?: false, tenant: tenant]
 
     AshPackages.list!(filters, opts)
@@ -55,7 +56,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def get(id, opts \\ [])
 
   def get(id, opts) when is_binary(id) do
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
     opts = [actor: system_actor(), authorize?: false, tenant: tenant]
     AshPackages.get(id, opts)
   end
@@ -67,7 +68,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec get!(String.t(), keyword()) :: OnboardingPackage.t()
   def get!(id, opts \\ []) do
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
     opts = [actor: system_actor(), authorize?: false, tenant: tenant]
     AshPackages.get!(id, opts)
   end
@@ -93,7 +94,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
 
     opts_with_actor =
       opts
@@ -152,7 +153,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           {:ok, map()} | {:error, term()}
   def create_with_tenant_cert(attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
 
     opts_with_actor =
       opts
@@ -183,7 +184,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
 
     opts_with_actor =
       opts
@@ -200,7 +201,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec revoke(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def revoke(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
 
     opts_with_actor =
       opts
@@ -217,7 +218,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec delete(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def delete(package_id, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant, default_tenant())
+    tenant = require_tenant!(opts)
 
     opts_with_actor =
       opts
@@ -278,12 +279,27 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     }
   end
 
-  defp default_tenant do
-    # Default tenant ID for backwards compatibility
-    # Uses the test tenant ID in test, system tenant in production
-    case Application.get_env(:serviceradar_web_ng, :env) do
-      :test -> "00000000-0000-0000-0000-000000000099"
-      _ -> "00000000-0000-0000-0000-000000000000"
+  defp require_tenant!(opts) do
+    case Keyword.fetch(opts, :tenant) do
+      {:ok, tenant} -> normalize_tenant!(tenant)
+      :error -> raise ArgumentError, "tenant is required for onboarding packages"
     end
+  end
+
+  defp normalize_tenant!(%Tenant{} = tenant), do: tenant
+
+  defp normalize_tenant!(tenant) when is_binary(tenant) and String.starts_with?(tenant, "tenant_") do
+    tenant
+  end
+
+  defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
+    case Ash.get(Tenant, tenant_id, authorize?: false) do
+      {:ok, %Tenant{} = tenant} -> tenant
+      _ -> raise ArgumentError, "tenant not found for onboarding packages"
+    end
+  end
+
+  defp normalize_tenant!(_tenant) do
+    raise ArgumentError, "invalid tenant for onboarding packages"
   end
 end

@@ -121,31 +121,26 @@ defmodule ServiceRadar.Edge.EdgeSite do
     update :update do
       description "Update edge site details"
       accept [:name, :nats_leaf_url]
-      require_atomic? false
     end
 
     update :activate do
       description "Mark site as active (leaf connected)"
       accept []
-      require_atomic? false
     end
 
     update :go_offline do
       description "Mark site as offline (leaf disconnected)"
       accept []
-      require_atomic? false
     end
 
     update :come_online do
       description "Mark site as back online"
       accept []
-      require_atomic? false
     end
 
     update :touch do
       description "Update last_seen_at timestamp"
       accept []
-      require_atomic? false
 
       change set_attribute(:last_seen_at, &DateTime.utc_now/0)
     end

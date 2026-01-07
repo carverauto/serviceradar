@@ -160,7 +160,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
     update :dispatch do
       description "Mark job as dispatching (finding a gateway)"
       accept [:gateway_id]
-      require_atomic? false
 
       change transition_state(:dispatching)
       change set_attribute(:dispatched_at, &DateTime.utc_now/0)
@@ -169,7 +168,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
     update :start do
       description "Mark job as running on a gateway/agent"
       accept [:agent_id]
-      require_atomic? false
 
       change transition_state(:running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
@@ -177,7 +175,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :complete do
       description "Mark job as completed"
-      require_atomic? false
 
       argument :success_count, :integer, default: 0
       argument :failure_count, :integer, default: 0
@@ -209,7 +206,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :fail do
       description "Mark job as failed"
-      require_atomic? false
 
       argument :error_message, :string
       argument :error_code, :string
@@ -238,7 +234,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :timeout do
       description "Mark job as timed out"
-      require_atomic? false
 
       change transition_state(:timeout)
       change set_attribute(:completed_at, &DateTime.utc_now/0)
@@ -247,7 +242,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :cancel do
       description "Cancel a pending or dispatching job"
-      require_atomic? false
 
       argument :reason, :string
 
@@ -264,7 +258,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :retry do
       description "Retry a failed or timed out job"
-      require_atomic? false
 
       change transition_state(:pending)
 

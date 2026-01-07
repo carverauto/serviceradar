@@ -66,7 +66,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
 
     update :update do
       accept [:cron, :timezone, :args, :enabled, :unique_period_seconds]
-      require_atomic? false
 
       validate fn changeset, _context ->
         cron = Ash.Changeset.get_attribute(changeset, :cron)

@@ -89,7 +89,6 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
     update :mark_used do
       description "Mark token as used after successful bootstrap"
       accept []
-      require_atomic? false
 
       argument :used_by_ip, :string
 

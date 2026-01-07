@@ -105,7 +105,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     update :record_use do
       description "Record token usage"
       accept [:last_used_ip]
-      require_atomic? false
 
       change fn changeset, _context ->
         changeset
@@ -120,7 +119,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     update :revoke do
       description "Revoke this token"
       argument :revoked_by, :string, allow_nil?: true
-      require_atomic? false
 
       change fn changeset, _context ->
         revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"

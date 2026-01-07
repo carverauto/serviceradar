@@ -179,13 +179,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :provision do
       description "Mark package as provisioning"
       accept []
-      require_atomic? false
     end
 
     update :ready do
       description "Mark package as ready after successful provisioning"
       accept []
-      require_atomic? false
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
@@ -219,7 +217,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :fail do
       description "Mark package as failed"
       accept []
-      require_atomic? false
 
       argument :error_message, :string
 
@@ -241,7 +238,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :download do
       description "Mark package as downloaded"
       accept []
-      require_atomic? false
 
       argument :downloaded_by_ip, :string
 
@@ -255,7 +251,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :install do
       description "Mark package as installed"
       accept []
-      require_atomic? false
 
       change set_attribute(:installed_at, &DateTime.utc_now/0)
     end
@@ -263,7 +258,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :revoke do
       description "Revoke a package (also revokes associated NATS credential)"
       accept []
-      require_atomic? false
 
       argument :reason, :string
 
