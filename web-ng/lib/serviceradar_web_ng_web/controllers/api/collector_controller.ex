@@ -132,49 +132,16 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     download_token = params["download_token"]
     source_ip = get_client_ip(conn)
 
-    cond do
-      is_nil(download_token) or download_token == "" ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "download_token is required"})
+    if download_token in [nil, ""] do
+      return_error(conn, :bad_request, "download_token is required")
+    else
+      case download_with_token(id, download_token, source_ip) do
+        {:ok, result} ->
+          json(conn, result)
 
-      true ->
-        case find_package_across_tenants(id) do
-          {:ok, _package, tenant_schema} ->
-            case do_download(id, download_token, tenant_schema, source_ip) do
-              {:ok, result} ->
-                json(conn, result)
-
-              {:error, :not_found} ->
-                {:error, :not_found}
-
-              {:error, :not_ready} ->
-                conn
-                |> put_status(:conflict)
-                |> json(%{error: "package is not ready for download"})
-
-              {:error, :invalid_token} ->
-                conn
-                |> put_status(:unauthorized)
-                |> json(%{error: "invalid download token"})
-
-              {:error, :token_expired} ->
-                conn
-                |> put_status(:gone)
-                |> json(%{error: "download token expired"})
-
-              {:error, reason} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "download failed: #{inspect(reason)}"})
-            end
-
-          {:error, :not_found} ->
-            {:error, :not_found}
-
-          {:error, error} ->
-            {:error, error}
-        end
+        {:error, reason} ->
+          handle_download_error(conn, reason)
+      end
     end
   end
 
@@ -194,67 +161,19 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     download_token = params["token"]
     source_ip = get_client_ip(conn)
 
-    cond do
-      is_nil(download_token) or download_token == "" ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "token query parameter is required"})
+    if download_token in [nil, ""] do
+      return_error(conn, :bad_request, "token query parameter is required")
+    else
+      case bundle_with_token(id, download_token, source_ip) do
+        {:ok, tarball, filename} ->
+          conn
+          |> put_resp_content_type("application/gzip")
+          |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+          |> send_resp(200, tarball)
 
-      true ->
-        case find_package_across_tenants(id) do
-          {:ok, _package, tenant_schema} ->
-            case do_bundle_download(id, download_token, tenant_schema, source_ip) do
-              {:ok, tarball, filename} ->
-                conn
-                |> put_resp_content_type("application/gzip")
-                |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-                |> send_resp(200, tarball)
-
-              {:error, :not_found} ->
-                {:error, :not_found}
-
-              {:error, :not_ready} ->
-                conn
-                |> put_status(:conflict)
-                |> json(%{error: "package is not ready for download"})
-
-              {:error, :invalid_token} ->
-                conn
-                |> put_status(:unauthorized)
-                |> json(%{error: "invalid download token"})
-
-              {:error, :token_expired} ->
-                conn
-                |> put_status(:gone)
-                |> json(%{error: "download token expired"})
-
-              {:error, :nats_creds_not_found} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "NATS credentials not provisioned"})
-
-              {:error, :tls_key_not_found} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "TLS certificates not provisioned"})
-
-              {:error, :tls_cert_not_found} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "TLS certificates not provisioned"})
-
-              {:error, reason} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
-            end
-
-          {:error, :not_found} ->
-            {:error, :not_found}
-
-          {:error, error} ->
-            {:error, error}
-        end
+        {:error, reason} ->
+          handle_bundle_error(conn, reason)
+      end
     end
   end
 
@@ -360,6 +279,26 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
          collector_config: generate_collector_config(updated_package),
          install_script: generate_install_script(updated_package)
        }}
+    end
+  end
+
+  defp download_with_token(package_id, download_token, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, _package, tenant_schema} ->
+        do_download(package_id, download_token, tenant_schema, source_ip)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp bundle_with_token(package_id, download_token, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, _package, tenant_schema} ->
+        do_bundle_download(package_id, download_token, tenant_schema, source_ip)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -557,6 +496,50 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     conn
     |> put_status(status)
     |> json(%{error: message})
+  end
+
+  defp handle_download_error(conn, :not_found), do: {:error, :not_found}
+
+  defp handle_download_error(conn, :not_ready) do
+    return_error(conn, :conflict, "package is not ready for download")
+  end
+
+  defp handle_download_error(conn, :invalid_token) do
+    return_error(conn, :unauthorized, "invalid download token")
+  end
+
+  defp handle_download_error(conn, :token_expired) do
+    return_error(conn, :gone, "download token expired")
+  end
+
+  defp handle_download_error(conn, reason) do
+    return_error(conn, :internal_server_error, "download failed: #{inspect(reason)}")
+  end
+
+  defp handle_bundle_error(conn, :not_found), do: {:error, :not_found}
+
+  defp handle_bundle_error(conn, :not_ready) do
+    return_error(conn, :conflict, "package is not ready for download")
+  end
+
+  defp handle_bundle_error(conn, :invalid_token) do
+    return_error(conn, :unauthorized, "invalid download token")
+  end
+
+  defp handle_bundle_error(conn, :token_expired) do
+    return_error(conn, :gone, "download token expired")
+  end
+
+  defp handle_bundle_error(conn, :nats_creds_not_found) do
+    return_error(conn, :internal_server_error, "NATS credentials not provisioned")
+  end
+
+  defp handle_bundle_error(conn, reason) when reason in [:tls_key_not_found, :tls_cert_not_found] do
+    return_error(conn, :internal_server_error, "TLS certificates not provisioned")
+  end
+
+  defp handle_bundle_error(conn, reason) do
+    return_error(conn, :internal_server_error, "bundle creation failed: #{inspect(reason)}")
   end
 
   defp require_tenant(conn) do

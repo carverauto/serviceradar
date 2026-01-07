@@ -182,30 +182,35 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def download(conn, %{"id" => id} = params) do
     download_token = params["download_token"]
 
-    cond do
-      is_nil(download_token) or download_token == "" ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "download_token is required"})
+    if download_token in [nil, ""] do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "download_token is required"})
+    else
+      source_ip = get_client_ip(conn)
+      actor = get_actor(conn)
 
-      true ->
-        case find_package_across_tenants(id) do
-          {:ok, _package, tenant_schema} ->
-            do_download(conn, id, download_token, tenant_schema)
+      case download_with_token(id, download_token, source_ip, actor) do
+        {:ok, result} ->
+          json(conn, result)
 
-          {:error, :not_found} ->
-            {:error, :not_found}
-
-          {:error, error} ->
-            {:error, error}
-        end
+        {:error, reason} ->
+          handle_download_error(conn, reason)
+      end
     end
   end
 
-  defp do_download(conn, id, download_token, tenant_schema) do
-    actor = get_actor(conn)
-    source_ip = get_client_ip(conn)
+  defp download_with_token(id, download_token, source_ip, actor) do
+    case find_package_across_tenants(id) do
+      {:ok, _package, tenant_schema} ->
+        deliver_package(id, download_token, tenant_schema, source_ip, actor)
 
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp deliver_package(id, download_token, tenant_schema, source_ip, actor) do
     case OnboardingPackages.deliver(id, download_token,
            actor: actor,
            source_ip: source_ip,
@@ -213,17 +218,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
            authorize?: false
          ) do
       {:ok, result} ->
-        json(conn, %{
-          package: package_to_json(result.package),
-          join_token: result.join_token,
-          bundle_pem: result.bundle_pem || ""
-        })
-
-      {:error, :not_found} ->
-        {:error, :not_found}
+        {:ok,
+         %{
+           package: package_to_json(result.package),
+           join_token: result.join_token,
+           bundle_pem: result.bundle_pem || ""
+         }}
 
       {:error, reason} ->
-        handle_download_error(conn, reason)
+        {:error, reason}
     end
   end
 
@@ -235,9 +238,30 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     conn |> put_status(:gone) |> json(%{error: "download token expired"})
   end
 
+  defp handle_download_error(conn, :not_found) do
+    conn |> put_status(:not_found) |> json(%{error: "package not found"})
+  end
+
   defp handle_download_error(conn, reason)
        when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
+  end
+
+  defp handle_bundle_error(conn, {:bundle_error, reason}) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+  end
+
+  defp handle_bundle_error(conn, reason)
+       when reason in [:invalid_token, :expired, :not_found, :already_delivered, :revoked, :deleted] do
+    handle_download_error(conn, reason)
+  end
+
+  defp handle_bundle_error(conn, reason) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "bundle request failed: #{inspect(reason)}"})
   end
 
   @doc """
@@ -254,41 +278,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
     source_ip = get_client_ip(conn)
 
-    case find_package_across_tenants(id) do
-      {:ok, _package, tenant_schema} ->
-        case OnboardingPackages.deliver(id, download_token,
-               source_ip: source_ip,
-               tenant: tenant_schema,
-               authorize?: false
-             ) do
-        {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} ->
-          case BundleGenerator.create_tarball(package, bundle_pem || "", join_token) do
-            {:ok, tarball} ->
-              filename = BundleGenerator.bundle_filename(package)
+    case bundle_with_token(id, download_token, source_ip) do
+      {:ok, tarball, filename} ->
+        conn
+        |> put_resp_content_type("application/gzip")
+        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+        |> send_resp(200, tarball)
 
-              conn
-              |> put_resp_content_type("application/gzip")
-              |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-              |> send_resp(200, tarball)
-
-            {:error, reason} ->
-              conn
-              |> put_status(:internal_server_error)
-              |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
-          end
-
-        {:error, :not_found} ->
-          conn |> put_status(:not_found) |> json(%{error: "package not found"})
-
-        {:error, reason} ->
-          handle_download_error(conn, reason)
-      end
-
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "package not found"})
-
-      {:error, error} ->
-        {:error, error}
+      {:error, reason} ->
+        handle_bundle_error(conn, reason)
     end
   end
 
@@ -297,6 +295,24 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     |> put_status(:bad_request)
     |> json(%{error: "token query parameter is required"})
   end
+
+  defp bundle_with_token(id, download_token, source_ip) do
+    with {:ok, _package, tenant_schema} <- find_package_across_tenants(id),
+         {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
+           deliver_package(id, download_token, tenant_schema, source_ip, nil),
+         {:ok, tarball} <-
+           wrap_bundle_error(BundleGenerator.create_tarball(package, bundle_pem || "", join_token)) do
+      filename = BundleGenerator.bundle_filename(package)
+      {:ok, tarball, filename}
+    else
+      {:error, reason} -> {:error, reason}
+      {:error, reason, _} -> {:error, reason}
+      {:error, reason, _, _} -> {:error, reason}
+    end
+  end
+
+  defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}
+  defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
 
   @doc """
   POST /api/admin/edge-packages/:id/revoke

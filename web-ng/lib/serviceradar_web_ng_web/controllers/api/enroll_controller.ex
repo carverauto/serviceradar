@@ -46,68 +46,76 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     token_secret = params["token"]
     source_ip = get_client_ip(conn)
 
-    cond do
-      is_nil(token_secret) or token_secret == "" ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "token query parameter is required"})
+    if token_secret in [nil, ""] do
+      conn
+      |> put_status(:bad_request)
+      |> json(%{error: "token query parameter is required"})
+    else
+      case enroll_with_token(package_id, token_secret, source_ip) do
+        {:ok, result} ->
+          json(conn, result)
 
-      true ->
-        case find_package_across_tenants(package_id) do
-          {:ok, package, tenant_schema} ->
-            case do_enrollment(package, token_secret, source_ip, tenant_schema) do
-              {:ok, result} ->
-                json(conn, result)
-
-              {:error, :not_ready} ->
-                conn
-                |> put_status(:conflict)
-                |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
-
-              {:error, :invalid_token} ->
-                conn
-                |> put_status(:unauthorized)
-                |> json(%{error: "invalid enrollment token"})
-
-              {:error, :token_expired} ->
-                conn
-                |> put_status(:gone)
-                |> json(%{error: "enrollment token has expired, please generate a new package"})
-
-              {:error, :already_enrolled} ->
-                conn
-                |> put_status(:conflict)
-                |> json(%{error: "this package has already been enrolled"})
-
-              {:error, :nats_creds_not_found} ->
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "NATS credentials not provisioned yet"})
-
-              {:error, reason} ->
-                Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
-
-                conn
-                |> put_status(:internal_server_error)
-                |> json(%{error: "enrollment failed"})
-            end
-
-          {:error, :not_found} ->
-            conn
-            |> put_status(:not_found)
-            |> json(%{error: "package not found"})
-
-          {:error, reason} ->
-            Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
-
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "enrollment failed"})
-        end
+        {:error, reason} ->
+          handle_enroll_error(conn, package_id, reason)
+      end
     end
   end
 
   # Private helpers
+
+  defp enroll_with_token(package_id, token_secret, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, package, tenant_schema} ->
+        do_enrollment(package, token_secret, source_ip, tenant_schema)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp handle_enroll_error(conn, _package_id, :not_ready) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :invalid_token) do
+    conn
+    |> put_status(:unauthorized)
+    |> json(%{error: "invalid enrollment token"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :token_expired) do
+    conn
+    |> put_status(:gone)
+    |> json(%{error: "enrollment token has expired, please generate a new package"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :already_enrolled) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "this package has already been enrolled"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :nats_creds_not_found) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "NATS credentials not provisioned yet"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :not_found) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{error: "package not found"})
+  end
+
+  defp handle_enroll_error(conn, package_id, reason) do
+    Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
+
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "enrollment failed"})
+  end
 
   defp do_enrollment(package, token_secret, source_ip, tenant_schema) do
     with :ok <- validate_package_ready(package),
