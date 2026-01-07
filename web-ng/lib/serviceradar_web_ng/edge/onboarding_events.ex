@@ -140,9 +140,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
 
   defp normalize_tenant!(%Tenant{} = tenant), do: tenant
 
-  defp normalize_tenant!(tenant) when is_binary(tenant) and String.starts_with?(tenant, "tenant_") do
-    tenant
-  end
+  defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
 
   defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
     case Ash.get(Tenant, tenant_id, authorize?: false) do
