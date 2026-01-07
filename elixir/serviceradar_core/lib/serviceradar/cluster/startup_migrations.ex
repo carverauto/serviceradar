@@ -24,14 +24,17 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     :ignore
   end
 
-  @spec run!() :: :ok
-  def run! do
+  @spec run!(keyword()) :: :ok
+  def run!(opts \\ []) do
     if migrations_enabled?() do
+      public_migrations = Keyword.get(opts, :public_migrations, &TenantSchemas.run_public_migrations!/0)
+      tenant_migrations = Keyword.get(opts, :tenant_migrations, &TenantSchemas.run_all_tenant_migrations!/0)
+
       Logger.info("[StartupMigrations] Running public migrations")
-      TenantSchemas.run_public_migrations!()
+      public_migrations.()
 
       Logger.info("[StartupMigrations] Running tenant migrations")
-      TenantSchemas.run_all_tenant_migrations!()
+      tenant_migrations.()
     else
       Logger.debug("[StartupMigrations] Startup migrations disabled; skipping")
     end

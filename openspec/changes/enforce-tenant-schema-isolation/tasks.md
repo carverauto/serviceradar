@@ -1,5 +1,5 @@
 ## 1. Design and Planning
-- [ ] 1.1 Inventory tenant-scoped Ash resources and classify shared vs tenant data.
+- [x] 1.1 Inventory tenant-scoped Ash resources and classify shared vs tenant data.
 - [x] 1.2 Confirm no data migration is required; dev/test databases can be rebuilt.
 
 ## 2. Schema Isolation Enablement
@@ -13,6 +13,6 @@
 - [x] 3.2 Fail core-elx startup if migrations fail.
 
 ## 4. Tests and Docs
-- [ ] 4.1 Add tests for schema selection and tenant-scoped reads/writes.
-- [ ] 4.2 Add tests for startup migration behavior and failure handling.
-- [ ] 4.3 Update operator documentation for schema isolation behavior and migration expectations.
+- [x] 4.1 Add tests for schema selection and tenant-scoped reads/writes.
+- [x] 4.2 Add tests for startup migration behavior and failure handling.
+- [x] 4.3 Update operator documentation for schema isolation behavior and migration expectations.

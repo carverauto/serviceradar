@@ -61,5 +61,11 @@ export SRQL_TEST_DATABASE_CA_CERT=/tmp/srql-fixture-ca.crt
 ### Maintenance
 
 - Fixture seeding is handled by the SRQL test harness – it drops/creates schemas every run.
+- If the fixture database gets wedged (for example, TimescaleDB library mismatches), reset it:
+
+```bash
+bash k8s/srql-fixtures/reset-db.sh
+```
+
 - To reset the cluster manually, delete the PVCs labeled `cnpg.io/cluster=srql-fixture` in the namespace and re-apply `cnpg-cluster.yaml`.
 - Keep the CNPG image tag in sync with `k8s/demo/base/spire/cnpg-cluster.yaml`.

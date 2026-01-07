@@ -9,13 +9,13 @@ defmodule ServiceRadar.Repo.Migrations.RemovePollerInfrastructure do
 
   def up do
     alter table(:poll_jobs) do
-      remove :poller_id
+      remove_if_exists :poller_id
       add :gateway_id, :text
     end
 
     alter table(:integration_sources) do
-      remove :sync_service_id
-      remove :poller_id
+      remove_if_exists :sync_service_id
+      remove_if_exists :poller_id
       add :gateway_id, :text
     end
 
@@ -26,12 +26,12 @@ defmodule ServiceRadar.Repo.Migrations.RemovePollerInfrastructure do
     create unique_index(:ng_users, [:tenant_id, :email], name: "ng_users_email_index")
 
     alter table(:polling_schedules) do
-      remove :assigned_poller_id
+      remove_if_exists :assigned_poller_id
       add :assigned_gateway_id, :text
     end
 
     alter table(:edge_onboarding_packages) do
-      remove :poller_id
+      remove_if_exists :poller_id
       modify :component_type, :text, default: "gateway"
       add :gateway_id, :text
     end
@@ -67,17 +67,17 @@ defmodule ServiceRadar.Repo.Migrations.RemovePollerInfrastructure do
            )
 
     alter table(:ocsf_devices) do
-      remove :poller_id
+      remove_if_exists :poller_id
       add :gateway_id, :text
     end
 
     alter table(:discovered_interfaces) do
-      remove :poller_id
+      remove_if_exists :poller_id
       add :gateway_id, :text
     end
 
     alter table(:ocsf_agents) do
-      remove :poller_id
+      remove_if_exists :poller_id
 
       add :gateway_id,
           references(:gateways,

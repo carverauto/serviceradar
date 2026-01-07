@@ -64,7 +64,8 @@ graph TB
 
 Tenant-scoped resources use **schema-based multitenancy** (`strategy :context`) and are stored
 under `tenant_<slug>` schemas. Platform-managed resources (tenants, users, tenant memberships,
-NATS platform tables, Oban, job schedules) remain in the public schema.
+platform NATS tables, platform Oban, platform job schedules) remain in the public schema.
+Tenant AshOban schedules and Oban jobs are stored in tenant schemas via per-tenant Oban instances.
 
 ```elixir
 multitenancy do
@@ -146,6 +147,9 @@ Edge device onboarding and lifecycle.
 - AshOban (`expire_packages` trigger for automatic expiration)
 
 ## Background Jobs (AshOban)
+
+Tenant-triggered jobs run from per-tenant Oban schemas; platform maintenance jobs remain in
+the public Oban schema.
 
 ServiceRadar uses AshOban for scheduled background processing:
 
