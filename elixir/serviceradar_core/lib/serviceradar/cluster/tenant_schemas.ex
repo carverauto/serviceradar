@@ -205,7 +205,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @doc """
   Resolves a tenant schema name from a tenant UUID.
 
-  Attempts the in-memory registry first and falls back to a DB lookup.
+  Uses the in-memory registry only. Callers must register slugs up front.
   """
   @spec schema_for_id(String.t()) :: String.t() | nil
   def schema_for_id(tenant_id) when is_binary(tenant_id) do
@@ -214,10 +214,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
         schema_for(slug)
 
       :error ->
-        case Ash.get(Tenant, tenant_id, authorize?: false) do
-          {:ok, tenant} -> schema_for(tenant.slug)
-          _ -> nil
-        end
+        nil
     end
   end
 

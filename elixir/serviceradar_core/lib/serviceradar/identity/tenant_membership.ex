@@ -114,11 +114,6 @@ defmodule ServiceRadar.Identity.TenantMembership do
       source_attribute :tenant_id
       allow_nil? false
     end
-
-    belongs_to :user, ServiceRadar.Identity.User do
-      source_attribute :user_id
-      allow_nil? false
-    end
   end
 
   identities do

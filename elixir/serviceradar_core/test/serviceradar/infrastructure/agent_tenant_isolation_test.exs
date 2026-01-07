@@ -15,11 +15,20 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
 
   @moduletag :database
 
-  setup do
-    # Create two separate tenants
+  setup_all do
+    tenant_a = ServiceRadar.TestSupport.create_tenant_schema!("agent-isolation-a")
+    tenant_b = ServiceRadar.TestSupport.create_tenant_schema!("agent-isolation-b")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_a.tenant_slug)
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_b.tenant_slug)
+    end)
+
+    {:ok, tenant_a_id: tenant_a.tenant_id, tenant_b_id: tenant_b.tenant_id}
+  end
+
+  setup %{tenant_a_id: tenant_a_id, tenant_b_id: tenant_b_id} do
     unique_id = :erlang.unique_integer([:positive])
-    tenant_a_id = Ash.UUID.generate()
-    tenant_b_id = Ash.UUID.generate()
 
     # Create actors for each tenant
     actor_a = %{
@@ -45,13 +54,12 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
     }
 
     {:ok,
-      tenant_a_id: tenant_a_id,
-      tenant_b_id: tenant_b_id,
-      actor_a: actor_a,
-      actor_b: actor_b,
-      super_admin: super_admin,
-      unique_id: unique_id
-    }
+     tenant_a_id: tenant_a_id,
+     tenant_b_id: tenant_b_id,
+     actor_a: actor_a,
+     actor_b: actor_b,
+     super_admin: super_admin,
+     unique_id: unique_id}
   end
 
   describe "tenant isolation" do

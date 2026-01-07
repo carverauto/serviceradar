@@ -12,7 +12,7 @@ ServiceRadar currently relies on attribute-based multitenancy in public schema t
 
 ## Decisions
 - Use `strategy :context` for tenant-scoped Ash resources and apply tenant schema prefixes via the core repository.
-- Preserve `public` schema for platform-managed resources only (tenants, users, tenant memberships, NATS platform tables, platform Oban/jobs).
+- Preserve `public` schema for platform-managed resources only (tenants, tenant memberships, NATS platform tables, platform Oban jobs).
 - Create tenant schemas named `tenant_<slug>` (slug sanitized) and run tenant migrations immediately, including for the platform tenant.
 - Use a shared tenant migration set (`priv/repo/tenant_migrations`) applied to every tenant schema.
 - core-elx runs Ash migrations on startup for the public schema and all tenant schemas. Startup fails if migrations cannot be applied.
@@ -23,6 +23,7 @@ ServiceRadar currently relies on attribute-based multitenancy in public schema t
 Tenant-scoped resources (schema-based `:context`):
 - ServiceRadar.Identity.ApiToken
 - ServiceRadar.Identity.Token
+- ServiceRadar.Identity.User
 - ServiceRadar.Identity.DeviceAliasState
 - ServiceRadar.Inventory.Device
 - ServiceRadar.Inventory.DeviceGroup
@@ -60,11 +61,10 @@ Tenant-scoped resources (schema-based `:context`):
 
 Public/shared resources (public schema; tenant data not stored here):
 - ServiceRadar.Identity.Tenant
-- ServiceRadar.Identity.User (attribute strategy)
 - ServiceRadar.Identity.TenantMembership (attribute strategy)
 - ServiceRadar.Infrastructure.NatsOperator
 - ServiceRadar.Infrastructure.NatsPlatformToken
-- Platform Oban/maintenance tables remain public (Oban.Job, Oban.Pro, ng_job_schedules)
+- Platform Oban/maintenance tables remain public (Oban.Job, Oban.Pro)
 
 ## Risks / Trade-offs
 - Startup time increases due to migration execution.

@@ -15,9 +15,18 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
 
   @moduletag :database
 
-  setup do
+  setup_all do
+    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-health")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
+    end)
+
+    {:ok, tenant_id: tenant.tenant_id}
+  end
+
+  setup %{tenant_id: tenant_id} do
     unique_id = :erlang.unique_integer([:positive])
-    tenant_id = Ash.UUID.generate()
 
     actor = %{
       id: Ash.UUID.generate(),

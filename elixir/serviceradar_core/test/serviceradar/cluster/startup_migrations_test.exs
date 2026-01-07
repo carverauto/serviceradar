@@ -37,12 +37,16 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
     end)
 
     public_fun = fn ->
-      Agent.update(tracker, &Map.update!(&1, :public, &(&1 + 1)))
+      Agent.update(tracker, fn state ->
+        Map.update!(state, :public, fn value -> value + 1 end)
+      end)
       :ok
     end
 
     tenant_fun = fn ->
-      Agent.update(tracker, &Map.update!(&1, :tenant, &(&1 + 1)))
+      Agent.update(tracker, fn state ->
+        Map.update!(state, :tenant, fn value -> value + 1 end)
+      end)
       :ok
     end
 

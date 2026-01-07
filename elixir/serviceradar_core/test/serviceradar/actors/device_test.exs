@@ -20,9 +20,18 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   @moduletag :database
 
-  setup do
+  setup_all do
+    tenant = ServiceRadar.TestSupport.create_tenant_schema!("device-actor")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
+    end)
+
+    {:ok, tenant_id: tenant.tenant_id}
+  end
+
+  setup %{tenant_id: tenant_id} do
     unique_id = :erlang.unique_integer([:positive])
-    tenant_id = Ash.UUID.generate()
     device_id = "device-#{unique_id}"
     partition_id = "partition-#{unique_id}"
 

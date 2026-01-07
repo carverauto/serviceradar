@@ -307,6 +307,7 @@ defmodule ServiceRadar.Identity.Tenant do
           with {:ok, user} <-
                  Ash.create(ServiceRadar.Identity.User, user_params,
                    action: :register_with_password,
+                   tenant: tenant.id,
                    authorize?: false
                  ),
                {:ok, _membership} <-
@@ -335,7 +336,7 @@ defmodule ServiceRadar.Identity.Tenant do
   require Ash.Query
 
   defp first_user? do
-    ServiceRadar.Identity.User
+    ServiceRadar.Identity.TenantMembership
     |> Ash.Query.for_read(:read, %{}, authorize?: false)
     |> Ash.Query.limit(1)
     |> Ash.read_one()
@@ -541,28 +542,10 @@ defmodule ServiceRadar.Identity.Tenant do
   end
 
   relationships do
-    # Direct user relationship via tenant_id (for backwards compatibility)
-    has_many :users, ServiceRadar.Identity.User
-
-    # Owner of the tenant (set during registration)
-    belongs_to :owner, ServiceRadar.Identity.User do
-      source_attribute :owner_id
-      public? true
-      allow_nil? true
-    end
-
     # Memberships for role-based access
     has_many :memberships, ServiceRadar.Identity.TenantMembership do
       source_attribute :id
       destination_attribute :tenant_id
-      public? true
-    end
-
-    # All members via memberships
-    many_to_many :members, ServiceRadar.Identity.User do
-      through ServiceRadar.Identity.TenantMembership
-      source_attribute_on_join_resource :tenant_id
-      destination_attribute_on_join_resource :user_id
       public? true
     end
 
@@ -583,8 +566,6 @@ defmodule ServiceRadar.Identity.Tenant do
   end
 
   calculations do
-    calculate :user_count, :integer, expr(count(users))
-
     calculate :display_status,
               :string,
               expr(

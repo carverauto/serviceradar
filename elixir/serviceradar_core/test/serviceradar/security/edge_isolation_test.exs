@@ -23,6 +23,16 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
   alias ServiceRadar.Cluster.TenantRegistry
 
+  setup_all do
+    tenant = ServiceRadar.TestSupport.create_tenant_schema!("edge-isolation")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
+    end)
+
+    {:ok, tenant_id: tenant.tenant_id}
+  end
+
   describe "ERTS cluster isolation (9.1, 9.2)" do
     test "cluster nodes do not include edge/agent nodes" do
       # Get all connected nodes in the ERTS cluster
@@ -153,10 +163,9 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   end
 
   describe "infrastructure agent resource validation" do
-    test "Agent resource requires host and port for gRPC" do
+    test "Agent resource requires host and port for gRPC", %{tenant_id: tenant_id} do
       alias ServiceRadar.Infrastructure.Agent
 
-      tenant_id = Ash.UUID.generate()
       actor = %{
         id: Ash.UUID.generate(),
         email: "test@serviceradar.local",

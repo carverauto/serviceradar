@@ -198,6 +198,10 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
 	@ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	case "$${ENV_FILE}" in \
+	  /*|./*|../*) ;; \
+	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
+	esac; \
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
 	cd web-ng && mix precommit
 
@@ -206,6 +210,10 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	@echo "$(COLOR_BOLD)Running serviceradar_core integration tests$(COLOR_RESET)"
 	@set -eu; \
 	ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	case "$${ENV_FILE}" in \
+	  /*|./*|../*) ;; \
+	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
+	esac; \
 	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
 	db_url="$${SERVICERADAR_TEST_DATABASE_URL:-$${SRQL_TEST_DATABASE_URL:-}}"; \
 	admin_url="$${SERVICERADAR_TEST_ADMIN_URL:-$${SRQL_TEST_ADMIN_URL:-}}"; \
@@ -238,7 +246,7 @@ test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG
 	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
 	cd elixir/serviceradar_core; \
 	MIX_ENV=test mix deps.get; \
-	MIX_ENV=test mix ecto.migrate; \
+	MIX_ENV=test mix ash.migrate; \
 	MIX_ENV=test mix test --include integration --no-start
 
 .PHONY: check-coverage

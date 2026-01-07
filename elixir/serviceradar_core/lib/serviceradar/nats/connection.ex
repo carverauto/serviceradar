@@ -88,12 +88,18 @@ defmodule ServiceRadar.NATS.Connection do
   """
   @spec publish(String.t(), String.t() | binary(), keyword()) :: :ok | {:error, term()}
   def publish(subject, payload, opts \\ []) do
-    case get() do
-      {:ok, conn} ->
-        Gnat.pub(conn, subject, payload, opts)
+    case Process.whereis(__MODULE__) do
+      nil ->
+        {:error, {:nats_not_connected, :no_process}}
 
-      {:error, _} = error ->
-        error
+      _pid ->
+        case get() do
+          {:ok, conn} ->
+            Gnat.pub(conn, subject, payload, opts)
+
+          {:error, reason} ->
+            {:error, {:nats_not_connected, reason}}
+        end
     end
   end
 

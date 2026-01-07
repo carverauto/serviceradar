@@ -34,7 +34,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
 
   multitenancy do
     strategy :context
-    global? true
   end
 
   code_interface do

@@ -5,7 +5,15 @@ defimpl Ash.ToTenant, for: BitString do
 
   def to_tenant(value, resource) when is_binary(value) do
     case Ash.Resource.Info.multitenancy_strategy(resource) do
-      :context -> schema_for_value(value)
+      :context ->
+        case schema_for_value(value) do
+          nil ->
+            raise ArgumentError, "Unknown tenant schema for #{inspect(value)}"
+
+          schema ->
+            schema
+        end
+
       _ -> value
     end
   end
