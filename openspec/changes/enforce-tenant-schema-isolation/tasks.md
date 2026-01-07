@@ -7,12 +7,15 @@
 - [x] 2.2 Ensure shared resources remain in public schema with attribute multitenancy as needed.
 - [x] 2.3 Add tenant schema creation and tenant migration execution to tenant provisioning flows.
 - [x] 2.4 Move tenant AshOban schedules/Oban jobs into tenant schemas; keep platform jobs public.
+- [x] 2.5 Reset migrations/snapshots and regenerate baseline public + tenant migrations (scorched earth).
 
 ## 3. Startup Migrations
 - [x] 3.1 Add core-elx startup migration runner for public and tenant schemas using Ash migrations.
 - [x] 3.2 Fail core-elx startup if migrations fail.
+- [x] 3.3 Update integration test runner to use Ash migrations (ash.migrate).
 
 ## 4. Tests and Docs
-- [x] 4.1 Add tests for schema selection and tenant-scoped reads/writes.
-- [x] 4.2 Add tests for startup migration behavior and failure handling.
-- [x] 4.3 Update operator documentation for schema isolation behavior and migration expectations.
+- [ ] 4.1 Update tests for schema selection and tenant-scoped reads/writes (run + verify).
+- [ ] 4.2 Update tests for startup migration behavior and failure handling (run + verify).
+- [ ] 4.3 Update operator documentation for schema isolation behavior and migration expectations.
+- [ ] 4.4 Re-run integration tests against srql-fixtures once DB reset is confirmed.

@@ -7,7 +7,7 @@ Tenant data must be physically isolated in per-tenant PostgreSQL schemas, and co
 - **BREAKING**: All tenant-scoped Ash resources move to schema-based multitenancy (context strategy) with tenant-specific schemas named `tenant_<slug>`.
 - Tenant schema creation and tenant migrations run automatically when a tenant is provisioned (including the platform tenant).
 - core-elx runs Ash migrations on startup for public and tenant schemas, and fails fast if migrations cannot be applied.
-- Public schema remains for platform-managed resources only (tenants, users, tenant memberships, NATS platform tables, platform Oban/jobs).
+- Public schema remains for platform-managed resources only (tenants, tenant memberships, NATS platform tables, platform Oban/jobs); platform tenant data lives in its own tenant schema.
 - Tenant AshOban job schedules and tenant Oban jobs are stored in tenant schemas.
 
 ## Impact

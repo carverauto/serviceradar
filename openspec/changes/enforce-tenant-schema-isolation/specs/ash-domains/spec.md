@@ -9,10 +9,10 @@ All tenant-scoped resources SHALL enforce tenant isolation at the Ash resource l
 - **AND** only tenant A data SHALL be visible without manual controller filtering
 
 #### Scenario: Platform-managed resources remain public
-- **GIVEN** a user requests platform-managed identity data or platform jobs (tenants, users, tenant memberships, platform Oban/jobs)
+- **GIVEN** a user requests platform-managed identity data or platform jobs (tenants, tenant memberships, platform Oban/jobs)
 - **WHEN** the query is executed
 - **THEN** the query SHALL use the public schema
-- **AND** tenant-scoped data (including job schedules) SHALL NOT be stored in public tables
+- **AND** tenant-scoped data (including users, tokens, and job schedules) SHALL NOT be stored in public tables
 
 #### Scenario: Tenant job schedules are schema-isolated
 - **GIVEN** a tenant schedules a job via AshOban
