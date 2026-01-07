@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages
 
@@ -105,9 +106,11 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   end
 
   defp find_existing_package(tenant_id, component_type, component_id) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_id, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
       |> Ash.Query.filter(
         component_type == ^component_type and
           component_id == ^component_id and
@@ -130,9 +133,11 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     if merged == existing do
       {:ok, package}
     else
+      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
       package
       |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged},
-        tenant: tenant_id,
+        tenant: tenant_schema,
         authorize?: false
       )
       |> Ash.update()

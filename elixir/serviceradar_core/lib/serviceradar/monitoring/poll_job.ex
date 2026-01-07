@@ -168,6 +168,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
     update :start do
       description "Mark job as running on a gateway/agent"
       accept [:agent_id]
+      require_atomic? false
 
       change transition_state(:running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
@@ -236,6 +237,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :timeout do
       description "Mark job as timed out"
+      require_atomic? false
 
       change transition_state(:timeout)
       change set_attribute(:completed_at, &DateTime.utc_now/0)

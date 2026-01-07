@@ -6,6 +6,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   require Ash.Query
 
   alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Integrations.IntegrationSource
 
@@ -51,9 +52,11 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   end
 
   defp load_sources(agent_id, tenant_id) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
     query =
       IntegrationSource
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_id, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
       |> Ash.Query.filter(enabled == true and agent_id == ^agent_id)
       |> Ash.Query.load(:credentials)
       |> Ash.Query.sort(name: :asc)

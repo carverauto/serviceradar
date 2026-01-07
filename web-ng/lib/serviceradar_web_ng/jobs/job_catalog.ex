@@ -168,7 +168,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     _ -> false
   end
 
-  defp maybe_filter_runs_for_scope(query, _tenant_id, _platform_admin?, prefix) when is_binary(prefix) do
+  defp maybe_filter_runs_for_scope(query, _tenant_id, _platform_admin?, prefix)
+       when is_binary(prefix) do
     query
   end
 

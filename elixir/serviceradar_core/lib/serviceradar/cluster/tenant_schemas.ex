@@ -195,10 +195,18 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   end
 
   def schema_for_tenant(tenant_slug) when is_binary(tenant_slug) do
-    if String.starts_with?(tenant_slug, @tenant_prefix) do
-      tenant_slug
-    else
-      schema_for(tenant_slug)
+    cond do
+      String.starts_with?(tenant_slug, @tenant_prefix) ->
+        tenant_slug
+
+      uuid_string?(tenant_slug) ->
+        case schema_for_id(tenant_slug) do
+          nil -> raise ArgumentError, "Unknown tenant schema for #{inspect(tenant_slug)}"
+          schema -> schema
+        end
+
+      true ->
+        schema_for(tenant_slug)
     end
   end
 
@@ -406,5 +414,12 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     """
 
     Ecto.Adapters.SQL.query!(Repo, query)
+  end
+
+  defp uuid_string?(value) do
+    Regex.match?(
+      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      value
+    )
   end
 end

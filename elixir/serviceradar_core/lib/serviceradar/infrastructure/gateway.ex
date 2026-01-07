@@ -219,6 +219,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     update :heartbeat do
       description "Update last_seen and health status"
       accept [:is_healthy, :agent_count, :checker_count]
+      require_atomic? false
 
       change set_attribute(:last_seen, &DateTime.utc_now/0)
       change set_attribute(:updated_at, &DateTime.utc_now/0)

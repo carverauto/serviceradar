@@ -348,6 +348,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
           component_type: :checker,
           checker_kind: "sysmon"
         })
+
       tenant_id = created.package.tenant_id
 
       conn = build_conn() |> put_req_header("x-tenant-id", tenant_id)

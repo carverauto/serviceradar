@@ -13,6 +13,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Cluster.TenantSchemas
 
   @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -27,10 +28,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}
   def component_type_for_component_id(component_id, tenant_id) do
     actor = system_actor(tenant_id)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_id, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema, authorize?: false)
       |> Ash.Query.filter(
         expr(component_id == ^component_id and status in [:issued, :delivered, :activated])
       )
@@ -53,14 +55,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   @spec upsert_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def upsert_agent(agent_id, tenant_id, attrs) do
     actor = system_actor(tenant_id)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_id, actor: actor, authorize?: false) do
+    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor, authorize?: false) do
       {:ok, %Agent{} = agent} ->
-        update_agent(agent, tenant_id, attrs, actor)
+        update_agent(agent, tenant_schema, attrs, actor)
 
       {:error, reason} ->
         if not_found_error?(reason) do
-          create_agent(agent_id, tenant_id, attrs, actor)
+          create_agent(agent_id, tenant_schema, attrs, actor)
         else
           Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
           {:error, reason}
@@ -71,14 +74,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   @spec heartbeat_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def heartbeat_agent(agent_id, tenant_id, attrs) do
     actor = system_actor(tenant_id)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_id, actor: actor, authorize?: false) do
+    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor, authorize?: false) do
       {:ok, %Agent{} = agent} ->
-        heartbeat_agent_record(agent, tenant_id, attrs, actor)
+        heartbeat_agent_record(agent, tenant_schema, attrs, actor)
 
       {:error, reason} ->
         if not_found_error?(reason) do
-          create_agent(agent_id, tenant_id, attrs, actor)
+          create_agent(agent_id, tenant_schema, attrs, actor)
         else
           Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
           {:error, reason}
@@ -86,7 +90,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp update_agent(agent, tenant_id, attrs, actor) do
+  defp update_agent(agent, tenant_schema, attrs, actor) do
     update_attrs =
       attrs
       |> Map.take([
@@ -105,18 +109,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       if map_size(update_attrs) > 0 do
         agent
         |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
-        |> Ash.update(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
       else
         {:ok, agent}
       end
 
     case result do
-      {:ok, updated} -> heartbeat_agent_record(updated, tenant_id, attrs, actor)
+      {:ok, updated} -> heartbeat_agent_record(updated, tenant_schema, attrs, actor)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp create_agent(agent_id, tenant_id, attrs, actor) do
+  defp create_agent(agent_id, tenant_schema, attrs, actor) do
     create_attrs =
       attrs
       |> Map.put_new(:type_id, 4)
@@ -142,14 +146,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     Agent
     |> Ash.Changeset.for_create(:register_connected, create_attrs)
-    |> Ash.create(tenant: tenant_id, actor: actor, authorize?: false)
+    |> Ash.create(tenant: tenant_schema, actor: actor, authorize?: false)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp heartbeat_agent_record(agent, tenant_id, attrs, actor) do
+  defp heartbeat_agent_record(agent, tenant_schema, attrs, actor) do
     heartbeat_attrs =
       attrs
       |> Map.take([:capabilities, :is_healthy])
@@ -157,7 +161,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     agent
     |> Ash.Changeset.for_update(:heartbeat, heartbeat_attrs)
-    |> Ash.update(tenant: tenant_id, actor: actor, authorize?: false)
+    |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}

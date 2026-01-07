@@ -12,6 +12,7 @@ defmodule ServiceRadar.Identity.Users do
   import Ash.Expr
   require Ash.Query
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.User
 
   @doc """
@@ -288,12 +289,15 @@ defmodule ServiceRadar.Identity.Users do
   end
 
   defp resolve_tenant(opts, attrs \\ %{}) do
-    Keyword.get(opts, :tenant) ||
-      Keyword.get(opts, :tenant_id) ||
-      Map.get(attrs, :tenant_id) ||
-      Map.get(attrs, "tenant_id") ||
-      actor_tenant(Keyword.get(opts, :actor)) ||
-      default_tenant_id()
+    tenant_value =
+      Keyword.get(opts, :tenant) ||
+        Keyword.get(opts, :tenant_id) ||
+        Map.get(attrs, :tenant_id) ||
+        Map.get(attrs, "tenant_id") ||
+        actor_tenant(Keyword.get(opts, :actor)) ||
+        default_tenant_id()
+
+    TenantSchemas.schema_for_tenant(tenant_value)
   end
 
   defp actor_tenant(%{tenant_id: tenant_id}) when is_binary(tenant_id), do: tenant_id

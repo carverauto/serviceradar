@@ -159,6 +159,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     end
 
     update :disable do
+      require_atomic? false
       change set_attribute(:enabled, false)
     end
 
@@ -192,6 +193,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     update :reset_failures do
       description "Reset consecutive failure count"
+      require_atomic? false
       change set_attribute(:consecutive_failures, 0)
     end
 

@@ -535,7 +535,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     recent_runs =
       if job.worker do
-        JobCatalog.get_recent_runs(job.worker, Keyword.merge(job_scope, limit: 20, source: job.source))
+        JobCatalog.get_recent_runs(
+          job.worker,
+          Keyword.merge(job_scope, limit: 20, source: job.source)
+        )
       else
         []
       end
@@ -564,7 +567,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
 
     chart_data =
       if job.worker do
-        JobCatalog.get_execution_stats(job.worker, Keyword.merge(job_scope, hours: hours, source: job.source))
+        JobCatalog.get_execution_stats(
+          job.worker,
+          Keyword.merge(job_scope, hours: hours, source: job.source)
+        )
       else
         []
       end

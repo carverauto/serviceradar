@@ -57,6 +57,7 @@ defmodule ServiceRadar.Actors.Device do
   require Logger
 
   alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device, as: DeviceResource
 
   # Configuration
@@ -472,7 +473,9 @@ defmodule ServiceRadar.Actors.Device do
   end
 
   defp load_identity_from_db(state) do
-    case DeviceResource.get_by_uid(state.device_id, tenant: state.tenant_id, authorize?: false) do
+    tenant_schema = TenantSchemas.schema_for_tenant(state.tenant_id)
+
+    case DeviceResource.get_by_uid(state.device_id, tenant: tenant_schema, authorize?: false) do
       {:ok, device} ->
         identity = %{
           uid: device.uid,
@@ -501,7 +504,9 @@ defmodule ServiceRadar.Actors.Device do
   end
 
   defp persist_identity(tenant_id, device_id, identity) do
-    case DeviceResource.get_by_uid(device_id, tenant: tenant_id, authorize?: false) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+    case DeviceResource.get_by_uid(device_id, tenant: tenant_schema, authorize?: false) do
       {:ok, device} ->
         updates =
           identity

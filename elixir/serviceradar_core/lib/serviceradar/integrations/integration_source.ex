@@ -470,6 +470,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
 
   defp validate_agent_availability(changeset, _context) do
@@ -481,10 +482,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         message: "tenant is required"
       )
     else
+      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
       Agent
       |> Ash.Query.for_read(:connected)
       |> Ash.Query.limit(1)
-      |> Ash.read(tenant: tenant_id, authorize?: false)
+      |> Ash.read(tenant: tenant_schema, authorize?: false)
       |> case do
         {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
         {:ok, results} when is_list(results) and results != [] -> changeset

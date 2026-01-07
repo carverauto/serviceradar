@@ -281,12 +281,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :update do
       accept [:name, :capabilities, :host, :port, :policies, :metadata]
+      require_atomic? false
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :gateway_sync do
       description "Sync agent metadata from the agent-gateway"
       accept [:name, :capabilities, :host, :port, :spiffe_identity, :metadata, :version, :type_id]
+      require_atomic? false
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 

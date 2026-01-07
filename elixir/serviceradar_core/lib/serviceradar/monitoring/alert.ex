@@ -206,6 +206,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       description "Resolve an alert"
       argument :resolved_by, :string
       argument :resolution_note, :string
+      require_atomic? false
 
       change transition_state(:resolved)
       change set_attribute(:resolved_at, &DateTime.utc_now/0)
@@ -231,6 +232,7 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :suppress do
       description "Suppress alert notifications"
       argument :until, :utc_datetime
+      require_atomic? false
 
       change transition_state(:suppressed)
       change set_attribute(:suppressed_until, arg(:until))
@@ -239,6 +241,7 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :reopen do
       description "Reopen a resolved or suppressed alert"
       argument :reason, :string
+      require_atomic? false
 
       change transition_state(:pending)
       change set_attribute(:resolved_at, nil)
@@ -285,6 +288,7 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :update_metadata do
       accept [:metadata, :tags]
+      require_atomic? false
     end
   end
 

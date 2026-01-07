@@ -280,13 +280,13 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           # Revoke associated NATS credential
           if package.nats_credential_id do
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
-                   tenant: package.tenant_id,
+                   tenant: TenantSchemas.schema_for_tenant(package.tenant_id),
                    authorize?: false
                  ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
                 |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
-                  tenant: package.tenant_id
+                  tenant: TenantSchemas.schema_for_tenant(package.tenant_id)
                 )
                 |> Ash.update(authorize?: false)
 

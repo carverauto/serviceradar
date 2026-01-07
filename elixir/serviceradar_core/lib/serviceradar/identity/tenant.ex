@@ -307,7 +307,7 @@ defmodule ServiceRadar.Identity.Tenant do
           with {:ok, user} <-
                  Ash.create(ServiceRadar.Identity.User, user_params,
                    action: :register_with_password,
-                   tenant: tenant.id,
+                   tenant: tenant,
                    authorize?: false
                  ),
                {:ok, _membership} <-
