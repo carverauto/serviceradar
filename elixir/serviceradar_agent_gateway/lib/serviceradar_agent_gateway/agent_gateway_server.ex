@@ -586,6 +586,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  defp normalize_partition(_partition), do: "default"
+
   defp normalize_message(msg, source) do
     max_bytes =
       case source do
@@ -606,12 +608,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp normalize_partition(_partition), do: "default"
-
   # Record metrics for the push operation
   defp record_push_metrics(agent_id, service_count) do
-    # TODO: Integrate with telemetry/metrics system
-    Logger.debug("Recorded push metrics: agent=#{agent_id} services=#{service_count}")
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :push, :complete],
+      %{service_count: service_count},
+      %{
+        agent_id: agent_id,
+        gateway_id: Config.gateway_id(),
+        domain: Config.domain()
+      }
+    )
   end
 
   defp normalize_capabilities(capabilities) do
