@@ -85,10 +85,14 @@ defmodule ServiceRadarAgentGateway.Application do
 
     capabilities = parse_capabilities(System.get_env("GATEWAY_CAPABILITIES", ""))
 
-    Logger.info(
-      "Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id}"
+    # Initialize gateway identity config (persistent_term, not a process)
+    ServiceRadarAgentGateway.Config.setup(
+      gateway_id: gateway_id,
+      domain: domain,
+      capabilities: capabilities
     )
 
+    Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 
     core_children =
@@ -105,12 +109,6 @@ defmodule ServiceRadarAgentGateway.Application do
 
     gateway_children = [
       ServiceRadarAgentGateway.AgentRegistryProxy,
-      # Gateway-specific configuration store
-      {ServiceRadarAgentGateway.Config,
-       partition_id: partition_id,
-       gateway_id: gateway_id,
-       domain: domain,
-       capabilities: capabilities},
 
       # Registration worker - registers this gateway in the distributed registry.
       # Gateways are platform-level; tenant context is derived per-request via mTLS.
