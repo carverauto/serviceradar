@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Events.AuditWriter do
   @moduledoc """
-  Writes audit events to the OCSF events table.
+  Writes audit events to the OCSF events table within the correct tenant schema.
 
   Provides a simple, idiomatic interface for recording audit trail events
   across the Elixir stack. Events are written as OCSF Event Log Activity
-  (class_uid: 1008) records.
+  (class_uid: 1008) records to the tenant-specific schema.
 
   ## Usage
 
@@ -28,6 +28,12 @@ defmodule ServiceRadar.Events.AuditWriter do
         resource_name: user.email,
         actor: admin
       )
+
+  ## Tenant Schema Routing
+
+  Events are written to the correct tenant schema based on the `tenant_id`.
+  The schema is resolved via `TenantSchemas.schema_for_id/1` which looks up
+  the tenant slug from the TenantRegistry.
 
   ## Actions
 
@@ -58,6 +64,7 @@ defmodule ServiceRadar.Events.AuditWriter do
 
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Repo
 
@@ -83,8 +90,10 @@ defmodule ServiceRadar.Events.AuditWriter do
   """
   @spec write(opts()) :: :ok | {:error, term()}
   def write(opts) do
-    with {:ok, event} <- build_event(opts) do
-      case Repo.insert_all("ocsf_events", [event], on_conflict: :nothing) do
+    with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
+         {:ok, schema} <- resolve_tenant_schema(tenant_id),
+         {:ok, event} <- build_event(opts) do
+      case Repo.insert_all("ocsf_events", [event], prefix: schema, on_conflict: :nothing) do
         {1, _} -> :ok
         {0, _} -> {:error, :insert_failed}
       end
@@ -93,6 +102,19 @@ defmodule ServiceRadar.Events.AuditWriter do
     e ->
       Logger.error("Failed to write audit event: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp resolve_tenant_schema(tenant_id) do
+    tenant_id_str = to_string(tenant_id)
+
+    case TenantSchemas.schema_for_id(tenant_id_str) do
+      nil ->
+        Logger.error("Could not resolve tenant schema for tenant_id: #{tenant_id_str}")
+        {:error, {:unknown_tenant, tenant_id_str}}
+
+      schema ->
+        {:ok, schema}
+    end
   end
 
   @doc """
