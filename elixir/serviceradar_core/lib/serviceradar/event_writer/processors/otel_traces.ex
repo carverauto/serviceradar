@@ -44,6 +44,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.TenantContext
 
   require Logger
 
@@ -52,20 +53,28 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   @impl true
   def process_batch(messages) do
-    rows =
-      messages
-      |> Enum.map(&parse_message/1)
-      |> Enum.reject(&is_nil/1)
+    schema = TenantContext.current_schema()
 
-    if Enum.empty?(rows) do
-      {:ok, 0}
+    if is_nil(schema) do
+      Logger.error("OtelTraces batch missing tenant schema context")
+      {:error, :missing_tenant_schema}
     else
-      case ServiceRadar.Repo.insert_all(table_name(), rows,
-             on_conflict: :nothing,
-             returning: false
-           ) do
-        {count, _} ->
-          {:ok, count}
+      rows =
+        messages
+        |> Enum.map(&parse_message/1)
+        |> Enum.reject(&is_nil/1)
+
+      if Enum.empty?(rows) do
+        {:ok, 0}
+      else
+        case ServiceRadar.Repo.insert_all(table_name(), rows,
+               prefix: schema,
+               on_conflict: :nothing,
+               returning: false
+             ) do
+          {count, _} ->
+            {:ok, count}
+        end
       end
     end
   rescue
