@@ -31,7 +31,9 @@ defmodule ServiceRadarWebNGWeb.TenantController do
       true
     else
       # Check memberships
-      user_with_memberships = Ash.load!(user, :memberships, authorize?: false)
+      # IMPORTANT: Set tenant: nil to avoid passing schema-based tenant context
+      # to TenantMembership which uses attribute-based multitenancy (expects UUID)
+      user_with_memberships = Ash.load!(user, :memberships, authorize?: false, tenant: nil)
 
       Enum.any?(user_with_memberships.memberships || [], fn m ->
         to_string(m.tenant_id) == to_string(tenant_id)

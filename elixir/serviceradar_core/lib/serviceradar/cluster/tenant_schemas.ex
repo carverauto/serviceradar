@@ -195,7 +195,15 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     schema_for(slug)
   end
 
+  def schema_for_tenant(%Tenant{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
   def schema_for_tenant(%{slug: slug}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(%{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
     schema_for(slug)
   end
 
