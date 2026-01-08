@@ -55,6 +55,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   # Verify an Ash JWT token and load the user
   defp verify_token(token) do
     tenant = token_tenant(token)
+
     if is_nil(tenant) do
       {:error, :invalid_token}
     else
@@ -251,6 +252,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp tenant_schema_from_id(nil), do: nil
+
   defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
     do: TenantResolver.schema_for_tenant_id(tenant_id)
 

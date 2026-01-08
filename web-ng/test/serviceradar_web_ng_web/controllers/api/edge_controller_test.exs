@@ -29,7 +29,8 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
     end
 
     test "filters by status", %{conn: conn} do
-      {:ok, _} = OnboardingPackages.create(%{label: "test-filter-status"}, tenant: tenant_id(conn))
+      {:ok, _} =
+        OnboardingPackages.create(%{label: "test-filter-status"}, tenant: tenant_id(conn))
 
       conn = get(conn, ~p"/api/admin/edge-packages?status=issued")
       result = json_response(conn, 200)
@@ -308,6 +309,7 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
 
     test "returns 404 for non-existent package", %{conn: conn} do
       fake_id = Ecto.UUID.generate()
+
       {:ok, created} =
         OnboardingPackages.create(%{label: "test-nonexistent-bundle"}, tenant: tenant_id(conn))
 
@@ -327,22 +329,29 @@ defmodule ServiceRadarWebNG.Api.EdgeControllerTest do
       # Second attempt
       conn =
         build_conn()
-        |> get(~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+        |> get(
+          ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+        )
 
       assert json_response(conn, 409)["error"] == "package already_delivered"
     end
 
     test "bundle contains expected files", %{conn: conn} do
       {:ok, created} =
-        OnboardingPackages.create(%{
-          label: "test-bundle-contents",
-          component_type: :checker,
-          checker_kind: "sysmon"
-        }, tenant: tenant_id(conn))
+        OnboardingPackages.create(
+          %{
+            label: "test-bundle-contents",
+            component_type: :checker,
+            checker_kind: "sysmon"
+          },
+          tenant: tenant_id(conn)
+        )
 
       conn =
         build_conn()
-        |> get(~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}")
+        |> get(
+          ~p"/api/edge-packages/#{created.package.id}/bundle?token=#{created.download_token}"
+        )
 
       body = response(conn, 200)
       {:ok, files} = :erl_tar.extract({:binary, body}, [:compressed, :memory])

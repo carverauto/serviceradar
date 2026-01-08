@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   def success(conn, _activity, %_{} = user, _token) do
     return_to = get_session(conn, :user_return_to) || ~p"/analytics"
     tenant_id = user.tenant_id
+
     tenant_schema =
       case Map.fetch(user.__metadata__, :tenant) do
         {:ok, tenant} when is_binary(tenant) -> tenant

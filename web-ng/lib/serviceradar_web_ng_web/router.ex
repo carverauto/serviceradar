@@ -346,6 +346,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   defp maybe_set_tenant(conn, nil), do: conn
+
   defp maybe_set_tenant(conn, tenant_id) do
     case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
       tenant_schema when is_binary(tenant_schema) ->

@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def index(conn, params) do
     filters = build_filters(params)
+
     with {:ok, tenant} <- require_tenant(conn) do
       packages = OnboardingPackages.list(filters, tenant: tenant)
       json(conn, Enum.map(packages, &package_to_json/1))
@@ -254,7 +255,14 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, reason)
-       when reason in [:invalid_token, :expired, :not_found, :already_delivered, :revoked, :deleted] do
+       when reason in [
+              :invalid_token,
+              :expired,
+              :not_found,
+              :already_delivered,
+              :revoked,
+              :deleted
+            ] do
     handle_download_error(conn, reason)
   end
 
@@ -301,7 +309,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
          {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
            deliver_package(id, download_token, tenant_schema, source_ip, nil),
          {:ok, tarball} <-
-           wrap_bundle_error(BundleGenerator.create_tarball(package, bundle_pem || "", join_token)) do
+           wrap_bundle_error(
+             BundleGenerator.create_tarball(package, bundle_pem || "", join_token)
+           ) do
       filename = BundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
     else

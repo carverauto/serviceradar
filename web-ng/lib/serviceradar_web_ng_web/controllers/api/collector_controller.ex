@@ -534,7 +534,8 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     return_error(conn, :internal_server_error, "NATS credentials not provisioned")
   end
 
-  defp handle_bundle_error(conn, reason) when reason in [:tls_key_not_found, :tls_cert_not_found] do
+  defp handle_bundle_error(conn, reason)
+       when reason in [:tls_key_not_found, :tls_cert_not_found] do
     return_error(conn, :internal_server_error, "TLS certificates not provisioned")
   end
 
