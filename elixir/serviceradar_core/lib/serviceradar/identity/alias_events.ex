@@ -514,8 +514,13 @@ defmodule ServiceRadar.Identity.AliasEvents do
     updates
     |> Enum.group_by(& &1.device_id)
     |> Enum.map(fn {_device_id, grouped} ->
-      # Keep the update with the latest timestamp
-      Enum.max_by(grouped, & &1.timestamp, DateTime)
+      # Keep the update with the latest timestamp, handling nil timestamps
+      Enum.max_by(grouped, & &1.timestamp, fn
+        nil, nil -> :eq
+        nil, _ -> :lt
+        _, nil -> :gt
+        a, b -> DateTime.compare(a, b)
+      end)
     end)
   end
 

@@ -452,6 +452,11 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         Map.get(attrs, :tenant_id) ||
         Map.get(attrs, "tenant_id")
 
+    if is_nil(tenant_value) do
+      raise ArgumentError,
+            "Tenant could not be resolved - missing tenant identifier in options or attributes"
+    end
+
     TenantSchemas.schema_for_tenant(tenant_value)
   end
 
