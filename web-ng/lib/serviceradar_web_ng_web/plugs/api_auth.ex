@@ -81,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp validate_bearer_token(conn, token) do
     tenant = token_tenant(token)
+
     if is_nil(tenant) do
       {:error, :unauthorized}
     else
@@ -313,6 +314,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp tenant_schema_from_id(nil), do: nil
+
   defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
     do: TenantSchemas.schema_for_id(tenant_id)
 

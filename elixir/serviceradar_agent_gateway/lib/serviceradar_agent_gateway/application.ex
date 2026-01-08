@@ -30,9 +30,11 @@ defmodule ServiceRadarAgentGateway.Application do
   - `GATEWAY_ID` - Unique identifier for this gateway
   - `GATEWAY_DOMAIN` - The domain this gateway handles
   - `GATEWAY_GRPC_PORT` - gRPC port for receiving agent pushes (default: 50052)
-  - `GATEWAY_TENANT_ID` - Tenant UUID for multi-tenant deployments
-  - `GATEWAY_TENANT_SLUG` - Tenant slug for multi-tenant deployments
+  - `GATEWAY_CAPABILITIES` - Comma-separated list of capabilities (icmp, tcp, http, etc.)
   - `CLUSTER_HOSTS` - Comma-separated list of cluster nodes to join
+
+  Note: Tenant context is derived per-request from mTLS certificates.
+  The gateway is platform infrastructure serving all tenants.
 
   ## Architecture
 
@@ -76,8 +78,6 @@ defmodule ServiceRadarAgentGateway.Application do
 
     gateway_id = System.get_env("GATEWAY_ID", generate_gateway_id())
     domain = System.get_env("GATEWAY_DOMAIN", "default")
-    tenant_id = System.get_env("GATEWAY_TENANT_ID")
-    tenant_slug = System.get_env("GATEWAY_TENANT_SLUG")
 
     # Gateway gRPC server configuration
     grpc_port = get_grpc_port()
@@ -85,16 +85,14 @@ defmodule ServiceRadarAgentGateway.Application do
 
     capabilities = parse_capabilities(System.get_env("GATEWAY_CAPABILITIES", ""))
 
-    if tenant_slug do
-      Logger.info(
-        "Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id} for tenant: #{tenant_slug}"
-      )
-    else
-      Logger.info(
-        "Starting ServiceRadar Agent Gateway: #{gateway_id} in partition: #{partition_id}"
-      )
-    end
+    # Initialize gateway identity config (persistent_term, not a process)
+    ServiceRadarAgentGateway.Config.setup(
+      gateway_id: gateway_id,
+      domain: domain,
+      capabilities: capabilities
+    )
 
+    Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
     Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
 
     core_children =
@@ -111,14 +109,6 @@ defmodule ServiceRadarAgentGateway.Application do
 
     gateway_children = [
       ServiceRadarAgentGateway.AgentRegistryProxy,
-      # Gateway-specific configuration store
-      {ServiceRadarAgentGateway.Config,
-       partition_id: partition_id,
-       gateway_id: gateway_id,
-       domain: domain,
-       capabilities: capabilities,
-       tenant_id: tenant_id,
-       tenant_slug: tenant_slug},
 
       # Registration worker - registers this gateway in the distributed registry.
       # Gateways are platform-level; tenant context is derived per-request via mTLS.
@@ -126,8 +116,7 @@ defmodule ServiceRadarAgentGateway.Application do
        partition_id: partition_id,
        gateway_id: gateway_id,
        domain: domain,
-       entity_type: :gateway,
-       tenant_id: tenant_id},
+       entity_type: :gateway},
       # Register gateway for platform-wide visibility (Infrastructure UI).
       {ServiceRadar.GatewayRegistrationWorker,
        gateway_id: gateway_id,
