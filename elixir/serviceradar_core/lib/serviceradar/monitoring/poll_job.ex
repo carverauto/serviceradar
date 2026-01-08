@@ -175,6 +175,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :complete do
       description "Mark job as completed"
+      # Non-atomic: computes duration based on started_at
+      require_atomic? false
 
       argument :success_count, :integer, default: 0
       argument :failure_count, :integer, default: 0
@@ -206,6 +208,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :fail do
       description "Mark job as failed"
+      # Non-atomic: computes duration based on started_at
+      require_atomic? false
 
       argument :error_message, :string
       argument :error_code, :string
@@ -242,6 +246,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :cancel do
       description "Cancel a pending or dispatching job"
+      # Non-atomic: uses function to set error_message from argument
+      require_atomic? false
 
       argument :reason, :string
 
@@ -258,6 +264,8 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :retry do
       description "Retry a failed or timed out job"
+      # Non-atomic: increments retry_count and resets multiple fields
+      require_atomic? false
 
       change transition_state(:pending)
 

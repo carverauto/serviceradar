@@ -107,6 +107,8 @@ defmodule ServiceRadar.Identity.Tenant do
 
     update :set_nats_account do
       description "Set NATS account credentials after successful provisioning"
+      # Non-atomic: encrypts seed and sets multiple attributes
+      require_atomic? false
       accept []
 
       argument :account_public_key, :string, allow_nil?: false
@@ -129,6 +131,8 @@ defmodule ServiceRadar.Identity.Tenant do
 
     update :set_nats_account_error do
       description "Record NATS account provisioning failure"
+      # Non-atomic: uses function to set error message from argument
+      require_atomic? false
       accept []
 
       argument :error_message, :string, allow_nil?: false
@@ -152,6 +156,8 @@ defmodule ServiceRadar.Identity.Tenant do
 
     update :update_nats_account_jwt do
       description "Update NATS account JWT (after re-signing)"
+      # Non-atomic: uses function to set JWT from argument
+      require_atomic? false
       accept []
 
       argument :account_jwt, :string, allow_nil?: false
@@ -167,6 +173,8 @@ defmodule ServiceRadar.Identity.Tenant do
 
     update :clear_nats_account do
       description "Clear NATS account credentials (revoke/reset)"
+      # Non-atomic: clears encrypted seed attribute
+      require_atomic? false
       accept []
 
       argument :reason, :string, allow_nil?: true

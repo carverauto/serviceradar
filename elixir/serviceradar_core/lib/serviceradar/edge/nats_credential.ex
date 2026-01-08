@@ -93,6 +93,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
     update :revoke do
       description "Revoke a credential"
+      # Non-atomic: sets multiple attributes and broadcasts event
+      require_atomic? false
       accept []
 
       argument :reason, :string

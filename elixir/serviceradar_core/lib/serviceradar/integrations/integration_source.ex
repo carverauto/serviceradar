@@ -25,7 +25,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     domain: ServiceRadar.Integrations,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshCloak]
+    extensions: [AshCloak],
+    notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
   postgres do
     table "integration_sources"
@@ -109,14 +110,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
-
-      change after_action(fn changeset, record, _context ->
-               publish_integration_event(record, :create, changeset)
-               {:ok, record}
-             end)
     end
 
     update :update do
+      # Non-atomic due to credentials encoding and agent availability check
+      require_atomic? false
 
       accept [
         :name,
@@ -151,32 +149,20 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
-      change after_action(fn changeset, record, _context ->
-               publish_integration_event(record, :update, changeset)
-               {:ok, record}
-             end)
     end
 
     update :enable do
       change set_attribute(:enabled, true)
-
-      change after_action(fn _changeset, record, _context ->
-               publish_integration_event(record, :enable, %{})
-               {:ok, record}
-             end)
     end
 
     update :disable do
       change set_attribute(:enabled, false)
-
-      change after_action(fn _changeset, record, _context ->
-               publish_integration_event(record, :disable, %{})
-               {:ok, record}
-             end)
     end
 
     update :record_sync do
       description "Record sync execution results"
+      # Non-atomic: computes new values based on current record state
+      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -217,11 +203,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     destroy :delete do
-
-      change after_action(fn changeset, record, _context ->
-               publish_integration_event(record, :delete, changeset)
-               {:ok, record}
-             end)
     end
   end
 
@@ -499,17 +480,5 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         field: :agent_id,
         message: "install and register an agent before adding integrations"
       )
-  end
-
-  defp publish_integration_event(record, action, changeset) do
-    actor = Map.get(changeset, :context, %{}) |> Map.get(:actor)
-
-    Task.start(fn ->
-      _ = ServiceRadar.Integrations.EventPublisher.publish_integration_source_event(
-        record,
-        action,
-        actor: actor
-      )
-    end)
   end
 end

@@ -93,6 +93,8 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
 
     update :set_ready do
       description "Mark operator as ready after successful bootstrap"
+      # Non-atomic: uses function to set multiple attributes from arguments
+      require_atomic? false
       accept []
 
       argument :public_key, :string, allow_nil?: false
@@ -111,6 +113,8 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
 
     update :set_error do
       description "Record bootstrap failure"
+      # Non-atomic: uses function to set attributes from argument
+      require_atomic? false
       accept []
 
       argument :error_message, :string, allow_nil?: false

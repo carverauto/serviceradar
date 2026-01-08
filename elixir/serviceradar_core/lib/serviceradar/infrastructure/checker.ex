@@ -186,6 +186,8 @@ defmodule ServiceRadar.Infrastructure.Checker do
 
     update :record_failure do
       description "Record a failed check result"
+      # Non-atomic: increments consecutive_failures based on current value
+      require_atomic? false
       argument :reason, :string
 
       change fn changeset, _context ->

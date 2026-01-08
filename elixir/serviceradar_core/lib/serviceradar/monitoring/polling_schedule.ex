@@ -170,6 +170,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :execute do
       description "Execute this polling schedule (called by AshOban scheduler)"
+      # Non-atomic: calls orchestrator and computes values based on current state
+      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data
@@ -209,6 +211,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :record_result do
       description "Record the result of a schedule execution"
+      # Non-atomic: computes new consecutive_failures based on current value
+      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -250,6 +254,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :acquire_lock do
       description "Acquire distributed lock for execution"
+      # Non-atomic: generates UUID and sets lock attributes
+      require_atomic? false
 
       argument :node_id, :string, allow_nil?: false
 
@@ -274,6 +280,8 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :trigger_manual do
       description "Manually trigger schedule execution"
+      # Non-atomic: uses function to log and set timestamp
+      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data
