@@ -31,29 +31,23 @@ defmodule ServiceRadarWebNGWeb.Plugs.ResolveTenant do
   end
 
   defp maybe_set_from_session(conn) do
-    case Ash.PlugHelpers.get_tenant(conn) do
-      nil ->
-        case get_session(conn, "tenant") do
-          tenant_schema when is_binary(tenant_schema) ->
-            Ash.PlugHelpers.set_tenant(conn, tenant_schema)
+    if Ash.PlugHelpers.get_tenant(conn) do
+      conn
+    else
+      resolve_tenant_from_session(conn)
+    end
+  end
 
-          _ ->
-            case get_session(conn, "active_tenant_id") do
-              tenant_id when is_binary(tenant_id) ->
-                case TenantResolver.schema_for_tenant_id(tenant_id) do
-                  tenant_schema when is_binary(tenant_schema) ->
-                    conn
-                    |> put_session("tenant", tenant_schema)
-                    |> Ash.PlugHelpers.set_tenant(tenant_schema)
-
-                  _ ->
-                    conn
-                end
-
-              _ ->
-                conn
-            end
-        end
+  defp resolve_tenant_from_session(conn) do
+    with nil <- get_session(conn, "tenant"),
+         tenant_id when is_binary(tenant_id) <- get_session(conn, "active_tenant_id"),
+         schema when is_binary(schema) <- TenantResolver.schema_for_tenant_id(tenant_id) do
+      conn
+      |> put_session("tenant", schema)
+      |> Ash.PlugHelpers.set_tenant(schema)
+    else
+      tenant_schema when is_binary(tenant_schema) ->
+        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
 
       _ ->
         conn
