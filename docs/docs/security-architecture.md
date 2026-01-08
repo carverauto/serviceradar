@@ -98,7 +98,7 @@ Resources are isolated by tenant_id at multiple levels:
 |-------|-----------|-------------|
 | Registry | Horde per-tenant registries | TenantRegistry.ensure_registry/1 |
 | API | Ash multitenancy | `tenant: tenant_id` option |
-| Database | tenant_id column | Ash policy checks |
+| Database | per-tenant schema | schema-based isolation |
 | Process | TenantGuard | Process dictionary verification |
 
 **Attack Scenarios Blocked:**
@@ -181,7 +181,7 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 **Threat**: SQL injection to access other tenant's data
 
 **Mitigation**:
-- Ash queries always include tenant_id filter
+- Ash queries run in tenant-specific schemas
 - No raw SQL in application code
 - PostgreSQL row-level security available
 

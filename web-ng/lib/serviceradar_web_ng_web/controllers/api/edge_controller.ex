@@ -8,10 +8,16 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  require Ash.Query
+
+  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.BundleGenerator
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadar.Identity.Tenant
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -44,9 +50,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def index(conn, params) do
     filters = build_filters(params)
-    packages = OnboardingPackages.list(filters)
-
-    json(conn, Enum.map(packages, &package_to_json/1))
+    with {:ok, tenant} <- require_tenant(conn) do
+      packages = OnboardingPackages.list(filters, tenant: tenant)
+      json(conn, Enum.map(packages, &package_to_json/1))
+    end
   end
 
   @doc """
@@ -76,26 +83,29 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
       downstream_spiffe_id: params["downstream_spiffe_id"]
     }
 
-    opts = [
-      join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
-      download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
-      actor: actor,
-      source_ip: source_ip
-    ]
+    with {:ok, tenant} <- require_tenant(conn) do
+      opts = [
+        join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
+        download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
+        actor: actor,
+        source_ip: source_ip,
+        tenant: tenant
+      ]
 
-    case OnboardingPackages.create(attrs, opts) do
-      {:ok, result} ->
-        conn
-        |> put_status(:created)
-        |> json(%{
-          package: package_to_json(result.package),
-          join_token: result.join_token,
-          download_token: result.download_token,
-          bundle_pem: ""
-        })
+      case OnboardingPackages.create(attrs, opts) do
+        {:ok, result} ->
+          conn
+          |> put_status(:created)
+          |> json(%{
+            package: package_to_json(result.package),
+            join_token: result.join_token,
+            download_token: result.download_token,
+            bundle_pem: ""
+          })
 
-      {:error, changeset} ->
-        {:error, changeset}
+        {:error, changeset} ->
+          {:error, changeset}
+      end
     end
   end
 
@@ -105,12 +115,14 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   Gets a single package by ID.
   """
   def show(conn, %{"id" => id}) do
-    case OnboardingPackages.get(id) do
-      {:ok, package} ->
-        json(conn, package_to_json(package))
+    with {:ok, tenant} <- require_tenant(conn) do
+      case OnboardingPackages.get(id, tenant: tenant) do
+        {:ok, package} ->
+          json(conn, package_to_json(package))
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+        {:error, :not_found} ->
+          {:error, :not_found}
+      end
     end
   end
 
@@ -123,12 +135,14 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     actor = get_actor(conn)
     source_ip = get_client_ip(conn)
 
-    case OnboardingPackages.delete(id, actor: actor, source_ip: source_ip) do
-      {:ok, _package} ->
-        send_resp(conn, :no_content, "")
+    with {:ok, tenant} <- require_tenant(conn) do
+      case OnboardingPackages.delete(id, actor: actor, source_ip: source_ip, tenant: tenant) do
+        {:ok, _package} ->
+          send_resp(conn, :no_content, "")
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+        {:error, :not_found} ->
+          {:error, :not_found}
+      end
     end
   end
 
@@ -147,13 +161,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   defp events_list(conn, package_id, limit) do
     # First verify package exists
-    case OnboardingPackages.get(package_id) do
-      {:ok, _package} ->
-        events = OnboardingEvents.list_for_package(package_id, limit: limit)
-        json(conn, Enum.map(events, &event_to_json/1))
+    with {:ok, tenant} <- require_tenant(conn) do
+      case OnboardingPackages.get(package_id, tenant: tenant) do
+        {:ok, _package} ->
+          events = OnboardingEvents.list_for_package(package_id, limit: limit, tenant: tenant)
+          json(conn, Enum.map(events, &event_to_json/1))
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+        {:error, :not_found} ->
+          {:error, :not_found}
+      end
     end
   end
 
@@ -166,32 +182,51 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def download(conn, %{"id" => id} = params) do
     download_token = params["download_token"]
 
-    if is_nil(download_token) or download_token == "" do
+    if download_token in [nil, ""] do
       conn
       |> put_status(:bad_request)
       |> json(%{error: "download_token is required"})
     else
-      do_download(conn, id, download_token)
+      source_ip = get_client_ip(conn)
+      actor = get_actor(conn)
+
+      case download_with_token(id, download_token, source_ip, actor) do
+        {:ok, result} ->
+          json(conn, result)
+
+        {:error, reason} ->
+          handle_download_error(conn, reason)
+      end
     end
   end
 
-  defp do_download(conn, id, download_token) do
-    actor = get_actor(conn)
-    source_ip = get_client_ip(conn)
-
-    case OnboardingPackages.deliver(id, download_token, actor: actor, source_ip: source_ip) do
-      {:ok, result} ->
-        json(conn, %{
-          package: package_to_json(result.package),
-          join_token: result.join_token,
-          bundle_pem: result.bundle_pem || ""
-        })
-
-      {:error, :not_found} ->
-        {:error, :not_found}
+  defp download_with_token(id, download_token, source_ip, actor) do
+    case find_package_across_tenants(id) do
+      {:ok, _package, tenant_schema} ->
+        deliver_package(id, download_token, tenant_schema, source_ip, actor)
 
       {:error, reason} ->
-        handle_download_error(conn, reason)
+        {:error, reason}
+    end
+  end
+
+  defp deliver_package(id, download_token, tenant_schema, source_ip, actor) do
+    case OnboardingPackages.deliver(id, download_token,
+           actor: actor,
+           source_ip: source_ip,
+           tenant: tenant_schema,
+           authorize?: false
+         ) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           package: package_to_json(result.package),
+           join_token: result.join_token,
+           bundle_pem: result.bundle_pem || ""
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -203,9 +238,30 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     conn |> put_status(:gone) |> json(%{error: "download token expired"})
   end
 
+  defp handle_download_error(conn, :not_found) do
+    conn |> put_status(:not_found) |> json(%{error: "package not found"})
+  end
+
   defp handle_download_error(conn, reason)
        when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
+  end
+
+  defp handle_bundle_error(conn, {:bundle_error, reason}) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
+  end
+
+  defp handle_bundle_error(conn, reason)
+       when reason in [:invalid_token, :expired, :not_found, :already_delivered, :revoked, :deleted] do
+    handle_download_error(conn, reason)
+  end
+
+  defp handle_bundle_error(conn, reason) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "bundle request failed: #{inspect(reason)}"})
   end
 
   @doc """
@@ -222,28 +278,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   def bundle(conn, %{"id" => id, "token" => download_token}) when byte_size(download_token) > 0 do
     source_ip = get_client_ip(conn)
 
-    case OnboardingPackages.deliver(id, download_token, source_ip: source_ip) do
-      {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} ->
-        case BundleGenerator.create_tarball(package, bundle_pem || "", join_token) do
-          {:ok, tarball} ->
-            filename = BundleGenerator.bundle_filename(package)
-
-            conn
-            |> put_resp_content_type("application/gzip")
-            |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
-            |> send_resp(200, tarball)
-
-          {:error, reason} ->
-            conn
-            |> put_status(:internal_server_error)
-            |> json(%{error: "Failed to generate bundle: #{inspect(reason)}"})
-        end
-
-      {:error, :not_found} ->
-        conn |> put_status(:not_found) |> json(%{error: "package not found"})
+    case bundle_with_token(id, download_token, source_ip) do
+      {:ok, tarball, filename} ->
+        conn
+        |> put_resp_content_type("application/gzip")
+        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+        |> send_resp(200, tarball)
 
       {:error, reason} ->
-        handle_download_error(conn, reason)
+        handle_bundle_error(conn, reason)
     end
   end
 
@@ -252,6 +295,24 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     |> put_status(:bad_request)
     |> json(%{error: "token query parameter is required"})
   end
+
+  defp bundle_with_token(id, download_token, source_ip) do
+    with {:ok, _package, tenant_schema} <- find_package_across_tenants(id),
+         {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
+           deliver_package(id, download_token, tenant_schema, source_ip, nil),
+         {:ok, tarball} <-
+           wrap_bundle_error(BundleGenerator.create_tarball(package, bundle_pem || "", join_token)) do
+      filename = BundleGenerator.bundle_filename(package)
+      {:ok, tarball, filename}
+    else
+      {:error, reason} -> {:error, reason}
+      {:error, reason, _} -> {:error, reason}
+      {:error, reason, _, _} -> {:error, reason}
+    end
+  end
+
+  defp wrap_bundle_error({:ok, tarball}), do: {:ok, tarball}
+  defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
 
   @doc """
   POST /api/admin/edge-packages/:id/revoke
@@ -263,17 +324,24 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     source_ip = get_client_ip(conn)
     reason = params["reason"]
 
-    case OnboardingPackages.revoke(id, actor: actor, source_ip: source_ip, reason: reason) do
-      {:ok, package} ->
-        json(conn, package_to_json(package))
+    with {:ok, tenant} <- require_tenant(conn) do
+      case OnboardingPackages.revoke(id,
+             actor: actor,
+             source_ip: source_ip,
+             reason: reason,
+             tenant: tenant
+           ) do
+        {:ok, package} ->
+          json(conn, package_to_json(package))
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+        {:error, :not_found} ->
+          {:error, :not_found}
 
-      {:error, :already_revoked} ->
-        conn
-        |> put_status(:conflict)
-        |> json(%{error: "package already revoked"})
+        {:error, :already_revoked} ->
+          conn
+          |> put_status(:conflict)
+          |> json(%{error: "package already revoked"})
+      end
     end
   end
 
@@ -383,6 +451,30 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     end
   end
 
+  defp require_tenant(conn) do
+    case conn.assigns[:current_scope] do
+      %Scope{active_tenant: %Tenant{} = tenant} ->
+        {:ok, tenant}
+
+      %Scope{} = scope ->
+        scope
+        |> Scope.tenant_id()
+        |> load_tenant()
+
+      _ ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp load_tenant(nil), do: {:error, :unauthorized}
+
+  defp load_tenant(tenant_id) do
+    case Ash.get(Tenant, tenant_id, authorize?: false) do
+      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
+      _ -> {:error, :unauthorized}
+    end
+  end
+
   defp get_client_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
@@ -396,6 +488,25 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
         |> :inet.ntoa()
         |> to_string()
     end
+  end
+
+  defp find_package_across_tenants(package_id) do
+    TenantSchemas.list_schemas()
+    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      case OnboardingPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^package_id)
+           |> Ash.read_one(tenant: schema, authorize?: false) do
+        {:ok, nil} ->
+          {:cont, {:error, :not_found}}
+
+        {:ok, package} ->
+          {:halt, {:ok, package, schema}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp package_to_json(package) do

@@ -19,15 +19,18 @@ defmodule ServiceRadarWebNG.Application do
 
     # Build children list, conditionally adding PubSub if not already running
     # (serviceradar_core may have already started these)
-    base_children = [
-      # Web telemetry
-      ServiceRadarWebNGWeb.Telemetry,
-      # GRPC client supervisor for datasvc connections
-      {GRPC.Client.Supervisor, []},
-      # DNS cluster for Kubernetes deployments
-      {DNSCluster,
-       query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
-    ]
+    base_children =
+      [
+        # Web telemetry
+        ServiceRadarWebNGWeb.Telemetry
+      ]
+      |> maybe_add_grpc_supervisor()
+      |> Kernel.++([
+        # DNS cluster for Kubernetes deployments
+        {DNSCluster,
+         query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+      ])
+      |> maybe_add_local_mailer_storage()
 
     # Add PubSub instances only if not already running (avoid conflict with serviceradar_core)
     pubsub_children =
@@ -60,6 +63,24 @@ defmodule ServiceRadarWebNG.Application do
   def config_change(changed, _new, removed) do
     ServiceRadarWebNGWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp maybe_add_local_mailer_storage(children) do
+    if Application.get_env(:serviceradar_web_ng, :local_mailer, false) do
+      case Process.whereis(Swoosh.Adapters.Local.Storage.Manager) do
+        nil -> children ++ [Swoosh.Adapters.Local.Storage.Manager]
+        _pid -> children
+      end
+    else
+      children
+    end
+  end
+
+  defp maybe_add_grpc_supervisor(children) do
+    case Process.whereis(GRPC.Client.Supervisor) do
+      nil -> children ++ [{GRPC.Client.Supervisor, []}]
+      _pid -> children
+    end
   end
 
   # Auto-start distributed Erlang for cluster connectivity

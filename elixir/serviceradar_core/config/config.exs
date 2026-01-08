@@ -33,7 +33,9 @@ config :ash,
   policies: [no_filter_static_forbidden_reads?: false]
 
 # AshOban configuration
-config :ash_oban, oban_name: Oban
+config :ash_oban,
+  oban_name: Oban,
+  oban_module: ServiceRadar.Oban.Router
 
 # Spark configuration (Ash DSL)
 config :spark,
@@ -96,6 +98,12 @@ config :serviceradar_core, Oban,
 # Cluster configuration (disabled by default)
 config :serviceradar_core,
   cluster_enabled: false
+
+config :serviceradar_core,
+  run_startup_migrations: false
+
+config :serviceradar_core,
+  reset_tenant_schemas: false
 
 # Import environment specific config
 import_config "#{config_env()}.exs"

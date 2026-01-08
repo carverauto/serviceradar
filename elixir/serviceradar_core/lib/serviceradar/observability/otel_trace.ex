@@ -35,6 +35,10 @@ defmodule ServiceRadar.Observability.OtelTrace do
     end
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   actions do
     defaults [:read]
 
@@ -89,7 +93,7 @@ defmodule ServiceRadar.Observability.OtelTrace do
   end
 
   policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
+    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
@@ -99,7 +103,7 @@ defmodule ServiceRadar.Observability.OtelTrace do
     end
   end
 
-  # Note: No multitenancy - Go schema doesn't have tenant_id
+  # Note: This hypertable does not include tenant_id; schema isolation handles tenancy.
 
   attributes do
     # Composite primary key matching Go schema

@@ -243,7 +243,7 @@ Edge agents are strictly isolated by tenant:
 
 1. **Certificate-based Identity**: Tenant slug embedded in certificate CN
 2. **Registry Isolation**: AgentRegistry queries are scoped by tenant_id
-3. **Database Isolation**: Ash multitenancy enforces tenant boundaries
+3. **Database Isolation**: schema-based multitenancy enforces tenant boundaries
 
 An agent from Tenant A **cannot**:
 - See or enumerate agents from Tenant B

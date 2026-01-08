@@ -449,6 +449,8 @@ Restart the checker using the persisted config:
 
 Always use Ash concepts, almost never Ecto concepts directly. Think hard about the "Ash way" to do things. If you don't know, look for information in the rules & docs of Ash & associated packages.
 
+When a change must remain atomic, implement `atomic/3` or refactor the action to stay atomic. Do not use `require_atomic? false` to silence atomicity warnings.
+
 ## Multitenancy Guardrails
 
 Never propose or implement multi-tenant bypasses. Do not use Ash multitenancy bypass modes (`:bypass`, `:bypass_all`, `allow_global` overrides) or cross-tenant reads/writes. All access must remain tenant-scoped and enforced by mTLS-derived tenant identity.

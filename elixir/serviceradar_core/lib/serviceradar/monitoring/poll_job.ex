@@ -86,9 +86,7 @@ defmodule ServiceRadar.Monitoring.PollJob do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -177,7 +175,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :complete do
       description "Mark job as completed"
-      require_atomic? false
 
       argument :success_count, :integer, default: 0
       argument :failure_count, :integer, default: 0
@@ -209,7 +206,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :fail do
       description "Mark job as failed"
-      require_atomic? false
 
       argument :error_message, :string
       argument :error_code, :string
@@ -246,7 +242,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :cancel do
       description "Cancel a pending or dispatching job"
-      require_atomic? false
 
       argument :reason, :string
 
@@ -263,7 +258,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
 
     update :retry do
       description "Retry a failed or timed out job"
-      require_atomic? false
 
       change transition_state(:pending)
 
@@ -313,6 +307,10 @@ defmodule ServiceRadar.Monitoring.PollJob do
       # Allow system transitions
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

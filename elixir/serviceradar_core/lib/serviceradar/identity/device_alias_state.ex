@@ -55,9 +55,7 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -167,7 +165,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     update :replace do
       description "Mark alias as replaced by a new alias"
       argument :replaced_by_id, :uuid
-      require_atomic? false
 
       change transition_state(:replaced)
 
@@ -198,6 +195,10 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     policy action_type(:update) do
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

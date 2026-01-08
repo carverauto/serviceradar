@@ -38,6 +38,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.EdgeSite
+
   postgres do
     table "nats_leaf_servers"
     repo ServiceRadar.Repo
@@ -63,9 +66,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -86,9 +87,17 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue async provisioning
-          case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, leaf_server}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -97,7 +106,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :provision do
       description "Mark server as provisioned with certificates"
       accept []
-      require_atomic? false
 
       argument :leaf_cert_pem, :string, allow_nil?: false, sensitive?: true
       argument :leaf_key_pem, :string, allow_nil?: false, sensitive?: true
@@ -125,7 +133,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :connect do
       description "Mark server as connected to SaaS"
       accept []
-      require_atomic? false
 
       change set_attribute(:connected_at, &DateTime.utc_now/0)
 
@@ -141,7 +148,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :disconnect do
       description "Mark server as disconnected from SaaS"
       accept []
-      require_atomic? false
 
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
 
@@ -157,14 +163,21 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     update :reprovision do
       description "Request re-provisioning of certificates"
       accept []
-      require_atomic? false
 
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue provisioning job
-          case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id) do
-            {:ok, _job} -> {:ok, leaf_server}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, leaf_server}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -196,6 +209,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     policy action(:reprovision) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -424,14 +441,20 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         :offline -> :go_offline
       end
 
-    case Ash.get(ServiceRadar.Edge.EdgeSite, leaf_server.edge_site_id, authorize?: false) do
-      {:ok, site} when site.status != new_status ->
-        site
-        |> Ash.Changeset.for_update(action, %{})
-        |> Ash.update(authorize?: false)
-
-      _ ->
+    case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
+      nil ->
         :ok
+
+      tenant_schema ->
+        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, authorize?: false) do
+          {:ok, site} when site.status != new_status ->
+            site
+            |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
+            |> Ash.update(authorize?: false)
+
+          _ ->
+            :ok
+        end
     end
   end
 end

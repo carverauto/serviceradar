@@ -53,6 +53,9 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
     end)
   end
 
+  @impl true
+  def atomic(_changeset, _opts, _context), do: :ok
+
   defp publish_event(record, old_state, opts, context) do
     new_state = opts.new_state
     entity_type = opts.entity_type

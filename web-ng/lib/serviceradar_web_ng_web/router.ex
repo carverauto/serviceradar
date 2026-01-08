@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Router do
   import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
 
+  alias ServiceRadarWebNG.Accounts.Scope
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -14,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
   end
@@ -26,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
   end
@@ -57,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :ash_json_api do
     plug :accepts, ["json"]
     plug :fetch_session
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
     plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
@@ -280,13 +285,17 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through :browser
 
     # AshAuthentication.Phoenix sign-in LiveView
     ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/users/log-in", AuthLive.SignIn, :sign_in
     end
+  end
+
+  scope "/", ServiceRadarWebNGWeb do
+    pipe_through [:browser]
 
     # Custom registration with organization creation
     live_session :registration,
@@ -312,12 +321,13 @@ defmodule ServiceRadarWebNGWeb.Router do
   # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
-      %{user: user} when not is_nil(user) ->
+      %Scope{user: user} = scope when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
+        tenant_id = Scope.tenant_id(scope)
 
         actor = %{
           id: user.id,
-          tenant_id: user.tenant_id,
+          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -328,7 +338,18 @@ defmodule ServiceRadarWebNGWeb.Router do
         |> assign(:ash_actor, actor)
         |> assign(:current_partition_id, partition_id)
         |> Ash.PlugHelpers.set_actor(actor)
-        |> Ash.PlugHelpers.set_tenant(user.tenant_id)
+        |> maybe_set_tenant(tenant_id)
+
+      _ ->
+        conn
+    end
+  end
+
+  defp maybe_set_tenant(conn, nil), do: conn
+  defp maybe_set_tenant(conn, tenant_id) do
+    case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
+      tenant_schema when is_binary(tenant_schema) ->
+        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
 
       _ ->
         conn

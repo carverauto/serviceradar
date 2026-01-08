@@ -69,6 +69,32 @@ services:
           - cnpg-rw
     restart: unless-stopped
 
+  cnpg-migrate:
+    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
+    container_name: serviceradar-cnpg-migrate
+    command: ["cnpg-migrate"]
+    environment:
+      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
+      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
+      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
+      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
+      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
+      - CNPG_SSLMODE=${CNPG_SSL_MODE:-verify-full}
+      - CNPG_CERT_DIR=/etc/serviceradar/certs
+      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
+      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
+      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
+    depends_on:
+      cert-permissions-fixer:
+        condition: service_completed_successfully
+      cnpg:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls
@@ -125,6 +151,8 @@ services:
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-true}
+      - SERVICERADAR_RESET_TENANT_SCHEMAS=${SERVICERADAR_RESET_TENANT_SCHEMAS:-false}
       - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
       - SERVICERADAR_PLATFORM_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
       - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
@@ -171,6 +199,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
+      cnpg-migrate:
+        condition: service_completed_successfully
       nats:
         condition: service_started
     healthcheck:

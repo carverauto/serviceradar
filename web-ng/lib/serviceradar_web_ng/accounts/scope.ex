@@ -30,20 +30,24 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def for_user(user, opts \\ [])
 
   def for_user(%User{} = user, opts) do
+    require Logger
+    require Ash.Query
     active_tenant_id = Keyword.get(opts, :active_tenant_id)
 
-    # Preload tenant and memberships for navbar display.
-    # Note: We don't use a specific read action because Ash.Query.for_read()
-    # breaks relationship loading in some versions. Just load directly.
-    user_with_data =
-      Ash.load!(
-        user,
-        [
-          :tenant,
-          memberships: [:tenant]
-        ],
-        authorize?: false
-      )
+    # Load tenant separately - Tenant is a global resource, no tenant context needed
+    user_with_tenant = Ash.load!(user, [:tenant], authorize?: false, tenant: nil)
+
+    # Load memberships separately by querying TenantMembership directly.
+    # TenantMembership uses attribute-based multitenancy (tenant_id column),
+    # so we query by user_id without any tenant context to avoid the
+    # schema-string-as-UUID filter error.
+    memberships =
+      ServiceRadar.Identity.TenantMembership
+      |> Ash.Query.filter(user_id == ^user.id)
+      |> Ash.Query.load(:tenant)
+      |> Ash.read!(authorize?: false)
+
+    user_with_data = %{user_with_tenant | memberships: memberships}
 
     # Determine active tenant: from opts, or user's default tenant
     active_tenant =

@@ -56,6 +56,9 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
 
+        # Startup migrations (core-elx only, after repo)
+        startup_migrations_child(),
+
         # PubSub for cluster events (always needed)
         {Phoenix.PubSub, name: ServiceRadar.PubSub},
 
@@ -64,6 +67,9 @@ defmodule ServiceRadar.Application do
 
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
+
+        # Per-tenant Oban supervisors (after Oban)
+        tenant_oban_supervisor_child(),
 
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
@@ -150,6 +156,14 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  defp startup_migrations_child do
+    if Application.get_env(:serviceradar_core, :run_startup_migrations, false) do
+      ServiceRadar.Cluster.StartupMigrations
+    else
+      nil
+    end
+  end
+
   defp ash_oban_scheduler_children do
     # Only start AshOban schedulers if explicitly enabled
     # web-ng should set :start_ash_oban_scheduler to false (core-elx handles scheduling)
@@ -171,6 +185,15 @@ defmodule ServiceRadar.Application do
     if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
          Application.get_env(:serviceradar_core, Oban) do
       ServiceRadar.Oban.TenantQueues
+    else
+      nil
+    end
+  end
+
+  defp tenant_oban_supervisor_child do
+    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+         Application.get_env(:serviceradar_core, Oban) do
+      ServiceRadar.Oban.TenantSupervisor
     else
       nil
     end

@@ -15,8 +15,17 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
   @moduletag :database
 
-  setup do
-    tenant_id = Ash.UUID.generate()
+  setup_all do
+    tenant = ServiceRadar.TestSupport.create_tenant_schema!("infra-state")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
+    end)
+
+    {:ok, tenant_id: tenant.tenant_id}
+  end
+
+  setup %{tenant_id: tenant_id} do
     partition_id = Ash.UUID.generate()
 
     {:ok, tenant_id: tenant_id, partition_id: partition_id}

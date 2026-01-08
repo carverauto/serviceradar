@@ -12,10 +12,19 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   @moduletag :database
 
-  setup do
-    # Generate unique tenant ID to prevent test pollution
+  setup_all do
+    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-test")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
+    end)
+
+    {:ok, tenant_id: tenant.tenant_id}
+  end
+
+  setup %{tenant_id: tenant_id} do
+    # Generate unique IDs to prevent test pollution
     unique_id = :erlang.unique_integer([:positive])
-    tenant_id = Ash.UUID.generate()
 
     # Create a test actor with super_admin role for bypassing policies
     actor = %{

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.TenantCA
   alias ServiceRadar.Edge.TenantCA.Generator, as: CertGenerator
+  alias ServiceRadar.Cluster.TenantSchemas
 
   @default_limit 100
   @default_join_token_ttl_seconds 86_400
@@ -55,7 +56,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   def list(filters \\ %{}, opts \\ []) do
     limit = Map.get(filters, :limit, @default_limit)
     actor = Keyword.get(opts, :actor)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts)
 
     OnboardingPackage
     |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant)
@@ -86,7 +87,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   def get(id, opts \\ []) when is_binary(id) do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts)
 
     case Ash.get(OnboardingPackage, id, actor: actor, authorize?: authorize?, tenant: tenant) do
       {:ok, package} -> {:ok, package}
@@ -134,7 +135,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts, attrs)
 
     # Generate tokens
     join_token = Crypto.generate_token()
@@ -170,7 +171,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         # Record creation event
         OnboardingEvents.record(package.id, :created,
           actor: get_actor_name(actor),
-          source_ip: source_ip
+          source_ip: source_ip,
+          tenant_id: package.tenant_id
         )
 
         {:ok,
@@ -207,7 +209,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts)
 
     with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant),
          :ok <- verify_deliverable(package),
@@ -233,7 +235,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
-            source_ip: source_ip
+            source_ip: source_ip,
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok,
@@ -258,7 +261,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts)
 
     with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant),
          :ok <- verify_not_revoked(package) do
@@ -274,7 +277,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :revoked,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason}
+            details: %{reason: reason},
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok, updated_package}
@@ -294,7 +298,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = Keyword.get(opts, :tenant)
+    tenant = resolve_tenant(opts)
 
     with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant) do
       case package
@@ -311,7 +315,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :deleted,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason}
+            details: %{reason: reason},
+            tenant_id: updated_package.tenant_id
           )
 
           {:ok, updated_package}
@@ -440,6 +445,16 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     |> Keyword.get(:default_metadata, %{})
   end
 
+  defp resolve_tenant(opts, attrs \\ %{}) do
+    tenant_value =
+      Keyword.get(opts, :tenant) ||
+        Keyword.get(opts, :tenant_id) ||
+        Map.get(attrs, :tenant_id) ||
+        Map.get(attrs, "tenant_id")
+
+    TenantSchemas.schema_for_tenant(tenant_value)
+  end
+
   @doc """
   Generates a component certificate signed by the tenant's CA.
 
@@ -500,6 +515,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           {:ok, map()} | {:error, term()}
   def create_with_tenant_cert(attrs, opts \\ []) do
     tenant_id = Keyword.fetch!(opts, :tenant)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
     partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
     cert_validity = Keyword.get(opts, :cert_validity_days, 365)
 
@@ -532,7 +548,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
             |> Ash.Changeset.for_update(:update_tokens, %{
               bundle_ciphertext: bundle_ciphertext,
               downstream_spiffe_id: cert_data.spiffe_id
-            }, authorize?: false)
+            }, authorize?: false, tenant: tenant_schema)
             |> Ash.update!()
 
           {:ok, Map.put(result, :package, updated)
@@ -545,7 +561,10 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   # Gets the active tenant CA, generating one if it doesn't exist
   defp get_tenant_ca(tenant_id) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
     case TenantCA
+         |> Ash.Query.set_tenant(tenant_schema)
          |> Ash.Query.filter(tenant_id == ^tenant_id and status == :active)
          |> Ash.read_one(authorize?: false) do
       {:ok, nil} ->
@@ -568,7 +587,13 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   # Decrypts the CA private key for signing (AshCloak handles decryption)
   defp decrypt_ca_private_key(tenant_ca) do
     # Load with decryption - AshCloak will decrypt the private key
-    case Ash.get(TenantCA, tenant_ca.id, authorize?: false, load: [:tenant]) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_ca.tenant_id)
+
+    case Ash.get(TenantCA, tenant_ca.id,
+           tenant: tenant_schema,
+           authorize?: false,
+           load: [:tenant]
+         ) do
       {:ok, ca} -> {:ok, ca}
       error -> error
     end

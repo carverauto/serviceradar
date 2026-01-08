@@ -31,9 +31,7 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? false
+    strategy :context
   end
 
   code_interface do
@@ -107,7 +105,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     update :record_use do
       description "Record token usage"
       accept [:last_used_ip]
-      require_atomic? false
 
       change fn changeset, _context ->
         changeset
@@ -122,7 +119,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     update :revoke do
       description "Revoke this token"
       argument :revoked_by, :string, allow_nil?: true
-      require_atomic? false
 
       change fn changeset, _context ->
         revoked_by = Ash.Changeset.get_argument(changeset, :revoked_by) || "system"
@@ -170,6 +166,10 @@ defmodule ServiceRadar.Identity.ApiToken do
       authorize_if expr(user_id == ^actor(:id))
       authorize_if actor_attribute_equals(:role, :admin)
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Identity.User do
   @moduledoc """
   User resource for authentication and authorization.
 
-  Maps to the existing `ng_users` table with multi-tenancy support.
+  Maps to the tenant-scoped `ng_users` table with multi-tenancy support.
 
   ## Roles
 
@@ -83,9 +83,7 @@ defmodule ServiceRadar.Identity.User do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -188,12 +186,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update do
       accept [:display_name]
-      require_atomic? false
     end
 
     update :update_email do
       accept [:email]
-      require_atomic? false
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
       change set_attribute(:confirmed_at, &DateTime.utc_now/0)
@@ -201,12 +197,10 @@ defmodule ServiceRadar.Identity.User do
 
     update :update_role do
       accept [:role]
-      require_atomic? false
     end
 
     update :change_password do
       description "Change a user's password"
-      require_atomic? false
 
       argument :current_password, :string do
         # Allow nil here - the change block handles validation based on whether user has a password
@@ -369,7 +363,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :email, :ci_string do
       allow_nil? false
       public? true
-      description "User email address (globally unique; memberships control access)"
+      description "User email address (unique within a tenant)"
       constraints match: ~r/^[^\s]+@[^\s]+$/
     end
 
@@ -405,7 +399,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :tenant_id, :uuid do
       allow_nil? false
       public? true
-      description "Owning tenant ID - immutable after creation (see validations)"
+      description "Owning tenant ID (stored for auditing)"
     end
 
     create_timestamp :inserted_at
@@ -420,7 +414,7 @@ defmodule ServiceRadar.Identity.User do
       source_attribute :tenant_id
     end
 
-    # Memberships allow users to belong to multiple tenants with different roles
+    # Memberships allow explicit role mapping across tenants
     has_many :memberships, ServiceRadar.Identity.TenantMembership do
       source_attribute :id
       destination_attribute :user_id
@@ -455,10 +449,8 @@ defmodule ServiceRadar.Identity.User do
   end
 
   identities do
-    # Global email identity required by AshAuthentication for password/magic_link strategies.
-    # Email is globally unique - users access multiple tenants via memberships.
+    # Email identity required by AshAuthentication for password/magic_link strategies.
+    # Email uniqueness is enforced per-tenant schema.
     identity :email, [:email]
-    # Composite identity for multi-tenant queries (kept for backwards compatibility)
-    identity :unique_email_per_tenant, [:tenant_id, :email]
   end
 end

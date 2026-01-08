@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
 
@@ -45,76 +46,84 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     token_secret = params["token"]
     source_ip = get_client_ip(conn)
 
-    if is_nil(token_secret) or token_secret == "" do
+    if token_secret in [nil, ""] do
       conn
       |> put_status(:bad_request)
       |> json(%{error: "token query parameter is required"})
     else
-      case do_enrollment(package_id, token_secret, source_ip) do
+      case enroll_with_token(package_id, token_secret, source_ip) do
         {:ok, result} ->
           json(conn, result)
 
-        {:error, :not_found} ->
-          conn
-          |> put_status(:not_found)
-          |> json(%{error: "package not found"})
-
-        {:error, :not_ready} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
-
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "invalid enrollment token"})
-
-        {:error, :token_expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "enrollment token has expired, please generate a new package"})
-
-        {:error, :already_enrolled} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "this package has already been enrolled"})
-
-        {:error, :nats_creds_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "NATS credentials not provisioned yet"})
-
         {:error, reason} ->
-          Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
-
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "enrollment failed"})
+          handle_enroll_error(conn, package_id, reason)
       end
     end
   end
 
   # Private helpers
 
-  defp do_enrollment(package_id, token_secret, source_ip) do
-    with {:ok, package} <- get_package(package_id),
-         :ok <- validate_package_ready(package),
-         :ok <- validate_token(package, token_secret),
-         :ok <- validate_not_already_enrolled(package),
-         {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, _updated} <- mark_enrolled(package, source_ip) do
-      {:ok, build_enrollment_response(package, creds_content)}
+  defp enroll_with_token(package_id, token_secret, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, package, tenant_schema} ->
+        do_enrollment(package, token_secret, source_ip, tenant_schema)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp get_package(package_id) do
-    case CollectorPackage
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^package_id)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, package} -> {:ok, package}
-      {:error, _} -> {:error, :not_found}
+  defp handle_enroll_error(conn, _package_id, :not_ready) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "package is not ready for enrollment, please wait for provisioning"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :invalid_token) do
+    conn
+    |> put_status(:unauthorized)
+    |> json(%{error: "invalid enrollment token"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :token_expired) do
+    conn
+    |> put_status(:gone)
+    |> json(%{error: "enrollment token has expired, please generate a new package"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :already_enrolled) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: "this package has already been enrolled"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :nats_creds_not_found) do
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "NATS credentials not provisioned yet"})
+  end
+
+  defp handle_enroll_error(conn, _package_id, :not_found) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{error: "package not found"})
+  end
+
+  defp handle_enroll_error(conn, package_id, reason) do
+    Logger.error("Enrollment failed for package #{package_id}: #{inspect(reason)}")
+
+    conn
+    |> put_status(:internal_server_error)
+    |> json(%{error: "enrollment failed"})
+  end
+
+  defp do_enrollment(package, token_secret, source_ip, tenant_schema) do
+    with :ok <- validate_package_ready(package),
+         :ok <- validate_token(package, token_secret),
+         :ok <- validate_not_already_enrolled(package),
+         {:ok, creds_content} <- get_nats_creds(package),
+         {:ok, _updated} <- mark_enrolled(package, source_ip, tenant_schema) do
+      {:ok, build_enrollment_response(package, creds_content)}
     end
   end
 
@@ -171,11 +180,11 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     end
   end
 
-  defp mark_enrolled(package, source_ip) do
+  defp mark_enrolled(package, source_ip, tenant_schema) do
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:source_ip, source_ip)
-    |> Ash.update(authorize?: false)
+    |> Ash.update(authorize?: false, tenant: tenant_schema)
   end
 
   defp build_enrollment_response(package, nats_creds) do
@@ -222,6 +231,25 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
 
     # Return as YAML
     encode_yaml(config)
+  end
+
+  defp find_package_across_tenants(package_id) do
+    TenantSchemas.list_schemas()
+    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      case CollectorPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^package_id)
+           |> Ash.read_one(tenant: schema, authorize?: false) do
+        {:ok, nil} ->
+          {:cont, {:error, :not_found}}
+
+        {:ok, package} ->
+          {:halt, {:ok, package, schema}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp add_collector_defaults(config, :flowgger) do

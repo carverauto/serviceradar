@@ -228,18 +228,19 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     - `:sort` - Sort field and direction
     - `:limit` - Maximum results
     - `:cursor` - Pagination cursor
-  - `actor` - The actor for policy enforcement (usually a User)
+  - `scope` - The scope for policy enforcement (contains actor, tenant, context)
+              Uses `Ash.Scope.ToOpts` protocol to extract actor/tenant
 
   ## Returns
 
   - `{:ok, response}` - Query succeeded
   - `{:error, reason}` - Query failed
   """
-  def query(entity, params, actor \\ nil) do
+  def query(entity, params, scope \\ nil) do
     with {:ok, resource} <- get_resource(entity),
          {:ok, domain} <- get_domain(entity),
          {:ok, query} <- build_query(resource, entity, params),
-         {:ok, results} <- execute_query(domain, query, actor) do
+         {:ok, results} <- execute_query(domain, query, scope) do
       {:ok, format_response(results, entity, params)}
     else
       {:error, reason} ->
@@ -414,15 +415,9 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_limit(query, _), do: Ash.Query.limit(query, 100)
 
   # Execute the query against the Ash domain
-  # Note: domain is passed for future use with explicit domain routing
-  defp execute_query(_domain, query, actor) do
-    opts =
-      if actor do
-        [actor: actor]
-      else
-        []
-      end
-
+  # Uses scope: option which automatically extracts actor/tenant via Ash.Scope.ToOpts
+  defp execute_query(_domain, query, scope) do
+    opts = if scope, do: [scope: scope], else: []
     Ash.read(query, opts)
   end
 

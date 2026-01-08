@@ -62,17 +62,18 @@ graph TB
 
 ## Multi-Tenancy
 
-All resources use **attribute-based multitenancy** with `tenant_id`:
+Tenant-scoped resources use **schema-based multitenancy** (`strategy :context`) and are stored
+under `tenant_<slug>` schemas. Platform-managed resources (tenants, users, tenant memberships,
+platform NATS tables, platform Oban, platform job schedules) remain in the public schema.
+Tenant AshOban schedules and Oban jobs are stored in tenant schemas via per-tenant Oban instances.
 
 ```elixir
 multitenancy do
-  strategy :attribute
-  attribute :tenant_id
-  global? true  # Allow cross-tenant queries for super_admin
+  strategy :context
 end
 ```
 
-The `tenant_id` is automatically set from the actor's tenant context and enforced in policies.
+The `tenant` option is passed from the actor's tenant context and enforced in policies.
 
 ## Domain Modules
 
@@ -146,6 +147,9 @@ Edge device onboarding and lifecycle.
 - AshOban (`expire_packages` trigger for automatic expiration)
 
 ## Background Jobs (AshOban)
+
+Tenant-triggered jobs run from per-tenant Oban schemas; platform maintenance jobs remain in
+the public Oban schema.
 
 ServiceRadar uses AshOban for scheduled background processing:
 

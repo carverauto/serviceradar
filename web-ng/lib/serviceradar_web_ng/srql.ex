@@ -18,18 +18,18 @@ defmodule ServiceRadarWebNG.SRQL do
       "cursor" => Map.get(opts, :cursor),
       "direction" => Map.get(opts, :direction),
       "mode" => Map.get(opts, :mode),
-      "actor" => Map.get(opts, :actor)
+      "scope" => Map.get(opts, :scope)
     })
   end
 
   def query_request(%{} = request) do
     case normalize_request(request) do
-      {:ok, query, limit, cursor, direction, mode, actor} ->
+      {:ok, query, limit, cursor, direction, mode, scope} ->
         # Check if we should route through Ash adapter
         entity = extract_entity(query)
 
         if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
-          execute_ash_query(entity, query, limit, actor)
+          execute_ash_query(entity, query, limit, scope)
         else
           execute_sql_query(query, limit, cursor, direction, mode)
         end
@@ -41,11 +41,11 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Execute query through Ash adapter for supported entities
   # No SQL fallback - all entities MUST go through Ash
-  defp execute_ash_query(entity, query, limit, actor) do
+  defp execute_ash_query(entity, query, limit, scope) do
     params = parse_srql_params(query, limit)
     start_time = System.monotonic_time()
 
-    case AshAdapter.query(entity, params, actor) do
+    case AshAdapter.query(entity, params, scope) do
       {:ok, response} ->
         emit_telemetry(:ash, entity, start_time, :ok)
         {:ok, response}
@@ -397,8 +397,8 @@ defmodule ServiceRadarWebNG.SRQL do
     cursor = normalize_optional_string(Map.get(request, "cursor"))
     direction = normalize_direction(Map.get(request, "direction"))
     mode = normalize_optional_string(Map.get(request, "mode"))
-    actor = Map.get(request, "actor")
-    {:ok, query, limit, cursor, direction, mode, actor}
+    scope = Map.get(request, "scope")
+    {:ok, query, limit, cursor, direction, mode, scope}
   end
 
   defp normalize_request(%{query: query} = request) when is_binary(query) do
@@ -406,8 +406,8 @@ defmodule ServiceRadarWebNG.SRQL do
     cursor = normalize_optional_string(Map.get(request, :cursor))
     direction = normalize_direction(Map.get(request, :direction))
     mode = normalize_optional_string(Map.get(request, :mode))
-    actor = Map.get(request, :actor)
-    {:ok, query, limit, cursor, direction, mode, actor}
+    scope = Map.get(request, :scope)
+    {:ok, query, limit, cursor, direction, mode, scope}
   end
 
   defp normalize_request(_request) do

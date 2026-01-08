@@ -138,9 +138,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -295,7 +293,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :heartbeat do
       description "Update last_seen_time and health status (for connected agents)"
       accept [:is_healthy, :capabilities]
-      require_atomic? false
 
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -307,7 +304,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"
       accept [:gateway_id]
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -318,7 +314,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :connection_failed do
       description "Mark connection attempt as failed"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -327,7 +322,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :degrade do
       description "Mark agent as degraded (connected but unhealthy)"
-      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -337,7 +331,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :restore_health do
       description "Restore agent health (from degraded to connected)"
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -347,7 +340,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :lose_connection do
       description "Mark agent as disconnected (connection lost)"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:gateway_id, nil)
@@ -357,7 +349,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :reconnect do
       description "Start reconnection process (from disconnected to connecting)"
-      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -367,7 +358,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :mark_unavailable do
       description "Mark agent as unavailable (admin action)"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:unavailable)
       change set_attribute(:is_healthy, false)
@@ -377,7 +367,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :recover do
       description "Start recovery process (from unavailable to connecting)"
-      require_atomic? false
 
       change transition_state(:connecting)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -388,7 +377,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     update :connect do
       description "Mark agent as connected to a gateway (legacy - use establish_connection)"
       accept [:gateway_id]
-      require_atomic? false
 
       change transition_state(:connected)
       change set_attribute(:is_healthy, true)
@@ -399,7 +387,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :disconnect do
       description "Mark agent as disconnected (legacy - use lose_connection)"
-      require_atomic? false
 
       change transition_state(:disconnected)
       change set_attribute(:gateway_id, nil)
@@ -409,7 +396,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :mark_unhealthy do
       description "Mark agent as unhealthy (legacy - use degrade)"
-      require_atomic? false
 
       change transition_state(:degraded)
       change set_attribute(:is_healthy, false)
@@ -437,6 +423,10 @@ defmodule ServiceRadar.Infrastructure.Agent do
     policy action_type(:update) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

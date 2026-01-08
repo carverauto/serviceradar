@@ -11,7 +11,7 @@ defmodule ServiceRadar.Oban.TenantWorker do
 
       defmodule MyApp.Workers.SyncWorker do
         use ServiceRadar.Oban.TenantWorker,
-          queue_type: :sync,
+          queue_type: :integrations,
           max_attempts: 5
 
         @impl true

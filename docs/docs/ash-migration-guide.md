@@ -82,7 +82,7 @@ ServiceRadar.Infrastructure.Agent
 ### Required Migrations
 
 1. **Tenants table** - Multi-tenancy support
-2. **tenant_id columns** - Added to all tenant-scoped tables
+2. **Tenant schemas** - Tenant-scoped tables live under `tenant_<slug>` schemas
 3. **User role column** - Role-based access control
 4. **API tokens table** - Programmatic API access
 
@@ -91,17 +91,19 @@ Run migrations:
 mix ash.migrate
 ```
 
+Run tenant schema migrations (schema-based multitenancy):
+```bash
+mix ash.migrate --migrations-path priv/repo/tenant_migrations
+```
+
+If you rely on core-elx startup migrations, `ServiceRadar.Cluster.StartupMigrations`
+will run both the public and tenant migration paths when
+`SERVICERADAR_CORE_RUN_MIGRATIONS=true`. Tenant migrations are applied across
+`Repo.all_tenants/0`, so ensure tenant schemas exist before enabling this in production.
+
 ### Data Migrations
 
-After schema migrations, run data migrations to:
-1. Create a default tenant for existing data
-2. Assign existing users to the default tenant
-3. Set default roles for existing users
-
-```bash
-mix run priv/repo/migrations/data/assign_default_tenant.exs
-mix run priv/repo/migrations/data/assign_user_roles.exs
-```
+No data migrations are required for dev/test environments. Rebuild databases as needed.
 
 ## API Changes
 

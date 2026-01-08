@@ -49,9 +49,7 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -250,6 +248,10 @@ defmodule ServiceRadar.Inventory.Device do
                        tenant_id == ^actor(:tenant_id)
                    )
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

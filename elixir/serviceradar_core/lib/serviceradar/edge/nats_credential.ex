@@ -49,9 +49,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -96,7 +94,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
     update :revoke do
       description "Revoke a credential"
       accept []
-      require_atomic? false
 
       argument :reason, :string
 
@@ -136,6 +133,10 @@ defmodule ServiceRadar.Edge.NatsCredential do
     policy action(:revoke) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

@@ -68,10 +68,13 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do
         queue :alerts
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :pending
         scheduler_cron "*/5 * * * *"
         action :escalate
@@ -90,6 +93,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       # Scheduled trigger for sending notifications on new/escalated alerts
       trigger :send_notifications do
         queue :notifications
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :needs_notification
         scheduler_cron "* * * * *"
         action :send_notification
@@ -101,9 +105,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -214,7 +216,6 @@ defmodule ServiceRadar.Monitoring.Alert do
     update :escalate do
       description "Escalate an alert"
       argument :reason, :string
-      require_atomic? false
 
       change transition_state(:escalated)
       change set_attribute(:escalated_at, &DateTime.utc_now/0)
@@ -246,7 +247,6 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :record_notification do
       description "Record that a notification was sent"
-      require_atomic? false
 
       change fn changeset, _context ->
         current_count = changeset.data.notification_count || 0
@@ -259,7 +259,6 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :send_notification do
       description "Send notification for an alert (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         alert = changeset.data
@@ -339,6 +338,10 @@ defmodule ServiceRadar.Monitoring.Alert do
       # Allow AshOban scheduler (no actor) to send notifications
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

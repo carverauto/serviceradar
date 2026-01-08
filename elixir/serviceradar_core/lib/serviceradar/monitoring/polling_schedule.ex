@@ -38,10 +38,13 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger to execute due polling schedules
       trigger :execute_schedules do
         queue :service_checks
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_execution
         scheduler_cron "* * * * *"
         action :execute
@@ -53,9 +56,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -169,7 +170,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :execute do
       description "Execute this polling schedule (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data
@@ -209,7 +209,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :record_result do
       description "Record the result of a schedule execution"
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -251,7 +250,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :acquire_lock do
       description "Acquire distributed lock for execution"
-      require_atomic? false
 
       argument :node_id, :string, allow_nil?: false
 
@@ -276,7 +274,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
 
     update :trigger_manual do
       description "Manually trigger schedule execution"
-      require_atomic? false
 
       change fn changeset, _context ->
         schedule = changeset.data
@@ -316,6 +313,10 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       # Allow AshOban scheduler (no actor) to execute
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

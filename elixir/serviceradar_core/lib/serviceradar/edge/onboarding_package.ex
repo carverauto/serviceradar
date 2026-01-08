@@ -51,10 +51,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
       trigger :expire_packages do
         queue :onboarding
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :needs_expiration
         scheduler_cron "0 * * * *"
         action :expire
@@ -66,9 +69,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -150,7 +151,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :deliver do
       description "Mark package as delivered (downloaded)"
-      require_atomic? false
       change transition_state(:delivered)
       change set_attribute(:delivered_at, &DateTime.utc_now/0)
     end
@@ -191,7 +191,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # TENANT ISOLATION is enforced by multitenancy strategy :attribute
+    # TENANT ISOLATION is enforced by schema-based multitenancy (:context)
     # The tenant context passed to actions automatically filters records
     # Policies here only check role-based access
 
@@ -224,6 +224,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :admin)
       authorize_if actor_attribute_equals(:role, :operator)
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

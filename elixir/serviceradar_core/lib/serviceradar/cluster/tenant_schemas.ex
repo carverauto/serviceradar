@@ -62,30 +62,18 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   end
   ```
 
-  ## Tiered Isolation
-
-  Isolation level can vary by tenant plan:
-
-  | Plan       | Strategy     | Description                        |
-  |------------|--------------|-------------------------------------|
-  | Enterprise | :context     | Full schema isolation               |
-  | Pro        | :attribute   | Attribute-based with extra auditing |
-  | Free       | :attribute   | Basic attribute-based               |
-
   ## Migration Strategy
 
   - Public schema migrations: `priv/repo/migrations/`
   - Tenant schema migrations: `priv/repo/tenant_migrations/`
 
-  Run both during deployment:
-
-  ```bash
-  mix ecto.migrate
-  mix ecto.migrate --migrations-path priv/repo/tenant_migrations --prefix tenant_*
-  ```
+  core-elx runs these migrations on startup and fails fast if any migration
+  cannot be applied.
   """
 
   alias ServiceRadar.Repo
+  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Identity.Tenant
 
   require Logger
 
@@ -114,6 +102,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     run_migrations = Keyword.get(opts, :run_migrations, true)
 
     try do
+      if reset_tenant_schemas?() do
+        Logger.warning("Resetting tenant schema before create: #{schema_name}")
+        drop_schema_name!(schema_name)
+      end
+
       # Create schema (safe against injection via sanitized name)
       Ecto.Adapters.SQL.query!(
         Repo,
@@ -122,9 +115,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
       Logger.info("Created PostgreSQL schema: #{schema_name}")
 
+      ensure_schema_migrations_table!(schema_name)
+
       # Run tenant migrations if requested
       if run_migrations do
-        run_tenant_migrations(schema_name)
+        run_tenant_migrations!(schema_name)
       end
 
       {:ok, schema_name}
@@ -189,6 +184,62 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   end
 
   @doc """
+  Returns the schema name for a tenant struct or slug.
+
+  Accepts `ServiceRadar.Identity.Tenant`, maps, or raw slugs.
+  """
+  @spec schema_for_tenant(Tenant.t() | map() | String.t() | nil) :: String.t() | nil
+  def schema_for_tenant(nil), do: nil
+
+  def schema_for_tenant(%Tenant{slug: slug}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(%Tenant{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(%{slug: slug}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(%{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
+    schema_for(slug)
+  end
+
+  def schema_for_tenant(tenant_slug) when is_binary(tenant_slug) do
+    cond do
+      String.starts_with?(tenant_slug, @tenant_prefix) ->
+        tenant_slug
+
+      uuid_string?(tenant_slug) ->
+        case schema_for_id(tenant_slug) do
+          nil -> raise ArgumentError, "Unknown tenant schema for #{inspect(tenant_slug)}"
+          schema -> schema
+        end
+
+      true ->
+        schema_for(tenant_slug)
+    end
+  end
+
+  @doc """
+  Resolves a tenant schema name from a tenant UUID.
+
+  Uses the in-memory registry only. Callers must register slugs up front.
+  """
+  @spec schema_for_id(String.t()) :: String.t() | nil
+  def schema_for_id(tenant_id) when is_binary(tenant_id) do
+    case TenantRegistry.slug_for_tenant_id(tenant_id) do
+      {:ok, slug} ->
+        schema_for(slug)
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc """
   Checks if a tenant schema exists.
   """
   @spec schema_exists?(String.t()) :: boolean()
@@ -243,43 +294,38 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @doc """
   Runs tenant migrations for a specific schema.
   """
-  @spec run_tenant_migrations(String.t()) :: :ok | {:error, term()}
-  def run_tenant_migrations(schema_name) do
-    migrations_path = tenant_migrations_path()
-
-    if File.dir?(migrations_path) do
-      try do
-        Ecto.Migrator.run(
-          Repo,
-          migrations_path,
-          :up,
-          all: true,
-          prefix: schema_name
-        )
-
-        Logger.info("Ran tenant migrations for schema: #{schema_name}")
-        :ok
-      rescue
-        e ->
-          Logger.error("Failed to run migrations for #{schema_name}: #{inspect(e)}")
-          {:error, e}
-      end
-    else
-      Logger.debug("No tenant migrations directory found at #{migrations_path}")
-      :ok
-    end
+  @spec run_tenant_migrations!(String.t()) :: :ok
+  def run_tenant_migrations!(schema_name) do
+    run_migrations!(tenant_migrations_path(), schema_name, "tenant")
   end
 
   @doc """
   Runs tenant migrations for all tenant schemas.
   """
-  @spec run_all_tenant_migrations() :: :ok
-  def run_all_tenant_migrations do
-    for schema <- list_schemas() do
-      run_tenant_migrations(schema)
+  @spec run_all_tenant_migrations!() :: :ok
+  def run_all_tenant_migrations! do
+    schemas = list_schemas()
+
+    schemas =
+      if reset_tenant_schemas?() and schemas != [] do
+        Logger.warning("Resetting #{length(schemas)} tenant schemas before migrations")
+
+        Enum.each(schemas, &drop_schema_name!/1)
+        []
+      else
+        schemas
+      end
+
+    for schema <- schemas do
+      run_tenant_migrations!(schema)
     end
 
     :ok
+  end
+
+  @spec run_public_migrations!() :: :ok
+  def run_public_migrations! do
+    run_migrations!(public_migrations_path(), nil, "public")
   end
 
   @doc """
@@ -288,6 +334,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @spec tenant_migrations_path() :: String.t()
   def tenant_migrations_path do
     Application.app_dir(:serviceradar_core, "priv/repo/tenant_migrations")
+  end
+
+  @spec public_migrations_path() :: String.t()
+  def public_migrations_path do
+    Application.app_dir(:serviceradar_core, "priv/repo/migrations")
   end
 
   # ============================================================================
@@ -347,35 +398,65 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     Process.get(:tenant_schema)
   end
 
-  # ============================================================================
-  # Isolation Level
-  # ============================================================================
+  defp run_migrations!(migrations_path, prefix, label) do
+    if File.dir?(migrations_path) do
+      try do
+        if prefix do
+          Ecto.Migration.SchemaMigration.ensure_schema_migrations_table!(
+            Repo,
+            Repo.config(),
+            prefix: prefix
+          )
+        end
 
-  @doc """
-  Returns the isolation level for a tenant based on their plan.
+        Ecto.Migrator.run(Repo, migrations_path, :up, all: true, prefix: prefix)
 
-  ## Examples
+        Logger.info("Ran #{label} migrations#{maybe_prefix_label(prefix)}")
+        :ok
+      rescue
+        e ->
+          Logger.error(
+            "Failed to run #{label} migrations#{maybe_prefix_label(prefix)}: #{inspect(e)}"
+          )
 
-      TenantSchemas.isolation_level(%{plan: :enterprise})
-      # => :context
-
-      TenantSchemas.isolation_level(%{plan: :free})
-      # => :attribute
-  """
-  @spec isolation_level(map() | struct()) :: :context | :attribute
-  def isolation_level(%{plan: plan}) when plan in [:enterprise, "enterprise"] do
-    :context
+          reraise e, __STACKTRACE__
+      end
+    else
+      Logger.debug("No #{label} migrations directory found at #{migrations_path}")
+      :ok
+    end
   end
 
-  def isolation_level(_tenant) do
-    :attribute
+  defp maybe_prefix_label(nil), do: ""
+  defp maybe_prefix_label(prefix), do: " for schema #{prefix}"
+
+  defp ensure_schema_migrations_table!(schema_name) do
+    query = """
+    CREATE TABLE IF NOT EXISTS #{schema_name}.schema_migrations (
+      version bigint PRIMARY KEY,
+      inserted_at timestamp without time zone
+    )
+    """
+
+    Ecto.Adapters.SQL.query!(Repo, query)
   end
 
-  @doc """
-  Determines if a tenant should use schema isolation.
-  """
-  @spec uses_schema_isolation?(map() | struct()) :: boolean()
-  def uses_schema_isolation?(tenant) do
-    isolation_level(tenant) == :context
+  defp reset_tenant_schemas? do
+    Application.get_env(:serviceradar_core, :reset_tenant_schemas, false)
+  end
+
+  defp drop_schema_name!(schema_name) do
+    unless Regex.match?(~r/^tenant_[a-z0-9_]+$/, schema_name) do
+      raise ArgumentError, "Refusing to drop unexpected schema #{inspect(schema_name)}"
+    end
+
+    Ecto.Adapters.SQL.query!(Repo, "DROP SCHEMA IF EXISTS #{schema_name} CASCADE")
+  end
+
+  defp uuid_string?(value) do
+    Regex.match?(
+      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      value
+    )
   end
 end

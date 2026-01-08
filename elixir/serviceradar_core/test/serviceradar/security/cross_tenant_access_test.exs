@@ -30,13 +30,24 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
 
   @moduletag :database
 
-  setup do
+  setup_all do
+    attacker_tenant = ServiceRadar.TestSupport.create_tenant_schema!("cross-tenant-attacker")
+    victim_tenant = ServiceRadar.TestSupport.create_tenant_schema!("cross-tenant-victim")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(attacker_tenant.tenant_slug)
+      ServiceRadar.TestSupport.drop_tenant_schema!(victim_tenant.tenant_slug)
+    end)
+
+    {:ok,
+     attacker_tenant_id: attacker_tenant.tenant_id,
+     victim_tenant_id: victim_tenant.tenant_id}
+  end
+
+  setup %{attacker_tenant_id: attacker_tenant_id, victim_tenant_id: victim_tenant_id} do
     unique_id = :erlang.unique_integer([:positive])
 
     # Create two tenants - attacker and victim
-    attacker_tenant_id = Ash.UUID.generate()
-    victim_tenant_id = Ash.UUID.generate()
-
     # Ensure registries exist for both tenants
     TenantRegistry.ensure_registry(attacker_tenant_id)
     TenantRegistry.ensure_registry(victim_tenant_id)
@@ -65,13 +76,12 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
     }
 
     {:ok,
-      attacker_tenant_id: attacker_tenant_id,
-      victim_tenant_id: victim_tenant_id,
-      attacker_actor: attacker_actor,
-      victim_actor: victim_actor,
-      super_admin: super_admin,
-      unique_id: unique_id
-    }
+     attacker_tenant_id: attacker_tenant_id,
+     victim_tenant_id: victim_tenant_id,
+     attacker_actor: attacker_actor,
+     victim_actor: victim_actor,
+     super_admin: super_admin,
+     unique_id: unique_id}
   end
 
   describe "Attack Scenario 1: Registry Enumeration" do

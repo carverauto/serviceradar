@@ -53,11 +53,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @spec logs_severity(keyword()) :: Extract.logs_severity()
   def logs_severity(opts \\ []) do
     srql_module = Keyword.get(opts, :srql_module, default_srql_module())
-    actor = Keyword.get(opts, :actor)
+    scope = Keyword.get(opts, :scope)
     query = Query.logs_severity(opts)
 
     query
-    |> srql_module.query(%{actor: actor})
+    |> srql_module.query(%{scope: scope})
     |> Extract.logs_severity()
   end
 
@@ -81,11 +81,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @spec traces_summary(keyword()) :: Extract.traces_summary()
   def traces_summary(opts \\ []) do
     srql_module = Keyword.get(opts, :srql_module, default_srql_module())
-    actor = Keyword.get(opts, :actor)
+    scope = Keyword.get(opts, :scope)
     query = Query.traces_summary(opts)
 
     query
-    |> srql_module.query(%{actor: actor})
+    |> srql_module.query(%{scope: scope})
     |> Extract.traces_summary()
   end
 
@@ -110,11 +110,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @spec services_availability(keyword()) :: Extract.services_availability()
   def services_availability(opts \\ []) do
     srql_module = Keyword.get(opts, :srql_module, default_srql_module())
-    actor = Keyword.get(opts, :actor)
+    scope = Keyword.get(opts, :scope)
     query = Query.services_availability(opts)
 
     query
-    |> srql_module.query(%{actor: actor})
+    |> srql_module.query(%{scope: scope})
     |> Extract.services_availability()
   end
 

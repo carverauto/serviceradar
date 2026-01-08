@@ -48,10 +48,13 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   oban do
+    list_tenants ServiceRadar.Oban.TenantList
+
     triggers do
       # Scheduled trigger to execute due checks
       trigger :execute_due_checks do
         queue :service_checks
+        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
         read_action :due_for_check
         scheduler_cron "* * * * *"
         action :execute
@@ -63,9 +66,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   code_interface do
@@ -164,7 +165,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     update :record_result do
       description "Record the result of a check execution"
       accept [:last_response_time_ms, :last_error]
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -196,7 +196,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     update :execute do
       description "Execute this service check (called by AshOban scheduler)"
-      require_atomic? false
 
       change fn changeset, _context ->
         # Mark check as starting execution
@@ -260,6 +259,10 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       # Allow AshOban scheduler (no actor) to execute checks
       authorize_if always()
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

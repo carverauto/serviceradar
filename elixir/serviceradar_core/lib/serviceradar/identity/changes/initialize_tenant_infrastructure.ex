@@ -22,14 +22,13 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   ## Note on Multitenancy
 
-  This project uses attribute-based multitenancy (`strategy :attribute`) where
-  all tenant data lives in the same tables, filtered by `tenant_id`. PostgreSQL
-  schema-per-tenant is not used.
+  Tenant data is isolated in per-tenant PostgreSQL schemas (`strategy :context`).
+  Tenant schema creation and migrations are executed before the tenant is usable.
   """
 
   use Ash.Resource.Change
 
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
   alias ServiceRadar.Oban.TenantQueues
 
@@ -37,8 +36,11 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   @impl true
   def change(changeset, _opts, _context) do
-    Ash.Changeset.after_action(changeset, fn _changeset, tenant ->
-      initialize_tenant(tenant)
+    Ash.Changeset.after_transaction(changeset, fn _changeset, result ->
+      case result do
+        {:ok, tenant} -> initialize_tenant(tenant)
+        {:error, _reason} -> result
+      end
     end)
   end
 
@@ -54,42 +56,48 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
     Logger.info("Initializing infrastructure for tenant: #{tenant_slug} (#{tenant_id})")
 
-    # 1. Create per-tenant Horde registry and DynamicSupervisor
-    case TenantRegistry.ensure_registry(tenant_id, tenant_slug) do
-      {:ok, %{registry: registry, supervisor: supervisor}} ->
-        Logger.debug(
-          "Created TenantRegistry infrastructure: registry=#{registry}, supervisor=#{supervisor}"
-        )
+    with {:ok, _schema} <- TenantSchemas.create_schema(tenant_slug) do
+      # 1. Create per-tenant Horde registry and DynamicSupervisor
+      case TenantRegistry.ensure_registry(tenant_id, tenant_slug) do
+        {:ok, %{registry: registry, supervisor: supervisor}} ->
+          Logger.debug(
+            "Created TenantRegistry infrastructure: registry=#{registry}, supervisor=#{supervisor}"
+          )
 
+        {:error, reason} ->
+          Logger.error("Failed to create TenantRegistry for #{tenant_slug}: #{inspect(reason)}")
+          # Don't fail the tenant creation, just log the error
+          # Registry will be lazily created on first gateway/agent connection
+      end
+
+      # 2. Provision per-tenant Oban queues for job isolation
+      case TenantQueues.provision_tenant(tenant_id) do
+        :ok ->
+          Logger.debug("Provisioned Oban queues for tenant: #{tenant_slug}")
+
+        {:error, reason} ->
+          Logger.error("Failed to provision Oban queues for #{tenant_slug}: #{inspect(reason)}")
+          # Don't fail tenant creation, queues can be provisioned later
+      end
+
+      # 3. Enqueue NATS account creation job for tenant isolation
+      case CreateAccountWorker.enqueue(tenant_id) do
+        {:ok, _job} ->
+          Logger.debug("Enqueued NATS account creation for tenant: #{tenant_slug}")
+
+        {:error, reason} ->
+          Logger.error(
+            "Failed to enqueue NATS account creation for #{tenant_slug}: #{inspect(reason)}"
+          )
+
+          # Don't fail tenant creation, account can be created later via admin action
+      end
+
+      {:ok, tenant}
+    else
       {:error, reason} ->
-        Logger.error("Failed to create TenantRegistry for #{tenant_slug}: #{inspect(reason)}")
-        # Don't fail the tenant creation, just log the error
-        # Registry will be lazily created on first gateway/agent connection
+        Logger.error("Failed to initialize tenant schema for #{tenant_slug}: #{inspect(reason)}")
+        {:error, reason}
     end
-
-    # 2. Provision per-tenant Oban queues for job isolation
-    case TenantQueues.provision_tenant(tenant_id) do
-      :ok ->
-        Logger.debug("Provisioned Oban queues for tenant: #{tenant_slug}")
-
-      {:error, reason} ->
-        Logger.error("Failed to provision Oban queues for #{tenant_slug}: #{inspect(reason)}")
-        # Don't fail tenant creation, queues can be provisioned later
-    end
-
-    # 3. Enqueue NATS account creation job for tenant isolation
-    case CreateAccountWorker.enqueue(tenant_id) do
-      {:ok, _job} ->
-        Logger.debug("Enqueued NATS account creation for tenant: #{tenant_slug}")
-
-      {:error, reason} ->
-        Logger.error(
-          "Failed to enqueue NATS account creation for #{tenant_slug}: #{inspect(reason)}"
-        )
-
-        # Don't fail tenant creation, account can be created later via admin action
-    end
-
-    {:ok, tenant}
   end
 end

@@ -33,9 +33,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   cloak do
@@ -119,7 +117,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :update do
-      require_atomic? false
 
       accept [
         :name,
@@ -161,7 +158,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :enable do
-      require_atomic? false
       change set_attribute(:enabled, true)
 
       change after_action(fn _changeset, record, _context ->
@@ -171,7 +167,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     update :disable do
-      require_atomic? false
       change set_attribute(:enabled, false)
 
       change after_action(fn _changeset, record, _context ->
@@ -182,7 +177,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
     update :record_sync do
       description "Record sync execution results"
-      require_atomic? false
 
       argument :result, :atom do
         allow_nil? false
@@ -223,7 +217,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     destroy :delete do
-      require_atomic? false
 
       change after_action(fn changeset, record, _context ->
                publish_integration_event(record, :delete, changeset)
@@ -253,6 +246,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
                        tenant_id == ^actor(:tenant_id)
                    )
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -468,6 +465,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
 
   defp validate_agent_availability(changeset, _context) do
@@ -479,10 +477,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         message: "tenant is required"
       )
     else
+      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
       Agent
       |> Ash.Query.for_read(:connected)
       |> Ash.Query.limit(1)
-      |> Ash.read(tenant: tenant_id, authorize?: false)
+      |> Ash.read(tenant: tenant_schema, authorize?: false)
       |> case do
         {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
         {:ok, results} when is_list(results) and results != [] -> changeset

@@ -30,6 +30,10 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
     end
   end
 
+  multitenancy do
+    strategy :context
+  end
+
   actions do
     # Read-only - this is a materialized view
     defaults [:read]
@@ -51,13 +55,13 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   end
 
   policies do
-    # Allow all reads - this data isn't tenant-scoped in Go
+    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
   end
 
-  # Note: No multitenancy - Go schema doesn't have tenant_id
+  # Note: This view does not include tenant_id; schema isolation handles tenancy.
 
   attributes do
     # Primary key is trace_id (unique index on materialized view)

@@ -16,15 +16,26 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
   @moduletag :database
 
-  setup do
+  setup_all do
+    tenant_a = ServiceRadar.TestSupport.create_tenant_schema!("poll-job-a")
+    tenant_b = ServiceRadar.TestSupport.create_tenant_schema!("poll-job-b")
+
+    on_exit(fn ->
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_a.tenant_slug)
+      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_b.tenant_slug)
+    end)
+
+    {:ok, tenant_a_id: tenant_a.tenant_id, tenant_b_id: tenant_b.tenant_id}
+  end
+
+  setup %{tenant_a_id: tenant_a_id} do
     unique_id = :erlang.unique_integer([:positive])
-    tenant_id = Ash.UUID.generate()
 
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
       role: :super_admin,
-      tenant_id: tenant_id
+      tenant_id: tenant_a_id
     }
 
     # Create a valid polling schedule for the tests
@@ -34,10 +45,15 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         name: "Test Schedule #{unique_id}",
         schedule_type: :interval,
         interval_seconds: 60
-      }, tenant: tenant_id, authorize?: false)
+      }, tenant: tenant_a_id, authorize?: false)
       |> Ash.create()
 
-    {:ok, tenant_id: tenant_id, actor: actor, unique_id: unique_id, schedule_id: schedule.id, schedule: schedule}
+    {:ok,
+     tenant_id: tenant_a_id,
+     actor: actor,
+     unique_id: unique_id,
+     schedule_id: schedule.id,
+     schedule: schedule}
   end
 
   describe "PollJob lifecycle" do
@@ -327,9 +343,12 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   end
 
   describe "multi-tenant isolation" do
-    test "jobs are isolated by tenant", %{tenant_id: tenant_a_id, schedule_id: schedule_a_id, unique_id: unique_id} do
-      tenant_b_id = Ash.UUID.generate()
-
+    test "jobs are isolated by tenant", %{
+      tenant_id: tenant_a_id,
+      schedule_id: schedule_a_id,
+      unique_id: unique_id,
+      tenant_b_id: tenant_b_id
+    } do
       # Create a schedule in tenant B
       {:ok, schedule_b} =
         PollingSchedule

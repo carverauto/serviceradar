@@ -8,12 +8,14 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   ## Token Storage
 
   AshAuthentication stores JWT tokens in the session automatically via `store_in_session/2`.
-  The token is stored under the subject name key (e.g., `:user`) and can be retrieved
+  The token is stored under the subject token key (e.g., `"user_token"`) and can be retrieved
   for verification using `AshAuthentication.Jwt.verify/2`.
   """
 
   use ServiceRadarWebNGWeb, :controller
   use AshAuthentication.Phoenix.Controller
+
+  alias ServiceRadarWebNGWeb.TenantResolver
 
   plug :fetch_session
 
@@ -39,15 +41,36 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   def success(conn, _activity, %_{} = user, _token) do
     return_to = get_session(conn, :user_return_to) || ~p"/analytics"
+    tenant_id = user.tenant_id
+    tenant_schema =
+      case Map.fetch(user.__metadata__, :tenant) do
+        {:ok, tenant} when is_binary(tenant) -> tenant
+        _ -> TenantResolver.schema_for_tenant_id(tenant_id)
+      end
 
-    conn
-    |> delete_session(:user_return_to)
-    |> store_in_session(user)
-    |> put_session(:live_socket_id, "users_sessions:#{user.id}")
-    |> configure_session(renew: true)
-    |> assign(:current_user, user)
-    |> put_flash(:info, "Signed in successfully.")
-    |> redirect(to: return_to)
+    case AshAuthentication.Jwt.token_for_user(
+           user,
+           %{"tenant_id" => tenant_id},
+           tenant: tenant_schema
+         ) do
+      {:ok, token, _claims} ->
+        conn
+        |> put_session("user_token", token)
+        |> put_session("active_tenant_id", tenant_id)
+        |> put_session("tenant", tenant_schema)
+        |> delete_session(:user_return_to)
+        |> put_session(:live_socket_id, "users_sessions:#{user.id}")
+        |> configure_session(renew: true)
+        |> assign(:current_user, user)
+        |> put_flash(:info, "Signed in successfully.")
+        |> redirect(to: return_to)
+
+      :error ->
+        conn
+        |> put_flash(:error, "Unable to complete sign-in. Please try again.")
+        |> redirect(to: ~p"/users/log-in")
+        |> halt()
+    end
   end
 
   @doc """

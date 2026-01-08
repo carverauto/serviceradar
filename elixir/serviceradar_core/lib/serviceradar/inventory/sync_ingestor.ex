@@ -5,21 +5,23 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.{Device, IdentityReconciler}
 
   @spec ingest_updates([map()], String.t(), keyword()) :: :ok | {:error, term()}
   def ingest_updates(updates, tenant_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, system_actor(tenant_id))
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     updates
     |> List.wrap()
     |> Enum.reduce(:ok, fn update, _acc ->
-      ingest_update(update, tenant_id, actor)
+      ingest_update(update, tenant_schema, actor)
       :ok
     end)
   end
 
-  defp ingest_update(update, tenant_id, actor) do
+  defp ingest_update(update, tenant_schema, actor) do
     normalized = normalize_update(update)
 
     with {:ok, device_id} <- IdentityReconciler.resolve_device_id(normalized, actor: actor) do
@@ -29,11 +31,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       timestamp = normalized.timestamp || DateTime.utc_now()
       {create_attrs, update_attrs} = build_device_attrs(normalized, device_id, timestamp)
 
-      case Device.get_by_uid(device_id, tenant: tenant_id, actor: actor, authorize?: false) do
+      case Device.get_by_uid(device_id, tenant: tenant_schema, actor: actor, authorize?: false) do
         {:ok, device} ->
           device
           |> Ash.Changeset.for_update(:update, update_attrs)
-          |> Ash.update(tenant: tenant_id, actor: actor, authorize?: false)
+          |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
           |> case do
             {:ok, _} -> :ok
             {:error, reason} ->
@@ -45,7 +47,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
           if not_found_error?(reason) do
             Device
             |> Ash.Changeset.for_create(:create, create_attrs)
-            |> Ash.create(tenant: tenant_id, actor: actor, authorize?: false)
+            |> Ash.create(tenant: tenant_schema, actor: actor, authorize?: false)
             |> case do
               {:ok, _} -> :ok
               {:error, create_reason} ->

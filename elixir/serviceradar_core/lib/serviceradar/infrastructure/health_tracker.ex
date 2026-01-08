@@ -61,6 +61,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       HealthTracker.summary(tenant_id)
   """
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.{HealthEvent, EventPublisher}
 
   require Logger
@@ -98,6 +99,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     node = Keyword.get(opts, :node, to_string(node()))
     metadata = Keyword.get(opts, :metadata, %{})
     publish_nats = Keyword.get(opts, :publish_nats, true)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     attrs = %{
       entity_type: entity_type,
@@ -111,9 +113,15 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     }
 
     result =
-      HealthEvent
-      |> Ash.Changeset.for_create(:record, attrs)
-      |> Ash.create(authorize?: false)
+      case tenant_schema do
+        nil ->
+          {:error, :tenant_schema_not_found}
+
+        schema ->
+          HealthEvent
+          |> Ash.Changeset.for_create(:record, attrs, tenant: schema)
+          |> Ash.create(authorize?: false)
+      end
 
     case result do
       {:ok, event} ->
@@ -240,15 +248,23 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   def current_status(entity_type, entity_id, tenant_id) do
     require Ash.Query
 
-    HealthEvent
-    |> Ash.Query.filter(
-      entity_type == ^entity_type and
-        entity_id == ^entity_id and
-        tenant_id == ^tenant_id
-    )
-    |> Ash.Query.sort(recorded_at: :desc)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+    case tenant_schema do
+      nil ->
+        {:error, :tenant_schema_not_found}
+
+      schema ->
+        HealthEvent
+        |> Ash.Query.filter(
+          entity_type == ^entity_type and
+            entity_id == ^entity_id and
+            tenant_id == ^tenant_id
+        )
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(1)
+        |> Ash.read_one(authorize?: false, tenant: schema)
+    end
   end
 
   @doc """
@@ -266,19 +282,26 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     limit = Keyword.get(opts, :limit, 100)
 
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     require Ash.Query
 
-    HealthEvent
-    |> Ash.Query.filter(
-      entity_type == ^entity_type and
-        entity_id == ^entity_id and
-        tenant_id == ^tenant_id and
-        recorded_at >= ^since
-    )
-    |> Ash.Query.sort(recorded_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ash.read(authorize?: false)
+    case tenant_schema do
+      nil ->
+        {:error, :tenant_schema_not_found}
+
+      schema ->
+        HealthEvent
+        |> Ash.Query.filter(
+          entity_type == ^entity_type and
+            entity_id == ^entity_id and
+            tenant_id == ^tenant_id and
+            recorded_at >= ^since
+        )
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ash.read(authorize?: false, tenant: schema)
+    end
   end
 
   @doc """
@@ -289,38 +312,45 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @spec summary(String.t()) :: {:ok, map()} | {:error, term()}
   def summary(tenant_id) do
     require Ash.Query
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     # Get the most recent event for each entity
     # This is a simplified approach - for production, use a materialized view
-    case HealthEvent
-         |> Ash.Query.filter(tenant_id == ^tenant_id)
-         |> Ash.Query.sort(recorded_at: :desc)
-         |> Ash.read(authorize?: false) do
-      {:ok, events} ->
-        # Dedupe by entity_type + entity_id (keep most recent)
-        latest_by_entity =
-          events
-          |> Enum.uniq_by(fn e -> {e.entity_type, e.entity_id} end)
+    case tenant_schema do
+      nil ->
+        {:error, :tenant_schema_not_found}
 
-        # Group by entity_type, then by state
-        summary =
-          latest_by_entity
-          |> Enum.group_by(& &1.entity_type)
-          |> Enum.map(fn {entity_type, type_events} ->
-            by_state =
-              type_events
-              |> Enum.group_by(& &1.new_state)
-              |> Enum.map(fn {state, state_events} -> {state, length(state_events)} end)
+      schema ->
+        case HealthEvent
+             |> Ash.Query.filter(tenant_id == ^tenant_id)
+             |> Ash.Query.sort(recorded_at: :desc)
+             |> Ash.read(authorize?: false, tenant: schema) do
+          {:ok, events} ->
+            # Dedupe by entity_type + entity_id (keep most recent)
+            latest_by_entity =
+              events
+              |> Enum.uniq_by(fn e -> {e.entity_type, e.entity_id} end)
+
+            # Group by entity_type, then by state
+            summary =
+              latest_by_entity
+              |> Enum.group_by(& &1.entity_type)
+              |> Enum.map(fn {entity_type, type_events} ->
+                by_state =
+                  type_events
+                  |> Enum.group_by(& &1.new_state)
+                  |> Enum.map(fn {state, state_events} -> {state, length(state_events)} end)
+                  |> Map.new()
+
+                {entity_type, %{total: length(type_events), by_state: by_state}}
+              end)
               |> Map.new()
 
-            {entity_type, %{total: length(type_events), by_state: by_state}}
-          end)
-          |> Map.new()
+            {:ok, summary}
 
-        {:ok, summary}
-
-      {:error, reason} ->
-        {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   end
 
@@ -336,23 +366,30 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   def recent_events(tenant_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     entity_type = Keyword.get(opts, :entity_type)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     require Ash.Query
 
-    query =
-      HealthEvent
-      |> Ash.Query.filter(tenant_id == ^tenant_id)
-      |> Ash.Query.sort(recorded_at: :desc)
-      |> Ash.Query.limit(limit)
+    case tenant_schema do
+      nil ->
+        {:error, :tenant_schema_not_found}
 
-    query =
-      if entity_type do
-        Ash.Query.filter(query, entity_type == ^entity_type)
-      else
-        query
-      end
+      schema ->
+        query =
+          HealthEvent
+          |> Ash.Query.filter(tenant_id == ^tenant_id)
+          |> Ash.Query.sort(recorded_at: :desc)
+          |> Ash.Query.limit(limit)
 
-    Ash.read(query, authorize?: false)
+        query =
+          if entity_type do
+            Ash.Query.filter(query, entity_type == ^entity_type)
+          else
+            query
+          end
+
+        Ash.read(query, authorize?: false, tenant: schema)
+    end
   end
 
   # =============================================================================

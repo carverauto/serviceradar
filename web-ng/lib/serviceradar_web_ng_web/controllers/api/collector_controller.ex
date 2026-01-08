@@ -10,9 +10,12 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   require Ash.Query
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
+  alias ServiceRadar.Identity.Tenant
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
@@ -22,7 +25,6 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Lists collector packages for the current tenant.
   """
   def index(conn, params) do
-    tenant_id = get_tenant_id(conn)
     limit = parse_int(params["limit"]) || 50
 
     query =
@@ -47,9 +49,10 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    packages = Ash.read!(query, tenant: tenant_id, authorize?: false)
-
-    json(conn, Enum.map(packages, &package_to_json/1))
+    with {:ok, tenant} <- require_tenant(conn) do
+      packages = Ash.read!(query, tenant: tenant, authorize?: false)
+      json(conn, Enum.map(packages, &package_to_json/1))
+    end
   end
 
   @doc """
@@ -65,31 +68,32 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     - edge_site_id: ID of edge site for local NATS leaf connection (optional)
   """
   def create(conn, params) do
-    tenant_id = get_tenant_id(conn)
     _actor = get_actor(conn)
 
     collector_type = params["collector_type"]
 
     if collector_type in ["flowgger", "trapd", "netflow", "otel"] do
-      attrs = %{
-        collector_type: String.to_existing_atom(collector_type),
-        site: params["site"],
-        hostname: params["hostname"],
-        config_overrides: params["config_overrides"] || %{},
-        edge_site_id: params["edge_site_id"]
-      }
+      with {:ok, tenant} <- require_tenant(conn) do
+        attrs = %{
+          collector_type: String.to_existing_atom(collector_type),
+          site: params["site"],
+          hostname: params["hostname"],
+          config_overrides: params["config_overrides"] || %{},
+          edge_site_id: params["edge_site_id"]
+        }
 
-      case CollectorPackage
-           |> Ash.Changeset.for_create(:create, attrs)
-           |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
-           |> Ash.create(authorize?: false) do
-        {:ok, package} ->
-          conn
-          |> put_status(:created)
-          |> json(package_to_json(package))
+        case CollectorPackage
+             |> Ash.Changeset.for_create(:create, attrs)
+             |> Ash.Changeset.force_change_attribute(:tenant_id, tenant.id)
+             |> Ash.create(authorize?: false, tenant: tenant) do
+          {:ok, package} ->
+            conn
+            |> put_status(:created)
+            |> json(package_to_json(package))
 
-        {:error, changeset} ->
-          {:error, changeset}
+          {:error, changeset} ->
+            {:error, changeset}
+        end
       end
     else
       return_error(
@@ -106,15 +110,15 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Gets a single collector package by ID.
   """
   def show(conn, %{"id" => id}) do
-    tenant_id = get_tenant_id(conn)
-
-    case CollectorPackage
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^id)
-         |> Ash.read_one(tenant: tenant_id, authorize?: false) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, package} -> json(conn, package_to_json(package))
-      {:error, error} -> {:error, error}
+    with {:ok, tenant} <- require_tenant(conn) do
+      case CollectorPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.read_one(tenant: tenant, authorize?: false) do
+        {:ok, nil} -> {:error, :not_found}
+        {:ok, package} -> json(conn, package_to_json(package))
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
@@ -125,41 +129,18 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Requires a valid download token.
   """
   def download(conn, %{"id" => id} = params) do
-    tenant_id = get_tenant_id(conn)
     download_token = params["download_token"]
     source_ip = get_client_ip(conn)
 
-    if is_nil(download_token) or download_token == "" do
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "download_token is required"})
+    if download_token in [nil, ""] do
+      return_error(conn, :bad_request, "download_token is required")
     else
-      case do_download(id, download_token, tenant_id, source_ip) do
+      case download_with_token(id, download_token, source_ip) do
         {:ok, result} ->
           json(conn, result)
 
-        {:error, :not_found} ->
-          {:error, :not_found}
-
-        {:error, :not_ready} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package is not ready for download"})
-
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "invalid download token"})
-
-        {:error, :token_expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "download token expired"})
-
         {:error, reason} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "download failed: #{inspect(reason)}"})
+          handle_download_error(conn, reason)
       end
     end
   end
@@ -177,59 +158,21 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   - README.md - Instructions
   """
   def bundle(conn, %{"id" => id} = params) do
-    tenant_id = get_tenant_id(conn)
     download_token = params["token"]
     source_ip = get_client_ip(conn)
 
-    if is_nil(download_token) or download_token == "" do
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "token query parameter is required"})
+    if download_token in [nil, ""] do
+      return_error(conn, :bad_request, "token query parameter is required")
     else
-      case do_bundle_download(id, download_token, tenant_id, source_ip) do
+      case bundle_with_token(id, download_token, source_ip) do
         {:ok, tarball, filename} ->
           conn
           |> put_resp_content_type("application/gzip")
           |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
           |> send_resp(200, tarball)
 
-        {:error, :not_found} ->
-          {:error, :not_found}
-
-        {:error, :not_ready} ->
-          conn
-          |> put_status(:conflict)
-          |> json(%{error: "package is not ready for download"})
-
-        {:error, :invalid_token} ->
-          conn
-          |> put_status(:unauthorized)
-          |> json(%{error: "invalid download token"})
-
-        {:error, :token_expired} ->
-          conn
-          |> put_status(:gone)
-          |> json(%{error: "download token expired"})
-
-        {:error, :nats_creds_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "NATS credentials not provisioned"})
-
-        {:error, :tls_key_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "TLS certificates not provisioned"})
-
-        {:error, :tls_cert_not_found} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "TLS certificates not provisioned"})
-
         {:error, reason} ->
-          conn
-          |> put_status(:internal_server_error)
-          |> json(%{error: "bundle creation failed: #{inspect(reason)}"})
+          handle_bundle_error(conn, reason)
       end
     end
   end
@@ -240,30 +183,31 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Revokes a collector package and its associated NATS credentials.
   """
   def revoke(conn, %{"id" => id} = params) do
-    tenant_id = get_tenant_id(conn)
     reason = params["reason"]
 
-    case CollectorPackage
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^id)
-         |> Ash.read_one(tenant: tenant_id, authorize?: false) do
-      {:ok, nil} ->
-        {:error, :not_found}
+    with {:ok, tenant} <- require_tenant(conn) do
+      case CollectorPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.read_one(tenant: tenant, authorize?: false) do
+        {:ok, nil} ->
+          {:error, :not_found}
 
-      {:ok, package} ->
-        case package
-             |> Ash.Changeset.for_update(:revoke)
-             |> Ash.Changeset.set_argument(:reason, reason)
-             |> Ash.update(authorize?: false) do
-          {:ok, updated_package} ->
-            json(conn, package_to_json(updated_package))
+        {:ok, package} ->
+          case package
+               |> Ash.Changeset.for_update(:revoke)
+               |> Ash.Changeset.set_argument(:reason, reason)
+               |> Ash.update(authorize?: false, tenant: tenant) do
+            {:ok, updated_package} ->
+              json(conn, package_to_json(updated_package))
 
-          {:error, changeset} ->
-            {:error, changeset}
-        end
+            {:error, changeset} ->
+              {:error, changeset}
+          end
 
-      {:error, error} ->
-        {:error, error}
+        {:error, error} ->
+          {:error, error}
+      end
     end
   end
 
@@ -273,7 +217,6 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Lists NATS credentials issued to the current tenant.
   """
   def credentials(conn, params) do
-    tenant_id = get_tenant_id(conn)
     limit = parse_int(params["limit"]) || 50
 
     query =
@@ -298,9 +241,10 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    credentials = Ash.read!(query, tenant: tenant_id, authorize?: false)
-
-    json(conn, Enum.map(credentials, &credential_to_json/1))
+    with {:ok, tenant} <- require_tenant(conn) do
+      credentials = Ash.read!(query, tenant: tenant, authorize?: false)
+      json(conn, Enum.map(credentials, &credential_to_json/1))
+    end
   end
 
   @doc """
@@ -309,37 +253,25 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Gets the current tenant's NATS account status.
   """
   def account_status(conn, _params) do
-    tenant_id = get_tenant_id(conn)
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.read_one(authorize?: false) do
-      {:ok, nil} ->
-        {:error, :not_found}
-
-      {:ok, tenant} ->
-        json(conn, %{
-          tenant_id: tenant.id,
-          slug: tenant.slug,
-          nats_account_status: to_string(tenant.nats_account_status),
-          nats_account_public_key: tenant.nats_account_public_key,
-          nats_account_provisioned_at: format_datetime(tenant.nats_account_provisioned_at)
-        })
-
-      {:error, error} ->
-        {:error, error}
+    with {:ok, tenant} <- require_tenant(conn) do
+      json(conn, %{
+        tenant_id: tenant.id,
+        slug: tenant.slug,
+        nats_account_status: to_string(tenant.nats_account_status),
+        nats_account_public_key: tenant.nats_account_public_key,
+        nats_account_provisioned_at: format_datetime(tenant.nats_account_provisioned_at)
+      })
     end
   end
 
   # Private helpers
 
-  defp do_download(package_id, download_token, tenant_id, source_ip) do
-    with {:ok, package} <- get_package(package_id, tenant_id),
+  defp do_download(package_id, download_token, tenant_schema, source_ip) do
+    with {:ok, package} <- get_package(package_id, tenant_schema),
          :ok <- validate_package_ready(package),
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, updated_package} <- mark_downloaded(package, source_ip) do
+         {:ok, updated_package} <- mark_downloaded(package, source_ip, tenant_schema) do
       {:ok,
        %{
          package: package_to_json(updated_package),
@@ -350,26 +282,46 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     end
   end
 
-  defp do_bundle_download(package_id, download_token, tenant_id, source_ip) do
-    with {:ok, package} <- get_package(package_id, tenant_id),
+  defp download_with_token(package_id, download_token, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, _package, tenant_schema} ->
+        do_download(package_id, download_token, tenant_schema, source_ip)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp bundle_with_token(package_id, download_token, source_ip) do
+    case find_package_across_tenants(package_id) do
+      {:ok, _package, tenant_schema} ->
+        do_bundle_download(package_id, download_token, tenant_schema, source_ip)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp do_bundle_download(package_id, download_token, tenant_schema, source_ip) do
+    with {:ok, package} <- get_package(package_id, tenant_schema),
          :ok <- validate_package_ready(package),
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
          {:ok, tls_key_pem} <- get_tls_key(package),
          {:ok, tarball} <-
            CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
-         {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
+         {:ok, _updated_package} <- mark_downloaded(package, source_ip, tenant_schema) do
       filename = CollectorBundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
     end
   end
 
-  defp get_package(package_id, tenant_id) do
+  defp get_package(package_id, tenant_schema) do
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
          |> Ash.Query.load(:edge_site)
-         |> Ash.read_one(tenant: tenant_id, authorize?: false) do
+         |> Ash.read_one(tenant: tenant_schema, authorize?: false) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -454,11 +406,11 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
 
-  defp mark_downloaded(package, source_ip) do
+  defp mark_downloaded(package, source_ip, tenant_schema) do
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
-    |> Ash.update(authorize?: false)
+    |> Ash.update(authorize?: false, tenant: tenant_schema)
   end
 
   defp generate_collector_config(package) do
@@ -546,10 +498,71 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     |> json(%{error: message})
   end
 
-  defp get_tenant_id(conn) do
+  defp handle_download_error(_conn, :not_found), do: {:error, :not_found}
+
+  defp handle_download_error(conn, :not_ready) do
+    return_error(conn, :conflict, "package is not ready for download")
+  end
+
+  defp handle_download_error(conn, :invalid_token) do
+    return_error(conn, :unauthorized, "invalid download token")
+  end
+
+  defp handle_download_error(conn, :token_expired) do
+    return_error(conn, :gone, "download token expired")
+  end
+
+  defp handle_download_error(conn, reason) do
+    return_error(conn, :internal_server_error, "download failed: #{inspect(reason)}")
+  end
+
+  defp handle_bundle_error(_conn, :not_found), do: {:error, :not_found}
+
+  defp handle_bundle_error(conn, :not_ready) do
+    return_error(conn, :conflict, "package is not ready for download")
+  end
+
+  defp handle_bundle_error(conn, :invalid_token) do
+    return_error(conn, :unauthorized, "invalid download token")
+  end
+
+  defp handle_bundle_error(conn, :token_expired) do
+    return_error(conn, :gone, "download token expired")
+  end
+
+  defp handle_bundle_error(conn, :nats_creds_not_found) do
+    return_error(conn, :internal_server_error, "NATS credentials not provisioned")
+  end
+
+  defp handle_bundle_error(conn, reason) when reason in [:tls_key_not_found, :tls_cert_not_found] do
+    return_error(conn, :internal_server_error, "TLS certificates not provisioned")
+  end
+
+  defp handle_bundle_error(conn, reason) do
+    return_error(conn, :internal_server_error, "bundle creation failed: #{inspect(reason)}")
+  end
+
+  defp require_tenant(conn) do
     case conn.assigns[:current_scope] do
-      %{user: %{tenant_id: tenant_id}} -> tenant_id
-      _ -> nil
+      %Scope{active_tenant: %Tenant{} = tenant} ->
+        {:ok, tenant}
+
+      %Scope{} = scope ->
+        scope
+        |> Scope.tenant_id()
+        |> load_tenant()
+
+      _ ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp load_tenant(nil), do: {:error, :unauthorized}
+
+  defp load_tenant(tenant_id) do
+    case Ash.get(Tenant, tenant_id, authorize?: false) do
+      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
+      _ -> {:error, :unauthorized}
     end
   end
 
@@ -573,6 +586,25 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         |> :inet.ntoa()
         |> to_string()
     end
+  end
+
+  defp find_package_across_tenants(package_id) do
+    TenantSchemas.list_schemas()
+    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      case CollectorPackage
+           |> Ash.Query.for_read(:read)
+           |> Ash.Query.filter(id == ^package_id)
+           |> Ash.read_one(tenant: schema, authorize?: false) do
+        {:ok, nil} ->
+          {:cont, {:error, :not_found}}
+
+        {:ok, package} ->
+          {:halt, {:ok, package, schema}}
+
+        {:error, error} ->
+          {:halt, {:error, error}}
+      end
+    end)
   end
 
   defp format_datetime(nil), do: nil

@@ -34,6 +34,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Cluster.TenantSchemas
+
   postgres do
     table "collector_packages"
     repo ServiceRadar.Repo
@@ -62,9 +64,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    global? true
+    strategy :context
   end
 
   actions do
@@ -160,9 +160,17 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           __MODULE__.broadcast_created(package)
 
           # Enqueue async provisioning
-          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id) do
-            {:ok, _job} -> {:ok, package}
-            {:error, reason} -> {:error, reason}
+          case TenantSchemas.schema_for_id(package.tenant_id) do
+            nil ->
+              {:error, :tenant_schema_not_found}
+
+            tenant_schema ->
+              case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
+                     tenant_schema: tenant_schema
+                   ) do
+                {:ok, _job} -> {:ok, package}
+                {:error, reason} -> {:error, reason}
+              end
           end
         end)
       end
@@ -176,7 +184,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :ready do
       description "Mark package as ready after successful provisioning"
       accept []
-      require_atomic? false
 
       argument :nats_credential_id, :uuid, allow_nil?: false
       argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
@@ -210,7 +217,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :fail do
       description "Mark package as failed"
       accept []
-      require_atomic? false
 
       argument :error_message, :string
 
@@ -232,7 +238,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :download do
       description "Mark package as downloaded"
       accept []
-      require_atomic? false
 
       argument :downloaded_by_ip, :string
 
@@ -253,7 +258,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     update :revoke do
       description "Revoke a package (also revokes associated NATS credential)"
       accept []
-      require_atomic? false
 
       argument :reason, :string
 
@@ -271,10 +275,15 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
           if package.nats_credential_id do
-            case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id, authorize?: false) do
+            case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
+                   tenant: TenantSchemas.schema_for_tenant(package.tenant_id),
+                   authorize?: false
+                 ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
-                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
+                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
+                  tenant: TenantSchemas.schema_for_tenant(package.tenant_id)
+                )
                 |> Ash.update(authorize?: false)
 
               _ ->
@@ -310,6 +319,10 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     policy action(:revoke) do
       authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
     end
+  end
+
+  changes do
+    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
