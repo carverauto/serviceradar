@@ -12,11 +12,18 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
     schema = prefix() || "public"
 
     # ============================================================================
+    # Drop existing OCSF tables to recreate with OCSF v1.7.0 schema
+    # CASCADE drops dependent foreign key constraints
+    # ============================================================================
+    execute "DROP TABLE IF EXISTS #{schema}.ocsf_agents CASCADE"
+    execute "DROP TABLE IF EXISTS #{schema}.ocsf_devices CASCADE"
+
+    # ============================================================================
     # OCSF Device Inventory (OCSF v1.7.0 aligned)
     # ============================================================================
 
     execute """
-    CREATE TABLE IF NOT EXISTS #{schema}.ocsf_devices (
+    CREATE TABLE #{schema}.ocsf_devices (
       uid                 TEXT              PRIMARY KEY,
       type_id             INTEGER           NOT NULL DEFAULT 0,
       type                TEXT,
@@ -74,7 +81,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
     # ============================================================================
 
     execute """
-    CREATE TABLE IF NOT EXISTS #{schema}.ocsf_agents (
+    CREATE TABLE #{schema}.ocsf_agents (
       uid                 TEXT              PRIMARY KEY,
       name                TEXT,
       type_id             INTEGER           NOT NULL DEFAULT 0,

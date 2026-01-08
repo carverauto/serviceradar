@@ -11,10 +11,16 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOtelTables do
   def up do
     schema = prefix() || "public"
 
-    # Create logs table (hypertable)
+    # Drop existing logs table if it exists (may have incompatible schema)
+    # This is safe because logs are append-only telemetry data
+    execute "DROP TABLE IF EXISTS #{schema}.logs CASCADE"
+
+    # Create logs table as TimescaleDB hypertable
+    # Composite primary key (timestamp, id) required for hypertable partitioning
     execute """
-    CREATE TABLE IF NOT EXISTS #{schema}.logs (
+    CREATE TABLE #{schema}.logs (
       timestamp           TIMESTAMPTZ   NOT NULL,
+      id                  UUID          NOT NULL DEFAULT gen_random_uuid(),
       trace_id            TEXT,
       span_id             TEXT,
       severity_text       TEXT,
@@ -25,24 +31,20 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOtelTables do
       service_instance    TEXT,
       scope_name          TEXT,
       scope_version       TEXT,
-      attributes          TEXT,
-      resource_attributes TEXT,
+      attributes          JSONB         DEFAULT '{}'::jsonb,
+      resource_attributes JSONB         DEFAULT '{}'::jsonb,
+      tenant_id           UUID          NOT NULL,
       created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
-      PRIMARY KEY (timestamp, trace_id, span_id)
+      PRIMARY KEY (timestamp, id)
     )
     """
 
     execute "SELECT create_hypertable('#{schema}.logs', 'timestamp', if_not_exists => TRUE)"
 
-    execute """
-    CREATE INDEX IF NOT EXISTS idx_logs_service_time
-    ON #{schema}.logs (service_name, timestamp DESC)
-    """
-
-    execute """
-    CREATE INDEX IF NOT EXISTS idx_logs_trace_id
-    ON #{schema}.logs (trace_id)
-    """
+    execute "CREATE INDEX IF NOT EXISTS idx_logs_service_time ON #{schema}.logs (service_name, timestamp DESC)"
+    execute "CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON #{schema}.logs (trace_id) WHERE trace_id IS NOT NULL"
+    execute "CREATE INDEX IF NOT EXISTS idx_logs_severity ON #{schema}.logs (severity_number, timestamp DESC)"
+    execute "CREATE INDEX IF NOT EXISTS idx_logs_tenant ON #{schema}.logs (tenant_id, timestamp DESC)"
 
     # Create otel_metrics table (hypertable)
     execute """
