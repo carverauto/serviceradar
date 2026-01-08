@@ -19,3 +19,43 @@ Tenant data must be physically isolated in per-tenant PostgreSQL schemas, and co
 
 ## Out of Scope
 - Tenant-aware OTEL routing and NATS stream/account segmentation for telemetry ingestion.
+
+## Implementation Notes
+
+### Tenant Context via Ash.Scope Pattern
+
+Instead of threading `actor` and `tenant` as separate parameters through all helper functions, we use the `Ash.Scope` pattern where a `scope` struct is passed and Ash automatically extracts what it needs via protocols.
+
+#### Protocol Implementations
+
+1. **`Ash.ToTenant` for `ServiceRadar.Identity.Tenant`** (in `serviceradar_core/lib/serviceradar/identity/tenant_to_tenant.ex`)
+   - Converts tenant struct to the appropriate identifier based on multitenancy strategy
+   - For `:context` strategy: returns schema name (e.g., `"tenant_platform"`)
+   - For `:attribute` strategy: returns tenant ID (UUID)
+
+2. **`Ash.Scope.ToOpts` for `ServiceRadarWebNG.Accounts.Scope`** (in `lib/serviceradar_web_ng/ash_tenant.ex`)
+   - `get_actor/1` - returns the user from `scope.user`
+   - `get_tenant/1` - returns the tenant from `scope.active_tenant`
+   - `get_context/1` - returns tenant_memberships in shared context for policies
+
+#### Usage Pattern
+
+```elixir
+# In LiveViews - extract scope from socket assigns
+scope = socket.assigns.current_scope
+
+# Pass scope to Ash operations
+Ash.read(query, scope: scope)
+
+# Or through SRQL
+srql_module.query(query, %{scope: scope})
+```
+
+#### Files Implementing This Pattern
+
+- `lib/serviceradar_web_ng/ash_tenant.ex` - Protocol implementation
+- `lib/serviceradar_web_ng/srql.ex` - Accepts `scope:` option
+- `lib/serviceradar_web_ng/srql/ash_adapter.ex` - Passes `scope:` to Ash.read()
+- `lib/serviceradar_web_ng_web/srql/page.ex` - Extracts scope from socket
+- `lib/serviceradar_web_ng_web/live/*` - All LiveViews use scope pattern
+- `lib/serviceradar_web_ng_web/stats.ex` - Stats module accepts scope

@@ -31,9 +31,39 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 ### Multi-tenancy
 
 - Tenant-scoped resources use schema-based multitenancy (`strategy :context`)
-- **Always** pass `tenant: tenant_id` option to Ash operations for tenant-scoped resources
 - Public resources (tenants, users, tenant memberships, platform tables) use the public schema and do not take tenant context
-- The actor's `tenant_id` is used for policy enforcement
+
+#### Passing tenant context via Ash.Scope
+
+**Always** use the `scope:` option instead of separate `actor:` and `tenant:` options. The `Ash.Scope.ToOpts` protocol extracts actor and tenant automatically:
+
+```elixir
+# In LiveViews - get scope from socket assigns
+scope = socket.assigns.current_scope
+
+# Pass scope to Ash operations
+Ash.read(query, scope: scope)
+Ash.create(changeset, scope: scope)
+
+# Pass scope through SRQL
+srql_module.query(query, %{scope: scope})
+```
+
+**Never** thread actor and tenant as separate parameters:
+```elixir
+# DON'T DO THIS - deprecated pattern
+Ash.read(query, actor: actor, tenant: tenant)
+my_helper(socket, actor, tenant)
+
+# DO THIS INSTEAD
+Ash.read(query, scope: scope)
+my_helper(socket, scope)
+```
+
+The scope struct (`ServiceRadarWebNG.Accounts.Scope`) contains:
+- `user` - the current user (actor)
+- `active_tenant` - the current tenant struct (converted to schema name via `Ash.ToTenant`)
+- `tenant_memberships` - list of memberships (available in policy context)
 
 ### Domains
 
