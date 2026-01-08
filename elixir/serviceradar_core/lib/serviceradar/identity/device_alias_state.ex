@@ -164,6 +164,8 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
 
     update :replace do
       description "Mark alias as replaced by a new alias"
+      # Non-atomic: sets replaced_by_alias_id from argument
+      require_atomic? false
       argument :replaced_by_id, :uuid
 
       change transition_state(:replaced)

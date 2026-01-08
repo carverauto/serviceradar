@@ -183,6 +183,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     update :ready do
       description "Mark package as ready after successful provisioning"
+      # Non-atomic: encrypts credentials and broadcasts events
+      require_atomic? false
       accept []
 
       argument :nats_credential_id, :uuid, allow_nil?: false
@@ -216,6 +218,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     update :fail do
       description "Mark package as failed"
+      # Non-atomic: broadcasts events via after_action
+      require_atomic? false
       accept []
 
       argument :error_message, :string
@@ -237,6 +241,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     update :download do
       description "Mark package as downloaded"
+      # Non-atomic: uses function to set multiple attributes
+      require_atomic? false
       accept []
 
       argument :downloaded_by_ip, :string
@@ -257,6 +263,8 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     update :revoke do
       description "Revoke a package (also revokes associated NATS credential)"
+      # Non-atomic: revokes NATS credential and broadcasts events
+      require_atomic? false
       accept []
 
       argument :reason, :string

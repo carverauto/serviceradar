@@ -105,6 +105,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     update :provision do
       description "Mark server as provisioned with certificates"
+      # Non-atomic: encrypts keys and parses certificate expiry
+      require_atomic? false
       accept []
 
       argument :leaf_cert_pem, :string, allow_nil?: false, sensitive?: true
@@ -132,6 +134,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     update :connect do
       description "Mark server as connected to SaaS"
+      # Non-atomic: updates parent EdgeSite via after_action
+      require_atomic? false
       accept []
 
       change set_attribute(:connected_at, &DateTime.utc_now/0)
@@ -147,6 +151,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     update :disconnect do
       description "Mark server as disconnected from SaaS"
+      # Non-atomic: updates parent EdgeSite via after_action
+      require_atomic? false
       accept []
 
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
@@ -162,6 +168,8 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     update :reprovision do
       description "Request re-provisioning of certificates"
+      # Non-atomic: enqueues Oban job via after_action
+      require_atomic? false
       accept []
 
       change fn changeset, _context ->

@@ -65,6 +65,8 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     end
 
     update :update do
+      # Non-atomic: uses function validation for cron expression
+      require_atomic? false
       accept [:cron, :timezone, :args, :enabled, :unique_period_seconds]
 
       validate fn changeset, _context ->

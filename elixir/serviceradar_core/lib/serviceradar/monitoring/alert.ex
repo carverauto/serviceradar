@@ -215,6 +215,8 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :escalate do
       description "Escalate an alert"
+      # Non-atomic: increments escalation_level based on current value
+      require_atomic? false
       argument :reason, :string
 
       change transition_state(:escalated)
@@ -247,6 +249,8 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :record_notification do
       description "Record that a notification was sent"
+      # Non-atomic: increments notification_count based on current value
+      require_atomic? false
 
       change fn changeset, _context ->
         current_count = changeset.data.notification_count || 0
@@ -259,6 +263,8 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     update :send_notification do
       description "Send notification for an alert (called by AshOban scheduler)"
+      # Non-atomic: increments notification_count and logs
+      require_atomic? false
 
       change fn changeset, _context ->
         alert = changeset.data

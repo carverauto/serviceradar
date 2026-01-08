@@ -164,6 +164,8 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     update :record_result do
       description "Record the result of a check execution"
+      # Non-atomic: computes consecutive_failures based on current value
+      require_atomic? false
       accept [:last_response_time_ms, :last_error]
 
       argument :result, :atom do
@@ -196,6 +198,8 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
 
     update :execute do
       description "Execute this service check (called by AshOban scheduler)"
+      # Non-atomic: logs execution details
+      require_atomic? false
 
       change fn changeset, _context ->
         # Mark check as starting execution

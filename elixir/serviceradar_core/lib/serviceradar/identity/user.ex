@@ -185,10 +185,14 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update do
+      # Non-atomic: global before_action checks tenant_id immutability
+      require_atomic? false
       accept [:display_name]
     end
 
     update :update_email do
+      # Non-atomic: global before_action checks tenant_id immutability
+      require_atomic? false
       accept [:email]
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
@@ -196,11 +200,15 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update_role do
+      # Non-atomic: global before_action checks tenant_id immutability
+      require_atomic? false
       accept [:role]
     end
 
     update :change_password do
       description "Change a user's password"
+      # Non-atomic: validates current password against stored hash
+      require_atomic? false
 
       argument :current_password, :string do
         # Allow nil here - the change block handles validation based on whether user has a password

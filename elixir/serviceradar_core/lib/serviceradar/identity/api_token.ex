@@ -104,6 +104,8 @@ defmodule ServiceRadar.Identity.ApiToken do
 
     update :record_use do
       description "Record token usage"
+      # Non-atomic: increments use_count based on current value
+      require_atomic? false
       accept [:last_used_ip]
 
       change fn changeset, _context ->
@@ -118,6 +120,8 @@ defmodule ServiceRadar.Identity.ApiToken do
 
     update :revoke do
       description "Revoke this token"
+      # Non-atomic: uses function change to set multiple attributes
+      require_atomic? false
       argument :revoked_by, :string, allow_nil?: true
 
       change fn changeset, _context ->
