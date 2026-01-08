@@ -48,7 +48,8 @@ defmodule ServiceRadarAgentGateway.Config do
           capabilities: [atom()],
           tenant_id: String.t() | nil,
           tenant_slug: String.t() | nil,
-          nats_prefix: String.t()
+          nats_prefix: String.t() | nil,
+          status: :initializing | :ready
         }
 
   # Client API
@@ -123,6 +124,46 @@ defmodule ServiceRadarAgentGateway.Config do
   end
 
   @doc """
+  Returns the current status of the config GenServer.
+
+  - `:initializing` - Tenant discovery is in progress
+  - `:ready` - Configuration is complete and available
+  """
+  @spec status() :: :initializing | :ready
+  def status do
+    GenServer.call(__MODULE__, :status)
+  end
+
+  @doc """
+  Blocks until the config GenServer is ready or timeout is reached.
+
+  Returns `:ok` if ready, `{:error, :timeout}` if timeout reached.
+  Useful for components that depend on tenant configuration.
+  """
+  @spec await_ready(timeout()) :: :ok | {:error, :timeout}
+  def await_ready(timeout \\ 30_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_await_ready(deadline)
+  end
+
+  defp do_await_ready(deadline) do
+    case status() do
+      :ready ->
+        :ok
+
+      :initializing ->
+        remaining = deadline - System.monotonic_time(:millisecond)
+
+        if remaining > 0 do
+          Process.sleep(100)
+          do_await_ready(deadline)
+        else
+          {:error, :timeout}
+        end
+    end
+  end
+
+  @doc """
   Returns a NATS channel name with the tenant prefix applied.
 
   ## Examples
@@ -174,32 +215,68 @@ defmodule ServiceRadarAgentGateway.Config do
     tenant_id = normalize_tenant_id(tenant_id)
     tenant_slug = normalize_tenant_slug(tenant_slug)
 
-    {tenant_id, tenant_slug} =
-      if is_nil(tenant_id) do
-        # No tenant_id from env/cert - discover via cluster RPC
-        Logger.info("No tenant_id configured; discovering from cluster...")
-        discover_tenant_from_cluster()
-      else
-        validate_tenant_id!(tenant_id)
-        {tenant_id, tenant_slug || platform_tenant_slug()}
-      end
-
-    # Build NATS prefix
-    nats_prefix = tenant_slug
-
-    config = %{
+    initial_state = %{
       partition_id: partition_id,
       gateway_id: gateway_id,
       domain: domain,
       capabilities: capabilities,
       tenant_id: tenant_id,
       tenant_slug: tenant_slug,
-      nats_prefix: nats_prefix
+      nats_prefix: nil,
+      status: :initializing
     }
 
-    Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id})")
+    if is_nil(tenant_id) do
+      # No tenant_id from env/cert - discover via cluster RPC asynchronously
+      # This prevents blocking the supervisor during startup
+      Logger.info("No tenant_id configured; will discover from cluster...")
+      {:ok, initial_state, {:continue, :discover_tenant}}
+    else
+      validate_tenant_id!(tenant_id)
+      tenant_slug = tenant_slug || platform_tenant_slug()
 
-    {:ok, config}
+      config =
+        initial_state
+        |> Map.put(:tenant_slug, tenant_slug)
+        |> Map.put(:nats_prefix, tenant_slug)
+        |> Map.put(:status, :ready)
+
+      Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id})")
+      {:ok, config}
+    end
+  end
+
+  @impl true
+  def handle_continue(:discover_tenant, state) do
+    case do_discover_tenant() do
+      {:ok, tenant_id, tenant_slug} ->
+        config =
+          state
+          |> Map.put(:tenant_id, tenant_id)
+          |> Map.put(:tenant_slug, tenant_slug)
+          |> Map.put(:nats_prefix, tenant_slug)
+          |> Map.put(:status, :ready)
+
+        Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id})")
+        {:noreply, config}
+
+      {:error, reason} ->
+        Logger.error("Failed to discover tenant from cluster: #{inspect(reason)}")
+        {:stop, {:discovery_failed, reason}, state}
+    end
+  end
+
+  defp do_discover_tenant do
+    try do
+      {tenant_id, tenant_slug} = discover_tenant_from_cluster()
+      {:ok, tenant_id, tenant_slug}
+    rescue
+      e ->
+        {:error, {e, __STACKTRACE__}}
+    catch
+      kind, reason ->
+        {:error, {kind, reason}}
+    end
   end
 
   defp normalize_tenant_id(nil), do: nil
@@ -333,6 +410,14 @@ defmodule ServiceRadarAgentGateway.Config do
 
   def handle_call(:nats_prefix, _from, config) do
     {:reply, config.nats_prefix, config}
+  end
+
+  def handle_call(:status, _from, config) do
+    {:reply, config.status, config}
+  end
+
+  def handle_call({:get, key}, _from, config) do
+    {:reply, Map.get(config, key), config}
   end
 
   # Resolve tenant info from environment or certificate
