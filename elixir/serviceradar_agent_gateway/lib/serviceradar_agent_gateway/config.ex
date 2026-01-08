@@ -16,7 +16,7 @@ defmodule ServiceRadarAgentGateway.Config do
   2. `SERVICERADAR_PLATFORM_TENANT_ID` environment variable
   3. **Cluster RPC discovery** - queries core-elx for platform tenant info
 
-  If no tenant_id is configured via environment or certificate, the gateway
+  If no tenant_id is configured via environment, the gateway
   will automatically discover it from the core service via cluster RPC.
   This allows the gateway to self-configure without manual environment setup.
 
