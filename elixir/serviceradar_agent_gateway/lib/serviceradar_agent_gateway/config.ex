@@ -14,12 +14,17 @@ defmodule ServiceRadarAgentGateway.Config do
   The tenant_id is resolved in priority order:
   1. `GATEWAY_TENANT_ID` environment variable
   2. `SERVICERADAR_PLATFORM_TENANT_ID` environment variable
-  3. Extracted from the mTLS certificate CN (if using tenant-scoped certs)
-  4. **Cluster RPC discovery** - queries core-elx for platform tenant info
+  3. **Cluster RPC discovery** - queries core-elx for platform tenant info
 
   If no tenant_id is configured via environment or certificate, the gateway
   will automatically discover it from the core service via cluster RPC.
   This allows the gateway to self-configure without manual environment setup.
+
+  The tenant_slug is resolved in priority order:
+  1. `GATEWAY_TENANT_SLUG` environment variable
+  2. `SERVICERADAR_PLATFORM_TENANT_SLUG` environment variable
+  3. Extracted from the mTLS certificate CN (if using tenant-scoped certs)
+  4. Defaults to the platform tenant slug
 
   ## Certificate CN Format
 
