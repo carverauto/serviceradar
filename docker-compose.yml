@@ -432,6 +432,7 @@ services:
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
+      # Optional: tenant_id is auto-discovered from core via cluster RPC if not set
       - GATEWAY_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
       - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-platform}
       - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}

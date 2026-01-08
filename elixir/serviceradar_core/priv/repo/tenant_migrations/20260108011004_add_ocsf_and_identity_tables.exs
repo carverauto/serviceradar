@@ -61,6 +61,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
       discovery_sources   TEXT[],
       is_available        BOOLEAN,
       group_id            UUID,
+      tenant_id           UUID              NOT NULL,
       metadata            JSONB
     )
     """
@@ -75,6 +76,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_devices_os_gin ON #{schema}.ocsf_devices USING gin (os)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_devices_metadata_gin ON #{schema}.ocsf_devices USING gin (metadata)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_devices_group_id ON #{schema}.ocsf_devices (group_id)"
+    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_devices_tenant_id ON #{schema}.ocsf_devices (tenant_id)"
 
     # ============================================================================
     # OCSF Agent Registry (OCSF v1.7.0 aligned)
@@ -91,8 +93,14 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
       uid_alt             TEXT,
       policies            JSONB,
       gateway_id          TEXT,
+      device_uid          TEXT,
       capabilities        TEXT[],
-      ip                  TEXT,
+      host                TEXT,
+      port                INTEGER,
+      spiffe_identity     TEXT,
+      status              TEXT              NOT NULL DEFAULT 'connecting',
+      is_healthy          BOOLEAN           NOT NULL DEFAULT true,
+      tenant_id           UUID              NOT NULL,
       first_seen_time     TIMESTAMPTZ,
       last_seen_time      TIMESTAMPTZ,
       created_time        TIMESTAMPTZ       NOT NULL DEFAULT now(),
@@ -104,7 +112,10 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfAndIdentityTables do
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_gateway_id ON #{schema}.ocsf_agents (gateway_id)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_type_id ON #{schema}.ocsf_agents (type_id)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_last_seen ON #{schema}.ocsf_agents (last_seen_time)"
-    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_ip ON #{schema}.ocsf_agents (ip)"
+    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_host ON #{schema}.ocsf_agents (host)"
+    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_status ON #{schema}.ocsf_agents (status)"
+    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_tenant_id ON #{schema}.ocsf_agents (tenant_id)"
+    execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_device_uid ON #{schema}.ocsf_agents (device_uid)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_capabilities ON #{schema}.ocsf_agents USING gin (capabilities)"
     execute "CREATE INDEX IF NOT EXISTS idx_ocsf_agents_name_trgm ON #{schema}.ocsf_agents USING gin (name gin_trgm_ops)"
 

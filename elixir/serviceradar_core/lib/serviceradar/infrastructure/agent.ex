@@ -239,7 +239,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :host,
         :port,
         :spiffe_identity,
-        :metadata
+        :metadata,
+        :tenant_id
       ]
 
       upsert? true

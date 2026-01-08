@@ -11,9 +11,15 @@ defmodule ServiceRadarAgentGateway.Config do
   - A tenant-derived EPMD cookie (prevents cross-tenant ERTS clustering)
   - Tenant-prefixed NATS channels
 
-  The tenant_id is read from:
+  The tenant_id is resolved in priority order:
   1. `GATEWAY_TENANT_ID` environment variable
-  2. Extracted from the mTLS certificate CN (if using tenant-scoped certs)
+  2. `SERVICERADAR_PLATFORM_TENANT_ID` environment variable
+  3. Extracted from the mTLS certificate CN (if using tenant-scoped certs)
+  4. **Cluster RPC discovery** - queries core-elx for platform tenant info
+
+  If no tenant_id is configured via environment or certificate, the gateway
+  will automatically discover it from the core service via cluster RPC.
+  This allows the gateway to self-configure without manual environment setup.
 
   ## Certificate CN Format
 
@@ -157,59 +163,19 @@ defmodule ServiceRadarAgentGateway.Config do
     domain = Keyword.fetch!(opts, :domain)
     capabilities = Keyword.get(opts, :capabilities, [])
 
-    # Get tenant info from environment or certificate
+    # Get tenant info from environment, certificate, or cluster RPC
     # System is always multi-tenant - default tenant is used if none specified
     {tenant_id, tenant_slug} = resolve_tenant_info(opts)
-    tenant_id =
-      case tenant_id do
-        nil ->
-          nil
-
-        value ->
-          value
-          |> to_string()
-          |> String.trim()
-          |> case do
-            "" -> nil
-            id -> id
-          end
-      end
-
-    tenant_slug =
-      case tenant_slug do
-        nil ->
-          nil
-
-        value ->
-          value
-          |> to_string()
-          |> String.trim()
-          |> String.downcase()
-          |> case do
-            "" ->
-              nil
-
-            slug ->
-              if Regex.match?(~r/^[a-z0-9-]{1,63}$/, slug) do
-                slug
-              else
-                raise "invalid tenant_slug format for agent gateway"
-              end
-          end
-      end
+    tenant_id = normalize_tenant_id(tenant_id)
+    tenant_slug = normalize_tenant_slug(tenant_slug)
 
     {tenant_id, tenant_slug} =
       if is_nil(tenant_id) do
-        raise "tenant_id is required for agent gateway (set GATEWAY_TENANT_ID or SERVICERADAR_PLATFORM_TENANT_ID)"
+        # No tenant_id from env/cert - discover via cluster RPC
+        Logger.info("No tenant_id configured; discovering from cluster...")
+        discover_tenant_from_cluster()
       else
-        if not Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, tenant_id) do
-          raise "invalid tenant_id format for agent gateway"
-        end
-
-        if tenant_id == "00000000-0000-0000-0000-000000000000" do
-          raise "invalid tenant_id for agent gateway: platform tenant must not be the zero UUID"
-        end
-
+        validate_tenant_id!(tenant_id)
         {tenant_id, tenant_slug || platform_tenant_slug()}
       end
 
@@ -229,6 +195,106 @@ defmodule ServiceRadarAgentGateway.Config do
     Logger.info("Gateway configured for tenant: #{tenant_slug} (ID: #{tenant_id})")
 
     {:ok, config}
+  end
+
+  defp normalize_tenant_id(nil), do: nil
+
+  defp normalize_tenant_id(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> nil
+      id -> id
+    end
+  end
+
+  defp normalize_tenant_slug(nil), do: nil
+
+  defp normalize_tenant_slug(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" ->
+        nil
+
+      slug ->
+        if Regex.match?(~r/^[a-z0-9-]{1,63}$/, slug) do
+          slug
+        else
+          raise "invalid tenant_slug format for agent gateway"
+        end
+    end
+  end
+
+  defp validate_tenant_id!(tenant_id) do
+    if not Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, tenant_id) do
+      raise "invalid tenant_id format for agent gateway"
+    end
+
+    if tenant_id == "00000000-0000-0000-0000-000000000000" do
+      raise "invalid tenant_id for agent gateway: platform tenant must not be the zero UUID"
+    end
+  end
+
+  # Discover tenant info from core via cluster RPC with retries
+  @discovery_max_attempts 30
+  @discovery_retry_interval_ms 2_000
+
+  defp discover_tenant_from_cluster do
+    discover_tenant_from_cluster(1)
+  end
+
+  defp discover_tenant_from_cluster(attempt) when attempt > @discovery_max_attempts do
+    raise "failed to discover platform tenant from cluster after #{@discovery_max_attempts} attempts"
+  end
+
+  defp discover_tenant_from_cluster(attempt) do
+    case find_core_node() do
+      nil ->
+        Logger.debug("No core node found (attempt #{attempt}/#{@discovery_max_attempts}), retrying...")
+        Process.sleep(@discovery_retry_interval_ms)
+        discover_tenant_from_cluster(attempt + 1)
+
+      core_node ->
+        case rpc_get_platform_tenant(core_node) do
+          {:ok, %{tenant_id: tenant_id, tenant_slug: tenant_slug}} ->
+            validate_tenant_id!(tenant_id)
+            Logger.info("Discovered platform tenant from #{core_node}: #{tenant_slug} (#{tenant_id})")
+            {tenant_id, tenant_slug}
+
+          {:error, :not_ready} ->
+            Logger.debug("Core node #{core_node} not ready (attempt #{attempt}/#{@discovery_max_attempts}), retrying...")
+            Process.sleep(@discovery_retry_interval_ms)
+            discover_tenant_from_cluster(attempt + 1)
+
+          {:error, reason} ->
+            Logger.warning("RPC to #{core_node} failed: #{inspect(reason)} (attempt #{attempt}/#{@discovery_max_attempts})")
+            Process.sleep(@discovery_retry_interval_ms)
+            discover_tenant_from_cluster(attempt + 1)
+        end
+    end
+  end
+
+  defp find_core_node do
+    # Look for a core-elx node in the cluster
+    Node.list()
+    |> Enum.find(fn node ->
+      node_str = Atom.to_string(node)
+      String.contains?(node_str, "serviceradar_core")
+    end)
+  end
+
+  defp rpc_get_platform_tenant(node) do
+    case :rpc.call(node, ServiceRadar.Edge.AgentGatewaySync, :get_platform_tenant_info, [], 5_000) do
+      {:badrpc, reason} ->
+        {:error, reason}
+
+      result ->
+        result
+    end
   end
 
   @impl true
