@@ -11,6 +11,8 @@
 - [x] 2.5 Reset migrations/snapshots and regenerate baseline public + tenant migrations (scorched earth).
 - [x] 2.6 Remove request-supplied tenant headers and derive tenant context from scope or onboarding tokens in web-ng API flows.
 - [x] 2.7 Remove default tenant fallbacks in onboarding packages/events and require explicit tenant context.
+- [x] 2.8 Add host-based tenant resolution for authentication (vanity domains map host → tenant slug → schema).
+- [x] 2.9 Add tenant selection fallback for authentication when multiple tenants exist and no default tenant is configured (store tenant in session, default to platform tenant for single-tenant installs).
 
 ## 3. Startup Migrations
 - [x] 3.1 Add core-elx startup migration runner for public and tenant schemas using Ash migrations.

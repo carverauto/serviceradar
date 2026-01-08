@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Plug.Conn
   import Phoenix.Controller
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.TenantResolver
 
   @doc """
   Logs the user out.
@@ -55,25 +55,29 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   # Verify an Ash JWT token and load the user
   defp verify_token(token) do
     tenant = token_tenant(token)
-    opts = tenant_opts(tenant)
-    subject_opts = Keyword.merge([authorize?: false], opts)
+    if is_nil(tenant) do
+      {:error, :invalid_token}
+    else
+      opts = tenant_opts(tenant)
+      subject_opts = Keyword.merge([authorize?: false], opts)
 
-    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
-    # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
-      {:ok, claims, resource} ->
-        with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
-          {:ok, user, claims}
-        else
-          _ -> {:error, :invalid_token}
-        end
+      # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
+      # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
+      case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
+        {:ok, claims, resource} ->
+          with subject when is_binary(subject) <- claims["sub"],
+               {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
+            {:ok, user, claims}
+          else
+            _ -> {:error, :invalid_token}
+          end
 
-      {:error, _reason} ->
-        {:error, :invalid_token}
+        {:error, _reason} ->
+          {:error, :invalid_token}
 
-      :error ->
-        {:error, :invalid_token}
+        :error ->
+          {:error, :invalid_token}
+      end
     end
   end
 
@@ -192,15 +196,19 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       active_tenant_id = session["active_tenant_id"] || tenant_claim
       Scope.for_user(user, active_tenant_id: active_tenant_id)
     end)
-    |> maybe_set_ash_context()
+    |> Phoenix.Component.assign_new(:current_tenant, fn ->
+      session["tenant"] || TenantResolver.default_tenant_schema()
+    end)
+    |> maybe_set_ash_context(session)
   end
 
   # Set Ash actor and tenant in socket assigns for LiveView Ash operations
-  defp maybe_set_ash_context(socket) do
+  defp maybe_set_ash_context(socket, session) do
     case socket.assigns[:current_scope] do
       %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
         # Use active_tenant if available, otherwise fall back to user's default tenant
         tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
+        tenant_schema = session["tenant"] || tenant_schema_from_id(tenant_id)
 
         actor = %{
           id: user.id,
@@ -211,10 +219,16 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
         socket
         |> Phoenix.Component.assign(:actor, actor)
-        |> Phoenix.Component.assign(:tenant, tenant_id)
+        |> Phoenix.Component.assign(:tenant, tenant_schema)
 
       _ ->
-        socket
+        default_tenant_schema = session["tenant"] || TenantResolver.default_tenant_schema()
+
+        if default_tenant_schema do
+          Phoenix.Component.assign(socket, :tenant, default_tenant_schema)
+        else
+          socket
+        end
     end
   end
 
@@ -238,7 +252,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp tenant_schema_from_id(nil), do: nil
   defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
-    do: TenantSchemas.schema_for_id(tenant_id)
+    do: TenantResolver.schema_for_tenant_id(tenant_id)
 
   defp tenant_opts(nil), do: []
   defp tenant_opts(tenant), do: [tenant: tenant]

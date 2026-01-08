@@ -8,10 +8,15 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   use AshAuthentication.Sender
   import Swoosh.Email
 
+  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Identity.Tenant
+
+  require Ash.Query
+
   @impl true
-  def send(user_or_email, token, _opts) do
+  def send(user_or_email, token, opts) do
     # Build the magic link URL
-    url = build_magic_link_url(token)
+    url = build_magic_link_url(user_or_email, token, opts)
 
     # Handle both user struct and email string (for registration flow)
     {email_string, display_name} = extract_email_info(user_or_email)
@@ -61,8 +66,73 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
     {email_string, email_string}
   end
 
-  defp build_magic_link_url(token) do
-    base_url = Application.get_env(:serviceradar_web_ng, :base_url, "http://localhost:4000")
-    "#{base_url}/auth/user/magic_link?token=#{token}"
+  defp build_magic_link_url(user_or_email, token, opts) do
+    base_uri = base_uri()
+    tenant = resolve_tenant(user_or_email, opts)
+
+    uri =
+      case tenant do
+        %Tenant{is_platform_tenant: true} ->
+          base_uri
+
+        %Tenant{slug: slug} ->
+          tenant_base_domain =
+            Application.get_env(:serviceradar_web_ng, :tenant_base_domain, base_uri.host)
+
+          %{base_uri | host: "#{slug}.#{tenant_base_domain}"}
+
+        _ ->
+          raise "Unable to resolve tenant for magic link URL"
+      end
+
+    %{uri | path: "/auth/user/magic_link", query: URI.encode_query(%{"token" => token})}
+    |> URI.to_string()
   end
+
+  defp base_uri do
+    base_url = Application.get_env(:serviceradar_web_ng, :base_url, "http://localhost:4000")
+    URI.parse(base_url)
+  end
+
+  defp resolve_tenant(%{tenant_id: tenant_id}, _opts) when is_binary(tenant_id) do
+    fetch_tenant_by_id(tenant_id)
+  end
+
+  defp resolve_tenant(_user_or_email, opts) do
+    opts
+    |> Keyword.get(:tenant)
+    |> fetch_tenant_by_schema()
+  end
+
+  defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^tenant_id)
+    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, %Tenant{} = tenant} -> tenant
+      _ -> nil
+    end
+  end
+
+  defp fetch_tenant_by_id(_), do: nil
+
+  defp fetch_tenant_by_schema(schema) when is_binary(schema) do
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
+    |> Ash.read(authorize?: false)
+    |> case do
+      {:ok, tenants} when is_list(tenants) ->
+        Enum.find(tenants, fn tenant ->
+          TenantSchemas.schema_for_tenant(tenant) == schema
+        end)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp fetch_tenant_by_schema(_), do: nil
 end

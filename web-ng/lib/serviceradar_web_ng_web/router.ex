@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
   end
@@ -28,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
   end
@@ -59,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :ash_json_api do
     plug :accepts, ["json"]
     plug :fetch_session
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
     plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
@@ -282,13 +285,17 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   scope "/", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through :browser
 
     # AshAuthentication.Phoenix sign-in LiveView
     ash_authentication_live_session :authentication,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
       live "/users/log-in", AuthLive.SignIn, :sign_in
     end
+  end
+
+  scope "/", ServiceRadarWebNGWeb do
+    pipe_through [:browser]
 
     # Custom registration with organization creation
     live_session :registration,
@@ -339,7 +346,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   defp maybe_set_tenant(conn, nil), do: conn
-  defp maybe_set_tenant(conn, tenant_id), do: Ash.PlugHelpers.set_tenant(conn, tenant_id)
+  defp maybe_set_tenant(conn, tenant_id) do
+    case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
+      tenant_schema when is_binary(tenant_schema) ->
+        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
+
+      _ ->
+        conn
+    end
+  end
 
   # Extract partition ID from X-Partition-Id header or session
   defp get_partition_id_from_request(conn) do

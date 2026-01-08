@@ -84,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
     |> Phoenix.ConnTest.init_test_session(%{})
     |> Plug.Conn.put_session("user_token", token)
     |> Plug.Conn.put_session("active_tenant_id", user.tenant_id)
+    |> Plug.Conn.put_session("tenant", tenant_schema)
     |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
 

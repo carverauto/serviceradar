@@ -81,28 +81,32 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp validate_bearer_token(conn, token) do
     tenant = token_tenant(token)
-    opts = tenant_opts(tenant)
-    subject_opts = Keyword.merge([authorize?: false], opts)
+    if is_nil(tenant) do
+      {:error, :unauthorized}
+    else
+      opts = tenant_opts(tenant)
+      subject_opts = Keyword.merge([authorize?: false], opts)
 
-    # Bearer tokens are Ash JWT tokens
-    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
-    # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
-      {:ok, claims, resource} ->
-        with subject when is_binary(subject) <- claims["sub"],
-             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
-          tenant_id = Map.get(claims, "tenant_id") || user.tenant_id
-          scope = Scope.for_user(user, active_tenant_id: tenant_id)
-          {:ok, assign_scope(conn, scope, tenant_id)}
-        else
-          _ -> {:error, :unauthorized}
-        end
+      # Bearer tokens are Ash JWT tokens
+      # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
+      # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
+      case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
+        {:ok, claims, resource} ->
+          with subject when is_binary(subject) <- claims["sub"],
+               {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
+            tenant_id = Map.get(claims, "tenant_id") || user.tenant_id
+            scope = Scope.for_user(user, active_tenant_id: tenant_id)
+            {:ok, assign_scope(conn, scope, tenant_id)}
+          else
+            _ -> {:error, :unauthorized}
+          end
 
-      {:error, _reason} ->
-        {:error, :unauthorized}
+        {:error, _reason} ->
+          {:error, :unauthorized}
 
-      :error ->
-        {:error, :unauthorized}
+        :error ->
+          {:error, :unauthorized}
+      end
     end
   end
 

@@ -20,9 +20,6 @@ if System.get_env("PHX_SERVER") do
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, server: true
 end
 
-config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
-
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
 cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")
@@ -287,6 +284,7 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "localhost"
+  tenant_base_domain = System.get_env("SERVICERADAR_TENANT_BASE_DOMAIN") || host
 
   dev_routes =
     case System.get_env("SERVICERADAR_DEV_ROUTES") do
@@ -334,6 +332,7 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
+  config :serviceradar_web_ng, :tenant_base_domain, tenant_base_domain
 
   default_tenant_id =
     System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
@@ -385,11 +384,9 @@ if config_env() == :prod do
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      # Bind on all IPv4 interfaces for docker bridge networking.
+      ip: {0, 0, 0, 0},
+      port: String.to_integer(System.get_env("PORT", "4000"))
     ],
     check_origin: check_origin,
     secret_key_base: secret_key_base

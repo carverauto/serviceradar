@@ -4,13 +4,18 @@ defmodule ServiceRadarWebNGWeb.TenantController do
   """
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadarWebNGWeb.TenantResolver
+
   def switch(conn, %{"tenant_id" => tenant_id}) do
     # Validate the user has access to this tenant
     user = conn.assigns.current_scope.user
 
     if has_membership?(user, tenant_id) do
+      tenant_schema = resolve_tenant_schema(tenant_id)
+
       conn
       |> put_session("active_tenant_id", tenant_id)
+      |> put_session("tenant", tenant_schema)
       |> put_flash(:info, "Switched tenant")
       |> redirect(to: ~p"/analytics")
     else
@@ -32,5 +37,9 @@ defmodule ServiceRadarWebNGWeb.TenantController do
         to_string(m.tenant_id) == to_string(tenant_id)
       end)
     end
+  end
+
+  defp resolve_tenant_schema(tenant_id) do
+    TenantResolver.schema_for_tenant_id(tenant_id)
   end
 end

@@ -10,6 +10,7 @@ Tenant data must be physically isolated in per-tenant PostgreSQL schemas, and co
 - Public schema remains for platform-managed resources only (tenants, tenant memberships, NATS platform tables, platform Oban/jobs); platform tenant data lives in its own tenant schema, and tenant-scoped identity data (ng_users, API tokens, user tokens) moves into tenant schemas.
 - Tenant context for API operations MUST be derived from authenticated scope or onboarding token lookup; request-supplied tenant headers are not accepted for tenant selection.
 - Tenant AshOban job schedules and tenant Oban jobs are stored in tenant schemas.
+- Multi-tenant authentication SHALL resolve tenant context from vanity domains when present, and fall back to a tenant selection step only when multiple tenants exist and no default tenant is configured; single-tenant installs auto-select the default tenant without a prompt.
 
 ## Impact
 - Affected specs: tenant-isolation, ash-domains, cnpg.

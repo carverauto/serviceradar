@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   use ServiceRadarWebNGWeb, :controller
   use AshAuthentication.Phoenix.Controller
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadarWebNGWeb.TenantResolver
 
   plug :fetch_session
 
@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
     tenant_schema =
       case Map.fetch(user.__metadata__, :tenant) do
         {:ok, tenant} when is_binary(tenant) -> tenant
-        _ -> TenantSchemas.schema_for_tenant(tenant_id)
+        _ -> TenantResolver.schema_for_tenant_id(tenant_id)
       end
 
     case AshAuthentication.Jwt.token_for_user(
@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
         conn
         |> put_session("user_token", token)
         |> put_session("active_tenant_id", tenant_id)
+        |> put_session("tenant", tenant_schema)
         |> delete_session(:user_return_to)
         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
         |> configure_session(renew: true)
