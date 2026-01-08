@@ -1373,13 +1373,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Use pre-computed CAGG via rollup_stats pattern for accurate counts
-  defp load_summary(srql_module, current_query, actor) do
-    opts = build_summary_opts(current_query, srql_module, actor)
+  defp load_summary(srql_module, current_query, scope) do
+    opts = build_summary_opts(current_query, srql_module, scope)
     Stats.logs_severity(opts)
   end
 
-  defp build_summary_opts(current_query, srql_module, actor) do
-    base_opts = [srql_module: srql_module, actor: actor]
+  defp build_summary_opts(current_query, srql_module, scope) do
+    base_opts = [srql_module: srql_module, scope: scope]
 
     # Extract time range from query if present, otherwise use default
     time = extract_time_from_query(current_query) || @default_stats_window
@@ -1502,18 +1502,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp tab_entity(_), do: {"logs", :logs}
 
   defp apply_tab_assigns(socket, "traces", srql_module) do
-    actor = Map.get(socket.assigns, :actor)
+    scope = Map.get(socket.assigns, :current_scope)
     trace_latency = compute_trace_latency(socket.assigns.traces)
 
     socket
-    |> assign(:trace_stats, load_trace_stats(srql_module, actor))
+    |> assign(:trace_stats, load_trace_stats(srql_module, scope))
     |> assign(:trace_latency, trace_latency)
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
   defp apply_tab_assigns(socket, "metrics", srql_module) do
-    actor = Map.get(socket.assigns, :actor)
-    metrics_stats = build_metrics_stats(srql_module, actor)
+    scope = Map.get(socket.assigns, :current_scope)
+    metrics_stats = build_metrics_stats(srql_module, scope)
     sparklines = load_sparklines(socket.assigns.metrics)
 
     socket
@@ -1524,8 +1524,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp apply_tab_assigns(socket, _tab, srql_module) do
-    actor = Map.get(socket.assigns, :actor)
-    summary = maybe_load_log_summary(socket, srql_module, actor)
+    scope = Map.get(socket.assigns, :current_scope)
+    summary = maybe_load_log_summary(socket, srql_module, scope)
 
     socket
     |> assign(:summary, summary)
@@ -1534,8 +1534,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
-  defp build_metrics_stats(srql_module, actor) do
-    metrics_counts = load_metrics_counts(srql_module, actor)
+  defp build_metrics_stats(srql_module, scope) do
+    metrics_counts = load_metrics_counts(srql_module, scope)
     duration_stats = load_duration_stats_from_cagg()
 
     metrics_counts
@@ -1543,8 +1543,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Map.put(:error_rate, compute_error_rate(metrics_counts.total, metrics_counts.error_spans))
   end
 
-  defp maybe_load_log_summary(socket, srql_module, actor) do
-    summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query), actor)
+  defp maybe_load_log_summary(socket, srql_module, scope) do
+    summary = load_summary(srql_module, Map.get(socket.assigns.srql, :query), scope)
 
     case summary do
       %{total: 0} when is_list(socket.assigns.logs) and socket.assigns.logs != [] ->
@@ -1590,8 +1590,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Use pre-computed CAGG via rollup_stats pattern for traces stats
-  defp load_trace_stats(srql_module, actor) do
-    summary = Stats.traces_summary(srql_module: srql_module, actor: actor)
+  defp load_trace_stats(srql_module, scope) do
+    summary = Stats.traces_summary(srql_module: srql_module, scope: scope)
 
     # Map the rollup_stats fields to the expected structure
     # Note: slow_traces is not available from CAGG, so we use 0 for now
@@ -1603,7 +1603,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     }
   end
 
-  defp load_metrics_counts(srql_module, actor) do
+  defp load_metrics_counts(srql_module, scope) do
     total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
     slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
 
@@ -1619,24 +1619,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     error_grpc_query =
       ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
 
-    total = extract_stats_count(srql_module.query(total_query, %{actor: actor}), "total")
-    slow_spans = extract_stats_count(srql_module.query(slow_query, %{actor: actor}), "total")
+    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
+    slow_spans = extract_stats_count(srql_module.query(slow_query, %{scope: scope}), "total")
 
     error_level =
-      extract_stats_count(srql_module.query(error_level_query, %{actor: actor}), "total")
+      extract_stats_count(srql_module.query(error_level_query, %{scope: scope}), "total")
 
     error_spans =
       if error_level > 0 do
         error_level
       else
         error_http4 =
-          extract_stats_count(srql_module.query(error_http4_query, %{actor: actor}), "total")
+          extract_stats_count(srql_module.query(error_http4_query, %{scope: scope}), "total")
 
         error_http5 =
-          extract_stats_count(srql_module.query(error_http5_query, %{actor: actor}), "total")
+          extract_stats_count(srql_module.query(error_http5_query, %{scope: scope}), "total")
 
         error_grpc =
-          extract_stats_count(srql_module.query(error_grpc_query, %{actor: actor}), "total")
+          extract_stats_count(srql_module.query(error_grpc_query, %{scope: scope}), "total")
 
         error_http4 + error_http5 + error_grpc
       end

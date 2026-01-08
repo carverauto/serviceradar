@@ -54,10 +54,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       parse_builder_state(builder_available, query, builder)
 
     srql_module = srql_module()
-    actor = get_actor(socket)
+    scope = get_scope(socket)
 
     {results, error, viz_meta, pagination} =
-      srql_results(srql_module, query, cursor, limit, actor)
+      srql_results(srql_module, query, cursor, limit, scope)
 
     page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
 
@@ -367,11 +367,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp normalize_param_to_string(value) when is_map(value), do: inspect(value)
   defp normalize_param_to_string(value), do: inspect(value)
 
-  defp get_actor(socket) do
-    case socket.assigns do
-      %{current_scope: %{user: user}} when not is_nil(user) -> user
-      _ -> nil
-    end
+  defp get_scope(socket) do
+    Map.get(socket.assigns, :current_scope)
   end
 
   defp normalize_query_param(value, default_query) do
@@ -418,8 +415,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp parse_builder_state(false, _query, _builder), do: {false, false, %{}}
 
-  defp srql_results(srql_module, query, cursor, limit, actor) do
-    case srql_module.query(query, %{cursor: cursor, limit: limit, actor: actor}) do
+  defp srql_results(srql_module, query, cursor, limit, scope) do
+    case srql_module.query(query, %{cursor: cursor, limit: limit, scope: scope}) do
       {:ok, %{"results" => results, "pagination" => pag} = resp} when is_list(results) ->
         {results, nil, extract_viz(resp), pag || %{}}
 
