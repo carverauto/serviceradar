@@ -170,3 +170,41 @@ func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
 		tls.ClientCAFile = tls.CAFile
 	}
 }
+
+// GetEffectiveDiscoveryInterval returns the discovery interval for a source.
+// If the source has a per-source DiscoveryInterval set, it returns that.
+// Otherwise, it returns the global DiscoveryInterval from the config.
+func (c *Config) GetEffectiveDiscoveryInterval(source *models.SourceConfig) time.Duration {
+	if source != nil && time.Duration(source.DiscoveryInterval) > 0 {
+		return time.Duration(source.DiscoveryInterval)
+	}
+
+	return time.Duration(c.DiscoveryInterval)
+}
+
+// GetEffectivePollInterval returns the poll interval for a source.
+// If the source has a per-source PollInterval set, it returns that.
+// Otherwise, it returns the global PollInterval from the config.
+func (c *Config) GetEffectivePollInterval(source *models.SourceConfig) time.Duration {
+	if source != nil && time.Duration(source.PollInterval) > 0 {
+		return time.Duration(source.PollInterval)
+	}
+
+	return time.Duration(c.PollInterval)
+}
+
+// GetEffectiveSweepInterval returns the sweep interval for a source.
+// If the source has a per-source SweepInterval set, it returns that.
+// Otherwise, it returns a default of 1 hour.
+// Note: SweepInterval is stored as a string in SourceConfig, so we parse it.
+func (c *Config) GetEffectiveSweepInterval(source *models.SourceConfig) time.Duration {
+	const defaultSweepInterval = 1 * time.Hour
+
+	if source != nil && source.SweepInterval != "" {
+		if d, err := time.ParseDuration(source.SweepInterval); err == nil && d > 0 {
+			return d
+		}
+	}
+
+	return defaultSweepInterval
+}

@@ -90,6 +90,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "credentials" => credentials,
       "queries" => source.queries,
       "poll_interval" => format_duration(source.poll_interval_seconds),
+      "discovery_interval" => format_duration(source.discovery_interval_seconds),
       "sweep_interval" => format_duration(source.sweep_interval_seconds),
       "agent_id" => source.agent_id,
       "gateway_id" => source.gateway_id,
