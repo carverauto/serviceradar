@@ -15,9 +15,13 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfEventsTable do
   def up do
     schema = prefix() || "public"
 
+    # Drop existing table if present - handles case where previous migration
+    # created table with wrong primary key structure for TimescaleDB
+    execute "DROP TABLE IF EXISTS #{schema}.ocsf_events CASCADE"
+
     execute """
-    CREATE TABLE IF NOT EXISTS #{schema}.ocsf_events (
-      id                  UUID              PRIMARY KEY,
+    CREATE TABLE #{schema}.ocsf_events (
+      id                  UUID              NOT NULL,
       time                TIMESTAMPTZ       NOT NULL,
       class_uid           INTEGER           NOT NULL,
       category_uid        INTEGER           NOT NULL,
@@ -46,7 +50,8 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddOcsfEventsTable do
       unmapped            JSONB,
       raw_data            TEXT,
       tenant_id           UUID              NOT NULL,
-      created_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
+      created_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
+      PRIMARY KEY (id, time)
     )
     """
 

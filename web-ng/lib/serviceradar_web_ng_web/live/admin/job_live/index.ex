@@ -129,24 +129,31 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   def handle_event("trigger_job", %{"id" => encoded_id}, socket) do
-    job_scope = job_scope_opts(socket)
+    scope = socket.assigns.current_scope || %{}
 
-    with {:ok, id} <- decode_job_id(encoded_id),
-         {:ok, job} <- JobCatalog.get_job(id, job_scope),
-         {:ok, _oban_job} <- JobCatalog.trigger_job(job, job_scope) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "Job '#{job.name}' triggered successfully")
-       |> load_jobs()}
+    # Only admins can trigger jobs
+    if can_trigger_jobs?(scope) do
+      job_scope = job_scope_opts(socket)
+
+      with {:ok, id} <- decode_job_id(encoded_id),
+           {:ok, job} <- JobCatalog.get_job(id, job_scope),
+           {:ok, _oban_job} <- JobCatalog.trigger_job(job, job_scope) do
+        {:noreply,
+         socket
+         |> put_flash(:info, "Job '#{job.name}' triggered successfully")
+         |> load_jobs()}
+      else
+        :error ->
+          {:noreply, put_flash(socket, :error, "Invalid job ID")}
+
+        {:error, :not_found} ->
+          {:noreply, put_flash(socket, :error, "Job not found")}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
+      end
     else
-      :error ->
-        {:noreply, put_flash(socket, :error, "Invalid job ID")}
-
-      {:error, :not_found} ->
-        {:noreply, put_flash(socket, :error, "Job not found")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to trigger job: #{inspect(reason)}")}
+      {:noreply, put_flash(socket, :error, "You don't have permission to trigger jobs")}
     end
   end
 
@@ -398,6 +405,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                       <td>
                         <div class="flex items-center gap-1">
                           <.ui_button
+                            :if={@can_trigger}
                             variant="ghost"
                             size="xs"
                             phx-click="trigger_job"
@@ -548,6 +556,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     scope = socket.assigns.current_scope || %{}
     show_oban_web = show_oban_web?(scope)
     show_leader_info = show_leader_info?(scope)
+    can_trigger = can_trigger_jobs?(scope)
     leader = if show_leader_info, do: get_leader_node(), else: nil
 
     socket
@@ -560,41 +569,37 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:leader_node, leader)
     |> assign(:show_oban_web, show_oban_web)
     |> assign(:show_leader_info, show_leader_info)
+    |> assign(:can_trigger, can_trigger)
   end
 
   defp job_scope_opts(socket) do
     scope = socket.assigns.current_scope || %{}
     tenant_id = Scope.tenant_id(scope)
-    platform_admin? = platform_owner_admin?(scope)
+    # Platform tenant users can view all platform jobs
+    # Other tenants only see tenant-scoped AshOban jobs
+    platform_admin? = can_view_platform_jobs?(scope)
 
     [tenant_id: tenant_id, platform_admin?: platform_admin?]
   end
 
-  defp platform_owner_admin?(%{
-         user: %{role: role} = user,
-         active_tenant: tenant,
-         tenant_memberships: memberships
-       }) do
-    admin_role?(role) && platform_tenant?(tenant) && platform_owner?(user, tenant, memberships)
+  # Platform tenant users can view platform-level jobs regardless of role
+  defp can_view_platform_jobs?(%{active_tenant: tenant}) do
+    platform_tenant?(tenant)
   end
 
-  defp platform_owner_admin?(_), do: false
+  defp can_view_platform_jobs?(_), do: false
+
+  # Admin users can trigger jobs manually
+  defp can_trigger_jobs?(%{user: %{role: role}, active_tenant: tenant, tenant_memberships: memberships}) do
+    platform_tenant?(tenant) && tenant_admin?(role, tenant, memberships)
+  end
+
+  defp can_trigger_jobs?(_), do: false
 
   defp admin_role?(role), do: role in [:admin, :super_admin]
 
   defp platform_tenant?(%{is_platform_tenant: true}), do: true
   defp platform_tenant?(_), do: false
-
-  defp platform_owner?(user, tenant, memberships) do
-    tenant_owner? = Map.get(tenant, :owner_id) == user.id
-
-    membership_owner? =
-      Enum.any?(memberships || [], fn membership ->
-        to_string(membership.tenant_id) == to_string(tenant.id) and membership.role == :owner
-      end)
-
-    tenant_owner? || membership_owner?
-  end
 
   defp show_oban_web?(%{
          user: %{role: role},

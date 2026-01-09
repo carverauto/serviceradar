@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   import ServiceRadarWebNGWeb.AdminComponents
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Infrastructure.Agent
@@ -868,9 +869,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   # Data access helpers
 
   defp list_partitions(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Partition
     |> Ash.Query.for_read(:enabled)
-    |> Ash.read!(tenant: tenant_id, authorize?: false)
+    |> Ash.read!(tenant: schema, authorize?: false)
   rescue
     _ -> []
   end
@@ -888,10 +891,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp list_agents(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort([:name, :uid])
-    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> Ash.read(tenant: schema, authorize?: false)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -915,7 +920,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp list_sources(tenant_id, filters \\ %{}) do
-    opts = [tenant: tenant_id]
+    schema = tenant_schema(tenant_id)
+    opts = [tenant: schema]
 
     case Map.get(filters, :source_type) do
       nil ->
@@ -937,10 +943,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp sync_agent_available?(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Agent
     |> Ash.Query.for_read(:connected)
     |> Ash.Query.limit(1)
-    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> Ash.read(tenant: schema, authorize?: false)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
@@ -958,14 +966,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp maybe_filter_enabled(query, _), do: query
 
   defp get_source(id, tenant_id) do
-    IntegrationSource.get_by_id(id, tenant: tenant_id)
+    schema = tenant_schema(tenant_id)
+    IntegrationSource.get_by_id(id, tenant: schema)
   end
 
   defp build_create_form(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     IntegrationSource
     |> AshPhoenix.Form.for_create(:create,
       domain: Integrations,
-      tenant: tenant_id,
+      tenant: schema,
       transform_params: fn _form, params, _action ->
         # Set tenant_id
         params = Map.put(params, "tenant_id", tenant_id)
@@ -1030,6 +1041,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       _ -> default_tenant_id()
     end
   end
+
+  # Convert tenant_id (UUID) to schema name for Ash multitenancy context
+  defp tenant_schema(tenant_id) when is_binary(tenant_id) do
+    TenantSchemas.schema_for_id(tenant_id)
+  end
+
+  defp tenant_schema(_), do: nil
 
   defp agent_display_name(nil, fallback), do: fallback || "Unknown"
   defp agent_display_name(agent, _fallback), do: agent.name || agent.uid
