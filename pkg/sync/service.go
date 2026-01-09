@@ -918,10 +918,8 @@ func (s *SimpleSyncService) bootstrapGatewayConfig(ctx context.Context) error {
 		return err
 	}
 
+	// Propagate enrollment-pending so Start() can defer bootstrap
 	if err := s.ensureGatewayEnrolled(ctx); err != nil {
-		if errors.Is(err, errGatewayNotEnrolled) {
-			return nil
-		}
 		return err
 	}
 

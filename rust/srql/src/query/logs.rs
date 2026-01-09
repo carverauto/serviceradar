@@ -241,7 +241,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 
 fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>> {
     let stats_raw = match plan.stats.as_ref() {
-        Some(raw) if !raw.trim().is_empty() => raw.trim(),
+        Some(raw) if !raw.as_raw().trim().is_empty() => raw.as_raw().trim(),
         _ => return Ok(None),
     };
 
@@ -852,7 +852,7 @@ mod tests {
             limit: 100,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some(stats.to_string()),
+            stats: Some(crate::parser::StatsSpec::from_raw(&stats)),
             downsample: None,
             rollup_stats: None,
         }
@@ -906,7 +906,7 @@ mod tests {
             limit: 100,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some("count() as total".to_string()),
+            stats: Some(crate::parser::StatsSpec::from_raw("count() as total")),
             downsample: None,
             rollup_stats: None,
         };

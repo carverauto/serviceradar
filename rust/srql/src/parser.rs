@@ -4,8 +4,10 @@ use crate::{
     error::{Result, ServiceError},
     time::{parse_time_value, TimeFilterSpec},
 };
+use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Entity {
     Agents,
     Devices,
@@ -29,24 +31,71 @@ pub enum Entity {
     Traces,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct QueryAst {
     pub entity: Entity,
     pub filters: Vec<Filter>,
     pub order: Vec<OrderClause>,
     pub limit: Option<i64>,
     pub time_filter: Option<TimeFilterSpec>,
-    pub stats: Option<String>,
+    pub stats: Option<StatsSpec>,
     pub downsample: Option<DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,
+}
+
+/// Parsed stats specification with structured aggregation info
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsSpec {
+    /// The raw stats expression (for backwards compatibility)
+    pub raw: String,
+    /// Parsed aggregations
+    pub aggregations: Vec<StatsAggregation>,
+}
+
+impl StatsSpec {
+    /// Returns the raw stats expression string for backwards compatibility
+    /// with existing query modules that parse stats themselves.
+    pub fn as_raw(&self) -> &str {
+        &self.raw
+    }
+
+    /// Create a StatsSpec from a raw expression string.
+    /// This is useful for creating test fixtures.
+    pub fn from_raw(raw: &str) -> Self {
+        parse_stats_expr(raw)
+    }
+}
+
+/// A single stats aggregation like count(), sum(field), etc.
+#[derive(Debug, Clone, Serialize)]
+pub struct StatsAggregation {
+    /// The aggregation function type
+    #[serde(rename = "type")]
+    pub agg_type: StatsAggType,
+    /// The field to aggregate (None for count())
+    pub field: Option<String>,
+    /// The alias for the result
+    pub alias: String,
+}
+
+/// Stats aggregation function types
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatsAggType {
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
 }
 
 const MAX_STATS_EXPR_LEN: usize = 1024;
 const MAX_FILTER_LIST_VALUES: usize = 200;
 const MAX_DOWNSAMPLE_BUCKET_SECS: i64 = 31 * 24 * 60 * 60;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DownsampleAgg {
     Avg,
     Min,
@@ -55,21 +104,22 @@ pub enum DownsampleAgg {
     Count,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DownsampleSpec {
     pub bucket_seconds: i64,
     pub agg: DownsampleAgg,
     pub series: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Filter {
     pub field: String,
     pub op: FilterOp,
     pub value: FilterValue,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FilterOp {
     Eq,
     NotEq,
@@ -83,7 +133,8 @@ pub enum FilterOp {
     Lte,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
 pub enum FilterValue {
     Scalar(String),
     List(Vec<String>),
@@ -109,13 +160,14 @@ impl FilterValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct OrderClause {
     pub field: String,
     pub direction: OrderDirection,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OrderDirection {
     Asc,
     Desc,
@@ -209,7 +261,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                         "stats expression must be <= {MAX_STATS_EXPR_LEN} characters"
                     )));
                 }
-                stats = Some(expr);
+                stats = Some(parse_stats_expr(&expr));
             }
             "rollup_stats" => {
                 let stat_type = value.as_scalar()?.trim().to_lowercase();
@@ -352,6 +404,96 @@ fn normalize_optional_string(raw: &str) -> Option<String> {
     } else {
         Some(value.to_string())
     }
+}
+
+/// Parse a stats expression like "count() as total" or "sum(field) as total, avg(field) as average"
+fn parse_stats_expr(raw: &str) -> StatsSpec {
+    let raw = raw.trim().trim_matches('"').trim_matches('\'');
+    let aggregations = raw
+        .split(',')
+        .filter_map(|part| parse_single_stats_agg(part.trim()))
+        .collect();
+
+    StatsSpec {
+        raw: raw.to_string(),
+        aggregations,
+    }
+}
+
+/// Parse a single stats aggregation like "count() as total" or "sum(field) as total"
+fn parse_single_stats_agg(expr: &str) -> Option<StatsAggregation> {
+    let expr = expr.trim().to_lowercase();
+
+    // Pattern: func() as alias or func(field) as alias
+    // Split on " as " to get function part and alias
+    let (func_part, alias) = if let Some(idx) = expr.find(" as ") {
+        let (f, a) = expr.split_at(idx);
+        (f.trim(), a[4..].trim()) // Skip " as "
+    } else {
+        // No alias, use the function name as alias
+        return None; // Require alias for structured parsing
+    };
+
+    if alias.is_empty() {
+        return None;
+    }
+
+    // Parse the function: count(), sum(field), avg(field), min(field), max(field)
+    if let Some(inner) = func_part.strip_prefix("count(").and_then(|s| s.strip_suffix(')')) {
+        // count() or count(field) - we ignore field for count
+        let _ = inner; // count doesn't need a field
+        return Some(StatsAggregation {
+            agg_type: StatsAggType::Count,
+            field: None,
+            alias: alias.to_string(),
+        });
+    }
+
+    if let Some(inner) = func_part.strip_prefix("sum(").and_then(|s| s.strip_suffix(')')) {
+        let field = inner.trim();
+        if !field.is_empty() {
+            return Some(StatsAggregation {
+                agg_type: StatsAggType::Sum,
+                field: Some(field.to_string()),
+                alias: alias.to_string(),
+            });
+        }
+    }
+
+    if let Some(inner) = func_part.strip_prefix("avg(").and_then(|s| s.strip_suffix(')')) {
+        let field = inner.trim();
+        if !field.is_empty() {
+            return Some(StatsAggregation {
+                agg_type: StatsAggType::Avg,
+                field: Some(field.to_string()),
+                alias: alias.to_string(),
+            });
+        }
+    }
+
+    if let Some(inner) = func_part.strip_prefix("min(").and_then(|s| s.strip_suffix(')')) {
+        let field = inner.trim();
+        if !field.is_empty() {
+            return Some(StatsAggregation {
+                agg_type: StatsAggType::Min,
+                field: Some(field.to_string()),
+                alias: alias.to_string(),
+            });
+        }
+    }
+
+    if let Some(inner) = func_part.strip_prefix("max(").and_then(|s| s.strip_suffix(')')) {
+        let field = inner.trim();
+        if !field.is_empty() {
+            return Some(StatsAggregation {
+                agg_type: StatsAggType::Max,
+                field: Some(field.to_string()),
+                alias: alias.to_string(),
+            });
+        }
+    }
+
+    None
 }
 
 fn build_filter(key: &str, value: FilterValue) -> Filter {
@@ -611,20 +753,47 @@ mod tests {
     #[test]
     fn parses_stats_expression() {
         let ast = parse("in:logs stats:\"count() as total\" time:last_24h").unwrap();
-        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(stats.raw, "count() as total");
+        assert_eq!(stats.aggregations.len(), 1);
+        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
+        assert_eq!(stats.aggregations[0].alias, "total");
     }
 
     #[test]
     fn parses_unquoted_stats_alias() {
         let ast = parse("in:devices stats:count() as total").unwrap();
-        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(stats.raw, "count() as total");
+        assert_eq!(stats.aggregations.len(), 1);
+        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
     }
 
     #[test]
     fn parses_unquoted_stats_alias_with_following_tokens() {
         let ast = parse("in:devices stats:count() as total time:last_7d").unwrap();
-        assert_eq!(ast.stats.as_deref(), Some("count() as total"));
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(stats.raw, "count() as total");
         assert!(ast.time_filter.is_some());
+    }
+
+    #[test]
+    fn parses_stats_with_field() {
+        let ast = parse("in:devices stats:\"sum(value) as total_value\"").unwrap();
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(stats.aggregations.len(), 1);
+        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Sum));
+        assert_eq!(stats.aggregations[0].field.as_deref(), Some("value"));
+        assert_eq!(stats.aggregations[0].alias, "total_value");
+    }
+
+    #[test]
+    fn parses_multiple_stats() {
+        let ast = parse("in:devices stats:\"count() as total, sum(value) as sum_val\"").unwrap();
+        let stats = ast.stats.as_ref().unwrap();
+        assert_eq!(stats.aggregations.len(), 2);
+        assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Count));
+        assert!(matches!(stats.aggregations[1].agg_type, StatsAggType::Sum));
     }
 
     #[test]
