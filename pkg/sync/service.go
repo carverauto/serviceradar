@@ -412,7 +412,8 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 	tenantIntegrations := s.snapshotTenantIntegrations()
 	if len(tenantIntegrations) == 0 {
-		allDeviceUpdates, discoveryErrors := s.runDiscoveryForIntegrations(ctx, "", "", s.sources)
+		sourcesSnapshot := s.snapshotLegacySources()
+		allDeviceUpdates, discoveryErrors := s.runDiscoveryForIntegrations(ctx, "", "", sourcesSnapshot)
 		s.updateResultsStore(allDeviceUpdates)
 
 		if err := s.pushResultsForTenant(ctx, "", "", allDeviceUpdates); err != nil {
@@ -420,7 +421,7 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		}
 
 		totalDevices := countDevices(allDeviceUpdates)
-		s.metrics.RecordActiveIntegrations(len(s.sources))
+		s.metrics.RecordActiveIntegrations(len(sourcesSnapshot))
 		s.metrics.RecordTotalDevicesDiscovered(totalDevices)
 
 		s.logger.Info().
@@ -690,7 +691,8 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 	var updateErrors []error
 	tenantIntegrations := s.snapshotTenantIntegrations()
 	if len(tenantIntegrations) == 0 {
-		updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, "", s.sources)...)
+		sourcesSnapshot := s.snapshotLegacySources()
+		updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, "", sourcesSnapshot)...)
 	} else {
 		for tenantID, integrations := range tenantIntegrations {
 			updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, tenantID, integrations)...)
@@ -1428,6 +1430,10 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	tenantIntegrations := make(map[string]map[string]Integration, len(grouped))
 	tenantResults := make(map[string]*StreamingResultsStore, len(grouped))
 
+	s.tenantMu.RLock()
+	oldSources := s.tenantSources
+	s.tenantMu.RUnlock()
+
 	// Read fallback values under lock
 	s.configMu.RLock()
 	agentID := s.config.AgentID
@@ -1435,7 +1441,7 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	s.configMu.RUnlock()
 
 	// Detect interval changes and reset timers for affected sources
-	s.detectAndResetChangedIntervals(grouped)
+	s.detectAndResetChangedIntervals(grouped, oldSources)
 
 	for tenantID, sourceMap := range grouped {
 		integrations := make(map[string]Integration, len(sourceMap))
@@ -1470,11 +1476,10 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 
 // detectAndResetChangedIntervals compares old and new source configs,
 // resetting discovery timers for sources whose intervals have changed.
-func (s *SimpleSyncService) detectAndResetChangedIntervals(newSources map[string]map[string]*models.SourceConfig) {
-	s.tenantMu.RLock()
-	oldSources := s.tenantSources
-	s.tenantMu.RUnlock()
-
+func (s *SimpleSyncService) detectAndResetChangedIntervals(
+	newSources map[string]map[string]*models.SourceConfig,
+	oldSources map[string]map[string]*models.SourceConfig,
+) {
 	s.configMu.RLock()
 	globalInterval := s.config.GetEffectiveDiscoveryInterval(nil)
 	s.configMu.RUnlock()
@@ -1584,6 +1589,22 @@ func (s *SimpleSyncService) snapshotTenantIntegrations() map[string]map[string]I
 			inner[name] = integration
 		}
 		snapshot[tenantID] = inner
+	}
+
+	return snapshot
+}
+
+func (s *SimpleSyncService) snapshotLegacySources() map[string]Integration {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
+
+	if len(s.sources) == 0 {
+		return nil
+	}
+
+	snapshot := make(map[string]Integration, len(s.sources))
+	for name, integration := range s.sources {
+		snapshot[name] = integration
 	}
 
 	return snapshot

@@ -68,6 +68,12 @@ func (s *Server) MonitorGateways(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.handleMonitorTick(ctx)
+		case <-cleanupTicker.C:
+			if err := s.cleanupUnknownGateways(ctx); err != nil {
+				s.logger.Error().
+					Err(err).
+					Msg("Daily cleanup of unknown gateways failed")
+			}
 		}
 	}
 }

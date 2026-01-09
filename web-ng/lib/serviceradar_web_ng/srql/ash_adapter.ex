@@ -545,8 +545,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp maybe_apply_offset(query, offset, true), do: apply_offset(query, offset)
 
   defp apply_offset(query, nil), do: query
+
   defp apply_offset(query, offset) when is_integer(offset) and offset > 0,
     do: Ash.Query.offset(query, offset)
+
   defp apply_offset(query, _), do: query
 
   # Execute the query against the Ash domain
