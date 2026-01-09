@@ -24,26 +24,6 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// newTestOperator creates an operator for testing.
-func newTestOperator(t *testing.T) *Operator {
-	t.Helper()
-
-	seed, _, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
-
-	op, err := NewOperator(&OperatorConfig{
-		Name:         "test-operator",
-		OperatorSeed: seed,
-	})
-	if err != nil {
-		t.Fatalf("NewOperator() error = %v", err)
-	}
-
-	return op
-}
-
 func TestNewAccountSigner(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
@@ -344,6 +324,9 @@ func TestAccountSigner_MultipleAccounts(t *testing.T) {
 
 	// Create multiple accounts
 	tenants := []string{"tenant-a", "tenant-b", "tenant-c"}
+	if testing.Short() {
+		tenants = tenants[:2]
+	}
 	results := make(map[string]*TenantAccountResult)
 
 	for _, tenant := range tenants {

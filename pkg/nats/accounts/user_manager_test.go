@@ -28,13 +28,7 @@ import (
 // createTestAccount creates a test account and returns its seed.
 func createTestAccount(t *testing.T) string {
 	t.Helper()
-
-	seed, _, err := GenerateAccountKey()
-	if err != nil {
-		t.Fatalf("GenerateAccountKey() error = %v", err)
-	}
-
-	return seed
+	return testAccountSeed
 }
 
 func TestGenerateUserCredentials_Basic(t *testing.T) {
@@ -324,11 +318,9 @@ func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 
 func TestGenerateUserCredentials_WrongKeyType(t *testing.T) {
 	// Use operator seed instead of account seed
-	operatorSeed, _, _ := GenerateOperatorKey()
-
 	_, err := GenerateUserCredentials(
 		"test-tenant",
-		operatorSeed,
+		testOperatorSeed,
 		"test-user",
 		CredentialTypeCollector,
 		nil,
@@ -374,7 +366,11 @@ func TestGenerateUserCredentials_UniqueKeys(t *testing.T) {
 
 	// Generate multiple user credentials
 	var creds []*UserCredentials
-	for i := 0; i < 5; i++ {
+	iterations := 5
+	if testing.Short() {
+		iterations = 2
+	}
+	for i := 0; i < iterations; i++ {
 		c, err := GenerateUserCredentials(
 			"test-tenant",
 			accountSeed,

@@ -25,6 +25,10 @@ import (
 )
 
 func TestGenerateOperatorKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("key generation is covered in long tests")
+	}
+
 	seed, publicKey, err := GenerateOperatorKey()
 	if err != nil {
 		t.Fatalf("GenerateOperatorKey() error = %v", err)
@@ -62,6 +66,10 @@ func TestGenerateOperatorKey(t *testing.T) {
 }
 
 func TestGenerateAccountKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("key generation is covered in long tests")
+	}
+
 	seed, publicKey, err := GenerateAccountKey()
 	if err != nil {
 		t.Fatalf("GenerateAccountKey() error = %v", err)
@@ -84,6 +92,10 @@ func TestGenerateAccountKey(t *testing.T) {
 }
 
 func TestGenerateUserKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("key generation is covered in long tests")
+	}
+
 	seed, publicKey, err := GenerateUserKey()
 	if err != nil {
 		t.Fatalf("GenerateUserKey() error = %v", err)
@@ -107,10 +119,8 @@ func TestGenerateUserKey(t *testing.T) {
 
 func TestNewOperator_DirectSeed(t *testing.T) {
 	// Generate a test operator key
-	seed, expectedPubKey, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
+	seed := testOperatorSeed
+	expectedPubKey := testOperatorPublicKey(t)
 
 	cfg := &OperatorConfig{
 		Name:         "test-operator",
@@ -133,10 +143,8 @@ func TestNewOperator_DirectSeed(t *testing.T) {
 
 func TestNewOperator_FromFile(t *testing.T) {
 	// Generate a test operator key
-	seed, expectedPubKey, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
+	seed := testOperatorSeed
+	expectedPubKey := testOperatorPublicKey(t)
 
 	// Write seed to temp file
 	tmpDir := t.TempDir()
@@ -162,10 +170,8 @@ func TestNewOperator_FromFile(t *testing.T) {
 
 func TestNewOperator_FromEnv(t *testing.T) {
 	// Generate a test operator key
-	seed, expectedPubKey, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
+	seed := testOperatorSeed
+	expectedPubKey := testOperatorPublicKey(t)
 
 	// Set environment variable
 	envVar := "TEST_NATS_OPERATOR_SEED"
@@ -187,15 +193,8 @@ func TestNewOperator_FromEnv(t *testing.T) {
 }
 
 func TestNewOperator_SystemAccountPublicKeyFromEnv(t *testing.T) {
-	seed, _, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
-
-	_, systemPubKey, err := GenerateAccountKey()
-	if err != nil {
-		t.Fatalf("GenerateAccountKey() error = %v", err)
-	}
+	seed := testOperatorSeed
+	systemPubKey := testAccountPublicKey(t)
 
 	envVar := "TEST_NATS_SYSTEM_ACCOUNT_PUBLIC_KEY"
 	t.Setenv(envVar, systemPubKey)
@@ -217,15 +216,8 @@ func TestNewOperator_SystemAccountPublicKeyFromEnv(t *testing.T) {
 }
 
 func TestNewOperator_SystemAccountPublicKeyFromFile(t *testing.T) {
-	seed, _, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
-
-	_, systemPubKey, err := GenerateAccountKey()
-	if err != nil {
-		t.Fatalf("GenerateAccountKey() error = %v", err)
-	}
+	seed := testOperatorSeed
+	systemPubKey := testAccountPublicKey(t)
 
 	tmpDir := t.TempDir()
 	pubKeyFile := filepath.Join(tmpDir, "system_account.pub")
@@ -263,17 +255,14 @@ func TestNewOperator_InvalidSeed(t *testing.T) {
 
 func TestNewOperator_WrongKeyType(t *testing.T) {
 	// Generate an account key (not operator)
-	seed, _, err := GenerateAccountKey()
-	if err != nil {
-		t.Fatalf("GenerateAccountKey() error = %v", err)
-	}
+	seed := testAccountSeed
 
 	cfg := &OperatorConfig{
 		Name:         "test-operator",
 		OperatorSeed: seed, // Account seed, not operator seed
 	}
 
-	_, err = NewOperator(cfg)
+	_, err := NewOperator(cfg)
 	if err == nil {
 		t.Error("NewOperator() expected error for wrong key type, got nil")
 	}
@@ -292,10 +281,7 @@ func TestNewOperator_NoSeed(t *testing.T) {
 }
 
 func TestOperator_CreateOperatorJWT(t *testing.T) {
-	seed, _, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
+	seed := testOperatorSeed
 
 	cfg := &OperatorConfig{
 		Name:         "test-operator",
@@ -329,10 +315,7 @@ func TestOperator_CreateOperatorJWT(t *testing.T) {
 }
 
 func TestEncodeDecodeKeyForStorage(t *testing.T) {
-	seed, _, err := GenerateOperatorKey()
-	if err != nil {
-		t.Fatalf("GenerateOperatorKey() error = %v", err)
-	}
+	seed := testOperatorSeed
 
 	encoded := EncodeKeyForStorage(seed)
 	if encoded == seed {

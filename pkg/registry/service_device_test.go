@@ -315,15 +315,20 @@ func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
 		}).
 		AnyTimes()
 
-	// Create 100 checker instances for a single agent
+	// Create checker instances for a single agent
 	agentID := "agent-123"
 	gatewayID := "gateway-1"
 	hostIP := "192.168.1.100"
-	updates := make([]*models.DeviceUpdate, 0, 100)
 
 	checkerTypes := []string{"sysmon", "rperf", "snmp", "mapper"}
+	checkerIterations := 25
+	if testing.Short() {
+		checkerIterations = 3
+	}
+	totalCheckers := checkerIterations * len(checkerTypes)
+	updates := make([]*models.DeviceUpdate, 0, totalCheckers)
 	checkerIndex := 0
-	for i := 0; i < 25; i++ {
+	for i := 0; i < checkerIterations; i++ {
 		for _, checkerType := range checkerTypes {
 			checkerID := fmt.Sprintf("%s-%d@%s", checkerType, checkerIndex, agentID)
 			updates = append(updates, models.CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, gatewayID, hostIP, "default", nil))
@@ -334,7 +339,7 @@ func TestServiceDeviceRegistration_HighCardinalityCheckers(t *testing.T) {
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
 
-	require.Len(t, publishedUpdates, 100, "All 100 checkers should be published")
+	require.Len(t, publishedUpdates, totalCheckers, "All checkers should be published")
 
 	// Verify all have unique device IDs
 	deviceIDs := make(map[string]bool)

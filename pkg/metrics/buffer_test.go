@@ -83,11 +83,15 @@ func TestManager(t *testing.T) {
 
 	t.Run("concurrent access", func(_ *testing.T) {
 		manager := NewManager(cfg, mockDB, logger.NewTestLogger())
-		done := make(chan bool)
 
-		const goroutines = 10
+		goroutines := 10
+		iterations := 100
+		if testing.Short() {
+			goroutines = 4
+			iterations = 10
+		}
 
-		const iterations = 100
+		done := make(chan struct{}, goroutines)
 
 		for i := 0; i < goroutines; i++ {
 			go func(id int) {
@@ -95,7 +99,7 @@ func TestManager(t *testing.T) {
 					_ = manager.AddMetric("node1", time.Now(), int64(id*1000+j), "test", "device1", "partition1", "agent1")
 				}
 
-				done <- true
+				done <- struct{}{}
 			}(i)
 		}
 
