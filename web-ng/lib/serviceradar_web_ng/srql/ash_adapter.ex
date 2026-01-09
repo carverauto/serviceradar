@@ -278,7 +278,9 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     result =
       Enum.reduce(stats, %{}, fn stat, acc ->
         case execute_single_stat(query, stat, opts) do
-          {:ok, value} -> Map.put(acc, stat.alias, value)
+          {:ok, value} ->
+            Map.put(acc, stat.alias, value)
+
           {:error, reason} ->
             Logger.debug("Stats query failed for #{stat.alias}: #{inspect(reason)}")
             Map.put(acc, stat.alias, 0)

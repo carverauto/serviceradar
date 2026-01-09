@@ -590,7 +590,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   defp can_view_platform_jobs?(_), do: false
 
   # Admin users can trigger jobs manually
-  defp can_trigger_jobs?(%{user: %{role: role}, active_tenant: tenant, tenant_memberships: memberships}) do
+  defp can_trigger_jobs?(%{
+         user: %{role: role},
+         active_tenant: tenant,
+         tenant_memberships: memberships
+       }) do
     platform_tenant?(tenant) && tenant_admin?(role, tenant, memberships)
   end
 
