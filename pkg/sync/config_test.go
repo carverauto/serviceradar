@@ -204,3 +204,32 @@ func TestMixedSourceIntervals(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, cfg.GetEffectivePollInterval(sourceC))
 	assert.Equal(t, 1*time.Hour, cfg.GetEffectiveSweepInterval(sourceC))
 }
+
+func TestSourceKey(t *testing.T) {
+	tests := []struct {
+		name       string
+		tenantID   string
+		sourceName string
+		expected   string
+	}{
+		{
+			name:       "no tenant",
+			tenantID:   "",
+			sourceName: "my-source",
+			expected:   "my-source",
+		},
+		{
+			name:       "with tenant",
+			tenantID:   "tenant-123",
+			sourceName: "my-source",
+			expected:   "tenant-123:my-source",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sourceKey(tt.tenantID, tt.sourceName)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
