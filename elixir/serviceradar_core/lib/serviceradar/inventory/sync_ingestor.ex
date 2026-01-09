@@ -34,6 +34,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       case Device.get_by_uid(device_id, tenant: tenant_schema, actor: actor, authorize?: false) do
         {:ok, device} ->
           device
+          |> Ash.Changeset.new()
+          |> Ash.Changeset.change_attribute(:last_seen_time, timestamp)
           |> Ash.Changeset.for_update(:update, update_attrs)
           |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
           |> case do
@@ -100,8 +102,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       mac: update.mac,
       hostname: update.hostname,
       name: update.hostname || update.ip,
-      last_seen_time: timestamp,
-      modified_time: timestamp,
       is_available: update.is_available,
       metadata: metadata
     }

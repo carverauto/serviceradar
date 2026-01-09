@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.SRQL do
         entity = extract_entity(query)
 
         if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
-          execute_ash_query(entity, query, limit, scope)
+          execute_ash_query(entity, query, limit, cursor, scope)
         else
           execute_sql_query(query, limit, cursor, direction, mode)
         end
@@ -41,8 +41,8 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Execute query through Ash adapter for supported entities
   # No SQL fallback - all entities MUST go through Ash
-  defp execute_ash_query(entity, query, limit, scope) do
-    params = parse_srql_params(query, limit)
+  defp execute_ash_query(entity, query, limit, cursor, scope) do
+    params = parse_srql_params(query, limit, cursor)
     start_time = System.monotonic_time()
 
     case AshAdapter.query(entity, params, scope) do
@@ -113,26 +113,26 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Parse SRQL query into params for Ash adapter using the Rust parser.
   # The Rust parser handles all parsing - no regex fallback.
-  defp parse_srql_params(query, limit) do
+  defp parse_srql_params(query, limit, cursor) do
     case Native.parse_ast(query) do
       {:ok, json} ->
         case Jason.decode(json) do
           {:ok, ast} ->
-            convert_ast_to_params(ast, limit)
+            convert_ast_to_params(ast, limit, cursor)
 
           {:error, reason} ->
             Logger.error("Failed to decode SRQL AST JSON: #{inspect(reason)}")
-            %{filters: [], sort: nil, limit: limit || 100, stats: nil}
+            %{filters: [], sort: nil, limit: limit || 100, stats: nil, cursor: cursor}
         end
 
       {:error, reason} ->
         Logger.error("Failed to parse SRQL query: #{inspect(reason)}")
-        %{filters: [], sort: nil, limit: limit || 100, stats: nil}
+        %{filters: [], sort: nil, limit: limit || 100, stats: nil, cursor: cursor}
     end
   end
 
   # Convert Rust AST to Ash adapter params format
-  defp convert_ast_to_params(ast, limit) do
+  defp convert_ast_to_params(ast, limit, cursor) do
     filters = convert_ast_filters(ast["filters"] || [])
     time_filter = convert_ast_time_filter(ast["time_filter"])
     sort = convert_ast_order(ast["order"] || [])
@@ -144,7 +144,8 @@ defmodule ServiceRadarWebNG.SRQL do
       filters: all_filters,
       sort: sort,
       limit: limit || ast["limit"] || 100,
-      stats: stats
+      stats: stats,
+      cursor: cursor
     }
   end
 

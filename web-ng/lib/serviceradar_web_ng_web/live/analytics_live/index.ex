@@ -406,6 +406,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_count_value(value) when is_integer(value), do: value
   defp extract_count_value(value) when is_float(value), do: trunc(value)
+  defp extract_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
 
   defp extract_count_value(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
@@ -428,6 +429,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp parse_count_value(value) when is_integer(value), do: value
   defp parse_count_value(value) when is_float(value), do: trunc(value)
+  defp parse_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
 
   defp parse_count_value(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
