@@ -144,6 +144,17 @@ if config_env() == :prod do
   config :serviceradar_core,
     sync_ingestor_async: System.get_env("SYNC_INGESTOR_ASYNC", "true") in ~w(true 1 yes)
 
+  sync_ingestor_coalesce_ms =
+    System.get_env("SYNC_INGESTOR_COALESCE_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_coalesce_ms: sync_ingestor_coalesce_ms || 250
+
   sync_ingestor_max_inflight =
     System.get_env("SYNC_INGESTOR_MAX_INFLIGHT")
     |> case do
@@ -154,6 +165,17 @@ if config_env() == :prod do
 
   config :serviceradar_core,
     sync_ingestor_max_inflight: sync_ingestor_max_inflight || 2
+
+  sync_ingestor_queue_max_chunks =
+    System.get_env("SYNC_INGESTOR_QUEUE_MAX_CHUNKS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
   # Oban configuration
   config :serviceradar_core, Oban,

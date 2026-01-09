@@ -1,8 +1,9 @@
 ## ADDED Requirements
-### Requirement: Concurrent Sync Batch Ingestion
-The system SHALL process sync update batches concurrently with a bounded concurrency limit so that ingestion of one batch does not block later batches for the same tenant.
+### Requirement: Tenant-Scoped Sync Ingestion Queue
+The system SHALL enqueue sync result chunks per tenant and coalesce bursts within a configurable window before ingestion to smooth database load while preserving per-tenant ordering.
 
-#### Scenario: Multi-chunk sync results
-- **WHEN** multiple sync result chunks arrive for the same tenant
-- **THEN** core schedules ingestion for each chunk without waiting for earlier chunks to finish
-- **AND** the number of concurrent batch workers SHALL be limited by configuration
+#### Scenario: Burst of sync results
+- **WHEN** multiple sync result chunks arrive for the same tenant within the coalescing window
+- **THEN** core SHALL merge the chunks into a single ingestion batch for that tenant
+- **AND** ingestion for the tenant SHALL proceed in arrival order after coalescing
+- **AND** the number of concurrent tenant ingestion workers SHALL be bounded by configuration

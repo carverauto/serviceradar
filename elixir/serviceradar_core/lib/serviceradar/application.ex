@@ -95,6 +95,9 @@ defmodule ServiceRadar.Application do
         # Task supervisor for sync ingestion work
         sync_ingestor_task_supervisor_child(),
 
+        # Tenant sync ingestion queue/coalescer
+        sync_ingestor_queue_child(),
+
         # Status handler for agent-gateway push results
         status_handler_child(),
 
@@ -207,6 +210,10 @@ defmodule ServiceRadar.Application do
 
   defp sync_ingestor_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor}
+  end
+
+  defp sync_ingestor_queue_child do
+    ServiceRadar.Inventory.SyncIngestorQueue
   end
 
   defp registry_children do

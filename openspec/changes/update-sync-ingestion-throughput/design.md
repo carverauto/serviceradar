@@ -4,7 +4,8 @@ Sync results arrive in multiple chunks from the agent-gateway. The core StatusHa
 ## Goals / Non-Goals
 - Goals:
   - Remove chunk-level blocking by running ingestion asynchronously.
-  - Increase throughput with bounded parallel batch processing.
+  - Smooth bursty chunk delivery using a tenant-scoped ingestion queue with coalescing.
+  - Increase throughput with bounded parallel batch processing across tenants.
   - Preserve data correctness when concurrent batches touch the same device.
   - Keep database load bounded and observable.
 - Non-Goals:
@@ -16,6 +17,8 @@ Sync results arrive in multiple chunks from the agent-gateway. The core StatusHa
   - Why: isolates ingestion tasks and provides a single place to control concurrency.
 - Decision: Dispatch each sync results chunk into the task pool from StatusHandler.
   - Why: prevents GenServer mailbox backpressure from serializing chunks.
+- Decision: Introduce a per-tenant ingestion queue with a short coalescing window.
+  - Why: smooths bursty chunk delivery and reduces concurrent DB spikes while preserving tenant order.
 - Decision: Use bounded parallelism inside SyncIngestor (Task.async_stream).
   - Why: keeps DB load stable while increasing throughput.
 - Decision: Use insert_all upsert for device records.

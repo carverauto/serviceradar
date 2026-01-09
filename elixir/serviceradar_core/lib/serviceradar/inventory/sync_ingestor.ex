@@ -172,8 +172,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     Repo.all(query, prefix: tenant_schema)
     |> Enum.reduce(%{}, fn {type, value, partition, device_id}, acc ->
-      key = {String.to_atom(type), value, partition}
-      Map.put(acc, key, device_id)
+      type_atom =
+        case type do
+          type when is_binary(type) -> String.to_atom(type)
+          type when is_atom(type) -> type
+          _ -> nil
+        end
+
+      if type_atom == nil do
+        acc
+      else
+        key = {type_atom, value, partition}
+        Map.put(acc, key, device_id)
+      end
     end)
   rescue
     e ->

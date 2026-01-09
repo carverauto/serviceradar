@@ -129,8 +129,12 @@ spec:
           value: {{ default 500 .Values.core.database.queueIntervalMs | quote }}
         - name: SYNC_INGESTOR_BATCH_CONCURRENCY
           value: {{ default 2 .Values.core.syncIngestor.batchConcurrency | quote }}
+        - name: SYNC_INGESTOR_COALESCE_MS
+          value: {{ default 250 .Values.core.syncIngestor.coalesceMs | quote }}
         - name: SYNC_INGESTOR_MAX_INFLIGHT
           value: {{ default 2 .Values.core.syncIngestor.maxInflight | quote }}
+        - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+          value: {{ default 10 .Values.core.syncIngestor.queueMaxChunks | quote }}
         - name: SYNC_INGESTOR_ASYNC
           value: {{ ternary "true" "false" (default true .Values.core.syncIngestor.async) | quote }}
 {{ include "serviceradar.kvEnv" . | indent 8 }}
