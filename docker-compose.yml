@@ -159,6 +159,12 @@ services:
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
       - CLOAK_KEY=${CLOAK_KEY:-}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
+      - POOL_SIZE=${POOL_SIZE:-20}
+      - DATABASE_QUEUE_TARGET_MS=${DATABASE_QUEUE_TARGET_MS:-500}
+      - DATABASE_QUEUE_INTERVAL_MS=${DATABASE_QUEUE_INTERVAL_MS:-500}
+      - SYNC_INGESTOR_BATCH_CONCURRENCY=${SYNC_INGESTOR_BATCH_CONCURRENCY:-2}
+      - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
+      - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
       - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
@@ -191,7 +197,7 @@ services:
       - cert-data:/etc/serviceradar/certs:ro
       - ./docker/compose/ssl_dist.core.conf:/etc/serviceradar/ssl_dist.conf:ro
       - cloak-key:/etc/serviceradar/cloak:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
@@ -218,7 +224,7 @@ services:
     image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
     container_name: serviceradar-nats-creds-init
     volumes:
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds
       - ./docker/compose/creds:/seed/creds:ro
     environment:
       - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
@@ -287,7 +293,7 @@ services:
     container_name: serviceradar-nats-config-init
     volumes:
       - nats-data:/data
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
     depends_on:
       nats-creds-init:
         condition: service_completed_successfully
@@ -324,7 +330,7 @@ services:
     volumes:
       - nats-data:/data
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - ./docker/compose/nats.docker.conf:/etc/nats/nats-server.conf:ro
     command: ["--config", "/etc/nats/nats-server.conf"]
     depends_on:
@@ -349,7 +355,7 @@ services:
     volumes:
       - ./docker/compose/datasvc.mtls.json:/etc/serviceradar/datasvc.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - datasvc-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -478,7 +484,7 @@ services:
     volumes:
       - ./docker/compose/otel.docker.toml:/etc/serviceradar/otel.toml:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - otel-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -512,7 +518,7 @@ services:
     volumes:
       - ./docker/compose/flowgger.docker.toml:/etc/serviceradar/flowgger.toml:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - flowgger-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -548,7 +554,7 @@ services:
     volumes:
       - ./docker/compose/trapd.docker.json:/etc/serviceradar/trapd.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - trapd-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -583,7 +589,7 @@ services:
     volumes:
       - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - zen-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
@@ -618,7 +624,7 @@ services:
     volumes:
       - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
       - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
+      - ${NATS_CREDS_DIR:-./docker/compose/creds}:/etc/serviceradar/creds:ro
       - db-event-writer-data:/var/lib/serviceradar
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar

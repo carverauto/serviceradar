@@ -77,6 +77,14 @@ checkerTemplates:
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  database:
+    poolSize: 20
+    queueTargetMs: 500
+    queueIntervalMs: 500
+  syncIngestor:
+    batchConcurrency: 2
+    maxInflight: 2
+    async: true
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job

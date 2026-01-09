@@ -67,7 +67,11 @@ defmodule ServiceRadar.StatusHandler do
     async_enabled = Application.get_env(:serviceradar_core, :sync_ingestor_async, true)
 
     if async_enabled do
-      start_ingestion_task(message, tenant_id)
+      case start_ingestion_task(message, tenant_id) do
+        :ok -> :ok
+        {:error, :inflight_limit} -> ingest_sync_results(message, tenant_id)
+        {:error, _} = error -> error
+      end
     else
       ingest_sync_results(message, tenant_id)
     end
@@ -78,8 +82,19 @@ defmodule ServiceRadar.StatusHandler do
 
     task_result =
       case Process.whereis(ServiceRadar.SyncIngestor.TaskSupervisor) do
-        nil -> Task.start(task_fun)
-        _pid -> Task.Supervisor.start_child(ServiceRadar.SyncIngestor.TaskSupervisor, task_fun)
+        nil ->
+          Task.start(task_fun)
+
+        _pid ->
+          max_inflight = max_inflight_chunks()
+          %{active: active} =
+            Supervisor.count_children(ServiceRadar.SyncIngestor.TaskSupervisor)
+
+          if active >= max_inflight do
+            {:error, :inflight_limit}
+          else
+            Task.Supervisor.start_child(ServiceRadar.SyncIngestor.TaskSupervisor, task_fun)
+          end
       end
 
     case task_result do
@@ -90,6 +105,16 @@ defmodule ServiceRadar.StatusHandler do
 
       _ ->
         :ok
+    end
+  end
+
+  defp max_inflight_chunks do
+    configured = Application.get_env(:serviceradar_core, :sync_ingestor_max_inflight, 2)
+
+    if is_integer(configured) and configured > 0 do
+      configured
+    else
+      1
     end
   end
 
