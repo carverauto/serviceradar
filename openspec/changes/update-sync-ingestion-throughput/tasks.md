@@ -9,7 +9,7 @@
 - [x] 1.8 Update StatusHandler to enqueue sync chunks instead of immediate ingestion
 
 ## 2. Tests
-- [ ] 2.1 Add/extend sync ingestion tests to cover parallel batch processing
-- [ ] 2.2 Add regression test for device upsert under concurrent batches
-- [ ] 2.3 Add audit writer UUID encoding test
-- [ ] 2.4 Add tests for tenant queue coalescing and ordering
+- [x] 2.1 Add/extend sync ingestion tests to cover parallel batch processing
+- [x] 2.2 Add regression test for device upsert under concurrent batches
+- [x] 2.3 Add audit writer UUID encoding test
+- [x] 2.4 Add tests for tenant queue coalescing and ordering
