@@ -738,7 +738,7 @@ mod tests {
             limit: 100,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some(crate::parser::StatsSpec::from_raw(&stats)),
+            stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
         }

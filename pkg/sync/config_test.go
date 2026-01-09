@@ -24,94 +24,108 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetEffectiveDiscoveryInterval(t *testing.T) {
-	tests := []struct {
-		name           string
-		globalInterval models.Duration
-		sourceInterval models.Duration
-		expected       time.Duration
-	}{
-		{
-			name:           "per-source interval overrides global",
-			globalInterval: models.Duration(6 * time.Hour),
-			sourceInterval: models.Duration(30 * time.Minute),
-			expected:       30 * time.Minute,
-		},
-		{
-			name:           "zero source interval uses global",
-			globalInterval: models.Duration(6 * time.Hour),
-			sourceInterval: 0,
-			expected:       6 * time.Hour,
-		},
-		{
-			name:           "nil source uses global",
-			globalInterval: models.Duration(2 * time.Hour),
-			sourceInterval: 0, // will pass nil source
-			expected:       2 * time.Hour,
-		},
-	}
+type intervalTestCase struct {
+	name           string
+	globalInterval models.Duration
+	sourceInterval models.Duration
+	expected       time.Duration
+	nilSource      bool
+}
+
+func runEffectiveIntervalTests(
+	t *testing.T,
+	tests []intervalTestCase,
+	setConfig func(*Config, models.Duration),
+	setSource func(*models.SourceConfig, models.Duration),
+	getInterval func(*Config, *models.SourceConfig) time.Duration,
+) {
+	t.Helper()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				DiscoveryInterval: tt.globalInterval,
-			}
+			cfg := &Config{}
+			setConfig(cfg, tt.globalInterval)
 
 			var source *models.SourceConfig
-			if tt.name != "nil source uses global" {
-				source = &models.SourceConfig{
-					DiscoveryInterval: tt.sourceInterval,
-				}
+			if !tt.nilSource {
+				source = &models.SourceConfig{}
+				setSource(source, tt.sourceInterval)
 			}
 
-			result := cfg.GetEffectiveDiscoveryInterval(source)
+			result := getInterval(cfg, source)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestGetEffectivePollInterval(t *testing.T) {
-	tests := []struct {
+func TestGetEffectiveIntervals(t *testing.T) {
+	type intervalSuite struct {
 		name           string
-		globalInterval models.Duration
-		sourceInterval models.Duration
-		expected       time.Duration
-	}{
+		globalPrimary  time.Duration
+		sourceOverride time.Duration
+		globalNil      time.Duration
+		setConfig      func(*Config, models.Duration)
+		setSource      func(*models.SourceConfig, models.Duration)
+		get            func(*Config, *models.SourceConfig) time.Duration
+	}
+
+	suites := []intervalSuite{
 		{
-			name:           "per-source interval overrides global",
-			globalInterval: models.Duration(5 * time.Minute),
-			sourceInterval: models.Duration(1 * time.Minute),
-			expected:       1 * time.Minute,
+			name:           "discovery interval",
+			globalPrimary:  6 * time.Hour,
+			sourceOverride: 30 * time.Minute,
+			globalNil:      2 * time.Hour,
+			setConfig: func(cfg *Config, interval models.Duration) {
+				cfg.DiscoveryInterval = interval
+			},
+			setSource: func(source *models.SourceConfig, interval models.Duration) {
+				source.DiscoveryInterval = interval
+			},
+			get: func(cfg *Config, source *models.SourceConfig) time.Duration {
+				return cfg.GetEffectiveDiscoveryInterval(source)
+			},
 		},
 		{
-			name:           "zero source interval uses global",
-			globalInterval: models.Duration(5 * time.Minute),
-			sourceInterval: 0,
-			expected:       5 * time.Minute,
-		},
-		{
-			name:           "nil source uses global",
-			globalInterval: models.Duration(10 * time.Minute),
-			sourceInterval: 0,
-			expected:       10 * time.Minute,
+			name:           "poll interval",
+			globalPrimary:  5 * time.Minute,
+			sourceOverride: 1 * time.Minute,
+			globalNil:      10 * time.Minute,
+			setConfig: func(cfg *Config, interval models.Duration) {
+				cfg.PollInterval = interval
+			},
+			setSource: func(source *models.SourceConfig, interval models.Duration) {
+				source.PollInterval = interval
+			},
+			get: func(cfg *Config, source *models.SourceConfig) time.Duration {
+				return cfg.GetEffectivePollInterval(source)
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{
-				PollInterval: tt.globalInterval,
+	for _, suite := range suites {
+		t.Run(suite.name, func(t *testing.T) {
+			tests := []intervalTestCase{
+				{
+					name:           "per-source interval overrides global",
+					globalInterval: models.Duration(suite.globalPrimary),
+					sourceInterval: models.Duration(suite.sourceOverride),
+					expected:       suite.sourceOverride,
+				},
+				{
+					name:           "zero source interval uses global",
+					globalInterval: models.Duration(suite.globalPrimary),
+					sourceInterval: 0,
+					expected:       suite.globalPrimary,
+				},
+				{
+					name:           "nil source uses global",
+					globalInterval: models.Duration(suite.globalNil),
+					expected:       suite.globalNil,
+					nilSource:      true,
+				},
 			}
 
-			var source *models.SourceConfig
-			if tt.name != "nil source uses global" {
-				source = &models.SourceConfig{
-					PollInterval: tt.sourceInterval,
-				}
-			}
-
-			result := cfg.GetEffectivePollInterval(source)
-			assert.Equal(t, tt.expected, result)
+			runEffectiveIntervalTests(t, tests, suite.setConfig, suite.setSource, suite.get)
 		})
 	}
 }

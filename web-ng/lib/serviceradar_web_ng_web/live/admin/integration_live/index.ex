@@ -58,6 +58,19 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     }
   end
 
+  defp toggle_sweep_mode_for_query(query, target_id, mode) do
+    if query["id"] == target_id do
+      modes = Map.get(query, "sweep_modes", [])
+      Map.put(query, "sweep_modes", toggle_mode(modes, mode))
+    else
+      query
+    end
+  end
+
+  defp toggle_mode(modes, mode) do
+    if mode in modes, do: List.delete(modes, mode), else: modes ++ [mode]
+  end
+
   @impl true
   def handle_params(params, _url, socket) do
     {:noreply, apply_action(socket, socket.assigns.live_action, params)}
@@ -231,20 +244,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     id = String.to_integer(id)
 
     queries =
-      Enum.map(socket.assigns.form_queries, fn q ->
-        if q["id"] == id do
-          modes = q["sweep_modes"] || []
-
-          new_modes =
-            if mode in modes,
-              do: List.delete(modes, mode),
-              else: modes ++ [mode]
-
-          Map.put(q, "sweep_modes", new_modes)
-        else
-          q
-        end
-      end)
+      Enum.map(socket.assigns.form_queries, &toggle_sweep_mode_for_query(&1, id, mode))
 
     {:noreply, assign(socket, :form_queries, queries)}
   end
