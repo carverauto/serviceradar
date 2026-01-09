@@ -92,6 +92,9 @@ defmodule ServiceRadar.Application do
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
+        # Task supervisor for sync ingestion work
+        sync_ingestor_task_supervisor_child(),
+
         # Status handler for agent-gateway push results
         status_handler_child(),
 
@@ -200,6 +203,10 @@ defmodule ServiceRadar.Application do
     else
       nil
     end
+  end
+
+  defp sync_ingestor_task_supervisor_child do
+    {Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor}
   end
 
   defp registry_children do

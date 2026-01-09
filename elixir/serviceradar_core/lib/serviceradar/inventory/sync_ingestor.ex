@@ -24,33 +24,55 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     updates = List.wrap(updates)
     total_count = length(updates)
+    batch_concurrency = batch_concurrency()
 
     Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}")
     start_time = System.monotonic_time(:millisecond)
 
-    # Process in batches
-    updates
-    |> Enum.chunk_every(@batch_size)
-    |> Enum.with_index(1)
-    |> Enum.each(fn {batch, batch_num} ->
-      batch_start = System.monotonic_time(:millisecond)
-      ingest_batch(batch, tenant_schema, actor)
-      batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+    batches =
+      updates
+      |> Enum.chunk_every(@batch_size)
+      |> Enum.with_index(1)
 
-      total_batches = ceil(total_count / @batch_size)
-      Logger.debug(
-        "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
-      )
-    end)
+    total_batches = ceil(total_count / @batch_size)
+
+    result =
+      batches
+      |> Task.async_stream(
+      fn {batch, batch_num} ->
+        batch_start = System.monotonic_time(:millisecond)
+        ingest_batch(batch, tenant_schema, actor)
+        batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+
+        Logger.debug(
+          "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
+        )
+
+        :ok
+      end,
+      max_concurrency: batch_concurrency,
+      timeout: :infinity,
+      ordered: false
+    )
+      |> Enum.reduce_while(:ok, fn
+        {:ok, :ok}, _acc ->
+          {:cont, :ok}
+
+        {:ok, {:error, reason}}, _acc ->
+          {:halt, {:error, reason}}
+
+        {:exit, reason}, _acc ->
+          {:halt, {:error, reason}}
+      end)
 
     elapsed = System.monotonic_time(:millisecond) - start_time
     rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
     Logger.info("SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)")
 
-    :ok
+    result
   end
 
-  defp ingest_batch(updates, tenant_schema, actor) do
+  defp ingest_batch(updates, tenant_schema, _actor) do
     # Step 1: Normalize all updates
     normalized_updates = Enum.map(updates, &normalize_update/1)
 
@@ -74,28 +96,32 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         {update, device_id}
       end)
 
-    # Step 6: Bulk lookup existing devices by UID
-    device_ids = Enum.map(resolved_updates, fn {_, id} -> id end) |> Enum.uniq()
-    existing_devices = bulk_lookup_devices_by_uid(device_ids, tenant_schema)
+    # Step 6: Build device upsert records
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+    device_records = build_device_upsert_records(resolved_updates, timestamp)
 
-    # Step 7: Separate creates vs updates
-    timestamp = DateTime.utc_now()
-    {to_create, to_update} = partition_creates_and_updates(resolved_updates, existing_devices, timestamp)
+    # Step 7: Bulk upsert devices
+    device_result =
+      if length(device_records) > 0 do
+        bulk_upsert_devices(device_records, tenant_schema)
+      else
+        :ok
+      end
 
-    # Step 8: Bulk create new devices
-    if length(to_create) > 0 do
-      bulk_create_devices(to_create, tenant_schema)
-    end
-
-    # Step 9: Bulk update existing devices
-    if length(to_update) > 0 do
-      bulk_update_devices(to_update, tenant_schema)
-    end
-
-    # Step 10: Bulk upsert device identifiers
+    # Step 8: Bulk upsert device identifiers
     identifier_records = build_identifier_records(resolved_updates)
-    if length(identifier_records) > 0 do
-      bulk_upsert_identifiers(identifier_records, tenant_schema)
+    identifier_result =
+      if length(identifier_records) > 0 do
+        bulk_upsert_identifiers(identifier_records, tenant_schema)
+      else
+        :ok
+      end
+
+    case {device_result, identifier_result} do
+      {:ok, :ok} -> :ok
+      {{:error, _} = error, _} -> error
+      {_, {:error, _} = error} -> error
+      _ -> :ok
     end
   end
 
@@ -119,7 +145,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
 
   # Bulk lookup device identifiers - single query for all identifiers
-  defp bulk_lookup_identifiers(identifiers, tenant_schema) when length(identifiers) == 0 do
+  defp bulk_lookup_identifiers(identifiers, _tenant_schema) when length(identifiers) == 0 do
     %{}
   end
 
@@ -221,131 +247,57 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     Map.get(mappings, {type, value, partition})
   end
 
-  # Bulk lookup devices by UID
-  defp bulk_lookup_devices_by_uid(device_ids, _tenant_schema) when length(device_ids) == 0 do
-    MapSet.new()
-  end
+  defp build_device_upsert_records(resolved_updates, timestamp) do
+    resolved_updates
+    |> Enum.reduce(%{}, fn {update, device_id}, acc ->
+      record = %{
+        uid: device_id,
+        ip: update.ip,
+        mac: update.mac,
+        hostname: update.hostname,
+        name: update.hostname || update.ip,
+        is_available: update.is_available || false,
+        metadata: update.metadata || %{},
+        first_seen_time: timestamp,
+        last_seen_time: timestamp,
+        created_time: timestamp,
+        modified_time: timestamp
+      }
 
-  defp bulk_lookup_devices_by_uid(device_ids, tenant_schema) do
-    query =
-      from(d in Device,
-        where: d.uid in ^device_ids,
-        select: d.uid
-      )
-
-    Repo.all(query, prefix: tenant_schema)
-    |> MapSet.new()
-  rescue
-    e ->
-      Logger.warning("Bulk device lookup failed: #{inspect(e)}")
-      MapSet.new()
-  end
-
-  # Partition updates into creates and updates
-  defp partition_creates_and_updates(resolved_updates, existing_devices, timestamp) do
-    Enum.reduce(resolved_updates, {[], []}, fn {update, device_id}, {creates, updates} ->
-      {create_attrs, update_attrs} = build_device_attrs(update, device_id, timestamp)
-
-      if MapSet.member?(existing_devices, device_id) do
-        update_attrs = Map.put(update_attrs, :uid, device_id)
-        update_attrs = Map.put(update_attrs, :last_seen_time, timestamp)
-        {creates, [update_attrs | updates]}
-      else
-        {[create_attrs | creates], updates}
-      end
+      Map.put(acc, device_id, record)
     end)
+    |> Map.values()
   end
 
-  # Bulk create devices using insert_all
-  defp bulk_create_devices(records, tenant_schema) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # Prepare records for insert_all (need to add timestamps and convert to maps)
-    insert_records =
-      records
-      |> Enum.map(fn attrs ->
-        %{
-          id: Ecto.UUID.generate(),
-          uid: attrs[:uid],
-          ip: attrs[:ip],
-          mac: attrs[:mac],
-          hostname: attrs[:hostname],
-          name: attrs[:name] || attrs[:hostname] || attrs[:ip],
-          is_available: attrs[:is_available] || false,
-          metadata: attrs[:metadata] || %{},
-          first_seen_time: attrs[:first_seen_time] || now,
-          last_seen_time: now,
-          created_time: attrs[:created_time] || now,
-          modified_time: now
-        }
-      end)
-      |> Enum.uniq_by(& &1.uid)  # Dedupe by uid within batch
-
-    if length(insert_records) > 0 do
-      Repo.insert_all(
-        Device,
-        insert_records,
-        prefix: tenant_schema,
-        on_conflict: :nothing,  # Skip conflicts (device already exists)
-        conflict_target: [:uid]
+  defp bulk_upsert_devices(records, tenant_schema) do
+    update_query =
+      from(d in Device,
+        update: [
+          set: [
+            ip: fragment("COALESCE(EXCLUDED.ip, ?)", d.ip),
+            mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
+            hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
+            name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+            is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
+            metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
+            last_seen_time: fragment("EXCLUDED.last_seen_time"),
+            modified_time: fragment("EXCLUDED.modified_time")
+          ]
+        ]
       )
-    end
+
+    Repo.insert_all(
+      Device,
+      records,
+      prefix: tenant_schema,
+      on_conflict: update_query,
+      conflict_target: [:uid]
+    )
+    :ok
   rescue
     e ->
-      Logger.warning("Bulk device create failed: #{inspect(e)}, falling back to individual creates")
-      # Fallback to individual creates for better error handling
-      Enum.each(records, fn attrs ->
-        try do
-          Device
-          |> Ash.Changeset.for_create(:create, attrs)
-          |> Ash.create(tenant: tenant_schema, authorize?: false)
-        rescue
-          _ -> :ok
-        end
-      end)
-  end
-
-  # Bulk update devices - using update_all with CASE statement
-  defp bulk_update_devices(records, tenant_schema) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # Group updates by uid
-    records_by_uid = Map.new(records, fn r -> {r.uid, r} end)
-    uids = Map.keys(records_by_uid)
-
-    if length(uids) > 0 do
-      # For bulk updates, we do multiple smaller updates grouped by field values
-      # to avoid overly complex queries. Update in smaller batches.
-      Enum.chunk_every(uids, 100)
-      |> Enum.each(fn uid_batch ->
-        batch_records = Enum.map(uid_batch, &Map.get(records_by_uid, &1))
-
-        # Update each device individually but with minimal overhead
-        # This is still faster than Ash changesets due to reduced overhead
-        Enum.each(batch_records, fn attrs ->
-          uid = attrs.uid
-
-          update_fields = %{
-            ip: attrs[:ip],
-            mac: attrs[:mac],
-            hostname: attrs[:hostname],
-            name: attrs[:name] || attrs[:hostname] || attrs[:ip],
-            is_available: attrs[:is_available] || false,
-            metadata: attrs[:metadata] || %{},
-            last_seen_time: attrs[:last_seen_time] || now,
-            modified_time: now
-          }
-          |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-          |> Map.new()
-
-          from(d in Device, where: d.uid == ^uid)
-          |> Repo.update_all([set: Map.to_list(update_fields)], prefix: tenant_schema)
-        end)
-      end)
-    end
-  rescue
-    e ->
-      Logger.warning("Bulk device update failed: #{inspect(e)}")
+      Logger.warning("Bulk device upsert failed: #{inspect(e)}")
+      {:error, e}
   end
 
   # Build identifier records for bulk upsert
@@ -397,9 +349,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         conflict_target: [:identifier_type, :identifier_value, :partition]
       )
     end
+
+    :ok
   rescue
     e ->
       Logger.warning("Bulk identifier upsert failed: #{inspect(e)}")
+      {:error, e}
   end
 
   defp normalize_update(update) when is_map(update) do
@@ -428,25 +383,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     }
   end
 
-  defp build_device_attrs(update, device_id, timestamp) do
-    metadata = update.metadata || %{}
+  defp batch_concurrency do
+    configured =
+      Application.get_env(
+        :serviceradar_core,
+        :sync_ingestor_batch_concurrency,
+        System.schedulers_online()
+      )
 
-    update_attrs = %{
-      ip: update.ip,
-      mac: update.mac,
-      hostname: update.hostname,
-      name: update.hostname || update.ip,
-      is_available: update.is_available,
-      metadata: metadata
-    }
-
-    create_attrs =
-      update_attrs
-      |> Map.put(:uid, device_id)
-      |> Map.put(:first_seen_time, timestamp)
-      |> Map.put(:created_time, timestamp)
-
-    {create_attrs, update_attrs}
+    if is_integer(configured) and configured > 0 do
+      configured
+    else
+      System.schedulers_online()
+    end
   end
 
   defp parse_timestamp(nil), do: nil

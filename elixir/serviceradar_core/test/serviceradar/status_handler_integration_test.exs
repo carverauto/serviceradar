@@ -16,6 +16,21 @@ defmodule ServiceRadar.StatusHandlerIntegrationTest do
     :ok
   end
 
+  setup do
+    previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
+    Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
+
+    on_exit(fn ->
+      if is_nil(previous_async) do
+        Application.delete_env(:serviceradar_core, :sync_ingestor_async)
+      else
+        Application.put_env(:serviceradar_core, :sync_ingestor_async, previous_async)
+      end
+    end)
+
+    :ok
+  end
+
   test "sync status update creates device and identifiers" do
     tenant = create_tenant!("sync-flow")
     tenant_id = to_string(tenant.id)

@@ -92,8 +92,9 @@ defmodule ServiceRadar.Events.AuditWriter do
   def write(opts) do
     with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
          {:ok, schema} <- resolve_tenant_schema(tenant_id),
-         {:ok, event} <- build_event(opts) do
-      case Repo.insert_all("ocsf_events", [event], prefix: schema, on_conflict: :nothing) do
+         {:ok, event} <- build_event(opts),
+         {:ok, encoded_event} <- encode_event(event) do
+      case Repo.insert_all("ocsf_events", [encoded_event], prefix: schema, on_conflict: :nothing) do
         {1, _} -> :ok
         {0, _} -> {:error, :insert_failed}
       end
@@ -114,6 +115,22 @@ defmodule ServiceRadar.Events.AuditWriter do
 
       schema ->
         {:ok, schema}
+    end
+  end
+
+  defp encode_event(event) do
+    with {:ok, id} <- dump_uuid(event[:id]),
+         {:ok, tenant_id} <- dump_uuid(event[:tenant_id]) do
+      {:ok, %{event | id: id, tenant_id: tenant_id}}
+    end
+  end
+
+  defp dump_uuid(nil), do: {:ok, nil}
+
+  defp dump_uuid(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, dumped} -> {:ok, dumped}
+      :error -> {:error, {:invalid_uuid, value}}
     end
   end
 

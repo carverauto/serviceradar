@@ -49,24 +49,8 @@ defmodule ServiceRadar.StatusHandler do
       %{source: "results"} ->
         tenant_id = status[:tenant_id]
 
-        Logger.info("Processing sync results for tenant=#{tenant_id}")
-
         if is_binary(tenant_id) and tenant_id != "" do
-          case decode_results(status[:message]) do
-            {:ok, updates} ->
-              Logger.info("Decoded #{length(updates)} sync updates for tenant=#{tenant_id}")
-              actor = system_actor(tenant_id)
-              result = sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
-              Logger.info("SyncIngestor result for tenant=#{tenant_id}: #{inspect(result)}")
-
-              # Record sync status on the IntegrationSource
-              record_sync_status(updates, tenant_id, actor, result)
-
-              result
-
-            {:error, reason} ->
-              {:error, {:invalid_sync_results, reason}}
-          end
+          schedule_sync_ingestion(status, tenant_id)
         else
           {:error, :missing_tenant_id}
         end
@@ -77,6 +61,62 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(_status), do: :ok
+
+  defp schedule_sync_ingestion(status, tenant_id) do
+    message = status[:message]
+    async_enabled = Application.get_env(:serviceradar_core, :sync_ingestor_async, true)
+
+    if async_enabled do
+      start_ingestion_task(message, tenant_id)
+    else
+      ingest_sync_results(message, tenant_id)
+    end
+  end
+
+  defp start_ingestion_task(message, tenant_id) do
+    task_fun = fn -> ingest_sync_results(message, tenant_id) end
+
+    task_result =
+      case Process.whereis(ServiceRadar.SyncIngestor.TaskSupervisor) do
+        nil -> Task.start(task_fun)
+        _pid -> Task.Supervisor.start_child(ServiceRadar.SyncIngestor.TaskSupervisor, task_fun)
+      end
+
+    case task_result do
+      {:ok, _pid} -> :ok
+      {:error, reason} ->
+        Logger.warning("Failed to start sync ingestion task for tenant=#{tenant_id}: #{inspect(reason)}")
+        {:error, reason}
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp ingest_sync_results(message, tenant_id) do
+    Logger.info("Processing sync results for tenant=#{tenant_id}")
+
+    case decode_results(message) do
+      {:ok, updates} ->
+        Logger.info("Decoded #{length(updates)} sync updates for tenant=#{tenant_id}")
+        actor = system_actor(tenant_id)
+        result = sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
+        Logger.info("SyncIngestor result for tenant=#{tenant_id}: #{inspect(result)}")
+
+        # Record sync status on the IntegrationSource
+        record_sync_status(updates, tenant_id, actor, result)
+
+        result
+
+      {:error, reason} ->
+        Logger.warning("Sync results decode failed for tenant=#{tenant_id}: #{inspect(reason)}")
+        {:error, {:invalid_sync_results, reason}}
+    end
+  rescue
+    error ->
+      Logger.warning("Sync results ingestion failed for tenant=#{tenant_id}: #{inspect(error)}")
+      {:error, error}
+  end
 
   # Record sync status on the IntegrationSource if we have a sync_service_id
   defp record_sync_status(updates, tenant_id, actor, ingest_result) do
