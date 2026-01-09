@@ -55,6 +55,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   require Logger
 
+  alias ServiceRadar.Cluster.TenantSchemas
+
   # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
     devices gateways agents events alerts services service_checks
@@ -245,6 +247,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   def query(entity, params, scope \\ nil) do
     with {:ok, resource} <- get_resource(entity),
          {:ok, domain} <- get_domain(entity) do
+      scope = normalize_scope(scope, resource)
+
       # Check if this is a stats query (aggregation)
       case Map.get(params, :stats) do
         stats when is_list(stats) and stats != [] ->
@@ -271,6 +275,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   # Execute a stats/aggregation query
   defp execute_stats_query(query, stats, scope, entity, params) do
+    query =
+      if scope do
+        Ash.Query.for_read(query, :read, %{}, scope: scope)
+      else
+        query
+      end
+
     opts = if scope, do: [scope: scope], else: []
 
     # Build result map from stats
@@ -290,8 +301,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   defp execute_single_stat(query, %{type: :count, alias: _alias}, opts) do
-    case Ash.count(query, opts) do
-      {:ok, count} -> {:ok, count}
+    case Ash.aggregate(query, {:count, :count}, opts) do
+      {:ok, %{count: count}} -> {:ok, count}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -299,8 +310,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp execute_single_stat(query, %{type: :sum, field: field, alias: _alias}, opts) do
     field_atom = String.to_existing_atom(field)
 
-    case Ash.sum(query, field_atom, opts) do
-      {:ok, sum} -> {:ok, sum || 0}
+    case Ash.aggregate(query, {:stat, :sum, field: field_atom}, opts) do
+      {:ok, %{stat: sum}} -> {:ok, sum || 0}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -310,8 +321,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp execute_single_stat(query, %{type: :avg, field: field, alias: _alias}, opts) do
     field_atom = String.to_existing_atom(field)
 
-    case Ash.avg(query, field_atom, opts) do
-      {:ok, avg} -> {:ok, avg || 0}
+    case Ash.aggregate(query, {:stat, :avg, field: field_atom}, opts) do
+      {:ok, %{stat: avg}} -> {:ok, avg || 0}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -321,8 +332,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp execute_single_stat(query, %{type: :min, field: field, alias: _alias}, opts) do
     field_atom = String.to_existing_atom(field)
 
-    case Ash.min(query, field_atom, opts) do
-      {:ok, min} -> {:ok, min || 0}
+    case Ash.aggregate(query, {:stat, :min, field: field_atom}, opts) do
+      {:ok, %{stat: min}} -> {:ok, min || 0}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -332,8 +343,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp execute_single_stat(query, %{type: :max, field: field, alias: _alias}, opts) do
     field_atom = String.to_existing_atom(field)
 
-    case Ash.max(query, field_atom, opts) do
-      {:ok, max} -> {:ok, max || 0}
+    case Ash.aggregate(query, {:stat, :max, field: field_atom}, opts) do
+      {:ok, %{stat: max}} -> {:ok, max || 0}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -386,7 +397,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
     query =
       resource
-      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.new()
       |> apply_filters(entity, Map.get(params, :filters, []))
       |> apply_sort(entity, Map.get(params, :sort))
       |> maybe_apply_offset(offset, apply_pagination?)
@@ -603,6 +614,45 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   # Skip unloaded associations
   defp format_value(value) when is_struct(value), do: nil
   defp format_value(value), do: value
+
+  defp normalize_scope(nil, _resource), do: nil
+
+  defp normalize_scope(scope, resource) do
+    actor = extract_scope_value(Ash.Scope.ToOpts.get_actor(scope))
+    tenant = extract_scope_value(Ash.Scope.ToOpts.get_tenant(scope))
+    context = extract_scope_value(Ash.Scope.ToOpts.get_context(scope))
+    authorize? = extract_scope_value(Ash.Scope.ToOpts.get_authorize?(scope))
+
+    normalized_tenant = normalize_tenant_for_resource(tenant, resource)
+
+    %{}
+    |> maybe_put(:actor, actor)
+    |> maybe_put(:tenant, normalized_tenant)
+    |> maybe_put(:context, context)
+    |> maybe_put(:authorize?, authorize?)
+  end
+
+  defp extract_scope_value({:ok, value}), do: value
+  defp extract_scope_value(:error), do: nil
+  defp extract_scope_value(_), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp normalize_tenant_for_resource(nil, _resource), do: nil
+
+  defp normalize_tenant_for_resource(tenant, resource) do
+    case Ash.Resource.Info.multitenancy_strategy(resource) do
+      :context -> TenantSchemas.schema_for_tenant(tenant)
+      :attribute -> tenant_id_from(tenant)
+      _ -> tenant_id_from(tenant)
+    end
+  end
+
+  defp tenant_id_from(%{id: id}) when is_binary(id), do: id
+  defp tenant_id_from(%{"id" => id}) when is_binary(id), do: id
+  defp tenant_id_from(id) when is_binary(id), do: id
+  defp tenant_id_from(other), do: other
 
   defp normalize_page_results(%Ash.Page.Keyset{} = page), do: {page.results, page}
   defp normalize_page_results(%Ash.Page.Offset{} = page), do: {page.results, page}

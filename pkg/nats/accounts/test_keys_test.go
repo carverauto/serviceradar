@@ -26,6 +26,7 @@ import (
 const testOperatorSeed = "SOAAFY5ZRTNXZC3KR3DIGXIF2CNEXXT3XPHRW2SMVS7WDDSZEOMAU3HDNY"
 const testAccountSeed = "SAAHPPNBNGJS55UFJ25VHHOKBBXFTZRFMOKVOIMD6E23SUDADM2YUDRNRE"
 
+//nolint:gochecknoglobals // test-only globals for sync.Once caching pattern
 var (
 	testOperatorOnce sync.Once
 	testOperator     *Operator
