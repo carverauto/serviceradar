@@ -53,7 +53,8 @@ end
 # Enable cluster in dev for testing
 config :serviceradar_core,
   env: :dev,
-  cluster_enabled: true
+  cluster_enabled: true,
+  status_handler_enabled: true
 
 # Oban in dev mode
 config :serviceradar_core, Oban,

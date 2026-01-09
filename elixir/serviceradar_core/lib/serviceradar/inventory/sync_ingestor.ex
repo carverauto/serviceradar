@@ -33,10 +33,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       case Device.get_by_uid(device_id, tenant: tenant_schema, actor: actor, authorize?: false) do
         {:ok, device} ->
+          update_attrs_with_timestamp = Map.put(update_attrs, :last_seen_time, timestamp)
+
           device
-          |> Ash.Changeset.new()
-          |> Ash.Changeset.change_attribute(:last_seen_time, timestamp)
-          |> Ash.Changeset.for_update(:update, update_attrs)
+          |> Ash.Changeset.for_update(:update, update_attrs_with_timestamp)
           |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
           |> case do
             {:ok, _} -> :ok

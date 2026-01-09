@@ -33,6 +33,9 @@ defmodule ServiceRadar.Application do
   - `:registries_enabled` - Whether to start TenantRegistry (default: true)
   - `:start_ash_oban_scheduler` - Whether to start AshOban schedulers (default: false)
     - Only core-elx should set this to true
+  - `:status_handler_enabled` - Whether to start StatusHandler for agent push results (default: false)
+    - core-elx: true (handles agent-gateway status updates)
+    - web-ng: false (doesn't process agent updates)
 
   ## DB Access Boundaries
 
@@ -223,7 +226,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp status_handler_child do
-    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
     else
       nil

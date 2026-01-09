@@ -274,15 +274,15 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   # Execute a stats/aggregation query
-  defp execute_stats_query(query, stats, scope, entity, params) do
+  defp execute_stats_query(query, stats, scope_opts, entity, params) do
+    opts = scope_opts_to_keyword_list(scope_opts)
+
     query =
-      if scope do
-        Ash.Query.for_read(query, :read, %{}, scope: scope)
+      if scope_opts do
+        Ash.Query.for_read(query, :read, %{}, opts)
       else
         query
       end
-
-    opts = if scope, do: [scope: scope], else: []
 
     # Build result map from stats
     result =
@@ -552,11 +552,15 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_offset(query, _), do: query
 
   # Execute the query against the Ash domain
-  # Uses scope: option which automatically extracts actor/tenant via Ash.Scope.ToOpts
-  defp execute_query(_domain, query, scope) do
-    opts = if scope, do: [scope: scope], else: []
+  # Takes normalized scope map with :actor, :tenant, :context, :authorize? keys
+  defp execute_query(_domain, query, scope_opts) do
+    opts = scope_opts_to_keyword_list(scope_opts)
     Ash.read(query, opts)
   end
+
+  defp scope_opts_to_keyword_list(nil), do: []
+  defp scope_opts_to_keyword_list(opts) when is_map(opts), do: Map.to_list(opts)
+  defp scope_opts_to_keyword_list(_), do: []
 
   # Format the response to match SRQL response format
   defp format_response(results, entity, params, offset) do

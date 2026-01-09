@@ -342,9 +342,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     limit = parse_gateways_limit(Map.get(params, "gateways_limit"))
     cursor = normalize_optional_string(Map.get(params, "gateways_cursor"))
     query = "in:gateways sort:last_seen:desc limit:#{limit}"
-    actor = get_actor(socket)
+    scope = get_scope(socket)
 
-    case srql_module().query(query, %{cursor: cursor, limit: limit, actor: actor}) do
+    case srql_module().query(query, %{cursor: cursor, limit: limit, scope: scope}) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
         pagination =
           case Map.get(resp, "pagination") do
@@ -720,9 +720,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp load_summary(socket) do
     current_query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query)
     summary_query = summary_query_for(current_query)
-    actor = get_actor(socket)
+    scope = get_scope(socket)
 
-    case srql_module().query(summary_query, %{limit: @summary_limit, actor: actor}) do
+    case srql_module().query(summary_query, %{limit: @summary_limit, scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         compute_summary(results)
 
@@ -884,11 +884,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp service_name_value(_), do: nil
 
-  # Extract actor (user) from socket for Ash policy enforcement
-  defp get_actor(socket) do
-    case socket.assigns do
-      %{current_scope: %{user: user}} when not is_nil(user) -> user
-      _ -> nil
-    end
+  # Extract scope from socket for Ash policy enforcement (includes actor and tenant)
+  defp get_scope(socket) do
+    Map.get(socket.assigns, :current_scope)
   end
 end
