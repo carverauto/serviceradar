@@ -54,11 +54,13 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   defp load_sources(agent_id, tenant_id) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
+    # Include sources assigned to this specific agent OR sources with no agent (auto-assign)
+    # Load credentials_encrypted first (so AshCloak can decrypt it), then the credentials calculation
     query =
       IntegrationSource
       |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
-      |> Ash.Query.filter(enabled == true and agent_id == ^agent_id)
-      |> Ash.Query.load(:credentials)
+      |> Ash.Query.filter(enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
+      |> Ash.Query.load([:credentials_encrypted, :credentials])
       |> Ash.Query.sort(name: :asc)
 
     case Ash.read(query, authorize?: false) do

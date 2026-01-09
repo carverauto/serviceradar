@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       |> assign(:show_edit_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_source, nil)
-      |> assign(:create_form, build_create_form(tenant_id))
+      |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
       |> assign(:edit_form, nil)
       |> assign(:filter_type, nil)
       |> assign(:filter_enabled, nil)
@@ -88,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:ok, source} ->
         socket
         |> assign(:selected_source, source)
-        |> assign(:edit_form, build_edit_form(source))
+        |> assign(:edit_form, build_edit_form(source, get_actor(socket)))
         |> assign(:show_edit_modal, true)
 
       {:error, _} ->
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:noreply,
        socket
        |> assign(:show_create_modal, true)
-       |> assign(:create_form, build_create_form(tenant_id))
+       |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
        |> assign(:agents, agents)
        |> assign(:agent_index, agent_index)
        |> assign(:agent_options, agent_options)}
@@ -127,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, build_create_form(tenant_id))}
+     |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))}
   end
 
   def handle_event("close_edit_modal", _params, socket) do
@@ -184,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
            socket
            |> assign(:show_create_modal, false)
            |> assign(:sources, list_sources(tenant_id))
-           |> assign(:create_form, build_create_form(tenant_id))
+           |> assign(:create_form, build_create_form(tenant_id, actor))
            |> put_flash(:info, "Integration source created successfully")}
 
         {:error, form} ->
@@ -921,7 +921,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp list_sources(tenant_id, filters \\ %{}) do
     schema = tenant_schema(tenant_id)
-    opts = [tenant: schema]
+    opts = [tenant: schema, authorize?: false]
 
     case Map.get(filters, :source_type) do
       nil ->
@@ -967,16 +967,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp get_source(id, tenant_id) do
     schema = tenant_schema(tenant_id)
-    IntegrationSource.get_by_id(id, tenant: schema)
+    IntegrationSource.get_by_id(id, tenant: schema, authorize?: false)
   end
 
-  defp build_create_form(tenant_id) do
+  defp build_create_form(tenant_id, actor) do
     schema = tenant_schema(tenant_id)
 
     IntegrationSource
     |> AshPhoenix.Form.for_create(:create,
       domain: Integrations,
       tenant: schema,
+      actor: actor,
       transform_params: fn _form, params, _action ->
         # Set tenant_id
         params = Map.put(params, "tenant_id", tenant_id)
@@ -997,10 +998,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     |> to_form()
   end
 
-  defp build_edit_form(source) do
+  defp build_edit_form(source, actor) do
     source
     |> AshPhoenix.Form.for_update(:update,
       domain: Integrations,
+      actor: actor,
       transform_params: fn _form, params, _action ->
         normalize_optional_params(params)
       end
