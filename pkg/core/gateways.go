@@ -167,6 +167,8 @@ func (s *Server) flushGatewayStatusUpdates(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.ShutdownChan:
+			return
 		case <-ticker.C:
 			s.gatewayStatusUpdateMutex.Lock()
 			updates := s.gatewayStatusUpdates
