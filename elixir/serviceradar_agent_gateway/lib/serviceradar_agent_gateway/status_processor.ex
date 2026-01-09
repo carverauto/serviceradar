@@ -111,12 +111,23 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     partition = status[:partition]
     agent_id = status[:agent_id]
     service_name = status[:service_name]
+    service_type = status[:service_type]
+    source = status[:source]
     _tenant_id = status[:tenant_id]
     tenant_slug = status[:tenant_slug]
 
-    Logger.debug(
-      "Forwarding status to core: tenant=#{tenant_slug} partition=#{partition} agent=#{agent_id} service=#{service_name}"
-    )
+    # Log at info level for sync results to trace the flow
+    if service_type == "sync" and source == "results" do
+      Logger.info(
+        "Forwarding sync results to core: tenant=#{tenant_slug} partition=#{partition} " <>
+          "agent=#{agent_id} service=#{service_name}"
+      )
+    else
+      Logger.debug(
+        "Forwarding status to core: tenant=#{tenant_slug} partition=#{partition} " <>
+          "agent=#{agent_id} service=#{service_name}"
+      )
+    end
 
     # Try to forward to the core cluster
     # First check if we have a local core process, then try distributed
@@ -152,13 +163,22 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # Forward to distributed core process via RPC
   defp forward_distributed(status) do
     tenant_slug = status[:tenant_slug] || "default"
+    service_type = status[:service_type]
+    source = status[:source]
+    is_sync_results = service_type == "sync" and source == "results"
 
     case find_status_handler_node() do
       {:ok, node} ->
         try do
           # Cast to StatusHandler on the remote node
           GenServer.cast({ServiceRadar.StatusHandler, node}, {:status_update, status})
-          Logger.debug("Forwarded status to StatusHandler on #{node} for tenant=#{tenant_slug}")
+
+          if is_sync_results do
+            Logger.info("Forwarded sync results to StatusHandler on #{node} for tenant=#{tenant_slug}")
+          else
+            Logger.debug("Forwarded status to StatusHandler on #{node} for tenant=#{tenant_slug}")
+          end
+
           :ok
         catch
           :exit, reason ->
@@ -167,7 +187,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
         end
 
       {:error, :not_found} ->
-        Logger.debug("No StatusHandler found on any node, queuing for retry")
+        if is_sync_results do
+          Logger.warning("No StatusHandler found on any node for sync results, queuing for retry")
+        else
+          Logger.debug("No StatusHandler found on any node, queuing for retry")
+        end
+
         queue_for_retry(status)
     end
   end

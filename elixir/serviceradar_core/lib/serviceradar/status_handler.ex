@@ -19,11 +19,22 @@ defmodule ServiceRadar.StatusHandler do
 
   @impl true
   def init(state) do
+    Logger.info("StatusHandler started on node #{Node.self()}")
     {:ok, state}
   end
 
   @impl true
   def handle_cast({:status_update, status}, state) do
+    service_type = status[:service_type] || "unknown"
+    source = status[:source] || "unknown"
+    tenant_id = status[:tenant_id] || "unknown"
+    service_name = status[:service_name] || "unknown"
+
+    Logger.info(
+      "StatusHandler received: service_type=#{service_type} source=#{source} " <>
+        "tenant=#{tenant_id} service=#{service_name}"
+    )
+
     case process(status) do
       :ok -> :ok
       {:error, reason} ->
@@ -38,11 +49,15 @@ defmodule ServiceRadar.StatusHandler do
       %{source: "results"} ->
         tenant_id = status[:tenant_id]
 
+        Logger.info("Processing sync results for tenant=#{tenant_id}")
+
         if is_binary(tenant_id) and tenant_id != "" do
           case decode_results(status[:message]) do
             {:ok, updates} ->
+              Logger.info("Decoded #{length(updates)} sync updates for tenant=#{tenant_id}")
               actor = system_actor(tenant_id)
               result = sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
+              Logger.info("SyncIngestor result for tenant=#{tenant_id}: #{inspect(result)}")
 
               # Record sync status on the IntegrationSource
               record_sync_status(updates, tenant_id, actor, result)

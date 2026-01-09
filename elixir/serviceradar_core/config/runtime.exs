@@ -87,11 +87,11 @@ if config_env() == :prod do
   config :serviceradar_core,
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-config :serviceradar_core,
-  run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+  config :serviceradar_core,
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
-config :serviceradar_core,
-  reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
+  config :serviceradar_core,
+    reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
 
   # Oban configuration
   config :serviceradar_core, Oban,
