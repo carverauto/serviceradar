@@ -72,7 +72,7 @@ struct CpuStatsPayload {
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let payload = execute_stats(conn, plan, &spec).await?;
         return Ok(payload);
     }
@@ -91,7 +91,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let sql = build_stats_query(plan, &spec)?;
         let params = sql.binds.into_iter().map(bind_param_from_stats).collect();
         return Ok((rewrite_placeholders(&sql.sql), params));
@@ -706,7 +706,7 @@ mod tests {
             r#"avg(usage_percent) as avg_cpu by device_id"#,
             "demo-partition",
         );
-        let spec = parse_stats_spec(plan.stats.as_deref()).unwrap().unwrap();
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw())).unwrap().unwrap();
         assert_eq!(spec.alias, "avg_cpu");
 
         let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");
@@ -738,7 +738,7 @@ mod tests {
             limit: 100,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some(stats.to_string()),
+            stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
         }

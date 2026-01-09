@@ -61,22 +61,26 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
-		return fn(mockDB)
-	}).AnyTimes()
-	mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			mockDB.EXPECT().WithTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(db.Service) error) error {
+				return fn(mockDB)
+			}).AnyTimes()
+			mockDB.EXPECT().LockOCSFDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			allowCanonicalizationQueries(mockDB)
 			testLogger := logger.NewTestLogger()
 			registry := NewDeviceRegistry(mockDB, testLogger)
 
 			// Create test device updates
-			updates := createTestDeviceUpdates(tt.sightingCount)
+			sightingCount := tt.sightingCount
+			if testing.Short() && sightingCount > 10 {
+				sightingCount = 10
+			}
+			updates := createTestDeviceUpdates(sightingCount)
 
 			ctx := context.Background()
 
 			// The registry calls ProcessBatchDeviceUpdates which then calls the database
 			mockDB.EXPECT().
-				PublishBatchDeviceUpdates(ctx, gomock.Len(tt.sightingCount)).
+				PublishBatchDeviceUpdates(ctx, gomock.Len(sightingCount)).
 				Return(nil).
 				Times(1)
 
@@ -87,7 +91,7 @@ func TestSimplifiedRegistryBehavior(t *testing.T) {
 
 			// Verify
 			require.NoError(t, err)
-			t.Logf("%s: Processed %d device updates in %v", tt.description, tt.sightingCount, duration)
+			t.Logf("%s: Processed %d device updates in %v", tt.description, sightingCount, duration)
 		})
 	}
 }

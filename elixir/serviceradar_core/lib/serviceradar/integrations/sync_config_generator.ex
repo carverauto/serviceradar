@@ -54,11 +54,13 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   defp load_sources(agent_id, tenant_id) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
+    # Include sources assigned to this specific agent OR sources with no agent (auto-assign)
+    # Load credentials_encrypted first (so AshCloak can decrypt it), then the credentials calculation
     query =
       IntegrationSource
       |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
-      |> Ash.Query.filter(enabled == true and agent_id == ^agent_id)
-      |> Ash.Query.load(:credentials)
+      |> Ash.Query.filter(enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
+      |> Ash.Query.load([:credentials_encrypted, :credentials])
       |> Ash.Query.sort(name: :asc)
 
     case Ash.read(query, authorize?: false) do
@@ -88,6 +90,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "credentials" => credentials,
       "queries" => source.queries,
       "poll_interval" => format_duration(source.poll_interval_seconds),
+      "discovery_interval" => format_duration(source.discovery_interval_seconds),
       "sweep_interval" => format_duration(source.sweep_interval_seconds),
       "agent_id" => source.agent_id,
       "gateway_id" => source.gateway_id,
@@ -97,7 +100,8 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "batch_size" => get_setting(source.settings, "batch_size"),
       "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
       "tenant_id" => to_string(source.tenant_id),
-      "tenant_slug" => tenant_slug
+      "tenant_slug" => tenant_slug,
+      "sync_service_id" => to_string(source.id)
     }
     |> compact_map()
   end

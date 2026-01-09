@@ -149,47 +149,46 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  # Forward to distributed core process
+  # Forward to distributed core process via RPC
   defp forward_distributed(status) do
-    # Use Horde registry to find the appropriate core handler
-    partition = status[:partition]
     tenant_slug = status[:tenant_slug] || "default"
 
-    case find_core_handler(tenant_slug, partition) do
-      {:ok, pid} ->
+    case find_status_handler_node() do
+      {:ok, node} ->
         try do
-          GenServer.cast(pid, {:status_update, status})
+          # Cast to StatusHandler on the remote node
+          GenServer.cast({ServiceRadar.StatusHandler, node}, {:status_update, status})
+          Logger.debug("Forwarded status to StatusHandler on #{node} for tenant=#{tenant_slug}")
           :ok
         catch
           :exit, reason ->
-            Logger.warning("Failed to forward status to core: #{inspect(reason)}")
+            Logger.warning("Failed to forward status to core on #{node}: #{inspect(reason)}")
             {:error, :forward_failed}
         end
 
       {:error, :not_found} ->
-        # Log but don't fail - core may not be available yet
-        Logger.debug("No core handler found for tenant=#{tenant_slug} partition=#{partition}, queuing for retry")
+        Logger.debug("No StatusHandler found on any node, queuing for retry")
         queue_for_retry(status)
     end
   end
 
-  # Find the core handler for a tenant/partition
-  defp find_core_handler(tenant_slug, partition) do
-    # Try to find in Horde registry with tenant-scoped key
-    registry_key = {tenant_slug, partition, :status_handler}
+  # Find a node that has StatusHandler running
+  defp find_status_handler_node do
+    nodes = [Node.self() | Node.list()] |> Enum.uniq()
 
-    case Horde.Registry.lookup(ServiceRadar.Registry, registry_key) do
-      [{pid, _}] -> {:ok, pid}
-      [] ->
-        # Fall back to partition-only key for backwards compatibility
-        case Horde.Registry.lookup(ServiceRadar.Registry, {:status_handler, partition}) do
-          [{pid, _}] -> {:ok, pid}
-          [] -> {:error, :not_found}
+    # First, try to find nodes with StatusHandler
+    handler_nodes =
+      Enum.filter(nodes, fn node ->
+        case :rpc.call(node, Process, :whereis, [ServiceRadar.StatusHandler], 5_000) do
+          pid when is_pid(pid) -> true
+          _ -> false
         end
+      end)
+
+    case handler_nodes do
+      [node | _] -> {:ok, node}
+      [] -> {:error, :not_found}
     end
-  rescue
-    # Horde may not be available
-    ArgumentError -> {:error, :not_found}
   end
 
   # Queue status for retry when core is not available

@@ -388,7 +388,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         case record.credentials_encrypted do
           nil -> nil
           "" -> %{}
-          json -> Jason.decode!(json)
+          %Ash.NotLoaded{} -> nil
+          json when is_binary(json) -> Jason.decode!(json)
+          _ -> nil
         end
       end)
     end

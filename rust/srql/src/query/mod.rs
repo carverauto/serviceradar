@@ -973,7 +973,7 @@ pub struct QueryPlan {
     pub limit: i64,
     pub offset: i64,
     pub time_range: Option<TimeRange>,
-    pub stats: Option<String>,
+    pub stats: Option<crate::parser::StatsSpec>,
     pub downsample: Option<crate::parser::DownsampleSpec>,
     /// Rollup stats type for querying pre-computed CAGGs (e.g., "severity", "summary", "availability")
     pub rollup_stats: Option<String>,

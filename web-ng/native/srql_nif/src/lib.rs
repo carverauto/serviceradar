@@ -7,6 +7,23 @@ mod atoms {
     }
 }
 
+/// Parse an SRQL query and return the AST as JSON.
+/// This allows Elixir to consume the structured query without re-parsing.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn parse_ast(env: Env, srql_query: String) -> Term {
+    match srql::parser::parse(&srql_query) {
+        Ok(ast) => match serde_json::to_string(&ast) {
+            Ok(json) => (atoms::ok(), json).encode(env),
+            Err(err) => (
+                atoms::error(),
+                format!("failed to encode SRQL AST: {err}"),
+            )
+                .encode(env),
+        },
+        Err(err) => (atoms::error(), err.to_string()).encode(env),
+    }
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
 fn translate(
     env: Env,

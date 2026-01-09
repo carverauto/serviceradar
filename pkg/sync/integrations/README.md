@@ -86,8 +86,53 @@ Each entry in the `sources` map defines a connection to an external system.
 | `credentials`          | `object`  | Integration-specific credentials and settings.                                                                | **Yes**  |
 | `queries`              | `array`   | (Armis only) AQL queries to run against the Armis API.                                                        | **Yes**  |
 | `poll_interval`        | `string`  | Optional per-source override for `poll_interval`.                                                             | No       |
+| `discovery_interval`   | `string`  | Optional per-source override for `discovery_interval` (full device scan).                                     | No       |
 | `sweep_interval`       | `string`  | How often agents should sweep discovered networks (Go duration format).                                       | No       |
 | `batch_size`           | `integer` | (Armis only) Devices per batch when syncing updates back to Armis (default: 500).                             | No       |
+
+### Per-Source Interval Scheduling
+
+The sync runtime supports per-source interval configuration, allowing different sources to run on different schedules:
+
+- **`poll_interval`**: Controls how frequently the source fetches incremental updates
+- **`discovery_interval`**: Controls how frequently full device discovery runs for this source
+- **`sweep_interval`**: Controls how frequently network sweeps are performed
+
+When a per-source interval is set, it overrides the global default for that source only. Sources without explicit intervals use the global defaults.
+
+**Example: Mixed interval configuration**
+
+```json
+{
+  "discovery_interval": "6h",
+  "sources": {
+    "armis_fast": {
+      "type": "armis",
+      "endpoint": "https://critical-instance.armis.com",
+      "discovery_interval": "15m",
+      "credentials": { "secret_key": "..." },
+      "queries": [{ "label": "critical", "query": "in:devices" }]
+    },
+    "armis_slow": {
+      "type": "armis",
+      "endpoint": "https://archive-instance.armis.com",
+      "discovery_interval": "12h",
+      "credentials": { "secret_key": "..." },
+      "queries": [{ "label": "archive", "query": "in:devices" }]
+    },
+    "netbox_default": {
+      "type": "netbox",
+      "endpoint": "https://netbox.example.com",
+      "credentials": { "api_token": "..." }
+    }
+  }
+}
+```
+
+In this example:
+- `armis_fast` runs discovery every 15 minutes (critical devices)
+- `armis_slow` runs discovery every 12 hours (archive/low-priority)
+- `netbox_default` uses the global 6-hour discovery interval
 
 ---
 

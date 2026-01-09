@@ -225,34 +225,26 @@ defmodule ServiceRadar.Inventory.Device do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Read access: authenticated users in same tenant
+    # Read access: authenticated users (tenant isolation via context multitenancy)
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create devices: operators/admins in same tenant
+    # Create devices: operators/admins (tenant isolation via context multitenancy)
     policy action_type(:create) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Update devices: operators/admins in same tenant
+    # Update devices: operators/admins (tenant isolation via context multitenancy)
     policy action_type(:update) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
-  changes do
-    change ServiceRadar.Changes.AssignTenantId
-  end
 
   attributes do
     # OCSF Core Identity - uid is the primary key
@@ -459,13 +451,6 @@ defmodule ServiceRadar.Inventory.Device do
       default %{}
       public? true
       description "Additional metadata"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this device belongs to"
     end
 
     # Group assignment

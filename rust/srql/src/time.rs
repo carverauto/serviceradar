@@ -2,14 +2,16 @@
 
 use crate::error::{Result, ServiceError};
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use serde::Serialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TimeRange {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum TimeFilterSpec {
     RelativeHours(i64),
     RelativeDays(i64),

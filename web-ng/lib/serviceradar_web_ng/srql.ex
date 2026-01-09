@@ -111,116 +111,135 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp extract_entity(_), do: nil
 
-  # Parse SRQL query into params for Ash adapter
-  # SRQL format: in:entity time:last_24h sort:field:desc field:value limit:100
+  # Parse SRQL query into params for Ash adapter using the Rust parser.
+  # The Rust parser handles all parsing - no regex fallback.
   defp parse_srql_params(query, limit) do
-    entity = extract_entity(query)
-    filters = parse_srql_filters(query)
-    time_filter = parse_srql_time(query, entity)
-    sort = parse_srql_sort(query)
+    case Native.parse_ast(query) do
+      {:ok, json} ->
+        case Jason.decode(json) do
+          {:ok, ast} ->
+            convert_ast_to_params(ast, limit)
+
+          {:error, reason} ->
+            Logger.error("Failed to decode SRQL AST JSON: #{inspect(reason)}")
+            %{filters: [], sort: nil, limit: limit || 100, stats: nil}
+        end
+
+      {:error, reason} ->
+        Logger.error("Failed to parse SRQL query: #{inspect(reason)}")
+        %{filters: [], sort: nil, limit: limit || 100, stats: nil}
+    end
+  end
+
+  # Convert Rust AST to Ash adapter params format
+  defp convert_ast_to_params(ast, limit) do
+    filters = convert_ast_filters(ast["filters"] || [])
+    time_filter = convert_ast_time_filter(ast["time_filter"])
+    sort = convert_ast_order(ast["order"] || [])
+    stats = convert_ast_stats(ast["stats"])
 
     all_filters = if time_filter, do: [time_filter | filters], else: filters
 
     %{
       filters: all_filters,
       sort: sort,
-      limit: limit || 100
+      limit: limit || ast["limit"] || 100,
+      stats: stats
     }
   end
 
-  # Get the timestamp field for an entity
-  defp timestamp_field_for("events"), do: "occurred_at"
-  defp timestamp_field_for("alerts"), do: "triggered_at"
-  defp timestamp_field_for("services"), do: "last_check_at"
-  defp timestamp_field_for("service_checks"), do: "last_check_at"
-  defp timestamp_field_for("devices"), do: "last_seen"
-  defp timestamp_field_for("gateways"), do: "last_seen"
-  defp timestamp_field_for("agents"), do: "last_seen"
-  defp timestamp_field_for(_), do: "created_at"
+  # Convert AST filters to Ash adapter format
+  defp convert_ast_filters(filters) when is_list(filters) do
+    Enum.map(filters, fn filter ->
+      %{
+        field: filter["field"],
+        op: convert_filter_op(filter["op"]),
+        value: convert_filter_value(filter["value"])
+      }
+    end)
+  end
 
-  # Parse SRQL time range: time:last_24h, time:last_7d, etc.
-  defp parse_srql_time(query, entity) do
-    time_field = timestamp_field_for(entity)
+  defp convert_ast_filters(_), do: []
 
-    case Regex.run(~r/\btime:(\S+)/i, query) do
-      [_, "last_1h"] ->
-        %{field: time_field, op: "gte", value: ago(1, :hour)}
+  defp convert_filter_op("eq"), do: "eq"
+  defp convert_filter_op("not_eq"), do: "neq"
+  defp convert_filter_op("like"), do: "contains"
+  defp convert_filter_op("not_like"), do: "neq"
+  defp convert_filter_op("in"), do: "in"
+  defp convert_filter_op("not_in"), do: "neq"
+  defp convert_filter_op("gt"), do: "gt"
+  defp convert_filter_op("gte"), do: "gte"
+  defp convert_filter_op("lt"), do: "lt"
+  defp convert_filter_op("lte"), do: "lte"
+  defp convert_filter_op(op), do: op
 
-      [_, "last_24h"] ->
-        %{field: time_field, op: "gte", value: ago(24, :hour)}
+  defp convert_filter_value(value) when is_list(value), do: value
+  defp convert_filter_value(value), do: value
 
-      [_, "last_7d"] ->
-        %{field: time_field, op: "gte", value: ago(7, :day)}
+  # Convert AST time_filter to Ash adapter format
+  defp convert_ast_time_filter(nil), do: nil
 
-      [_, "last_30d"] ->
-        %{field: time_field, op: "gte", value: ago(30, :day)}
+  defp convert_ast_time_filter(%{"type" => "relative_hours", "RelativeHours" => hours}) do
+    %{field: "timestamp", op: "gte", value: ago(hours, :hour)}
+  end
 
-      _ ->
-        nil
+  defp convert_ast_time_filter(%{"type" => "relative_days", "RelativeDays" => days}) do
+    %{field: "timestamp", op: "gte", value: ago(days, :day)}
+  end
+
+  defp convert_ast_time_filter(%{"type" => "today"}) do
+    now = DateTime.utc_now()
+    start_of_day = %{now | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
+    %{field: "timestamp", op: "gte", value: start_of_day}
+  end
+
+  defp convert_ast_time_filter(%{"type" => "yesterday"}) do
+    yesterday = DateTime.add(DateTime.utc_now(), -86_400, :second)
+    start_of_day = %{yesterday | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
+    %{field: "timestamp", op: "gte", value: start_of_day}
+  end
+
+  defp convert_ast_time_filter(%{"type" => "absolute", "start" => start_str, "end" => _end_str}) do
+    case DateTime.from_iso8601(start_str) do
+      {:ok, start, _} -> %{field: "timestamp", op: "gte", value: start}
+      _ -> nil
     end
   end
+
+  defp convert_ast_time_filter(_), do: nil
+
+  # Convert AST order to Ash adapter format
+  defp convert_ast_order([%{"field" => field, "direction" => dir} | _]) do
+    %{field: field, dir: convert_sort_direction(dir)}
+  end
+
+  defp convert_ast_order(_), do: nil
+
+  defp convert_sort_direction("asc"), do: "asc"
+  defp convert_sort_direction("desc"), do: "desc"
+  defp convert_sort_direction(_), do: "desc"
+
+  # Convert AST stats to Ash adapter format
+  defp convert_ast_stats(nil), do: nil
+
+  defp convert_ast_stats(%{"aggregations" => aggregations}) when is_list(aggregations) do
+    Enum.map(aggregations, fn agg ->
+      %{
+        type: String.to_atom(agg["type"] || "count"),
+        field: agg["field"],
+        alias: agg["alias"]
+      }
+    end)
+    |> case do
+      [] -> nil
+      stats -> stats
+    end
+  end
+
+  defp convert_ast_stats(_), do: nil
 
   defp ago(amount, :hour), do: DateTime.add(DateTime.utc_now(), -amount * 3600, :second)
   defp ago(amount, :day), do: DateTime.add(DateTime.utc_now(), -amount * 86_400, :second)
-
-  # Parse SRQL field filters: field:value or field:(val1,val2) or field:"quoted"
-  defp parse_srql_filters(query) do
-    # Match field:value patterns (excluding reserved keywords)
-    reserved = ~w(in time sort limit cursor direction)
-
-    ~r/\b(\w+):((?:"[^"]*"|'[^']*'|\([^)]*\)|\S+))/
-    |> Regex.scan(query)
-    |> Enum.map(fn [_, field, value] ->
-      if field in reserved do
-        nil
-      else
-        parse_srql_field_value(field, value)
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp parse_srql_field_value(field, value) do
-    cond do
-      # Quoted value: field:"value" or field:'value'
-      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") ->
-        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
-
-      String.starts_with?(value, "'") and String.ends_with?(value, "'") ->
-        %{field: field, op: "eq", value: String.slice(value, 1..-2//1)}
-
-      # Multiple values: field:(val1,val2)
-      String.starts_with?(value, "(") and String.ends_with?(value, ")") ->
-        values =
-          value
-          |> String.slice(1..-2//1)
-          |> String.split(",")
-          |> Enum.map(&String.trim/1)
-
-        %{field: field, op: "in", value: values}
-
-      # Simple value
-      true ->
-        %{field: field, op: "eq", value: value}
-    end
-  end
-
-  # Parse SRQL sort: sort:field:dir or sort:field
-  defp parse_srql_sort(query) do
-    case Regex.run(~r/\bsort:(\w+)(?::(\w+))?/i, query) do
-      [_, field, dir] when dir in ["asc", "desc"] ->
-        %{field: field, dir: dir}
-
-      [_, field, _] ->
-        %{field: field, dir: "desc"}
-
-      [_, field] ->
-        %{field: field, dir: "desc"}
-
-      _ ->
-        nil
-    end
-  end
 
   defp translate(query, limit, cursor, direction, mode) do
     case Native.translate(query, limit, cursor, direction, mode) do

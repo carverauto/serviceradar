@@ -210,7 +210,10 @@ func (n *NetboxIntegration) generateRetractionEvents(
 				IsAvailable: false,
 				Timestamp:   now,
 				Metadata: map[string]string{
-					"_deleted": "true",
+					"_deleted":         "true",
+					"sync_service_id":  n.Config.SyncServiceID,
+					"tenant_id":        n.Config.TenantID,
+					"tenant_slug":      n.Config.TenantSlug,
 				},
 				AgentID:   n.Config.AgentID,
 				GatewayID:  n.Config.GatewayID,
@@ -402,8 +405,11 @@ func (n *NetboxIntegration) processDevices(_ context.Context, deviceResp DeviceR
 			Hostname:  &hostname,
 			Timestamp: now,
 			Metadata: map[string]string{
-				"integration_type": "netbox",
-				"integration_id":   fmt.Sprintf("%d", device.ID),
+				"integration_type":  "netbox",
+				"integration_id":    fmt.Sprintf("%d", device.ID),
+				"sync_service_id":   n.Config.SyncServiceID,
+				"tenant_id":         n.Config.TenantID,
+				"tenant_slug":       n.Config.TenantSlug,
 			},
 		}
 

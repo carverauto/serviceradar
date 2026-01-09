@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   import ServiceRadarWebNGWeb.AdminComponents
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Infrastructure.Agent
@@ -37,12 +38,37 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       |> assign(:show_edit_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_source, nil)
-      |> assign(:create_form, build_create_form(tenant_id))
+      |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
       |> assign(:edit_form, nil)
       |> assign(:filter_type, nil)
       |> assign(:filter_enabled, nil)
+      # Query management for forms
+      |> assign(:form_queries, [default_query()])
+      |> assign(:form_network_blacklist, "")
 
     {:ok, socket}
+  end
+
+  defp default_query do
+    %{
+      "id" => System.unique_integer([:positive]),
+      "label" => "",
+      "query" => "",
+      "sweep_modes" => []
+    }
+  end
+
+  defp toggle_sweep_mode_for_query(query, target_id, mode) do
+    if query["id"] == target_id do
+      modes = Map.get(query, "sweep_modes", [])
+      Map.put(query, "sweep_modes", toggle_mode(modes, mode))
+    else
+      query
+    end
+  end
+
+  defp toggle_mode(modes, mode) do
+    if mode in modes, do: List.delete(modes, mode), else: modes ++ [mode]
   end
 
   @impl true
@@ -85,9 +111,16 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
     case get_source(id, tenant_id) do
       {:ok, source} ->
+        # Convert source queries to form_queries format with IDs
+        form_queries = source_queries_to_form(source.queries)
+        # Convert network_blacklist array to textarea format
+        form_blacklist = Enum.join(source.network_blacklist || [], "\n")
+
         socket
         |> assign(:selected_source, source)
-        |> assign(:edit_form, build_edit_form(source))
+        |> assign(:edit_form, build_edit_form(source, get_actor(socket)))
+        |> assign(:form_queries, form_queries)
+        |> assign(:form_network_blacklist, form_blacklist)
         |> assign(:show_edit_modal, true)
 
       {:error, _} ->
@@ -95,6 +128,20 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         |> put_flash(:error, "Integration source not found")
         |> push_navigate(to: ~p"/admin/integrations")
     end
+  end
+
+  defp source_queries_to_form(nil), do: [default_query()]
+  defp source_queries_to_form([]), do: [default_query()]
+
+  defp source_queries_to_form(queries) when is_list(queries) do
+    Enum.map(queries, fn q ->
+      %{
+        "id" => System.unique_integer([:positive]),
+        "label" => q["label"] || Map.get(q, :label, ""),
+        "query" => q["query"] || Map.get(q, :query, ""),
+        "sweep_modes" => q["sweep_modes"] || Map.get(q, :sweep_modes, [])
+      }
+    end)
   end
 
   @impl true
@@ -109,10 +156,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       {:noreply,
        socket
        |> assign(:show_create_modal, true)
-       |> assign(:create_form, build_create_form(tenant_id))
+       |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
        |> assign(:agents, agents)
        |> assign(:agent_index, agent_index)
-       |> assign(:agent_options, agent_options)}
+       |> assign(:agent_options, agent_options)
+       |> assign(:form_queries, [default_query()])
+       |> assign(:form_network_blacklist, "")}
     else
       {:noreply,
        socket
@@ -126,7 +175,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, build_create_form(tenant_id))}
+     |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
+     |> assign(:form_queries, [default_query()])
+     |> assign(:form_network_blacklist, "")}
   end
 
   def handle_event("close_edit_modal", _params, socket) do
@@ -134,7 +185,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
      socket
      |> assign(:show_edit_modal, false)
      |> assign(:selected_source, nil)
-     |> assign(:edit_form, nil)}
+     |> assign(:edit_form, nil)
+     |> assign(:form_queries, [default_query()])
+     |> assign(:form_network_blacklist, "")}
   end
 
   def handle_event("close_details_modal", _params, socket) do
@@ -162,6 +215,46 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     {:noreply, assign(socket, :edit_form, form)}
   end
 
+  # Query management events
+  def handle_event("add_query", _params, socket) do
+    queries = socket.assigns.form_queries ++ [default_query()]
+    {:noreply, assign(socket, :form_queries, queries)}
+  end
+
+  def handle_event("remove_query", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    queries = Enum.reject(socket.assigns.form_queries, &(&1["id"] == id))
+    # Ensure at least one query remains
+    queries = if queries == [], do: [default_query()], else: queries
+    {:noreply, assign(socket, :form_queries, queries)}
+  end
+
+  def handle_event("update_query", %{"id" => id, "field" => field, "value" => value}, socket) do
+    id = String.to_integer(id)
+
+    queries =
+      Enum.map(socket.assigns.form_queries, fn q ->
+        if q["id"] == id, do: Map.put(q, field, value), else: q
+      end)
+
+    {:noreply, assign(socket, :form_queries, queries)}
+  end
+
+  def handle_event("toggle_sweep_mode", %{"id" => id, "mode" => mode}, socket) do
+    id = String.to_integer(id)
+
+    queries =
+      Enum.map(socket.assigns.form_queries, &toggle_sweep_mode_for_query(&1, id, mode))
+
+    {:noreply, assign(socket, :form_queries, queries)}
+  end
+
+  def handle_event("update_network_blacklist", params, socket) do
+    # Handle both direct value and form params
+    value = params["value"] || params["network_blacklist_text"] || ""
+    {:noreply, assign(socket, :form_network_blacklist, value)}
+  end
+
   def handle_event("create_source", %{"form" => params}, socket) do
     tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
@@ -173,6 +266,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       # Handle credentials JSON if provided
       params = parse_credentials_json(params)
 
+      # Add queries from form_queries assign
+      queries = build_queries_for_submit(socket.assigns.form_queries)
+      params = Map.put(params, "queries", queries)
+
+      # Add network_blacklist from textarea
+      blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
+      params = Map.put(params, "network_blacklist", blacklist)
+
       form =
         socket.assigns.create_form.source
         |> AshPhoenix.Form.validate(params)
@@ -183,7 +284,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
            socket
            |> assign(:show_create_modal, false)
            |> assign(:sources, list_sources(tenant_id))
-           |> assign(:create_form, build_create_form(tenant_id))
+           |> assign(:create_form, build_create_form(tenant_id, actor))
            |> put_flash(:info, "Integration source created successfully")}
 
         {:error, form} ->
@@ -206,6 +307,14 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     # Handle credentials JSON if provided
     params = parse_credentials_json(params)
 
+    # Add queries from form_queries assign
+    queries = build_queries_for_submit(socket.assigns.form_queries)
+    params = Map.put(params, "queries", queries)
+
+    # Add network_blacklist from textarea
+    blacklist = parse_network_blacklist(socket.assigns.form_network_blacklist)
+    params = Map.put(params, "network_blacklist", blacklist)
+
     form =
       socket.assigns.edit_form.source
       |> AshPhoenix.Form.validate(params)
@@ -218,6 +327,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
          |> assign(:selected_source, nil)
          |> assign(:edit_form, nil)
          |> assign(:sources, list_sources(tenant_id))
+         |> assign(:form_queries, [default_query()])
+         |> assign(:form_network_blacklist, "")
          |> put_flash(:info, "Integration source updated successfully")}
 
       {:error, form} ->
@@ -467,6 +578,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         form={@create_form}
         partition_options={@partition_options}
         agent_options={@agent_options}
+        form_queries={@form_queries}
+        form_network_blacklist={@form_network_blacklist}
       />
       <.edit_modal
         :if={@show_edit_modal}
@@ -474,6 +587,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         source={@selected_source}
         partition_options={@partition_options}
         agent_options={@agent_options}
+        form_queries={@form_queries}
+        form_network_blacklist={@form_network_blacklist}
       />
       <.details_modal
         :if={@show_details_modal}
@@ -487,7 +602,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp create_modal(assigns) do
     ~H"""
     <dialog id="create_modal" class="modal modal-open">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-2xl">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
@@ -509,26 +624,28 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           phx-submit="create_source"
           class="space-y-4 mt-4"
         >
-          <.input
-            field={@form[:name]}
-            type="text"
-            label="Name"
-            placeholder="e.g., Production Armis"
-            required
-          />
+          <div class="grid grid-cols-2 gap-4">
+            <.input
+              field={@form[:name]}
+              type="text"
+              label="Name"
+              placeholder="e.g., Production Armis"
+              required
+            />
 
-          <.input
-            field={@form[:source_type]}
-            type="select"
-            label="Source Type"
-            options={[
-              {"Armis", :armis},
-              {"SNMP", :snmp},
-              {"Syslog", :syslog},
-              {"Nmap", :nmap},
-              {"Custom", :custom}
-            ]}
-          />
+            <.input
+              field={@form[:source_type]}
+              type="select"
+              label="Source Type"
+              options={[
+                {"Armis", :armis},
+                {"SNMP", :snmp},
+                {"Syslog", :syslog},
+                {"Nmap", :nmap},
+                {"Custom", :custom}
+              ]}
+            />
+          </div>
 
           <.input
             field={@form[:endpoint]}
@@ -538,21 +655,23 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             required
           />
 
-          <.input
-            field={@form[:partition]}
-            type="select"
-            label="Partition"
-            options={@partition_options}
-            prompt="Select a partition..."
-          />
+          <div class="grid grid-cols-2 gap-4">
+            <.input
+              field={@form[:partition]}
+              type="select"
+              label="Partition"
+              options={@partition_options}
+              prompt="Select a partition..."
+            />
 
-          <.input
-            field={@form[:agent_id]}
-            type="select"
-            label="Agent"
-            options={@agent_options}
-            prompt="Auto-assign to any connected agent"
-          />
+            <.input
+              field={@form[:agent_id]}
+              type="select"
+              label="Agent"
+              options={@agent_options}
+              prompt="Auto-assign to any connected agent"
+            />
+          </div>
 
           <.input
             field={@form[:gateway_id]}
@@ -561,12 +680,33 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             placeholder="Gateway to assign this source to"
           />
 
-          <.input
-            field={@form[:poll_interval_seconds]}
-            type="number"
-            label="Poll Interval (seconds)"
-            placeholder="300"
-          />
+          <div class="grid grid-cols-3 gap-4">
+            <.input
+              field={@form[:poll_interval_seconds]}
+              type="number"
+              label="Poll Interval (sec)"
+              placeholder="300"
+            />
+
+            <.input
+              field={@form[:discovery_interval_seconds]}
+              type="number"
+              label="Discovery Interval (sec)"
+              placeholder="3600"
+            />
+
+            <.input
+              field={@form[:sweep_interval_seconds]}
+              type="number"
+              label="Sweep Interval (sec)"
+              placeholder="3600"
+            />
+          </div>
+          <p class="text-xs text-base-content/60 -mt-2">
+            Poll: fetch updates • Discovery: full device scan • Sweep: network scan
+          </p>
+
+          <div class="divider text-xs text-base-content/60">Credentials</div>
 
           <div class="form-control">
             <label class="label">
@@ -575,12 +715,90 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             <textarea
               name="credentials_json"
               class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="4"
+              rows="3"
               placeholder='{"api_key": "your-api-key", "api_secret": "your-secret"}'
             ></textarea>
             <label class="label">
               <span class="label-text-alt text-base-content/60">
                 Credentials will be encrypted at rest
+              </span>
+            </label>
+          </div>
+
+          <div class="divider text-xs text-base-content/60">Queries</div>
+
+          <div class="space-y-3">
+            <%= for query <- @form_queries do %>
+              <div class="p-3 bg-base-200 rounded-lg space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-base-content/60">Query</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    phx-click="remove_query"
+                    phx-value-id={query["id"]}
+                  >
+                    <.icon name="hero-trash" class="size-3" /> Remove
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="form-control">
+                    <label class="label py-1">
+                      <span class="label-text text-xs">Label</span>
+                    </label>
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm w-full"
+                      placeholder="e.g., all_devices"
+                      value={query["label"]}
+                      phx-blur="update_query"
+                      phx-value-id={query["id"]}
+                      phx-value-field="label"
+                    />
+                  </div>
+                  <div class="form-control">
+                    <label class="label py-1">
+                      <span class="label-text text-xs">Query (AQL)</span>
+                    </label>
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm w-full font-mono"
+                      placeholder="in:devices"
+                      value={query["query"]}
+                      phx-blur="update_query"
+                      phx-value-id={query["id"]}
+                      phx-value-field="query"
+                    />
+                  </div>
+                </div>
+              </div>
+            <% end %>
+
+            <button
+              type="button"
+              class="btn btn-outline btn-sm w-full"
+              phx-click="add_query"
+            >
+              <.icon name="hero-plus" class="size-4" /> Add Query
+            </button>
+          </div>
+
+          <div class="divider text-xs text-base-content/60">Network Settings</div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Network Blacklist</span>
+            </label>
+            <textarea
+              name="network_blacklist_text"
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="3"
+              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+              phx-blur="update_network_blacklist"
+            ><%= @form_network_blacklist %></textarea>
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                One CIDR per line - networks to exclude from discovery
               </span>
             </label>
           </div>
@@ -601,7 +819,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp edit_modal(assigns) do
     ~H"""
     <dialog id="edit_modal" class="modal modal-open">
-      <div class="modal-box max-w-lg">
+      <div class="modal-box max-w-2xl">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
@@ -623,7 +841,20 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           phx-submit="update_source"
           class="space-y-4 mt-4"
         >
-          <.input field={@form[:name]} type="text" label="Name" required />
+          <div class="grid grid-cols-2 gap-4">
+            <.input field={@form[:name]} type="text" label="Name" required />
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Source Type</span>
+              </label>
+              <input
+                type="text"
+                class="input input-bordered w-full bg-base-200"
+                value={@source.source_type}
+                disabled
+              />
+            </div>
+          </div>
 
           <.input
             field={@form[:endpoint]}
@@ -632,28 +863,50 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             required
           />
 
-          <.input
-            field={@form[:partition]}
-            type="select"
-            label="Partition"
-            options={@partition_options}
-            prompt="Select a partition..."
-          />
+          <div class="grid grid-cols-2 gap-4">
+            <.input
+              field={@form[:partition]}
+              type="select"
+              label="Partition"
+              options={@partition_options}
+              prompt="Select a partition..."
+            />
 
-          <.input
-            field={@form[:agent_id]}
-            type="select"
-            label="Agent"
-            options={@agent_options}
-            prompt="Auto-assign to any connected agent"
-          />
+            <.input
+              field={@form[:agent_id]}
+              type="select"
+              label="Agent"
+              options={@agent_options}
+              prompt="Auto-assign to any connected agent"
+            />
+          </div>
+
           <.input field={@form[:gateway_id]} type="text" label="Gateway ID (Optional)" />
 
-          <.input
-            field={@form[:poll_interval_seconds]}
-            type="number"
-            label="Poll Interval (seconds)"
-          />
+          <div class="grid grid-cols-3 gap-4">
+            <.input
+              field={@form[:poll_interval_seconds]}
+              type="number"
+              label="Poll Interval (sec)"
+            />
+
+            <.input
+              field={@form[:discovery_interval_seconds]}
+              type="number"
+              label="Discovery Interval (sec)"
+            />
+
+            <.input
+              field={@form[:sweep_interval_seconds]}
+              type="number"
+              label="Sweep Interval (sec)"
+            />
+          </div>
+          <p class="text-xs text-base-content/60 -mt-2">
+            Poll: fetch updates • Discovery: full device scan • Sweep: network scan
+          </p>
+
+          <div class="divider text-xs text-base-content/60">Credentials</div>
 
           <div class="form-control">
             <label class="label">
@@ -662,9 +915,92 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             <textarea
               name="credentials_json"
               class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="4"
+              rows="3"
               placeholder='{"api_key": "your-api-key", "api_secret": "your-secret"}'
             ></textarea>
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                Credentials will be encrypted at rest
+              </span>
+            </label>
+          </div>
+
+          <div class="divider text-xs text-base-content/60">Queries</div>
+
+          <div class="space-y-3">
+            <%= for query <- @form_queries do %>
+              <div class="p-3 bg-base-200 rounded-lg space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-base-content/60">Query</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    phx-click="remove_query"
+                    phx-value-id={query["id"]}
+                  >
+                    <.icon name="hero-trash" class="size-3" /> Remove
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="form-control">
+                    <label class="label py-1">
+                      <span class="label-text text-xs">Label</span>
+                    </label>
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm w-full"
+                      placeholder="e.g., all_devices"
+                      value={query["label"]}
+                      phx-blur="update_query"
+                      phx-value-id={query["id"]}
+                      phx-value-field="label"
+                    />
+                  </div>
+                  <div class="form-control">
+                    <label class="label py-1">
+                      <span class="label-text text-xs">Query (AQL)</span>
+                    </label>
+                    <input
+                      type="text"
+                      class="input input-bordered input-sm w-full font-mono"
+                      placeholder="in:devices"
+                      value={query["query"]}
+                      phx-blur="update_query"
+                      phx-value-id={query["id"]}
+                      phx-value-field="query"
+                    />
+                  </div>
+                </div>
+              </div>
+            <% end %>
+
+            <button
+              type="button"
+              class="btn btn-outline btn-sm w-full"
+              phx-click="add_query"
+            >
+              <.icon name="hero-plus" class="size-4" /> Add Query
+            </button>
+          </div>
+
+          <div class="divider text-xs text-base-content/60">Network Settings</div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Network Blacklist</span>
+            </label>
+            <textarea
+              name="network_blacklist_text"
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="3"
+              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+              phx-blur="update_network_blacklist"
+            ><%= @form_network_blacklist %></textarea>
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                One CIDR per line - networks to exclude from discovery
+              </span>
+            </label>
           </div>
 
           <div class="modal-action">
@@ -868,9 +1204,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   # Data access helpers
 
   defp list_partitions(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Partition
     |> Ash.Query.for_read(:enabled)
-    |> Ash.read!(tenant: tenant_id, authorize?: false)
+    |> Ash.read!(tenant: schema, authorize?: false)
   rescue
     _ -> []
   end
@@ -888,10 +1226,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp list_agents(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort([:name, :uid])
-    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> Ash.read(tenant: schema, authorize?: false)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -915,7 +1255,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp list_sources(tenant_id, filters \\ %{}) do
-    opts = [tenant: tenant_id]
+    schema = tenant_schema(tenant_id)
+    opts = [tenant: schema, authorize?: false]
 
     case Map.get(filters, :source_type) do
       nil ->
@@ -937,10 +1278,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp sync_agent_available?(tenant_id) do
+    schema = tenant_schema(tenant_id)
+
     Agent
     |> Ash.Query.for_read(:connected)
     |> Ash.Query.limit(1)
-    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> Ash.read(tenant: schema, authorize?: false)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
@@ -958,14 +1301,18 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp maybe_filter_enabled(query, _), do: query
 
   defp get_source(id, tenant_id) do
-    IntegrationSource.get_by_id(id, tenant: tenant_id)
+    schema = tenant_schema(tenant_id)
+    IntegrationSource.get_by_id(id, tenant: schema, authorize?: false)
   end
 
-  defp build_create_form(tenant_id) do
+  defp build_create_form(tenant_id, actor) do
+    schema = tenant_schema(tenant_id)
+
     IntegrationSource
     |> AshPhoenix.Form.for_create(:create,
       domain: Integrations,
-      tenant: tenant_id,
+      tenant: schema,
+      actor: actor,
       transform_params: fn _form, params, _action ->
         # Set tenant_id
         params = Map.put(params, "tenant_id", tenant_id)
@@ -986,10 +1333,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     |> to_form()
   end
 
-  defp build_edit_form(source) do
+  defp build_edit_form(source, actor) do
     source
     |> AshPhoenix.Form.for_update(:update,
       domain: Integrations,
+      actor: actor,
       transform_params: fn _form, params, _action ->
         normalize_optional_params(params)
       end
@@ -1012,10 +1360,16 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp parse_credentials_json(params) do
-    case Map.get(params, "credentials_json") do
+    params
+    |> parse_json_field("credentials_json", "credentials")
+    |> parse_json_field("queries_json", "queries")
+  end
+
+  defp parse_json_field(params, json_key, target_key) do
+    case Map.get(params, json_key) do
       json when is_binary(json) and json != "" ->
         case Jason.decode(json) do
-          {:ok, credentials} -> Map.put(params, "credentials", credentials)
+          {:ok, decoded} -> Map.put(params, target_key, decoded)
           {:error, _} -> params
         end
 
@@ -1024,12 +1378,45 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     end
   end
 
+  # Convert form_queries assign to format expected by the API
+  defp build_queries_for_submit(form_queries) do
+    form_queries
+    |> Enum.filter(fn q ->
+      # Only include queries with at least a label or query text
+      (q["label"] && q["label"] != "") || (q["query"] && q["query"] != "")
+    end)
+    |> Enum.map(fn q ->
+      %{
+        "label" => q["label"] || "",
+        "query" => q["query"] || "",
+        "sweep_modes" => q["sweep_modes"] || []
+      }
+    end)
+  end
+
+  # Convert network blacklist textarea (one CIDR per line) to array
+  defp parse_network_blacklist(text) when is_binary(text) do
+    text
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp parse_network_blacklist(_), do: []
+
   defp get_tenant_id(socket) do
     case socket.assigns[:current_scope] do
       %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
       _ -> default_tenant_id()
     end
   end
+
+  # Convert tenant_id (UUID) to schema name for Ash multitenancy context
+  defp tenant_schema(tenant_id) when is_binary(tenant_id) do
+    TenantSchemas.schema_for_id(tenant_id)
+  end
+
+  defp tenant_schema(_), do: nil
 
   defp agent_display_name(nil, fallback), do: fallback || "Unknown"
   defp agent_display_name(agent, _fallback), do: agent.name || agent.uid

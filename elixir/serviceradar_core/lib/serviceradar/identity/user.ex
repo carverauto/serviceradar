@@ -98,6 +98,7 @@ defmodule ServiceRadar.Identity.User do
       description "Register a new user with email only (magic link flow)"
       accept [:email, :display_name, :tenant_id, :role]
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
+      change ServiceRadar.Identity.Changes.AssignFirstUserRole
       primary? true
     end
 
@@ -119,6 +120,7 @@ defmodule ServiceRadar.Identity.User do
       upsert_fields [:email]
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
+      change ServiceRadar.Identity.Changes.AssignFirstUserRole
       change AshAuthentication.Strategy.MagicLink.SignInChange
 
       change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
@@ -166,6 +168,7 @@ defmodule ServiceRadar.Identity.User do
       accept [:email, :display_name, :tenant_id]
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
+      change ServiceRadar.Identity.Changes.AssignFirstUserRole
 
       argument :password, :string do
         allow_nil? false

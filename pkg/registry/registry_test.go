@@ -81,7 +81,7 @@ func TestProcessBatchDeviceUpdatesUpdatesStore(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:    "default:10.1.0.1",
 		IP:          "10.1.0.1",
-		GatewayID:    "gateway-1",
+		GatewayID:   "gateway-1",
 		AgentID:     "agent-1",
 		Source:      models.DiscoverySourceSNMP,
 		Timestamp:   ts,
@@ -1629,8 +1629,12 @@ func TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator(t 
 	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
 
 	// Simulate a batch of devices like faker would generate
-	updates := make([]*models.DeviceUpdate, 100)
-	for i := 0; i < 100; i++ {
+	updateCount := 100
+	if testing.Short() {
+		updateCount = 10
+	}
+	updates := make([]*models.DeviceUpdate, updateCount)
+	for i := 0; i < updateCount; i++ {
 		updates[i] = &models.DeviceUpdate{
 			IP:          fmt.Sprintf("10.0.%d.%d", i/256, i%256),
 			DeviceID:    fmt.Sprintf("default:10.0.%d.%d", i/256, i%256),
@@ -1654,7 +1658,7 @@ func TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator(t 
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
-	require.Len(t, published, 100, "should publish all 100 updates")
+	require.Len(t, published, updateCount, "should publish all updates")
 
 	// Verify ALL published updates would pass isCanonicalRecord check
 	nonCanonicalCount := 0

@@ -35,6 +35,10 @@ type SourceConfig struct {
 	// If empty, uses the global PollInterval from the sync config.
 	PollInterval Duration `json:"poll_interval,omitempty"`
 
+	// DiscoveryInterval allows configuring how often full discovery runs should occur
+	// for this source. If empty, uses the global DiscoveryInterval from the sync config.
+	DiscoveryInterval Duration `json:"discovery_interval,omitempty"`
+
 	// NetworkBlacklist contains CIDR ranges to filter out from this specific source
 	NetworkBlacklist []string `json:"network_blacklist,omitempty"`
 

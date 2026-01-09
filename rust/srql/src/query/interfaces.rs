@@ -37,7 +37,7 @@ struct CountStatsSpec {
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
-    if let Some(stats) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(stats) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let payload = execute_stats(conn, plan, &stats).await?;
         return Ok(vec![payload]);
     }
@@ -68,7 +68,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         collect_filter_params(&mut params, filter)?;
     }
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let base = base_query(plan)?;
         let count = base.count();
         let count_sql = super::diesel_sql(&count)?;
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn stats_count_interfaces_emits_count_query() {
         let plan = stats_plan("count() as interface_count");
-        let spec = parse_stats_spec(plan.stats.as_deref())
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
             .expect("stats parse should succeed")
             .expect("stats expected");
         assert_eq!(spec.alias, "interface_count");
@@ -489,7 +489,7 @@ mod tests {
             limit: 50,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some(stats.to_string()),
+            stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
         }

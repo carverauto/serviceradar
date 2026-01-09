@@ -817,14 +817,17 @@ func (a *ArmisIntegration) createDeviceUpdateEventWithAllIPs(
 		Hostname:  &hostname,
 		Timestamp: timestamp,
 		Metadata: map[string]string{
-			"integration_type": "armis",
-			"integration_id":   fmt.Sprintf("%d", d.ID),
-			"armis_device_id":  fmt.Sprintf("%d", d.ID), // Strong identifier for merging
-			"tag":              tag,
-			"query_label":      queryLabel,
-			"primary_ip":       primaryIP,
-			"all_ips":          strings.Join(allIPs, ","),
-			"ip_count":         fmt.Sprintf("%d", len(allIPs)),
+			"integration_type":  "armis",
+			"integration_id":    fmt.Sprintf("%d", d.ID),
+			"armis_device_id":   fmt.Sprintf("%d", d.ID), // Strong identifier for merging
+			"tag":               tag,
+			"query_label":       queryLabel,
+			"primary_ip":        primaryIP,
+			"all_ips":           strings.Join(allIPs, ","),
+			"ip_count":          fmt.Sprintf("%d", len(allIPs)),
+			"sync_service_id":   a.Config.SyncServiceID,
+			"tenant_id":         a.Config.TenantID,
+			"tenant_slug":       a.Config.TenantSlug,
 		},
 	}
 

@@ -32,7 +32,7 @@ pub(super) async fn execute(
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let query = build_stats_query(plan, &spec)?;
         let values: Vec<i64> = query
             .load(conn)
@@ -55,7 +55,7 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let query = build_stats_query(plan, &spec)?;
         let sql = super::diesel_sql(&query)?;
 

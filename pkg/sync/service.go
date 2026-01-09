@@ -131,6 +131,10 @@ type SimpleSyncService struct {
 	discoveryTicker   *time.Ticker
 	armisUpdateTicker *time.Ticker
 	reloadChan        chan struct{}
+
+	// Per-source discovery scheduling
+	sourceLastDiscoveryMu sync.RWMutex
+	sourceLastDiscovery   map[string]time.Time // key: "tenantID:sourceName"
 }
 
 // NewSimpleSyncService creates a new simplified sync service
@@ -178,6 +182,7 @@ func NewSimpleSyncServiceWithMetrics(
 		tenantResults:       make(map[string]*StreamingResultsStore),
 		configPollInterval:  defaultConfigPollInterval,
 		heartbeatInterval:   defaultHeartbeatInterval,
+		sourceLastDiscovery: make(map[string]time.Time),
 	}
 
 	if gatewayClient != nil {
@@ -485,10 +490,32 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 	var discoveryErrors []error
 
 	for sourceName, integration := range integrations {
+		// Get source config to check per-source interval
+		sourceConfig := s.getSourceConfig(tenantID, sourceName)
+
+		// Check if this source is due for discovery based on its interval
+		if !s.isSourceDueForDiscovery(tenantID, sourceName, sourceConfig) {
+			s.configMu.RLock()
+			interval := s.config.GetEffectiveDiscoveryInterval(sourceConfig)
+			s.configMu.RUnlock()
+
+			s.logger.Debug().
+				Str("source", sourceName).
+				Str("tenant_id", tenantID).
+				Dur("interval", interval).
+				Msg("Skipping discovery for source - not due yet")
+			continue
+		}
+
 		logEvent := s.logger.Info().Str("source", sourceName)
 		if tenantID != "" {
 			logEvent = logEvent.Str("tenant_id", tenantID)
 		}
+
+		s.configMu.RLock()
+		interval := s.config.GetEffectiveDiscoveryInterval(sourceConfig)
+		s.configMu.RUnlock()
+		logEvent = logEvent.Dur("interval", interval)
 		logEvent.Msg("Running discovery for source")
 
 		s.metrics.RecordDiscoveryAttempt(sourceName)
@@ -505,6 +532,9 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 			continue
 		}
 
+		// Record successful discovery time for per-source scheduling
+		s.recordSourceDiscovery(tenantID, sourceName)
+
 		if tenantID != "" {
 			devices = s.applyTenantSourceBlacklist(tenantID, sourceName, devices)
 		} else {
@@ -519,6 +549,7 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 			Str("tenant_id", tenantID).
 			Str("tenant_slug", tenantSlug).
 			Int("devices_discovered", len(devices)).
+			Dur("interval", interval).
 			Msg("Discovery completed for source")
 	}
 
@@ -887,10 +918,8 @@ func (s *SimpleSyncService) bootstrapGatewayConfig(ctx context.Context) error {
 		return err
 	}
 
+	// Propagate enrollment-pending so Start() can defer bootstrap
 	if err := s.ensureGatewayEnrolled(ctx); err != nil {
-		if errors.Is(err, errGatewayNotEnrolled) {
-			return nil
-		}
 		return err
 	}
 
@@ -1405,6 +1434,9 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	gatewayID := s.config.GatewayID
 	s.configMu.RUnlock()
 
+	// Detect interval changes and reset timers for affected sources
+	s.detectAndResetChangedIntervals(grouped)
+
 	for tenantID, sourceMap := range grouped {
 		integrations := make(map[string]Integration, len(sourceMap))
 		for name, src := range sourceMap {
@@ -1434,6 +1466,58 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	s.tenantSlugs = slugs
 	s.tenantResults = tenantResults
 	s.tenantMu.Unlock()
+}
+
+// detectAndResetChangedIntervals compares old and new source configs,
+// resetting discovery timers for sources whose intervals have changed.
+func (s *SimpleSyncService) detectAndResetChangedIntervals(newSources map[string]map[string]*models.SourceConfig) {
+	s.tenantMu.RLock()
+	oldSources := s.tenantSources
+	s.tenantMu.RUnlock()
+
+	s.configMu.RLock()
+	globalInterval := s.config.GetEffectiveDiscoveryInterval(nil)
+	s.configMu.RUnlock()
+
+	for tenantID, newSourceMap := range newSources {
+		oldSourceMap := oldSources[tenantID]
+
+		for sourceName, newSrc := range newSourceMap {
+			newInterval := time.Duration(newSrc.DiscoveryInterval)
+			if newInterval == 0 {
+				newInterval = globalInterval
+			}
+
+			// Check if source existed before
+			if oldSourceMap != nil {
+				if oldSrc, exists := oldSourceMap[sourceName]; exists {
+					oldInterval := time.Duration(oldSrc.DiscoveryInterval)
+					if oldInterval == 0 {
+						oldInterval = globalInterval
+					}
+
+					// If interval changed, reset the timer
+					if newInterval != oldInterval {
+						s.logger.Info().
+							Str("source", sourceName).
+							Str("tenant_id", tenantID).
+							Dur("old_interval", oldInterval).
+							Dur("new_interval", newInterval).
+							Msg("Discovery interval changed for source, resetting timer")
+						s.resetSourceDiscoveryTimer(tenantID, sourceName)
+					}
+					continue
+				}
+			}
+
+			// New source - will run on first discovery cycle automatically
+			s.logger.Debug().
+				Str("source", sourceName).
+				Str("tenant_id", tenantID).
+				Dur("interval", newInterval).
+				Msg("New source added with discovery interval")
+		}
+	}
 }
 
 func (s *SimpleSyncService) groupSourcesByTenant(
@@ -1601,6 +1685,69 @@ func (s *SimpleSyncService) applyTenantSourceBlacklist(
 	}
 
 	return filteredDevices
+}
+
+// sourceKey generates a unique key for tracking per-source discovery times.
+func sourceKey(tenantID, sourceName string) string {
+	if tenantID == "" {
+		return sourceName
+	}
+	return tenantID + ":" + sourceName
+}
+
+// isSourceDueForDiscovery checks if a source's discovery interval has elapsed.
+func (s *SimpleSyncService) isSourceDueForDiscovery(tenantID, sourceName string, source *models.SourceConfig) bool {
+	key := sourceKey(tenantID, sourceName)
+
+	s.sourceLastDiscoveryMu.RLock()
+	lastRun, exists := s.sourceLastDiscovery[key]
+	s.sourceLastDiscoveryMu.RUnlock()
+
+	// If never run, it's due for discovery
+	if !exists {
+		return true
+	}
+
+	s.configMu.RLock()
+	interval := s.config.GetEffectiveDiscoveryInterval(source)
+	s.configMu.RUnlock()
+
+	return time.Since(lastRun) >= interval
+}
+
+// recordSourceDiscovery records the last discovery time for a source.
+func (s *SimpleSyncService) recordSourceDiscovery(tenantID, sourceName string) {
+	key := sourceKey(tenantID, sourceName)
+
+	s.sourceLastDiscoveryMu.Lock()
+	s.sourceLastDiscovery[key] = time.Now()
+	s.sourceLastDiscoveryMu.Unlock()
+}
+
+// resetSourceDiscoveryTimer clears the last discovery time for a source,
+// causing it to run on the next discovery cycle.
+func (s *SimpleSyncService) resetSourceDiscoveryTimer(tenantID, sourceName string) {
+	key := sourceKey(tenantID, sourceName)
+
+	s.sourceLastDiscoveryMu.Lock()
+	delete(s.sourceLastDiscovery, key)
+	s.sourceLastDiscoveryMu.Unlock()
+}
+
+// getSourceConfig returns the source config for a given tenant and source name.
+func (s *SimpleSyncService) getSourceConfig(tenantID, sourceName string) *models.SourceConfig {
+	if tenantID == "" {
+		s.configMu.RLock()
+		source := s.config.Sources[sourceName]
+		s.configMu.RUnlock()
+		return source
+	}
+
+	s.tenantMu.RLock()
+	tenantSources := s.tenantSources[tenantID]
+	source := tenantSources[sourceName]
+	s.tenantMu.RUnlock()
+	return source
 }
 
 // createIntegration creates a single integration instance.
