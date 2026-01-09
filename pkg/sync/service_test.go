@@ -98,7 +98,7 @@ func TestNewSimpleSyncService(t *testing.T) {
 			name: "valid config",
 			config: &Config{
 				AgentID:           "test-agent",
-				GatewayID:          "test-gateway",
+				GatewayID:         "test-gateway",
 				DiscoveryInterval: models.Duration(time.Minute),
 				UpdateInterval:    models.Duration(time.Minute),
 				Sources: map[string]*models.SourceConfig{
@@ -115,7 +115,7 @@ func TestNewSimpleSyncService(t *testing.T) {
 			name: "invalid config",
 			config: &Config{
 				AgentID:           "",
-				GatewayID:          "",
+				GatewayID:         "",
 				DiscoveryInterval: 0,
 				UpdateInterval:    0,
 				Sources:           nil,
@@ -156,7 +156,7 @@ func TestSimpleSyncService_Stop(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		Sources: map[string]*models.SourceConfig{
@@ -184,7 +184,7 @@ func TestSimpleSyncService_GetStatus(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		Sources: map[string]*models.SourceConfig{
@@ -240,7 +240,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		Sources: map[string]*models.SourceConfig{
@@ -275,7 +275,7 @@ func TestSimpleSyncService_createIntegration(t *testing.T) {
 		Type: "test-type",
 	}
 
-	integration := service.createIntegration(ctx, src, factory, "test-agent", "test-gateway")
+	integration := service.createIntegration(ctx, src, factory, "test-agent", "test-gateway", "default")
 	assert.Equal(t, mockIntegration, integration)
 }
 
@@ -287,7 +287,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		Sources: map[string]*models.SourceConfig{
@@ -326,7 +326,7 @@ func TestSimpleSyncService_createIntegration_WithExistingValues(t *testing.T) {
 	}
 
 	// Pass fallback values (which should be ignored since src has values)
-	integration := service.createIntegration(ctx, src, factory, "fallback-agent", "fallback-gateway")
+	integration := service.createIntegration(ctx, src, factory, "fallback-agent", "fallback-gateway", "fallback-partition")
 	assert.Equal(t, mockIntegration, integration)
 }
 
@@ -338,7 +338,7 @@ func TestSimpleSyncService_StreamResultsDeprecated(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		Sources: map[string]*models.SourceConfig{
@@ -412,7 +412,7 @@ func TestBuildResultsChunks(t *testing.T) {
 				IP:          fmt.Sprintf("192.168.1.%d", i%255),
 				Source:      models.DiscoverySourceIntegration,
 				AgentID:     "test-agent",
-				GatewayID:    "test-gateway",
+				GatewayID:   "test-gateway",
 				Timestamp:   time.Now(),
 				IsAvailable: true,
 				Confidence:  100,
@@ -512,7 +512,7 @@ func TestBuildResultsChunksSizeBudget(t *testing.T) {
 			IP:          fmt.Sprintf("10.0.0.%d", i+1),
 			Source:      models.DiscoverySourceIntegration,
 			AgentID:     "test-agent",
-			GatewayID:    "test-gateway",
+			GatewayID:   "test-gateway",
 			Timestamp:   time.Now(),
 			IsAvailable: true,
 			Confidence:  100,
@@ -655,7 +655,7 @@ func TestSimpleSyncService_runArmisUpdates_OverlapPrevention(t *testing.T) {
 
 	config := &Config{
 		AgentID:           "test-agent",
-		GatewayID:          "test-gateway",
+		GatewayID:         "test-gateway",
 		DiscoveryInterval: models.Duration(time.Minute),
 		UpdateInterval:    models.Duration(time.Minute),
 		ListenAddr:        ":9090",

@@ -836,7 +836,6 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 	s.configMu.RLock()
 	agentID := s.config.AgentID
 	partition := s.config.Partition
-	gatewayID := s.config.GatewayID
 	s.configMu.RUnlock()
 
 	req := &proto.AgentHelloRequest{
@@ -1230,6 +1229,7 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 	s.configMu.RLock()
 	agentID := s.config.AgentID
 	partition := s.config.Partition
+	gatewayID := s.config.GatewayID
 	s.configMu.RUnlock()
 
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
