@@ -87,6 +87,38 @@ Default gRPC max message size is 4MB. To override (server-side):
 - `GRPC_MAX_RECV_MSG_SIZE` (bytes or suffix like `8MB`)
 - `GRPC_MAX_SEND_MSG_SIZE`
 
+## Sync Ingestion Tuning Matrix
+
+Use these starting points when the embedded sync runtime is streaming large device inventories into core-elx. The goal is to smooth bursty chunk delivery, keep CNPG connection usage predictable, and avoid queue timeouts.
+
+**Connection budget rule of thumb**
+- Keep total core-elx pool connections at ~60% of CNPG `max_connections`. Reserve the remaining ~40% for web-ng, datasvc, migrations, and ad-hoc tooling.
+- Formula: `pool_size_per_core = floor(max_connections * 0.6 / core_replicas)`.
+
+**Pool sizing examples (per core-elx pod)**
+
+| CNPG max_connections | Core replicas | Pool size per pod | Total core connections |
+| --- | --- | --- | --- |
+| 500 | 4 | 75 | 300 |
+| 500 | 8 | 38 | 304 |
+| 1000 | 6 | 100 | 600 |
+| 1000 | 10 | 60 | 600 |
+| 2000 | 12 | 100 | 1200 |
+| 2000 | 20 | 60 | 1200 |
+
+**Ingestion knobs by workload size**
+
+| Workload | POOL_SIZE | DATABASE_QUEUE_TARGET_MS / INTERVAL_MS | SYNC_INGESTOR_COALESCE_MS | SYNC_INGESTOR_QUEUE_MAX_CHUNKS | SYNC_INGESTOR_MAX_INFLIGHT | SYNC_INGESTOR_BATCH_CONCURRENCY |
+| --- | --- | --- | --- | --- | --- | --- |
+| Small (single tenant, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
+| Medium (5-10 tenants, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
+| Large (10-20 tenants, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
+
+**Adjustments**
+- If you see `queue_timeout` errors, either raise `POOL_SIZE` (if CNPG can accept more) or raise `DATABASE_QUEUE_TARGET_MS`/`DATABASE_QUEUE_INTERVAL_MS` so requests wait longer.
+- If chunk bursts are spiky, raise `SYNC_INGESTOR_COALESCE_MS` or `SYNC_INGESTOR_QUEUE_MAX_CHUNKS` to merge more payloads before hitting the DB.
+- If CNPG CPU or locks spike, lower `SYNC_INGESTOR_BATCH_CONCURRENCY` before reducing `POOL_SIZE`.
+
 ## Migration from Standalone Sync
 
 If you previously deployed `serviceradar-sync` as a standalone service, migrate
