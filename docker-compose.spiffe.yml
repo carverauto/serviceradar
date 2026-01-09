@@ -828,7 +828,6 @@ volumes:
     driver: local
   datasvc-data:
     driver: local
-    driver: local
   otel-data:
     driver: local
   flowgger-data:

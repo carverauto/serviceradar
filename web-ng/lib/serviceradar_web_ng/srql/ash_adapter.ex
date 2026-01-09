@@ -208,7 +208,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
                     # internal field
                     "raw_data",
                     # Ash internal
-                    "__metadata__"
+                    "__metadata__",
+                    # TimescaleDB aggregation fields not in Ash resources
+                    "series",
+                    "agg",
+                    "bucket",
+                    # SRQL uses uid but TimeseriesMetric doesn't have it
+                    "uid"
                   ])
 
   @doc """
@@ -239,14 +245,135 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   def query(entity, params, scope \\ nil) do
     with {:ok, resource} <- get_resource(entity),
          {:ok, domain} <- get_domain(entity),
-         {:ok, query} <- build_query(resource, entity, params),
-         {:ok, results} <- execute_query(domain, query, scope) do
-      {:ok, format_response(results, entity, params)}
+         {:ok, query} <- build_query(resource, entity, params) do
+      # Check if this is a stats query (aggregation)
+      case Map.get(params, :stats) do
+        stats when is_list(stats) and stats != [] ->
+          execute_stats_query(query, stats, scope, entity, params)
+
+        _ ->
+          case execute_query(domain, query, scope) do
+            {:ok, results} -> {:ok, format_response(results, entity, params)}
+            {:error, reason} -> {:error, reason}
+          end
+      end
     else
       {:error, reason} ->
         Logger.warning("SRQL AshAdapter query failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  # Execute a stats/aggregation query
+  defp execute_stats_query(query, stats, scope, entity, params) do
+    # Extract tenant and actor from scope for explicit passing
+    {tenant, actor} = extract_tenant_and_actor(scope)
+
+    opts =
+      []
+      |> maybe_add_opt(:tenant, tenant)
+      |> maybe_add_opt(:actor, actor)
+
+    # Build result map from stats
+    result =
+      Enum.reduce(stats, %{}, fn stat, acc ->
+        case execute_single_stat(query, stat, opts) do
+          {:ok, value} -> Map.put(acc, stat.alias, value)
+          {:error, reason} ->
+            Logger.debug("Stats query failed for #{stat.alias}: #{inspect(reason)}")
+            Map.put(acc, stat.alias, 0)
+        end
+      end)
+
+    {:ok, format_stats_response(result, entity, params)}
+  end
+
+  # Extract tenant and actor from scope
+  defp extract_tenant_and_actor(nil), do: {nil, nil}
+
+  defp extract_tenant_and_actor(%{active_tenant: tenant, user: user}) do
+    # Convert tenant to schema string using TenantSchemas
+    tenant_schema =
+      case tenant do
+        %{id: id} -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(id)
+        _ -> nil
+      end
+
+    {tenant_schema, user}
+  end
+
+  defp extract_tenant_and_actor(_), do: {nil, nil}
+
+  defp maybe_add_opt(opts, _key, nil), do: opts
+  defp maybe_add_opt(opts, key, value), do: [{key, value} | opts]
+
+  defp execute_single_stat(query, %{type: :count, alias: _alias}, opts) do
+    case Ash.count(query, opts) do
+      {:ok, count} -> {:ok, count}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp execute_single_stat(query, %{type: :sum, field: field, alias: _alias}, opts) do
+    field_atom = String.to_existing_atom(field)
+
+    case Ash.sum(query, field_atom, opts) do
+      {:ok, sum} -> {:ok, sum || 0}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    ArgumentError -> {:ok, 0}
+  end
+
+  defp execute_single_stat(query, %{type: :avg, field: field, alias: _alias}, opts) do
+    field_atom = String.to_existing_atom(field)
+
+    case Ash.avg(query, field_atom, opts) do
+      {:ok, avg} -> {:ok, avg || 0}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    ArgumentError -> {:ok, 0}
+  end
+
+  defp execute_single_stat(query, %{type: :min, field: field, alias: _alias}, opts) do
+    field_atom = String.to_existing_atom(field)
+
+    case Ash.min(query, field_atom, opts) do
+      {:ok, min} -> {:ok, min || 0}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    ArgumentError -> {:ok, 0}
+  end
+
+  defp execute_single_stat(query, %{type: :max, field: field, alias: _alias}, opts) do
+    field_atom = String.to_existing_atom(field)
+
+    case Ash.max(query, field_atom, opts) do
+      {:ok, max} -> {:ok, max || 0}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    ArgumentError -> {:ok, 0}
+  end
+
+  defp execute_single_stat(_query, _stat, _opts), do: {:ok, 0}
+
+  # Format stats response to match SRQL response format
+  defp format_stats_response(result, _entity, params) do
+    limit = Map.get(params, :limit, 100)
+
+    %{
+      "results" => [result],
+      "pagination" => %{
+        "next_cursor" => nil,
+        "prev_cursor" => nil,
+        "limit" => limit
+      },
+      "viz" => nil,
+      "error" => nil
+    }
   end
 
   @doc """

@@ -112,20 +112,74 @@ defmodule ServiceRadarWebNG.SRQL do
   defp extract_entity(_), do: nil
 
   # Parse SRQL query into params for Ash adapter
-  # SRQL format: in:entity time:last_24h sort:field:desc field:value limit:100
+  # SRQL format: in:entity time:last_24h sort:field:desc field:value limit:100 stats:"count() as total"
   defp parse_srql_params(query, limit) do
     entity = extract_entity(query)
     filters = parse_srql_filters(query)
     time_filter = parse_srql_time(query, entity)
     sort = parse_srql_sort(query)
+    stats = parse_srql_stats(query)
 
     all_filters = if time_filter, do: [time_filter | filters], else: filters
 
     %{
       filters: all_filters,
       sort: sort,
-      limit: limit || 100
+      limit: limit || 100,
+      stats: stats
     }
+  end
+
+  # Parse SRQL stats clause: stats:"count() as total" or stats:"count() as total, sum(value) as sum"
+  defp parse_srql_stats(query) do
+    case Regex.run(~r/\bstats:"([^"]+)"/, query) do
+      [_, stats_expr] ->
+        parse_stats_expressions(stats_expr)
+
+      nil ->
+        nil
+    end
+  end
+
+  # Parse individual stats expressions like "count() as total, sum(field) as sum_field"
+  defp parse_stats_expressions(expr) do
+    expr
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&parse_single_stat/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp parse_single_stat(stat) do
+    cond do
+      # count() as alias
+      Regex.match?(~r/^count\(\)\s+as\s+(\w+)$/i, stat) ->
+        [_, alias] = Regex.run(~r/^count\(\)\s+as\s+(\w+)$/i, stat)
+        %{type: :count, alias: alias}
+
+      # sum(field) as alias
+      Regex.match?(~r/^sum\((\w+)\)\s+as\s+(\w+)$/i, stat) ->
+        [_, field, alias] = Regex.run(~r/^sum\((\w+)\)\s+as\s+(\w+)$/i, stat)
+        %{type: :sum, field: field, alias: alias}
+
+      # avg(field) as alias
+      Regex.match?(~r/^avg\((\w+)\)\s+as\s+(\w+)$/i, stat) ->
+        [_, field, alias] = Regex.run(~r/^avg\((\w+)\)\s+as\s+(\w+)$/i, stat)
+        %{type: :avg, field: field, alias: alias}
+
+      # min(field) as alias
+      Regex.match?(~r/^min\((\w+)\)\s+as\s+(\w+)$/i, stat) ->
+        [_, field, alias] = Regex.run(~r/^min\((\w+)\)\s+as\s+(\w+)$/i, stat)
+        %{type: :min, field: field, alias: alias}
+
+      # max(field) as alias
+      Regex.match?(~r/^max\((\w+)\)\s+as\s+(\w+)$/i, stat) ->
+        [_, field, alias] = Regex.run(~r/^max\((\w+)\)\s+as\s+(\w+)$/i, stat)
+        %{type: :max, field: field, alias: alias}
+
+      true ->
+        nil
+    end
   end
 
   # Get the timestamp field for an entity
