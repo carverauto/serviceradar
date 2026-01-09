@@ -100,7 +100,8 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "batch_size" => get_setting(source.settings, "batch_size"),
       "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
       "tenant_id" => to_string(source.tenant_id),
-      "tenant_slug" => tenant_slug
+      "tenant_slug" => tenant_slug,
+      "sync_service_id" => to_string(source.id)
     }
     |> compact_map()
   end
