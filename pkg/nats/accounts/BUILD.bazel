@@ -20,6 +20,7 @@ go_test(
     srcs = [
         "account_manager_test.go",
         "operator_test.go",
+        "test_keys_test.go",
         "user_manager_test.go",
     ],
     embed = [":accounts"],

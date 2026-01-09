@@ -244,17 +244,22 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   """
   def query(entity, params, scope \\ nil) do
     with {:ok, resource} <- get_resource(entity),
-         {:ok, domain} <- get_domain(entity),
-         {:ok, query} <- build_query(resource, entity, params) do
+         {:ok, domain} <- get_domain(entity) do
       # Check if this is a stats query (aggregation)
       case Map.get(params, :stats) do
         stats when is_list(stats) and stats != [] ->
-          execute_stats_query(query, stats, scope, entity, params)
+          with {:ok, query} <- build_query(resource, entity, params, apply_pagination?: false) do
+            execute_stats_query(query, stats, scope, entity, params)
+          end
 
         _ ->
-          case execute_query(domain, query, scope) do
-            {:ok, results} -> {:ok, format_response(results, entity, params)}
-            {:error, reason} -> {:error, reason}
+          with {:ok, offset} <- decode_cursor(Map.get(params, :cursor)),
+               {:ok, query} <-
+                 build_query(resource, entity, Map.put(params, :offset, offset)) do
+            case execute_query(domain, query, scope) do
+              {:ok, results} -> {:ok, format_response(results, entity, params, offset)}
+              {:error, reason} -> {:error, reason}
+            end
           end
       end
     else
@@ -266,13 +271,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   # Execute a stats/aggregation query
   defp execute_stats_query(query, stats, scope, entity, params) do
-    # Extract tenant and actor from scope for explicit passing
-    {tenant, actor} = extract_tenant_and_actor(scope)
-
-    opts =
-      []
-      |> maybe_add_opt(:tenant, tenant)
-      |> maybe_add_opt(:actor, actor)
+    opts = if scope, do: [scope: scope], else: []
 
     # Build result map from stats
     result =
@@ -289,25 +288,6 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
     {:ok, format_stats_response(result, entity, params)}
   end
-
-  # Extract tenant and actor from scope
-  defp extract_tenant_and_actor(nil), do: {nil, nil}
-
-  defp extract_tenant_and_actor(%{active_tenant: tenant, user: user}) do
-    # Convert tenant to schema string using TenantSchemas
-    tenant_schema =
-      case tenant do
-        %{id: id} -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(id)
-        _ -> nil
-      end
-
-    {tenant_schema, user}
-  end
-
-  defp extract_tenant_and_actor(_), do: {nil, nil}
-
-  defp maybe_add_opt(opts, _key, nil), do: opts
-  defp maybe_add_opt(opts, key, value), do: [{key, value} | opts]
 
   defp execute_single_stat(query, %{type: :count, alias: _alias}, opts) do
     case Ash.count(query, opts) do
@@ -399,14 +379,18 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   # Build an Ash query from SRQL parameters
-  defp build_query(resource, entity, params) do
-    query = Ash.Query.new(resource)
+  defp build_query(resource, entity, params, opts \\ []) do
+    apply_pagination? = Keyword.get(opts, :apply_pagination?, true)
+    limit = Map.get(params, :limit)
+    offset = Map.get(params, :offset)
 
     query =
-      query
+      resource
+      |> Ash.Query.for_read(:read, %{})
       |> apply_filters(entity, Map.get(params, :filters, []))
       |> apply_sort(entity, Map.get(params, :sort))
-      |> apply_limit(Map.get(params, :limit))
+      |> maybe_apply_offset(offset, apply_pagination?)
+      |> maybe_apply_limit(limit, apply_pagination?)
 
     {:ok, query}
   rescue
@@ -536,12 +520,23 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     end
   end
 
+  defp maybe_apply_limit(query, _limit, false), do: query
+  defp maybe_apply_limit(query, limit, true), do: apply_limit(query, limit)
+
   defp apply_limit(query, nil), do: Ash.Query.limit(query, 100)
 
   defp apply_limit(query, limit) when is_integer(limit) and limit > 0,
     do: Ash.Query.limit(query, limit)
 
   defp apply_limit(query, _), do: Ash.Query.limit(query, 100)
+
+  defp maybe_apply_offset(query, _offset, false), do: query
+  defp maybe_apply_offset(query, offset, true), do: apply_offset(query, offset)
+
+  defp apply_offset(query, nil), do: query
+  defp apply_offset(query, offset) when is_integer(offset) and offset > 0,
+    do: Ash.Query.offset(query, offset)
+  defp apply_offset(query, _), do: query
 
   # Execute the query against the Ash domain
   # Uses scope: option which automatically extracts actor/tenant via Ash.Scope.ToOpts
@@ -551,17 +546,13 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   # Format the response to match SRQL response format
-  defp format_response(results, entity, params) when is_list(results) do
+  defp format_response(results, entity, params, offset) do
     limit = Map.get(params, :limit, 100)
+    {rows, _page} = normalize_page_results(results)
 
     %{
-      "results" => Enum.map(results, &format_result(&1, entity)),
-      "pagination" => %{
-        # Keyset pagination is not implemented yet.
-        "next_cursor" => nil,
-        "prev_cursor" => nil,
-        "limit" => limit
-      },
+      "results" => Enum.map(rows, &format_result(&1, entity)),
+      "pagination" => build_pagination(offset, limit, rows),
       "viz" => nil,
       "error" => nil
     }
@@ -612,4 +603,54 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   # Skip unloaded associations
   defp format_value(value) when is_struct(value), do: nil
   defp format_value(value), do: value
+
+  defp normalize_page_results(%Ash.Page.Keyset{} = page), do: {page.results, page}
+  defp normalize_page_results(%Ash.Page.Offset{} = page), do: {page.results, page}
+  defp normalize_page_results(results) when is_list(results), do: {results, nil}
+  defp normalize_page_results(_), do: {[], nil}
+
+  defp build_pagination(offset, limit, results) do
+    %{
+      "next_cursor" => next_cursor(offset, limit, results),
+      "prev_cursor" => prev_cursor(offset, limit),
+      "limit" => limit
+    }
+  end
+
+  defp next_cursor(offset, limit, results)
+       when is_integer(offset) and is_integer(limit) and limit > 0 do
+    if length(results) >= limit do
+      encode_cursor(offset + limit)
+    else
+      nil
+    end
+  end
+
+  defp next_cursor(_, _, _), do: nil
+
+  defp prev_cursor(offset, limit)
+       when is_integer(offset) and is_integer(limit) and limit > 0 and offset > 0 do
+    encode_cursor(max(offset - limit, 0))
+  end
+
+  defp prev_cursor(_, _), do: nil
+
+  defp decode_cursor(nil), do: {:ok, 0}
+
+  defp decode_cursor(cursor) when is_binary(cursor) do
+    with {:ok, payload} <- Base.url_decode64(cursor, padding: false),
+         {:ok, %{"offset" => offset}} <- Jason.decode(payload),
+         true <- is_integer(offset) do
+      {:ok, max(offset, 0)}
+    else
+      _ -> {:error, "invalid cursor"}
+    end
+  end
+
+  defp decode_cursor(_), do: {:error, "invalid cursor"}
+
+  defp encode_cursor(offset) when is_integer(offset) do
+    payload = Jason.encode!(%{offset: max(offset, 0)})
+    Base.url_encode64(payload, padding: false)
+  end
 end
