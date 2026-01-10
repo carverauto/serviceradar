@@ -262,6 +262,7 @@ serviceradar-collector-<id>.tar.gz/
 - [ ] 4.5.3 Configure CNPG table names with tenant schema prefix
 - [ ] 4.5.4 Deploy one db-event-writer instance per tenant
 - [ ] 4.5.5 Disable core-elx EventWriter in multi-tenant mode
+- [x] 4.5.6 Restore db-event-writer + zen in default compose; keep core-elx EventWriter disabled
 
 ### 4.6 Payload Formats (OCSF/OTEL, No CloudEvents)
 
