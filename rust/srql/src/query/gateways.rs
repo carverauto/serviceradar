@@ -27,10 +27,12 @@ type GatewaysQuery<'a> =
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    let rows: Vec<GatewayRow> = query
-        .limit(plan.limit)
-        .offset(plan.offset)
+
+    // Use raw SQL query with QueryableByName to work around diesel-async's
+    // 15-column tuple limit (diesel-async doesn't have 64-column-tables feature)
+    let (sql, params) = to_sql_and_params(plan)?;
+
+    let rows: Vec<GatewayRow> = diesel::sql_query(&sql)
         .load(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;

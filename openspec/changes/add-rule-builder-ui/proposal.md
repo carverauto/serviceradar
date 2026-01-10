@@ -8,6 +8,7 @@ Operators cannot manage Zen rules or stateful alert rules without editing JSON a
 - Add a unified Rule Builder UI in web-ng (Settings) for:
   - Log normalization rules (Zen) targeting syslog, SNMP traps, OTEL logs, and internal logs.
   - Response rules (stateful alert engine) for threshold-based alerts.
+- Consolidate settings navigation with a shared Settings layout and add a dedicated entry for the Rule Builder UI.
 - Add core-elx APIs/services to validate, persist, and sync rules via datasvc KV (push updates and reconcile on startup).
 - Update docs to replace manual KV instructions with UI-driven workflows and include rule semantics/examples.
 

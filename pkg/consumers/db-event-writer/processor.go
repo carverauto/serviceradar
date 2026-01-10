@@ -325,7 +325,7 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 		p.logger.Debug().Str("table", table).Msg("Processing as OCSF events table")
 		return p.processOCSFEventsTable(ctx, table, tableMsgs)
 	default:
-		return nil, fmt.Errorf("unsupported table: %s", table)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedTable, table)
 	}
 }
 

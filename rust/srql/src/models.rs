@@ -414,7 +414,7 @@ impl ServiceStatusRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[diesel(table_name = crate::schema::gateways)]
 pub struct GatewayRow {
     pub gateway_id: String,

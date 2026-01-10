@@ -32,6 +32,15 @@ const (
 
 	// DefaultTenant is used when no tenant is found in context and prefixing is enabled.
 	DefaultTenant = "default"
+
+	// Severity name constants for OCSF events.
+	severityInformational = "Informational"
+	severityLow           = "Low"
+	severityMedium        = "Medium"
+	severityHigh          = "High"
+	severityCritical      = "Critical"
+	severityFatal         = "Fatal"
+	severityUnknown       = "Unknown"
 )
 
 var (
@@ -564,19 +573,19 @@ func defaultOCSFMetadata() map[string]any {
 func severityForState(state string) (int, string) {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "healthy":
-		return 1, "Informational"
+		return 1, severityInformational
 	case "degraded":
-		return 3, "Medium"
+		return 3, severityMedium
 	case "unhealthy", "offline":
-		return 5, "Critical"
+		return 5, severityCritical
 	default:
-		return 0, "Unknown"
+		return 0, severityUnknown
 	}
 }
 
 func severityForLifecycle(data *models.DeviceLifecycleEventData) (int, string) {
 	if data == nil {
-		return 0, "Unknown"
+		return 0, severityUnknown
 	}
 
 	if data.Severity != "" {
@@ -587,63 +596,63 @@ func severityForLifecycle(data *models.DeviceLifecycleEventData) (int, string) {
 		return severityFromLevel(data.Level)
 	}
 
-	return 1, "Informational"
+	return 1, severityInformational
 }
 
 func severityFromText(text string) (int, string) {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "fatal":
-		return 6, "Fatal"
+		return 6, severityFatal
 	case "critical":
-		return 5, "Critical"
+		return 5, severityCritical
 	case "error", "high":
-		return 4, "High"
+		return 4, severityHigh
 	case "warn", "warning", "medium":
-		return 3, "Medium"
+		return 3, severityMedium
 	case "notice", "low":
-		return 2, "Low"
+		return 2, severityLow
 	case "info", "informational":
-		return 1, "Informational"
+		return 1, severityInformational
 	default:
-		return 0, "Unknown"
+		return 0, severityUnknown
 	}
 }
 
 func severityFromLevel(level int32) (int, string) {
 	switch level {
 	case 0:
-		return 6, "Fatal"
+		return 6, severityFatal
 	case 1, 2:
-		return 5, "Critical"
+		return 5, severityCritical
 	case 3:
-		return 4, "High"
+		return 4, severityHigh
 	case 4:
-		return 3, "Medium"
+		return 3, severityMedium
 	case 5:
-		return 2, "Low"
+		return 2, severityLow
 	case 6, 7:
-		return 1, "Informational"
+		return 1, severityInformational
 	default:
-		return 0, "Unknown"
+		return 0, severityUnknown
 	}
 }
 
 func severityName(id int) string {
 	switch id {
 	case 1:
-		return "Informational"
+		return severityInformational
 	case 2:
-		return "Low"
+		return severityLow
 	case 3:
-		return "Medium"
+		return severityMedium
 	case 4:
-		return "High"
+		return severityHigh
 	case 5:
-		return "Critical"
+		return severityCritical
 	case 6:
-		return "Fatal"
+		return severityFatal
 	default:
-		return "Unknown"
+		return severityUnknown
 	}
 }
 

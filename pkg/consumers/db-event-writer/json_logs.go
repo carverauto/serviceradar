@@ -11,44 +11,54 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// Severity level string constants.
+const (
+	severityINFO  = "INFO"
+	severityFATAL = "FATAL"
+	severityERROR = "ERROR"
+	severityWARN  = "WARN"
+	severityDEBUG = "DEBUG"
+)
+
+//nolint:gochecknoglobals // package-level lookup table for performance
 var jsonLogReservedKeys = map[string]struct{}{
-	"@timestamp":        {},
-	"body":              {},
-	"event":             {},
-	"host":              {},
-	"hostname":          {},
-	"ip":                {},
-	"ip_address":        {},
-	"level":             {},
-	"log":               {},
-	"message":           {},
-	"msg":               {},
-	"remote_addr":       {},
-	"scope.name":        {},
-	"scope.version":     {},
-	"scope_name":        {},
-	"scope_version":     {},
-	"service.instance":  {},
-	"service.instance.id": {},
-	"service.name":      {},
-	"service.version":   {},
-	"service_instance":  {},
-	"service_instance_id": {},
-	"service_name":      {},
-	"service_version":   {},
-	"severity":          {},
-	"severity_number":   {},
-	"severity_text":     {},
-	"short_message":     {},
-	"source":            {},
-	"span_id":           {},
-	"spanId":            {},
-	"summary":           {},
-	"time":              {},
-	"timestamp":         {},
-	"trace_id":          {},
-	"traceId":           {},
-	"ts":                {},
+	"@timestamp":           {},
+	"body":                 {},
+	"event":                {},
+	"host":                 {},
+	"hostname":             {},
+	"ip":                   {},
+	"ip_address":           {},
+	"level":                {},
+	"log":                  {},
+	"message":              {},
+	"msg":                  {},
+	"remote_addr":          {},
+	"scope.name":           {},
+	"scope.version":        {},
+	"scope_name":           {},
+	"scope_version":        {},
+	"service.instance":     {},
+	"service.instance.id":  {},
+	"service.name":         {},
+	"service.version":      {},
+	"service_instance":     {},
+	"service_instance_id":  {},
+	"service_name":         {},
+	"service_version":      {},
+	"severity":             {},
+	"severity_number":      {},
+	"severity_text":        {},
+	"short_message":        {},
+	"source":               {},
+	"span_id":              {},
+	"spanId":               {},
+	"summary":              {},
+	"time":                 {},
+	"timestamp":            {},
+	"trace_id":             {},
+	"traceId":              {},
+	"ts":                   {},
 }
 
 func parseJSONLogs(payload []byte, subject string) ([]models.OTELLogRow, bool) {
@@ -180,7 +190,7 @@ func normalizeSeverity(entry map[string]interface{}) (string, int32) {
 		}
 	}
 
-	return "INFO", severityNumberForText("INFO")
+	return severityINFO, severityNumberForText(severityINFO)
 }
 
 func normalizeSeverityText(text string) (string, int32) {
@@ -188,17 +198,17 @@ func normalizeSeverityText(text string) (string, int32) {
 
 	switch normalized {
 	case "fatal", "critical", "emergency", "alert", "very high", "very_high":
-		return "FATAL", severityNumberForText("FATAL")
+		return severityFATAL, severityNumberForText(severityFATAL)
 	case "high", "error":
-		return "ERROR", severityNumberForText("ERROR")
+		return severityERROR, severityNumberForText(severityERROR)
 	case "medium", "warn", "warning":
-		return "WARN", severityNumberForText("WARN")
+		return severityWARN, severityNumberForText(severityWARN)
 	case "low", "info", "informational", "notice", "unknown":
-		return "INFO", severityNumberForText("INFO")
+		return severityINFO, severityNumberForText(severityINFO)
 	case "debug", "trace":
-		return "DEBUG", severityNumberForText("DEBUG")
+		return severityDEBUG, severityNumberForText(severityDEBUG)
 	default:
-		return "INFO", severityNumberForText("INFO")
+		return severityINFO, severityNumberForText(severityINFO)
 	}
 }
 
@@ -211,52 +221,52 @@ func severityFromLevel(level interface{}) (string, int32) {
 		return normalizeSeverityText(levelText)
 	}
 
-	return "INFO", severityNumberForText("INFO")
+	return severityINFO, severityNumberForText(severityINFO)
 }
 
 func severityFromGELF(level int) (string, int32) {
 	switch level {
 	case 0, 1, 2:
-		return "FATAL", severityNumberForText("FATAL")
+		return severityFATAL, severityNumberForText(severityFATAL)
 	case 3:
-		return "ERROR", severityNumberForText("ERROR")
+		return severityERROR, severityNumberForText(severityERROR)
 	case 4:
-		return "WARN", severityNumberForText("WARN")
+		return severityWARN, severityNumberForText(severityWARN)
 	case 5, 6:
-		return "INFO", severityNumberForText("INFO")
+		return severityINFO, severityNumberForText(severityINFO)
 	case 7:
-		return "DEBUG", severityNumberForText("DEBUG")
+		return severityDEBUG, severityNumberForText(severityDEBUG)
 	default:
-		return "INFO", severityNumberForText("INFO")
+		return severityINFO, severityNumberForText(severityINFO)
 	}
 }
 
 func severityTextFromNumber(value int32) string {
 	switch {
 	case value >= 21:
-		return "FATAL"
+		return severityFATAL
 	case value >= 17:
-		return "ERROR"
+		return severityERROR
 	case value >= 13:
-		return "WARN"
+		return severityWARN
 	case value >= 9:
-		return "INFO"
+		return severityINFO
 	case value >= 5:
-		return "DEBUG"
+		return severityDEBUG
 	default:
-		return "INFO"
+		return severityINFO
 	}
 }
 
 func severityNumberForText(text string) int32 {
 	switch strings.ToUpper(strings.TrimSpace(text)) {
-	case "FATAL":
+	case severityFATAL:
 		return 23
-	case "ERROR":
+	case severityERROR:
 		return 19
-	case "WARN", "WARNING":
+	case severityWARN, "WARNING":
 		return 15
-	case "DEBUG":
+	case severityDEBUG:
 		return 7
 	case "TRACE":
 		return 3
