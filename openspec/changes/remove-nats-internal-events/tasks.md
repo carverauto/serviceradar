@@ -10,6 +10,8 @@
 - [x] 2.4 Add OCSF event resource mapping for `ocsf_events` (Ash + multitenancy).
 - [x] 2.5 Emit OCSF events on Oban job failures for NATS account provisioning.
 - [x] 2.6 Add sync ingestion state machine transitions and OCSF event writes for start/finish.
+- [x] 2.7 Mirror edge onboarding events into OCSF for unified event stream.
+- [x] 2.8 Retire legacy monitoring_events resource and drop the tenant table.
 
 ## 3. UI & Consumers
 - [x] 3.1 Update web-ng live views to subscribe to internal health PubSub events.

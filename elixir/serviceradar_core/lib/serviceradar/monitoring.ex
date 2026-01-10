@@ -14,7 +14,6 @@ defmodule ServiceRadar.Monitoring do
   - `ServiceRadar.Monitoring.PollJob` - Individual poll job executions (state machine)
   - `ServiceRadar.Monitoring.ServiceCheck` - Scheduled service checks
   - `ServiceRadar.Monitoring.Alert` - Alerts with state machine lifecycle
-  - `ServiceRadar.Monitoring.Event` - System and device events
   - `ServiceRadar.Monitoring.OcsfEvent` - OCSF event log activity entries
 
   ## Alert State Machine
@@ -42,7 +41,6 @@ defmodule ServiceRadar.Monitoring do
     resource ServiceRadar.Monitoring.PollJob
     resource ServiceRadar.Monitoring.ServiceCheck
     resource ServiceRadar.Monitoring.Alert
-    resource ServiceRadar.Monitoring.Event
     resource ServiceRadar.Monitoring.OcsfEvent
   end
 
