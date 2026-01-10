@@ -71,6 +71,7 @@ defmodule ServiceRadar.NATS.AccountClient do
 
     * `:limits` - AccountLimits struct with resource constraints
     * `:subject_mappings` - Custom subject mappings (defaults are applied automatically)
+    * `:exports` - Stream exports for cross-account consumption (optional)
     * `:timeout` - gRPC call timeout in milliseconds (default: 30000)
 
   ## Examples
@@ -90,7 +91,8 @@ defmodule ServiceRadar.NATS.AccountClient do
     request = %Proto.CreateTenantAccountRequest{
       tenant_slug: tenant_slug,
       limits: build_limits(opts[:limits]),
-      subject_mappings: build_subject_mappings(opts[:subject_mappings])
+      subject_mappings: build_subject_mappings(opts[:subject_mappings]),
+      exports: build_stream_exports(opts[:exports])
     }
 
     with {:ok, channel} <- get_channel() do
@@ -222,6 +224,8 @@ defmodule ServiceRadar.NATS.AccountClient do
     * `:limits` - Updated AccountLimits
     * `:subject_mappings` - Updated subject mappings
     * `:revoked_user_keys` - List of user public keys to revoke
+    * `:exports` - Stream exports for cross-account consumption
+    * `:imports` - Stream imports from tenant accounts
     * `:timeout` - gRPC call timeout in milliseconds
 
   ## Examples
@@ -251,7 +255,9 @@ defmodule ServiceRadar.NATS.AccountClient do
       account_seed: account_seed,
       limits: build_limits(opts[:limits]),
       subject_mappings: build_subject_mappings(opts[:subject_mappings]),
-      revoked_user_keys: opts[:revoked_user_keys] || []
+      revoked_user_keys: opts[:revoked_user_keys] || [],
+      exports: build_stream_exports(opts[:exports]),
+      imports: build_stream_imports(opts[:imports])
     }
 
     with {:ok, channel} <- get_channel() do
@@ -544,6 +550,54 @@ defmodule ServiceRadar.NATS.AccountClient do
 
       {from, to} ->
         %Proto.SubjectMapping{from: from, to: to}
+    end)
+  end
+
+  defp build_stream_exports(nil), do: []
+
+  defp build_stream_exports(exports) when is_list(exports) do
+    Enum.map(exports, fn
+      %{subject: subject, name: name} ->
+        %Proto.StreamExport{subject: subject, name: name}
+
+      %{subject: subject} ->
+        %Proto.StreamExport{subject: subject}
+
+      {subject, name} ->
+        %Proto.StreamExport{subject: subject, name: name}
+    end)
+  end
+
+  defp build_stream_imports(nil), do: []
+
+  defp build_stream_imports(imports) when is_list(imports) do
+    Enum.map(imports, fn
+      %{subject: subject, account_public_key: account_public_key, local_subject: local_subject, name: name} ->
+        %Proto.StreamImport{
+          subject: subject,
+          account_public_key: account_public_key,
+          local_subject: local_subject,
+          name: name
+        }
+
+      %{subject: subject, account_public_key: account_public_key, local_subject: local_subject} ->
+        %Proto.StreamImport{
+          subject: subject,
+          account_public_key: account_public_key,
+          local_subject: local_subject
+        }
+
+      %{subject: subject, account_public_key: account_public_key} ->
+        %Proto.StreamImport{
+          subject: subject,
+          account_public_key: account_public_key
+        }
+
+      {subject, account_public_key} ->
+        %Proto.StreamImport{
+          subject: subject,
+          account_public_key: account_public_key
+        }
     end)
   end
 

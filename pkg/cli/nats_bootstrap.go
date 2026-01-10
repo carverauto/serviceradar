@@ -595,7 +595,7 @@ func generatePlatformAccount(
 		{From: "netflow.>", To: "netflow.>"},
 	}
 
-	account, err := signer.CreateTenantAccount(accountName, nil, mappings)
+	account, err := signer.CreateTenantAccount(accountName, nil, mappings, nil)
 	if err != nil {
 		return nil, "", err
 	}

@@ -43,6 +43,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
 
   require Logger
@@ -270,22 +271,25 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defp check_gateways(state) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.gateway_timeout, :millisecond)
 
-    # Find gateways that haven't been seen recently
-    case list_stale_gateways(timeout_threshold) do
-      {:ok, gateways} ->
-        Enum.each(gateways, fn gateway ->
-          handle_stale_gateway(gateway, state)
-        end)
+    # Check gateways across all tenants
+    TenantSchemas.list_schemas()
+    |> Enum.reduce(0, fn tenant_schema, acc ->
+      case list_stale_gateways(timeout_threshold, tenant_schema) do
+        {:ok, gateways} ->
+          Enum.each(gateways, fn gateway ->
+            handle_stale_gateway(gateway, state, tenant_schema)
+          end)
 
-        length(gateways)
+          acc + length(gateways)
 
-      {:error, reason} ->
-        Logger.error("Failed to check gateways: #{inspect(reason)}")
-        0
-    end
+        {:error, reason} ->
+          Logger.error("Failed to check gateways for #{tenant_schema}: #{inspect(reason)}")
+          acc
+      end
+    end)
   end
 
-  defp list_stale_gateways(timeout_threshold) do
+  defp list_stale_gateways(timeout_threshold, tenant_schema) do
     # Query gateways that are healthy/degraded but last_seen is before threshold
     require Ash.Query
 
@@ -294,10 +298,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:healthy, :degraded] and
         (is_nil(last_seen) or last_seen < ^timeout_threshold)
     )
-    |> Ash.read(authorize?: false)
+    |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_stale_gateway(gateway, _state) do
+  defp handle_stale_gateway(gateway, _state, tenant_schema) do
     Logger.info("Gateway #{gateway.id} heartbeat timeout, transitioning to degraded/offline")
 
     old_state = gateway.status
@@ -308,7 +312,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     result =
       gateway
       |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"})
-      |> Ash.update(authorize?: false)
+      |> Ash.update(authorize?: false, tenant: tenant_schema)
 
     case result do
       {:ok, _updated_gateway} ->
@@ -322,21 +326,25 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defp check_agents(state) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
 
-    case list_stale_agents(timeout_threshold) do
-      {:ok, agents} ->
-        Enum.each(agents, fn agent ->
-          handle_stale_agent(agent, state)
-        end)
+    # Check agents across all tenants
+    TenantSchemas.list_schemas()
+    |> Enum.reduce(0, fn tenant_schema, acc ->
+      case list_stale_agents(timeout_threshold, tenant_schema) do
+        {:ok, agents} ->
+          Enum.each(agents, fn agent ->
+            handle_stale_agent(agent, state, tenant_schema)
+          end)
 
-        length(agents)
+          acc + length(agents)
 
-      {:error, reason} ->
-        Logger.error("Failed to check agents: #{inspect(reason)}")
-        0
-    end
+        {:error, reason} ->
+          Logger.error("Failed to check agents for #{tenant_schema}: #{inspect(reason)}")
+          acc
+      end
+    end)
   end
 
-  defp list_stale_agents(timeout_threshold) do
+  defp list_stale_agents(timeout_threshold, tenant_schema) do
     require Ash.Query
 
     Agent
@@ -344,10 +352,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:connected, :degraded] and
         (is_nil(last_seen_time) or last_seen_time < ^timeout_threshold)
     )
-    |> Ash.read(authorize?: false)
+    |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_stale_agent(agent, _state) do
+  defp handle_stale_agent(agent, _state, tenant_schema) do
     Logger.info("Agent #{agent.uid} heartbeat timeout, transitioning to disconnected")
 
     # The :lose_connection action has PublishStateChange attached which handles
@@ -355,7 +363,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     result =
       agent
       |> Ash.Changeset.for_update(:lose_connection, %{})
-      |> Ash.update(authorize?: false)
+      |> Ash.update(authorize?: false, tenant: tenant_schema)
 
     case result do
       {:ok, _updated_agent} ->
@@ -367,21 +375,25 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   end
 
   defp check_checkers(state) do
-    case list_failing_checkers(state.checker_failure_threshold) do
-      {:ok, checkers} ->
-        Enum.each(checkers, fn checker ->
-          handle_failing_checker(checker, state)
-        end)
+    # Check checkers across all tenants
+    TenantSchemas.list_schemas()
+    |> Enum.reduce(0, fn tenant_schema, acc ->
+      case list_failing_checkers(state.checker_failure_threshold, tenant_schema) do
+        {:ok, checkers} ->
+          Enum.each(checkers, fn checker ->
+            handle_failing_checker(checker, state, tenant_schema)
+          end)
 
-        length(checkers)
+          acc + length(checkers)
 
-      {:error, reason} ->
-        Logger.error("Failed to check checkers: #{inspect(reason)}")
-        0
-    end
+        {:error, reason} ->
+          Logger.error("Failed to check checkers for #{tenant_schema}: #{inspect(reason)}")
+          acc
+      end
+    end)
   end
 
-  defp list_failing_checkers(threshold) do
+  defp list_failing_checkers(threshold, tenant_schema) do
     require Ash.Query
 
     Checker
@@ -389,10 +401,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status == :active and
         consecutive_failures >= ^threshold
     )
-    |> Ash.read(authorize?: false)
+    |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_failing_checker(checker, _state) do
+  defp handle_failing_checker(checker, _state, tenant_schema) do
     Logger.info("Checker #{checker.id} has #{checker.consecutive_failures} consecutive failures, marking as failing")
 
     # The :mark_failing action has PublishStateChange attached which handles
@@ -400,7 +412,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     result =
       checker
       |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"})
-      |> Ash.update(authorize?: false)
+      |> Ash.update(authorize?: false, tenant: tenant_schema)
 
     case result do
       {:ok, _updated_checker} ->

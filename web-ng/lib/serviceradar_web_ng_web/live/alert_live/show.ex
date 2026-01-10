@@ -328,4 +328,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 end

@@ -237,7 +237,7 @@ serviceradar-collector-<id>.tar.gz/
 
 ### 4.2 Consumer Configuration
 
-- [ ] 4.2.1 Update durable consumer subject filters
+- [x] 4.2.1 Update zen consumer subject filters for tenant-prefixed subjects
 - [ ] 4.2.2 Document consumer configuration for operators
 - [ ] 4.2.3 Add health checks for consumer lag per tenant
 

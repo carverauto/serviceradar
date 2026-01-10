@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  require Ash.Query
+
   alias ServiceRadar.Monitoring.Alert
 
   @impl true
