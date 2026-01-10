@@ -241,6 +241,38 @@ serviceradar-collector-<id>.tar.gz/
 - [ ] 4.2.2 Document consumer configuration for operators
 - [ ] 4.2.3 Add health checks for consumer lag per tenant
 
+### 4.3 Zen Rule Sync (CNPG → KV)
+
+- [ ] 4.3.1 Publish log promotion rules to tenant KV on create/update/delete
+- [ ] 4.3.2 Ensure rule payloads include tenant/subject metadata for zen
+- [ ] 4.3.3 Update zen rule watcher to use tenant-aware KV prefixes
+- [ ] 4.3.4 Add reconciliation job to push full rule set on startup
+
+### 4.4 Per-Tenant Zen Deployment
+
+- [ ] 4.4.1 Provision zen consumer credentials from tenant NATS account
+- [ ] 4.4.2 Deploy one zen instance per tenant with tenant CA + creds
+- [ ] 4.4.3 Wire zen outputs to tenant processed subjects only
+- [ ] 4.4.4 Add scaling guidance for large tenants (replicas per tenant)
+
+### 4.5 Per-Tenant DB Event Writer
+
+- [ ] 4.5.1 Provision db-event-writer credentials from tenant NATS account
+- [ ] 4.5.2 Configure per-tenant subjects for processed logs/events
+- [ ] 4.5.3 Configure CNPG table names with tenant schema prefix
+- [ ] 4.5.4 Deploy one db-event-writer instance per tenant
+- [ ] 4.5.5 Disable core-elx EventWriter in multi-tenant mode
+- [x] 4.5.6 Restore db-event-writer + zen in default compose; keep core-elx EventWriter disabled
+
+### 4.6 Payload Formats (OCSF/OTEL, No CloudEvents)
+
+- [x] 4.6.1 Remove CloudEvents wrappers from zen outputs
+- [x] 4.6.2 Publish OCSF events to `events.ocsf.processed` and OTEL logs to `logs.*.processed`
+- [x] 4.6.3 Update db-event-writer to ingest raw OTEL logs and OCSF events (no CloudEvent parsing)
+- [x] 4.6.4 Update db-event-writer configs to use `ocsf_events` + new subjects
+- [x] 4.6.5 Update ingestion docs to remove CloudEvents references
+- [x] 4.6.6 Publish internal core events as `logs.internal.*` (OCSF log activity) and wire Zen/db-event-writer
+
 ## Phase 5: Collector NATS Credentials Support
 
 > **Note**: Collectors need to support NATS credentials file authentication.

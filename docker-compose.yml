@@ -183,13 +183,7 @@ services:
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
       - DATASVC_CERT_NAME=core
-      # EventWriter configuration (replaces Go db-event-writer)
-      - EVENT_WRITER_ENABLED=${EVENT_WRITER_ENABLED:-true}
-      - EVENT_WRITER_NATS_URL=nats://nats:4222
-      - EVENT_WRITER_NATS_TLS=true
-      - EVENT_WRITER_NATS_CREDS_FILE=/etc/serviceradar/creds/platform.creds
-      - EVENT_WRITER_BATCH_SIZE=${EVENT_WRITER_BATCH_SIZE:-100}
-      - EVENT_WRITER_BATCH_TIMEOUT=${EVENT_WRITER_BATCH_TIMEOUT:-1000}
+      # EventWriter optional; db-event-writer handles NATS -> CNPG ingestion in compose
       - NATS_ENABLED=true
       - NATS_URL=nats://nats:4222
       - NATS_TLS=true
@@ -584,8 +578,6 @@ services:
   zen:
     image: ghcr.io/carverauto/serviceradar-zen:${APP_TAG:-latest}
     container_name: serviceradar-zen-mtls
-    profiles:
-      - legacy
     ports:
       - "50040:50040"
     volumes:
@@ -619,8 +611,6 @@ services:
   db-event-writer:
     image: ghcr.io/carverauto/serviceradar-db-event-writer:${APP_TAG:-latest}
     container_name: serviceradar-db-event-writer-mtls
-    profiles:
-      - legacy
     ports:
       - "50041:50041"
     volumes:

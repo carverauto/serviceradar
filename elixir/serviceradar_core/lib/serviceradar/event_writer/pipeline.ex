@@ -83,7 +83,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_message(_processor, %Message{} = message, _context) do
     subject = message.metadata[:subject]
 
-    # Extract tenant from subject prefix (e.g., "acme-corp.events.gateway.health")
+    # Extract tenant from subject prefix (e.g., "acme-corp.events.ocsf.processed")
     {tenant_slug, base_subject} = extract_tenant_from_subject(subject)
 
     # Route message to appropriate batcher based on base subject (without tenant prefix)

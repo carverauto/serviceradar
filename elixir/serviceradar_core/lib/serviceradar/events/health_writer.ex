@@ -1,50 +1,27 @@
 defmodule ServiceRadar.Events.HealthWriter do
   @moduledoc """
-  Writes internal health state changes into the tenant OCSF events table.
+  Publishes internal health state logs to NATS for downstream promotion.
   """
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.Infrastructure.HealthEvent
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Logger
 
   @spec write(HealthEvent.t()) :: :ok | {:error, term()}
   def write(%HealthEvent{} = event) do
-    case resolve_schema(event.tenant_id) do
-      {:ok, schema} ->
-        attrs = build_event_attrs(event)
+    if is_nil(event.tenant_id) do
+      {:error, :missing_tenant_id}
+    else
+      payload = build_event_attrs(event)
 
-        OcsfEvent
-        |> Ash.Changeset.for_create(:record, attrs, tenant: schema)
-        |> Ash.create(authorize?: false)
-        |> case do
-          {:ok, record} ->
-            EventsPubSub.broadcast_event(record)
-            :ok
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+      InternalLogPublisher.publish("health", payload, tenant_id: event.tenant_id)
     end
   rescue
     e ->
-      Logger.warning("Failed to write OCSF health event: #{inspect(e)}")
+      Logger.warning("Failed to publish health log: #{inspect(e)}")
       {:error, e}
-  end
-
-  defp resolve_schema(nil), do: {:error, :missing_tenant_id}
-
-  defp resolve_schema(tenant_id) do
-    case TenantSchemas.schema_for_id(to_string(tenant_id)) do
-      nil -> {:error, :tenant_schema_not_found}
-      schema -> {:ok, schema}
-    end
   end
 
   defp build_event_attrs(event) do

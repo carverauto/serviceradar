@@ -62,55 +62,24 @@ func (c *EventsConfig) Validate() error {
 	if len(c.Subjects) == 0 {
 		// Default subjects for events stream
 		c.Subjects = []string{
-			"events.gateway.*",
-			"logs.syslog.*",
-			"logs.snmp.*",
-			"logs.otel",
-			"otel.traces.*",
-			"otel.metrics.*",
+			"events.ocsf.processed",
+			"logs.>",
+			"otel.traces.>",
+			"otel.metrics.>",
 		}
 	}
 
 	return nil
 }
 
-// CloudEvent represents a CloudEvents v1.0 compliant event.
-type CloudEvent struct {
-	SpecVersion     string      `json:"specversion"`
-	ID              string      `json:"id"`
-	Source          string      `json:"source"`
-	Type            string      `json:"type"`
-	DataContentType string      `json:"datacontenttype"`
-	Subject         string      `json:"subject,omitempty"`
-	Time            *time.Time  `json:"time,omitempty"`
-	Data            interface{} `json:"data,omitempty"`
-}
-
-// EventRow represents a single row in the events database table.
-type EventRow struct {
-	SpecVersion     string
-	ID              string
-	Source          string
-	Type            string
-	DataContentType string
-	Subject         string
-	RemoteAddr      string
-	Host            string
-	Level           int32
-	Severity        string
-	ShortMessage    string
-	EventTimestamp  time.Time
-	Version         string
-	RawData         string
-}
-
 // GatewayHealthEventData represents the data payload for gateway health events.
 type GatewayHealthEventData struct {
-	GatewayID       string    `json:"gateway_id"`
+	GatewayID      string    `json:"gateway_id"`
 	PreviousState  string    `json:"previous_state"`
 	CurrentState   string    `json:"current_state"`
 	Timestamp      time.Time `json:"timestamp"`
 	LastSeen       time.Time `json:"last_seen"`
+	TenantID       string    `json:"tenant_id,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	RemoteAddr     string    `json:"remote_addr,omitempty"`
 	SourceIP       string    `json:"source_ip,omitempty"`
@@ -130,5 +99,6 @@ type DeviceLifecycleEventData struct {
 	Severity   string            `json:"severity,omitempty"`
 	Level      int32             `json:"level,omitempty"`
 	RemoteAddr string            `json:"remote_addr,omitempty"`
+	TenantID   string            `json:"tenant_id,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }

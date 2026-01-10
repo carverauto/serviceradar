@@ -69,14 +69,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     else
       case Jason.decode(data) do
         {:ok, json} ->
-          case unwrap_cloudevent(json) do
-            {:ok, payload} ->
-              parse_json_log(payload, metadata, tenant_id)
-
-            :error ->
-              Logger.debug("Unsupported CloudEvent log payload")
-              nil
-          end
+          parse_json_log(json, metadata, tenant_id)
 
         {:error, _} ->
           parse_protobuf_log(data, metadata, tenant_id)
@@ -309,37 +302,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     _ = LogPromotion.promote(rows, tenant_id, schema)
     :ok
   end
-
-  defp unwrap_cloudevent(%{"specversion" => _} = json) do
-    cond do
-      Map.has_key?(json, "data") ->
-        decode_cloudevent_data(json["data"])
-
-      Map.has_key?(json, "data_base64") ->
-        decode_cloudevent_base64(json["data_base64"])
-
-      true ->
-        :error
-    end
-  end
-
-  defp unwrap_cloudevent(json) when is_map(json), do: {:ok, json}
-  defp unwrap_cloudevent(_), do: :error
-
-  defp decode_cloudevent_data(%{} = data), do: {:ok, data}
-  defp decode_cloudevent_data(data) when is_binary(data), do: Jason.decode(data)
-  defp decode_cloudevent_data(_), do: :error
-
-  defp decode_cloudevent_base64(data) when is_binary(data) do
-    with {:ok, decoded} <- Base.decode64(data),
-         {:ok, payload} <- Jason.decode(decoded) do
-      {:ok, payload}
-    else
-      _ -> :error
-    end
-  end
-
-  defp decode_cloudevent_base64(_), do: :error
 
   defp key_values_to_map(values) when is_list(values) do
     Enum.reduce(values, %{}, fn

@@ -8,8 +8,8 @@
   "gateway_id": "docker-gateway",
   "streams": [
     {
-      "subject": "events.gateway.health",
-      "table": "events"
+      "subject": "events.ocsf.processed",
+      "table": "ocsf_events"
     },
     {
       "subject": "logs.syslog.processed",
@@ -20,7 +20,11 @@
       "table": "logs"
     },
     {
-      "subject": "logs.otel",
+      "subject": "logs.otel.processed",
+      "table": "logs"
+    },
+    {
+      "subject": "logs.internal.processed",
       "table": "logs"
     },
     {

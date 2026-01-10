@@ -323,16 +323,21 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   defp parse_timestamp(_), do: :error
 
   defp compute_summary(alerts) when is_list(alerts) do
-    Enum.reduce(alerts, %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}, fn alert, acc ->
-      status = normalize_status(Map.get(alert, "status"))
+    Enum.reduce(
+      alerts,
+      %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0},
+      fn alert, acc ->
+        status = normalize_status(Map.get(alert, "status"))
 
-      acc
-      |> Map.update!(:total, &(&1 + 1))
-      |> increment_status(status)
-    end)
+        acc
+        |> Map.update!(:total, &(&1 + 1))
+        |> increment_status(status)
+      end
+    )
   end
 
-  defp compute_summary(_), do: %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
+  defp compute_summary(_),
+    do: %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}
 
   defp increment_status(acc, "pending"), do: Map.update!(acc, :pending, &(&1 + 1))
   defp increment_status(acc, "acknowledged"), do: Map.update!(acc, :acknowledged, &(&1 + 1))

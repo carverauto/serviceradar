@@ -34,8 +34,8 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
                            │
                            ▼
                    ┌───────────────┐
-                   │  OCSF Events  │
-                   │  (database)   │
+                   │ Internal Logs │
+                   │   (NATS)      │
                    └───────────────┘
 
   ## Configuration

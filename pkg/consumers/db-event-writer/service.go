@@ -48,10 +48,10 @@ func buildProcessor(cfg *DBEventWriterConfig, dbService db.Service, log logger.L
 
 	streams := cfg.GetStreams()
 	if len(streams) > 0 {
-		return NewProcessorWithStreams(dbService, streams, log)
+		return NewProcessorWithStreams(dbService, streams, cfg.TenantID, log)
 	}
 
-	return NewProcessor(dbService, cfg.Table, log)
+	return NewProcessor(dbService, cfg.Table, cfg.TenantID, log)
 }
 
 // NewService initializes the service.

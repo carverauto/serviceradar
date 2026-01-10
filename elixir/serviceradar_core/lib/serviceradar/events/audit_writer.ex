@@ -1,10 +1,10 @@
 defmodule ServiceRadar.Events.AuditWriter do
   @moduledoc """
-  Writes audit events to the OCSF events table within the correct tenant schema.
+  Publishes audit logs to NATS for downstream promotion.
 
   Provides a simple, idiomatic interface for recording audit trail events
-  across the Elixir stack. Events are written as OCSF Event Log Activity
-  (class_uid: 1008) records to the tenant-specific schema.
+  across the Elixir stack. Payloads are published as OCSF Log Activity
+  (class_uid: 1008) to `logs.internal.audit` for downstream promotion.
 
   ## Usage
 
@@ -29,11 +29,10 @@ defmodule ServiceRadar.Events.AuditWriter do
         actor: admin
       )
 
-  ## Tenant Schema Routing
+  ## Tenant Routing
 
-  Events are written to the correct tenant schema based on the `tenant_id`.
-  The schema is resolved via `TenantSchemas.schema_for_id/1` which looks up
-  the tenant slug from the TenantRegistry.
+  Events are published to a tenant-prefixed subject when possible.
+  The tenant slug is resolved from `tenant_id` when not provided.
 
   ## Actions
 
@@ -64,15 +63,15 @@ defmodule ServiceRadar.Events.AuditWriter do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Repo
+  alias ServiceRadar.Events.InternalLogPublisher
 
   @type action :: :create | :read | :update | :delete | atom()
   @type severity :: :informational | :low | :medium | :high | :critical
 
   @type opts :: [
           tenant_id: Ecto.UUID.t(),
+          tenant_slug: String.t() | nil,
           action: action(),
           resource_type: String.t(),
           resource_id: String.t() | Ecto.UUID.t(),
@@ -84,54 +83,22 @@ defmodule ServiceRadar.Events.AuditWriter do
         ]
 
   @doc """
-  Write an audit event synchronously.
+  Publish an audit log synchronously.
 
   Returns `:ok` on success, `{:error, reason}` on failure.
   """
   @spec write(opts()) :: :ok | {:error, term()}
   def write(opts) do
-    with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
-         {:ok, schema} <- resolve_tenant_schema(tenant_id),
-         {:ok, event} <- build_event(opts),
-         {:ok, encoded_event} <- encode_event(event) do
-      case Repo.insert_all("ocsf_events", [encoded_event], prefix: schema, on_conflict: :nothing) do
-        {1, _} -> :ok
-        {0, _} -> {:error, :insert_failed}
-      end
+    with {:ok, event} <- build_event(opts) do
+      InternalLogPublisher.publish("audit", event,
+        tenant_id: event.tenant_id,
+        tenant_slug: Keyword.get(opts, :tenant_slug)
+      )
     end
   rescue
     e ->
-      Logger.error("Failed to write audit event: #{inspect(e)}")
+      Logger.error("Failed to publish audit log: #{inspect(e)}")
       {:error, e}
-  end
-
-  defp resolve_tenant_schema(tenant_id) do
-    tenant_id_str = to_string(tenant_id)
-
-    case TenantSchemas.schema_for_id(tenant_id_str) do
-      nil ->
-        Logger.error("Could not resolve tenant schema for tenant_id: #{tenant_id_str}")
-        {:error, {:unknown_tenant, tenant_id_str}}
-
-      schema ->
-        {:ok, schema}
-    end
-  end
-
-  defp encode_event(event) do
-    with {:ok, id} <- dump_uuid(event[:id]),
-         {:ok, tenant_id} <- dump_uuid(event[:tenant_id]) do
-      {:ok, %{event | id: id, tenant_id: tenant_id}}
-    end
-  end
-
-  defp dump_uuid(nil), do: {:ok, nil}
-
-  defp dump_uuid(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, dumped} -> {:ok, dumped}
-      :error -> {:error, {:invalid_uuid, value}}
-    end
   end
 
   @doc """
@@ -145,7 +112,7 @@ defmodule ServiceRadar.Events.AuditWriter do
       case write(opts) do
         :ok -> :ok
         {:error, reason} ->
-          Logger.warning("Async audit event write failed: #{inspect(reason)}")
+          Logger.warning("Async audit log publish failed: #{inspect(reason)}")
       end
     end)
 

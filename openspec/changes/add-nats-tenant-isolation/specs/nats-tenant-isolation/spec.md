@@ -81,6 +81,41 @@ JetStream streams SHALL support tenant-prefixed subjects for message persistence
 - **WHEN** messages are published for multiple tenants
 - **THEN** the consumer SHALL only receive messages for "acme-corp"
 
+### Requirement: Per-tenant zen consumers
+
+Zen consumers SHALL authenticate with tenant NATS accounts and process tenant
+streams directly without cross-account stream mirroring.
+
+#### Scenario: Tenant zen consumes directly
+
+- **GIVEN** tenant "acme-corp" has a zen consumer with tenant credentials
+- **WHEN** a log is published to "acme-corp.logs.syslog"
+- **THEN** the tenant zen consumer SHALL process the message
+- **AND** write processed output back to the tenant account
+
+### Requirement: Per-tenant db-event-writer ingestion
+
+The db-event-writer SHALL run per tenant using tenant credentials and write
+processed events/logs directly into the tenant schema in CNPG.
+
+#### Scenario: Tenant writer inserts into tenant schema
+
+- **GIVEN** tenant "acme-corp" has a db-event-writer with tenant creds
+- **WHEN** a processed log is published to the tenant account
+- **THEN** the db-event-writer SHALL write to the tenant schema tables
+
+### Requirement: Rule distribution via KV with tenant isolation
+
+Log promotion rules SHALL be stored in the tenant schema and pushed to the
+tenant account KV bucket so zen can hot-reload rules via KV watches.
+
+#### Scenario: Rule update propagates to KV
+
+- **GIVEN** a tenant admin updates a promotion rule in the UI
+- **WHEN** the change is saved in CNPG
+- **THEN** the system SHALL write the updated rule to the tenant KV bucket
+- **AND** zen SHALL receive the KV watch update for that tenant
+
 ### Requirement: Backward Compatibility
 
 During migration, the system SHALL support both prefixed and non-prefixed subjects.

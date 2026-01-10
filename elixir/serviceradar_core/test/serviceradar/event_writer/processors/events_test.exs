@@ -11,85 +11,55 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
   end
 
   describe "parse_message/1" do
-    test "parses GELF payload into OCSF event log activity" do
+    test "parses OCSF event payloads" do
       payload = %{
-        "short_message" => "disk nearly full",
-        "level" => 4,
-        "severity" => "warning",
-        "host" => "web-01",
-        "_remote_addr" => "192.0.2.10",
-        "timestamp" => 1_705_315_800.123
+        "id" => "event-123",
+        "time" => "2024-01-01T00:00:00Z",
+        "class_uid" => 1008,
+        "category_uid" => 1,
+        "type_uid" => 100_801,
+        "activity_id" => 1,
+        "severity_id" => 5,
+        "message" => "gateway offline",
+        "metadata" => %{"version" => "1.7.0"}
       }
 
-      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.internal"}}
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.ocsf.processed"}}
 
       row =
         with_tenant("11111111-1111-1111-1111-111111111111", fn ->
           Events.parse_message(message)
         end)
 
+      assert row.id == "event-123"
       assert row.class_uid == 1008
       assert row.category_uid == 1
       assert row.activity_id == 1
       assert row.type_uid == 100_801
-      assert row.message == "disk nearly full"
-      assert row.severity_id == 3
-      assert row.severity == "Medium"
-      assert row.log_level == "warning"
-      assert row.log_name == "events.internal"
-      assert row.log_provider == "web-01"
+      assert row.message == "gateway offline"
+      assert row.severity_id == 5
+      assert row.severity == "Critical"
+      assert row.log_name == "events.ocsf.processed"
       assert row.tenant_id == "11111111-1111-1111-1111-111111111111"
+      assert row.metadata["version"] == "1.7.0"
       assert %DateTime{} = row.time
-
-      assert Enum.any?(row.observables, &(&1.name == "web-01"))
-      assert Enum.any?(row.observables, &(&1.name == "192.0.2.10"))
+      assert is_binary(row.raw_data)
     end
 
-    test "parses CloudEvents-wrapped payloads" do
-      event =
-        %{
-          "specversion" => "1.0",
-          "subject" => "events.internal",
-          "source" => "core",
-          "type" => "com.example.event",
-          "time" => "2024-01-01T00:00:00Z",
-          "data" => %{
-            "short_message" => "login failed",
-            "level" => 3
-          }
-        }
+    test "returns nil when required fields are missing" do
+      payload = %{
+        "time" => "2024-01-01T00:00:00Z",
+        "class_uid" => 1008
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.ocsf.processed"}}
 
       row =
         with_tenant("22222222-2222-2222-2222-222222222222", fn ->
-          Events.parse_message(%{data: Jason.encode!(event), metadata: %{}})
-        end)
-
-      assert row.log_name == "events.internal"
-      assert row.actor[:app_name] == "core"
-      assert row.metadata[:correlation_uid] == "events.internal"
-      assert row.tenant_id == "22222222-2222-2222-2222-222222222222"
-      assert row.message == "login failed"
-      assert row.severity_id == 4
-    end
-
-    test "parses structured payloads into OCSF event log activity" do
-      payload = %{
-        "message" => "SNMP trap received",
-        "severity" => "info",
-        "varbinds" => [%{"oid" => "1.3.6.1.2.1.1.3.0", "value" => "123"}]
-      }
-
-      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.internal"}}
-
-      row =
-        with_tenant("33333333-3333-3333-3333-333333333333", fn ->
           Events.parse_message(message)
         end)
 
-      assert row.message == "SNMP trap received"
-      assert row.severity_id == 1
-      assert row.log_name == "events.internal"
-      assert row.tenant_id == "33333333-3333-3333-3333-333333333333"
+      assert row == nil
     end
   end
 

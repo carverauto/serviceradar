@@ -1,10 +1,7 @@
 use anyhow::Result;
 use async_nats::jetstream::{self, Message};
-use cloudevents::{EventBuilder, EventBuilderV10};
 use log::debug;
 use serde_json::Value;
-use url::Url;
-use uuid::Uuid;
 
 use crate::config::{Config, MessageFormat};
 use crate::engine::SharedEngine;
@@ -27,8 +24,6 @@ pub async fn process_message(
     };
 
     let rules = cfg.ordered_rules_for_subject(&msg.subject);
-    let event_type = rules.last().map(String::as_str).unwrap_or("processed");
-
     for key in &rules {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
@@ -58,17 +53,7 @@ pub async fn process_message(
     }
 
     if !rules.is_empty() {
-        let ce = EventBuilderV10::new()
-            .id(Uuid::new_v4().to_string())
-            .source(Url::parse(&format!(
-                "nats://{}/{}",
-                cfg.stream_name, msg.subject
-            ))?)
-            .ty(event_type.to_string())
-            .data("application/json", context)
-            .build()?;
-
-        let data = serde_json::to_vec(&ce)?;
+        let data = serde_json::to_vec(&context)?;
         if let Some(suffix) = &cfg.result_subject_suffix {
             let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
             debug!("published result to {result_subject}");

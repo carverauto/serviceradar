@@ -19,10 +19,11 @@
     }
   },
   "streams": [
-    {"subject": "events.gateway.health", "table": "events"},
+    {"subject": "events.ocsf.processed", "table": "ocsf_events"},
     {"subject": "logs.syslog.processed", "table": "logs"},
     {"subject": "logs.snmp.processed", "table": "logs"},
-    {"subject": "logs.otel", "table": "logs"},
+    {"subject": "logs.otel.processed", "table": "logs"},
+    {"subject": "logs.internal.processed", "table": "logs"},
     {"subject": "otel.traces", "table": "otel_traces"},
     {"subject": "otel.metrics", "table": "otel_metrics"},
     {"subject": "otel.metrics.raw", "table": "otel_metrics"}

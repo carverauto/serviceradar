@@ -117,7 +117,10 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     assigns = assign(assigns, :event_id, event_id)
 
     ~H"""
-    <div :if={is_binary(@event_id)} class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6">
+    <div
+      :if={is_binary(@event_id)}
+      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+    >
       <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
         Related Records
       </span>
@@ -206,7 +209,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     ~H|<span class="text-sm font-mono">{@summary}</span>|
   end
 
-  defp inline_value(%{value: value} = assigns) do
+  defp inline_value(%{value: _value} = assigns) do
     ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
   end
 

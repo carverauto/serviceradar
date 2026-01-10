@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,7 @@ func (f *fakePgxExecutor) SendBatch(context.Context, *pgx.Batch) pgx.BatchResult
 	return f.br
 }
 
-func TestInsertEvents_SurfacesBatchInsertErrors(t *testing.T) {
+func TestInsertOCSFEvents_SurfacesBatchInsertErrors(t *testing.T) {
 	ctx := context.Background()
 
 	br := &fakeBatchResults{
@@ -48,14 +49,15 @@ func TestInsertEvents_SurfacesBatchInsertErrors(t *testing.T) {
 
 	db := &DB{executor: &fakePgxExecutor{br: br}}
 
-	err := db.InsertEvents(ctx, []*models.EventRow{
-		{ID: "a"},
-		{ID: "b"},
-		{ID: "c"},
+	now := time.Now().UTC()
+	err := db.InsertOCSFEvents(ctx, "ocsf_events", []models.OCSFEventRow{
+		{ID: "a", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
+		{ID: "b", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
+		{ID: "c", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "failed to insert events")
-	require.Contains(t, err.Error(), "events batch exec (command 1)")
+	require.Contains(t, err.Error(), "failed to insert ocsf events")
+	require.Contains(t, err.Error(), "ocsf_events batch exec (command 1)")
 	require.Equal(t, 1, br.closeCalls)
 }
 

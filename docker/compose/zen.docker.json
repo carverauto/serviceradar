@@ -3,7 +3,7 @@
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["*.logs.syslog", "*.logs.snmp", "*.logs.otel"],
+  "subjects": ["*.logs.syslog", "*.logs.snmp", "*.logs.otel", "*.logs.internal.>"],
   "decision_groups": [
     {
       "name": "syslog",
@@ -29,6 +29,14 @@
         {"order": 1, "key": "passthrough"}
       ],
       "format": "protobuf"
+    },
+    {
+      "name": "internal_logs",
+      "subjects": ["*.logs.internal.>"],
+      "rules": [
+        {"order": 1, "key": "passthrough"}
+      ],
+      "format": "json"
     }
   ],
   "agent_id": "docker-zen-consumer",

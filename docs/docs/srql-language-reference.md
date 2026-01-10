@@ -137,22 +137,23 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `service_status` | Service status |
 | `discovery_sources` | Sources that discovered this device (array containment) |
 
-### events
+### ocsf_events
 
 | Field | Description |
 |-------|-------------|
 | `id` | Event identifier |
-| `type` | Event type |
-| `source` | Event source |
-| `subject` | Event subject |
-| `datacontenttype` | Content type of event data |
-| `remote_addr` | Remote address |
-| `host` | Host name |
-| `specversion` | CloudEvents spec version |
-| `severity` | Severity level |
-| `short_message` | Short message text |
-| `version` | Version string |
-| `level` | Numeric level |
+| `time` | Event timestamp |
+| `class_uid` | OCSF class UID |
+| `category_uid` | OCSF category UID |
+| `type_uid` | OCSF type UID |
+| `activity_id` | Activity ID |
+| `activity_name` | Activity name |
+| `severity_id` | Severity ID |
+| `severity` | Severity label |
+| `message` | Event message |
+| `log_name` | Log name or subject |
+| `log_provider` | Log provider |
+| `tenant_id` | Tenant identifier |
 
 ### logs
 

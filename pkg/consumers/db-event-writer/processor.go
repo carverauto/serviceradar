@@ -3,7 +3,6 @@ package dbeventwriter
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -27,16 +26,6 @@ import (
 const (
 	maxInt64      = 9223372036854775807
 	unknownString = "unknown"
-
-	// GELF log levels (RFC 3164)
-	gelfLevelError  = 3 // Error
-	gelfLevelNotice = 5 // Notice
-	gelfLevelInfo   = 6 // Info
-)
-
-var (
-	// ErrFailedToParseCloudEvent indicates that data could not be parsed as a CloudEvent wrapper.
-	ErrFailedToParseCloudEvent = errors.New("failed to parse as CloudEvent wrapper")
 )
 
 // safeUint64ToInt64 safely converts uint64 to int64, capping at maxInt64 if needed
@@ -54,25 +43,7 @@ type Processor struct {
 	table   string         // Legacy single table
 	streams []StreamConfig // Multi-stream configuration
 	logger  logger.Logger
-}
-
-// parseCloudEvent attempts to extract the `data` field from a CloudEvent.
-// It returns the data as a JSON string and true on success. If the message is
-// not a valid CloudEvent or does not contain a `data` field, ok will be false.
-func parseCloudEvent(b []byte) (string, bool) {
-	var tmp struct {
-		Data json.RawMessage `json:"data"`
-	}
-
-	if err := json.Unmarshal(b, &tmp); err != nil {
-		return "", false
-	}
-
-	if len(tmp.Data) == 0 {
-		return "", false
-	}
-
-	return string(tmp.Data), true
+	tenantID string
 }
 
 // extractAttributeValue extracts a string value from an attribute based on its type
@@ -270,286 +241,24 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 	return rows, nil
 }
 
-// processEventData handles the parsing of CloudEvent data into an EventRow
-func processEventData(row *models.EventRow, ce *models.CloudEvent) {
-	dataBytes, err := json.Marshal(ce.Data)
-	if err != nil {
-		return
-	}
-
-	// Try to handle as gateway health event first
-	if tryGatewayHealthEvent(row, ce, dataBytes) {
-		return
-	}
-
-	// Try to handle as device lifecycle event
-	if tryDeviceLifecycleEvent(row, ce, dataBytes) {
-		return
-	}
-
-	// Fall back to GELF format (for syslog and other events)
-	tryGELFFormat(row, dataBytes)
-}
-
-// tryGatewayHealthEvent attempts to parse data as a gateway health event
-func tryGatewayHealthEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
-	if ce.Type != "com.carverauto.serviceradar.gateway.health" &&
-		ce.Subject != "events.gateway.health" {
-		return false
-	}
-
-	var gatewayData models.GatewayHealthEventData
-
-	if err := json.Unmarshal(dataBytes, &gatewayData); err != nil {
-		return false
-	}
-
-	row.Host = gatewayData.Host
-	row.RemoteAddr = gatewayData.RemoteAddr
-	row.ShortMessage = fmt.Sprintf("Gateway %s state changed from %s to %s",
-		gatewayData.GatewayID, gatewayData.PreviousState, gatewayData.CurrentState)
-	row.Level = getLogLevelForState(gatewayData.CurrentState)
-	row.Severity = getSeverityForState(gatewayData.CurrentState)
-	row.EventTimestamp = gatewayData.Timestamp
-	row.Version = "1.1"
-
-	return true
-}
-
-func tryDeviceLifecycleEvent(row *models.EventRow, ce *models.CloudEvent, dataBytes []byte) bool {
-	if ce.Type != "com.carverauto.serviceradar.device.lifecycle" &&
-		ce.Subject != "events.devices.lifecycle" {
-		return false
-	}
-
-	var deviceData models.DeviceLifecycleEventData
-
-	if err := json.Unmarshal(dataBytes, &deviceData); err != nil {
-		return false
-	}
-
-	row.Host = deviceData.DeviceID
-	row.RemoteAddr = deviceData.RemoteAddr
-
-	action := strings.ToLower(deviceData.Action)
-	row.ShortMessage = buildDeviceLifecycleSummary(deviceData.DeviceID, action, deviceData.Metadata, deviceData.Actor)
-
-	if deviceData.Level != 0 {
-		row.Level = deviceData.Level
-	} else {
-		row.Level = 5
-	}
-
-	if deviceData.Severity != "" {
-		row.Severity = deviceData.Severity
-	} else {
-		row.Severity = "Medium"
-	}
-
-	if !deviceData.Timestamp.IsZero() {
-		row.EventTimestamp = deviceData.Timestamp
-	}
-
-	row.Version = "1.1"
-
-	return true
-}
-
-func buildDeviceLifecycleSummary(deviceID, action string, metadata map[string]string, actor string) string {
-	if action == "" {
-		action = "updated"
-	}
-
-	if action == "alias_updated" {
-		if summary := summarizeAliasChange(metadata); summary != "" {
-			return fmt.Sprintf("Device %s alias updated (%s)", deviceID, summary)
-		}
-		return fmt.Sprintf("Device %s alias updated", deviceID)
-	}
-
-	message := fmt.Sprintf("Device %s %s", deviceID, action)
-	if strings.TrimSpace(actor) != "" {
-		message = fmt.Sprintf("%s by %s", message, actor)
-	}
-
-	return message
-}
-
-func summarizeAliasChange(metadata map[string]string) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-
-	get := func(key string) string {
-		return strings.TrimSpace(metadata[key])
-	}
-
-	parts := make([]string, 0, 3)
-
-	if serviceChange := formatAliasChange("service", get("previous_service_id"), get("alias_current_service_id")); serviceChange != "" {
-		parts = append(parts, serviceChange)
-	}
-
-	if ipChange := formatAliasChange("ip", get("previous_ip"), get("alias_current_ip")); ipChange != "" {
-		parts = append(parts, ipChange)
-	}
-
-	if collectorChange := formatAliasChange("collector", get("previous_collector_ip"), get("alias_collector_ip")); collectorChange != "" {
-		parts = append(parts, collectorChange)
-	}
-
-	return strings.Join(parts, ", ")
-}
-
-func formatAliasChange(label, previous, current string) string {
-	prev := strings.TrimSpace(previous)
-	curr := strings.TrimSpace(current)
-
-	switch {
-	case prev != "" && curr != "" && prev != curr:
-		return fmt.Sprintf("%s %s→%s", label, prev, curr)
-	case prev == "" && curr != "":
-		return fmt.Sprintf("%s %s", label, curr)
-	case prev != "" && curr == "":
-		return fmt.Sprintf("%s removed (was %s)", label, prev)
-	default:
-		return ""
-	}
-}
-
-// tryGELFFormat attempts to parse data as GELF format
-func tryGELFFormat(row *models.EventRow, dataBytes []byte) {
-	var gelfPayload struct {
-		RemoteAddr   string  `json:"_remote_addr"`
-		Host         string  `json:"host"`
-		Level        int32   `json:"level"`
-		Severity     string  `json:"severity"`
-		ShortMessage string  `json:"short_message"`
-		Timestamp    float64 `json:"timestamp"`
-		Version      string  `json:"version"`
-	}
-
-	if err := json.Unmarshal(dataBytes, &gelfPayload); err != nil {
-		return
-	}
-
-	row.RemoteAddr = gelfPayload.RemoteAddr
-	row.Host = gelfPayload.Host
-	row.Level = gelfPayload.Level
-	row.Severity = gelfPayload.Severity
-	row.ShortMessage = gelfPayload.ShortMessage
-	row.Version = gelfPayload.Version
-
-	// Handle GELF timestamp if present and valid
-	if gelfPayload.Timestamp > 0 {
-		processGELFTimestamp(row, gelfPayload.Timestamp)
-	}
-}
-
-// processGELFTimestamp handles GELF timestamp conversion and validation
-func processGELFTimestamp(row *models.EventRow, timestamp float64) {
-	sec := int64(timestamp)
-	nsec := int64((timestamp - float64(sec)) * float64(time.Second))
-	ts := time.Unix(sec, nsec)
-
-	// Validate timestamp is within ClickHouse DateTime64 range
-	minTimestamp := time.Date(1925, 1, 1, 0, 0, 0, 0, time.UTC)
-	maxTimestamp := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
-
-	if !ts.Before(minTimestamp) && !ts.After(maxTimestamp) {
-		row.EventTimestamp = ts
-	}
-}
-
-// buildEventRow parses a CloudEvent payload and returns a models.EventRow.
-// Handles both GELF format (syslog) and GatewayHealthEventData format (gateway events).
-// If parsing fails, the returned row will contain only the raw data and subject.
-func buildEventRow(b []byte, subject string) models.EventRow {
-	var ce models.CloudEvent
-
-	if err := json.Unmarshal(b, &ce); err != nil {
-		return models.EventRow{RawData: string(b), Subject: subject}
-	}
-
-	if ce.Subject == "" {
-		ce.Subject = subject
-	}
-
-	// Create base event row from CloudEvent fields
-	row := models.EventRow{
-		SpecVersion:     ce.SpecVersion,
-		ID:              ce.ID,
-		Source:          ce.Source,
-		Type:            ce.Type,
-		DataContentType: ce.DataContentType,
-		Subject:         ce.Subject,
-		RawData:         string(b),
-	}
-
-	// Extract timestamp from CloudEvent time field if available
-	if ce.Time != nil {
-		row.EventTimestamp = *ce.Time
-	}
-
-	// Handle different data payload formats based on event type or subject
-	if ce.Data != nil {
-		processEventData(&row, &ce)
-	}
-
-	// Use current time as fallback if no valid timestamp was found
-	if row.EventTimestamp.IsZero() {
-		row.EventTimestamp = time.Now()
-	}
-
-	return row
-}
-
-// getLogLevelForState maps gateway states to GELF log levels
-func getLogLevelForState(state string) int32 {
-	switch state {
-	case "unhealthy":
-		return gelfLevelError // Error
-	case "healthy":
-		return gelfLevelInfo // Info
-	case unknownString:
-		return gelfLevelNotice // Notice
-	default:
-		return gelfLevelInfo // Info
-	}
-}
-
-// getSeverityForState maps gateway states to severity strings
-func getSeverityForState(state string) string {
-	switch state {
-	case "unhealthy":
-		return "error"
-	case "healthy":
-		return "info"
-	case unknownString:
-		return "notice"
-	default:
-		return "info"
-	}
-}
-
 // NewProcessor creates a Processor using the provided db.Service.
-func NewProcessor(dbService db.Service, table string, log logger.Logger) (*Processor, error) {
+func NewProcessor(dbService db.Service, table string, tenantID string, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{db: dbImpl, table: table, logger: log}, nil
+	return &Processor{db: dbImpl, table: table, logger: log, tenantID: tenantID}, nil
 }
 
 // NewProcessorWithStreams creates a Processor with multi-stream configuration.
-func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log logger.Logger) (*Processor, error) {
+func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, tenantID string, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{db: dbImpl, streams: streams, logger: log}, nil
+	return &Processor{db: dbImpl, streams: streams, logger: log, tenantID: tenantID}, nil
 }
 
 // getTableForSubject returns the table name for a given subject
@@ -612,14 +321,16 @@ func (p *Processor) processTableMessages(ctx context.Context, table string, tabl
 	case strings.Contains(table, "metrics"):
 		p.logger.Debug().Str("table", table).Msg("Processing as metrics table")
 		return p.processMetricsTable(ctx, table, tableMsgs)
+	case strings.Contains(table, "ocsf_events"):
+		p.logger.Debug().Str("table", table).Msg("Processing as OCSF events table")
+		return p.processOCSFEventsTable(ctx, table, tableMsgs)
 	default:
-		p.logger.Debug().Str("table", table).Msg("Processing as events table")
-		return p.processEventsTable(ctx, tableMsgs)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedTable, table)
 	}
 }
 
-// processEventsTable handles events table batch processing
-func (p *Processor) processEventsTable(ctx context.Context, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
+// processOCSFEventsTable handles OCSF events table batch processing.
+func (p *Processor) processOCSFEventsTable(ctx context.Context, table string, msgs []jetstream.Msg) ([]jetstream.Msg, error) {
 	if len(msgs) == 0 {
 		return nil, nil
 	}
@@ -628,19 +339,37 @@ func (p *Processor) processEventsTable(ctx context.Context, msgs []jetstream.Msg
 		return nil, errCNPGEventsNotConfigured
 	}
 
-	eventRows := make([]*models.EventRow, 0, len(msgs))
+	processed := make([]jetstream.Msg, 0, len(msgs))
+	eventRows := make([]models.OCSFEventRow, 0, len(msgs))
 
 	for _, msg := range msgs {
-		row := buildEventRow(msg.Data(), msg.Subject())
-		clone := row
-		eventRows = append(eventRows, &clone)
+		processed = append(processed, msg)
+		row, err := parseOCSFEvent(msg.Data(), p.tenantID)
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("subject", msg.Subject()).
+				Msg("Skipping malformed OCSF event payload")
+			continue
+		}
+
+		eventRows = append(eventRows, *row)
 	}
 
-	if err := p.db.InsertEvents(ctx, eventRows); err != nil {
-		return nil, err
+	if len(eventRows) == 0 {
+		return processed, nil
 	}
 
-	return msgs, nil
+	if err := p.db.InsertOCSFEvents(ctx, table, eventRows); err != nil {
+		return processed, err
+	}
+
+	p.logger.Info().
+		Int("rows_processed", len(eventRows)).
+		Str("table", table).
+		Msg("Inserted OCSF events into CNPG")
+
+	return processed, nil
 }
 
 func processOTELTable[T any](
@@ -792,26 +521,15 @@ func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]models.OTELLogRow, bo
 
 	p.logger.Debug().Err(err).Msg("Failed to parse as direct protobuf")
 
-	// Try to parse as CloudEvent wrapper
-	data, ok := parseCloudEvent(msg.Data())
+	logRows, ok := parseJSONLogs(msg.Data(), msg.Subject())
 	if !ok {
-		p.logger.Debug().Msg("Failed to parse as CloudEvent wrapper")
-		return nil, false
-	}
-
-	p.logger.Debug().
-		Int("data_length", len(data)).
-		Msg("Trying to parse as CloudEvent wrapper")
-
-	logRows, err = parseOTELLogs([]byte(data), msg.Subject())
-	if err != nil {
-		p.logger.Debug().Err(err).Msg("Failed to parse OTEL logs completely")
+		p.logger.Debug().Msg("Failed to parse as JSON log payload")
 		return nil, false
 	}
 
 	p.logger.Debug().
 		Int("log_rows", len(logRows)).
-		Msg("Successfully parsed log rows from OTEL message")
+		Msg("Successfully parsed log rows from JSON payload")
 
 	return logRows, true
 }
@@ -926,23 +644,8 @@ func (p *Processor) isJSONFormat(data []byte) bool {
 
 // parseOTELRequest is a generic function to parse OTEL protobuf requests
 func (p *Processor) parseOTELRequest(msgData []byte, req proto.Message, requestType string) error {
-	// First try to parse as direct protobuf
-	err := proto.Unmarshal(msgData, req)
-	if err == nil {
-		return nil
-	}
-
-	p.logger.Debug().Err(err).Msg("Failed to parse as direct protobuf, trying CloudEvent wrapper")
-
-	// Try to parse as CloudEvent wrapper
-	data, ok := parseCloudEvent(msgData)
-	if !ok {
-		return ErrFailedToParseCloudEvent
-	}
-
-	// Try to unmarshal the extracted data
-	if err := proto.Unmarshal([]byte(data), req); err != nil {
-		return fmt.Errorf("failed to unmarshal OTEL %s from CloudEvent: %w", requestType, err)
+	if err := proto.Unmarshal(msgData, req); err != nil {
+		return fmt.Errorf("failed to unmarshal OTEL %s: %w", requestType, err)
 	}
 
 	return nil

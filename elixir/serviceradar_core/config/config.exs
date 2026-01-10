@@ -90,7 +90,8 @@ config :serviceradar_core, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance}
+       {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+       {"0 * * * *", ServiceRadar.Observability.StatefulAlertCleanupWorker, queue: :maintenance}
      ]}
   ],
   peer: Oban.Peers.Database

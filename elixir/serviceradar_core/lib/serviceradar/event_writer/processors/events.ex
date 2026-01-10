@@ -1,17 +1,16 @@
 defmodule ServiceRadar.EventWriter.Processors.Events do
   @moduledoc """
-  Processor for syslog/SNMP trap events in OCSF Event Log Activity format.
+  Processor for OCSF Event Log Activity payloads.
 
-  Parses JSON events from NATS (including CloudEvents-wrapped payloads) and
-  inserts them into the `ocsf_events` hypertable using OCSF v1.7.0
-  Event Log Activity schema (class_uid: 1008).
+  Parses JSON events from NATS and inserts them into the `ocsf_events`
+  hypertable using the OCSF Event Log Activity schema (class_uid: 1008).
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.TenantContext
+  alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger
 
@@ -40,6 +39,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
                returning: false
              ) do
           {count, _} ->
+            maybe_evaluate_stateful_rules(rows, schema)
             {:ok, count}
         end
       end
@@ -72,207 +72,116 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   # Private functions
 
   defp parse_event(json, metadata, raw_data, tenant_id) when is_map(json) do
-    {payload, event_meta} = unwrap_cloudevent(json)
+    with {:ok, id} <- fetch_required_string(json, "id"),
+         {:ok, class_uid} <- fetch_required_int(json, "class_uid"),
+         {:ok, category_uid} <- fetch_required_int(json, "category_uid"),
+         {:ok, type_uid} <- fetch_required_int(json, "type_uid"),
+         {:ok, activity_id} <- fetch_required_int(json, "activity_id") do
+      severity_id = parse_int(json["severity_id"]) || 1
+      severity = parse_string(json["severity"]) || severity_name(severity_id)
 
-    {message, severity_id, log_level, log_version} = classify_payload(payload)
-    event_meta_subject = Map.get(event_meta, :subject)
-    event_meta_source = Map.get(event_meta, :source)
-    event_meta_time = Map.get(event_meta, :time)
-    event_time = event_timestamp(payload, event_meta)
-    activity_id = OCSF.activity_log_create()
+      %{
+        id: id,
+        time: FieldParser.parse_timestamp(json["time"]),
+        class_uid: class_uid,
+        category_uid: category_uid,
+        type_uid: type_uid,
+        activity_id: activity_id,
+        activity_name: parse_string(json["activity_name"]),
+        severity_id: severity_id,
+        severity: severity,
+        message: parse_string(json["message"]),
+        status_id: parse_int(json["status_id"]),
+        status: parse_string(json["status"]),
+        status_code: parse_string(json["status_code"]),
+        status_detail: parse_string(json["status_detail"]),
+        metadata: FieldParser.encode_jsonb(json["metadata"]) || %{},
+        observables: FieldParser.encode_jsonb(json["observables"]) || [],
+        trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+        span_id: FieldParser.get_field(json, "span_id", "spanId"),
+        actor: FieldParser.encode_jsonb(json["actor"]) || %{},
+        device: FieldParser.encode_jsonb(json["device"]) || %{},
+        src_endpoint: FieldParser.encode_jsonb(json["src_endpoint"]) || %{},
+        dst_endpoint: FieldParser.encode_jsonb(json["dst_endpoint"]) || %{},
+        log_name: parse_string(json["log_name"]) || metadata[:subject],
+        log_provider: parse_string(json["log_provider"]),
+        log_level: parse_string(json["log_level"]),
+        log_version: parse_string(json["log_version"]),
+        unmapped: FieldParser.encode_jsonb(json["unmapped"]) || %{},
+        raw_data: parse_string(json["raw_data"]) || raw_data,
+        tenant_id: tenant_id,
+        created_at: DateTime.utc_now()
+      }
+    else
+      {:error, reason} ->
+        Logger.debug("Invalid OCSF event payload: #{inspect(reason)}",
+          subject: metadata[:subject]
+        )
 
-    source_ip = payload["_remote_addr"] || payload["remote_addr"] || payload["source"]
-    host = payload["host"] || payload["hostname"]
-
-    src_endpoint = OCSF.build_endpoint(ip: parse_ip(source_ip), hostname: host)
-    device = OCSF.build_device(hostname: host, ip: parse_ip(source_ip))
-
-    %{
-      id: UUID.uuid4(),
-      time: event_time,
-      class_uid: OCSF.class_event_log_activity(),
-      category_uid: OCSF.category_system_activity(),
-      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), activity_id),
-      activity_id: activity_id,
-      severity_id: severity_id,
-      message: message,
-      severity: OCSF.severity_name(severity_id),
-      activity_name: OCSF.log_activity_name(activity_id),
-      status_id: 1,
-      status: "Success",
-      status_code: nil,
-      status_detail: nil,
-      metadata:
-        OCSF.build_metadata(
-          version: "1.7.0",
-          correlation_uid: metadata[:subject] || event_meta_subject,
-          original_time: event_meta_time
-        ),
-      observables: build_observables(source_ip, host),
-      trace_id: payload["trace_id"] || payload["traceId"],
-      span_id: payload["span_id"] || payload["spanId"],
-      actor: OCSF.build_actor(app_name: event_meta_source || "syslog"),
-      device: device,
-      src_endpoint: src_endpoint,
-      log_name: event_meta_subject || metadata[:subject] || "events",
-      log_provider: host || payload["source"] || "unknown",
-      log_level: log_level,
-      log_version: log_version,
-      unmapped: payload || %{},
-      raw_data: raw_data,
-      tenant_id: tenant_id,
-      created_at: DateTime.utc_now()
-    }
+        nil
+    end
   end
 
   defp parse_event(_json, _metadata, _raw_data, _tenant_id), do: nil
-
-  defp unwrap_cloudevent(%{"specversion" => _} = json) do
-    meta = %{
-      subject: json["subject"],
-      source: json["source"],
-      type: json["type"],
-      time: json["time"]
-    }
-
-    {decode_cloudevent_data(json), meta}
-  end
-
-  defp unwrap_cloudevent(json), do: {json, %{}}
-
-  defp decode_cloudevent_data(%{"data" => data}) when is_map(data), do: data
-
-  defp decode_cloudevent_data(%{"data" => data}) when is_binary(data) do
-    case Jason.decode(data) do
-      {:ok, decoded} -> decoded
-      _ -> %{"message" => data}
+  defp fetch_required_string(json, key) do
+    case parse_string(json[key]) do
+      nil -> {:error, {:missing, key}}
+      "" -> {:error, {:missing, key}}
+      value -> {:ok, value}
     end
   end
 
-  defp decode_cloudevent_data(%{"data_base64" => data}) when is_binary(data) do
-    with {:ok, decoded} <- Base.decode64(data),
-         {:ok, payload} <- Jason.decode(decoded) do
-      payload
+  defp fetch_required_int(json, key) do
+    case parse_int(json[key]) do
+      nil -> {:error, {:missing, key}}
+      0 -> {:error, {:missing, key}}
+      value -> {:ok, value}
+    end
+  end
+
+  defp parse_int(nil), do: nil
+  defp parse_int(value) when is_integer(value), do: value
+  defp parse_int(value) when is_float(value), do: trunc(value)
+  defp parse_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> nil
+    end
+  end
+  defp parse_int(_), do: nil
+
+  defp parse_string(value) when is_binary(value), do: value
+  defp parse_string(_), do: nil
+
+  defp severity_name(0), do: "Unknown"
+  defp severity_name(1), do: "Informational"
+  defp severity_name(2), do: "Low"
+  defp severity_name(3), do: "Medium"
+  defp severity_name(4), do: "High"
+  defp severity_name(5), do: "Critical"
+  defp severity_name(6), do: "Fatal"
+  defp severity_name(_), do: "Unknown"
+
+  defp maybe_evaluate_stateful_rules([], _schema), do: :ok
+
+  defp maybe_evaluate_stateful_rules(rows, schema) do
+    tenant_id =
+      case rows do
+        [%{tenant_id: tenant_id} | _] -> tenant_id
+        _ -> TenantContext.current_tenant_id()
+      end
+
+    if is_nil(tenant_id) do
+      Logger.warning("Skipping stateful alert evaluation; missing tenant_id")
+      :ok
     else
-      _ -> %{}
+      case StatefulAlertEngine.evaluate_events(rows, tenant_id, schema) do
+        :ok -> :ok
+        {:error, reason} ->
+          Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
+          :ok
+      end
     end
   end
-
-  defp decode_cloudevent_data(_), do: %{}
-
-  defp classify_payload(%{"varbinds" => _} = payload) do
-    message = payload["message"] || "SNMP trap received"
-    {message, OCSF.severity_informational(), payload["severity"], payload["version"]}
-  end
-
-  defp classify_payload(payload) when is_map(payload) do
-    message =
-      payload["short_message"] || payload["message"] || payload["msg"] ||
-        payload["body"] || payload["event"] || "Event received"
-
-    severity_id =
-      payload
-      |> Map.get("level")
-      |> parse_level(payload["severity"])
-
-    log_level = payload["severity"] || payload["level"]
-    log_version = payload["version"]
-
-    {message, severity_id, log_level, log_version}
-  end
-
-  defp classify_payload(_), do: {"Event received", OCSF.severity_unknown(), nil, nil}
-
-  defp parse_level(nil, severity_text), do: severity_from_text(severity_text)
-  defp parse_level(level, _severity_text) when is_integer(level), do: severity_from_level(level)
-  defp parse_level(level, severity_text) when is_binary(level) do
-    case Integer.parse(level) do
-      {int, _} -> severity_from_level(int)
-      :error -> severity_from_text(severity_text)
-    end
-  end
-
-  defp parse_level(_, severity_text), do: severity_from_text(severity_text)
-
-  defp severity_from_level(level) do
-    case level do
-      0 -> OCSF.severity_fatal()
-      1 -> OCSF.severity_critical()
-      2 -> OCSF.severity_critical()
-      3 -> OCSF.severity_high()
-      4 -> OCSF.severity_medium()
-      5 -> OCSF.severity_low()
-      6 -> OCSF.severity_informational()
-      7 -> OCSF.severity_informational()
-      _ -> OCSF.severity_unknown()
-    end
-  end
-
-  defp severity_from_text(nil), do: OCSF.severity_unknown()
-
-  defp severity_from_text(text) when is_binary(text) do
-    case String.downcase(text) do
-      "fatal" -> OCSF.severity_fatal()
-      "critical" -> OCSF.severity_critical()
-      "error" -> OCSF.severity_high()
-      "warn" -> OCSF.severity_medium()
-      "warning" -> OCSF.severity_medium()
-      "notice" -> OCSF.severity_low()
-      "info" -> OCSF.severity_informational()
-      "informational" -> OCSF.severity_informational()
-      "debug" -> OCSF.severity_informational()
-      _ -> OCSF.severity_unknown()
-    end
-  end
-
-  defp severity_from_text(_), do: OCSF.severity_unknown()
-
-  defp event_timestamp(payload, meta) do
-    meta_time = Map.get(meta, :time)
-
-    cond do
-      is_binary(meta_time) -> FieldParser.parse_timestamp(meta_time)
-      is_number(payload["timestamp"]) -> parse_gelf_timestamp(payload["timestamp"])
-      payload["time"] -> FieldParser.parse_timestamp(payload["time"])
-      true -> DateTime.utc_now()
-    end
-  end
-
-  defp parse_gelf_timestamp(timestamp) when is_float(timestamp) do
-    seconds = trunc(timestamp)
-    nanos = trunc((timestamp - seconds) * 1_000_000_000)
-    DateTime.from_unix!(seconds * 1_000_000_000 + nanos, :nanosecond)
-  end
-
-  defp parse_gelf_timestamp(timestamp) when is_integer(timestamp) do
-    FieldParser.parse_timestamp(timestamp)
-  end
-
-  defp parse_gelf_timestamp(_), do: DateTime.utc_now()
-
-  defp build_observables(nil, nil), do: []
-
-  defp build_observables(source_ip, host) do
-    []
-    |> maybe_add_observable(host, "Hostname", 1)
-    |> maybe_add_observable(source_ip, "IP Address", 2)
-  end
-
-  defp maybe_add_observable(observables, nil, _type, _type_id), do: observables
-  defp maybe_add_observable(observables, "", _type, _type_id), do: observables
-
-  defp maybe_add_observable(observables, value, type, type_id) do
-    [%{name: value, type: type, type_id: type_id} | observables]
-  end
-
-  defp parse_ip(nil), do: nil
-
-  defp parse_ip(value) when is_binary(value) do
-    value
-    |> String.split(":")
-    |> List.first()
-  end
-
-  defp parse_ip(_), do: nil
 
 end

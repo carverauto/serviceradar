@@ -1,13 +1,12 @@
 defmodule ServiceRadar.Events.OnboardingWriter do
   @moduledoc """
-  Writes edge onboarding lifecycle events into the tenant OCSF events table.
+  Publishes edge onboarding lifecycle logs to NATS for downstream promotion.
   """
 
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Events.InternalLogPublisher
 
   require Logger
 
@@ -17,23 +16,12 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   def write(%OnboardingEvent{} = event, tenant_schema) do
     with {:ok, package} <- load_package(event, tenant_schema),
          {:ok, tenant_id} <- fetch_tenant_id(package) do
-      attrs = build_event_attrs(event, package, tenant_id)
-
-      OcsfEvent
-      |> Ash.Changeset.for_create(:record, attrs, tenant: tenant_schema)
-      |> Ash.create(authorize?: false)
-      |> case do
-        {:ok, record} ->
-          EventsPubSub.broadcast_event(record)
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      payload = build_event_attrs(event, package, tenant_id)
+      InternalLogPublisher.publish("onboarding", payload, tenant_id: tenant_id)
     end
   rescue
     e ->
-      Logger.warning("Failed to write onboarding OCSF event: #{inspect(e)}")
+      Logger.warning("Failed to publish onboarding log: #{inspect(e)}")
       {:error, e}
   end
 

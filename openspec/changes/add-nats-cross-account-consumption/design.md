@@ -5,6 +5,10 @@
 - Subject mappings only rewrite subjects inside the same account.
 - Platform consumers (serviceradar-zen, event-writer) currently run in the platform account.
 
+## Status
+Superseded by per-tenant zen consumers in `add-nats-tenant-isolation`. This
+design is retained for reference only.
+
 ## Goals / Non-Goals
 
 ### Goals
@@ -19,8 +23,8 @@
 
 ## Decisions
 
-### Decision 1: Use Stream Exports + Platform Imports
-Each tenant account will export tenant-prefixed streams (logs/events/otel). The platform account will import those exports and expose them with the same tenant-prefixed subjects.
+### Decision 1: Use JetStream Source/Mirror Streams in PLATFORM
+Each tenant account will export tenant-prefixed streams (logs/events/otel). The platform account will import those exports and create JetStream source/mirror streams so platform consumers read from PLATFORM storage.
 
 - Tenant export examples:
   - `acme.logs.>`
@@ -32,13 +36,16 @@ Each tenant account will export tenant-prefixed streams (logs/events/otel). The 
   - Import `acme.events.>` from account `acme`
   - Import `acme.otel.>` from account `acme`
 
-**Why**: This keeps tenant prefixes intact, lets a single platform consumer subscribe to `*.logs.>` and `*.events.>`, and avoids per-tenant zen instances.
+**Why**: This keeps tenant prefixes intact, lets a single platform consumer subscribe to `*.logs.>` and `*.events.>`, avoids per-tenant zen instances, and preserves JetStream retention semantics.
 
 ### Decision 2: Tenant Identity from Subject Prefix
 Shared consumers will extract the tenant slug from the first subject token (already required by tenant prefixing). This tenant slug becomes the routing key for database writes and promotion rules.
 
 ### Decision 3: Provisioning Updates Platform Imports
 When a tenant NATS account is created or revoked, core-elx will update the platform account JWT to add or remove imports for that tenant.
+
+### Decision 4: Mirror Tenant KV Rule Streams into PLATFORM
+Zen rule updates stay in tenant KV buckets, but the PLATFORM account mirrors those KV streams to provide a single watcher surface for zen.
 
 ## Risks / Trade-offs
 - Platform account imports scale linearly with tenants. Mitigation: keep import list minimal and handle updates in provisioning jobs.

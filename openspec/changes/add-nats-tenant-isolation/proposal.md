@@ -292,6 +292,15 @@ accounts {
 }
 ```
 
+### 1.1 Log/Event Payload Formats (No CloudEvents)
+
+Processed telemetry is published without CloudEvents wrappers:
+- **Logs**: OTEL log payloads published to `logs.*.processed`
+- **Events**: OCSF Event Log Activity JSON published to `events.ocsf.processed`
+
+CloudEvents are removed entirely; there is no backward-compatible wrapper in the
+NATS pipeline.
+
 ### 2. Collector Configuration (No Tenant Context Required)
 
 Collectors do NOT need tenant_slug in their config. They simply publish to base subjects:
@@ -355,7 +364,36 @@ nats_creds_file = "/etc/serviceradar/certs/nats.creds"
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4. Edge Collector Onboarding
+### 4. Per-Tenant Zen Consumers (No Cross-Account Mirroring)
+
+Zen runs per tenant using that tenant's NATS account credentials and tenant CA
+certificates. It consumes tenant streams directly and writes processed output
+back into the same tenant account. This avoids cross-account JetStream mirroring
+and duplicate storage.
+
+No separate per-tenant datasvc/KV service is required. KV remains a shared NATS
+deployment with per-account buckets enforced by NATS account boundaries.
+
+### 5. Zen Rule Source of Truth + KV Push
+
+Zen continues to be the first promotion layer. Rules are stored in CNPG per
+tenant and pushed down to the tenant NATS KV bucket for runtime evaluation:
+
+- Source of truth: `log_promotion_rules` in each tenant schema.
+- On UI updates, core writes rule JSON into the tenant account KV bucket.
+- Zen rule watchers subscribe to tenant KV using tenant account credentials.
+
+### 6. Edge Collector Onboarding
+
+### 10. Per-Tenant DB Event Writer
+
+The db-event-writer (or equivalent ingestion service) runs per tenant using that
+tenant's NATS account credentials. It consumes the tenant's processed subjects
+and writes directly into the tenant schema in CNPG. This avoids cross-account
+JetStream mirroring and duplicate storage.
+
+Core-elx EventWriter should remain disabled in multi-tenant deployments to
+avoid double-consumption and extra storage overhead.
 
 Extend `OnboardingPackage` for collectors:
 
@@ -388,7 +426,7 @@ serviceradar-collector-acme-corp.tar.gz/
 └── install.sh             # Installation script
 ```
 
-### 5. Edge NATS Leaf Nodes
+### 7. Edge NATS Leaf Nodes
 
 For customers with network-deployed collectors:
 
@@ -415,7 +453,7 @@ Customer Network          │          ServiceRadar Cloud
 - All messages automatically scoped to tenant's subjects
 - Firewall only needs outbound 4222/TLS to ServiceRadar hub
 
-### 6. JetStream Configuration
+### 8. JetStream Configuration
 
 Update stream subjects for tenant wildcards:
 
@@ -438,7 +476,7 @@ streams {
 }
 ```
 
-### 7. EventWriter Per-Tenant Pipelines (Elixir)
+### 9. EventWriter Per-Tenant Pipelines (Elixir)
 
 **Completed in Phase 1.4**:
 - `EventWriter.Config` uses `*.events.>` wildcard patterns
