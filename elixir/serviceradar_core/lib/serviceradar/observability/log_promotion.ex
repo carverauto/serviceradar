@@ -7,7 +7,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Observability.LogPromotionRule
+  alias ServiceRadar.Observability.{LogPromotionRule, StatefulAlertEngine}
   alias UUID
 
   @spec promote([map()], String.t() | nil, String.t() | nil) :: {:ok, non_neg_integer()}
@@ -42,6 +42,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
           %{tenant_id: tenant_id}
         )
 
+        _ = maybe_evaluate_stateful_rules(events, tenant_id, schema)
         maybe_create_alerts(promotions, schema)
         Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
         {:ok, count}
@@ -270,6 +271,17 @@ defmodule ServiceRadar.Observability.LogPromotion do
       %{"alert" => true} -> %{}
       %{"alert" => %{} = config} -> config
       _ -> if Map.get(event, :severity_id, 0) >= OCSF.severity_high(), do: %{}, else: nil
+    end
+  end
+
+  defp maybe_evaluate_stateful_rules([], _tenant_id, _schema), do: :ok
+
+  defp maybe_evaluate_stateful_rules(events, tenant_id, schema) do
+    case StatefulAlertEngine.evaluate_events(events, tenant_id, schema) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}", tenant_id: tenant_id)
+        :ok
     end
   end
 

@@ -146,6 +146,49 @@ nats-cluster (receives leaf connections)
 - Account isolation prevents cross-tenant access
 - Standard NATS pattern for distributed deployments
 
+### Decision 6: Per-Tenant Zen Consumers
+
+**What**: Run one zen consumer per tenant using the tenant account credentials
+and tenant CA certificates. Zen consumes tenant streams directly and writes
+processed output back into the same tenant account.
+
+**Why**:
+- Eliminates cross-account JetStream mirroring and duplicate storage.
+- Keeps tenant isolation enforced by NATS accounts and mTLS.
+- Lets zen watch KV rules within the tenant account.
+
+### Decision 7: Rule Source of Truth in CNPG, Push to KV
+
+**What**: Log promotion rules live in tenant schemas (CNPG) and are pushed to
+tenant KV when updated so each tenant zen can hot-reload.
+
+### Decision 8: Per-Tenant DB Event Writer
+
+**What**: Run db-event-writer per tenant using tenant account credentials. Each
+instance reads processed subjects in that tenant account and writes directly to
+the tenant schema in CNPG.
+
+**Why**:
+- Avoids cross-account stream mirroring and duplicate JetStream storage.
+- Preserves account isolation with mTLS + tenant creds.
+- Keeps ingestion throughput isolated per tenant.
+
+**Why**:
+- UI/API edits already use Ash multi-tenancy.
+- KV gives zen fast, hot-reloadable rule access.
+- CNPG remains the durable, auditable source of truth.
+
+### Decision 9: Drop CloudEvents Wrappers
+
+**What**: Publish processed logs and events as raw payloads:
+- OTEL logs on `logs.*.processed`
+- OCSF Event Log Activity JSON on `events.ocsf.processed`
+
+**Why**:
+- Removes duplicate encoding and wrapper overhead.
+- Keeps OCSF/OTEL payloads as the canonical wire format.
+- Simplifies per-tenant ingestion (zen + db-event-writer).
+
 ## Risks / Trade-offs
 
 | Risk | Impact | Mitigation |

@@ -167,7 +167,7 @@ func TestInfo_PrefixChannel(t *testing.T) {
 		channel string
 		want    string
 	}{
-		{"events.gateway.health", "acme-corp.events.gateway.health"},
+		{"events.ocsf.processed", "acme-corp.events.ocsf.processed"},
 		{"agents.status", "acme-corp.agents.status"},
 		{"jobs.dispatch", "acme-corp.jobs.dispatch"},
 	}
@@ -308,9 +308,9 @@ func TestPrefixChannelWithSlug(t *testing.T) {
 		channel string
 		want    string
 	}{
-		{"acme-corp", "events.gateway.health", "acme-corp.events.gateway.health"},
+		{"acme-corp", "events.ocsf.processed", "acme-corp.events.ocsf.processed"},
 		{"xyz-inc", "logs.syslog.processed", "xyz-inc.logs.syslog.processed"},
-		{"", "events.gateway.health", "events.gateway.health"}, // empty slug returns original
+		{"", "events.ocsf.processed", "events.ocsf.processed"}, // empty slug returns original
 	}
 
 	for _, tt := range tests {
@@ -332,14 +332,14 @@ func TestPrefixChannelFromContext(t *testing.T) {
 		{
 			name:    "with tenant",
 			ctx:     WithContext(context.Background(), &Info{TenantSlug: "acme-corp"}),
-			channel: "events.gateway.health",
-			want:    "acme-corp.events.gateway.health",
+			channel: "events.ocsf.processed",
+			want:    "acme-corp.events.ocsf.processed",
 		},
 		{
 			name:    "without tenant",
 			ctx:     context.Background(),
-			channel: "events.gateway.health",
-			want:    "events.gateway.health", // returns original
+			channel: "events.ocsf.processed",
+			want:    "events.ocsf.processed", // returns original
 		},
 	}
 

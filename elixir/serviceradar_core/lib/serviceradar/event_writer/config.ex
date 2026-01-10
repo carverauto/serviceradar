@@ -118,7 +118,7 @@ defmodule ServiceRadar.EventWriter.Config do
   Returns the default stream configurations.
 
   Subject patterns use `*` prefix to capture all tenant-prefixed messages:
-  - `*.events.>` matches `acme-corp.events.gateway.health`, `xyz-inc.events.device.created`, etc.
+  - `*.events.>` matches `acme-corp.events.ocsf.processed`, `xyz-inc.events.ocsf.processed`, etc.
   - `*.logs.>` matches `acme-corp.logs.syslog.processed`, `xyz-inc.logs.otel`, etc.
   - Legacy non-prefixed subjects (`events.>`, `logs.>`) are also supported for backward compatibility
   """

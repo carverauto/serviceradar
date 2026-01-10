@@ -25,26 +25,26 @@ func TestEnsureSubjectList(t *testing.T) {
 		{
 			name:     "adds subject when list empty",
 			subjects: nil,
-			subject:  "events.gateway.health",
-			want:     []string{"events.gateway.health"},
+			subject:  "events.ocsf.processed",
+			want:     []string{"events.ocsf.processed"},
 		},
 		{
 			name:     "keeps list when wildcard matches",
-			subjects: []string{"events.gateway.*"},
-			subject:  "events.gateway.health",
-			want:     []string{"events.gateway.*"},
+			subjects: []string{"events.ocsf.*"},
+			subject:  "events.ocsf.processed",
+			want:     []string{"events.ocsf.*"},
 		},
 		{
 			name:     "keeps list when greater wildcard matches",
 			subjects: []string{"events.>"},
-			subject:  "events.gateway.health",
+			subject:  "events.ocsf.processed",
 			want:     []string{"events.>"},
 		},
 		{
 			name:     "appends when unmatched",
 			subjects: []string{"logs.syslog.*"},
-			subject:  "events.gateway.health",
-			want:     []string{"logs.syslog.*", "events.gateway.health"},
+			subject:  "events.ocsf.processed",
+			want:     []string{"logs.syslog.*", "events.ocsf.processed"},
 		},
 	}
 
@@ -75,11 +75,11 @@ func TestMatchesSubject(t *testing.T) {
 		subject  string
 		expected bool
 	}{
-		{"exact match", "events.gateway.health", "events.gateway.health", true},
-		{"single wildcard", "events.*.health", "events.gateway.health", true},
-		{"greater wildcard", "events.>", "events.gateway.health", true},
-		{"no match length", "events.*", "events.gateway.health", false},
-		{"no match tokens", "logs.syslog.*", "events.gateway.health", false},
+		{"exact match", "events.ocsf.processed", "events.ocsf.processed", true},
+		{"single wildcard", "events.*.processed", "events.ocsf.processed", true},
+		{"greater wildcard", "events.>", "events.ocsf.processed", true},
+		{"no match length", "events.*", "events.ocsf.processed", false},
+		{"no match tokens", "logs.syslog.*", "events.ocsf.processed", false},
 	}
 
 	for _, tc := range tests {
@@ -150,39 +150,39 @@ func TestIsTenantPrefixEnabled(t *testing.T) {
 
 func TestApplyTenantPrefix(t *testing.T) {
 	tests := []struct {
-		name            string
+		name             string
 		prefixingEnabled bool
-		tenantSlug      string
-		subject         string
-		expected        string
+		tenantSlug       string
+		subject          string
+		expected         string
 	}{
 		{
-			name:            "prefixing enabled with tenant in context",
+			name:             "prefixing enabled with tenant in context",
 			prefixingEnabled: true,
-			tenantSlug:      "acme-corp",
-			subject:         "events.gateway.health",
-			expected:        "acme-corp.events.gateway.health",
+			tenantSlug:       "acme-corp",
+			subject:          "events.ocsf.processed",
+			expected:         "acme-corp.events.ocsf.processed",
 		},
 		{
-			name:            "prefixing enabled without tenant defaults to 'default'",
+			name:             "prefixing enabled without tenant defaults to 'default'",
 			prefixingEnabled: true,
-			tenantSlug:      "",
-			subject:         "events.gateway.health",
-			expected:        "default.events.gateway.health",
+			tenantSlug:       "",
+			subject:          "events.ocsf.processed",
+			expected:         "default.events.ocsf.processed",
 		},
 		{
-			name:            "prefixing disabled returns original subject",
+			name:             "prefixing disabled returns original subject",
 			prefixingEnabled: false,
-			tenantSlug:      "acme-corp",
-			subject:         "events.gateway.health",
-			expected:        "events.gateway.health",
+			tenantSlug:       "acme-corp",
+			subject:          "events.ocsf.processed",
+			expected:         "events.ocsf.processed",
 		},
 		{
-			name:            "prefixing disabled without tenant returns original",
+			name:             "prefixing disabled without tenant returns original",
 			prefixingEnabled: false,
-			tenantSlug:      "",
-			subject:         "events.gateway.health",
-			expected:        "events.gateway.health",
+			tenantSlug:       "",
+			subject:          "events.ocsf.processed",
+			expected:         "events.ocsf.processed",
 		},
 	}
 

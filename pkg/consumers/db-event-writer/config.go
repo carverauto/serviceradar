@@ -31,6 +31,7 @@ type DBEventWriterConfig struct {
 	ListenAddr    string                 `json:"listen_addr"`
 	NATSURL       string                 `json:"nats_url" hot:"rebuild"`
 	NATSCredsFile string                 `json:"nats_creds_file,omitempty" hot:"rebuild"`
+	TenantID      string                 `json:"tenant_id"`
 	Subject       string                 `json:"subject"` // Legacy field for backward compatibility
 	StreamName    string                 `json:"stream_name" hot:"rebuild"`
 	ConsumerName  string                 `json:"consumer_name" hot:"rebuild"`

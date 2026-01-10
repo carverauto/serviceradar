@@ -168,12 +168,12 @@ the CNPG-backed API surface end-to-end. The helper:
 - Logs into `serviceradar-core` and calls `/api/devices`, `/api/services/tree`,
   `/api/devices/metrics/status`, and the CNPG-backed metrics endpoints to prove
   the registry + metrics APIs stay reachable.
-- Publishes a lifecycle CloudEvent to `events.devices.lifecycle` and polls the
-  Timescale `events` table to confirm the db-event-writer path processed the
-  payload (the script logs a warning instead of failing when the events table is
+- Publishes an OCSF event to `events.ocsf.processed` and polls the Timescale
+  `ocsf_events` table to confirm the db-event-writer path processed the payload
+  (the script logs a warning instead of failing when the ocsf_events table is
   empty, which is the norm in quiet demo-staging windows).
-- Verifies the CNPG client wiring by running `SELECT COUNT(*) FROM events`
-  directly against the database when a fresh CloudEvent is not observable.
+- Verifies the CNPG client wiring by running `SELECT COUNT(*) FROM ocsf_events`
+  directly against the database when a fresh OCSF event is not observable.
 
 Pass `NAMESPACE=<ns>` to target a different environment.
 

@@ -1,115 +1,87 @@
 package dbeventwriter
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
-
-	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func TestParseCloudEvent(t *testing.T) {
-	msg := []byte(`{"specversion":"1.0","id":"1","type":"cef_severity",
-		"source":"nats://events/logs.syslog","datacontenttype":"application/json","data":{"foo":"bar"}}`)
+func TestParseJSONLogsSingle(t *testing.T) {
+	payload := []byte(`{"message":"test log","severity":"High","timestamp":1700000000,"host":"device-1"}`)
 
-	data, ok := parseCloudEvent(msg)
-
+	rows, ok := parseJSONLogs(payload, "logs.syslog.processed")
 	if !ok {
-		t.Fatalf("expected ok")
+		t.Fatalf("expected JSON log parse to succeed")
 	}
 
-	if data != "{\"foo\":\"bar\"}" {
-		t.Fatalf("unexpected data: %s", data)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	row := rows[0]
+	if row.Body != "test log" {
+		t.Fatalf("unexpected body: %s", row.Body)
+	}
+
+	if row.SeverityText != "ERROR" {
+		t.Fatalf("unexpected severity text: %s", row.SeverityText)
+	}
+
+	if row.ServiceName != "device-1" {
+		t.Fatalf("unexpected service name: %s", row.ServiceName)
 	}
 }
 
-func TestParseCloudEventInvalid(t *testing.T) {
-	msg := []byte(`{"id":1}`)
+func TestParseJSONLogsArray(t *testing.T) {
+	payload := []byte(`[
+		{"message":"first","severity":"Low","timestamp":"2025-01-01T00:00:00Z"},
+		{"message":"second","severity":"Medium","timestamp":"2025-01-01T01:00:00Z"}
+	]`)
 
-	if _, ok := parseCloudEvent(msg); ok {
-		t.Fatalf("expected failure")
+	rows, ok := parseJSONLogs(payload, "logs.syslog.processed")
+	if !ok {
+		t.Fatalf("expected JSON array parse to succeed")
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
 	}
 }
 
-func TestTryDeviceLifecycleEvent(t *testing.T) {
-	now := time.Now().UTC()
-	data := models.DeviceLifecycleEventData{
-		DeviceID:  "default:10.0.0.1",
-		Action:    "Deleted",
-		Actor:     "admin@example.com",
-		Timestamp: now,
-		Severity:  "Medium",
-		Level:     5,
-	}
+func TestParseOCSFEvent(t *testing.T) {
+	payload := []byte(`{
+		"id":"c0b2f5af-7d5d-4c1a-8c5b-7c6a9f4c94b2",
+		"time":"2025-01-01T00:00:00Z",
+		"class_uid":1008,
+		"category_uid":1,
+		"type_uid":100800,
+		"activity_id":1,
+		"severity_id":2,
+		"message":"test event",
+		"tenant_id":"11111111-1111-1111-1111-111111111111"
+	}`)
 
-	payload, err := json.Marshal(data)
+	row, err := parseOCSFEvent(payload, "")
 	if err != nil {
-		t.Fatalf("failed to marshal test payload: %v", err)
+		t.Fatalf("expected OCSF event parse to succeed: %v", err)
 	}
 
-	event := &models.CloudEvent{
-		Type:    "com.carverauto.serviceradar.device.lifecycle",
-		Subject: "events.devices.lifecycle",
-		Data:    data,
+	if row.ID == "" {
+		t.Fatalf("expected id to be set")
 	}
 
-	row := &models.EventRow{}
-
-	if !tryDeviceLifecycleEvent(row, event, payload) {
-		t.Fatalf("expected device lifecycle event to be handled")
+	if row.Time.IsZero() {
+		t.Fatalf("expected time to be set")
 	}
 
-	if row.ShortMessage != "Device default:10.0.0.1 deleted by admin@example.com" {
-		t.Fatalf("unexpected short message: %s", row.ShortMessage)
+	if row.ClassUID != 1008 {
+		t.Fatalf("unexpected class_uid: %d", row.ClassUID)
 	}
 
-	if row.Severity != "Medium" {
-		t.Fatalf("unexpected severity: %s", row.Severity)
+	if row.TenantID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("unexpected tenant_id: %s", row.TenantID)
 	}
 
-	if row.Level != 5 {
-		t.Fatalf("unexpected level: %d", row.Level)
-	}
-
-	if !row.EventTimestamp.Equal(now) {
-		t.Fatalf("expected timestamp %v, got %v", now, row.EventTimestamp)
-	}
-}
-
-func TestTryDeviceLifecycleEventAliasSummary(t *testing.T) {
-	now := time.Now().UTC()
-	data := models.DeviceLifecycleEventData{
-		DeviceID:  "default:10.0.0.1",
-		Action:    "alias_updated",
-		Timestamp: now,
-		Metadata: map[string]string{
-			"previous_service_id":      "serviceradar:agent:old",
-			"alias_current_service_id": "serviceradar:agent:new",
-			"previous_ip":              "10.0.0.5",
-			"alias_current_ip":         "10.0.0.6",
-			"alias_collector_ip":       "10.0.0.99",
-		},
-	}
-
-	payload, err := json.Marshal(data)
-	if err != nil {
-		t.Fatalf("failed to marshal alias payload: %v", err)
-	}
-
-	event := &models.CloudEvent{
-		Type:    "com.carverauto.serviceradar.device.lifecycle",
-		Subject: "events.devices.lifecycle",
-		Data:    data,
-	}
-
-	row := &models.EventRow{}
-
-	if !tryDeviceLifecycleEvent(row, event, payload) {
-		t.Fatalf("expected device lifecycle alias event to be handled")
-	}
-
-	expected := "Device default:10.0.0.1 alias updated (service serviceradar:agent:old→serviceradar:agent:new, ip 10.0.0.5→10.0.0.6, collector 10.0.0.99)"
-	if row.ShortMessage != expected {
-		t.Fatalf("unexpected alias short message: %s", row.ShortMessage)
+	if !row.CreatedAt.Before(time.Now().Add(1 * time.Minute)) {
+		t.Fatalf("expected created_at to be near now")
 	}
 }

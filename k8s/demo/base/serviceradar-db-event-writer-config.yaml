@@ -15,8 +15,8 @@ data:
       "gateway_id": "k8s-gateway",
       "streams": [
         {
-          "subject": "events.gateway.health",
-          "table": "events"
+          "subject": "events.ocsf.processed",
+          "table": "ocsf_events"
         },
         {
           "subject": "logs.syslog.processed", 
@@ -27,11 +27,7 @@ data:
           "table": "logs"
         },
         {
-          "subject": "events.devices.lifecycle",
-          "table": "events"
-        },
-        {
-          "subject": "logs.otel",
+          "subject": "logs.otel.processed",
           "table": "logs"
         },
         {

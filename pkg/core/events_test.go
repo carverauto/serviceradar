@@ -53,7 +53,7 @@ func TestEventPublisherReinitializesAfterConnectionClose(t *testing.T) {
 		Events: &models.EventsConfig{
 			Enabled:    true,
 			StreamName: "events",
-			Subjects:   []string{"events.gateway.health"},
+			Subjects:   []string{"events.ocsf.processed"},
 		},
 		NATS: &models.NATSConfig{
 			URL: jsServer.ClientURL(),
