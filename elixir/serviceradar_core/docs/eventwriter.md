@@ -1,8 +1,49 @@
-# EventWriter TLS Connection Issue
+# EventWriter
 
 ## Overview
 
 The Elixir EventWriter is a Broadway-based pipeline that consumes messages from NATS JetStream and writes them to PostgreSQL/TimescaleDB hypertables. It replaces the Go `db-event-writer` service.
+
+**Important:** EventWriter handles **external ingestion only** - logs, metrics, traces, and events from edge collectors, agents, and external sources. Internal health/state events are **not** routed through NATS.
+
+## Internal Health Events (No NATS)
+
+Internal infrastructure health events bypass NATS entirely and are handled by `HealthTracker`:
+
+```
+State Transitions ─────┐
+                       │
+gRPC Health Checks ────┼──▶ HealthTracker ──┬──▶ HealthEvent (CNPG)
+                       │                    │
+Service Heartbeats ────┘                    ├──▶ OcsfEvent (CNPG)
+                                            │
+                                            └──▶ Phoenix PubSub (Live UI)
+```
+
+### Why No NATS for Internal Health?
+
+1. **Lower latency** - Direct writes to CNPG eliminate NATS round-trip
+2. **No broker dependency** - Health events persist even if NATS is unavailable
+3. **Simpler architecture** - No duplicate write paths for internal events
+
+### Configuration
+
+Internal health events are always enabled. No configuration required.
+
+The following modules handle internal health:
+- `ServiceRadar.Infrastructure.HealthTracker` - Main API for recording health events
+- `ServiceRadar.Infrastructure.HealthEvent` - Ash resource for health records
+- `ServiceRadar.Infrastructure.HealthPubSub` - Phoenix PubSub broadcaster
+- `ServiceRadar.Events.HealthWriter` - OCSF event mirroring
+
+### PubSub Topics
+
+Live views subscribe to per-tenant health topics:
+- `serviceradar:health_events:<tenant_id>` - Health state changes
+
+---
+
+# EventWriter TLS Connection Issue
 
 ## Current Status
 

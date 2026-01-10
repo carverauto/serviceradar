@@ -232,3 +232,12 @@ The system SHALL use DIRE's existing `device_identifiers` table for identity res
 - **THEN** DIRE SHALL generate a new `uid` and register it in `device_identifiers`
 - **AND** the `ocsf_devices` record SHALL be created with that `uid` and `type_id = 0` (Unknown)
 
+### Requirement: Sync ingestion transitions emit OCSF events
+The system SHALL record OCSF Event Log Activity entries when an integration source sync ingestion starts and finishes.
+
+#### Scenario: Sync ingestion start and finish events
+- **GIVEN** a sync ingestion run for an integration source
+- **WHEN** the ingestion transitions to running and then completes
+- **THEN** the tenant `ocsf_events` table SHALL include start and finish entries
+- **AND** the events SHALL include the integration source ID and result
+
