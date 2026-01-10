@@ -56,7 +56,7 @@
   - ~~`RevokeUserCredentials()`~~ - moved to SignAccountJWT revocation list
 - [x] 2.2.5 Subject mapping implemented in account_manager.go
   - Generate subject mappings for tenant account
-  - Standard mappings: `snmp.traps` → `<tenant>.snmp.traps`, etc.
+  - Standard mappings: `logs.snmp` → `<tenant>.logs.snmp`, etc.
 - [~] ~~2.2.6 Implement account key storage~~ - **No longer needed**
   - Account seeds stored by Elixir in CNPG with AshCloak encryption
 
@@ -229,7 +229,7 @@ serviceradar-collector-<id>.tar.gz/
 ### 4.1 Stream Configuration
 
 - [ ] 4.1.1 Update `events` stream subjects to `*.events.>`
-- [ ] 4.1.2 Update `snmp_traps` stream subjects to `*.snmp.traps`
+- [ ] 4.1.2 Update `snmp_traps` stream subjects to `*.logs.snmp`
 - [ ] 4.1.3 Update other streams for tenant-prefixed patterns
 - [ ] 4.1.4 Create migration script for existing stream data
 - [ ] 4.1.5 Document stream subject pattern changes
@@ -237,7 +237,7 @@ serviceradar-collector-<id>.tar.gz/
 
 ### 4.2 Consumer Configuration
 
-- [ ] 4.2.1 Update durable consumer subject filters
+- [x] 4.2.1 Update zen consumer subject filters for tenant-prefixed subjects
 - [ ] 4.2.2 Document consumer configuration for operators
 - [ ] 4.2.3 Add health checks for consumer lag per tenant
 
@@ -261,7 +261,7 @@ flowgger.toml:
 [output]
 type = "nats"
 nats_url = "tls://nats.serviceradar.cloud:4222"
-nats_subject = "events.syslog"  # NATS maps to: <tenant>.events.syslog
+nats_subject = "logs.syslog"  # NATS maps to: <tenant>.logs.syslog
 nats_creds_file = "/etc/serviceradar/nats.creds"
 
 [security]
@@ -275,7 +275,7 @@ trapd.json:
 {
   "listen_addr": "0.0.0.0:162",
   "nats_url": "tls://nats.serviceradar.cloud:4222",
-  "subject": "snmp.traps",
+  "subject": "logs.snmp",
   "nats_creds_file": "/etc/serviceradar/nats.creds",
   "nats_security": {
     "mode": "mtls",

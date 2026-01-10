@@ -22,7 +22,6 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1000,
         streams: [
           %{name: "EVENTS", subject: "events.>", processor: ServiceRadar.EventWriter.Processors.Events},
-          %{name: "SNMP_TRAPS", subject: "snmp.traps", processor: ServiceRadar.EventWriter.Processors.Events},
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},
           %{name: "OTEL_TRACES", subject: "otel.traces.>", processor: ServiceRadar.EventWriter.Processors.OtelTraces},
           %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs}
@@ -120,7 +119,8 @@ defmodule ServiceRadar.EventWriter.Config do
 
   Subject patterns use `*` prefix to capture all tenant-prefixed messages:
   - `*.events.>` matches `acme-corp.events.gateway.health`, `xyz-inc.events.device.created`, etc.
-  - Legacy non-prefixed subjects (`events.>`) are also supported for backward compatibility
+  - `*.logs.>` matches `acme-corp.logs.syslog.processed`, `xyz-inc.logs.otel`, etc.
+  - Legacy non-prefixed subjects (`events.>`, `logs.>`) are also supported for backward compatibility
   """
   @spec default_streams() :: [stream_config()]
   def default_streams do
@@ -135,20 +135,6 @@ defmodule ServiceRadar.EventWriter.Config do
       %{
         name: "EVENTS_LEGACY",
         subject: "events.>",
-        processor: ServiceRadar.EventWriter.Processors.Events,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "SNMP_TRAPS",
-        subject: "*.snmp.traps",
-        processor: ServiceRadar.EventWriter.Processors.Events,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "SNMP_TRAPS_LEGACY",
-        subject: "snmp.traps",
         processor: ServiceRadar.EventWriter.Processors.Events,
         batch_size: 100,
         batch_timeout: 1_000

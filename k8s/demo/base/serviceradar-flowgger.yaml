@@ -21,7 +21,7 @@ data:
     
     # NATS JetStream specific settings (Kubernetes deployment)
     nats_url = "tls://serviceradar-nats:4222"
-    nats_subject = "events.syslog"
+    nats_subject = "logs.syslog"
     nats_stream = "events" # Optional: defaults to "events"
     nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"

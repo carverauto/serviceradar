@@ -15,7 +15,7 @@ data:
     framing = "noop"
     partition = "default"
     nats_url = "tls://serviceradar-nats:4222"
-    nats_subject = "events.syslog"
+    nats_subject = "logs.syslog"
     nats_stream = "events"
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"

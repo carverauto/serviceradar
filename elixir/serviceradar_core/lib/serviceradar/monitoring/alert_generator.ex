@@ -28,6 +28,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       )
   """
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Monitoring.{Alert, WebhookNotifier}
 
   require Logger
@@ -260,6 +261,41 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   end
 
   @doc """
+  Generate an alert from an OCSF event.
+
+  Options:
+    - `:alert` - map of overrides (title, description, severity, metadata)
+    - `:tenant` - tenant schema name (optional)
+    - `:actor` - Ash actor to use for policy checks (optional)
+  """
+  @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
+  def from_event(event, opts \\ []) when is_map(event) do
+    alert_config = Keyword.get(opts, :alert, %{})
+
+    if alert_disabled?(alert_config) do
+      {:ok, :skipped}
+    else
+      severity = alert_severity(event, alert_config)
+      title = override_string(alert_config, "title") || default_event_title(event)
+      description = override_string(alert_config, "description") || Map.get(event, :message)
+
+      attrs = %{
+        title: title,
+        description: description,
+        severity: severity,
+        source_type: :event,
+        source_id: event_id_string(event),
+        event_id: Map.get(event, :id),
+        event_time: Map.get(event, :time),
+        metadata: event_alert_metadata(event, alert_config),
+        tenant_id: Map.get(event, :tenant_id)
+      }
+
+      create_alert_and_notify(attrs, opts)
+    end
+  end
+
+  @doc """
   Handle stats anomaly alert (non-canonical devices filtered).
 
   Port of Go's handleStatsAnomaly function.
@@ -375,18 +411,27 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   # Private functions
 
   defp create_alert_and_notify(attrs, opts) do
-    # Create the alert in the database
-    case Alert
-         |> Ash.Changeset.for_create(:trigger, attrs)
-         |> Ash.create() do
-      {:ok, alert} ->
-        # Also send webhook notification
-        send_webhook_notification(alert, opts)
-        {:ok, alert}
+    tenant_id = Map.get(attrs, :tenant_id) || Keyword.get(opts, :tenant_id)
+    tenant_schema = Keyword.get(opts, :tenant) || tenant_schema_for(tenant_id)
+    actor = Keyword.get(opts, :actor) || system_actor(tenant_id)
 
-      {:error, error} ->
-        Logger.error("Failed to create alert: #{inspect(error)}")
-        {:error, error}
+    # Create the alert in the database
+    if is_nil(tenant_schema) do
+      Logger.warning("Skipping alert creation; tenant schema missing", tenant_id: tenant_id)
+      {:error, :missing_tenant_schema}
+    else
+      case Alert
+           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor, tenant: tenant_schema)
+           |> Ash.create() do
+        {:ok, alert} ->
+          # Also send webhook notification
+          send_webhook_notification(alert, opts)
+          {:ok, alert}
+
+        {:error, error} ->
+          Logger.error("Failed to create alert: #{inspect(error)}")
+          {:error, error}
+      end
     end
   end
 
@@ -439,6 +484,121 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp format_datetime(nil), do: nil
   defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp format_datetime(other), do: to_string(other)
+
+  defp alert_disabled?(false), do: true
+  defp alert_disabled?(%{"enabled" => false}), do: true
+  defp alert_disabled?(_), do: false
+
+  defp alert_severity(event, alert_config) do
+    override =
+      override_string(alert_config, "severity") ||
+        override_atom(alert_config, "severity")
+
+    case override do
+      nil -> severity_from_event(event)
+      value -> normalize_severity(value)
+    end
+  end
+
+  defp severity_from_event(event) do
+    case Map.get(event, :severity_id) do
+      id when is_number(id) and id >= 6 -> :emergency
+      id when is_number(id) and id >= 5 -> :critical
+      id when is_number(id) and id >= 4 -> :critical
+      id when is_number(id) and id >= 3 -> :warning
+      id when is_number(id) and id >= 1 -> :info
+      _ -> :warning
+    end
+  end
+
+  defp normalize_severity(value) when is_atom(value), do: value
+
+  defp normalize_severity(value) when is_binary(value) do
+    case String.downcase(value) do
+      "emergency" -> :emergency
+      "critical" -> :critical
+      "high" -> :critical
+      "warning" -> :warning
+      "warn" -> :warning
+      "info" -> :info
+      _ -> :warning
+    end
+  end
+
+  defp normalize_severity(_), do: :warning
+
+  defp default_event_title(event) do
+    log_name = Map.get(event, :log_name)
+
+    if is_binary(log_name) and log_name != "" do
+      "Event: #{log_name}"
+    else
+      "Event Triggered"
+    end
+  end
+
+  defp event_alert_metadata(event, alert_config) do
+    base =
+      %{}
+      |> maybe_put("event_id", event_id_string(event))
+      |> maybe_put("event_time", format_datetime(Map.get(event, :time)))
+      |> maybe_put("log_name", Map.get(event, :log_name))
+      |> maybe_put("log_provider", Map.get(event, :log_provider))
+      |> maybe_put("severity", Map.get(event, :severity))
+
+    override_map(alert_config, "metadata")
+    |> case do
+      %{} = override -> Map.merge(base, override)
+      _ -> base
+    end
+  end
+
+  defp event_id_string(event) do
+    case Map.get(event, :id) do
+      nil -> nil
+      id -> to_string(id)
+    end
+  end
+
+  defp override_string(config, key) do
+    case override_map(config, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp override_atom(config, key) do
+    case override_map(config, key) do
+      value when is_atom(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp override_map(config, key) when is_map(config) do
+    Map.get(config, key) || Map.get(config, atom_key(key))
+  end
+
+  defp override_map(_, _), do: nil
+
+  defp atom_key("title"), do: :title
+  defp atom_key("description"), do: :description
+  defp atom_key("severity"), do: :severity
+  defp atom_key("metadata"), do: :metadata
+  defp atom_key(_), do: nil
+
+  defp tenant_schema_for(nil), do: nil
+  defp tenant_schema_for(tenant_id), do: TenantSchemas.schema_for_tenant(tenant_id)
+
+  defp system_actor(nil), do: nil
+
+  defp system_actor(tenant_id) do
+    %{
+      id: "system",
+      email: "core@serviceradar",
+      role: :admin,
+      tenant_id: tenant_id
+    }
+  end
 
   defp get_hostname do
     case :inet.gethostname() do

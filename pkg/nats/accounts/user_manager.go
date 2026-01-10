@@ -132,9 +132,9 @@ func applyUserPermissions(
 	case CredentialTypeCollector:
 		// Collectors can publish to their tenant's subjects (mapped by account)
 		// and subscribe to responses
-		claims.Pub.Allow.Add("events.>")
-		claims.Pub.Allow.Add("snmp.traps")
 		claims.Pub.Allow.Add("logs.>")
+		claims.Pub.Allow.Add("otel.traces.>")
+		claims.Pub.Allow.Add("otel.metrics.>")
 		claims.Pub.Allow.Add("telemetry.>")
 		claims.Pub.Allow.Add("netflow.>")
 		claims.Sub.Allow.Add("_INBOX.>")

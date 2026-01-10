@@ -21,6 +21,27 @@ defmodule Proto.SubjectMapping do
   field :to, 2, type: :string
 end
 
+
+defmodule Proto.StreamExport do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :subject, 1, type: :string
+  field :name, 2, type: :string
+end
+
+defmodule Proto.StreamImport do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :subject, 1, type: :string
+  field :account_public_key, 2, type: :string, json_name: "accountPublicKey"
+  field :local_subject, 3, type: :string, json_name: "localSubject"
+  field :name, 4, type: :string
+end
+
 defmodule Proto.CreateTenantAccountRequest do
   @moduledoc false
 
@@ -29,6 +50,7 @@ defmodule Proto.CreateTenantAccountRequest do
   field :tenant_slug, 1, type: :string, json_name: "tenantSlug"
   field :limits, 2, type: Proto.AccountLimits
   field :subject_mappings, 3, repeated: true, type: Proto.SubjectMapping, json_name: "subjectMappings"
+  field :exports, 4, repeated: true, type: Proto.StreamExport
 end
 
 defmodule Proto.CreateTenantAccountResponse do
@@ -99,6 +121,8 @@ defmodule Proto.SignAccountJWTRequest do
   field :limits, 3, type: Proto.AccountLimits
   field :subject_mappings, 4, repeated: true, type: Proto.SubjectMapping, json_name: "subjectMappings"
   field :revoked_user_keys, 5, repeated: true, type: :string, json_name: "revokedUserKeys"
+  field :exports, 6, repeated: true, type: Proto.StreamExport
+  field :imports, 7, repeated: true, type: Proto.StreamImport
 end
 
 defmodule Proto.SignAccountJWTResponse do

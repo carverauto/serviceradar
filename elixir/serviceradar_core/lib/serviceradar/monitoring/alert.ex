@@ -178,6 +178,8 @@ defmodule ServiceRadar.Monitoring.Alert do
         :severity,
         :source_type,
         :source_id,
+        :event_id,
+        :event_time,
         :service_check_id,
         :device_uid,
         :agent_uid,
@@ -186,7 +188,8 @@ defmodule ServiceRadar.Monitoring.Alert do
         :threshold_value,
         :comparison,
         :metadata,
-        :tags
+        :tags,
+        :tenant_id
       ]
 
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
@@ -382,7 +385,7 @@ defmodule ServiceRadar.Monitoring.Alert do
 
     attribute :source_type, :atom do
       public? true
-      constraints one_of: [:service_check, :device, :gateway, :agent, :system, :external]
+      constraints one_of: [:service_check, :device, :gateway, :agent, :event, :system, :external]
       description "Type of source that generated this alert"
     end
 
@@ -405,6 +408,16 @@ defmodule ServiceRadar.Monitoring.Alert do
     attribute :agent_uid, :string do
       public? true
       description "Related agent"
+    end
+
+    attribute :event_id, :uuid do
+      public? true
+      description "Related OCSF event ID"
+    end
+
+    attribute :event_time, :utc_datetime_usec do
+      public? true
+      description "Related OCSF event timestamp"
     end
 
     # Alert details

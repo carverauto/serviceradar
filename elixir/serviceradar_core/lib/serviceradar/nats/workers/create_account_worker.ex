@@ -88,8 +88,9 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
          :ok <- validate_tenant_status(tenant),
          {:ok, tenant} <- mark_pending(tenant),
          {:ok, result} <- create_nats_account(tenant),
-         {:ok, _tenant} <- store_account_credentials(tenant, result),
-         :ok <- push_jwt_to_resolver(result) do
+         {:ok, tenant} <- store_account_credentials(tenant, result),
+         :ok <- push_jwt_to_resolver(result),
+         :ok <- maybe_update_platform_imports(tenant) do
       Logger.info("Successfully created NATS account for tenant #{tenant_id}")
       :ok
     else
@@ -273,7 +274,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
           max_connections: 10,
           max_subscriptions: 100,
           max_payload_bytes: 1_048_576,
-          max_data_bytes: 10_485_760
+          max_data_bytes: 10_485_760,
+          allow_wildcard_exports: true
         }
 
       :pro ->
@@ -281,7 +283,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
           max_connections: 100,
           max_subscriptions: 1000,
           max_payload_bytes: 4_194_304,
-          max_data_bytes: 104_857_600
+          max_data_bytes: 104_857_600,
+          allow_wildcard_exports: true
         }
 
       :enterprise ->
@@ -294,7 +297,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
           max_connections: 10,
           max_subscriptions: 100,
           max_payload_bytes: 1_048_576,
-          max_data_bytes: 10_485_760
+          max_data_bytes: 10_485_760,
+          allow_wildcard_exports: true
         }
     end
   end
@@ -332,6 +336,140 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
         )
 
         :ok
+    end
+  end
+
+  defp maybe_update_platform_imports(%{is_platform_tenant: true}), do: :ok
+
+  defp maybe_update_platform_imports(%{slug: slug}) do
+    with {:ok, platform_tenant} <- get_platform_tenant(),
+         :ok <- ensure_platform_account_ready(platform_tenant),
+         {:ok, platform_seed} <- decrypt_account_seed(platform_tenant),
+         {:ok, import_tenants} <- load_import_tenants(),
+         imports <- build_stream_imports(import_tenants),
+         {:ok, result} <-
+           AccountClient.sign_account_jwt(
+             to_string(platform_tenant.slug),
+             platform_seed,
+             imports: imports
+           ),
+         {:ok, _tenant} <- update_platform_jwt(platform_tenant, result.account_jwt),
+         :ok <- push_platform_jwt(platform_tenant, result.account_jwt) do
+      Logger.info("[NATS] Platform imports updated after provisioning #{slug}")
+      :ok
+    else
+      {:error, :platform_missing} ->
+        Logger.warning("[NATS] Platform tenant missing; skipping imports update")
+        :ok
+
+      {:error, :platform_not_ready} ->
+        Logger.warning("[NATS] Platform account not ready; skipping imports update")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[NATS] Failed to update platform imports: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp get_platform_tenant do
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(is_platform_tenant == true)
+    |> Ash.Query.select([
+      :id,
+      :slug,
+      :nats_account_public_key,
+      :nats_account_seed_ciphertext,
+      :nats_account_status,
+      :nats_account_jwt
+    ])
+    |> Ash.read_one(authorize?: false)
+    |> case do
+      {:ok, nil} -> {:error, :platform_missing}
+      {:ok, tenant} -> {:ok, tenant}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp ensure_platform_account_ready(platform_tenant) do
+    if platform_tenant.nats_account_status == :ready and platform_tenant.nats_account_jwt != nil do
+      :ok
+    else
+      {:error, :platform_not_ready}
+    end
+  end
+
+  defp decrypt_account_seed(%{nats_account_seed_ciphertext: encrypted_value}) do
+    case encrypted_value do
+      nil ->
+        {:error, :account_seed_not_found}
+
+      value when is_binary(value) ->
+        case ServiceRadar.Vault.decrypt(value) do
+          {:ok, seed} when is_binary(seed) and seed != "" ->
+            {:ok, seed}
+
+          {:ok, _} ->
+            {:error, :account_seed_not_found}
+
+          {:error, _reason} ->
+            {:error, :account_seed_decrypt_failed}
+        end
+
+      _ ->
+        {:error, :account_seed_not_found}
+    end
+  end
+
+  defp load_import_tenants do
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      status == :active and is_platform_tenant == false and nats_account_status == :ready and
+        not is_nil(nats_account_public_key)
+    )
+    |> Ash.Query.select([:slug, :nats_account_public_key])
+    |> Ash.read(authorize?: false)
+  end
+
+  defp build_stream_imports(tenants) when is_list(tenants) do
+    Enum.flat_map(tenants, fn tenant ->
+      slug = to_string(tenant.slug)
+      account_key = tenant.nats_account_public_key
+
+      [
+        %{subject: "#{slug}.logs.>", account_public_key: account_key},
+        %{subject: "#{slug}.events.>", account_public_key: account_key},
+        %{subject: "#{slug}.otel.>", account_public_key: account_key}
+      ]
+    end)
+  end
+
+  defp update_platform_jwt(platform_tenant, account_jwt) do
+    platform_tenant
+    |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt})
+    |> Ash.update(authorize?: false)
+  end
+
+  defp push_platform_jwt(platform_tenant, account_jwt) do
+    account_key = platform_tenant.nats_account_public_key
+
+    if is_binary(account_key) and account_key != "" do
+      case AccountClient.push_account_jwt(account_key, account_jwt) do
+        {:ok, %{success: true}} ->
+          :ok
+
+        {:ok, %{success: false, message: message}} ->
+          Logger.warning("[NATS] Platform JWT push failed: #{message}")
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("[NATS] Platform JWT push error: #{inspect(reason)}")
+          :ok
+      end
+    else
+      {:error, :platform_public_key_missing}
     end
   end
 end

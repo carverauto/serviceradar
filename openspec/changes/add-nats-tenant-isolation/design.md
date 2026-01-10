@@ -38,8 +38,8 @@ Format: <tenant-slug>.<original-subject>
 
 Examples:
   acme-corp.events.poller.health
-  acme-corp.events.syslog.processed
-  xyz-inc.events.otel.logs
+  acme-corp.logs.syslog.processed
+  xyz-inc.logs.otel
 ```
 
 **Why**:
@@ -80,7 +80,7 @@ publisher.PublishWithTenant(ctx, "events.poller.health", data)
   "consumer_name": "db-event-writer",
   "subjects": [
     "*.events.poller.health",
-    "*.events.syslog.processed"
+    "*.logs.syslog.processed"
   ]
 }
 ```
@@ -112,8 +112,8 @@ publisher.PublishWithTenant(ctx, "events.poller.health", data)
 
 ```
 Account: acme-corp
-  - User: collector-syslog (publish: acme-corp.events.syslog.>)
-  - User: collector-otel (publish: acme-corp.events.otel.>)
+  - User: collector-syslog (publish: acme-corp.logs.syslog.>)
+  - User: collector-otel (publish: acme-corp.otel.>)
   - Imports: none (isolated)
 
 Account: platform
@@ -133,8 +133,8 @@ Account: platform
 ```
 # Customer site
 nats-leaf-node (acme-corp account)
-  └── flowgger (publishes to acme-corp.events.syslog.>)
-  └── otel-collector (publishes to acme-corp.events.otel.>)
+  └── flowgger (publishes to acme-corp.logs.syslog.>)
+  └── otel-collector (publishes to acme-corp.otel.>)
 
 # Platform cluster
 nats-cluster (receives leaf connections)

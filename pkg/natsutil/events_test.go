@@ -42,9 +42,9 @@ func TestEnsureSubjectList(t *testing.T) {
 		},
 		{
 			name:     "appends when unmatched",
-			subjects: []string{"events.syslog.*"},
+			subjects: []string{"logs.syslog.*"},
 			subject:  "events.gateway.health",
-			want:     []string{"events.syslog.*", "events.gateway.health"},
+			want:     []string{"logs.syslog.*", "events.gateway.health"},
 		},
 	}
 
@@ -79,7 +79,7 @@ func TestMatchesSubject(t *testing.T) {
 		{"single wildcard", "events.*.health", "events.gateway.health", true},
 		{"greater wildcard", "events.>", "events.gateway.health", true},
 		{"no match length", "events.*", "events.gateway.health", false},
-		{"no match tokens", "events.syslog.*", "events.gateway.health", false},
+		{"no match tokens", "logs.syslog.*", "events.gateway.health", false},
 	}
 
 	for _, tc := range tests {

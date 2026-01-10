@@ -8,7 +8,8 @@ port = 9464
 
 [nats]
 url = "nats://localhost:4222"
-subject = "events.otel"
+subject = "otel"
+logs_subject = "logs.otel"
 stream = "events"
 timeout_secs = 30
 creds_file = "/etc/serviceradar/creds/platform.creds"

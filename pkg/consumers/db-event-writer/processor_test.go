@@ -10,7 +10,7 @@ import (
 
 func TestParseCloudEvent(t *testing.T) {
 	msg := []byte(`{"specversion":"1.0","id":"1","type":"cef_severity",
-		"source":"nats://events/events.syslog","datacontenttype":"application/json","data":{"foo":"bar"}}`)
+		"source":"nats://events/logs.syslog","datacontenttype":"application/json","data":{"foo":"bar"}}`)
 
 	data, ok := parseCloudEvent(msg)
 

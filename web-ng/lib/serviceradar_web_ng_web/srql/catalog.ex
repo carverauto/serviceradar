@@ -44,6 +44,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "alerts",
+      label: "Alerts",
+      route: "/alerts",
+      default_time: "last_7d",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "title",
+      filter_fields: [
+        "title",
+        "status",
+        "severity",
+        "source_type",
+        "source_id",
+        "device_uid",
+        "agent_uid"
+      ],
+      downsample: false
+    },
+    %{
       id: "logs",
       label: "Logs",
       route: "/logs",

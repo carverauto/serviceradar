@@ -276,13 +276,6 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
-          name: "SNMP_TRAPS",
-          subject: "snmp.traps",
-          processor: ServiceRadar.EventWriter.Processors.Events,
-          batch_size: 100,
-          batch_timeout: 1_000
-        },
-        %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,

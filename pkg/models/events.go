@@ -61,7 +61,14 @@ func (c *EventsConfig) Validate() error {
 
 	if len(c.Subjects) == 0 {
 		// Default subjects for events stream
-		c.Subjects = []string{"events.gateway.*", "events.syslog.*", "events.snmp.*"}
+		c.Subjects = []string{
+			"events.gateway.*",
+			"logs.syslog.*",
+			"logs.snmp.*",
+			"logs.otel",
+			"otel.traces.*",
+			"otel.metrics.*",
+		}
 	}
 
 	return nil

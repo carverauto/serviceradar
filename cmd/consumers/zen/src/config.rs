@@ -207,7 +207,10 @@ impl Config {
             "at least one subject is required"
         );
         if let Some(creds_file) = &self.nats_creds_file {
-            ensure!(!creds_file.trim().is_empty(), "nats_creds_file cannot be empty");
+            ensure!(
+                !creds_file.trim().is_empty(),
+                "nats_creds_file cannot be empty"
+            );
         }
 
         if let Some(sec) = &self.grpc_security {
@@ -255,11 +258,12 @@ impl Config {
 
     pub fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
-            if let Some(group) = self
-                .decision_groups
-                .iter()
-                .find(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
-            {
+            if let Some(group) = self.decision_groups.iter().find(|g| {
+                g.subjects.is_empty()
+                    || g.subjects
+                        .iter()
+                        .any(|pattern| subject_matches(pattern, subject))
+            }) {
                 let mut rules = group.rules.clone();
                 rules.sort_by_key(|r| r.order);
                 return rules.into_iter().map(|r| r.key).collect();
@@ -270,16 +274,44 @@ impl Config {
 
     pub fn message_format_for_subject(&self, subject: &str) -> MessageFormat {
         if !self.decision_groups.is_empty() {
-            if let Some(group) = self
-                .decision_groups
-                .iter()
-                .find(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
-            {
+            if let Some(group) = self.decision_groups.iter().find(|g| {
+                g.subjects.is_empty()
+                    || g.subjects
+                        .iter()
+                        .any(|pattern| subject_matches(pattern, subject))
+            }) {
                 return group.format.clone();
             }
         }
         MessageFormat::default()
     }
+}
+
+fn subject_matches(pattern: &str, subject: &str) -> bool {
+    let pattern_tokens: Vec<&str> = pattern.split('.').collect();
+    let subject_tokens: Vec<&str> = subject.split('.').collect();
+
+    let mut subject_index = 0;
+    for (idx, token) in pattern_tokens.iter().enumerate() {
+        match *token {
+            ">" => return idx == pattern_tokens.len() - 1,
+            "*" => {
+                if subject_index >= subject_tokens.len() {
+                    return false;
+                }
+                subject_index += 1;
+            }
+            literal => {
+                if subject_index >= subject_tokens.len() || subject_tokens[subject_index] != literal
+                {
+                    return false;
+                }
+                subject_index += 1;
+            }
+        }
+    }
+
+    subject_index == subject_tokens.len()
 }
 
 #[cfg(test)]
@@ -318,28 +350,25 @@ mod tests {
         assert_eq!(
             cfg.subjects,
             vec![
-                "events.syslog",
-                "events.snmp",
-                "events.otel.logs",
-                "events.otel.metrics.raw"
+                "*.logs.syslog",
+                "*.logs.snmp",
+                "*.logs.otel",
+                "*.otel.metrics.raw"
             ]
         );
         assert_eq!(cfg.decision_groups.len(), 4);
         assert_eq!(cfg.decision_groups[0].name, "syslog");
-        assert_eq!(cfg.decision_groups[0].subjects, vec!["events.syslog"]);
+        assert_eq!(cfg.decision_groups[0].subjects, vec!["*.logs.syslog"]);
         assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
         assert_eq!(cfg.decision_groups[0].rules[1].key, "cef_severity");
         assert_eq!(cfg.decision_groups[1].name, "snmp");
-        assert_eq!(cfg.decision_groups[1].subjects, vec!["events.snmp"]);
+        assert_eq!(cfg.decision_groups[1].subjects, vec!["*.logs.snmp"]);
         assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
         assert_eq!(cfg.decision_groups[2].name, "otel_logs");
-        assert_eq!(cfg.decision_groups[2].subjects, vec!["events.otel.logs"]);
+        assert_eq!(cfg.decision_groups[2].subjects, vec!["*.logs.otel"]);
         assert_eq!(cfg.decision_groups[2].format, MessageFormat::Protobuf);
         assert_eq!(cfg.decision_groups[3].name, "otel_metrics_raw");
-        assert_eq!(
-            cfg.decision_groups[3].subjects,
-            vec!["events.otel.metrics.raw"]
-        );
+        assert_eq!(cfg.decision_groups[3].subjects, vec!["*.otel.metrics.raw"]);
         assert_eq!(cfg.decision_groups[3].format, MessageFormat::OtelMetrics);
         assert_eq!(cfg.agent_id, "default-agent");
         assert_eq!(cfg.kv_bucket, "serviceradar-datasvc");
@@ -381,19 +410,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            cfg.message_format_for_subject("events.syslog"),
+            cfg.message_format_for_subject("acme.logs.syslog"),
             MessageFormat::Json
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.snmp"),
+            cfg.message_format_for_subject("acme.logs.snmp"),
             MessageFormat::Json
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.otel.logs"),
+            cfg.message_format_for_subject("acme.logs.otel"),
             MessageFormat::Protobuf
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.otel.metrics.raw"),
+            cfg.message_format_for_subject("acme.otel.metrics.raw"),
             MessageFormat::OtelMetrics
         );
         assert_eq!(

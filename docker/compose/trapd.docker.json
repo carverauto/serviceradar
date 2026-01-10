@@ -3,7 +3,7 @@
   "nats_url": "tls://nats:4222",
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
-  "subject": "snmp.traps",
+  "subject": "logs.snmp",
   "nats_security": {
     "cert_file": "/etc/serviceradar/certs/trapd.pem",
     "key_file": "/etc/serviceradar/certs/trapd-key.pem",

@@ -20,9 +20,9 @@
 - [x] 3.4 Subscribe Events UI to per-tenant OCSF event PubSub topics.
 
 ## 4. Validation
-- [ ] 4.1 Add tests for HealthEvent persistence and PubSub emission on state transitions.
-- [ ] 4.2 Verify EventWriter still processes external NATS streams; internal health events absent from NATS.
+- [x] 4.1 Add tests for HealthEvent persistence and PubSub emission on state transitions.
+- [x] 4.2 Verify EventWriter still processes external NATS streams; internal health events absent from NATS.
 
 ## 5. Docs & Spec Updates
-- [ ] 5.1 Update docs/config notes for internal health event flow (no NATS).
-- [ ] 5.2 Run `openspec validate remove-nats-internal-events --strict`.
+- [x] 5.1 Update docs/config notes for internal health event flow (no NATS).
+- [x] 5.2 Run `openspec validate remove-nats-internal-events --strict`.

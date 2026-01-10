@@ -71,8 +71,22 @@ message AccountLimits {
 
 // SubjectMapping defines how subjects are transformed for tenant isolation.
 message SubjectMapping {
-  string from = 1;  // Source subject pattern (e.g., "snmp.traps")
-  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.snmp.traps")
+  string from = 1;  // Source subject pattern (e.g., "logs.snmp")
+  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.logs.snmp")
+}
+
+// StreamExport defines a stream export subject for cross-account consumption.
+message StreamExport {
+  string subject = 1; // Subject to export (e.g., "acme.logs.>")
+  string name = 2;    // Optional export name
+}
+
+// StreamImport defines a stream import from another account.
+message StreamImport {
+  string subject = 1;             // Subject to import (e.g., "acme.logs.>")
+  string account_public_key = 2;  // Exporting account public key
+  string local_subject = 3;       // Optional local subject (defaults to subject)
+  string name = 4;                // Optional import name
 }
 
 // CreateTenantAccountRequest is the request to create a new tenant NATS account.
@@ -80,6 +94,7 @@ message CreateTenantAccountRequest {
   string tenant_slug = 1;           // Unique tenant identifier (e.g., "acme-corp")
   AccountLimits limits = 2;         // Optional resource limits
   repeated SubjectMapping subject_mappings = 3; // Optional custom subject mappings
+  repeated StreamExport exports = 4; // Optional stream exports (defaults applied server-side)
 }
 
 // CreateTenantAccountResponse returns the generated account credentials.
@@ -133,6 +148,8 @@ message SignAccountJWTRequest {
   AccountLimits limits = 3;            // Current resource limits
   repeated SubjectMapping subject_mappings = 4; // Current subject mappings
   repeated string revoked_user_keys = 5; // Public keys of revoked users
+  repeated StreamExport exports = 6;   // Optional stream exports (defaults applied server-side)
+  repeated StreamImport imports = 7;   // Stream imports from tenant accounts
 }
 
 // SignAccountJWTResponse returns the newly signed account JWT.

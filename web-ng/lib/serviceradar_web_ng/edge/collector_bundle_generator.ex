@@ -154,7 +154,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     framing = "noop"
     partition = "#{site}"
     nats_url = "#{nats_url}"
-    nats_subject = "events.syslog"
+    nats_subject = "logs.syslog"
     nats_stream = "events"
     nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
     nats_tls_cert = "/etc/serviceradar/certs/collector.pem"
@@ -192,7 +192,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     [nats]
     url = "#{nats_url}"
-    subject = "events.otel"
+    subject = "otel"
+    logs_subject = "logs.otel"
     stream = "events"
     timeout_secs = 30
     creds_file = "/etc/serviceradar/creds/nats.creds"
@@ -224,7 +225,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
       "nats_url" => nats_url,
       "nats_domain" => "edge",
       "stream_name" => "events",
-      "subject" => "snmp.traps",
+      "subject" => "logs.snmp",
       "partition" => site,
       "nats_creds_file" => "/etc/serviceradar/creds/nats.creds",
       "nats_security" => %{

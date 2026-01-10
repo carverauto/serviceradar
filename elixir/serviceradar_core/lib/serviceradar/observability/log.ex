@@ -5,6 +5,9 @@ defmodule ServiceRadar.Observability.Log do
   Maps to the `logs` TimescaleDB hypertable. This table has a composite
   primary key (timestamp, id) and is managed by raw SQL migrations.
 
+  Promotion metadata is stored in `attributes["serviceradar.ingest"]`,
+  including NATS subject, received_at, and source_kind.
+
   ## OpenTelemetry Severity Numbers
 
   - 1-4: TRACE

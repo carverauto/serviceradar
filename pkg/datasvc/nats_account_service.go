@@ -635,7 +635,16 @@ func (s *NATSAccountServer) CreateTenantAccount(
 		})
 	}
 
-	result, err := signer.CreateTenantAccount(req.GetTenantSlug(), limits, mappings)
+	protoExports := req.GetExports()
+	exports := make([]accounts.StreamExport, 0, len(protoExports))
+	for _, ex := range protoExports {
+		exports = append(exports, accounts.StreamExport{
+			Subject: ex.GetSubject(),
+			Name:    ex.GetName(),
+		})
+	}
+
+	result, err := signer.CreateTenantAccount(req.GetTenantSlug(), limits, mappings, exports)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create tenant account: %v", err)
 	}
@@ -741,11 +750,33 @@ func (s *NATSAccountServer) SignAccountJWT(
 		})
 	}
 
+	protoExports := req.GetExports()
+	exports := make([]accounts.StreamExport, 0, len(protoExports))
+	for _, ex := range protoExports {
+		exports = append(exports, accounts.StreamExport{
+			Subject: ex.GetSubject(),
+			Name:    ex.GetName(),
+		})
+	}
+
+	protoImports := req.GetImports()
+	imports := make([]accounts.StreamImport, 0, len(protoImports))
+	for _, imp := range protoImports {
+		imports = append(imports, accounts.StreamImport{
+			Subject:          imp.GetSubject(),
+			AccountPublicKey: imp.GetAccountPublicKey(),
+			LocalSubject:     imp.GetLocalSubject(),
+			Name:             imp.GetName(),
+		})
+	}
+
 	accountPublicKey, accountJWT, err := signer.SignAccountJWT(
 		req.GetTenantSlug(),
 		req.GetAccountSeed(),
 		limits,
 		mappings,
+		exports,
+		imports,
 		req.GetRevokedUserKeys(),
 	)
 	if err != nil {

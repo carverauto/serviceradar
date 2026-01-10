@@ -177,7 +177,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :device_count, :integer, default: 0
 
       change transition_state(:running)
-      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :started}
+      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :started}
     end
 
     update :sync_success do
@@ -197,7 +197,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change atomic_update(:last_error_message, expr(nil))
       change atomic_update(:consecutive_failures, expr(0))
       change atomic_update(:total_syncs, expr(total_syncs + 1))
-      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :finished}
+      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :finished}
     end
 
     update :sync_failed do
@@ -218,7 +218,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       change atomic_update(:last_error_message, expr(^arg(:error_message)))
       change atomic_update(:consecutive_failures, expr(consecutive_failures + 1))
       change atomic_update(:total_syncs, expr(total_syncs + 1))
-      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :finished}
+      change {ServiceRadar.Integrations.Changes.PublishSyncLog, stage: :finished}
     end
 
     update :record_sync do

@@ -178,7 +178,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/events"}
                   label="Events"
                   icon="hero-bell-alert"
-                  active={@current_path == "/events"}
+                  active={@current_path && String.starts_with?(@current_path, "/events")}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/alerts"}
+                  label="Alerts"
+                  icon="hero-exclamation-triangle"
+                  active={@current_path && String.starts_with?(@current_path, "/alerts")}
                 />
               </li>
               <li>
@@ -433,6 +441,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("agents"), do: "Agents"
   defp section_label("nodes"), do: "Nodes"
   defp section_label("events"), do: "Events"
+  defp section_label("alerts"), do: "Alerts"
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
@@ -448,6 +457,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("agents"), do: "hero-cube-micro"
   defp section_icon("nodes"), do: "hero-server-stack-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
+  defp section_icon("alerts"), do: "hero-exclamation-triangle-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
   defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("settings"), do: "hero-adjustments-horizontal-micro"

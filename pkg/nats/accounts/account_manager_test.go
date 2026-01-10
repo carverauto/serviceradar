@@ -42,7 +42,7 @@ func TestNewAccountSigner(t *testing.T) {
 	}
 
 	// Check for expected default mappings (collectors publish to these, NATS maps to tenant-prefixed)
-	expectedMappings := []string{"events.>", "syslog.>", "snmp.>", "netflow.>", "otel.>", "logs.>", "telemetry.>"}
+	expectedMappings := []string{"events.>", "logs.syslog.>", "logs.snmp.>", "netflow.>", "otel.>", "logs.>", "telemetry.>"}
 	for _, expected := range expectedMappings {
 		found := false
 		for _, mapping := range signer.defaultSubjectMappings {
@@ -61,7 +61,7 @@ func TestAccountSigner_CreateTenantAccount(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
-	result, err := signer.CreateTenantAccount("acme-corp", nil, nil)
+	result, err := signer.CreateTenantAccount("acme-corp", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -128,7 +128,7 @@ func TestAccountSigner_CreateTenantAccount_WithLimits(t *testing.T) {
 		AllowWildcardExports: true,
 	}
 
-	result, err := signer.CreateTenantAccount("test-tenant", limits, nil)
+	result, err := signer.CreateTenantAccount("test-tenant", limits, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestAccountSigner_CreateTenantAccount_WithCustomMappings(t *testing.T) {
 		{From: "metrics.*", To: "{{tenant}}.metrics.*"},
 	}
 
-	result, err := signer.CreateTenantAccount("custom-tenant", nil, customMappings)
+	result, err := signer.CreateTenantAccount("custom-tenant", nil, customMappings, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -197,7 +197,7 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// First create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil)
+	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 		MaxConnections: 50,
 	}
 
-	pubKey, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, newLimits, nil, nil)
+	pubKey, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, newLimits, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil)
+	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -245,7 +245,7 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	revokedKeys := []string{userPubKey1, userPubKey2}
 
 	// Re-sign with revocations
-	_, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, nil, nil, revokedKeys)
+	_, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, nil, nil, nil, nil, revokedKeys)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -273,7 +273,7 @@ func TestAccountSigner_SignAccountJWT_InvalidSeed(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
-	_, _, err := signer.SignAccountJWT("test-tenant", "invalid-seed", nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-tenant", "invalid-seed", nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for invalid seed, got nil")
 	}
@@ -286,7 +286,7 @@ func TestAccountSigner_SignAccountJWT_WrongKeyType(t *testing.T) {
 	// Use a user seed instead of account seed
 	userSeed, _, _ := GenerateUserKey()
 
-	_, _, err := signer.SignAccountJWT("test-tenant", userSeed, nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-tenant", userSeed, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for wrong key type, got nil")
 	}
@@ -297,7 +297,7 @@ func TestAccountSigner_CanRecreateFromSeed(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil)
+	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateTenantAccount() error = %v", err)
 	}
@@ -330,7 +330,7 @@ func TestAccountSigner_MultipleAccounts(t *testing.T) {
 	results := make(map[string]*TenantAccountResult)
 
 	for _, tenant := range tenants {
-		result, err := signer.CreateTenantAccount(tenant, nil, nil)
+		result, err := signer.CreateTenantAccount(tenant, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("CreateTenantAccount(%q) error = %v", tenant, err)
 		}

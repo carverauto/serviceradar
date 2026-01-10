@@ -250,7 +250,7 @@ func ConnectWithEventPublisher(
 		return nil, nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	subjects := []string{"events.>", "snmp.traps"}
+	subjects := []string{"events.>", "logs.>", "otel.traces.>", "otel.metrics.>"}
 
 	stream, err := js.Stream(ctx, streamName)
 	if err != nil {
@@ -350,7 +350,14 @@ func CreateEventPublisherWithDomain(
 	}
 
 	if len(subjects) == 0 {
-		subjects = []string{"events.gateway.*", "events.syslog.*", "events.snmp.*"}
+		subjects = []string{
+			"events.gateway.*",
+			"logs.syslog.*",
+			"logs.snmp.*",
+			"logs.otel",
+			"otel.traces.*",
+			"otel.metrics.*",
+		}
 	}
 
 	streamSubjects := append([]string(nil), subjects...)
