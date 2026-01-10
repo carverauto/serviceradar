@@ -11,7 +11,7 @@ pub struct TimeRange {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum TimeFilterSpec {
     RelativeHours(i64),
     RelativeDays(i64),
@@ -299,5 +299,42 @@ mod tests {
             .with_timezone(&Utc);
         let err = spec.resolve(now).unwrap_err();
         assert!(matches!(err, ServiceError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn serializes_relative_hours() {
+        let spec = TimeFilterSpec::RelativeHours(1);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_hours","value":1}"#);
+    }
+
+    #[test]
+    fn serializes_relative_days() {
+        let spec = TimeFilterSpec::RelativeDays(7);
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"relative_days","value":7}"#);
+    }
+
+    #[test]
+    fn serializes_today() {
+        let spec = TimeFilterSpec::Today;
+        let json = serde_json::to_string(&spec).unwrap();
+        assert_eq!(json, r#"{"type":"today"}"#);
+    }
+
+    #[test]
+    fn serializes_absolute_range() {
+        let spec = TimeFilterSpec::Absolute {
+            start: DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2025-01-02T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains(r#""type":"absolute""#));
+        assert!(json.contains(r#""start":"#));
+        assert!(json.contains(r#""end":"#));
     }
 }

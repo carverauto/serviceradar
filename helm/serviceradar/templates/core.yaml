@@ -121,6 +121,22 @@ spec:
           value: "true"
         - name: CONFIG_WATCH_ENABLED
           value: {{ ternary "true" "false" (default true .Values.core.configWatchEnabled) | quote }}
+        - name: POOL_SIZE
+          value: {{ default 20 .Values.core.database.poolSize | quote }}
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: {{ default 500 .Values.core.database.queueTargetMs | quote }}
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 500 .Values.core.database.queueIntervalMs | quote }}
+        - name: SYNC_INGESTOR_BATCH_CONCURRENCY
+          value: {{ default 2 .Values.core.syncIngestor.batchConcurrency | quote }}
+        - name: SYNC_INGESTOR_COALESCE_MS
+          value: {{ default 250 .Values.core.syncIngestor.coalesceMs | quote }}
+        - name: SYNC_INGESTOR_MAX_INFLIGHT
+          value: {{ default 2 .Values.core.syncIngestor.maxInflight | quote }}
+        - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+          value: {{ default 10 .Values.core.syncIngestor.queueMaxChunks | quote }}
+        - name: SYNC_INGESTOR_ASYNC
+          value: {{ ternary "true" "false" (default true .Values.core.syncIngestor.async) | quote }}
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"

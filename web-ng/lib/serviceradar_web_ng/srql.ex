@@ -180,11 +180,12 @@ defmodule ServiceRadarWebNG.SRQL do
   # Convert AST time_filter to Ash adapter format
   defp convert_ast_time_filter(nil), do: nil
 
-  defp convert_ast_time_filter(%{"type" => "relative_hours", "RelativeHours" => hours}) do
+  # New format after serde fix: {"type": "relative_hours", "value": 1}
+  defp convert_ast_time_filter(%{"type" => "relative_hours", "value" => hours}) do
     %{field: "timestamp", op: "gte", value: ago(hours, :hour)}
   end
 
-  defp convert_ast_time_filter(%{"type" => "relative_days", "RelativeDays" => days}) do
+  defp convert_ast_time_filter(%{"type" => "relative_days", "value" => days}) do
     %{field: "timestamp", op: "gte", value: ago(days, :day)}
   end
 

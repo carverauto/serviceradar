@@ -151,7 +151,10 @@ if config_env() == :prod do
     reset_tenant_schemas:
       System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
-    cluster_coordinator: cluster_coordinator
+    cluster_coordinator: cluster_coordinator,
+    # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
+    status_handler_enabled:
+      System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
   default_tenant_id =
     System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||

@@ -73,21 +73,109 @@ if config_env() == :prod do
       _ -> [verify: :verify_none]
     end
 
-  config :serviceradar_core, ServiceRadar.Repo,
+  parse_int = fn value ->
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  pool_size = parse_int.(System.get_env("POOL_SIZE") || "10") || 10
+
+  repo_opts = [
     url: database_url,
     ssl: ssl_opts,
     socket_options: maybe_ipv6,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+    pool_size: pool_size
+  ]
+
+  queue_target =
+    System.get_env("DATABASE_QUEUE_TARGET_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  queue_interval =
+    System.get_env("DATABASE_QUEUE_INTERVAL_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  repo_opts =
+    repo_opts
+    |> then(fn opts ->
+      if queue_target, do: Keyword.put(opts, :queue_target, queue_target), else: opts
+    end)
+    |> then(fn opts ->
+      if queue_interval, do: Keyword.put(opts, :queue_interval, queue_interval), else: opts
+    end)
+
+  config :serviceradar_core, ServiceRadar.Repo, repo_opts
 
   # Cluster configuration
   config :serviceradar_core,
     cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") == "true"
 
-config :serviceradar_core,
-  run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+  # Status handler for agent-gateway push results (core-elx only)
+  config :serviceradar_core,
+    status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-config :serviceradar_core,
-  reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
+  config :serviceradar_core,
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+
+  config :serviceradar_core,
+    reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
+
+  sync_ingestor_batch_concurrency =
+    System.get_env("SYNC_INGESTOR_BATCH_CONCURRENCY")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_batch_concurrency: sync_ingestor_batch_concurrency || 2
+
+  config :serviceradar_core,
+    sync_ingestor_async: System.get_env("SYNC_INGESTOR_ASYNC", "true") in ~w(true 1 yes)
+
+  sync_ingestor_coalesce_ms =
+    System.get_env("SYNC_INGESTOR_COALESCE_MS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_coalesce_ms: sync_ingestor_coalesce_ms || 250
+
+  sync_ingestor_max_inflight =
+    System.get_env("SYNC_INGESTOR_MAX_INFLIGHT")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_max_inflight: sync_ingestor_max_inflight || 2
+
+  sync_ingestor_queue_max_chunks =
+    System.get_env("SYNC_INGESTOR_QUEUE_MAX_CHUNKS")
+    |> case do
+      nil -> nil
+      "" -> nil
+      value -> parse_int.(value)
+    end
+
+  config :serviceradar_core,
+    sync_ingestor_queue_max_chunks: sync_ingestor_queue_max_chunks || 10
 
   # Oban configuration
   config :serviceradar_core, Oban,

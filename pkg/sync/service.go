@@ -387,10 +387,11 @@ func (s *SimpleSyncService) UpdateConfig(newCfg *Config) {
 	// Use fallback values from the new config being applied.
 	agentID := newCfg.AgentID
 	gatewayID := newCfg.GatewayID
+	partition := newCfg.Partition
 	s.sources = make(map[string]Integration)
 	for name, src := range newCfg.Sources {
 		if f, ok := s.registry[src.Type]; ok {
-			s.sources[name] = s.createIntegration(s.ctx, src, f, agentID, gatewayID)
+			s.sources[name] = s.createIntegration(s.ctx, src, f, agentID, gatewayID, partition)
 		}
 	}
 	if intervalsChanged {
@@ -1026,9 +1027,11 @@ func (s *SimpleSyncService) configPollLoop(ctx context.Context) error {
 }
 
 func (s *SimpleSyncService) heartbeatLoop(ctx context.Context) error {
-	if err := s.pushHeartbeat(ctx); err != nil {
+	heartbeatCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	if err := s.pushHeartbeat(heartbeatCtx); err != nil && !errors.Is(err, context.Canceled) {
 		s.logger.Error().Err(err).Msg("Failed to push sync heartbeat")
 	}
+	cancel()
 
 	timer := time.NewTimer(s.getHeartbeatInterval())
 	defer timer.Stop()
@@ -1226,6 +1229,7 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 	s.configMu.RLock()
 	agentID := s.config.AgentID
 	partition := s.config.Partition
+	gatewayID := s.config.GatewayID
 	s.configMu.RUnlock()
 
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
@@ -1242,7 +1246,7 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 			ServiceType:  syncServiceType,
 			ResponseTime: 0,
 			AgentId:      agentID,
-			GatewayId:    "",
+			GatewayId:    gatewayID,
 			Partition:    partition,
 			Source:       syncResultsSource,
 			KvStoreId:    "",
@@ -1413,6 +1417,7 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 	// access config consistently for future-proofing.
 	agentID := s.config.AgentID
 	gatewayID := s.config.GatewayID
+	partition := s.config.Partition
 
 	for name, src := range s.config.Sources {
 		factory, ok := s.registry[src.Type]
@@ -1421,7 +1426,7 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 			continue
 		}
 
-		s.sources[name] = s.createIntegration(ctx, src, factory, agentID, gatewayID)
+		s.sources[name] = s.createIntegration(ctx, src, factory, agentID, gatewayID, partition)
 	}
 }
 
@@ -1438,6 +1443,7 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 	s.configMu.RLock()
 	agentID := s.config.AgentID
 	gatewayID := s.config.GatewayID
+	partition := s.config.Partition
 	s.configMu.RUnlock()
 
 	// Detect interval changes and reset timers for affected sources
@@ -1455,7 +1461,7 @@ func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceCo
 				continue
 			}
 
-			integrations[name] = s.createIntegration(s.ctx, src, factory, agentID, gatewayID)
+			integrations[name] = s.createIntegration(s.ctx, src, factory, agentID, gatewayID, partition)
 		}
 
 		if len(integrations) == 0 {
@@ -1772,13 +1778,13 @@ func (s *SimpleSyncService) getSourceConfig(tenantID, sourceName string) *models
 }
 
 // createIntegration creates a single integration instance.
-// agentID and gatewayID are fallback values if not set in src.
+// agentID, gatewayID, and partition are fallback values if not set in src.
 // Callers must ensure these values are obtained under proper synchronization.
 func (s *SimpleSyncService) createIntegration(
 	ctx context.Context,
 	src *models.SourceConfig,
 	factory IntegrationFactory,
-	agentID, gatewayID string,
+	agentID, gatewayID, partition string,
 ) Integration {
 	cfgCopy := *src
 	if cfgCopy.AgentID == "" {
@@ -1790,7 +1796,11 @@ func (s *SimpleSyncService) createIntegration(
 	}
 
 	if cfgCopy.Partition == "" {
-		cfgCopy.Partition = "default"
+		if partition != "" {
+			cfgCopy.Partition = partition
+		} else {
+			cfgCopy.Partition = "default"
+		}
 	}
 
 	return factory(ctx, &cfgCopy, s.logger)

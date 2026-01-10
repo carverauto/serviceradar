@@ -105,6 +105,22 @@ spec:
           value: "kv"
         - name: CONFIG_PATH
           value: "/var/lib/serviceradar/core.json"
+        - name: POOL_SIZE
+          value: "40"
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: "2000"
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: "2000"
+        - name: SYNC_INGESTOR_BATCH_CONCURRENCY
+          value: "2"
+        - name: SYNC_INGESTOR_COALESCE_MS
+          value: "250"
+        - name: SYNC_INGESTOR_MAX_INFLIGHT
+          value: "2"
+        - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+          value: "10"
+        - name: SYNC_INGESTOR_ASYNC
+          value: "true"
         - name: CORE_ADDRESS
           value: "serviceradar-core:50052"
         - name: CORE_SEC_MODE

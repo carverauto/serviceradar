@@ -168,7 +168,8 @@ defmodule ServiceRadar.Inventory.Device do
         :agent_list,
         :is_available,
         :metadata,
-        :group_id
+        :group_id,
+        :last_seen_time
       ]
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)

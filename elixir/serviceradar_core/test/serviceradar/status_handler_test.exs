@@ -16,13 +16,21 @@ defmodule ServiceRadar.StatusHandlerTest do
 
   setup do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
+    previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
+    Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
 
     on_exit(fn ->
       if is_nil(previous) do
         Application.delete_env(:serviceradar_core, :sync_ingestor)
       else
         Application.put_env(:serviceradar_core, :sync_ingestor, previous)
+      end
+
+      if is_nil(previous_async) do
+        Application.delete_env(:serviceradar_core, :sync_ingestor_async)
+      else
+        Application.put_env(:serviceradar_core, :sync_ingestor_async, previous_async)
       end
     end)
 

@@ -192,7 +192,8 @@ config :serviceradar_core,
   health_check_runner_enabled: false,
   health_check_registrar_enabled: false,
   service_heartbeat_enabled: false,
-  spiffe_cert_monitor_enabled: false
+  spiffe_cert_monitor_enabled: false,
+  status_handler_enabled: false
 
 # Disable Oban in tests to avoid AshOban.Scheduler issues
 config :serviceradar_core, Oban, false
