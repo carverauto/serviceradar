@@ -288,15 +288,13 @@ func GenerateCollectorPermissions(tenantSlug, collectorType string) (publishAllo
 	switch collectorType {
 	case "flowgger":
 		publishAllow = []string{
-			prefix + "syslog.>",
-			prefix + "events.syslog.>",
+			prefix + "logs.syslog.>",
 		}
 		subscribeAllow = []string{}
 
 	case "trapd":
 		publishAllow = []string{
-			prefix + "snmp.traps.>",
-			prefix + "events.snmp.>",
+			prefix + "logs.snmp.>",
 		}
 		subscribeAllow = []string{}
 
@@ -311,8 +309,7 @@ func GenerateCollectorPermissions(tenantSlug, collectorType string) (publishAllo
 		publishAllow = []string{
 			prefix + "otel.traces.>",
 			prefix + "otel.metrics.>",
-			prefix + "otel.logs.>",
-			prefix + "events.otel.>",
+			prefix + "logs.otel",
 		}
 		subscribeAllow = []string{}
 

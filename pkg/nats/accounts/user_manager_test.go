@@ -140,14 +140,14 @@ func TestGenerateUserCredentials_CollectorType(t *testing.T) {
 
 	// Verify collector permissions
 	pubAllow := claims.Pub.Allow
-	if !contains(pubAllow, "events.>") {
-		t.Error("Collector should have 'events.>' publish permission")
-	}
-	if !contains(pubAllow, "snmp.traps") {
-		t.Error("Collector should have 'snmp.traps' publish permission")
-	}
 	if !contains(pubAllow, "logs.>") {
 		t.Error("Collector should have 'logs.>' publish permission")
+	}
+	if !contains(pubAllow, "otel.traces.>") {
+		t.Error("Collector should have 'otel.traces.>' publish permission")
+	}
+	if !contains(pubAllow, "otel.metrics.>") {
+		t.Error("Collector should have 'otel.metrics.>' publish permission")
 	}
 
 	subAllow := claims.Sub.Allow

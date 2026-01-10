@@ -11,7 +11,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
   end
 
   describe "parse_message/1" do
-    test "parses GELF syslog payload into OCSF event log activity" do
+    test "parses GELF payload into OCSF event log activity" do
       payload = %{
         "short_message" => "disk nearly full",
         "level" => 4,
@@ -21,7 +21,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
         "timestamp" => 1_705_315_800.123
       }
 
-      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.syslog"}}
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.internal"}}
 
       row =
         with_tenant("11111111-1111-1111-1111-111111111111", fn ->
@@ -36,7 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
       assert row.severity_id == 3
       assert row.severity == "Medium"
       assert row.log_level == "warning"
-      assert row.log_name == "events.syslog"
+      assert row.log_name == "events.internal"
       assert row.log_provider == "web-01"
       assert row.tenant_id == "11111111-1111-1111-1111-111111111111"
       assert %DateTime{} = row.time
@@ -45,13 +45,13 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
       assert Enum.any?(row.observables, &(&1.name == "192.0.2.10"))
     end
 
-    test "parses CloudEvents-wrapped syslog payloads" do
+    test "parses CloudEvents-wrapped payloads" do
       event =
         %{
           "specversion" => "1.0",
-          "subject" => "events.syslog",
-          "source" => "syslog",
-          "type" => "com.example.syslog",
+          "subject" => "events.internal",
+          "source" => "core",
+          "type" => "com.example.event",
           "time" => "2024-01-01T00:00:00Z",
           "data" => %{
             "short_message" => "login failed",
@@ -64,22 +64,22 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
           Events.parse_message(%{data: Jason.encode!(event), metadata: %{}})
         end)
 
-      assert row.log_name == "events.syslog"
-      assert row.actor[:app_name] == "syslog"
-      assert row.metadata[:correlation_uid] == "events.syslog"
+      assert row.log_name == "events.internal"
+      assert row.actor[:app_name] == "core"
+      assert row.metadata[:correlation_uid] == "events.internal"
       assert row.tenant_id == "22222222-2222-2222-2222-222222222222"
       assert row.message == "login failed"
       assert row.severity_id == 4
     end
 
-    test "parses SNMP trap payloads into OCSF event log activity" do
+    test "parses structured payloads into OCSF event log activity" do
       payload = %{
         "message" => "SNMP trap received",
         "severity" => "info",
         "varbinds" => [%{"oid" => "1.3.6.1.2.1.1.3.0", "value" => "123"}]
       }
 
-      message = %{data: Jason.encode!(payload), metadata: %{subject: "snmp.traps"}}
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.internal"}}
 
       row =
         with_tenant("33333333-3333-3333-3333-333333333333", fn ->
@@ -88,7 +88,7 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
 
       assert row.message == "SNMP trap received"
       assert row.severity_id == 1
-      assert row.log_name == "snmp.traps"
+      assert row.log_name == "events.internal"
       assert row.tenant_id == "33333333-3333-3333-3333-333333333333"
     end
   end

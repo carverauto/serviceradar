@@ -71,8 +71,8 @@ message AccountLimits {
 
 // SubjectMapping defines how subjects are transformed for tenant isolation.
 message SubjectMapping {
-  string from = 1;  // Source subject pattern (e.g., "snmp.traps")
-  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.snmp.traps")
+  string from = 1;  // Source subject pattern (e.g., "logs.snmp")
+  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.logs.snmp")
 }
 
 // CreateTenantAccountRequest is the request to create a new tenant NATS account.

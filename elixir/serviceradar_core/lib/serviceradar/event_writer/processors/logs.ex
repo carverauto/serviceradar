@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.TenantContext
+  alias ServiceRadar.Observability.LogPromotion
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
   alias Opentelemetry.Proto.Common.V1.{AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
@@ -47,6 +48,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
                returning: false
              ) do
           {count, _} ->
+            maybe_promote_logs(rows, schema)
             {:ok, count}
         end
       end
@@ -77,15 +79,17 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
           end
 
         {:error, _} ->
-          parse_protobuf_log(data, tenant_id)
+          parse_protobuf_log(data, metadata, tenant_id)
       end
     end
   end
 
   # Private functions
 
-  defp parse_json_log(json, _metadata, tenant_id) when is_map(json) do
+  defp parse_json_log(json, metadata, tenant_id) when is_map(json) do
+    log_id = Ash.UUID.generate()
     attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
+    attributes = attach_ingest_metadata(attributes, metadata)
     resource_attributes =
       json
       |> FieldParser.get_field("resource_attributes", "resourceAttributes")
@@ -98,6 +102,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     resource_lookup = resource_attributes
 
     %{
+      id: log_id,
       timestamp: parse_timestamp(json),
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
@@ -124,10 +129,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp parse_json_log(_json, _metadata, _tenant_id), do: nil
 
-  defp parse_protobuf_log(data, tenant_id) do
+  defp parse_protobuf_log(data, metadata, tenant_id) do
     case decode_export_logs(data) do
       {:ok, %ExportLogsServiceRequest{} = request} ->
-        parse_export_logs(request, tenant_id)
+        parse_export_logs(request, metadata, tenant_id)
 
       {:error, reason} ->
         Logger.debug("Failed to decode OTLP logs protobuf: #{inspect(reason)}")
@@ -141,11 +146,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     error -> {:error, error}
   end
 
-  defp parse_export_logs(%ExportLogsServiceRequest{resource_logs: resource_logs}, tenant_id) do
-    Enum.flat_map(resource_logs, &parse_resource_logs(&1, tenant_id))
+  defp parse_export_logs(%ExportLogsServiceRequest{resource_logs: resource_logs}, metadata, tenant_id) do
+    Enum.flat_map(resource_logs, &parse_resource_logs(&1, metadata, tenant_id))
   end
 
-  defp parse_resource_logs(%ResourceLogs{resource: resource, scope_logs: scope_logs}, tenant_id) do
+  defp parse_resource_logs(%ResourceLogs{resource: resource, scope_logs: scope_logs}, metadata, tenant_id) do
     resource_attributes = key_values_to_map(resource && resource.attributes)
 
     service_name =
@@ -164,12 +169,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         service_version,
         service_instance,
         resource_attributes,
+        metadata,
         tenant_id
       )
     end)
   end
 
-  defp parse_resource_logs(_, _tenant_id), do: []
+  defp parse_resource_logs(_, _metadata, _tenant_id), do: []
 
   defp parse_scope_logs(
          %ScopeLogs{scope: scope, log_records: log_records},
@@ -177,15 +183,19 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          service_version,
          service_instance,
          resource_attributes,
+         metadata,
          tenant_id
        ) do
     {scope_name, scope_version} = parse_scope(scope)
 
     Enum.flat_map(log_records, fn log_record ->
       log_attributes = key_values_to_map(log_record.attributes)
+      log_attributes = attach_ingest_metadata(log_attributes, metadata)
+      log_id = Ash.UUID.generate()
 
       [
         %{
+          id: log_id,
           timestamp: parse_otel_timestamp(log_record),
           trace_id: bytes_to_hex(log_record.trace_id),
           span_id: bytes_to_hex(log_record.span_id),
@@ -206,7 +216,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     end)
   end
 
-  defp parse_scope_logs(_, _service_name, _service_version, _service_instance, _resource_attributes, _tenant_id),
+  defp parse_scope_logs(
+         _,
+         _service_name,
+         _service_version,
+         _service_instance,
+         _resource_attributes,
+         _metadata,
+         _tenant_id
+       ),
     do: []
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
@@ -239,6 +257,57 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       json["short_message"] -> json["short_message"]
       true -> nil
     end
+  end
+
+  defp attach_ingest_metadata(attributes, metadata) when is_map(attributes) do
+    ingest =
+      %{}
+      |> maybe_put_ingest(:subject, metadata[:subject])
+      |> maybe_put_ingest(:reply_to, metadata[:reply_to])
+      |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
+      |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
+
+    if map_size(ingest) == 0 do
+      attributes
+    else
+      Map.update(attributes, "serviceradar.ingest", ingest, fn existing ->
+        if is_map(existing) do
+          Map.merge(existing, ingest)
+        else
+          ingest
+        end
+      end)
+    end
+  end
+
+  defp attach_ingest_metadata(attributes, _metadata), do: attributes || %{}
+
+  defp maybe_put_ingest(map, _key, nil), do: map
+  defp maybe_put_ingest(map, key, value), do: Map.put(map, to_string(key), value)
+
+  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp iso8601(_), do: nil
+
+  defp source_kind(subject) when is_binary(subject) do
+    cond do
+      String.starts_with?(subject, "logs.syslog") -> "syslog"
+      String.starts_with?(subject, "logs.snmp") -> "snmp"
+      String.starts_with?(subject, "logs.otel") -> "otel"
+      true -> nil
+    end
+  end
+
+  defp source_kind(_), do: nil
+
+  defp maybe_promote_logs(rows, schema) do
+    tenant_id =
+      case rows do
+        [%{tenant_id: tenant_id} | _] -> tenant_id
+        _ -> TenantContext.current_tenant_id()
+      end
+
+    _ = LogPromotion.promote(rows, tenant_id, schema)
+    :ok
   end
 
   defp unwrap_cloudevent(%{"specversion" => _} = json) do

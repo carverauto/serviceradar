@@ -244,19 +244,19 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   defp build_permissions_for_collector(collector_type, _tenant_slug) do
     # Collectors publish to simple subjects without tenant prefix.
     # NATS Account subject mapping transforms these to tenant-prefixed subjects
-    # on the server side (e.g., "syslog.>" -> "{tenant}.syslog.>").
+    # on the server side (e.g., "logs.syslog.>" -> "{tenant}.logs.syslog.>").
     # This keeps collectors tenant-unaware while NATS enforces isolation.
 
     case collector_type do
       :flowgger ->
         %{
-          publish_allow: ["syslog.>", "events.syslog.>"],
+          publish_allow: ["logs.syslog.>"],
           subscribe_allow: []
         }
 
       :trapd ->
         %{
-          publish_allow: ["snmp.traps.>", "events.snmp.>"],
+          publish_allow: ["logs.snmp.>"],
           subscribe_allow: []
         }
 
@@ -271,8 +271,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
           publish_allow: [
             "otel.traces.>",
             "otel.metrics.>",
-            "otel.logs.>",
-            "events.otel.>"
+            "logs.otel"
           ],
           subscribe_allow: []
         }

@@ -225,11 +225,13 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp determine_batcher(subject) when is_binary(subject) do
     cond do
+      ignore_logs_subject?(subject) -> :default
+      log_subject?(subject) -> :logs
+      ignore_events_subject?(subject) -> :default
       String.starts_with?(subject, "otel.metrics") -> :otel_metrics
       String.starts_with?(subject, "otel.traces") -> :otel_traces
-      String.starts_with?(subject, "events.") -> :events
-      subject == "snmp.traps" -> :snmp_traps
       String.starts_with?(subject, "logs.") -> :logs
+      String.starts_with?(subject, "events.") -> :events
       String.starts_with?(subject, "telemetry.") -> :telemetry
       String.starts_with?(subject, "sweep.") -> :sweep
       String.starts_with?(subject, "netflow.") -> :netflow
@@ -239,10 +241,25 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp determine_batcher(_), do: :default
 
+  defp ignore_logs_subject?(subject) do
+    subject == "logs.syslog" or subject == "logs.snmp" or subject == "logs.otel"
+  end
+
+  defp log_subject?(subject) do
+    String.starts_with?(subject, "logs.otel") or
+      String.starts_with?(subject, "logs.syslog.processed") or
+      String.starts_with?(subject, "logs.snmp.processed")
+  end
+
+  defp ignore_events_subject?(subject) do
+    String.starts_with?(subject, "events.syslog") or
+      String.starts_with?(subject, "events.snmp") or
+      String.starts_with?(subject, "snmp.traps")
+  end
+
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
   defp get_processor(:events), do: ServiceRadar.EventWriter.Processors.Events
-  defp get_processor(:snmp_traps), do: ServiceRadar.EventWriter.Processors.Events
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
   defp get_processor(:sweep), do: ServiceRadar.EventWriter.Processors.Sweep

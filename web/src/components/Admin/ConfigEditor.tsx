@@ -371,7 +371,7 @@ export default function ConfigEditor({ service, kvStore, onSave, onClose }: Conf
           security: null,
         };
       case 'otel':
-        return `# ServiceRadar OTEL Collector\n[server]\nbind_address = "0.0.0.0"\nport = 4317\n\n[nats]\nurl = "nats://localhost:4222"\nsubject = "events.otel"\nstream = "events"\n`;
+        return `# ServiceRadar OTEL Collector\n[server]\nbind_address = "0.0.0.0"\nport = 4317\n\n[nats]\nurl = "nats://localhost:4222"\nsubject = "otel"\nlogs_subject = "logs.otel"\nstream = "events"\n`;
       case 'flowgger':
         return `# Flowgger\n[input]\ntype = "syslog-tls"\nformat = "rfc5424"\n\n[output]\ntype = "tls"\nformat = "gelf"\n`;
       default:

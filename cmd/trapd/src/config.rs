@@ -181,7 +181,7 @@ mod tests {
             nats_url: "tls://serviceradar-nats:4222".into(),
             nats_domain: None,
             stream_name: "events".into(),
-            subject: "snmp.traps".into(),
+            subject: "logs.snmp".into(),
             nats_creds_file: None,
             nats_security: None,
             grpc_listen_addr: Some("0.0.0.0:50043".into()),

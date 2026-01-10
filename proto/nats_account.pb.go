@@ -185,8 +185,8 @@ func (x *AccountLimits) GetAllowWildcardExports() bool {
 // SubjectMapping defines how subjects are transformed for tenant isolation.
 type SubjectMapping struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	From          string                 `protobuf:"bytes,1,opt,name=from,proto3" json:"from,omitempty"` // Source subject pattern (e.g., "snmp.traps")
-	To            string                 `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`     // Destination subject pattern (e.g., "{{tenant}}.snmp.traps")
+	From          string                 `protobuf:"bytes,1,opt,name=from,proto3" json:"from,omitempty"` // Source subject pattern (e.g., "logs.snmp")
+	To            string                 `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`     // Destination subject pattern (e.g., "{{tenant}}.logs.snmp")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

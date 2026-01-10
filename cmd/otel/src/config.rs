@@ -51,6 +51,8 @@ pub struct NATSConfigTOML {
     pub url: String,
     #[serde(default = "default_nats_subject")]
     pub subject: String,
+    #[serde(default)]
+    pub logs_subject: Option<String>,
     #[serde(default = "default_nats_stream")]
     pub stream: String,
     #[serde(default)]
@@ -161,6 +163,7 @@ impl Config {
                 url: nats.url.clone(),
                 subject: nats.subject.clone(),
                 stream: nats.stream.clone(),
+                logs_subject: nats.logs_subject.clone(),
                 creds_file,
                 timeout: Duration::from_secs(nats.timeout_secs),
                 max_bytes: nats.max_bytes,
@@ -185,7 +188,8 @@ impl Config {
             },
             nats: Some(NATSConfigTOML {
                 url: "nats://localhost:4222".to_string(),
-                subject: "events.otel".to_string(),
+                subject: "otel".to_string(),
+                logs_subject: Some("logs.otel".to_string()),
                 stream: "events".to_string(),
                 creds_file: Some("/path/to/nats.creds".to_string()),
                 timeout_secs: 30,
@@ -219,7 +223,7 @@ fn default_port() -> u16 {
 }
 
 fn default_nats_subject() -> String {
-    "events.otel".to_string()
+    "otel".to_string()
 }
 
 fn default_nats_stream() -> String {
@@ -305,7 +309,7 @@ url = "nats://localhost:4222"
 
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://localhost:4222");
-        assert_eq!(nats.subject, "events.otel"); // default
+        assert_eq!(nats.subject, "otel"); // default
     }
 
     #[test]
@@ -436,6 +440,7 @@ key_file = "/grpc.key"
             nats: Some(NATSConfigTOML {
                 url: "nats://test:4222".to_string(),
                 subject: "test.subject".to_string(),
+                logs_subject: None,
                 stream: "test_stream".to_string(),
                 creds_file: None,
                 timeout_secs: 45,

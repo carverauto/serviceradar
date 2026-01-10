@@ -10,8 +10,11 @@ port = 4317
 # NATS server URL with mTLS (Docker deployment)
 url = "tls://nats:4222"
 
-# Subject to publish traces to (default: events.otel)
-subject = "events.otel"
+# Subject to publish traces/metrics to (default: otel)
+subject = "otel"
+
+# Subject to publish logs to (default: <subject>.logs)
+logs_subject = "logs.otel"
 
 # JetStream stream name (default: events)
 stream = "events"

@@ -21,12 +21,12 @@ data:
       "gateway_id": "k8s-gateway",
       "streams": [
         { "subject": "events.gateway.health", "table": "events" },
-        { "subject": "events.syslog.processed", "table": "events" },
-        { "subject": "events.snmp.processed", "table": "events" },
-        { "subject": "events.otel.logs", "table": "logs" },
-        { "subject": "events.otel.traces", "table": "otel_traces" },
-        { "subject": "events.otel.metrics", "table": "otel_metrics" },
-        { "subject": "events.otel.metrics.raw", "table": "otel_metrics" }
+        { "subject": "logs.syslog.processed", "table": "logs" },
+        { "subject": "logs.snmp.processed", "table": "logs" },
+        { "subject": "logs.otel", "table": "logs" },
+        { "subject": "otel.traces", "table": "otel_traces" },
+        { "subject": "otel.metrics", "table": "otel_metrics" },
+        { "subject": "otel.metrics.raw", "table": "otel_metrics" }
       ],
       "cnpg": {
         "host": "{{ $cnpgClusterName }}-rw.{{ .Release.Namespace }}.svc.cluster.local",

@@ -13,7 +13,7 @@ partition = "default" # Partition for overlapping IP spaces
 
 # NATS JetStream specific settings
 nats_url = "nats://127.0.0.1:4222"
-nats_subject = "events.syslog"
+nats_subject = "logs.syslog"
 nats_stream = "events" # Optional: defaults to "events"
 nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
 # Retry behaviour (0 attempts = retry forever)

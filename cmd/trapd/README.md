@@ -12,7 +12,7 @@ Create a JSON file with the following fields:
   "nats_url": "nats://127.0.0.1:4222",
   "nats_domain": "edge",
   "stream_name": "events",
-  "subject": "snmp.traps"
+  "subject": "logs.snmp"
 }
 ```
 
@@ -23,7 +23,7 @@ Optionally enable TLS for NATS by adding a `nats_security` section:
   "listen_addr": "0.0.0.0:162",
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
-  "subject": "snmp.traps",
+  "subject": "logs.snmp",
   "nats_security": {
     "cert_file": "/etc/serviceradar/certs/trapd.pem",
     "key_file": "/etc/serviceradar/certs/trapd-key.pem",
@@ -40,7 +40,7 @@ To enable the gRPC health check server, add `grpc_listen_addr` and optional
   "listen_addr": "0.0.0.0:162",
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
-  "subject": "snmp.traps",
+  "subject": "logs.snmp",
   "nats_security": {
     "cert_file": "/etc/serviceradar/certs/trapd.pem",
     "key_file": "/etc/serviceradar/certs/trapd-key.pem",

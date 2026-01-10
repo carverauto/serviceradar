@@ -3,11 +3,11 @@
   "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+  "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
   "decision_groups": [
     {
       "name": "syslog",
-      "subjects": ["events.syslog"],
+      "subjects": ["logs.syslog"],
       "rules": [
         {"order": 1, "key": "strip_full_message"},
         {"order": 2, "key": "cef_severity"}
@@ -16,7 +16,7 @@
     },
     {
       "name": "snmp",
-      "subjects": ["events.snmp"],
+      "subjects": ["logs.snmp"],
       "rules": [
         {"order": 1, "key": "snmp_severity"}
       ],
@@ -24,7 +24,7 @@
     },
     {
       "name": "otel_logs",
-      "subjects": ["events.otel.logs"],
+      "subjects": ["logs.otel"],
       "rules": [
         {"order": 1, "key": "passthrough"}
       ],

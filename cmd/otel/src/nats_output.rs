@@ -20,6 +20,7 @@ pub struct NATSConfig {
     pub url: String,
     pub subject: String,
     pub stream: String,
+    pub logs_subject: Option<String>,
     pub timeout: Duration,
     pub max_bytes: i64,
     pub max_age: Duration,
@@ -33,8 +34,9 @@ impl Default for NATSConfig {
     fn default() -> Self {
         Self {
             url: "nats://localhost:4222".to_string(),
-            subject: "events.otel".to_string(),
+            subject: "otel".to_string(),
             stream: "events".to_string(),
+            logs_subject: None,
             timeout: Duration::from_secs(30),
             max_bytes: 2 * 1024 * 1024 * 1024,
             max_age: Duration::from_secs(30 * 60),
@@ -54,11 +56,15 @@ pub struct NATSOutput {
 
 async fn ensure_stream(jetstream: &jetstream::Context, config: &NATSConfig) -> Result<()> {
     debug!("Creating/verifying JetStream stream: {}", config.stream);
+    let logs_subject = config
+        .logs_subject
+        .clone()
+        .unwrap_or_else(|| format!("{}.logs", config.subject));
     let subjects = vec![
         format!("{}.traces", config.subject),
-        format!("{}.logs", config.subject),
         format!("{}.metrics", config.subject),
         format!("{}.metrics.raw", config.subject),
+        logs_subject.clone(),
     ];
     debug!("Stream will handle subjects: {subjects:?}");
 
@@ -293,7 +299,7 @@ impl NATSOutput {
         debug!("Encoded trace data: {} bytes", payload.len());
 
         // Publish with acknowledgment - use traces-specific subject
-        let traces_subject = format!("{}.traces", self.config.subject); // events.otel.traces
+        let traces_subject = format!("{}.traces", self.config.subject); // otel.traces
         debug!("Publishing traces to subject: {traces_subject}");
         if self.disabled {
             debug!("NATS output disabled; dropping traces");
@@ -381,8 +387,12 @@ impl NATSOutput {
 
         debug!("Encoded logs data: {} bytes", payload.len());
 
-        // Publish with acknowledgment - use a different subject for logs
-        let logs_subject = format!("{}.logs", self.config.subject);
+        // Publish with acknowledgment - allow dedicated subject for logs
+        let logs_subject = self
+            .config
+            .logs_subject
+            .clone()
+            .unwrap_or_else(|| format!("{}.logs", self.config.subject));
         debug!("Publishing to subject: {logs_subject}");
         if self.disabled {
             debug!("NATS output disabled; dropping logs");

@@ -68,10 +68,10 @@ func NewAccountSigner(operator *Operator) *AccountSigner {
 			{From: "events.>", To: "{{tenant}}.events.>"},
 
 			// Flowgger (syslog collector)
-			{From: "syslog.>", To: "{{tenant}}.syslog.>"},
+			{From: "logs.syslog.>", To: "{{tenant}}.logs.syslog.>"},
 
 			// Trapd (SNMP trap receiver)
-			{From: "snmp.>", To: "{{tenant}}.snmp.>"},
+			{From: "logs.snmp.>", To: "{{tenant}}.logs.snmp.>"},
 
 			// NetFlow/sFlow/IPFIX collector
 			{From: "netflow.>", To: "{{tenant}}.netflow.>"},

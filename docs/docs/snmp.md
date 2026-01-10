@@ -36,8 +36,8 @@ Traps complement polling by pushing urgent events:
 
 ## Trap Processing Pipeline
 
-1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream stream `events`. The default subject is `snmp.traps`; if you prefer the zen defaults, set it to `events.snmp` so the decision group matches without additional rewrites.
-2. `serviceradar-zen` attaches to the same stream using the `zen-consumer` durable. The SNMP decision group listens for `events.snmp`, mutates the payload, and republishes it with the `.processed` suffix (`events.snmp.processed`).
+1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream stream `events` on the `logs.snmp` subject so the zen decision group matches without additional rewrites.
+2. `serviceradar-zen` attaches to the same stream using the `zen-consumer` durable. The SNMP decision group listens for `logs.snmp`, mutates the payload, and republishes it with the `.processed` suffix (`logs.snmp.processed`).
 3. `serviceradar-db-event-writer` drains the `.processed` subjects and bulk loads the results into the CNPG tables. Keeping raw and processed subjects in one stream lets you replay traps after adjusting rules.
 
 ## Default Trap Rules
@@ -49,13 +49,13 @@ These and the syslog-focused rules share the same GoRules/zen runtime. A Web UI 
 
 ## Managing Rules
 
-- Rules live in the `serviceradar-datasvc` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/events.snmp/snmp_severity.json`.
+- Rules live in the `serviceradar-datasvc` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/logs.snmp/snmp_severity.json`.
 - Update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
 
   ```bash
   kubectl -n demo exec deploy/serviceradar-tools -- \
     zen-put-rule --agent default-agent --stream events \
-    --subject events.snmp --rule snmp_severity \
+    --subject logs.snmp --rule snmp_severity \
     --file /etc/serviceradar/zen/rules/snmp_severity.json
   ```
 

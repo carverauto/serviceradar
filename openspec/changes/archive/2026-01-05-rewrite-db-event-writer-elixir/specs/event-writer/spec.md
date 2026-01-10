@@ -52,7 +52,7 @@ The EventWriter SHALL support processing messages from multiple NATS JetStream s
 #### Scenario: EventWriter processes SNMP trap events
 
 **Given** the EventWriter is configured with the snmp traps stream
-**When** an SNMP trap message is published to `snmp.traps`
+**When** an SNMP trap message is published to `logs.snmp`
 **Then** the EventWriter SHALL parse the trap payload
 **And** insert the event into the `ocsf_events` hypertable as Event Log Activity (class_uid: 1008)
 

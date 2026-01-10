@@ -12,27 +12,27 @@
       "table": "events"
     },
     {
-      "subject": "events.syslog.processed",
-      "table": "events"
-    },
-    {
-      "subject": "events.snmp.processed",
-      "table": "events"
-    },
-    {
-      "subject": "events.otel.logs",
+      "subject": "logs.syslog.processed",
       "table": "logs"
     },
     {
-      "subject": "events.otel.traces",
+      "subject": "logs.snmp.processed",
+      "table": "logs"
+    },
+    {
+      "subject": "logs.otel",
+      "table": "logs"
+    },
+    {
+      "subject": "otel.traces",
       "table": "otel_traces"
     },
     {
-      "subject": "events.otel.metrics",
+      "subject": "otel.metrics",
       "table": "otel_metrics"
     },
     {
-      "subject": "events.otel.metrics.raw",
+      "subject": "otel.metrics.raw",
       "table": "otel_metrics"
     }
   ],

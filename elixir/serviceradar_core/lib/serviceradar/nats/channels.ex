@@ -87,7 +87,7 @@ defmodule ServiceRadar.NATS.Channels do
   @spec parse(channel()) :: {:ok, tenant_slug() | nil, String.t()} | {:error, :invalid_channel}
   def parse(channel) when is_binary(channel) do
     # Standard channels start with known prefixes
-    known_prefixes = ~w(gateways agents checkers metrics events alerts devices)
+    known_prefixes = ~w(gateways agents checkers metrics events alerts devices logs otel netflow telemetry sweep)
 
     parts = String.split(channel, ".", parts: 2)
 

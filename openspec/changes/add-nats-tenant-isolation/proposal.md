@@ -4,7 +4,7 @@
 
 ServiceRadar is evolving into a multi-tenant SaaS platform. While database-level isolation uses Ash multitenancy with `tenant_id` filtering, the NATS messaging layer currently has no tenant isolation:
 
-- All events publish to shared channels like `events.poller.health`, `events.syslog.*`
+- All events publish to shared channels like `events.poller.health`, `logs.syslog.*`
 - Consumers process all tenants' messages in a single stream
 - Customers deploying collectors (flowgger, OTEL, syslog) would need NATS leaf nodes that can see other tenants' traffic
 
@@ -20,8 +20,8 @@ The following collectors are Rust-based and use the `config-bootstrap` crate for
 
 | Collector | Language | NATS Subject | Purpose |
 |-----------|----------|--------------|---------|
-| flowgger | Rust | `events.syslog` | Syslog ingestion |
-| trapd | Rust | `snmp.traps` | SNMP trap reception |
+| flowgger | Rust | `logs.syslog` | Syslog ingestion |
+| trapd | Rust | `logs.snmp` | SNMP trap reception |
 | netflow | Rust (future) | `netflow.*` | NetFlow/IPFIX collection |
 | otel | Go | `otel.metrics.>`, `otel.traces.>` | OpenTelemetry collector |
 
@@ -239,7 +239,7 @@ When a tenant admin creates a collector onboarding package:
 **Security Principle**: Tenant identity MUST be derived from mTLS credentials on the server side, NOT self-reported by collectors. This prevents malicious collectors from claiming to be other tenants.
 
 Each tenant gets a dedicated NATS account with:
-- **Subject Mapping**: Collector publishes to `snmp.traps` → NATS rewrites to `<tenant>.snmp.traps`
+- **Subject Mapping**: Collector publishes to `logs.snmp` → NATS rewrites to `<tenant>.logs.snmp`
 - **Scoped Permissions**: Account can only access tenant-prefixed subjects
 - **Account Limits**: Connections, data rate, message size per tenant
 - **mTLS Binding**: Account credentials tied to tenant's mTLS certificates
@@ -270,7 +270,7 @@ accounts {
     # Subject mapping: collector publishes to base subject,
     # NATS automatically prefixes with tenant slug
     mappings: {
-      "snmp.traps": "acme-corp.snmp.traps"
+      "logs.snmp": "acme-corp.logs.snmp"
       "events.>": "acme-corp.events.>"
       "logs.>": "acme-corp.logs.>"
       "netflow.>": "acme-corp.netflow.>"
@@ -301,7 +301,7 @@ Collectors do NOT need tenant_slug in their config. They simply publish to base 
 [output]
 type = "nats"
 nats_url = "tls://nats.serviceradar.cloud:4222"
-nats_subject = "events.syslog"  # NATS maps to: <tenant>.events.syslog
+nats_subject = "logs.syslog"  # NATS maps to: <tenant>.logs.syslog
 
 [security]
 # mTLS certs from onboarding package - these bind to NATS account
@@ -316,7 +316,7 @@ nats_creds_file = "/etc/serviceradar/certs/nats.creds"
 **Why this is secure**:
 1. Collector authenticates with NATS account credentials (from onboarding package)
 2. NATS account is bound to specific tenant via subject mappings
-3. Even if collector tries to publish to `other-tenant.snmp.traps`, permissions deny it
+3. Even if collector tries to publish to `other-tenant.logs.snmp`, permissions deny it
 4. Subject mapping automatically rewrites base subjects to tenant-prefixed subjects
 
 ### 3. Subject Flow with NATS Accounts
@@ -326,7 +326,7 @@ nats_creds_file = "/etc/serviceradar/certs/nats.creds"
 │                        Customer Network                                  │
 │                                                                          │
 │  ┌──────────────┐     publishes to:                                     │
-│  │ trapd        │────► "snmp.traps"                                     │
+│  │ trapd        │────► "logs.snmp"                                     │
 │  │ (no tenant   │                                                        │
 │  │  config)     │     authenticates with:                               │
 │  └──────────────┘     NATS account "TENANT_acme_corp"                   │
@@ -338,9 +338,9 @@ nats_creds_file = "/etc/serviceradar/certs/nats.creds"
 │                        ServiceRadar Cloud NATS                           │
 │                                                                          │
 │  1. Authenticate: TENANT_acme_corp account                              │
-│  2. Subject mapping: "snmp.traps" → "acme-corp.snmp.traps"              │
+│  2. Subject mapping: "logs.snmp" → "acme-corp.logs.snmp"              │
 │  3. Permission check: ✓ "acme-corp.>" allowed                           │
-│  4. Publish to JetStream: "acme-corp.snmp.traps"                        │
+│  4. Publish to JetStream: "acme-corp.logs.snmp"                        │
 │                                                                          │
 └──────────────────────────────┬──────────────────────────────────────────┘
                                │
@@ -348,7 +348,7 @@ nats_creds_file = "/etc/serviceradar/certs/nats.creds"
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Elixir EventWriter                                │
 │                                                                          │
-│  Subscribes to: "*.snmp.traps"                                          │
+│  Subscribes to: "*.logs.snmp"                                          │
 │  Extracts tenant from subject prefix: "acme-corp"                       │
 │  Processes with tenant context                                          │
 │                                                                          │
@@ -429,7 +429,7 @@ streams {
   }
 
   SNMP_TRAPS {
-    subjects: ["*.snmp.traps"]
+    subjects: ["*.logs.snmp"]
   }
 
   NETFLOW {
@@ -555,7 +555,7 @@ streams {
 
 1. **Server-side tenant enforcement**: Tenant identity comes from NATS account credentials, NOT collector config. This prevents malicious collectors from spoofing tenant identity.
 
-2. **NATS subject mapping**: Collectors publish to base subjects (`snmp.traps`), NATS automatically maps to tenant-prefixed subjects (`acme-corp.snmp.traps`). This is enforced by NATS, not trusted from collectors.
+2. **NATS subject mapping**: Collectors publish to base subjects (`logs.snmp`), NATS automatically maps to tenant-prefixed subjects (`acme-corp.logs.snmp`). This is enforced by NATS, not trusted from collectors.
 
 3. **Authorization via Elixir**: Tenant admins never directly access NATS operator keys. Elixir handles authentication/authorization via Ash policies, then calls datasvc with platform credentials. datasvc holds operator keys and performs privileged operations.
 

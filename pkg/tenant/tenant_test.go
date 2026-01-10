@@ -309,7 +309,7 @@ func TestPrefixChannelWithSlug(t *testing.T) {
 		want    string
 	}{
 		{"acme-corp", "events.gateway.health", "acme-corp.events.gateway.health"},
-		{"xyz-inc", "events.syslog.processed", "xyz-inc.events.syslog.processed"},
+		{"xyz-inc", "logs.syslog.processed", "xyz-inc.logs.syslog.processed"},
 		{"", "events.gateway.health", "events.gateway.health"}, // empty slug returns original
 	}
 

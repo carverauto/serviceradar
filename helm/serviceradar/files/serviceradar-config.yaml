@@ -244,7 +244,7 @@ data:
       "events": {
         "enabled": true,
         "stream_name": "events",
-        "subjects": ["events.>", "snmp.traps"]
+        "subjects": ["events.>", "logs.>", "otel.traces.>", "otel.metrics.>"]
       },
       "snmp": {
         "enabled": false,
@@ -521,11 +521,11 @@ data:
 {{- end }}
         "stream_name": "events",
         "consumer_name": "zen-consumer",
-        "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+        "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
         "decision_groups": [
           {
             "name": "syslog",
-            "subjects": ["events.syslog"],
+            "subjects": ["logs.syslog"],
             "rules": [
               {"order": 1, "key": "strip_full_message"},
               {"order": 2, "key": "cef_severity"}
@@ -534,7 +534,7 @@ data:
           },
           {
             "name": "snmp",
-            "subjects": ["events.snmp"],
+            "subjects": ["logs.snmp"],
             "rules": [
               {"order": 1, "key": "snmp_severity"}
             ],
@@ -542,7 +542,7 @@ data:
           },
           {
             "name": "otel_logs",
-            "subjects": ["events.otel.logs"],
+            "subjects": ["logs.otel"],
             "rules": [
               {"order": 1, "key": "passthrough"}
             ],
@@ -882,7 +882,7 @@ data:
             user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["events.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -893,7 +893,7 @@ data:
             user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["events.otel.>", "$JS.API.>"]
+                allow: ["otel.>", "logs.otel", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -915,7 +915,7 @@ data:
             user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["snmp.traps", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -960,8 +960,10 @@ data:
       creds_file = "/etc/serviceradar/creds/platform.creds"
 {{- end }}
       
-      # Subject to publish traces to (default: events.otel)
-      subject = "events.otel"
+      # Subject to publish traces/metrics to (default: otel)
+      subject = "otel"
+      # Subject to publish logs to (default: <subject>.logs)
+      logs_subject = "logs.otel"
       
       # JetStream stream name (default: events)
       stream = "events"
@@ -988,7 +990,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
 {{- end }}
         "stream_name": "events",
-        "subject": "snmp.traps",
+        "subject": "logs.snmp",
         "nats_security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",

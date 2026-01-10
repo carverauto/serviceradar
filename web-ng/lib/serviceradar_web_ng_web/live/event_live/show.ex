@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Monitoring.Alert
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -10,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:page_title, "Event Details")
      |> assign(:event_id, nil)
      |> assign(:event, nil)
+     |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false})}
   end
@@ -41,10 +44,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           end
       end
 
+    related = build_related(event, socket.assigns.current_scope)
+
     {:noreply,
      socket
      |> assign(:event_id, event_id)
      |> assign(:event, event)
+     |> assign(:related, related)
      |> assign(:error, error)}
   end
 
@@ -71,10 +77,42 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
+          <.related_links related={@related} />
           <.event_details event={@event} />
         </div>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :related, :map, required: true
+
+  defp related_links(assigns) do
+    log_id = Map.get(assigns.related, :log_id)
+    alert = Map.get(assigns.related, :alert)
+
+    assigns =
+      assigns
+      |> assign(:log_id, log_id)
+      |> assign(:alert, alert)
+
+    ~H"""
+    <div
+      :if={is_binary(@log_id) or is_struct(@alert)}
+      class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-6"
+    >
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+        Related Records
+      </span>
+      <div class="flex flex-wrap gap-2">
+        <.ui_button :if={@log_id} href={~p"/logs/#{@log_id}"} size="sm" variant="ghost">
+          View source log
+        </.ui_button>
+        <.ui_button :if={is_struct(@alert)} href={~p"/alerts/#{@alert.id}"} size="sm" variant="ghost">
+          View alert ({@alert.status})
+        </.ui_button>
+      </div>
+    </div>
     """
   end
 
@@ -454,6 +492,68 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  defp build_related(nil, _scope), do: %{log_id: nil, alert: nil}
+
+  defp build_related(event, scope) when is_map(event) do
+    %{
+      log_id: log_id_from_event(event),
+      alert: fetch_alert(event, scope)
+    }
+  end
+
+  defp build_related(_, _scope), do: %{log_id: nil, alert: nil}
+
+  defp log_id_from_event(event) do
+    metadata = Map.get(event, "metadata") || Map.get(event, :metadata) || %{}
+    serviceradar = Map.get(metadata, "serviceradar") || Map.get(metadata, :serviceradar) || %{}
+
+    Map.get(serviceradar, "source_log_id") || Map.get(serviceradar, :source_log_id)
+  end
+
+  defp fetch_alert(event, scope) do
+    event_id = Map.get(event, "id") || Map.get(event, "event_id")
+    event_time = event_time_from_event(event)
+
+    if is_binary(event_id) do
+      query =
+        Alert
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(event_id == ^event_id)
+        |> maybe_filter_event_time(event_time)
+
+      case Ash.read(query, scope: scope) do
+        {:ok, %Ash.Page.Keyset{results: [alert | _]}} -> alert
+        {:ok, [alert | _]} -> alert
+        _ -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp event_time_from_event(event) do
+    case Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp") do
+      %DateTime{} = dt -> dt
+      value when is_binary(value) -> parse_datetime(value)
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(_), do: nil
+
+  defp maybe_filter_event_time(query, nil), do: query
+
+  defp maybe_filter_event_time(query, %DateTime{} = event_time) do
+    Ash.Query.filter(query, event_time == ^event_time)
+  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

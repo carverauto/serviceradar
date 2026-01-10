@@ -28,8 +28,8 @@ Publishers SHALL extract tenant context from:
 
 #### Scenario: Cross-tenant message isolation
 
-- **GIVEN** tenant "acme-corp" publishes to "acme-corp.events.syslog.processed"
-- **AND** tenant "xyz-inc" subscribes to "xyz-inc.events.syslog.processed"
+- **GIVEN** tenant "acme-corp" publishes to "acme-corp.logs.syslog.processed"
+- **AND** tenant "xyz-inc" subscribes to "xyz-inc.logs.syslog.processed"
 - **WHEN** the message is published
 - **THEN** tenant "xyz-inc" SHALL NOT receive tenant "acme-corp" messages
 
@@ -54,13 +54,13 @@ Each tenant account SHALL:
 
 - **GIVEN** tenant "acme-corp" has a NATS account
 - **WHEN** a client authenticates with "acme-corp" credentials
-- **AND** the client attempts to publish to "xyz-inc.events.syslog"
+- **AND** the client attempts to publish to "xyz-inc.logs.syslog"
 - **THEN** the publish SHALL be rejected with a permissions error
 
 #### Scenario: Leaf node connection
 
 - **GIVEN** a customer deploys a NATS leaf node with "acme-corp" credentials
-- **WHEN** a collector publishes to "acme-corp.events.otel.logs"
+- **WHEN** a collector publishes to "acme-corp.logs.otel"
 - **THEN** the message SHALL route through the leaf node to the platform cluster
 - **AND** the message SHALL be available to platform consumers
 

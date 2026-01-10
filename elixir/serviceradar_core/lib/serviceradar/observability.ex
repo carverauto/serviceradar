@@ -35,6 +35,7 @@ defmodule ServiceRadar.Observability do
 
   resources do
     resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.LogPromotionRule
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false
     # matching Go schema exactly
     resource ServiceRadar.Observability.TimeseriesMetric

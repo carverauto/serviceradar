@@ -318,27 +318,27 @@ mod tests {
         assert_eq!(
             cfg.subjects,
             vec![
-                "events.syslog",
-                "events.snmp",
-                "events.otel.logs",
-                "events.otel.metrics.raw"
+                "logs.syslog",
+                "logs.snmp",
+                "logs.otel",
+                "otel.metrics.raw"
             ]
         );
         assert_eq!(cfg.decision_groups.len(), 4);
         assert_eq!(cfg.decision_groups[0].name, "syslog");
-        assert_eq!(cfg.decision_groups[0].subjects, vec!["events.syslog"]);
+        assert_eq!(cfg.decision_groups[0].subjects, vec!["logs.syslog"]);
         assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
         assert_eq!(cfg.decision_groups[0].rules[1].key, "cef_severity");
         assert_eq!(cfg.decision_groups[1].name, "snmp");
-        assert_eq!(cfg.decision_groups[1].subjects, vec!["events.snmp"]);
+        assert_eq!(cfg.decision_groups[1].subjects, vec!["logs.snmp"]);
         assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
         assert_eq!(cfg.decision_groups[2].name, "otel_logs");
-        assert_eq!(cfg.decision_groups[2].subjects, vec!["events.otel.logs"]);
+        assert_eq!(cfg.decision_groups[2].subjects, vec!["logs.otel"]);
         assert_eq!(cfg.decision_groups[2].format, MessageFormat::Protobuf);
         assert_eq!(cfg.decision_groups[3].name, "otel_metrics_raw");
         assert_eq!(
             cfg.decision_groups[3].subjects,
-            vec!["events.otel.metrics.raw"]
+            vec!["otel.metrics.raw"]
         );
         assert_eq!(cfg.decision_groups[3].format, MessageFormat::OtelMetrics);
         assert_eq!(cfg.agent_id, "default-agent");
@@ -381,19 +381,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            cfg.message_format_for_subject("events.syslog"),
+            cfg.message_format_for_subject("logs.syslog"),
             MessageFormat::Json
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.snmp"),
+            cfg.message_format_for_subject("logs.snmp"),
             MessageFormat::Json
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.otel.logs"),
+            cfg.message_format_for_subject("logs.otel"),
             MessageFormat::Protobuf
         );
         assert_eq!(
-            cfg.message_format_for_subject("events.otel.metrics.raw"),
+            cfg.message_format_for_subject("otel.metrics.raw"),
             MessageFormat::OtelMetrics
         );
         assert_eq!(

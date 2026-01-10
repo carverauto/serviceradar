@@ -49,8 +49,10 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.service_version == "1.0.0"
       assert result.service_instance == "instance-1"
       assert result.scope_name == "my-scope"
-      assert result.attributes == %{"key" => "value"}
+      assert result.attributes["key"] == "value"
+      assert result.attributes["serviceradar.ingest"]["subject"] == "logs.app"
       assert result.resource_attributes == %{"host.name" => "server1"}
+      assert result.id
       assert result.tenant_id == "11111111-1111-1111-1111-111111111111"
       assert %DateTime{} = result.created_at
     end
@@ -211,6 +213,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.trace_id == Base.encode16(trace_id, case: :lower)
       assert row.span_id == Base.encode16(span_id, case: :lower)
       assert row.attributes["custom"] == "value"
+      assert row.id
       assert row.tenant_id == "22222222-2222-2222-2222-222222222222"
     end
   end
