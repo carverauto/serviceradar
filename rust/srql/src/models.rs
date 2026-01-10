@@ -3,7 +3,9 @@
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
-use diesel::sql_types::{Array, Float8, Int4, Int8, Nullable, Text, Timestamptz};
+use diesel::sql_types::{
+    Array, Bool, Float8, Int4, Int8, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -414,24 +416,40 @@ impl ServiceStatusRow {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, QueryableByName, Serialize)]
 #[diesel(table_name = crate::schema::gateways)]
 pub struct GatewayRow {
+    #[diesel(sql_type = Text)]
     pub gateway_id: String,
+    #[diesel(sql_type = Nullable<Text>)]
     pub component_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub registration_source: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub status: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub spiffe_identity: Option<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub first_registered: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub first_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
     pub metadata: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub created_by: Option<String>,
+    #[diesel(sql_type = Nullable<Bool>)]
     pub is_healthy: Option<bool>,
+    #[diesel(sql_type = Nullable<Int4>)]
     pub agent_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Int4>)]
     pub checker_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub updated_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = SqlUuid)]
     pub tenant_id: Uuid,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
     pub partition_id: Option<Uuid>,
 }
 

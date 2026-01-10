@@ -15,7 +15,9 @@ use crate::{
 };
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Array, BigInt, Bool, Float8, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -32,12 +34,41 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     // 15-column tuple limit (diesel-async doesn't have 64-column-tables feature)
     let (sql, params) = to_sql_and_params(plan)?;
 
-    let rows: Vec<GatewayRow> = diesel::sql_query(&sql)
+    let mut query = sql_query(&sql).into_boxed::<Pg>();
+    for param in params {
+        query = bind_param(query, param)?;
+    }
+
+    let rows: Vec<GatewayRow> = query
         .load(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
     Ok(rows.into_iter().map(GatewayRow::into_json).collect())
+}
+
+fn bind_param<'a>(
+    query: BoxedSqlQuery<'a, Pg, SqlQuery>,
+    param: BindParam,
+) -> Result<BoxedSqlQuery<'a, Pg, SqlQuery>> {
+    match param {
+        BindParam::Text(value) => Ok(query.bind::<Text, _>(value)),
+        BindParam::TextArray(values) => Ok(query.bind::<Array<Text>, _>(values)),
+        BindParam::IntArray(values) => Ok(query.bind::<Array<BigInt>, _>(values)),
+        BindParam::Bool(value) => Ok(query.bind::<Bool, _>(value)),
+        BindParam::Int(value) => Ok(query.bind::<BigInt, _>(value)),
+        BindParam::Float(value) => Ok(query.bind::<Float8, _>(value)),
+        BindParam::Timestamptz(value) => {
+            let timestamp = chrono::DateTime::parse_from_rfc3339(&value)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .map_err(|err| {
+                    ServiceError::Internal(anyhow::anyhow!(
+                        "invalid timestamptz bind {value:?}: {err}"
+                    ))
+                })?;
+            Ok(query.bind::<Timestamptz, _>(timestamp))
+        }
+    }
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
