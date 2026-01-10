@@ -300,7 +300,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
 
     # State machine transition actions
-    # Each action includes PublishStateChange to emit NATS events
+    # Each action includes PublishStateChange to record health events
 
     update :establish_connection do
       description "Mark agent as connected (from connecting state)"

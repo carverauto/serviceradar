@@ -135,7 +135,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
     end
 
     # State machine transition actions
-    # Each action includes PublishStateChange to emit NATS events
+    # Each action includes PublishStateChange to record health events
 
     update :pause do
       description "Pause the checker (temporarily stop execution)"

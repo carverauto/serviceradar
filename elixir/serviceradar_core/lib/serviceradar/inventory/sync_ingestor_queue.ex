@@ -247,6 +247,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Logger.info("Decoded #{length(updates)} sync updates for tenant=#{tenant_id}")
 
     actor = system_actor(tenant_id)
+    record_sync_start(updates, tenant_id, actor)
     result = sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
     Logger.info("SyncIngestor result for tenant=#{tenant_id}: #{inspect(result)}")
 
@@ -276,11 +277,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     if sync_service_id do
       tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-      sync_result =
-        case ingest_result do
-          :ok -> :success
-          {:error, _} -> :failed
-        end
+      {action, action_attrs} = build_sync_finish(ingest_result, length(updates))
 
       case IntegrationSource.get_by_id(sync_service_id,
              tenant: tenant_schema,
@@ -289,10 +286,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
            ) do
         {:ok, source} ->
           source
-          |> Ash.Changeset.for_update(:record_sync, %{
-            result: sync_result,
-            device_count: length(updates)
-          })
+          |> Ash.Changeset.for_update(action, action_attrs)
           |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
           |> case do
             {:ok, _} ->
@@ -314,6 +308,71 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     error ->
       Logger.warning("Error recording sync status: #{inspect(error)}")
   end
+
+  defp record_sync_start(updates, tenant_id, actor) do
+    sync_service_id = extract_sync_service_id(updates)
+
+    if sync_service_id do
+      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+      case IntegrationSource.get_by_id(sync_service_id,
+             tenant: tenant_schema,
+             actor: actor,
+             authorize?: false
+           ) do
+        {:ok, source} ->
+          source
+          |> Ash.Changeset.for_update(:sync_start, %{device_count: length(updates)})
+          |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
+          |> case do
+            {:ok, _} ->
+              Logger.debug("Recorded sync start for IntegrationSource #{sync_service_id}")
+
+            {:error, reason} ->
+              Logger.warning(
+                "Failed to record sync start for #{sync_service_id}: #{inspect(reason)}"
+              )
+          end
+
+        {:error, reason} ->
+          Logger.debug(
+            "Could not find IntegrationSource #{sync_service_id} to record sync start: #{inspect(reason)}"
+          )
+      end
+    end
+  rescue
+    error ->
+      Logger.warning("Error recording sync start: #{inspect(error)}")
+  end
+
+  defp build_sync_finish(ingest_result, device_count) do
+    case ingest_result do
+      :ok ->
+        {:sync_success, %{result: :success, device_count: device_count}}
+
+      {:error, reason} ->
+        result = failure_result(reason)
+
+        {:sync_failed,
+         %{
+           result: result,
+           device_count: device_count,
+           error_message: error_message(reason)
+         }}
+    end
+  end
+
+  defp failure_result(reason) do
+    if reason in [:timeout, :timed_out] do
+      :timeout
+    else
+      :failed
+    end
+  end
+
+  defp error_message(reason) when is_binary(reason), do: reason
+  defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_message(reason), do: inspect(reason)
 
   defp extract_sync_service_id([update | _]) when is_map(update) do
     metadata = update["metadata"] || update[:metadata] || %{}

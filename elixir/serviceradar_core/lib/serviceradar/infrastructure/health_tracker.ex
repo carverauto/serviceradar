@@ -10,6 +10,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - **Service heartbeats** - Core, Web, and other Elixir services self-reporting
   - **Manual updates** - Admin/operator actions
 
+  Health events are persisted to `health_events`, mirrored into `ocsf_events`,
+  and broadcast via per-tenant PubSub topics for live UI updates.
+
   ## Architecture
 
       ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
@@ -29,9 +32,15 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
                            │                       │
                            ▼                       ▼
                    ┌───────────────┐       ┌───────────────┐
-                   │  HealthEvent  │       │     NATS      │
+                   │  HealthEvent  │       │   PubSub      │
                    │  (database)   │       │  (real-time)  │
                    └───────────────┘       └───────────────┘
+                           │
+                           ▼
+                   ┌───────────────┐
+                   │  OCSF Events  │
+                   │  (database)   │
+                   └───────────────┘
 
   ## Usage
 
@@ -62,7 +71,8 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   """
 
   alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Infrastructure.{HealthEvent, EventPublisher}
+  alias ServiceRadar.Events.HealthWriter
+  alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub}
 
   require Logger
 
@@ -88,7 +98,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:reason` - Reason for change (optional)
   - `:node` - Cluster node recording this (defaults to current node)
   - `:metadata` - Additional context
-  - `:publish_nats` - Whether to publish to NATS (default: true)
+  - `:broadcast` - Whether to broadcast via PubSub (default: true)
   """
   @spec record_state_change(entity_type(), String.t(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
@@ -98,7 +108,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     reason = Keyword.get(opts, :reason)
     node = Keyword.get(opts, :node, to_string(node()))
     metadata = Keyword.get(opts, :metadata, %{})
-    publish_nats = Keyword.get(opts, :publish_nats, true)
+    broadcast = Keyword.get(opts, :broadcast, true)
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     attrs = %{
@@ -127,9 +137,13 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       {:ok, event} ->
         Logger.debug("Recorded health event: #{entity_type} #{entity_id} -> #{new_state}")
 
-        # Optionally publish to NATS for real-time notifications
-        if publish_nats do
-          publish_to_nats(entity_type, entity_id, tenant_id, old_state, new_state, reason, metadata)
+        case HealthWriter.write(event) do
+          :ok -> :ok
+          {:error, reason} -> Logger.warning("Failed to write OCSF health event: #{inspect(reason)}")
+        end
+
+        if broadcast do
+          HealthPubSub.broadcast_health_event(event)
         end
 
         {:ok, event}
@@ -392,43 +406,4 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     end
   end
 
-  # =============================================================================
-  # Private Functions
-  # =============================================================================
-
-  defp publish_to_nats(entity_type, entity_id, tenant_id, old_state, new_state, reason, metadata) do
-    # Get tenant slug for NATS topic
-    tenant_slug = lookup_tenant_slug(tenant_id)
-
-    if tenant_slug do
-      Task.start(fn ->
-        EventPublisher.publish_state_change(
-          entity_type: entity_type,
-          entity_id: entity_id,
-          tenant_id: tenant_id,
-          tenant_slug: tenant_slug,
-          old_state: old_state,
-          new_state: new_state,
-          reason: reason,
-          metadata: metadata
-        )
-      end)
-    end
-  end
-
-  defp lookup_tenant_slug(nil), do: nil
-
-  defp lookup_tenant_slug(tenant_id) do
-    require Ash.Query
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(authorize?: false) do
-      {:ok, [tenant | _]} -> to_string(tenant.slug)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
 end
