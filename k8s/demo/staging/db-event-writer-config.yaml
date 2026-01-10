@@ -30,6 +30,10 @@ data:
           "table": "logs"
         },
         {
+          "subject": "logs.internal.processed",
+          "table": "logs"
+        },
+        {
           "subject": "otel.traces",
           "table": "otel_traces"
         },

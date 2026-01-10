@@ -1,12 +1,10 @@
 defmodule ServiceRadar.Events.JobWriter do
   @moduledoc """
-  Writes internal job lifecycle events into the tenant OCSF events table.
+  Publishes internal job lifecycle logs to NATS for downstream promotion.
   """
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Events.InternalLogPublisher
 
   require Logger
 
@@ -14,6 +12,7 @@ defmodule ServiceRadar.Events.JobWriter do
 
   @type opts :: [
           tenant_id: Ecto.UUID.t(),
+          tenant_slug: String.t() | nil,
           job_name: String.t(),
           job_id: String.t() | nil,
           queue: String.t() | nil,
@@ -31,39 +30,19 @@ defmodule ServiceRadar.Events.JobWriter do
   @spec write_failure(opts()) :: :ok | {:error, term()}
   def write_failure(opts) do
     with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
-         {:ok, job_name} <- fetch_required(opts, :job_name),
-         {:ok, schema} <- resolve_schema(tenant_id) do
-      attrs = build_failure_attrs(opts, tenant_id, job_name)
+         {:ok, job_name} <- fetch_required(opts, :job_name) do
+      payload = build_failure_attrs(opts, tenant_id, job_name)
+      tenant_slug = Keyword.get(opts, :tenant_slug)
 
-      OcsfEvent
-      |> Ash.Changeset.for_create(:record, attrs, tenant: schema)
-      |> Ash.create(authorize?: false)
-      |> case do
-        {:ok, record} ->
-          EventsPubSub.broadcast_event(record)
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      InternalLogPublisher.publish("jobs", payload,
+        tenant_id: tenant_id,
+        tenant_slug: tenant_slug
+      )
     end
   rescue
     e ->
-      Logger.warning("Failed to write job failure event: #{inspect(e)}")
+      Logger.warning("Failed to publish job failure log: #{inspect(e)}")
       {:error, e}
-  end
-
-  defp resolve_schema(tenant_id) do
-    tenant_id_str = to_string(tenant_id)
-
-    case TenantSchemas.schema_for_id(tenant_id_str) do
-      nil ->
-        Logger.error("Could not resolve tenant schema for tenant_id: #{tenant_id_str}")
-        {:error, {:unknown_tenant, tenant_id_str}}
-
-      schema ->
-        {:ok, schema}
-    end
   end
 
   defp fetch_required(opts, key) do

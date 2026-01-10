@@ -10,8 +10,8 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - **Service heartbeats** - Core, Web, and other Elixir services self-reporting
   - **Manual updates** - Admin/operator actions
 
-  Health events are persisted to `health_events`, mirrored into `ocsf_events`,
-  and broadcast via per-tenant PubSub topics for live UI updates.
+  Health events are persisted to `health_events`, published as `logs.internal.*`
+  payloads on NATS for promotion, and broadcast via per-tenant PubSub topics.
 
   ## Architecture
 
@@ -38,8 +38,8 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
                            │
                            ▼
                    ┌───────────────┐
-                   │  OCSF Events  │
-                   │  (database)   │
+                   │ Internal Logs │
+                   │   (NATS)      │
                    └───────────────┘
 
   ## Usage
@@ -139,7 +139,8 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
         case HealthWriter.write(event) do
           :ok -> :ok
-          {:error, reason} -> Logger.warning("Failed to write OCSF health event: #{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("Failed to publish health log: #{inspect(reason)}")
         end
 
         if broadcast do

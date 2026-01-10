@@ -271,6 +271,7 @@ serviceradar-collector-<id>.tar.gz/
 - [x] 4.6.3 Update db-event-writer to ingest raw OTEL logs and OCSF events (no CloudEvent parsing)
 - [x] 4.6.4 Update db-event-writer configs to use `ocsf_events` + new subjects
 - [x] 4.6.5 Update ingestion docs to remove CloudEvents references
+- [x] 4.6.6 Publish internal core events as `logs.internal.*` (OCSF log activity) and wire Zen/db-event-writer
 
 ## Phase 5: Collector NATS Credentials Support
 

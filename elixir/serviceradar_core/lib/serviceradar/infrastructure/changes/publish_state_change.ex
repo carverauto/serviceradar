@@ -5,7 +5,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
 
   This change captures the old state before a transition and:
   1. Records a HealthEvent for historical tracking and UI display
-  2. Writes an OCSF event for the Events UI
+  2. Publishes an internal log to NATS for promotion
   3. Broadcasts a PubSub update for live refreshes
 
   ## Usage

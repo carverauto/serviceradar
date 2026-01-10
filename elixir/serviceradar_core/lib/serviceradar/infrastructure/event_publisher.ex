@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Infrastructure.EventPublisher do
   @moduledoc """
-  Publishes infrastructure state events to NATS JetStream.
+  Publishes infrastructure state logs to NATS JetStream for promotion.
 
-  Events are published to tenant-scoped subjects following the pattern:
-  `sr.infra.{tenant_slug}.{entity_type}.{event_type}`
+  Logs are published to tenant-scoped subjects following the pattern:
+  `logs.internal.infrastructure.{event_type}`
 
   ## Event Types
 
@@ -13,27 +13,23 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   - `health_change` - Health status changed
   - `heartbeat_timeout` - Entity missed heartbeat deadline
 
-  ## Event Schema
+  ## Log Payload Schema
 
   ```json
   {
-    "event_type": "state_change",
-    "entity_type": "gateway",
-    "entity_id": "gateway-123",
+    "class_uid": 1008,
+    "activity_id": 3,
+    "message": "Gateway gateway-123 changed from healthy to degraded",
     "tenant_id": "uuid",
-    "tenant_slug": "acme",
-    "partition_id": "uuid",
-    "old_state": "healthy",
-    "new_state": "degraded",
-    "reason": "heartbeat_timeout",
-    "metadata": {},
+    "log_name": "infra.state_change",
+    "log_provider": "serviceradar.core",
     "timestamp": "2024-01-01T00:00:00Z"
   }
   ```
 
   ## Usage
 
-      # Publish a state change event
+      # Publish a state change log
       EventPublisher.publish_state_change(
         entity_type: :gateway,
         entity_id: "gateway-123",
@@ -48,7 +44,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       EventPublisher.on_state_transition(gateway, :healthy, :degraded, %{})
   """
 
-  alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Events.InternalLogPublisher
 
   require Logger
 
@@ -59,7 +56,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   @type event_type :: :state_change | :registered | :deregistered | :health_change | :heartbeat_timeout
 
   @doc """
-  Publishes a state change event to NATS JetStream.
+  Publishes a state change log to NATS JetStream.
 
   ## Options
 
@@ -71,7 +68,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   - `:new_state` - New state (required)
   - `:reason` - Why the state changed (optional)
   - `:partition_id` - Partition UUID (optional)
-  - `:metadata` - Additional event metadata (optional)
+  - `:metadata` - Additional log metadata (optional)
   """
   @spec publish_state_change(keyword()) :: :ok | {:error, term()}
   def publish_state_change(opts) do
@@ -85,30 +82,29 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     partition_id = Keyword.get(opts, :partition_id)
     metadata = Keyword.get(opts, :metadata, %{})
 
-    event = build_event(
-      :state_change,
-      entity_type,
-      entity_id,
-      tenant_id,
-      tenant_slug,
-      partition_id,
-      %{
-        old_state: to_string(old_state),
-        new_state: to_string(new_state),
-        reason: reason && to_string(reason)
-      },
-      metadata
-    )
+    payload =
+      build_log_payload(
+        :state_change,
+        entity_type,
+        entity_id,
+        tenant_id,
+        partition_id,
+        %{
+          old_state: to_string(old_state),
+          new_state: to_string(new_state),
+          reason: reason && to_string(reason)
+        },
+        metadata
+      )
 
-    subject = build_subject(tenant_slug, entity_type, :state_change)
-    publish(subject, event)
+    publish_log(:state_change, payload, tenant_id, tenant_slug)
   end
 
   @doc """
   Hook for AshStateMachine after_transition callbacks.
 
   Called automatically when an entity's state changes. Extracts necessary
-  fields from the record and publishes the event.
+  fields from the record and publishes the log.
 
   ## Example in Ash Resource
 
@@ -143,8 +139,9 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata: context[:metadata] || %{}
       )
     else
-      Logger.warning(
-        "Cannot publish state change event: missing tenant info for #{entity_type} #{entity_id}"
+      Logger.warning("Cannot publish state change log: missing tenant info",
+        entity_type: entity_type,
+        entity_id: entity_id
       )
 
       {:error, :missing_tenant}
@@ -152,7 +149,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   end
 
   @doc """
-  Publishes a registration event when a new entity is registered.
+  Publishes a registration log when a new entity is registered.
   """
   @spec publish_registered(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
           :ok | {:error, term()}
@@ -161,23 +158,22 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     metadata = Keyword.get(opts, :metadata, %{})
     initial_state = Keyword.get(opts, :initial_state)
 
-    event = build_event(
-      :registered,
-      entity_type,
-      entity_id,
-      tenant_id,
-      tenant_slug,
-      partition_id,
-      %{initial_state: initial_state && to_string(initial_state)},
-      metadata
-    )
+    payload =
+      build_log_payload(
+        :registered,
+        entity_type,
+        entity_id,
+        tenant_id,
+        partition_id,
+        %{initial_state: initial_state && to_string(initial_state)},
+        metadata
+      )
 
-    subject = build_subject(tenant_slug, entity_type, :registered)
-    publish(subject, event)
+    publish_log(:registered, payload, tenant_id, tenant_slug)
   end
 
   @doc """
-  Publishes a deregistration event when an entity is removed.
+  Publishes a deregistration log when an entity is removed.
   """
   @spec publish_deregistered(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
           :ok | {:error, term()}
@@ -187,23 +183,22 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     final_state = Keyword.get(opts, :final_state)
     reason = Keyword.get(opts, :reason)
 
-    event = build_event(
-      :deregistered,
-      entity_type,
-      entity_id,
-      tenant_id,
-      tenant_slug,
-      partition_id,
-      %{final_state: final_state && to_string(final_state), reason: reason},
-      metadata
-    )
+    payload =
+      build_log_payload(
+        :deregistered,
+        entity_type,
+        entity_id,
+        tenant_id,
+        partition_id,
+        %{final_state: final_state && to_string(final_state), reason: reason},
+        metadata
+      )
 
-    subject = build_subject(tenant_slug, entity_type, :deregistered)
-    publish(subject, event)
+    publish_log(:deregistered, payload, tenant_id, tenant_slug)
   end
 
   @doc """
-  Publishes a heartbeat timeout event.
+  Publishes a heartbeat timeout log.
   """
   @spec publish_heartbeat_timeout(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
           :ok | {:error, term()}
@@ -213,26 +208,25 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     last_seen = Keyword.get(opts, :last_seen)
     current_state = Keyword.get(opts, :current_state)
 
-    event = build_event(
-      :heartbeat_timeout,
-      entity_type,
-      entity_id,
-      tenant_id,
-      tenant_slug,
-      partition_id,
-      %{
-        last_seen: last_seen && DateTime.to_iso8601(last_seen),
-        current_state: current_state && to_string(current_state)
-      },
-      metadata
-    )
+    payload =
+      build_log_payload(
+        :heartbeat_timeout,
+        entity_type,
+        entity_id,
+        tenant_id,
+        partition_id,
+        %{
+          last_seen: last_seen && DateTime.to_iso8601(last_seen),
+          current_state: current_state && to_string(current_state)
+        },
+        metadata
+      )
 
-    subject = build_subject(tenant_slug, entity_type, :heartbeat_timeout)
-    publish(subject, event)
+    publish_log(:heartbeat_timeout, payload, tenant_id, tenant_slug)
   end
 
   @doc """
-  Publishes a health change event (without full state transition).
+  Publishes a health change log (without full state transition).
   """
   @spec publish_health_change(entity_type(), String.t(), String.t(), String.t(), boolean(), keyword()) ::
           :ok | {:error, term()}
@@ -241,19 +235,18 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     metadata = Keyword.get(opts, :metadata, %{})
     reason = Keyword.get(opts, :reason)
 
-    event = build_event(
-      :health_change,
-      entity_type,
-      entity_id,
-      tenant_id,
-      tenant_slug,
-      partition_id,
-      %{is_healthy: is_healthy, reason: reason},
-      metadata
-    )
+    payload =
+      build_log_payload(
+        :health_change,
+        entity_type,
+        entity_id,
+        tenant_id,
+        partition_id,
+        %{is_healthy: is_healthy, reason: reason},
+        metadata
+      )
 
-    subject = build_subject(tenant_slug, entity_type, :health_change)
-    publish(subject, event)
+    publish_log(:health_change, payload, tenant_id, tenant_slug)
   end
 
   @doc """
@@ -270,54 +263,165 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   # Private functions
 
-  defp build_event(event_type, entity_type, entity_id, tenant_id, tenant_slug, partition_id, data, metadata) do
+  defp build_log_payload(event_type, entity_type, entity_id, tenant_id, partition_id, data, metadata) do
+    activity_id = activity_for_event(event_type)
+    severity_id = severity_for_event(event_type, data)
+    status_id = status_for_event(event_type, data)
+    message = message_for_event(event_type, entity_type, entity_id, data)
+
     %{
-      event_type: to_string(event_type),
-      entity_type: to_string(entity_type),
-      entity_id: entity_id,
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug,
-      partition_id: partition_id,
-      data: data,
-      metadata: metadata,
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601(),
-      version: "1.0"
+      time: DateTime.utc_now(),
+      class_uid: OCSF.class_event_log_activity(),
+      category_uid: OCSF.category_system_activity(),
+      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.log_activity_name(activity_id),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      message: message,
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      metadata:
+        OCSF.build_metadata(
+          version: "1.7.0",
+          product_name: "ServiceRadar Core",
+          correlation_uid: "#{entity_type}:#{entity_id}"
+        ),
+      observables: build_observables(entity_id),
+      actor: OCSF.build_actor(app_name: "serviceradar.core", process: "infrastructure"),
+      log_name: "infra.#{event_type}",
+      log_provider: "serviceradar.core",
+      log_level: log_level_for_severity(severity_id),
+      unmapped:
+        %{
+          "event_type" => to_string(event_type),
+          "entity_type" => to_string(entity_type),
+          "entity_id" => entity_id,
+          "partition_id" => partition_id
+        }
+        |> Map.merge(stringify_keys(data))
+        |> Map.merge(stringify_keys(metadata || %{})),
+      tenant_id: tenant_id
     }
   end
 
-  defp build_subject(tenant_slug, entity_type, event_type) do
-    "sr.infra.#{tenant_slug}.#{entity_type}.#{event_type}"
-  end
+  defp publish_log(event_type, payload, tenant_id, tenant_slug) do
+    subject = "infrastructure.#{event_type}"
 
-  defp publish(subject, event) do
-    payload = Jason.encode!(event)
-
-    case Connection.publish(subject, payload) do
+    case InternalLogPublisher.publish(subject, payload, tenant_id: tenant_id, tenant_slug: tenant_slug) do
       :ok ->
         :telemetry.execute(
-          [:serviceradar, :infrastructure, :event_published],
+          [:serviceradar, :infrastructure, :log_published],
           %{count: 1},
-          %{
-            event_type: event.event_type,
-            entity_type: event.entity_type,
-            subject: subject
-          }
+          %{event_type: to_string(event_type), subject: "logs.internal.#{subject}"}
         )
 
         :ok
 
       {:error, reason} = error ->
-        Logger.warning("Failed to publish event to #{subject}: #{inspect(reason)}")
+        Logger.warning("Failed to publish infrastructure log",
+          reason: inspect(reason),
+          event_type: event_type
+        )
 
         :telemetry.execute(
-          [:serviceradar, :infrastructure, :event_publish_failed],
+          [:serviceradar, :infrastructure, :log_publish_failed],
           %{count: 1},
-          %{reason: reason, subject: subject}
+          %{reason: reason, subject: "logs.internal.#{subject}"}
         )
 
         error
     end
   end
+
+  defp activity_for_event(:registered), do: OCSF.activity_log_create()
+  defp activity_for_event(:deregistered), do: OCSF.activity_log_delete()
+  defp activity_for_event(_), do: OCSF.activity_log_update()
+
+  defp severity_for_event(:heartbeat_timeout, _data), do: OCSF.severity_high()
+  defp severity_for_event(:health_change, data) do
+    case data[:is_healthy] || data["is_healthy"] do
+      true -> OCSF.severity_informational()
+      false -> OCSF.severity_high()
+      _ -> severity_for_state(data[:new_state] || data["new_state"])
+    end
+  end
+  defp severity_for_event(:state_change, data), do: severity_for_state(data[:new_state] || data["new_state"])
+  defp severity_for_event(_event_type, _data), do: OCSF.severity_informational()
+
+  defp status_for_event(:heartbeat_timeout, _data), do: OCSF.status_failure()
+
+  defp status_for_event(:health_change, data) do
+    case data[:is_healthy] || data["is_healthy"] do
+      false -> OCSF.status_failure()
+      _ -> OCSF.status_success()
+    end
+  end
+
+  defp status_for_event(_event_type, _data), do: OCSF.status_success()
+
+  defp message_for_event(event_type, entity_type, entity_id, data) do
+    entity_label = "#{entity_type} #{entity_id}"
+
+    case event_type do
+      :state_change ->
+        old_state = data[:old_state] || data["old_state"] || "unknown"
+        new_state = data[:new_state] || data["new_state"] || "unknown"
+        "#{entity_label} changed from #{old_state} to #{new_state}"
+
+      :health_change ->
+        health = data[:is_healthy] || data["is_healthy"]
+        state = if health, do: "healthy", else: "unhealthy"
+        "#{entity_label} health changed to #{state}"
+
+      :heartbeat_timeout ->
+        "#{entity_label} missed heartbeat deadline"
+
+      :registered ->
+        "#{entity_label} registered"
+
+      :deregistered ->
+        "#{entity_label} deregistered"
+
+      _ ->
+        "#{entity_label} event #{event_type}"
+    end
+  end
+
+  defp build_observables(nil), do: []
+  defp build_observables(value), do: [OCSF.build_observable(value, "Resource UID", 99)]
+
+  defp log_level_for_severity(severity_id) do
+    case severity_id do
+      6 -> "fatal"
+      5 -> "critical"
+      4 -> "error"
+      3 -> "warning"
+      2 -> "notice"
+      1 -> "info"
+      _ -> "unknown"
+    end
+  end
+
+  defp severity_for_state(state) when state in [:offline, :disconnected, :failing, :unhealthy],
+    do: OCSF.severity_high()
+
+  defp severity_for_state(state) when state in [:degraded, :recovering],
+    do: OCSF.severity_medium()
+
+  defp severity_for_state(state) when state in [:healthy, :connected, :active],
+    do: OCSF.severity_informational()
+
+  defp severity_for_state(_), do: OCSF.severity_low()
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      {k, v} -> {k, v}
+    end)
+  end
+
+  defp stringify_keys(_), do: %{}
 
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Gateway{}), do: :gateway
   defp entity_type_from_record(%ServiceRadar.Infrastructure.Agent{}), do: :agent

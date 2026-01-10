@@ -468,6 +468,7 @@ data:
           "*.logs.syslog",
           "*.logs.snmp",
           "*.logs.otel",
+          "*.logs.internal.>",
           "*.otel.metrics.raw"
         ],
         "decision_groups": [
@@ -503,6 +504,14 @@ data:
               {"order": 1, "key": "passthrough"}
             ],
             "format": "otel_metrics"
+          },
+          {
+            "name": "internal_logs",
+            "subjects": ["*.logs.internal.>"],
+            "rules": [
+              {"order": 1, "key": "passthrough"}
+            ],
+            "format": "json"
           }
         ],
         "agent_id": "k8s-zen-consumer",
