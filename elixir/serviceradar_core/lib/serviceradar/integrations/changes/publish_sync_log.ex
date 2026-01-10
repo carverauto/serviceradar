@@ -1,11 +1,11 @@
-defmodule ServiceRadar.Integrations.Changes.PublishSyncEvent do
+defmodule ServiceRadar.Integrations.Changes.PublishSyncLog do
   @moduledoc """
-  Ash change that writes sync ingestion lifecycle events to OCSF.
+  Ash change that writes sync ingestion lifecycle updates to logs.
   """
 
   use Ash.Resource.Change
 
-  alias ServiceRadar.Events.SyncWriter
+  alias ServiceRadar.Observability.SyncLogWriter
 
   @impl true
   def init(opts) do
@@ -27,10 +27,10 @@ defmodule ServiceRadar.Integrations.Changes.PublishSyncEvent do
     Ash.Changeset.after_action(changeset, fn _changeset, source ->
       case opts.stage do
         :started ->
-          SyncWriter.write_start(source, device_count: device_count)
+          SyncLogWriter.write_start(source, device_count: device_count)
 
         :finished ->
-          SyncWriter.write_finish(source,
+          SyncLogWriter.write_finish(source,
             result: result,
             device_count: device_count,
             error_message: error_message

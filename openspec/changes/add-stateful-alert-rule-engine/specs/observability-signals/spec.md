@@ -1,0 +1,42 @@
+# observability-signals Specification (delta)
+
+## ADDED Requirements
+### Requirement: Stateful alert rules with grouping
+The system SHALL support stateful alert rules that evaluate threshold windows
+(e.g., N occurrences in T minutes) and SHALL allow grouping by configurable
+attribute keys with a default group of integration source id.
+
+#### Scenario: Grouped threshold evaluation
+- **GIVEN** a rule with group keys ["serviceradar.sync.integration_source_id"]
+- **WHEN** five matching failures arrive within ten minutes for the same source
+- **THEN** the system SHALL create an alert for that source
+- **AND** failures from a different source SHALL be evaluated separately
+
+### Requirement: Durable rule state snapshots
+The system SHALL persist rule state snapshots per rule+group key using fixed-size
+buckets and SHALL restore state after restart without creating duplicate alerts.
+
+#### Scenario: Restart recovery
+- **GIVEN** a rule with a ten-minute window and one-minute buckets
+- **WHEN** the service restarts mid-window
+- **THEN** the engine SHALL reload the latest snapshot
+- **AND** it SHALL continue evaluation without re-firing the last alert
+
+### Requirement: Cooldown and re-notify for long-lived incidents
+The system SHALL support cooldown and re-notify intervals for active alerts
+triggered by stateful rules.
+
+#### Scenario: Re-notify during sustained failure
+- **GIVEN** a rule with a re-notify interval of six hours
+- **WHEN** the triggering condition remains true
+- **THEN** the system SHALL re-notify at the configured interval
+- **AND** it SHALL NOT create duplicate alerts within the cooldown window
+
+### Requirement: Bounded rule evaluation history
+The system SHALL record rule evaluation transitions (fired, recovered, cooldown)
+with bounded retention and compression to prevent unbounded storage growth.
+
+#### Scenario: Evaluation history retention
+- **GIVEN** rule evaluation history retention is set to seven days
+- **WHEN** history rows are older than seven days
+- **THEN** the system SHALL remove or compress them per retention policy
