@@ -37,3 +37,12 @@ NATS JetStream SHALL continue to ingest external/edge streams and SHALL NOT be r
 - **WHEN** a checker transitions to `:failing`
 - **THEN** the `HealthEvent` record SHALL still be persisted
 - **AND** the transition SHALL not fail due to NATS connectivity
+
+### Requirement: Internal health events are mirrored into OCSF events
+Internal health state transitions SHALL be written to the tenant `ocsf_events` table so they appear in the Events UI.
+
+#### Scenario: State change writes an OCSF event
+- **GIVEN** a gateway transitions from `:healthy` to `:offline`
+- **WHEN** the transition is recorded
+- **THEN** an `ocsf_events` row SHALL be inserted for the tenant
+- **AND** the OCSF event SHALL include the entity type, entity ID, and new state

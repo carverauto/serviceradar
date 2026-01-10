@@ -229,7 +229,6 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       ServiceRadar.Infrastructure.Gateway -> gateway_fixture(tenant)
       ServiceRadar.Identity.User -> user_fixture(tenant)
       ServiceRadar.Monitoring.Alert -> alert_fixture(tenant)
-      ServiceRadar.Monitoring.Event -> event_fixture(tenant)
       ServiceRadar.Monitoring.ServiceCheck -> service_check_fixture(tenant)
       ServiceRadar.Edge.OnboardingPackage -> onboarding_package_fixture(tenant)
       _ -> raise "Unknown resource type: #{inspect(resource)}"

@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   alias ServiceRadar.Identity.{Tenant, User, ApiToken}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker, Partition}
-  alias ServiceRadar.Monitoring.{Alert, Event, ServiceCheck, PollingSchedule}
+  alias ServiceRadar.Monitoring.{Alert, ServiceCheck, PollingSchedule}
   alias ServiceRadar.Edge.OnboardingPackage
 
   @doc """
@@ -440,40 +440,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     Alert
     |> Ash.Changeset.for_create(:trigger, attrs,
-      actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
-    )
-    |> Ash.create!()
-  end
-
-  @doc """
-  Creates an event belonging to the given tenant.
-  """
-  def event_fixture(tenant, attrs \\ %{})
-
-  def event_fixture(%Tenant{} = tenant, attrs) do
-    event_fixture(tenant.id, attrs)
-  end
-
-  def event_fixture(tenant_id, attrs) when is_binary(tenant_id) do
-    unique = System.unique_integer([:positive])
-
-    defaults = %{
-      category: :system,
-      event_type: "system.test.#{unique}",
-      # 1 = Info
-      severity: 1,
-      message: "Test event #{unique}",
-      source_type: :system,
-      source_id: "test",
-      source_name: "Test System"
-    }
-
-    attrs = Map.merge(defaults, Map.new(attrs))
-
-    Event
-    |> Ash.Changeset.for_create(:record, attrs,
       actor: system_actor(),
       authorize?: false,
       tenant: tenant_id

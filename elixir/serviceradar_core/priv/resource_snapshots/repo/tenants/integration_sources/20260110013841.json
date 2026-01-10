@@ -21,59 +21,11 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "category",
+      "source": "name",
       "type": "text"
     },
     {
       "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "event_type",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "1",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "severity",
-      "type": "bigint"
-    },
-    {
-      "allow_nil?": false,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "message",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "details",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -85,7 +37,7 @@
       "type": "text"
     },
     {
-      "allow_nil?": true,
+      "allow_nil?": false,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -93,8 +45,20 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "source_id",
+      "source": "endpoint",
       "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "true",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "enabled",
+      "type": "boolean"
     },
     {
       "allow_nil?": true,
@@ -105,31 +69,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "source_name",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "target_type",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": null,
-      "scale": null,
-      "size": null,
-      "source": "target_id",
+      "source": "agent_id",
       "type": "text"
     },
     {
@@ -141,113 +81,68 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "target_name",
+      "source": "gateway_id",
       "type": "text"
     },
     {
       "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": {
-        "deferrable": false,
-        "destination_attribute": "uid",
-        "destination_attribute_default": null,
-        "destination_attribute_generated": null,
-        "index?": false,
-        "match_type": null,
-        "match_with": null,
-        "multitenancy": {
-          "attribute": "tenant_id",
-          "global": true,
-          "strategy": "attribute"
-        },
-        "name": "monitoring_events_device_uid_fkey",
-        "on_delete": null,
-        "on_update": null,
-        "primary_key?": true,
-        "schema": "public",
-        "table": "ocsf_devices"
-      },
-      "scale": null,
-      "size": null,
-      "source": "device_uid",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": {
-        "deferrable": false,
-        "destination_attribute": "uid",
-        "destination_attribute_default": null,
-        "destination_attribute_generated": null,
-        "index?": false,
-        "match_type": null,
-        "match_with": null,
-        "multitenancy": {
-          "attribute": "tenant_id",
-          "global": true,
-          "strategy": "attribute"
-        },
-        "name": "monitoring_events_agent_uid_fkey",
-        "on_delete": null,
-        "on_update": null,
-        "primary_key?": true,
-        "schema": "public",
-        "table": "ocsf_agents"
-      },
-      "scale": null,
-      "size": null,
-      "source": "agent_uid",
-      "type": "text"
-    },
-    {
-      "allow_nil?": true,
-      "default": "nil",
-      "generated?": false,
-      "precision": null,
-      "primary_key?": false,
-      "references": {
-        "deferrable": false,
-        "destination_attribute": "id",
-        "destination_attribute_default": null,
-        "destination_attribute_generated": null,
-        "index?": false,
-        "match_type": null,
-        "match_with": null,
-        "multitenancy": {
-          "attribute": "tenant_id",
-          "global": true,
-          "strategy": "attribute"
-        },
-        "name": "monitoring_events_alert_id_fkey",
-        "on_delete": null,
-        "on_update": null,
-        "primary_key?": true,
-        "schema": "public",
-        "table": "alerts"
-      },
-      "scale": null,
-      "size": null,
-      "source": "alert_id",
-      "type": "uuid"
-    },
-    {
-      "allow_nil?": true,
-      "default": "%{}",
+      "default": "\"default\"",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "metadata",
-      "type": "map"
+      "source": "partition",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "300",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "poll_interval_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "3600",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "discovery_interval_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "3600",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "sweep_interval_seconds",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "100",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "page_size",
+      "type": "bigint"
     },
     {
       "allow_nil?": true,
@@ -258,7 +153,7 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "tags",
+      "source": "network_blacklist",
       "type": [
         "array",
         "text"
@@ -266,15 +161,45 @@
     },
     {
       "allow_nil?": true,
-      "default": "nil",
+      "default": "[]",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "actor_type",
-      "type": "text"
+      "source": "queries",
+      "type": [
+        "array",
+        "map"
+      ]
+    },
+    {
+      "allow_nil?": true,
+      "default": "[]",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "custom_fields",
+      "type": [
+        "array",
+        "text"
+      ]
+    },
+    {
+      "allow_nil?": true,
+      "default": "%{}",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "settings",
+      "type": "map"
     },
     {
       "allow_nil?": true,
@@ -285,8 +210,8 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "actor_id",
-      "type": "text"
+      "source": "last_sync_at",
+      "type": "utc_datetime"
     },
     {
       "allow_nil?": true,
@@ -297,8 +222,20 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "actor_name",
+      "source": "last_sync_result",
       "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "last_device_count",
+      "type": "bigint"
     },
     {
       "allow_nil?": true,
@@ -309,20 +246,44 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "client_ip",
+      "source": "last_error_message",
       "type": "text"
     },
     {
       "allow_nil?": false,
-      "default": "nil",
+      "default": "\"idle\"",
       "generated?": false,
       "precision": null,
       "primary_key?": false,
       "references": null,
       "scale": null,
       "size": null,
-      "source": "occurred_at",
-      "type": "utc_datetime"
+      "source": "sync_status",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "consecutive_failures",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "0",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "total_syncs",
+      "type": "bigint"
     },
     {
       "allow_nil?": false,
@@ -345,8 +306,32 @@
       "references": null,
       "scale": null,
       "size": null,
-      "source": "created_at",
+      "source": "inserted_at",
       "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"(now() AT TIME ZONE 'utc')\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "updated_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "encrypted_credentials_encrypted",
+      "type": "binary"
     }
   ],
   "base_filter": null,
@@ -354,14 +339,33 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "D387B7F715E2D3C77E3F1368AE9DF942E238A4751C0EC034EF84232F7BB7044D",
-  "identities": [],
+  "hash": "D20DBAD6E973D47335C9F0AECE0BD5CFB86E7EB482F21C265A80E6664F97795D",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "integration_sources_unique_name_per_tenant_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "tenant_id"
+        },
+        {
+          "type": "atom",
+          "value": "name"
+        }
+      ],
+      "name": "unique_name_per_tenant",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
   "multitenancy": {
-    "attribute": "tenant_id",
-    "global": true,
-    "strategy": "attribute"
+    "attribute": null,
+    "global": false,
+    "strategy": "context"
   },
-  "repo": "Elixir.ServiceRadarWebNG.Repo",
+  "repo": "Elixir.ServiceRadar.Repo",
   "schema": null,
-  "table": "monitoring_events"
+  "table": "integration_sources"
 }

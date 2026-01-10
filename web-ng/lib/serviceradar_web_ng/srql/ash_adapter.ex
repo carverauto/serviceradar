@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   - `agents` -> ServiceRadar.Infrastructure.Agent
 
   ### Monitoring Domain
-  - `events` -> ServiceRadar.Monitoring.Event
+  - `events` -> ServiceRadar.Monitoring.OcsfEvent
   - `alerts` -> ServiceRadar.Monitoring.Alert
   - `services` / `service_checks` -> ServiceRadar.Monitoring.ServiceCheck
 
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     "gateways" => ServiceRadar.Infrastructure.Gateway,
     "agents" => ServiceRadar.Infrastructure.Agent,
     # Monitoring domain
-    "events" => ServiceRadar.Monitoring.Event,
+    "events" => ServiceRadar.Monitoring.OcsfEvent,
     "alerts" => ServiceRadar.Monitoring.Alert,
     "services" => ServiceRadar.Monitoring.ServiceCheck,
     "service_checks" => ServiceRadar.Monitoring.ServiceCheck,
@@ -145,17 +145,17 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       "timestamp" => "last_seen",
       "created_at" => "first_registered"
     },
-    # Events: SRQL uses CloudEvents schema, Ash uses different names
+    # Events: SRQL uses CloudEvents-style fields, OCSF uses different names
     "events" => %{
-      "event_timestamp" => "occurred_at",
-      "timestamp" => "occurred_at",
-      "type" => "event_type",
-      "source" => "source_id",
+      "event_timestamp" => "time",
+      "timestamp" => "time",
+      "type" => "activity_name",
+      "event_type" => "log_name",
+      "source" => "log_provider",
       "severity" => "severity",
-      "short_message" => "message",
       "level" => "severity",
       "id" => "id",
-      "created_at" => "occurred_at"
+      "created_at" => "created_at"
     },
     # ServiceChecks (services): Map SRQL service_status to service_checks
     "services" => %{
@@ -593,9 +593,22 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   # Add compatibility fields that SRQL/UI expects but Ash doesn't have
   defp add_compatibility_fields(row, "events") do
+    time = Map.get(row, "event_timestamp") || Map.get(row, "timestamp") || Map.get(row, "time")
+    event_type = Map.get(row, "event_type") || Map.get(row, "log_name")
+    source = Map.get(row, "source") || get_in(row, ["actor", "app_name"])
+    host =
+      Map.get(row, "host") || get_in(row, ["device", "hostname"]) ||
+        get_in(row, ["src_endpoint", "hostname"])
+
     row
-    |> Map.put_new("event_timestamp", Map.get(row, "occurred_at"))
-    |> Map.put_new("timestamp", Map.get(row, "occurred_at"))
+    |> Map.put_new("event_timestamp", time)
+    |> Map.put_new("timestamp", time)
+    |> Map.put_new("event_type", event_type)
+    |> Map.put_new("short_message", Map.get(row, "message"))
+    |> Map.put_new("source", source)
+    |> Map.put_new("host", host)
+    |> Map.put_new("log_provider", Map.get(row, "source"))
+    |> Map.put_new("log_name", event_type)
   end
 
   defp add_compatibility_fields(row, "services") do

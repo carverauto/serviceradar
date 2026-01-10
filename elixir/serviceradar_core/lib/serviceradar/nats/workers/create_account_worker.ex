@@ -31,6 +31,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   require Logger
 
   alias ServiceRadar.Identity.Tenant
+  alias ServiceRadar.Events.JobWriter
   alias ServiceRadar.NATS.AccountClient
 
   # Only select fields needed for NATS account creation.
@@ -79,7 +80,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"tenant_id" => tenant_id}, attempt: attempt, max_attempts: max}) do
+  def perform(%Oban.Job{args: %{"tenant_id" => tenant_id}, attempt: attempt, max_attempts: max} =
+        job) do
     Logger.info("Creating NATS account for tenant #{tenant_id} (attempt #{attempt}/#{max})")
 
     with {:ok, tenant} <- get_tenant(tenant_id),
@@ -108,12 +110,19 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
         if attempt >= max do
           mark_error(tenant_id, message)
+          record_final_failure(job, tenant_id, message)
         end
 
         error
 
       {:error, :not_connected} = error ->
         Logger.warning("datasvc not connected, will retry for tenant #{tenant_id}")
+
+        if attempt >= max do
+          mark_error(tenant_id, "datasvc not connected")
+          record_final_failure(job, tenant_id, :not_connected)
+        end
+
         error
 
       {:error, reason} = error ->
@@ -121,6 +130,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
         if attempt >= max do
           mark_error(tenant_id, inspect(reason))
+          record_final_failure(job, tenant_id, reason)
         end
 
         error
@@ -217,6 +227,42 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
       true
     rescue
       _ -> false
+    end
+  end
+
+  defp record_final_failure(%Oban.Job{} = job, tenant_id, reason) do
+    if job.attempt >= job.max_attempts do
+      message =
+        "NATS account provisioning failed after #{job.attempt}/#{job.max_attempts} attempts"
+
+      details = %{
+        worker: job.worker,
+        queue: job.queue,
+        attempt: job.attempt,
+        max_attempts: job.max_attempts
+      }
+
+      case JobWriter.write_failure(
+             tenant_id: tenant_id,
+             job_name: "nats.account.create",
+             job_id: to_string(job.id),
+             queue: job.queue,
+             attempt: job.attempt,
+             max_attempts: job.max_attempts,
+             error: reason,
+             details: details,
+             message: message,
+             severity: :high,
+             log_name: "jobs.nats_account"
+           ) do
+        :ok ->
+          :ok
+
+        {:error, write_error} ->
+          Logger.warning(
+            "Failed to record NATS account job failure event: #{inspect(write_error)}"
+          )
+      end
     end
   end
 

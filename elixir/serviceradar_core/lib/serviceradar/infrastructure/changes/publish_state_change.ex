@@ -1,11 +1,12 @@
 defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
   @moduledoc """
-  Ash change that publishes state transition events to NATS JetStream
-  and records health events for history tracking.
+  Ash change that records state transition events and broadcasts
+  PubSub updates for live UI refreshes.
 
   This change captures the old state before a transition and:
-  1. Publishes an event to NATS JetStream for real-time notifications
-  2. Records a HealthEvent for historical tracking and UI display
+  1. Records a HealthEvent for historical tracking and UI display
+  2. Writes an OCSF event for the Events UI
+  3. Broadcasts a PubSub update for live refreshes
 
   ## Usage
 
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
       # Get reason from context or action name
       reason = get_reason(context)
 
-      # Use HealthTracker to record event and publish to NATS
+      # Use HealthTracker to record the event and broadcast PubSub updates
       HealthTracker.record_state_change(entity_type, entity_id, tenant_id,
         old_state: old_state,
         new_state: new_state,

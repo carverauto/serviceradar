@@ -25,7 +25,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     domain: ServiceRadar.Integrations,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshCloak],
+    extensions: [AshStateMachine, AshCloak],
     notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
   postgres do
@@ -48,6 +48,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_enabled, action: :enabled
     define :list_by_type, action: :by_type, args: [:source_type]
+  end
+
+  state_machine do
+    initial_states [:idle]
+    default_initial_state :idle
+    state_attribute :sync_status
+
+    transitions do
+      transition :sync_start, from: [:idle, :success, :failed], to: :running
+      transition :sync_success, from: :running, to: :success
+      transition :sync_failed, from: :running, to: :failed
+    end
   end
 
   actions do
@@ -157,6 +169,56 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
     update :disable do
       change set_attribute(:enabled, false)
+    end
+
+    update :sync_start do
+      description "Mark sync ingestion as running"
+
+      argument :device_count, :integer, default: 0
+
+      change transition_state(:running)
+      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :started}
+    end
+
+    update :sync_success do
+      description "Record a successful sync ingestion"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:success, :partial]
+      end
+
+      argument :device_count, :integer, default: 0
+
+      change transition_state(:success)
+      change atomic_update(:last_sync_at, expr(now()))
+      change atomic_update(:last_sync_result, expr(^arg(:result)))
+      change atomic_update(:last_device_count, expr(^arg(:device_count)))
+      change atomic_update(:last_error_message, expr(nil))
+      change atomic_update(:consecutive_failures, expr(0))
+      change atomic_update(:total_syncs, expr(total_syncs + 1))
+      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :finished}
+    end
+
+    update :sync_failed do
+      description "Record a failed sync ingestion"
+
+      argument :result, :atom do
+        allow_nil? false
+        constraints one_of: [:failed, :timeout]
+      end
+
+      argument :device_count, :integer, default: 0
+      argument :error_message, :string
+
+      change transition_state(:failed)
+      change atomic_update(:last_sync_at, expr(now()))
+      change atomic_update(:last_sync_result, expr(^arg(:result)))
+      change atomic_update(:last_device_count, expr(^arg(:device_count)))
+      change atomic_update(:last_error_message, expr(^arg(:error_message)))
+      change atomic_update(:consecutive_failures, expr(consecutive_failures + 1))
+      change atomic_update(:total_syncs, expr(total_syncs + 1))
+      change {ServiceRadar.Integrations.Changes.PublishSyncEvent, stage: :finished}
     end
 
     update :record_sync do
@@ -356,6 +418,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     attribute :last_error_message, :string do
       public? true
       description "Error from last failed sync"
+    end
+
+    attribute :sync_status, :atom do
+      default :idle
+      allow_nil? false
+      public? true
+      constraints one_of: [:idle, :running, :success, :failed]
+      description "Current sync ingestion state"
     end
 
     attribute :consecutive_failures, :integer do

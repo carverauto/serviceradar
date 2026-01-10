@@ -28,9 +28,15 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
                            │                       │
                            ▼                       ▼
                    ┌───────────────┐       ┌───────────────┐
-                   │  HealthEvent  │       │     NATS      │
+                   │  HealthEvent  │       │   PubSub      │
                    │  (database)   │       │  (real-time)  │
                    └───────────────┘       └───────────────┘
+                           │
+                           ▼
+                   ┌───────────────┐
+                   │  OCSF Events  │
+                   │  (database)   │
+                   └───────────────┘
 
   ## Configuration
 

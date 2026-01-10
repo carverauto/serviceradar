@@ -225,7 +225,7 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     end
 
     # State machine transition actions
-    # Each action includes PublishStateChange to emit NATS events
+    # Each action includes PublishStateChange to record health events
 
   update :activate do
     description "Activate an inactive gateway"

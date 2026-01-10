@@ -61,6 +61,8 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
           _ -> changeset
         end
       end
+
+      change ServiceRadar.Edge.Changes.PublishOnboardingEvent
     end
   end
 
