@@ -535,7 +535,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp event_time_from_event(event) do
-    case Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp") do
+    case Map.get(event, "time") || Map.get(event, "event_timestamp") ||
+           Map.get(event, "timestamp") do
       %DateTime{} = dt -> dt
       value when is_binary(value) -> parse_datetime(value)
       _ -> nil

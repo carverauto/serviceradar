@@ -596,6 +596,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     time = Map.get(row, "event_timestamp") || Map.get(row, "timestamp") || Map.get(row, "time")
     event_type = Map.get(row, "event_type") || Map.get(row, "log_name")
     source = Map.get(row, "source") || get_in(row, ["actor", "app_name"])
+
     host =
       Map.get(row, "host") || get_in(row, ["device", "hostname"]) ||
         get_in(row, ["src_endpoint", "hostname"])

@@ -1,7 +1,6 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
-    models::GatewayRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::gateways::dsl::{
         agent_count as col_agent_count, checker_count as col_checker_count,
@@ -13,11 +12,13 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Array, BigInt, Bool, Float8, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bool, Float8, Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -39,12 +40,12 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         query = bind_param(query, param)?;
     }
 
-    let rows: Vec<GatewayRow> = query
+    let rows: Vec<GatewayRowRow> = query
         .load(conn)
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows.into_iter().map(GatewayRow::into_json).collect())
+    Ok(rows.into_iter().map(GatewayRowRow::into_json).collect())
 }
 
 fn bind_param<'a>(
@@ -68,6 +69,59 @@ fn bind_param<'a>(
                 })?;
             Ok(query.bind::<Timestamptz, _>(timestamp))
         }
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct GatewayRowRow {
+    #[diesel(sql_type = Text)]
+    gateway_id: String,
+    #[diesel(sql_type = Nullable<Text>)]
+    component_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    registration_source: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    status: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    spiffe_identity: Option<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    first_registered: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    first_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    metadata: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<Text>)]
+    created_by: Option<String>,
+    #[diesel(sql_type = Nullable<Bool>)]
+    is_healthy: Option<bool>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    agent_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Int4>)]
+    checker_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    updated_at: Option<DateTime<Utc>>,
+}
+
+impl GatewayRowRow {
+    fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "gateway_id": self.gateway_id,
+            "component_id": self.component_id,
+            "registration_source": self.registration_source,
+            "status": self.status,
+            "spiffe_identity": self.spiffe_identity,
+            "first_registered": self.first_registered,
+            "first_seen": self.first_seen,
+            "last_seen": self.last_seen,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "created_by": self.created_by,
+            "is_healthy": self.is_healthy,
+            "agent_count": self.agent_count.unwrap_or(0),
+            "checker_count": self.checker_count.unwrap_or(0),
+            "updated_at": self.updated_at,
+        })
     }
 }
 
