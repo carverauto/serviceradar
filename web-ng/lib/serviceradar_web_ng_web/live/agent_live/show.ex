@@ -162,16 +162,28 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp fetch_node_info(nil), do: nil
 
   defp fetch_node_info(node) when is_atom(node) do
+    # Parallelize RPC calls to prevent blocking LiveView if node is unresponsive
     try do
-      memory = :rpc.call(node, :erlang, :memory, [], 5000)
-      {uptime_ms, _} = :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)
+      tasks = [
+        Task.async(fn -> {:memory, :rpc.call(node, :erlang, :memory, [], 5000)} end),
+        Task.async(fn -> {:wall_clock, :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)} end),
+        Task.async(fn -> {:process_count, :rpc.call(node, :erlang, :system_info, [:process_count], 5000)} end),
+        Task.async(fn -> {:port_count, :rpc.call(node, :erlang, :system_info, [:port_count], 5000)} end),
+        Task.async(fn -> {:otp_release, :rpc.call(node, :erlang, :system_info, [:otp_release], 5000)} end),
+        Task.async(fn -> {:schedulers, :rpc.call(node, :erlang, :system_info, [:schedulers], 5000)} end),
+        Task.async(fn -> {:schedulers_online, :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000)} end)
+      ]
+
+      results = Task.await_many(tasks, 6000) |> Map.new()
+      memory = results[:memory]
+      {uptime_ms, _} = results[:wall_clock]
 
       %{
-        process_count: :rpc.call(node, :erlang, :system_info, [:process_count], 5000),
-        port_count: :rpc.call(node, :erlang, :system_info, [:port_count], 5000),
-        otp_release: to_string(:rpc.call(node, :erlang, :system_info, [:otp_release], 5000)),
-        schedulers: :rpc.call(node, :erlang, :system_info, [:schedulers], 5000),
-        schedulers_online: :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000),
+        process_count: results[:process_count],
+        port_count: results[:port_count],
+        otp_release: to_string(results[:otp_release]),
+        schedulers: results[:schedulers],
+        schedulers_online: results[:schedulers_online],
         uptime_ms: uptime_ms,
         memory_total: memory[:total],
         memory_processes: memory[:processes],
@@ -191,6 +203,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp load_checks_for_agent(agent_uid, current_scope) do
     tenant_id =
       case current_scope do
+        %{active_tenant: %{id: tid}} when not is_nil(tid) -> tid
         %{user: %{tenant_id: tid}} when not is_nil(tid) -> tid
         _ -> nil
       end
