@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
@@ -194,13 +193,12 @@ type IdentityReconciliationConfig struct {
 // CoreServiceConfig represents the configuration for the core service.
 // This was previously named DBConfig but contains much more than database configuration.
 type CoreServiceConfig struct {
-	ListenAddr     string                 `json:"listen_addr"`
-	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
-	AlertThreshold time.Duration          `json:"alert_threshold"`
-	GatewayPatterns []string               `json:"gateway_patterns"`
-	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
-	KnownGateways   []string               `json:"known_gateways,omitempty"`
+	ListenAddr      string        `json:"listen_addr"`
+	GrpcAddr        string        `json:"grpc_addr"`
+	DBPath          string        `json:"db_path"` // Keep for compatibility, can be optional
+	AlertThreshold  time.Duration `json:"alert_threshold"`
+	GatewayPatterns []string      `json:"gateway_patterns"`
+	KnownGateways   []string      `json:"known_gateways,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           SNMPConfig             `json:"snmp"`
 	Security       *SecurityConfig        `json:"security"`

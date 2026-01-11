@@ -9,7 +9,6 @@ resources:
   - namespace.yaml
   - service-aliases.demo-staging.yaml
   - ingress.yaml
-  - serviceradar-core-grpc-external.yaml
   - serviceradar-datasvc-grpc-external.yaml
   - serviceradar-flowgger-external.yaml
   - spire-server-external.yaml
@@ -43,8 +42,6 @@ replacements:
           index: 4
 
 images:
-- name: ghcr.io/carverauto/serviceradar-core
-  newTag: sha-88d3a8af915b167407b36d991f757864c09dfeb5a4180de539f99498f650ebcf
 - name: ghcr.io/carverauto/serviceradar-web-ng
   newTag: sha-ea0415aa1069be6420d2d4a80a21b2a8c835f4ca8daed27000cea23e710a70a6
 - name: ghcr.io/carverauto/serviceradar-agent

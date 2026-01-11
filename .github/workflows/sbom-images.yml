@@ -153,5 +153,5 @@ jobs:
           echo "  --type spdx \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-identity-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-oidc-issuer-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
-          echo "  ghcr.io/carverauto/serviceradar-core:latest" >> $GITHUB_STEP_SUMMARY
+          echo "  ghcr.io/carverauto/serviceradar-core-elx:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

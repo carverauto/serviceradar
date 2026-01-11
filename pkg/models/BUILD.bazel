@@ -9,7 +9,6 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/models",
     visibility = ["//visibility:public"],
     deps = [
-        "//pkg/core/alerts",
         "//pkg/logger",
         "//proto/discovery",
     ],

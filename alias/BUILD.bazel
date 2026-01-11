@@ -61,32 +61,6 @@ alias(
     actual = "//pkg/consumers/netflow:netflow",
 )
 
-# pkg/core
-alias(
-    name = "core",
-    actual = "//pkg/core:core",
-)
-
-alias(
-    name = "alerts",
-    actual = "//pkg/core/alerts:alerts",
-)
-
-alias(
-    name = "api",
-    actual = "//pkg/core/api:api",
-)
-
-alias(
-    name = "core-bootstrap",
-    actual = "//pkg/core/bootstrap:bootstrap",
-)
-
-alias(
-    name = "auth",
-    actual = "//pkg/core/auth:auth",
-)
-
 # pkg/cpufreq
 alias(
     name = "cpufreq",
@@ -162,12 +136,6 @@ alias(
 alias(
     name = "mapper",
     actual = "//pkg/mapper:mapper",
-)
-
-# pkg/mcp
-alias(
-    name = "mcp",
-    actual = "//pkg/mcp:mcp",
 )
 
 # pkg/metrics
