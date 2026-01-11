@@ -143,9 +143,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     # Device targeting (DSL-based)
     attribute :target_criteria, :map, default: %{}
     # Example: %{
-    #   "discovery_sources" => %{"contains" => "armis"},
-    #   "device_class" => %{"eq" => "network"},
-    #   "type_id" => %{"in" => [9, 10, 12]},
+    #   "tags" => %{"has_any" => ["critical", "prod"]},
+    #   "tags.env" => %{"eq" => "prod"},
     #   "ip" => %{"in_cidr" => "10.0.0.0/8"},
     #   "partition" => %{"eq" => "datacenter-1"}
     # }
@@ -224,17 +223,23 @@ end
 ```elixir
 # Targeting criteria operators
 %{
-  "discovery_sources" => %{"contains" => "armis"},      # Array contains
-  "device_class" => %{"eq" => "network"},              # Exact match
-  "type_id" => %{"in" => [9, 10, 12]},                 # In list
-  "type" => %{"in" => ["router", "switch", "firewall"]}, # Type name match
-  "ip" => %{"in_cidr" => "10.0.0.0/8"},                # CIDR match
-  "partition" => %{"eq" => "datacenter-1"},             # Partition match
-  "tags" => %{"contains_any" => ["critical", "prod"]}   # Any tag match
+  "tags" => %{"has_any" => ["critical", "prod"]},      # Tag key match
+  "tags.env" => %{"eq" => "prod"},                     # Tag key/value match
+  "ip" => %{"in_cidr" => "10.0.0.0/8"},                # CIDR match (or in_range)
+  "partition" => %{"eq" => "datacenter-1"}             # Partition match
 }
 ```
 
 Criteria are compiled to SRQL at evaluation time, enabling reuse of existing query infrastructure.
+Tag operators support boolean grouping (any/all) to keep the UI simple while allowing expressive targeting.
+
+### 3.1 Device Tags
+
+**Decision**: Add `ocsf_devices.tags` as a JSONB map of user-applied labels (key/value).
+
+**Why**:
+- Tags provide a durable, user-controlled targeting mechanism for sweep groups.
+- Key/value maps allow lightweight grouping without expanding schema columns.
 
 ### 4. UI Structure
 
@@ -257,10 +262,9 @@ Settings > Networks
 │   │   ├── Basic: name, description, enabled toggle
 │   │   ├── Schedule: interval picker or cron builder
 │   │   ├── Targeting: visual query builder
-│   │   │   ├── Discovery source selector (multi-select)
-│   │   │   ├── Device class selector (server, network, endpoint, etc.)
-│   │   │   ├── Device type selector (router, switch, firewall, etc.)
-│   │   │   ├── IP/CIDR range input
+│   │   │   ├── Tag selector (key + optional value)
+│   │   │   ├── Static targets (IP/CIDR/range list)
+│   │   │   ├── Match mode (all/any groups)
 │   │   │   ├── Partition selector
 │   │   │   └── Preview: "12 devices match this criteria"
 │   │   ├── Scan config: ports, modes, profile selector (optional)
@@ -279,9 +283,8 @@ Settings > Networks
 ```
 Device Inventory
 ├── Bulk Actions dropdown
-│   └── "Add to Sweep Group..."
-│       ├── Select existing group (adds as static_targets)
-│       └── Or create new group with these devices
+│   └── "Bulk Edit"
+│       └── Apply tags to selected devices
 ├── Device Detail panel
 │   └── Sweep Status section
 │       ├── Groups targeting this device (list)
@@ -289,7 +292,7 @@ Device Inventory
 │       ├── Availability status (ICMP, TCP ports)
 │       └── Response time trends
 └── Filters sidebar
-    └── "Has Sweep Group" / "No Sweep Group" filter
+    └── Tag filter (key/value)
 ```
 
 **Visual Query Builder Component:**
@@ -297,10 +300,9 @@ Device Inventory
 ┌─────────────────────────────────────────────────────────┐
 │ Target Devices                                          │
 ├─────────────────────────────────────────────────────────┤
-│ Discovery Source: [x] armis [x] netbox [ ] snmp        │
-│ Device Class:     [x] network [ ] server [ ] endpoint  │
-│ Device Type:      [router ▾] [switch ▾] [firewall ▾]   │
-│ IP Range:         [10.0.0.0/8_____________]            │
+│ Tags:             [env=prod] [critical] [region=us]    │
+│ Static Targets:   [10.0.0.0/8, 10.0.2.10-10.0.2.50]     │
+│ Match Mode:       (all tags) (any tag)                 │
 │ Partition:        [datacenter-1 ▾]                     │
 ├─────────────────────────────────────────────────────────┤
 │ ✓ 47 devices match these criteria          [Preview]   │

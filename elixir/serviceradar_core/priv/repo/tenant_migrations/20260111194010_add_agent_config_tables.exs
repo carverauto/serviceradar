@@ -35,7 +35,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddAgentConfigTables do
            )
 
     alter table(:zen_rules, prefix: prefix()) do
-      add :jdm_definition, :map
+      add_if_not_exists :jdm_definition, :map
     end
 
     create table(:agent_config_templates, primary_key: false, prefix: prefix()) do
@@ -169,7 +169,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddAgentConfigTables do
     drop table(:agent_config_templates, prefix: prefix())
 
     alter table(:zen_rules, prefix: prefix()) do
-      remove :jdm_definition
+      remove_if_exists :jdm_definition
     end
 
     drop_if_exists index(:agent_config_versions, [:config_instance_id, :version],

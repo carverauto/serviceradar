@@ -41,9 +41,11 @@
 - [x] 2.2.1 Implement `TargetCriteria` module for DSL parsing
 - [x] 2.2.2 Implement criteria-to-SRQL compiler
 - [x] 2.2.3 Add `in_cidr` operator for IP range matching
-- [x] 2.2.4 Add `contains` operator for array fields (discovery_sources)
-- [x] 2.2.5 Implement target count preview query
-- [x] 2.2.6 Add validation for target_criteria attribute
+- [ ] 2.2.4 Add `in_range` operator for explicit IP ranges
+- [ ] 2.2.5 Add tag match operators for map fields (has_any/has_all/eq)
+- [ ] 2.2.6 Add boolean grouping (all/any) support
+- [ ] 2.2.7 Update target count preview for tag/static target filters
+- [ ] 2.2.8 Update validation for target_criteria attribute (tags/ranges)
 
 ### 2.3 Sweep Config Compiler
 - [x] 2.3.1 Implement `SweepCompiler` behaviour module
@@ -52,6 +54,11 @@
 - [x] 2.3.4 Merge profile settings with group overrides
 - [x] 2.3.5 Handle multiple groups per agent (merge configs)
 - [x] 2.3.6 Populate device_targets with metadata
+
+### 2.4 Device Tags Schema
+- [ ] 2.4.1 Add `ocsf_devices.tags` column (JSONB map) via Ash migration
+- [ ] 2.4.2 Update Ash resource to expose tags attribute
+- [ ] 2.4.3 Update DIRE/device ingestion to preserve tags on updates
 
 ---
 
@@ -70,8 +77,8 @@
 - [x] 3.2.2 Implement group create/edit form
 - [x] 3.2.3 Add interval picker component (5m, 15m, 30m, 1h, 2h, 6h, 12h, 24h)
 - [x] 3.2.4 Add cron expression builder (optional)
-- [x] 3.2.5 Create visual query builder component for targeting
-- [x] 3.2.6 Implement live target count preview
+- [ ] 3.2.5 Update visual query builder for tags + static targets + match mode
+- [ ] 3.2.6 Implement live target count preview for tag-based rules
 - [x] 3.2.7 Add partition/agent selectors
 - [x] 3.2.8 Implement group enable/disable toggle
 - [x] 3.2.9 Add "Run Now" action button
@@ -94,10 +101,9 @@
 ## Phase 4: Device Inventory Integration
 
 ### 4.1 Bulk Actions
-- [x] 4.1.1 Add "Add to Sweep Group" bulk action to device list
-- [x] 4.1.2 Create sweep group selector modal
-- [x] 4.1.3 Add "Create New Group" option in modal
-- [x] 4.1.4 Implement adding selected devices as static_targets
+- [ ] 4.1.1 Rename bulk action to "Bulk Edit" and reuse existing bulk editor
+- [ ] 4.1.2 Limit bulk editor to tag application (no sweep group creation)
+- [ ] 4.1.3 Persist tag updates via Ash for selected devices
 
 ### 4.2 Device Detail Panel
 - [x] 4.2.1 Add "Sweep Status" section to device detail
@@ -106,7 +112,7 @@
 - [x] 4.2.4 Add link to group detail from device
 
 ### 4.3 Filters
-- [x] 4.3.1 Add "Has Sweep Group" filter to device list (via discovery_sources:sweep filter)
+- [ ] 4.3.1 Add tag filter (key/value) to device list
 - [x] 4.3.2 Add "Sweep Status" filter (available, unavailable, never swept)
 
 ---

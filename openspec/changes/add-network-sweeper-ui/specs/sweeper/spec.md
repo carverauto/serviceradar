@@ -22,9 +22,9 @@ The agent SHALL push sweep results to the agent-gateway using the existing gRPC 
 - **GIVEN** sweep results for devices with metadata (from device_targets)
 - **WHEN** results are pushed
 - **THEN** each host result SHALL include:
-  - Source discovery system (armis, netbox, etc.)
+  - Tag context used for targeting (tag keys/values)
   - Query label from sweep job
-  - Device identifiers if known (armis_device_id, integration_id)
+  - Device identifiers if known (integration_id)
 
 ---
 

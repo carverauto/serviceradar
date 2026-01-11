@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias AshPhoenix.Form
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepProfile, SweepPubSub}
 
@@ -99,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:selected_group, nil)
       |> assign(:selected_profile, nil)
       |> assign(:show_form, nil)
+      |> assign(:ash_form, nil)
       |> assign(:form, nil)
       # Criteria builder state
       |> assign(:criteria_rules, [])
@@ -117,17 +119,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket
     |> assign(:page_title, "Network Sweeps")
     |> assign(:show_form, nil)
+    |> assign(:ash_form, nil)
     |> assign(:selected_group, nil)
     |> assign(:selected_profile, nil)
   end
 
   defp apply_action(socket, :new_group, _params) do
-    changeset = SweepGroup |> Ash.Changeset.for_create(:create, %{})
+    scope = socket.assigns.current_scope
+    ash_form = Form.for_create(SweepGroup, :create, domain: ServiceRadar.SweepJobs, scope: scope)
 
     socket
     |> assign(:page_title, "New Sweep Group")
     |> assign(:show_form, :new_group)
-    |> assign(:form, to_form(changeset))
+    |> assign(:ash_form, ash_form)
+    |> assign(:form, to_form(ash_form))
     |> assign(:criteria_rules, [])
     |> assign(:target_count, nil)
   end
@@ -140,14 +145,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> push_navigate(to: ~p"/settings/networks")
 
       group ->
-        changeset = group |> Ash.Changeset.for_update(:update, %{})
+        scope = socket.assigns.current_scope
+        ash_form = Form.for_update(group, :update, domain: ServiceRadar.SweepJobs, scope: scope)
         rules = criteria_to_rules(group.target_criteria || %{})
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
         |> assign(:show_form, :edit_group)
         |> assign(:selected_group, group)
-        |> assign(:form, to_form(changeset))
+        |> assign(:ash_form, ash_form)
+        |> assign(:form, to_form(ash_form))
         |> assign(:criteria_rules, rules)
         |> assign(:target_count, nil)
     end
@@ -169,12 +176,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp apply_action(socket, :new_profile, _params) do
-    changeset = SweepProfile |> Ash.Changeset.for_create(:create, %{})
+    scope = socket.assigns.current_scope
+    ash_form = Form.for_create(SweepProfile, :create, domain: ServiceRadar.SweepJobs, scope: scope)
 
     socket
     |> assign(:page_title, "New Scanner Profile")
     |> assign(:show_form, :new_profile)
-    |> assign(:form, to_form(changeset))
+    |> assign(:ash_form, ash_form)
+    |> assign(:form, to_form(ash_form))
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -185,13 +194,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> push_navigate(to: ~p"/settings/networks")
 
       profile ->
-        changeset = profile |> Ash.Changeset.for_update(:update, %{})
+        scope = socket.assigns.current_scope
+        ash_form = Form.for_update(profile, :update, domain: ServiceRadar.SweepJobs, scope: scope)
 
         socket
         |> assign(:page_title, "Edit Scanner Profile")
         |> assign(:show_form, :edit_profile)
         |> assign(:selected_profile, profile)
-        |> assign(:form, to_form(changeset))
+        |> assign(:ash_form, ash_form)
+        |> assign(:form, to_form(ash_form))
     end
   end
 
@@ -210,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       group ->
         action = if group.enabled, do: :disable, else: :enable
 
-        case Ash.update(group, action, actor: build_actor(scope), tenant: get_tenant(scope)) do
+        case Ash.update(group, action, scope: scope) do
           {:ok, _updated} ->
             {:noreply,
              socket
@@ -231,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply, put_flash(socket, :error, "Sweep group not found")}
 
       group ->
-        case Ash.destroy(group, actor: build_actor(scope), tenant: get_tenant(scope)) do
+        case Ash.destroy(group, scope: scope) do
           :ok ->
             {:noreply,
              socket
@@ -252,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply, put_flash(socket, :error, "Scanner profile not found")}
 
       profile ->
-        case Ash.destroy(profile, actor: build_actor(scope), tenant: get_tenant(scope)) do
+        case Ash.destroy(profile, scope: scope) do
           :ok ->
             {:noreply,
              socket
@@ -267,59 +278,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("save_group", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
     # Convert criteria rules to target_criteria map
     target_criteria = rules_to_criteria(socket.assigns.criteria_rules)
     params = Map.put(params, "target_criteria", target_criteria)
 
-    result =
-      case socket.assigns.show_form do
-        :new_group ->
-          SweepGroup
-          |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
-          |> Ash.create()
+    ash_form =
+      socket.assigns.ash_form
+      |> Form.validate(params)
 
-        :edit_group ->
-          socket.assigns.selected_group
-          |> Ash.Changeset.for_update(:update, params, actor: actor, tenant: tenant)
-          |> Ash.update()
-      end
-
-    case result do
+    case Form.submit(ash_form, params: params) do
       {:ok, _group} ->
         {:noreply,
          socket
          |> assign(:sweep_groups, load_sweep_groups(scope))
          |> assign(:criteria_rules, [])
-         |> put_flash(:info, "Sweep group saved")
-         |> push_navigate(to: ~p"/settings/networks")}
+          |> put_flash(:info, "Sweep group saved")
+          |> push_navigate(to: ~p"/settings/networks")}
 
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
+      {:error, ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:ash_form, ash_form)
+         |> assign(:form, to_form(ash_form))}
     end
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
+    ash_form =
+      socket.assigns.ash_form
+      |> Form.validate(params)
 
-    result =
-      case socket.assigns.show_form do
-        :new_profile ->
-          SweepProfile
-          |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
-          |> Ash.create()
-
-        :edit_profile ->
-          socket.assigns.selected_profile
-          |> Ash.Changeset.for_update(:update, params, actor: actor, tenant: tenant)
-          |> Ash.update()
-      end
-
-    case result do
+    case Form.submit(ash_form, params: params) do
       {:ok, _profile} ->
         {:noreply,
          socket
@@ -327,47 +317,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> put_flash(:info, "Scanner profile saved")
          |> push_navigate(to: ~p"/settings/networks")}
 
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
+      {:error, ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:ash_form, ash_form)
+         |> assign(:form, to_form(ash_form))}
     end
   end
 
   def handle_event("validate_group", %{"form" => params}, socket) do
-    scope = socket.assigns.current_scope
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
+    target_criteria = rules_to_criteria(socket.assigns.criteria_rules)
+    params = Map.put(params, "target_criteria", target_criteria)
 
-    changeset =
-      case socket.assigns.show_form do
-        :new_group ->
-          SweepGroup
-          |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
+    ash_form =
+      socket.assigns.ash_form
+      |> Form.validate(params)
 
-        :edit_group ->
-          socket.assigns.selected_group
-          |> Ash.Changeset.for_update(:update, params, actor: actor, tenant: tenant)
-      end
-
-    {:noreply, assign(socket, :form, to_form(changeset))}
+    {:noreply,
+     socket
+     |> assign(:ash_form, ash_form)
+     |> assign(:form, to_form(ash_form))}
   end
 
   def handle_event("validate_profile", %{"form" => params}, socket) do
-    scope = socket.assigns.current_scope
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
+    ash_form =
+      socket.assigns.ash_form
+      |> Form.validate(params)
 
-    changeset =
-      case socket.assigns.show_form do
-        :new_profile ->
-          SweepProfile
-          |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
-
-        :edit_profile ->
-          socket.assigns.selected_profile
-          |> Ash.Changeset.for_update(:update, params, actor: actor, tenant: tenant)
-      end
-
-    {:noreply, assign(socket, :form, to_form(changeset))}
+    {:noreply,
+     socket
+     |> assign(:ash_form, ash_form)
+     |> assign(:form, to_form(ash_form))}
   end
 
   # Criteria builder handlers
@@ -1867,63 +1847,44 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Helpers
 
   defp load_sweep_groups(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.read(SweepGroup, actor: actor, tenant: tenant, authorize?: false) do
+    case Ash.read(SweepGroup, scope: scope, authorize?: false) do
       {:ok, groups} -> groups
       {:error, _} -> []
     end
   end
 
   defp load_sweep_group(scope, id) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.get(SweepGroup, id, actor: actor, tenant: tenant, authorize?: false) do
+    case Ash.get(SweepGroup, id, scope: scope, authorize?: false) do
       {:ok, group} -> group
       {:error, _} -> nil
     end
   end
 
   defp load_sweep_profiles(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.read(SweepProfile, actor: actor, tenant: tenant, authorize?: false) do
+    case Ash.read(SweepProfile, scope: scope, authorize?: false) do
       {:ok, profiles} -> profiles
       {:error, _} -> []
     end
   end
 
   defp load_sweep_profile(scope, id) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.get(SweepProfile, id, actor: actor, tenant: tenant, authorize?: false) do
+    case Ash.get(SweepProfile, id, scope: scope, authorize?: false) do
       {:ok, profile} -> profile
       {:error, _} -> nil
     end
   end
 
   defp load_running_executions(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.read(SweepGroupExecution, action: :running, actor: actor, tenant: tenant, authorize?: false) do
+    case Ash.read(SweepGroupExecution, action: :running, scope: scope, authorize?: false) do
       {:ok, executions} -> executions
       {:error, _} -> []
     end
   end
 
   defp load_recent_executions(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
     case Ash.read(SweepGroupExecution,
            action: :recent,
-           actor: actor,
-           tenant: tenant,
+           scope: scope,
            authorize?: false
          ) do
       {:ok, executions} ->
@@ -1932,28 +1893,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       {:error, _} ->
         []
-    end
-  end
-
-  defp build_actor(scope) do
-    case scope do
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
-        }
-
-      _ ->
-        %{id: "system", email: "system@serviceradar", role: :admin}
-    end
-  end
-
-  defp get_tenant(scope) do
-    case Scope.tenant_id(scope) do
-      nil -> nil
-      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
     end
   end
 

@@ -18,12 +18,11 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 - **THEN** the sweep group SHALL be saved with its unique schedule
 - **AND** be available for targeting device selections
 
-#### Scenario: Sweep group with device class filter
+#### Scenario: Sweep group with tag-based targeting
 - **GIVEN** a sweep group configuration form
 - **WHEN** the user configures targeting with:
-  - discovery_sources contains "armis"
-  - device_class = "network"
-  - device_type in ["router", "switch", "firewall"]
+  - tags has_any ["critical", "prod"]
+  - tags.env = "prod"
 - **THEN** the filter SHALL be saved as part of the sweep group
 - **AND** the query SHALL be evaluated at sweep execution time
 
@@ -49,34 +48,35 @@ The system SHALL provide Ash resources and UI for creating sweep groups that com
 
 The system SHALL provide a flexible device targeting language for sweep groups based on device attributes.
 
-#### Scenario: Target by discovery source
+#### Scenario: Target by tag key
 - **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `discovery_sources contains 'armis'`
-- **THEN** the sweep SHALL target all devices with "armis" in their discovery_sources array
+- **WHEN** the user specifies `tags has_any ['critical']`
+- **THEN** the sweep SHALL target all devices with the "critical" tag key
 
-#### Scenario: Target by device type
+#### Scenario: Target by tag key/value
 - **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `type_id in [9, 10, 12]` (firewall, switch, router)
-- **THEN** the sweep SHALL target only devices matching those OCSF type IDs
-
-#### Scenario: Target by device class
-- **GIVEN** a sweep group targeting configuration
-- **WHEN** the user specifies `device_class = 'network'`
-- **THEN** the sweep SHALL target devices classified as network infrastructure
+- **WHEN** the user specifies `tags.env = 'prod'`
+- **THEN** the sweep SHALL target devices with `tags.env` set to "prod"
 
 #### Scenario: Target by IP range
 - **GIVEN** a sweep group targeting configuration
 - **WHEN** the user specifies `ip in_cidr '10.0.0.0/8'`
 - **THEN** the sweep SHALL target devices with IPs in the 10.x.x.x range
 
+#### Scenario: Target by static targets
+- **GIVEN** a sweep group targeting configuration
+- **WHEN** the user provides static targets `["10.0.0.10", "10.0.2.0/24"]`
+- **THEN** the sweep SHALL always include those targets
+- **AND** merge them with tag-based criteria results
+
 #### Scenario: Combined targeting criteria
 - **GIVEN** a sweep group with multiple targeting criteria
 - **WHEN** the criteria are:
-  - discovery_sources contains 'armis'
-  - device_class = 'network'
+  - tags has_any ['critical', 'prod']
+  - ip in_cidr '10.0.0.0/8'
   - partition = 'datacenter-1'
-- **THEN** all criteria SHALL be ANDed together
-- **AND** only devices matching ALL criteria SHALL be targeted
+- **THEN** the criteria SHALL support boolean grouping (all/any)
+- **AND** only devices matching the configured logic SHALL be targeted
 
 ---
 
@@ -109,20 +109,12 @@ The system SHALL provide Ash resources and admin UI for managing reusable scanne
 
 The system SHALL provide Ash resources for defining sweep jobs that target specific devices or device selections.
 
-#### Scenario: Create sweep job from bulk device selection
-- **GIVEN** a user viewing the device inventory
-- **WHEN** they select multiple devices and choose "Configure Sweep"
-- **THEN** a sweep job form SHALL appear with the selected devices as targets
-- **AND** the user SHALL select a partition and optionally an agent
-- **AND** the user SHALL select a scanner profile
-
 #### Scenario: Create sweep job by device query
 - **GIVEN** an admin in Settings > Networks
 - **WHEN** they create a sweep job with device query criteria
 - **THEN** they SHALL be able to filter by:
-  - IP address range (CIDR notation)
-  - Discovery sources (armis, netbox, snmp, etc.)
-  - Tags or metadata
+  - Tag keys and optional tag values
+  - Static targets (IPs/CIDRs/ranges)
   - Partition
 - **AND** the query SHALL be saved and re-evaluated on each sweep
 
@@ -158,7 +150,7 @@ The system SHALL compile sweep job configurations into the agent-consumable JSON
   - `device_targets`: per-device configurations with metadata
 
 #### Scenario: Device query evaluation at compile time
-- **GIVEN** a sweep job with device query "discovery_sources contains 'armis'"
+- **GIVEN** a sweep job with device query "tags.env = 'prod'"
 - **WHEN** the config is compiled
 - **THEN** the query SHALL be evaluated against current device inventory
 - **AND** matching device IPs SHALL populate `networks` as /32 CIDRs
@@ -242,22 +234,27 @@ The system SHALL track sweep job execution status and history.
 
 ---
 
-### Requirement: Device Bulk Edit for Sweep Configuration
+### Requirement: Device Bulk Edit for Tagging
 
-The system SHALL allow users to configure sweep settings for multiple devices via bulk edit.
+The system SHALL allow users to apply tags to multiple devices via bulk edit.
 
-#### Scenario: Bulk select devices for sweep
+#### Scenario: Bulk select devices for tag application
 - **GIVEN** a user in the device inventory view
 - **WHEN** they select multiple devices using checkboxes
-- **AND** choose "Configure Network Sweep" from bulk actions
-- **THEN** a modal SHALL appear with sweep configuration options
+- **AND** choose "Bulk Edit" from bulk actions
+- **THEN** the bulk editor SHALL allow tag application for the selection
 
-#### Scenario: Apply sweep config to selection
-- **GIVEN** the bulk sweep configuration modal
-- **WHEN** the user selects partition, profile, and optional agent
+#### Scenario: Apply tags to selection
+- **GIVEN** the bulk editor
+- **WHEN** the user adds tags (key or key/value)
 - **AND** confirms the operation
-- **THEN** a sweep job SHALL be created targeting those devices
-- **AND** the job SHALL use the selected devices' IPs as targets
+- **THEN** the selected devices SHALL have those tags applied
+
+---
+
+### Requirement: Device Sweep Status Display
+
+The system SHALL display sweep status details in the device detail view.
 
 #### Scenario: View device sweep status
 - **GIVEN** a device with an active sweep job
