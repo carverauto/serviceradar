@@ -1,8 +1,5 @@
-# build-web-ui Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change remove-legacy-web-build. Update Purpose after archive.
-## Requirements
 ### Requirement: Default builds exclude legacy Next.js UI outputs
 The build system SHALL only build `serviceradar-web-ng` (Phoenix) UI artifacts. The legacy `serviceradar-web` (Next.js) source code and all associated build targets have been completely removed from the codebase.
 
@@ -32,4 +29,3 @@ Default deployment manifests SHALL deploy the Phoenix `web-ng` UI. The legacy `s
 - **WHEN** they are rendered/applied
 - **THEN** UI resources reference `serviceradar-web-ng`
 - **AND** no legacy web packaging or RPM specs exist.
-

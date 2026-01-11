@@ -7,8 +7,6 @@ title: Installation Guide
 
 ServiceRadar components are distributed as Debian packages for Ubuntu/Debian systems and RPM packages for RHEL/Oracle Linux systems. Below are the recommended installation steps for different deployment scenarios.
 
-> Note: The legacy Next.js UI (`serviceradar-web`) is deprecated. The Phoenix `serviceradar-web-ng` package is now the supported web UI.
-
 ## Debian/Ubuntu Installation
 
 ### Standard Setup (Recommended)
