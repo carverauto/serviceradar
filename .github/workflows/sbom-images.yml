@@ -44,8 +44,6 @@ jobs:
             repo: ghcr.io/carverauto/serviceradar-trapd
           - name: serviceradar-otel
             repo: ghcr.io/carverauto/serviceradar-otel
-          - name: serviceradar-web
-            repo: ghcr.io/carverauto/serviceradar-web
           - name: serviceradar-srql
             repo: ghcr.io/carverauto/serviceradar-srql
           - name: serviceradar-db-event-writer

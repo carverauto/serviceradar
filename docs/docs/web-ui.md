@@ -5,9 +5,7 @@ title: Web UI Configuration
 
 # Web UI Configuration
 
-ServiceRadar includes a Phoenix LiveView web interface (web-ng) that provides a dashboard for monitoring your infrastructure. This guide includes legacy Next.js details for reference only.
-
-> Note: The legacy Next.js UI (`serviceradar-web`) is deprecated. The supported UI is `serviceradar-web-ng`.
+ServiceRadar includes a Phoenix LiveView web interface (web-ng) that provides a dashboard for monitoring your infrastructure.
 
 ## Web-NG (Current)
 
@@ -19,7 +17,6 @@ sudo dpkg -i serviceradar-web-ng_1.0.21.deb
 ```
 
 Use Caddy (default for Docker Compose) or your ingress proxy to terminate TLS and forward traffic to `http://127.0.0.1:4000`. Route `/api/*`, `/api/query`, and `/api/stream` to Web-NG.
-The remaining sections document the deprecated Next.js stack for reference.
 
 ## Overview
 
@@ -45,36 +42,7 @@ graph LR
 - **Web-NG** runs on port 4000 and handles `/api/*`, `/api/query`, and `/api/stream` endpoints
 - API requests from the UI are signed with short-lived JWTs issued by Web-NG
 
-## Installation
-
-The web UI is installed via the `serviceradar-web` package:
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-web_1.0.21.deb
-sudo dpkg -i serviceradar-web_1.0.21.deb
-```
-
-:::note
-It's recommended to install the `serviceradar-core` package first, as the web UI depends on it.
-:::
-
 ## Configuration
-
-### Web UI Configuration
-
-Edit `/etc/serviceradar/web.json`:
-
-```json
-{
-  "port": 3000,
-  "host": "0.0.0.0",
-  "api_url": "http://localhost:8090"
-}
-```
-
-- `port`: The port for the Next.js application (default: 3000)
-- `host`: The host address to bind to
-- `api_url`: The URL for the core API service
 
 ### Caddy Configuration
 
@@ -98,7 +66,7 @@ You can customize this file for your specific domain or enable automatic HTTPS.
 ServiceRadar issues RS256-signed JSON Web Tokens (JWTs) for every authenticated user session. Web-NG validates those tokens on every `/api/*` request.
 
 1. **Login flow** – The Web UI posts credentials to `/api/auth/login`. Web-NG responds with a short-lived access token and a refresh token.
-2. **Token storage** – Next.js stores the refresh token in an HttpOnly cookie and keeps the access token server-side. Browser requests never see the raw bearer token.
+2. **Token storage** – Web-NG stores the refresh token in an HttpOnly cookie and keeps the access token server-side. Browser requests never see the raw bearer token.
 3. **Validation** – Web-NG validates JWTs directly using its signing keys. The JWKS endpoint (`/auth/jwks.json`) is available for external validators.
 4. **Automatic rotation** – When the Core rotates its signing key (new `kid`), the JWKS feed updates immediately.
 
@@ -114,7 +82,7 @@ SRQL endpoints exposed at `/api/query` and `/api/stream` reuse the same JWT vali
 
 The web UI includes several security features:
 
-1. **Server-side rendering**: The Next.js application runs in SSR mode, which keeps sensitive code on the server
+1. **Server-side rendering**: Phoenix LiveView runs server-side, keeping sensitive code on the server
 2. **JWT-aware middleware**: Server-side handlers attach validated access tokens to upstream API requests
 3. **Web-NG enforcement**: Web-NG validates JWTs, rate limits traffic, and strips untrusted headers before processing requests
 4. **Isolation**: The web UI runs as a separate service with limited permissions

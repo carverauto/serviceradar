@@ -353,27 +353,11 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
 	@cp cmd/flowgger/target/release/flowgger bin/serviceradar-flowgger
 
-.PHONY: kodata-prep
-kodata-prep: build-web ## Prepare kodata directories
-	@echo "$(COLOR_BOLD)Preparing kodata directories$(COLOR_RESET)"
-	@mkdir -p cmd/core/.kodata
-	@cp -r pkg/core/api/web/dist cmd/core/.kodata/web
-
 # Build Debian packages
 .PHONY: deb-agent
-deb-agent: build-web ## Build the agent Debian package
+deb-agent: ## Build the agent Debian package
 	@echo "$(COLOR_BOLD)Building agent Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-
-.PHONY: deb-core
-deb-core: build-web ## Build the core Debian package (standard)
-	@echo "$(COLOR_BOLD)Building core Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb core
-
-.PHONY: deb-web
-deb-web: build-web ## Build the web Debian package
-	@echo "$(COLOR_BOLD)Building web Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 
 .PHONY: deb-kv
 deb-kv: ## Build the KV Debian package
@@ -384,11 +368,6 @@ deb-kv: ## Build the KV Debian package
 deb-sync: ## Build the KV Sync Debian package
 	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
-
-.PHONY: deb-core-container
-deb-core-container: build-web ## Build the core Debian package with container support
-	@echo "$(COLOR_BOLD)Building core Debian package with container support$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
 
 .PHONY: deb-dusk
 deb-dusk: ## Build the Dusk checker Debian package
@@ -426,11 +405,9 @@ deb-all: ## Build all Debian packages
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb --all
 
 .PHONY: deb-all-container
-deb-all-container: ## Build all Debian packages with container support for core
-	@echo "$(COLOR_BOLD)Building all Debian packages with container support for core$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
+deb-all-container: ## Build all Debian packages
+	@echo "$(COLOR_BOLD)Building all Debian packages$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb nats
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
@@ -442,20 +419,10 @@ deb-all-container: ## Build all Debian packages with container support for core
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon-checker
 
 # Build RPM packages
-.PHONY: rpm-core
-rpm-core: ## Build the core RPM package
-	@echo "$(COLOR_BOLD)Building core RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm core
-
 .PHONY: rpm-agent
 rpm-agent: ## Build the agent RPM package
 	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm agent
-
-.PHONY: rpm-web
-rpm-web: ## Build the web RPM package
-	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm web
 
 .PHONY: rpm-nats
 rpm-nats: ## Build the NATS RPM package
@@ -532,12 +499,6 @@ docs-deploy: ## Deploy Docusaurus website to GitHub pages
 docs-setup: ## Initial setup for Docusaurus development
 	@echo "$(COLOR_BOLD)Setting up Docusaurus development environment$(COLOR_RESET)"
 	@cd docs && pnpm install
-
-# Web UI build
-.PHONY: build-web
-build-web: ## Build the Next.js web interface
-	@echo "$(COLOR_BOLD)Legacy Next.js web build is disabled; use web-ng$(COLOR_RESET)"
-	@exit 1
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker
