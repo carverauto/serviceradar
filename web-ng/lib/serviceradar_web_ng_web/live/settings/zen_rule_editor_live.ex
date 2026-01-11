@@ -187,81 +187,63 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
           </div>
         </div>
 
-        <div class={[
-          "grid gap-6 transition-all duration-200",
-          if(@properties_collapsed, do: "grid-cols-1", else: "grid-cols-1 lg:grid-cols-[320px_1fr]")
-        ]}>
-          <!-- Rule Properties Panel - Collapsible -->
+        <!-- Single form that persists across all states -->
+        <.form
+          for={@form}
+          id="zen_rule_form"
+          class="contents"
+          phx-change="validate"
+          phx-submit="save"
+        >
           <div class={[
-            "transition-all duration-200 overflow-hidden",
-            if(@properties_collapsed, do: "lg:hidden", else: "space-y-4")
+            "grid gap-6 transition-all duration-200",
+            if(@properties_collapsed, do: "grid-cols-1", else: "grid-cols-1 lg:grid-cols-[320px_1fr]")
           ]}>
-            <.ui_panel>
-              <:header>
-                <div class="text-sm font-semibold">Rule Properties</div>
-              </:header>
+            <!-- Rule Properties Panel - Collapsible -->
+            <div class={[
+              "transition-all duration-200",
+              if(@properties_collapsed, do: "hidden lg:hidden", else: "space-y-4")
+            ]}>
+              <.ui_panel>
+                <:header>
+                  <div class="text-sm font-semibold">Rule Properties</div>
+                </:header>
 
-              <.form
-                for={@form}
-                id="zen_rule_form"
-                class="space-y-3"
-                phx-change="validate"
-                phx-submit="save"
-              >
-                <.input field={@form[:name]} label="Rule ID" placeholder="my-rule-name" />
-                <.input field={@form[:description]} label="Description" type="textarea" rows="2" />
-                <.input
-                  field={@form[:subject]}
-                  label="Subject"
-                  type="text"
-                  placeholder="logs.syslog"
-                  list="zen-subjects"
-                />
-                <datalist id="zen-subjects">
-                  <option value="logs.syslog" />
-                  <option value="logs.snmp" />
-                  <option value="logs.otel" />
-                  <option value="otel.metrics.raw" />
-                  <option value="logs.internal.health" />
-                  <option value="logs.internal.jobs" />
-                </datalist>
-                <.input field={@form[:order]} label="Priority order" type="number" />
-                <.input field={@form[:enabled]} label="Enabled" type="checkbox" />
-                <.input field={@form[:stream_name]} type="hidden" value="events" />
-                <.input field={@form[:agent_id]} type="hidden" value="default-agent" />
-                <.input field={@form[:template]} type="hidden" value="passthrough" />
+                <div class="space-y-3">
+                  <.input field={@form[:name]} label="Rule ID" placeholder="my-rule-name" />
+                  <.input field={@form[:description]} label="Description" type="textarea" rows="2" />
+                  <.input
+                    field={@form[:subject]}
+                    label="Subject"
+                    type="text"
+                    placeholder="logs.syslog"
+                    list="zen-subjects"
+                  />
+                  <datalist id="zen-subjects">
+                    <option value="logs.syslog" />
+                    <option value="logs.snmp" />
+                    <option value="logs.otel" />
+                    <option value="otel.metrics.raw" />
+                    <option value="logs.internal.health" />
+                    <option value="logs.internal.jobs" />
+                  </datalist>
+                  <.input field={@form[:order]} label="Priority order" type="number" />
+                  <.input field={@form[:enabled]} label="Enabled" type="checkbox" />
+                  <.input field={@form[:stream_name]} type="hidden" value="events" />
+                  <.input field={@form[:agent_id]} type="hidden" value="default-agent" />
+                  <.input field={@form[:template]} type="hidden" value="passthrough" />
 
-                <div class="pt-2">
-                  <.button variant="primary" class="w-full" phx-disable-with="Saving...">
-                    <.icon name="hero-check" class="w-4 h-4 mr-2" />
-                    Save Rule
-                  </.button>
+                  <div class="pt-2">
+                    <.button variant="primary" class="w-full" phx-disable-with="Saving...">
+                      <.icon name="hero-check" class="w-4 h-4 mr-2" />
+                      Save Rule
+                    </.button>
+                  </div>
                 </div>
-              </.form>
-            </.ui_panel>
-          </div>
+              </.ui_panel>
+            </div>
 
-          <!-- Collapsed Properties Summary (visible when collapsed on large screens) -->
-          <div :if={@properties_collapsed} class="hidden lg:block">
-            <.form
-              for={@form}
-              id="zen_rule_form"
-              class="hidden"
-              phx-change="validate"
-              phx-submit="save"
-            >
-              <.input field={@form[:name]} type="hidden" />
-              <.input field={@form[:description]} type="hidden" />
-              <.input field={@form[:subject]} type="hidden" />
-              <.input field={@form[:order]} type="hidden" />
-              <.input field={@form[:enabled]} type="hidden" />
-              <.input field={@form[:stream_name]} type="hidden" value="events" />
-              <.input field={@form[:agent_id]} type="hidden" value="default-agent" />
-              <.input field={@form[:template]} type="hidden" value="passthrough" />
-            </.form>
-          </div>
-
-          <!-- JDM Editor Panel -->
+            <!-- JDM Editor Panel -->
           <.ui_panel class={[
             "min-h-[600px]",
             if(@properties_collapsed, do: "lg:col-span-1", else: "")
@@ -311,7 +293,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
               />
             </div>
           </.ui_panel>
-        </div>
+          </div>
+        </.form>
       </.settings_shell>
     </Layouts.app>
     """

@@ -118,13 +118,15 @@ const Hooks = {
         }, []);
 
         // Wrap in a full-height container - ReactFlow needs explicit height
-        // Apply theme class to container for JDM editor styling
+        // Pass theme config with mode for JDM editor dark mode support
+        const themeConfig = { mode: theme };
+
         return React.createElement('div', {
           style: { height: '100%', width: '100%' },
           className: theme === 'dark' ? 'grl-dark' : 'grl-light',
           'data-theme': theme
         },
-          React.createElement(JdmConfigProvider, { theme },
+          React.createElement(JdmConfigProvider, { theme: themeConfig },
             React.createElement(DecisionGraph, {
               value: definition,
               onChange: handleChange,
@@ -163,12 +165,14 @@ const Hooks = {
           }, []);
 
           // Wrap in a full-height container - ReactFlow needs explicit height
+          const themeConfig = { mode: theme };
+
           return React.createElement('div', {
             style: { height: '100%', width: '100%' },
             className: theme === 'dark' ? 'grl-dark' : 'grl-light',
             'data-theme': theme
           },
-            React.createElement(JdmConfigProvider, { theme },
+            React.createElement(JdmConfigProvider, { theme: themeConfig },
               React.createElement(DecisionGraph, {
                 value: def,
                 onChange: handleChange,
