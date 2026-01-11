@@ -5,7 +5,7 @@ title: Agents & Demo Operations
 
 # Agents & Demo Operations
 
-This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → sync → core) and the backing CNPG/Timescale telemetry database.
+This runbook captures the operational steps we used while debugging the canonical device pipeline in the demo cluster. It focuses on the pieces that interact with the "agent" side of the world (faker → agent w/ embedded sync → core) and the backing CNPG/Timescale telemetry database.
 
 ## Rebuilding the SPIRE CNPG cluster (TimescaleDB + AGE)
 
@@ -168,12 +168,12 @@ the CNPG-backed API surface end-to-end. The helper:
 - Logs into `serviceradar-core` and calls `/api/devices`, `/api/services/tree`,
   `/api/devices/metrics/status`, and the CNPG-backed metrics endpoints to prove
   the registry + metrics APIs stay reachable.
-- Publishes a lifecycle CloudEvent to `events.devices.lifecycle` and polls the
-  Timescale `events` table to confirm the db-event-writer path processed the
-  payload (the script logs a warning instead of failing when the events table is
+- Publishes an OCSF event to `events.ocsf.processed` and polls the Timescale
+  `ocsf_events` table to confirm the db-event-writer path processed the payload
+  (the script logs a warning instead of failing when the ocsf_events table is
   empty, which is the norm in quiet demo-staging windows).
-- Verifies the CNPG client wiring by running `SELECT COUNT(*) FROM events`
-  directly against the database when a fresh CloudEvent is not observable.
+- Verifies the CNPG client wiring by running `SELECT COUNT(*) FROM ocsf_events`
+  directly against the database when a fresh OCSF event is not observable.
 
 Pass `NAMESPACE=<ns>` to target a different environment.
 
@@ -194,10 +194,10 @@ kubectl exec -n demo deploy/serviceradar-faker -- ls /var/lib/serviceradar/faker
 
 This clears the CNPG-backed telemetry tables and repopulates them with a fresh discovery crawl from the faker service.
 
-1. **Quiesce sync** – stop new writes while we clear the tables:
+1. **Quiesce embedded sync** – stop new writes while we clear the tables:
 
    ```bash
-   kubectl scale deployment/serviceradar-sync -n demo --replicas=0
+   kubectl scale deployment/serviceradar-agent -n demo --replicas=0
    ```
 
 2. **Flush the telemetry tables** – use the toolbox pod’s `cnpg-sql` helper so credentials and TLS bundles are wired automatically:
@@ -233,19 +233,19 @@ This clears the CNPG-backed telemetry tables and repopulates them with a fresh d
    SQL
    ```
 
-5. **Resume discovery** – start the sync pipeline again:
+5. **Resume discovery** – start the embedded sync pipeline again:
 
    ```bash
-   kubectl scale deployment/serviceradar-sync -n demo --replicas=1
-   kubectl logs deployment/serviceradar-sync -n demo --tail 50
+   kubectl scale deployment/serviceradar-agent -n demo --replicas=1
+   kubectl logs deployment/serviceradar-agent -n demo --tail 50
    ```
 
-Once the sync pod reports “Completed streaming results”, poll `/api/stats` and the `/api/devices` endpoints to confirm the registry reflects the rebuilt CNPG rows.
+Once the agent logs report “Completed streaming results”, poll `/api/stats` and the `/api/devices` endpoints to confirm the registry reflects the rebuilt CNPG rows.
 
 ## Monitoring Non-Canonical Sweep Data
 
 - The core stats aggregator now publishes OTEL gauges under `serviceradar.core.device_stats` (`core_device_stats_skipped_non_canonical`, `core_device_stats_raw_records`, etc.). Point your collector at those gauges to alert when `skipped_non_canonical` climbs above zero.
-- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure pollers continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
+- Collector capability writes now increment the OTEL counter `serviceradar_core_capability_events_total`. Alert on drops in `sum(rate(serviceradar_core_capability_events_total[5m]))` to make sure gateways continue reporting, and break the series down by the `capability`, `service_type`, and `recorded_by` labels when investigating gaps.
 - Webhook integrations receive a `Non-canonical devices filtered from stats` warning the moment the skip counter increases. The payload includes `raw_records`, `processed_records`, the total filtered count, and the timestamp of the snapshot that triggered the alert.
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
@@ -297,8 +297,7 @@ Once the sync pod reports “Completed streaming results”, poll `/api/stats` a
 
   ```
   config/core.json
-  config/sync.json
-  config/poller.json
+  config/gateways/<gateway-id>.json
   config/agent.json
   config/flowgger.toml
   config/otel.toml
@@ -451,7 +450,7 @@ What the script does:
 - Reapplies `k8s/demo/base/spire` to recreate the CNPG cluster and SPIRE dependencies
 - Waits for `cnpg-{0,1,2}` to become Ready and confirms the custom `serviceradar-cnpg` image is running
 - Runs `cnpg-migrate` (with the superuser secret mounted) to seed the telemetry schema
-- Restarts `serviceradar-core`, `serviceradar-sync`, and the writers so they reconnect to the new database
+- Restarts `serviceradar-core`, `serviceradar-agent`, and the writers so they reconnect to the new database
 
 After the reset:
 
@@ -499,6 +498,38 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
     jq '.device_targets | length'
   ```
 
+## Sync Ingestion Tuning Matrix
+
+Use these starting points when the embedded sync runtime is streaming large device inventories into core-elx. The goal is to smooth bursty chunk delivery, keep CNPG connection usage predictable, and avoid queue timeouts.
+
+**Connection budget rule of thumb**
+- Keep total core-elx pool connections at ~60% of CNPG `max_connections`. Reserve the remaining ~40% for web-ng, datasvc, migrations, and ad-hoc tooling.
+- Formula: `pool_size_per_core = floor(max_connections * 0.6 / core_replicas)`.
+
+**Pool sizing examples (per core-elx pod)**
+
+| CNPG max_connections | Core replicas | Pool size per pod | Total core connections |
+| --- | --- | --- | --- |
+| 500 | 4 | 75 | 300 |
+| 500 | 8 | 38 | 304 |
+| 1000 | 6 | 100 | 600 |
+| 1000 | 10 | 60 | 600 |
+| 2000 | 12 | 100 | 1200 |
+| 2000 | 20 | 60 | 1200 |
+
+**Ingestion knobs by workload size**
+
+| Workload | POOL_SIZE | DATABASE_QUEUE_TARGET_MS / INTERVAL_MS | SYNC_INGESTOR_COALESCE_MS | SYNC_INGESTOR_QUEUE_MAX_CHUNKS | SYNC_INGESTOR_MAX_INFLIGHT | SYNC_INGESTOR_BATCH_CONCURRENCY |
+| --- | --- | --- | --- | --- | --- | --- |
+| Small (single tenant, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
+| Medium (5-10 tenants, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
+| Large (10-20 tenants, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
+
+**Adjustments**
+- If you see `queue_timeout` errors, either raise `POOL_SIZE` (if CNPG can accept more) or raise `DATABASE_QUEUE_TARGET_MS`/`DATABASE_QUEUE_INTERVAL_MS` so requests wait longer.
+- If chunk bursts are spiky, raise `SYNC_INGESTOR_COALESCE_MS` or `SYNC_INGESTOR_QUEUE_MAX_CHUNKS` to merge more payloads before hitting the DB.
+- If CNPG CPU or locks spike, lower `SYNC_INGESTOR_BATCH_CONCURRENCY` before reducing `POOL_SIZE`.
+
 ## Timescale Retention & Compression Checks
 
 > Need a long-lived dashboard instead of ad-hoc SQL? Follow the [CNPG Monitoring guide](./cnpg-monitoring.md) to add Grafana panels for ingestion volume, job status, and pgx waiters. The queries below remain the fastest way to double-check results directly from the toolbox.
@@ -529,7 +560,7 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
 
 ## Common Error Notes
 
-- `rpc error: code = Unimplemented desc =` – emitted by core when the poller is stopped; safe to ignore while the pipeline is paused.
+- `rpc error: code = Unimplemented desc =` – emitted by core when the gateway is stopped; safe to ignore while the pipeline is paused.
 - `json: cannot unmarshal object into Go value of type []*models.DeviceUpdate` – happens if the discovery queue contains an object instead of an array. Clearing the queue and replaying new discovery data resolves it.
 - `cnpg device_updates batch: invalid input syntax for type json` – indicates a writer emitted malformed metadata. Inspect the offending payload (`db.UpdateDevice.METADATA`) and patch the producer before replaying.
 - `ERROR: duplicate key value violates unique constraint "unified_devices_pkey"` – normally caused by reusing the same `device_id` + `_merged_into` metadata after a reset. Run the pipeline reset above to clear stale rows, then replay once so the merge helper can rebuild the canonical view cleanly.
@@ -580,9 +611,9 @@ Once you have the offending query, correlate it with the Go/UI call site and eit
 kubectl exec -n demo deploy/serviceradar-tools -- \
   cnpg-sql "SELECT COUNT(*) FROM unified_devices"
 
-# Count devices per poller (helpful when validating faker replays)
+# Count devices per gateway (helpful when validating faker replays)
 kubectl exec -n demo deploy/serviceradar-tools -- \
-  cnpg-sql "SELECT poller_id, COUNT(*) FROM unified_devices GROUP BY poller_id ORDER BY count DESC"
+  cnpg-sql "SELECT gateway_id, COUNT(*) FROM unified_devices GROUP BY gateway_id ORDER BY count DESC"
 
 # Port-forward CNPG locally and run migrations from your laptop
 kubectl port-forward -n demo svc/cnpg-rw 55432:5432 &

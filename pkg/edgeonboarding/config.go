@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -41,20 +43,22 @@ var (
 	ErrAgentSPIFFEIDNotFound = errors.New("agent_spiffe_id not found in metadata")
 	// ErrSPIREUpstreamPortNotFound is returned when spire_upstream_port is missing from metadata.
 	ErrSPIREUpstreamPortNotFound = errors.New("spire_upstream_port not found in metadata")
-	// ErrPollerIDNotFound is returned when poller_id is missing from metadata.
-	ErrPollerIDNotFound = errors.New("poller_id not found in metadata")
+	// ErrGatewayIDNotFound is returned when gateway_id is missing from metadata.
+	ErrGatewayIDNotFound = errors.New("gateway_id not found in metadata")
 	// ErrKVAddressNotFound is returned when kv_address is missing from metadata.
 	ErrKVAddressNotFound = errors.New("kv_address not found in metadata")
 	// ErrKVSPIFFEIDNotFound is returned when kv_spiffe_id is missing from metadata.
 	ErrKVSPIFFEIDNotFound = errors.New("kv_spiffe_id not found in metadata")
 	// ErrAgentIDNotFound is returned when agent_id is missing from metadata.
 	ErrAgentIDNotFound = errors.New("agent_id not found in metadata")
+	// ErrGatewayAddrRequired is returned when gateway_addr is missing for agent/sync bootstrap config.
+	ErrGatewayAddrRequired = errors.New("gateway_addr is required to generate bootstrap config")
 )
 
 // generateServiceConfig generates configuration files for the service based on:
-// - Component type (poller, agent, checker)
-// - Deployment type (docker, kubernetes, bare-metal)
-// - Package metadata (contains service-specific config from KV)
+// - Component type (gateway, agent, checker; sync packages map to agent bootstrap config)
+	// - Deployment type (docker, kubernetes, bare-metal)
+	// - Package metadata (contains service-specific config from KV)
 func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 	b.logger.Info().
 		Str("component_type", string(b.pkg.ComponentType)).
@@ -69,12 +73,14 @@ func (b *Bootstrapper) generateServiceConfig(ctx context.Context) error {
 
 	// Component-specific configuration
 	switch b.pkg.ComponentType {
-	case models.EdgeOnboardingComponentTypePoller:
-		return b.generatePollerConfig(ctx, metadata)
+	case models.EdgeOnboardingComponentTypeGateway:
+		return b.generateGatewayConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeAgent:
 		return b.generateAgentConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeChecker:
 		return b.generateCheckerConfig(ctx, metadata)
+	case models.EdgeOnboardingComponentTypeSync:
+		return b.generateSyncConfig(ctx, metadata)
 	case models.EdgeOnboardingComponentTypeNone:
 		return fmt.Errorf("%w: %s", ErrUnsupportedComponentType, b.pkg.ComponentType)
 	default:
@@ -96,11 +102,11 @@ func (b *Bootstrapper) parseMetadata() (map[string]interface{}, error) {
 	return metadata, nil
 }
 
-// generatePollerConfig generates configuration for a poller service.
-func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[string]interface{}) error {
+// generateGatewayConfig generates configuration for a gateway service.
+func (b *Bootstrapper) generateGatewayConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx // future enhancement: use context for cancellation when fetching remote metadata
 
-	b.logger.Debug().Msg("Generating poller configuration")
+	b.logger.Debug().Msg("Generating gateway configuration")
 
 	// Extract required metadata fields
 	coreAddress, ok := metadata["core_address"].(string)
@@ -138,9 +144,9 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 	}
 	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
 
-	// Generate poller config JSON
+	// Generate gateway config JSON
 	config := map[string]interface{}{
-		"poller_id":    b.pkg.ComponentID,
+		"gateway_id":    b.pkg.ComponentID,
 		"label":        b.pkg.Label,
 		"component_id": b.pkg.ComponentID,
 
@@ -149,10 +155,10 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 		"kv_address":   kvAddr,
 
 		// Agent configuration
-		"agent_address": "localhost:50051", // Agent shares network namespace with poller
+		"agent_address": "localhost:50051", // Agent shares network namespace with gateway
 
 		// SPIFFE configuration
-		"poller_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		"gateway_spiffe_id": b.pkg.DownstreamSPIFFEID,
 		"core_spiffe_id":   coreSPIFFEID,
 		"agent_spiffe_id":  agentSPIFFEID,
 
@@ -161,7 +167,7 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 		"spire_parent_id":        spireParentID,
 
 		// Storage paths
-		"data_dir":   filepath.Join(b.cfg.StoragePath, "poller"),
+		"data_dir":   filepath.Join(b.cfg.StoragePath, "gateway"),
 		"spire_dir":  filepath.Join(b.cfg.StoragePath, "spire"),
 		"config_dir": filepath.Join(b.cfg.StoragePath, "config"),
 
@@ -180,64 +186,74 @@ func (b *Bootstrapper) generatePollerConfig(ctx context.Context, metadata map[st
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal poller config: %w", err)
+		return fmt.Errorf("marshal gateway config: %w", err)
 	}
 
-	b.generatedConfigs["poller.json"] = configJSON
+	b.generatedConfigs["gateway.json"] = configJSON
 
 	b.logger.Debug().
-		Str("poller_id", b.pkg.ComponentID).
+		Str("gateway_id", b.pkg.ComponentID).
 		Str("core_address", coreAddr).
 		Str("kv_address", kvAddr).
-		Msg("Generated poller configuration")
+		Msg("Generated gateway configuration")
 
 	return nil
 }
 
 // generateAgentConfig generates configuration for an agent service.
+// Per the SaaS connectivity spec, the bootstrap config is minimal:
+// - agent_id: Agent identifier
+// - gateway_addr: SaaS gateway endpoint
+// - gateway_security: mTLS configuration
+// All monitoring configuration is delivered via GetConfig after connection.
 func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Generating agent configuration")
+	b.logger.Debug().Msg("Generating minimal agent bootstrap configuration")
 
-	// Get KV address from metadata (datasvc_endpoint) or fall back to bootstrap config
-	kvEndpoint := b.cfg.KVEndpoint
-	if datasvcEndpoint, ok := metadata["datasvc_endpoint"].(string); ok && datasvcEndpoint != "" {
-		kvEndpoint = datasvcEndpoint
+	// Get gateway address from config or metadata
+	gatewayEndpoint := b.cfg.GatewayEndpoint
+	if gwAddr, ok := metadata["gateway_addr"].(string); ok && gwAddr != "" {
+		gatewayEndpoint = gwAddr
 	}
-	kvAddr := b.getAddressForDeployment("kv", kvEndpoint)
+	if gatewayEndpoint == "" {
+		return ErrGatewayAddrRequired
+	}
 
-	// Generate agent config JSON
+	certDir := filepath.Join(b.cfg.StoragePath, "certs")
+	serverName := gatewayServerName(gatewayEndpoint, metadata)
+
+	// Generate minimal agent config JSON per SaaS connectivity spec
 	config := map[string]interface{}{
-		"agent_id":     b.pkg.ComponentID,
-		"label":        b.pkg.Label,
-		"component_id": b.pkg.ComponentID,
-		"parent_id":    b.pkg.ParentID, // Parent poller ID
+		// Agent identity
+		"agent_id": b.pkg.ComponentID,
 
-		// Service endpoints
-		"kv_address": kvAddr,
+		// Gateway connection (required) - all config delivered via GetConfig
+		"gateway_addr": gatewayEndpoint,
 
-		// SPIFFE configuration
-		"agent_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		// mTLS security configuration
+		"gateway_security": map[string]interface{}{
+			"mode":        "mtls",
+			"cert_dir":    certDir,
+			"server_name": serverName,
+			"role":        "agent",
+			"tls": map[string]interface{}{
+				"cert_file":      "component.pem",
+				"key_file":       "component-key.pem",
+				"ca_file":        "ca-chain.pem",
+				"client_ca_file": "ca-chain.pem",
+			},
+		},
 
-		// SPIRE workload API (from parent poller)
-		"spire_workload_api_socket": "/run/spire/nested/workload/agent.sock",
-
-		// Storage paths
-		"data_dir":   filepath.Join(b.cfg.StoragePath, "agent"),
-		"config_dir": filepath.Join(b.cfg.StoragePath, "config"),
-
-		// Deployment info
+		// Deployment info (informational only)
 		"deployment_type": string(b.deploymentType),
-		"site":            b.pkg.Site,
 	}
 
-	// Merge any additional metadata
-	for k, v := range metadata {
-		if _, exists := config[k]; !exists {
-			config[k] = v
-		}
-	}
+	// NOTE: The following are NOT included in bootstrap config:
+	// - kv_address: Agents get config from gateway via GetConfig
+	// - checker configs: Delivered via GetConfig
+	// - sweep configs: Delivered via GetConfig
+	// - tenant_id/slug: Derived from mTLS cert during Hello
 
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
@@ -249,60 +265,74 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 
 	b.logger.Debug().
 		Str("agent_id", b.pkg.ComponentID).
-		Str("parent_id", b.pkg.ParentID).
-		Str("kv_address", kvAddr).
-		Msg("Generated agent configuration")
+		Str("gateway_addr", gatewayEndpoint).
+		Msg("Generated minimal agent bootstrap configuration")
+
+	return nil
+}
+
+// generateSyncConfig generates bootstrap configuration for legacy sync packages.
+// Sync is now embedded in the agent, so this emits the agent bootstrap config.
+func (b *Bootstrapper) generateSyncConfig(ctx context.Context, metadata map[string]interface{}) error {
+	_ = ctx
+
+	b.logger.Debug().Msg("Generating agent bootstrap configuration for sync package")
+
+	if err := b.generateAgentConfig(ctx, metadata); err != nil {
+		return err
+	}
+
+	if configJSON, ok := b.generatedConfigs["agent.json"]; ok {
+		b.generatedConfigs["sync.json"] = configJSON
+	}
+
+	b.logger.Debug().
+		Str("sync_id", b.pkg.ComponentID).
+		Msg("Generated agent bootstrap configuration for sync package")
 
 	return nil
 }
 
 // generateCheckerConfig generates configuration for a checker service.
+// Checkers connect to the local agent and receive their configuration
+// from the agent, which in turn gets it from the gateway via GetConfig.
+// The bootstrap config is minimal: checker_id + parent agent connection info.
 func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[string]interface{}) error {
 	_ = ctx
 
-	b.logger.Debug().Msg("Generating checker configuration")
+	b.logger.Debug().Msg("Generating minimal checker bootstrap configuration")
 
-	// Parse checker-specific config from package
-	var checkerConfig map[string]interface{}
-	if b.pkg.CheckerConfigJSON != "" {
-		if err := json.Unmarshal([]byte(b.pkg.CheckerConfigJSON), &checkerConfig); err != nil {
-			return fmt.Errorf("unmarshal checker config: %w", err)
-		}
-	} else {
-		checkerConfig = make(map[string]interface{})
+	agentAddr := "localhost:50051"
+	if v, ok := metadata["agent_address"].(string); ok && v != "" {
+		agentAddr = v
 	}
 
-	// Generate checker config JSON
+	// Generate minimal checker config JSON
+	// Checkers connect to the local agent, which provides configuration
 	config := map[string]interface{}{
+		// Checker identity
 		"checker_id":   b.pkg.ComponentID,
 		"checker_kind": b.pkg.CheckerKind,
-		"label":        b.pkg.Label,
-		"component_id": b.pkg.ComponentID,
 		"parent_id":    b.pkg.ParentID, // Parent agent ID
 
-		// SPIFFE configuration
-		"checker_spiffe_id": b.pkg.DownstreamSPIFFEID,
+		// Agent connection - checkers connect to the agent
+		"agent_address": agentAddr,
 
-		// SPIRE workload API
-		"spire_workload_api_socket": "/run/spire/workload/agent.sock",
+		// mTLS security configuration
+		"security": map[string]interface{}{
+			"mode":      "mtls",
+			"cert_file": filepath.Join(b.cfg.StoragePath, "certs/component.pem"),
+			"key_file":  filepath.Join(b.cfg.StoragePath, "certs/component-key.pem"),
+			"ca_file":   filepath.Join(b.cfg.StoragePath, "certs/ca-chain.pem"),
+		},
 
-		// Checker-specific configuration
-		"checker_config": checkerConfig,
-
-		// Storage paths
-		"data_dir": filepath.Join(b.cfg.StoragePath, "checker"),
-
-		// Deployment info
+		// Deployment info (informational only)
 		"deployment_type": string(b.deploymentType),
-		"site":            b.pkg.Site,
 	}
 
-	// Merge any additional metadata
-	for k, v := range metadata {
-		if _, exists := config[k]; !exists {
-			config[k] = v
-		}
-	}
+	// NOTE: Checker-specific configuration (targets, intervals, etc.)
+	// is delivered from the agent, which receives it via GetConfig
+	// from the gateway. No checker config is included in bootstrap.
 
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")
@@ -316,7 +346,20 @@ func (b *Bootstrapper) generateCheckerConfig(ctx context.Context, metadata map[s
 		Str("checker_id", b.pkg.ComponentID).
 		Str("checker_kind", b.pkg.CheckerKind).
 		Str("parent_id", b.pkg.ParentID).
-		Msg("Generated checker configuration")
+		Msg("Generated minimal checker bootstrap configuration")
 
 	return nil
+}
+
+func gatewayServerName(gatewayEndpoint string, metadata map[string]interface{}) string {
+	if v, ok := metadata["gateway_server_name"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+
+	host, _, err := net.SplitHostPort(gatewayEndpoint)
+	if err == nil && host != "" {
+		return host
+	}
+
+	return gatewayEndpoint
 }

@@ -142,7 +142,7 @@ type DeviceResultAggregator struct {
 	ExpectedIPs []string
 	Metadata    map[string]interface{}
 	AgentID     string
-	PollerID    string
+	GatewayID    string
 	Partition   string
 	mu          sync.Mutex
 }
@@ -1505,11 +1505,11 @@ const (
 	defaultName = "default"
 )
 
-// extractAgentInfo extracts agent/poller/partition information from config and metadata.
-func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, pollerID, partition string) {
-	// Get agent/poller info from config first, then try metadata
+// extractAgentInfo extracts agent/gateway/partition information from config and metadata.
+func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, gatewayID, partition string) {
+	// Get agent/gateway info from config first, then try metadata
 	agentID = defaultName
-	pollerID = defaultName
+	gatewayID = defaultName
 	partition = defaultName
 
 	// Use config values if available
@@ -1517,8 +1517,8 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, polle
 		agentID = s.config.AgentID
 	}
 
-	if s.config.PollerID != "" {
-		pollerID = s.config.PollerID
+	if s.config.GatewayID != "" {
+		gatewayID = s.config.GatewayID
 	}
 
 	if s.config.Partition != "" {
@@ -1531,8 +1531,8 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, polle
 			agentID = id
 		}
 
-		if id, ok := result.Target.Metadata["poller_id"].(string); ok && id != "" {
-			pollerID = id
+		if id, ok := result.Target.Metadata["gateway_id"].(string); ok && id != "" {
+			gatewayID = id
 		}
 
 		if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
@@ -1540,17 +1540,17 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, polle
 		}
 	}
 
-	return agentID, pollerID, partition
+	return agentID, gatewayID, partition
 }
 
 // createDeviceUpdate creates a DeviceUpdate from a Result.
-func (*NetworkSweeper) createDeviceUpdate(result *models.Result, agentID, pollerID, partition string) *models.DeviceUpdate {
+func (*NetworkSweeper) createDeviceUpdate(result *models.Result, agentID, gatewayID, partition string) *models.DeviceUpdate {
 	// Always generate a valid device ID with partition
 	deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:    gatewayID,
 		Partition:   partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSweep,
@@ -1592,8 +1592,8 @@ func addAdditionalMetadata(deviceUpdate *models.DeviceUpdate, result *models.Res
 
 // processDeviceRegistry processes the sweep result through the device registry.
 func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
-	agentID, pollerID, partition := s.extractAgentInfo(result)
-	deviceUpdate := s.createDeviceUpdate(result, agentID, pollerID, partition)
+	agentID, gatewayID, partition := s.extractAgentInfo(result)
+	deviceUpdate := s.createDeviceUpdate(result, agentID, gatewayID, partition)
 
 	// Convert metadata to string map
 	convertMetadataToStringMap(deviceUpdate, result.Target.Metadata)
@@ -1875,7 +1875,7 @@ func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
 			expectedIPs = append(expectedIPs, t.Host)
 		}
 
-		agentID, pollerID, partition := s.extractAgentInfoFromMetadata(deviceMetadata[deviceID])
+		agentID, gatewayID, partition := s.extractAgentInfoFromMetadata(deviceMetadata[deviceID])
 
 		s.deviceResults[deviceID] = &DeviceResultAggregator{
 			DeviceID:    deviceID,
@@ -1883,7 +1883,7 @@ func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
 			ExpectedIPs: expectedIPs,
 			Metadata:    deviceMetadata[deviceID],
 			AgentID:     agentID,
-			PollerID:    pollerID,
+			GatewayID:    gatewayID,
 			Partition:   partition,
 		}
 
@@ -1936,17 +1936,17 @@ func (*NetworkSweeper) extractDeviceID(target models.Target) string {
 }
 
 // extractAgentInfoFromMetadata extracts agent info from metadata
-func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interface{}) (agentID, pollerID, partition string) {
+func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interface{}) (agentID, gatewayID, partition string) {
 	agentID = defaultName
-	pollerID = defaultName
+	gatewayID = defaultName
 	partition = defaultName
 
 	if s.config.AgentID != "" {
 		agentID = s.config.AgentID
 	}
 
-	if s.config.PollerID != "" {
-		pollerID = s.config.PollerID
+	if s.config.GatewayID != "" {
+		gatewayID = s.config.GatewayID
 	}
 
 	if s.config.Partition != "" {
@@ -1958,8 +1958,8 @@ func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interf
 			agentID = id
 		}
 
-		if id, ok := metadata["poller_id"].(string); ok && id != "" {
-			pollerID = id
+		if id, ok := metadata["gateway_id"].(string); ok && id != "" {
+			gatewayID = id
 		}
 
 		if p, ok := metadata["partition"].(string); ok && p != "" {
@@ -1967,7 +1967,7 @@ func (s *NetworkSweeper) extractAgentInfoFromMetadata(metadata map[string]interf
 		}
 	}
 
-	return agentID, pollerID, partition
+	return agentID, gatewayID, partition
 }
 
 // shouldAggregateResult checks if a result should be aggregated
@@ -2057,7 +2057,7 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 	deviceID := fmt.Sprintf("%s:%s", aggregator.Partition, primaryResult.Target.Host)
 	deviceUpdate := &models.DeviceUpdate{
 		AgentID:     aggregator.AgentID,
-		PollerID:    aggregator.PollerID,
+		GatewayID:    aggregator.GatewayID,
 		Partition:   aggregator.Partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSweep,

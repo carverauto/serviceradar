@@ -56,7 +56,7 @@ const (
 type DiscoverySourceInfo struct {
 	Source     DiscoverySource `json:"source"`
 	AgentID    string          `json:"agent_id"`
-	PollerID   string          `json:"poller_id"`
+	GatewayID   string          `json:"gateway_id"`
 	FirstSeen  time.Time       `json:"first_seen"`
 	LastSeen   time.Time       `json:"last_seen"`
 	Confidence int             `json:"confidence"`
@@ -68,9 +68,9 @@ type DeviceUpdate struct {
 	IP          string            `json:"ip"`
 	Source      DiscoverySource   `json:"source"`
 	AgentID     string            `json:"agent_id"`
-	PollerID    string            `json:"poller_id"`
+	GatewayID    string            `json:"gateway_id"`
 	Partition   string            `json:"partition,omitempty"`    // Optional partition for multi-tenant systems
-	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (poller/agent/checker)
+	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (gateway/agent/checker)
 	ServiceID   string            `json:"service_id,omitempty"`   // ID of the service component
 	Timestamp   time.Time         `json:"timestamp"`
 	Hostname    *string           `json:"hostname,omitempty"`
@@ -116,7 +116,7 @@ func GetSourceConfidence(source DiscoverySource) int {
 type DiscoveredInterface struct {
 	Timestamp     time.Time       `json:"timestamp"`
 	AgentID       string          `json:"agent_id"`
-	PollerID      string          `json:"poller_id"`
+	GatewayID      string          `json:"gateway_id"`
 	DeviceIP      string          `json:"device_ip"`
 	DeviceID      string          `json:"device_id"`
 	IfIndex       int32           `json:"ifIndex"`
@@ -135,7 +135,7 @@ type DiscoveredInterface struct {
 type TopologyDiscoveryEvent struct {
 	Timestamp              time.Time `json:"timestamp"`
 	AgentID                string    `json:"agent_id"`
-	PollerID               string    `json:"poller_id"`
+	GatewayID               string    `json:"gateway_id"`
 	LocalDeviceIP          string    `json:"local_device_ip"`
 	LocalDeviceID          string    `json:"local_device_id"`
 	LocalIfIndex           int32     `json:"local_ifIndex"` // DB schema is int32; Postgres driver should handle

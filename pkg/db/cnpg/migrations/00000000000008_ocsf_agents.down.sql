@@ -1,2 +1,3 @@
--- Rollback OCSF agents table
-DROP TABLE IF EXISTS ocsf_agents;
+-- DEPRECATED: This down migration is now a no-op.
+-- The ocsf_agents table is now managed in tenant schemas.
+-- See: elixir/serviceradar_core/priv/repo/tenant_migrations/

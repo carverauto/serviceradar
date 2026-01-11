@@ -43,6 +43,7 @@ var (
 
 	// Service error types.
 
+	ErrServiceNotStarted       = errors.New("service not started")
 	ErrStoppingCollectors       = errors.New("errors stopping collectors")
 	ErrTargetExists             = errors.New("target already exists")
 	ErrTargetNotFound           = errors.New("target not found")

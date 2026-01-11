@@ -7,7 +7,7 @@ This directory provisions the long-lived Postgres/Timescale/Apache AGE fixture t
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3`.
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using `ghcr.io/carverauto/serviceradar-cnpg:16.6.0-sr3` (matches `docker-compose.yml`).
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
 - No network policy is applied; the LoadBalancer is publicly reachable once MetalLB advertises it. Use the shared secret/DSN guarding to control access.
 
@@ -44,13 +44,29 @@ kubectl -n srql-fixtures create secret generic srql-test-admin-credentials \
 
 ### Access from CI
 
-- Set `SRQL_TEST_DATABASE_URL` (or `SRQL_TEST_DATABASE_URL_FILE`) to the app DSN, e.g., `postgres://srql:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture`.
-- Set `SRQL_TEST_ADMIN_URL` (or `SRQL_TEST_ADMIN_URL_FILE`) to the admin DSN, e.g., `postgres://srql_hydra:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/postgres`. The test harness uses the admin connection to drop/re-create `srql_fixture` before every run.
+- The fixture enforces TLS (`hostnossl` connections are rejected). Use `sslmode=require` (encryption only) or `sslmode=verify-full` with the CA certificate.
+- Set `SRQL_TEST_DATABASE_URL` (or `SRQL_TEST_DATABASE_URL_FILE`) to the app DSN, e.g., `postgres://srql:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/srql_fixture?sslmode=verify-full`.
+- Set `SRQL_TEST_ADMIN_URL` (or `SRQL_TEST_ADMIN_URL_FILE`) to the admin DSN, e.g., `postgres://srql_hydra:<password>@srql-fixture-rw.srql-fixtures.svc.cluster.local:5432/postgres?sslmode=verify-full`. The test harness uses the admin connection to drop/re-create `srql_fixture` before every run.
+- Export the CA cert for strict verification (used by Rust + Elixir tests):
+
+```bash
+kubectl -n srql-fixtures get secret srql-fixture-ca \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/srql-fixture-ca.crt
+export PGSSLROOTCERT=/tmp/srql-fixture-ca.crt
+export SRQL_TEST_DATABASE_CA_CERT=/tmp/srql-fixture-ca.crt
+```
 - **BuildBuddy**: Mount both DSNs into the executor pods (for example under `/var/run/secrets/srql-fixture`) and export them with `--action_env=SRQL_TEST_DATABASE_URL_FILE=/var/run/secrets/.../database_url` and `--action_env=SRQL_TEST_ADMIN_URL_FILE=...`.
-- **GitHub custom runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Add the DSNs as runner secrets (or files).
+- **GitHub custom runners**: Use the `srql-fixture-rw-ext` LoadBalancer IP (allocated from `k3s-pool`, currently `23.138.124.18`) or the managed DNS name `srql-fixture.serviceradar.cloud`. Add the DSNs + CA cert path as runner secrets (or files).
 
 ### Maintenance
 
 - Fixture seeding is handled by the SRQL test harness – it drops/creates schemas every run.
+- If the fixture database gets wedged (for example, TimescaleDB library mismatches), reset it:
+
+```bash
+bash k8s/srql-fixtures/reset-db.sh
+```
+
+- After bumping the CNPG image tag, re-apply `cnpg-cluster.yaml` and run the reset script so extensions are recreated on the new image.
 - To reset the cluster manually, delete the PVCs labeled `cnpg.io/cluster=srql-fixture` in the namespace and re-apply `cnpg-cluster.yaml`.
-- Keep the CNPG image tag in sync with `k8s/demo/base/spire/cnpg-cluster.yaml`.
+- Keep the CNPG image tag in sync with `docker-compose.yml` and `k8s/demo/base/spire/cnpg-cluster.yaml`.

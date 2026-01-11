@@ -226,9 +226,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp allowed_sort_fields(entity) do
     case Catalog.entity(entity) do
-      %{id: id} when id in ["devices", "pollers"] ->
-        if id == "pollers" do
-          ["last_seen", "poller_id", "status", "agent_count", "checker_count"]
+      %{id: id} when id in ["devices", "gateways"] ->
+        if id == "gateways" do
+          ["last_seen", "gateway_id", "status", "agent_count", "checker_count"]
         else
           ["last_seen", "hostname", "ip", "uid"]
         end
@@ -527,7 +527,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     Regex.match?(~r/^\d+(?:s|m|h|d)$/, bucket)
   end
 
-  defp validate_filter_fields(entity, filters) when entity in ["devices", "pollers"] do
+  defp validate_filter_fields(entity, filters) when entity in ["devices", "gateways"] do
     allowed = allowed_search_fields(entity)
 
     invalid = invalid_filter_fields(filters, allowed)

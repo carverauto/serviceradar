@@ -23,7 +23,7 @@ Target data with the `in:` selector. Each logical entity routes to one or more O
 | `in:services` | Observed network/application services and their availability | `services` materialized view |
 | `in:interfaces` | Discovered interfaces with OCSF endpoint metadata | `discovered_interfaces` |
 | `in:logs` | Application and system logs normalized to OCSF logging classes | `logs`, `ocsf_system_activity` |
-| `in:pollers` | Poller/agent operational telemetry | `pollers` |
+| `in:gateways` | Gateway/agent operational telemetry | `gateways` |
 | `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |
 | `in:otel_traces` | OpenTelemetry spans & summaries | `otel_trace_summaries_final`, `otel_spans_enriched` |
 
@@ -107,7 +107,7 @@ Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`
   `in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc`
 
 - OpenTelemetry traces exceeding latency SLO:
-  `in:otel_traces service.name:"serviceradar-poller" stats:"p95(duration_ms) as p95_latency by service.name" window:5m having:"p95_latency>1000"`
+  `in:otel_traces service.name:"serviceradar-agent-gateway" stats:"p95(duration_ms) as p95_latency by service.name" window:5m having:"p95_latency>1000"`
 
 ## Best Practices
 
@@ -129,7 +129,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `hostname` | Device hostname (supports wildcards) |
 | `ip` | IP address (supports wildcards) |
 | `mac` | MAC address (supports wildcards) |
-| `poller_id` | Associated poller ID |
+| `gateway_id` | Associated gateway ID |
 | `agent_id` | Associated agent ID |
 | `is_available` | Availability status (`true`/`false`) |
 | `device_type` | Type of device |
@@ -137,22 +137,23 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `service_status` | Service status |
 | `discovery_sources` | Sources that discovered this device (array containment) |
 
-### events
+### ocsf_events
 
 | Field | Description |
 |-------|-------------|
 | `id` | Event identifier |
-| `type` | Event type |
-| `source` | Event source |
-| `subject` | Event subject |
-| `datacontenttype` | Content type of event data |
-| `remote_addr` | Remote address |
-| `host` | Host name |
-| `specversion` | CloudEvents spec version |
-| `severity` | Severity level |
-| `short_message` | Short message text |
-| `version` | Version string |
-| `level` | Numeric level |
+| `time` | Event timestamp |
+| `class_uid` | OCSF class UID |
+| `category_uid` | OCSF category UID |
+| `type_uid` | OCSF type UID |
+| `activity_id` | Activity ID |
+| `activity_name` | Activity name |
+| `severity_id` | Severity ID |
+| `severity` | Severity label |
+| `message` | Event message |
+| `log_name` | Log name or subject |
+| `log_provider` | Log provider |
+| `tenant_id` | Tenant identifier |
 
 ### logs
 
@@ -192,18 +193,18 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 |-------|---------|-------------|
 | `service_name` | `name` | Name of the service |
 | `service_type` | `type` | Type of service |
-| `poller_id` | | Associated poller ID |
+| `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `partition` | | Partition identifier |
 | `message` | | Status message |
 | `available` | | Availability status (`true`/`false`) |
 
-### pollers
+### gateways
 
 | Field | Description |
 |-------|-------------|
-| `poller_id` | Poller identifier |
-| `status` | Poller status |
+| `gateway_id` | Gateway identifier |
+| `status` | Gateway status |
 | `component_id` | Component identifier |
 | `registration_source` | Registration source |
 | `spiffe_identity` | SPIFFE identity |
@@ -234,7 +235,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 
 | Field | Description |
 |-------|-------------|
-| `poller_id` | Associated poller ID |
+| `gateway_id` | Associated gateway ID |
 | `agent_id` | Associated agent ID |
 | `host_id` | Host identifier |
 | `device_id` | Device identifier |
@@ -249,7 +250,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 
 | Field | Description |
 |-------|-------------|
-| `poller_id` | Associated poller ID |
+| `gateway_id` | Associated gateway ID |
 | `agent_id` | Associated agent ID |
 | `host_id` | Host identifier |
 | `device_id` | Device identifier |
@@ -263,7 +264,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 
 | Field | Description |
 |-------|-------------|
-| `poller_id` | Associated poller ID |
+| `gateway_id` | Associated gateway ID |
 | `agent_id` | Associated agent ID |
 | `host_id` | Host identifier |
 | `device_id` | Device identifier |
@@ -279,7 +280,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 
 | Field | Description |
 |-------|-------------|
-| `poller_id` | Associated poller ID |
+| `gateway_id` | Associated gateway ID |
 | `agent_id` | Associated agent ID |
 | `metric_name` | Name of the metric |
 | `metric_type` | Type of metric |
@@ -295,7 +296,7 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 |-------|---------|-------------|
 | `device_id` | | Device identifier |
 | `device_ip` | `ip` | Device IP address |
-| `poller_id` | | Associated poller ID |
+| `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `if_name` | | Interface name |
 | `if_descr` | `description` | Interface description |

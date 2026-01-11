@@ -71,7 +71,7 @@ systemctl enable serviceradar-agent.service
 systemctl start serviceradar-agent.service
 
 # Verify the service started successfully
-if ! systemctl is-active --quiet serviceradar-agent.service; then  # or serviceradar-poller.service
+if ! systemctl is-active --quiet serviceradar-agent.service; then
     echo "WARNING: Failed to start service. Check logs with: journalctl -xeu serviceradar-agent.service"
 fi
 

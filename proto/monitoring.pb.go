@@ -88,7 +88,7 @@ func (x SweepCompletionStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SweepCompletionStatus_Status.Descriptor instead.
 func (SweepCompletionStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{11, 0}
+	return file_monitoring_proto_rawDescGZIP(), []int{8, 0}
 }
 
 type DeviceStatusRequest struct {
@@ -140,7 +140,7 @@ type StatusRequest struct {
 	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"` // Type of service to check (process, port, dusk)
 	ServiceType   string                 `protobuf:"bytes,2,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"` // Type of service (process, port, grpc, etc)
 	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`             // Agent ID for traceability
-	PollerId      string                 `protobuf:"bytes,4,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`          // Poller ID for traceability
+	GatewayId     string                 `protobuf:"bytes,4,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`       // Gateway ID for traceability
 	Details       string                 `protobuf:"bytes,5,opt,name=details,proto3" json:"details,omitempty"`                            // Additional details (e.g., process name)
 	Port          int32                  `protobuf:"varint,6,opt,name=port,proto3" json:"port,omitempty"`                                 // Port number for port checks
 	unknownFields protoimpl.UnknownFields
@@ -198,9 +198,9 @@ func (x *StatusRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *StatusRequest) GetPollerId() string {
+func (x *StatusRequest) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -224,10 +224,10 @@ type ResultsRequest struct {
 	ServiceName      string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`                // Name of the service to get results from
 	ServiceType      string                 `protobuf:"bytes,2,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`                // Type of service (grpc, etc)
 	AgentId          string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                            // Agent ID for traceability
-	PollerId         string                 `protobuf:"bytes,4,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`                         // Poller ID for traceability
+	GatewayId        string                 `protobuf:"bytes,4,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`                      // Gateway ID for traceability
 	Details          string                 `protobuf:"bytes,5,opt,name=details,proto3" json:"details,omitempty"`                                           // Additional details
-	LastSequence     string                 `protobuf:"bytes,6,opt,name=last_sequence,json=lastSequence,proto3" json:"last_sequence,omitempty"`             // Last sequence received by poller
-	CompletionStatus *SweepCompletionStatus `protobuf:"bytes,7,opt,name=completion_status,json=completionStatus,proto3" json:"completion_status,omitempty"` // Completion status reported by poller
+	LastSequence     string                 `protobuf:"bytes,6,opt,name=last_sequence,json=lastSequence,proto3" json:"last_sequence,omitempty"`             // Last sequence received by gateway
+	CompletionStatus *SweepCompletionStatus `protobuf:"bytes,7,opt,name=completion_status,json=completionStatus,proto3" json:"completion_status,omitempty"` // Completion status reported by gateway
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -283,9 +283,9 @@ func (x *ResultsRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *ResultsRequest) GetPollerId() string {
+func (x *ResultsRequest) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -319,7 +319,7 @@ type StatusResponse struct {
 	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
 	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
 	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	PollerId      string                 `protobuf:"bytes,7,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`
+	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway ID for traceability
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -396,9 +396,9 @@ func (x *StatusResponse) GetAgentId() string {
 	return ""
 }
 
-func (x *StatusResponse) GetPollerId() string {
+func (x *StatusResponse) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -411,7 +411,7 @@ type ResultsResponse struct {
 	ServiceType     string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
 	ResponseTime    int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
 	AgentId         string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	PollerId        string                 `protobuf:"bytes,7,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`
+	GatewayId       string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`                    // Gateway ID for traceability
 	Timestamp       int64                  `protobuf:"varint,8,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                                    // When results were generated
 	CurrentSequence string                 `protobuf:"bytes,9,opt,name=current_sequence,json=currentSequence,proto3" json:"current_sequence,omitempty"`  // Current sequence of this response
 	HasNewData      bool                   `protobuf:"varint,10,opt,name=has_new_data,json=hasNewData,proto3" json:"has_new_data,omitempty"`             // Whether data changed since last_sequence
@@ -492,9 +492,9 @@ func (x *ResultsResponse) GetAgentId() string {
 	return ""
 }
 
-func (x *ResultsResponse) GetPollerId() string {
+func (x *ResultsResponse) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -527,258 +527,6 @@ func (x *ResultsResponse) GetSweepCompletion() *SweepCompletionStatus {
 	return nil
 }
 
-type PollerStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Services      []*ServiceStatus       `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
-	PollerId      string                 `protobuf:"bytes,2,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`
-	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"` // Agent ID for traceability
-	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Partition     string                 `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                    // Partition identifier (REQUIRED)
-	SourceIp      string                 `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`      // Host IP where poller/agent is running (REQUIRED)
-	KvStoreId     string                 `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"` // KV store identifier this service is using
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PollerStatusRequest) Reset() {
-	*x = PollerStatusRequest{}
-	mi := &file_monitoring_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PollerStatusRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PollerStatusRequest) ProtoMessage() {}
-
-func (x *PollerStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PollerStatusRequest.ProtoReflect.Descriptor instead.
-func (*PollerStatusRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{5}
-}
-
-func (x *PollerStatusRequest) GetServices() []*ServiceStatus {
-	if x != nil {
-		return x.Services
-	}
-	return nil
-}
-
-func (x *PollerStatusRequest) GetPollerId() string {
-	if x != nil {
-		return x.PollerId
-	}
-	return ""
-}
-
-func (x *PollerStatusRequest) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
-}
-
-func (x *PollerStatusRequest) GetTimestamp() int64 {
-	if x != nil {
-		return x.Timestamp
-	}
-	return 0
-}
-
-func (x *PollerStatusRequest) GetPartition() string {
-	if x != nil {
-		return x.Partition
-	}
-	return ""
-}
-
-func (x *PollerStatusRequest) GetSourceIp() string {
-	if x != nil {
-		return x.SourceIp
-	}
-	return ""
-}
-
-func (x *PollerStatusRequest) GetKvStoreId() string {
-	if x != nil {
-		return x.KvStoreId
-	}
-	return ""
-}
-
-type PollerStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Received      bool                   `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *PollerStatusResponse) Reset() {
-	*x = PollerStatusResponse{}
-	mi := &file_monitoring_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *PollerStatusResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*PollerStatusResponse) ProtoMessage() {}
-
-func (x *PollerStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use PollerStatusResponse.ProtoReflect.Descriptor instead.
-func (*PollerStatusResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *PollerStatusResponse) GetReceived() bool {
-	if x != nil {
-		return x.Received
-	}
-	return false
-}
-
-type ServiceStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
-	Message       []byte                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // Changed to bytes
-	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
-	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
-	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`          // Agent ID for traceability
-	PollerId      string                 `protobuf:"bytes,7,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`       // Poller ID for traceability
-	Partition     string                 `protobuf:"bytes,8,opt,name=partition,proto3" json:"partition,omitempty"`                     // Partition identifier
-	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`                           // Source of the message: "status" or "results"
-	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"` // KV store identifier this service is using
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ServiceStatus) Reset() {
-	*x = ServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ServiceStatus) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ServiceStatus) ProtoMessage() {}
-
-func (x *ServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ServiceStatus.ProtoReflect.Descriptor instead.
-func (*ServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ServiceStatus) GetServiceName() string {
-	if x != nil {
-		return x.ServiceName
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetAvailable() bool {
-	if x != nil {
-		return x.Available
-	}
-	return false
-}
-
-func (x *ServiceStatus) GetMessage() []byte {
-	if x != nil {
-		return x.Message
-	}
-	return nil
-}
-
-func (x *ServiceStatus) GetServiceType() string {
-	if x != nil {
-		return x.ServiceType
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetResponseTime() int64 {
-	if x != nil {
-		return x.ResponseTime
-	}
-	return 0
-}
-
-func (x *ServiceStatus) GetAgentId() string {
-	if x != nil {
-		return x.AgentId
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetPollerId() string {
-	if x != nil {
-		return x.PollerId
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetPartition() string {
-	if x != nil {
-		return x.Partition
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetSource() string {
-	if x != nil {
-		return x.Source
-	}
-	return ""
-}
-
-func (x *ServiceStatus) GetKvStoreId() string {
-	if x != nil {
-		return x.KvStoreId
-	}
-	return ""
-}
-
 type SweepServiceStatus struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Network        string                 `protobuf:"bytes,1,opt,name=network,proto3" json:"network,omitempty"`                                      // CIDR range being swept
@@ -792,7 +540,7 @@ type SweepServiceStatus struct {
 
 func (x *SweepServiceStatus) Reset() {
 	*x = SweepServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -804,7 +552,7 @@ func (x *SweepServiceStatus) String() string {
 func (*SweepServiceStatus) ProtoMessage() {}
 
 func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -817,7 +565,7 @@ func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepServiceStatus.ProtoReflect.Descriptor instead.
 func (*SweepServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{8}
+	return file_monitoring_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SweepServiceStatus) GetNetwork() string {
@@ -865,7 +613,7 @@ type PortStatus struct {
 
 func (x *PortStatus) Reset() {
 	*x = PortStatus{}
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -877,7 +625,7 @@ func (x *PortStatus) String() string {
 func (*PortStatus) ProtoMessage() {}
 
 func (x *PortStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -890,7 +638,7 @@ func (x *PortStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortStatus.ProtoReflect.Descriptor instead.
 func (*PortStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{9}
+	return file_monitoring_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PortStatus) GetPort() int32 {
@@ -921,7 +669,7 @@ type ResultsChunk struct {
 
 func (x *ResultsChunk) Reset() {
 	*x = ResultsChunk{}
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -933,7 +681,7 @@ func (x *ResultsChunk) String() string {
 func (*ResultsChunk) ProtoMessage() {}
 
 func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -946,7 +694,7 @@ func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsChunk.ProtoReflect.Descriptor instead.
 func (*ResultsChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{10}
+	return file_monitoring_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ResultsChunk) GetData() []byte {
@@ -1005,7 +753,7 @@ type SweepCompletionStatus struct {
 
 func (x *SweepCompletionStatus) Reset() {
 	*x = SweepCompletionStatus{}
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +765,7 @@ func (x *SweepCompletionStatus) String() string {
 func (*SweepCompletionStatus) ProtoMessage() {}
 
 func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +778,7 @@ func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepCompletionStatus.ProtoReflect.Descriptor instead.
 func (*SweepCompletionStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{11}
+	return file_monitoring_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SweepCompletionStatus) GetStatus() SweepCompletionStatus_Status {
@@ -1075,36 +823,326 @@ func (x *SweepCompletionStatus) GetErrorMessage() string {
 	return ""
 }
 
-type PollerStatusChunk struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Services      []*ServiceStatus       `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"` // Chunk of service statuses
-	PollerId      string                 `protobuf:"bytes,2,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`
-	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Partition     string                 `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
-	SourceIp      string                 `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
-	IsFinal       bool                   `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`             // Whether this is the last chunk
-	ChunkIndex    int32                  `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`    // Order of this chunk
-	TotalChunks   int32                  `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"` // Total number of chunks
-	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`     // KV store identifier this service is using
+// GatewayStatusRequest is sent by agents to push their status to the gateway.
+type GatewayStatusRequest struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway receiving this status
+	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`       // Agent sending this status
+	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                     // Partition identifier
+	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`       // Host IP where agent is running
+	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`  // KV store identifier this agent is using
+	TenantId      string                  `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`       // Tenant UUID for multi-tenant routing
+	TenantSlug    string                  `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PollerStatusChunk) Reset() {
-	*x = PollerStatusChunk{}
+func (x *GatewayStatusRequest) Reset() {
+	*x = GatewayStatusRequest{}
+	mi := &file_monitoring_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusRequest) ProtoMessage() {}
+
+func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusRequest.ProtoReflect.Descriptor instead.
+func (*GatewayStatusRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GatewayStatusRequest) GetServices() []*GatewayServiceStatus {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+func (x *GatewayStatusRequest) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *GatewayStatusRequest) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetSourceIp() string {
+	if x != nil {
+		return x.SourceIp
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetKvStoreId() string {
+	if x != nil {
+		return x.KvStoreId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GatewayStatusRequest) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+// GatewayStatusResponse is the response from the gateway after receiving status.
+type GatewayStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Received      bool                   `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayStatusResponse) Reset() {
+	*x = GatewayStatusResponse{}
+	mi := &file_monitoring_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusResponse) ProtoMessage() {}
+
+func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusResponse.ProtoReflect.Descriptor instead.
+func (*GatewayStatusResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GatewayStatusResponse) GetReceived() bool {
+	if x != nil {
+		return x.Received
+	}
+	return false
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+type GatewayStatusChunk struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
+	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
+	IsFinal       bool                    `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`             // Whether this is the last chunk
+	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`    // Order of this chunk
+	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"` // Total number of chunks
+	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`     // KV store identifier this agent is using
+	TenantId      string                  `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`          // Tenant UUID for multi-tenant routing
+	TenantSlug    string                  `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`    // Tenant slug for NATS subject prefixing
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayStatusChunk) Reset() {
+	*x = GatewayStatusChunk{}
+	mi := &file_monitoring_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusChunk) ProtoMessage() {}
+
+func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
+func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+func (x *GatewayStatusChunk) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetSourceIp() string {
+	if x != nil {
+		return x.SourceIp
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
+func (x *GatewayStatusChunk) GetChunkIndex() int32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetTotalChunks() int32 {
+	if x != nil {
+		return x.TotalChunks
+	}
+	return 0
+}
+
+func (x *GatewayStatusChunk) GetKvStoreId() string {
+	if x != nil {
+		return x.KvStoreId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GatewayStatusChunk) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+// GatewayServiceStatus represents a single service status pushed by an agent.
+type GatewayServiceStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
+	Message       []byte                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
+	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`           // Agent ID for traceability
+	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`     // Gateway ID for traceability
+	Partition     string                 `protobuf:"bytes,8,opt,name=partition,proto3" json:"partition,omitempty"`                      // Partition identifier
+	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`                            // Source of the message: "status" or "results"
+	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`  // KV store identifier this service is using
+	TenantId      string                 `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`       // Tenant UUID for multi-tenant routing
+	TenantSlug    string                 `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GatewayServiceStatus) Reset() {
+	*x = GatewayServiceStatus{}
 	mi := &file_monitoring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PollerStatusChunk) String() string {
+func (x *GatewayServiceStatus) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PollerStatusChunk) ProtoMessage() {}
+func (*GatewayServiceStatus) ProtoMessage() {}
 
-func (x *PollerStatusChunk) ProtoReflect() protoreflect.Message {
+func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
 	mi := &file_monitoring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1116,79 +1154,587 @@ func (x *PollerStatusChunk) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PollerStatusChunk.ProtoReflect.Descriptor instead.
-func (*PollerStatusChunk) Descriptor() ([]byte, []int) {
+// Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
+func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
 	return file_monitoring_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *PollerStatusChunk) GetServices() []*ServiceStatus {
+func (x *GatewayServiceStatus) GetServiceName() string {
 	if x != nil {
-		return x.Services
-	}
-	return nil
-}
-
-func (x *PollerStatusChunk) GetPollerId() string {
-	if x != nil {
-		return x.PollerId
+		return x.ServiceName
 	}
 	return ""
 }
 
-func (x *PollerStatusChunk) GetAgentId() string {
+func (x *GatewayServiceStatus) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *GatewayServiceStatus) GetMessage() []byte {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *GatewayServiceStatus) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetResponseTime() int64 {
+	if x != nil {
+		return x.ResponseTime
+	}
+	return 0
+}
+
+func (x *GatewayServiceStatus) GetAgentId() string {
 	if x != nil {
 		return x.AgentId
 	}
 	return ""
 }
 
-func (x *PollerStatusChunk) GetTimestamp() int64 {
+func (x *GatewayServiceStatus) GetGatewayId() string {
 	if x != nil {
-		return x.Timestamp
+		return x.GatewayId
 	}
-	return 0
+	return ""
 }
 
-func (x *PollerStatusChunk) GetPartition() string {
+func (x *GatewayServiceStatus) GetPartition() string {
 	if x != nil {
 		return x.Partition
 	}
 	return ""
 }
 
-func (x *PollerStatusChunk) GetSourceIp() string {
+func (x *GatewayServiceStatus) GetSource() string {
 	if x != nil {
-		return x.SourceIp
+		return x.Source
 	}
 	return ""
 }
 
-func (x *PollerStatusChunk) GetIsFinal() bool {
-	if x != nil {
-		return x.IsFinal
-	}
-	return false
-}
-
-func (x *PollerStatusChunk) GetChunkIndex() int32 {
-	if x != nil {
-		return x.ChunkIndex
-	}
-	return 0
-}
-
-func (x *PollerStatusChunk) GetTotalChunks() int32 {
-	if x != nil {
-		return x.TotalChunks
-	}
-	return 0
-}
-
-func (x *PollerStatusChunk) GetKvStoreId() string {
+func (x *GatewayServiceStatus) GetKvStoreId() string {
 	if x != nil {
 		return x.KvStoreId
 	}
 	return ""
+}
+
+func (x *GatewayServiceStatus) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *GatewayServiceStatus) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+// AgentHelloRequest is sent by the agent on startup to announce itself.
+type AgentHelloRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                                          // Unique agent identifier (from bootstrap config)
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                                                                         // Agent software version (e.g., "1.2.3")
+	Capabilities  []string               `protobuf:"bytes,3,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                                                               // Agent capabilities (e.g., ["icmp", "tcp", "http", "sweep"])
+	Hostname      string                 `protobuf:"bytes,4,opt,name=hostname,proto3" json:"hostname,omitempty"`                                                                       // Host machine name
+	Os            string                 `protobuf:"bytes,5,opt,name=os,proto3" json:"os,omitempty"`                                                                                   // Operating system (e.g., "linux", "darwin", "windows")
+	Arch          string                 `protobuf:"bytes,6,opt,name=arch,proto3" json:"arch,omitempty"`                                                                               // Architecture (e.g., "amd64", "arm64")
+	Partition     string                 `protobuf:"bytes,7,opt,name=partition,proto3" json:"partition,omitempty"`                                                                     // Partition/site identifier
+	ConfigVersion string                 `protobuf:"bytes,8,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`                                        // Current config version hash (for config sync)
+	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentHelloRequest) Reset() {
+	*x = AgentHelloRequest{}
+	mi := &file_monitoring_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentHelloRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentHelloRequest) ProtoMessage() {}
+
+func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentHelloRequest.ProtoReflect.Descriptor instead.
+func (*AgentHelloRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AgentHelloRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *AgentHelloRequest) GetHostname() string {
+	if x != nil {
+		return x.Hostname
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetOs() string {
+	if x != nil {
+		return x.Os
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetArch() string {
+	if x != nil {
+		return x.Arch
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetPartition() string {
+	if x != nil {
+		return x.Partition
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+// AgentHelloResponse is returned by the gateway after validating the agent.
+type AgentHelloResponse struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Accepted             bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`                                                       // Whether the agent was accepted
+	AgentId              string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                           // Confirmed agent ID (may be assigned if not provided)
+	Message              string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`                                                          // Human-readable status message
+	GatewayId            string                 `protobuf:"bytes,4,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`                                     // Gateway that accepted the connection
+	ServerTime           int64                  `protobuf:"varint,5,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`                                 // Server timestamp (for clock sync)
+	HeartbeatIntervalSec int32                  `protobuf:"varint,6,opt,name=heartbeat_interval_sec,json=heartbeatIntervalSec,proto3" json:"heartbeat_interval_sec,omitempty"` // Recommended status push interval in seconds
+	ConfigOutdated       bool                   `protobuf:"varint,7,opt,name=config_outdated,json=configOutdated,proto3" json:"config_outdated,omitempty"`                     // True if agent should fetch new config
+	TenantId             string                 `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`                                        // Tenant UUID (extracted from mTLS cert)
+	TenantSlug           string                 `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`                                  // Tenant slug (extracted from mTLS cert)
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *AgentHelloResponse) Reset() {
+	*x = AgentHelloResponse{}
+	mi := &file_monitoring_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentHelloResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentHelloResponse) ProtoMessage() {}
+
+func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentHelloResponse.ProtoReflect.Descriptor instead.
+func (*AgentHelloResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AgentHelloResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *AgentHelloResponse) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AgentHelloResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *AgentHelloResponse) GetGatewayId() string {
+	if x != nil {
+		return x.GatewayId
+	}
+	return ""
+}
+
+func (x *AgentHelloResponse) GetServerTime() int64 {
+	if x != nil {
+		return x.ServerTime
+	}
+	return 0
+}
+
+func (x *AgentHelloResponse) GetHeartbeatIntervalSec() int32 {
+	if x != nil {
+		return x.HeartbeatIntervalSec
+	}
+	return 0
+}
+
+func (x *AgentHelloResponse) GetConfigOutdated() bool {
+	if x != nil {
+		return x.ConfigOutdated
+	}
+	return false
+}
+
+func (x *AgentHelloResponse) GetTenantId() string {
+	if x != nil {
+		return x.TenantId
+	}
+	return ""
+}
+
+func (x *AgentHelloResponse) GetTenantSlug() string {
+	if x != nil {
+		return x.TenantSlug
+	}
+	return ""
+}
+
+// AgentConfigRequest is sent by the agent to fetch its configuration.
+type AgentConfigRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                   // Agent requesting config
+	ConfigVersion string                 `protobuf:"bytes,2,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"` // Current config version hash (for cache validation)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentConfigRequest) Reset() {
+	*x = AgentConfigRequest{}
+	mi := &file_monitoring_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentConfigRequest) ProtoMessage() {}
+
+func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentConfigRequest.ProtoReflect.Descriptor instead.
+func (*AgentConfigRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AgentConfigRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AgentConfigRequest) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+// AgentConfigResponse contains the agent's configuration from the SaaS control plane.
+type AgentConfigResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	NotModified     bool                   `protobuf:"varint,1,opt,name=not_modified,json=notModified,proto3" json:"not_modified,omitempty"`             // True if config_version matches current; config fields empty
+	ConfigVersion   string                 `protobuf:"bytes,2,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`        // New config version hash
+	ConfigTimestamp int64                  `protobuf:"varint,3,opt,name=config_timestamp,json=configTimestamp,proto3" json:"config_timestamp,omitempty"` // When config was last updated (unix timestamp)
+	// Agent settings
+	HeartbeatIntervalSec  int32 `protobuf:"varint,4,opt,name=heartbeat_interval_sec,json=heartbeatIntervalSec,proto3" json:"heartbeat_interval_sec,omitempty"`      // How often to push status (seconds)
+	ConfigPollIntervalSec int32 `protobuf:"varint,5,opt,name=config_poll_interval_sec,json=configPollIntervalSec,proto3" json:"config_poll_interval_sec,omitempty"` // How often to check for config updates (seconds)
+	// Checks to perform
+	Checks []*AgentCheckConfig `protobuf:"bytes,6,rep,name=checks,proto3" json:"checks,omitempty"`
+	// Optional: raw JSON config for extensibility
+	ConfigJson    []byte `protobuf:"bytes,7,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentConfigResponse) Reset() {
+	*x = AgentConfigResponse{}
+	mi := &file_monitoring_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentConfigResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentConfigResponse) ProtoMessage() {}
+
+func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentConfigResponse.ProtoReflect.Descriptor instead.
+func (*AgentConfigResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AgentConfigResponse) GetNotModified() bool {
+	if x != nil {
+		return x.NotModified
+	}
+	return false
+}
+
+func (x *AgentConfigResponse) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
+}
+
+func (x *AgentConfigResponse) GetConfigTimestamp() int64 {
+	if x != nil {
+		return x.ConfigTimestamp
+	}
+	return 0
+}
+
+func (x *AgentConfigResponse) GetHeartbeatIntervalSec() int32 {
+	if x != nil {
+		return x.HeartbeatIntervalSec
+	}
+	return 0
+}
+
+func (x *AgentConfigResponse) GetConfigPollIntervalSec() int32 {
+	if x != nil {
+		return x.ConfigPollIntervalSec
+	}
+	return 0
+}
+
+func (x *AgentConfigResponse) GetChecks() []*AgentCheckConfig {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
+func (x *AgentConfigResponse) GetConfigJson() []byte {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return nil
+}
+
+// AgentCheckConfig defines a single check for the agent to perform.
+type AgentCheckConfig struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	CheckId     string                 `protobuf:"bytes,1,opt,name=check_id,json=checkId,proto3" json:"check_id,omitempty"`              // Unique check identifier
+	CheckType   string                 `protobuf:"bytes,2,opt,name=check_type,json=checkType,proto3" json:"check_type,omitempty"`        // Type: "icmp", "tcp", "http", "grpc", "process", "sweep"
+	Name        string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`                                   // Human-readable name
+	Enabled     bool                   `protobuf:"varint,4,opt,name=enabled,proto3" json:"enabled,omitempty"`                            // Whether check is active
+	IntervalSec int32                  `protobuf:"varint,5,opt,name=interval_sec,json=intervalSec,proto3" json:"interval_sec,omitempty"` // Check interval in seconds
+	TimeoutSec  int32                  `protobuf:"varint,6,opt,name=timeout_sec,json=timeoutSec,proto3" json:"timeout_sec,omitempty"`    // Check timeout in seconds
+	// Target configuration (interpretation depends on check_type)
+	Target string `protobuf:"bytes,7,opt,name=target,proto3" json:"target,omitempty"`  // Target host/IP/URL
+	Port   int32  `protobuf:"varint,8,opt,name=port,proto3" json:"port,omitempty"`     // Target port (for tcp, http, grpc)
+	Path   string `protobuf:"bytes,9,opt,name=path,proto3" json:"path,omitempty"`      // Path (for http checks)
+	Method string `protobuf:"bytes,10,opt,name=method,proto3" json:"method,omitempty"` // HTTP method (for http checks)
+	// Additional settings as key-value pairs
+	Settings      map[string]string `protobuf:"bytes,11,rep,name=settings,proto3" json:"settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentCheckConfig) Reset() {
+	*x = AgentCheckConfig{}
+	mi := &file_monitoring_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentCheckConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentCheckConfig) ProtoMessage() {}
+
+func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
+func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AgentCheckConfig) GetCheckId() string {
+	if x != nil {
+		return x.CheckId
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetCheckType() string {
+	if x != nil {
+		return x.CheckType
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *AgentCheckConfig) GetIntervalSec() int32 {
+	if x != nil {
+		return x.IntervalSec
+	}
+	return 0
+}
+
+func (x *AgentCheckConfig) GetTimeoutSec() int32 {
+	if x != nil {
+		return x.TimeoutSec
+	}
+	return 0
+}
+
+func (x *AgentCheckConfig) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *AgentCheckConfig) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *AgentCheckConfig) GetSettings() map[string]string {
+	if x != nil {
+		return x.Settings
+	}
+	return nil
 }
 
 var File_monitoring_proto protoreflect.FileDescriptor
@@ -1198,66 +1744,48 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x10monitoring.proto\x12\n" +
 	"monitoring\"0\n" +
 	"\x13DeviceStatusRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xbb\x01\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xbd\x01\n" +
 	"\rStatusRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x02 \x01(\tR\vserviceType\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\x04 \x01(\tR\bpollerId\x12\x18\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x04 \x01(\tR\tgatewayId\x12\x18\n" +
 	"\adetails\x18\x05 \x01(\tR\adetails\x12\x12\n" +
-	"\x04port\x18\x06 \x01(\x05R\x04port\"\x9d\x02\n" +
+	"\x04port\x18\x06 \x01(\x05R\x04port\"\x9f\x02\n" +
 	"\x0eResultsRequest\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x02 \x01(\tR\vserviceType\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\x04 \x01(\tR\bpollerId\x12\x18\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x04 \x01(\tR\tgatewayId\x12\x18\n" +
 	"\adetails\x18\x05 \x01(\tR\adetails\x12#\n" +
 	"\rlast_sequence\x18\x06 \x01(\tR\flastSequence\x12N\n" +
-	"\x11completion_status\x18\a \x01(\v2!.monitoring.SweepCompletionStatusR\x10completionStatus\"\xeb\x01\n" +
+	"\x11completion_status\x18\a \x01(\v2!.monitoring.SweepCompletionStatusR\x10completionStatus\"\xed\x01\n" +
 	"\x0eStatusResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\fR\amessage\x12!\n" +
 	"\fservice_name\x18\x03 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12#\n" +
 	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
-	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\a \x01(\tR\bpollerId\"\x9f\x03\n" +
+	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\"\xa1\x03\n" +
 	"\x0fResultsResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12!\n" +
 	"\fservice_name\x18\x03 \x01(\tR\vserviceName\x12!\n" +
 	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12#\n" +
 	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
-	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\a \x01(\tR\bpollerId\x12\x1c\n" +
+	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\x12\x1c\n" +
 	"\ttimestamp\x18\b \x01(\x03R\ttimestamp\x12)\n" +
 	"\x10current_sequence\x18\t \x01(\tR\x0fcurrentSequence\x12 \n" +
 	"\fhas_new_data\x18\n" +
 	" \x01(\bR\n" +
 	"hasNewData\x12L\n" +
-	"\x10sweep_completion\x18\v \x01(\v2!.monitoring.SweepCompletionStatusR\x0fsweepCompletion\"\xfd\x01\n" +
-	"\x13PollerStatusRequest\x125\n" +
-	"\bservices\x18\x01 \x03(\v2\x19.monitoring.ServiceStatusR\bservices\x12\x1b\n" +
-	"\tpoller_id\x18\x02 \x01(\tR\bpollerId\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
-	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
-	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x1e\n" +
-	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\"2\n" +
-	"\x14PollerStatusResponse\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\xc0\x02\n" +
-	"\rServiceStatus\x12!\n" +
-	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
-	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\fR\amessage\x12!\n" +
-	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12#\n" +
-	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
-	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\a \x01(\tR\bpollerId\x12\x1c\n" +
-	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
-	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
-	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreId\"\xc5\x01\n" +
+	"\x10sweep_completion\x18\v \x01(\v2!.monitoring.SweepCompletionStatusR\x0fsweepCompletion\"\xc5\x01\n" +
 	"\x12SweepServiceStatus\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x1f\n" +
 	"\vtotal_hosts\x18\x02 \x01(\x05R\n" +
@@ -1291,10 +1819,25 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xda\x02\n" +
-	"\x11PollerStatusChunk\x125\n" +
-	"\bservices\x18\x01 \x03(\v2\x19.monitoring.ServiceStatusR\bservices\x12\x1b\n" +
-	"\tpoller_id\x18\x02 \x01(\tR\bpollerId\x12\x19\n" +
+	"\x06FAILED\x10\x04\"\xc5\x02\n" +
+	"\x14GatewayStatusRequest\x12<\n" +
+	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
+	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
+	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x1e\n" +
+	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\x12\x1b\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
+	"\vtenant_slug\x18\t \x01(\tR\n" +
+	"tenantSlug\"3\n" +
+	"\x15GatewayStatusResponse\x12\x1a\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\xa2\x03\n" +
+	"\x12GatewayStatusChunk\x12<\n" +
+	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1c\n" +
 	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
 	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
@@ -1304,15 +1847,93 @@ const file_monitoring_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\t \x01(\x05R\vtotalChunks\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreId2\xe8\x01\n" +
+	" \x01(\tR\tkvStoreId\x12\x1b\n" +
+	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
+	"\vtenant_slug\x18\f \x01(\tR\n" +
+	"tenantSlug\"\x87\x03\n" +
+	"\x14GatewayServiceStatus\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\fR\amessage\x12!\n" +
+	"\fservice_type\x18\x04 \x01(\tR\vserviceType\x12#\n" +
+	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
+	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\x12\x1c\n" +
+	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
+	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
+	"\vkv_store_id\x18\n" +
+	" \x01(\tR\tkvStoreId\x12\x1b\n" +
+	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
+	"\vtenant_slug\x18\f \x01(\tR\n" +
+	"tenantSlug\"\xef\x02\n" +
+	"\x11AgentHelloRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
+	"\fcapabilities\x18\x03 \x03(\tR\fcapabilities\x12\x1a\n" +
+	"\bhostname\x18\x04 \x01(\tR\bhostname\x12\x0e\n" +
+	"\x02os\x18\x05 \x01(\tR\x02os\x12\x12\n" +
+	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x1c\n" +
+	"\tpartition\x18\a \x01(\tR\tpartition\x12%\n" +
+	"\x0econfig_version\x18\b \x01(\tR\rconfigVersion\x12A\n" +
+	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc2\x02\n" +
+	"\x12AgentHelloResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x04 \x01(\tR\tgatewayId\x12\x1f\n" +
+	"\vserver_time\x18\x05 \x01(\x03R\n" +
+	"serverTime\x124\n" +
+	"\x16heartbeat_interval_sec\x18\x06 \x01(\x05R\x14heartbeatIntervalSec\x12'\n" +
+	"\x0fconfig_outdated\x18\a \x01(\bR\x0econfigOutdated\x12\x1b\n" +
+	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
+	"\vtenant_slug\x18\t \x01(\tR\n" +
+	"tenantSlug\"V\n" +
+	"\x12AgentConfigRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xd0\x02\n" +
+	"\x13AgentConfigResponse\x12!\n" +
+	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
+	"\x10config_timestamp\x18\x03 \x01(\x03R\x0fconfigTimestamp\x124\n" +
+	"\x16heartbeat_interval_sec\x18\x04 \x01(\x05R\x14heartbeatIntervalSec\x127\n" +
+	"\x18config_poll_interval_sec\x18\x05 \x01(\x05R\x15configPollIntervalSec\x124\n" +
+	"\x06checks\x18\x06 \x03(\v2\x1c.monitoring.AgentCheckConfigR\x06checks\x12\x1f\n" +
+	"\vconfig_json\x18\a \x01(\fR\n" +
+	"configJson\"\x9b\x03\n" +
+	"\x10AgentCheckConfig\x12\x19\n" +
+	"\bcheck_id\x18\x01 \x01(\tR\acheckId\x12\x1d\n" +
+	"\n" +
+	"check_type\x18\x02 \x01(\tR\tcheckType\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x18\n" +
+	"\aenabled\x18\x04 \x01(\bR\aenabled\x12!\n" +
+	"\finterval_sec\x18\x05 \x01(\x05R\vintervalSec\x12\x1f\n" +
+	"\vtimeout_sec\x18\x06 \x01(\x05R\n" +
+	"timeoutSec\x12\x16\n" +
+	"\x06target\x18\a \x01(\tR\x06target\x12\x12\n" +
+	"\x04port\x18\b \x01(\x05R\x04port\x12\x12\n" +
+	"\x04path\x18\t \x01(\tR\x04path\x12\x16\n" +
+	"\x06method\x18\n" +
+	" \x01(\tR\x06method\x12F\n" +
+	"\bsettings\x18\v \x03(\v2*.monitoring.AgentCheckConfig.SettingsEntryR\bsettings\x1a;\n" +
+	"\rSettingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xe8\x01\n" +
 	"\fAgentService\x12D\n" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
 	"GetResults\x12\x1a.monitoring.ResultsRequest\x1a\x1b.monitoring.ResultsResponse\"\x00\x12I\n" +
-	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xb9\x01\n" +
-	"\rPollerService\x12S\n" +
-	"\fReportStatus\x12\x1f.monitoring.PollerStatusRequest\x1a .monitoring.PollerStatusResponse\"\x00\x12S\n" +
-	"\fStreamStatus\x12\x1d.monitoring.PollerStatusChunk\x1a .monitoring.PollerStatusResponse\"\x00(\x01B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xdb\x02\n" +
+	"\x13AgentGatewayService\x12H\n" +
+	"\x05Hello\x12\x1d.monitoring.AgentHelloRequest\x1a\x1e.monitoring.AgentHelloResponse\"\x00\x12N\n" +
+	"\tGetConfig\x12\x1e.monitoring.AgentConfigRequest\x1a\x1f.monitoring.AgentConfigResponse\"\x00\x12S\n" +
+	"\n" +
+	"PushStatus\x12 .monitoring.GatewayStatusRequest\x1a!.monitoring.GatewayStatusResponse\"\x00\x12U\n" +
+	"\fStreamStatus\x12\x1e.monitoring.GatewayStatusChunk\x1a!.monitoring.GatewayStatusResponse\"\x00(\x01B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_monitoring_proto_rawDescOnce sync.Once
@@ -1327,7 +1948,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_monitoring_proto_goTypes = []any{
 	(SweepCompletionStatus_Status)(0), // 0: monitoring.SweepCompletionStatus.Status
 	(*DeviceStatusRequest)(nil),       // 1: monitoring.DeviceStatusRequest
@@ -1335,37 +1956,51 @@ var file_monitoring_proto_goTypes = []any{
 	(*ResultsRequest)(nil),            // 3: monitoring.ResultsRequest
 	(*StatusResponse)(nil),            // 4: monitoring.StatusResponse
 	(*ResultsResponse)(nil),           // 5: monitoring.ResultsResponse
-	(*PollerStatusRequest)(nil),       // 6: monitoring.PollerStatusRequest
-	(*PollerStatusResponse)(nil),      // 7: monitoring.PollerStatusResponse
-	(*ServiceStatus)(nil),             // 8: monitoring.ServiceStatus
-	(*SweepServiceStatus)(nil),        // 9: monitoring.SweepServiceStatus
-	(*PortStatus)(nil),                // 10: monitoring.PortStatus
-	(*ResultsChunk)(nil),              // 11: monitoring.ResultsChunk
-	(*SweepCompletionStatus)(nil),     // 12: monitoring.SweepCompletionStatus
-	(*PollerStatusChunk)(nil),         // 13: monitoring.PollerStatusChunk
+	(*SweepServiceStatus)(nil),        // 6: monitoring.SweepServiceStatus
+	(*PortStatus)(nil),                // 7: monitoring.PortStatus
+	(*ResultsChunk)(nil),              // 8: monitoring.ResultsChunk
+	(*SweepCompletionStatus)(nil),     // 9: monitoring.SweepCompletionStatus
+	(*GatewayStatusRequest)(nil),      // 10: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),     // 11: monitoring.GatewayStatusResponse
+	(*GatewayStatusChunk)(nil),        // 12: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),      // 13: monitoring.GatewayServiceStatus
+	(*AgentHelloRequest)(nil),         // 14: monitoring.AgentHelloRequest
+	(*AgentHelloResponse)(nil),        // 15: monitoring.AgentHelloResponse
+	(*AgentConfigRequest)(nil),        // 16: monitoring.AgentConfigRequest
+	(*AgentConfigResponse)(nil),       // 17: monitoring.AgentConfigResponse
+	(*AgentCheckConfig)(nil),          // 18: monitoring.AgentCheckConfig
+	nil,                               // 19: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                               // 20: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
-	12, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
-	12, // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
-	8,  // 2: monitoring.PollerStatusRequest.services:type_name -> monitoring.ServiceStatus
-	10, // 3: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
-	0,  // 4: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
-	8,  // 5: monitoring.PollerStatusChunk.services:type_name -> monitoring.ServiceStatus
-	2,  // 6: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	3,  // 7: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	3,  // 8: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	6,  // 9: monitoring.PollerService.ReportStatus:input_type -> monitoring.PollerStatusRequest
-	13, // 10: monitoring.PollerService.StreamStatus:input_type -> monitoring.PollerStatusChunk
-	4,  // 11: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	5,  // 12: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	11, // 13: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	7,  // 14: monitoring.PollerService.ReportStatus:output_type -> monitoring.PollerStatusResponse
-	7,  // 15: monitoring.PollerService.StreamStatus:output_type -> monitoring.PollerStatusResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	9,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
+	9,  // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
+	7,  // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
+	0,  // 3: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
+	13, // 4: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	13, // 5: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	19, // 6: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	18, // 7: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	20, // 8: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	2,  // 9: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	3,  // 10: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	3,  // 11: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	14, // 12: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	16, // 13: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	10, // 14: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	12, // 15: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	4,  // 16: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	5,  // 17: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	8,  // 18: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	15, // 19: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	17, // 20: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	11, // 21: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	11, // 22: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	16, // [16:23] is the sub-list for method output_type
+	9,  // [9:16] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -1379,7 +2014,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

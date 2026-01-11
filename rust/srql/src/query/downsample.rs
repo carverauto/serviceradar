@@ -146,7 +146,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "metric_name" => "metric_name".to_string(),
                 "metric_type" => "metric_type".to_string(),
                 "device_id" => "device_id".to_string(),
-                "poller_id" => "poller_id".to_string(),
+                "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),
                 "partition" => "partition".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
@@ -161,7 +161,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
         Entity::CpuMetrics => match series.as_str() {
             "device_id" => "device_id".to_string(),
             "host_id" => "host_id".to_string(),
-            "poller_id" => "poller_id".to_string(),
+            "gateway_id" => "gateway_id".to_string(),
             "agent_id" => "agent_id".to_string(),
             "core_id" => "core_id::text".to_string(),
             "label" => "label".to_string(),
@@ -176,7 +176,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
         Entity::MemoryMetrics => match series.as_str() {
             "device_id" => "device_id".to_string(),
             "host_id" => "host_id".to_string(),
-            "poller_id" => "poller_id".to_string(),
+            "gateway_id" => "gateway_id".to_string(),
             "agent_id" => "agent_id".to_string(),
             "partition" => "partition".to_string(),
             other => {
@@ -188,7 +188,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
         Entity::DiskMetrics => match series.as_str() {
             "device_id" => "device_id".to_string(),
             "host_id" => "host_id".to_string(),
-            "poller_id" => "poller_id".to_string(),
+            "gateway_id" => "gateway_id".to_string(),
             "agent_id" => "agent_id".to_string(),
             "partition" => "partition".to_string(),
             "mount_point" => "mount_point".to_string(),
@@ -202,7 +202,7 @@ fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
         Entity::ProcessMetrics => match series.as_str() {
             "device_id" => "device_id".to_string(),
             "host_id" => "host_id".to_string(),
-            "poller_id" => "poller_id".to_string(),
+            "gateway_id" => "gateway_id".to_string(),
             "agent_id" => "agent_id".to_string(),
             "partition" => "partition".to_string(),
             "name" => "name".to_string(),
@@ -394,7 +394,7 @@ fn int_clause(
 
 fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
+        "gateway_id" | "agent_id" | "metric_name" | "metric_type" | "device_id"
         | "target_device_ip" | "partition" => text_clause(filter.field.as_str(), filter),
         "if_index" => int_clause("if_index", filter, false),
         "value" => float_clause("value", filter, true),
@@ -406,7 +406,7 @@ fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue
 
 fn cpu_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
             text_clause(filter.field.as_str(), filter)
         }
         "core_id" => int_clause("core_id", filter, false),
@@ -420,7 +420,7 @@ fn cpu_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
 
 fn memory_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
             text_clause(filter.field.as_str(), filter)
         }
         "usage_percent" => float_clause("usage_percent", filter, false),
@@ -435,7 +435,7 @@ fn memory_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> 
 
 fn disk_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "mount_point"
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "mount_point"
         | "device_name" => text_clause(filter.field.as_str(), filter),
         "usage_percent" => float_clause("usage_percent", filter, false),
         "total_bytes" => int_clause("total_bytes", filter, false),
@@ -449,7 +449,7 @@ fn disk_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
 
 fn process_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
         | "start_time" => text_clause(filter.field.as_str(), filter),
         "pid" => int_clause("pid", filter, false),
         "cpu_usage" => float_clause("cpu_usage", filter, true),

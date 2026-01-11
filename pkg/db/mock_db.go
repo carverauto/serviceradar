@@ -143,18 +143,18 @@ func (mr *MockServiceMockRecorder) DeleteOCSFDevices(arg0, arg1 any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOCSFDevices", reflect.TypeOf((*MockService)(nil).DeleteOCSFDevices), arg0, arg1)
 }
 
-// DeletePoller mocks base method.
-func (m *MockService) DeletePoller(arg0 context.Context, arg1 string) error {
+// DeleteGateway mocks base method.
+func (m *MockService) DeleteGateway(arg0 context.Context, arg1 string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeletePoller", arg0, arg1)
+	ret := m.ctrl.Call(m, "DeleteGateway", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeletePoller indicates an expected call of DeletePoller.
-func (mr *MockServiceMockRecorder) DeletePoller(arg0, arg1 any) *gomock.Call {
+// DeleteGateway indicates an expected call of DeleteGateway.
+func (mr *MockServiceMockRecorder) DeleteGateway(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePoller", reflect.TypeOf((*MockService)(nil).DeletePoller), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGateway", reflect.TypeOf((*MockService)(nil).DeleteGateway), arg0, arg1)
 }
 
 // ExecuteQuery mocks base method.
@@ -582,64 +582,64 @@ func (mr *MockServiceMockRecorder) GetOCSFDevicesByIPsOrIDs(arg0, arg1, arg2 any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOCSFDevicesByIPsOrIDs", reflect.TypeOf((*MockService)(nil).GetOCSFDevicesByIPsOrIDs), arg0, arg1, arg2)
 }
 
-// GetPollerHistory mocks base method.
-func (m *MockService) GetPollerHistory(arg0 context.Context, arg1 string) ([]models.PollerStatus, error) {
+// GetGatewayHistory mocks base method.
+func (m *MockService) GetGatewayHistory(arg0 context.Context, arg1 string) ([]models.GatewayStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerHistory", arg0, arg1)
-	ret0, _ := ret[0].([]models.PollerStatus)
+	ret := m.ctrl.Call(m, "GetGatewayHistory", arg0, arg1)
+	ret0, _ := ret[0].([]models.GatewayStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPollerHistory indicates an expected call of GetPollerHistory.
-func (mr *MockServiceMockRecorder) GetPollerHistory(arg0, arg1 any) *gomock.Call {
+// GetGatewayHistory indicates an expected call of GetGatewayHistory.
+func (mr *MockServiceMockRecorder) GetGatewayHistory(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerHistory", reflect.TypeOf((*MockService)(nil).GetPollerHistory), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGatewayHistory", reflect.TypeOf((*MockService)(nil).GetGatewayHistory), arg0, arg1)
 }
 
-// GetPollerHistoryPoints mocks base method.
-func (m *MockService) GetPollerHistoryPoints(arg0 context.Context, arg1 string, arg2 int) ([]models.PollerHistoryPoint, error) {
+// GetGatewayHistoryPoints mocks base method.
+func (m *MockService) GetGatewayHistoryPoints(arg0 context.Context, arg1 string, arg2 int) ([]models.GatewayHistoryPoint, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerHistoryPoints", arg0, arg1, arg2)
-	ret0, _ := ret[0].([]models.PollerHistoryPoint)
+	ret := m.ctrl.Call(m, "GetGatewayHistoryPoints", arg0, arg1, arg2)
+	ret0, _ := ret[0].([]models.GatewayHistoryPoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPollerHistoryPoints indicates an expected call of GetPollerHistoryPoints.
-func (mr *MockServiceMockRecorder) GetPollerHistoryPoints(arg0, arg1, arg2 any) *gomock.Call {
+// GetGatewayHistoryPoints indicates an expected call of GetGatewayHistoryPoints.
+func (mr *MockServiceMockRecorder) GetGatewayHistoryPoints(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerHistoryPoints", reflect.TypeOf((*MockService)(nil).GetPollerHistoryPoints), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGatewayHistoryPoints", reflect.TypeOf((*MockService)(nil).GetGatewayHistoryPoints), arg0, arg1, arg2)
 }
 
-// GetPollerServices mocks base method.
-func (m *MockService) GetPollerServices(arg0 context.Context, arg1 string) ([]models.ServiceStatus, error) {
+// GetGatewayServices mocks base method.
+func (m *MockService) GetGatewayServices(arg0 context.Context, arg1 string) ([]models.ServiceStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerServices", arg0, arg1)
+	ret := m.ctrl.Call(m, "GetGatewayServices", arg0, arg1)
 	ret0, _ := ret[0].([]models.ServiceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPollerServices indicates an expected call of GetPollerServices.
-func (mr *MockServiceMockRecorder) GetPollerServices(arg0, arg1 any) *gomock.Call {
+// GetGatewayServices indicates an expected call of GetGatewayServices.
+func (mr *MockServiceMockRecorder) GetGatewayServices(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerServices", reflect.TypeOf((*MockService)(nil).GetPollerServices), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGatewayServices", reflect.TypeOf((*MockService)(nil).GetGatewayServices), arg0, arg1)
 }
 
-// GetPollerStatus mocks base method.
-func (m *MockService) GetPollerStatus(arg0 context.Context, arg1 string) (*models.PollerStatus, error) {
+// GetGatewayStatus mocks base method.
+func (m *MockService) GetGatewayStatus(arg0 context.Context, arg1 string) (*models.GatewayStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerStatus", arg0, arg1)
-	ret0, _ := ret[0].(*models.PollerStatus)
+	ret := m.ctrl.Call(m, "GetGatewayStatus", arg0, arg1)
+	ret0, _ := ret[0].(*models.GatewayStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetPollerStatus indicates an expected call of GetPollerStatus.
-func (mr *MockServiceMockRecorder) GetPollerStatus(arg0, arg1 any) *gomock.Call {
+// GetGatewayStatus indicates an expected call of GetGatewayStatus.
+func (mr *MockServiceMockRecorder) GetGatewayStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerStatus", reflect.TypeOf((*MockService)(nil).GetPollerStatus), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGatewayStatus", reflect.TypeOf((*MockService)(nil).GetGatewayStatus), arg0, arg1)
 }
 
 // GetServiceHistory mocks base method.
@@ -730,19 +730,19 @@ func (mr *MockServiceMockRecorder) InsertSightingEvents(arg0, arg1 any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSightingEvents", reflect.TypeOf((*MockService)(nil).InsertSightingEvents), arg0, arg1)
 }
 
-// IsPollerOffline mocks base method.
-func (m *MockService) IsPollerOffline(arg0 context.Context, arg1 string, arg2 time.Duration) (bool, error) {
+// IsGatewayOffline mocks base method.
+func (m *MockService) IsGatewayOffline(arg0 context.Context, arg1 string, arg2 time.Duration) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsPollerOffline", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "IsGatewayOffline", arg0, arg1, arg2)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// IsPollerOffline indicates an expected call of IsPollerOffline.
-func (mr *MockServiceMockRecorder) IsPollerOffline(arg0, arg1, arg2 any) *gomock.Call {
+// IsGatewayOffline indicates an expected call of IsGatewayOffline.
+func (mr *MockServiceMockRecorder) IsGatewayOffline(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPollerOffline", reflect.TypeOf((*MockService)(nil).IsPollerOffline), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsGatewayOffline", reflect.TypeOf((*MockService)(nil).IsGatewayOffline), arg0, arg1, arg2)
 }
 
 // ListActiveSightings mocks base method.
@@ -760,34 +760,34 @@ func (mr *MockServiceMockRecorder) ListActiveSightings(arg0, arg1, arg2, arg3 an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveSightings", reflect.TypeOf((*MockService)(nil).ListActiveSightings), arg0, arg1, arg2, arg3)
 }
 
-// ListAgentsByPoller mocks base method.
-func (m *MockService) ListAgentsByPoller(arg0 context.Context, arg1 string) ([]AgentInfo, error) {
+// ListAgentsByGateway mocks base method.
+func (m *MockService) ListAgentsByGateway(arg0 context.Context, arg1 string) ([]AgentInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAgentsByPoller", arg0, arg1)
+	ret := m.ctrl.Call(m, "ListAgentsByGateway", arg0, arg1)
 	ret0, _ := ret[0].([]AgentInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListAgentsByPoller indicates an expected call of ListAgentsByPoller.
-func (mr *MockServiceMockRecorder) ListAgentsByPoller(arg0, arg1 any) *gomock.Call {
+// ListAgentsByGateway indicates an expected call of ListAgentsByGateway.
+func (mr *MockServiceMockRecorder) ListAgentsByGateway(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentsByPoller", reflect.TypeOf((*MockService)(nil).ListAgentsByPoller), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentsByGateway", reflect.TypeOf((*MockService)(nil).ListAgentsByGateway), arg0, arg1)
 }
 
-// ListAgentsWithPollers mocks base method.
-func (m *MockService) ListAgentsWithPollers(arg0 context.Context) ([]AgentInfo, error) {
+// ListAgentsWithGateways mocks base method.
+func (m *MockService) ListAgentsWithGateways(arg0 context.Context) ([]AgentInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAgentsWithPollers", arg0)
+	ret := m.ctrl.Call(m, "ListAgentsWithGateways", arg0)
 	ret0, _ := ret[0].([]AgentInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListAgentsWithPollers indicates an expected call of ListAgentsWithPollers.
-func (mr *MockServiceMockRecorder) ListAgentsWithPollers(arg0 any) *gomock.Call {
+// ListAgentsWithGateways indicates an expected call of ListAgentsWithGateways.
+func (mr *MockServiceMockRecorder) ListAgentsWithGateways(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentsWithPollers", reflect.TypeOf((*MockService)(nil).ListAgentsWithPollers), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAgentsWithGateways", reflect.TypeOf((*MockService)(nil).ListAgentsWithGateways), arg0)
 }
 
 // ListEdgeOnboardingEvents mocks base method.
@@ -820,24 +820,24 @@ func (mr *MockServiceMockRecorder) ListEdgeOnboardingPackages(arg0, arg1 any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingPackages", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingPackages), arg0, arg1)
 }
 
-// ListEdgeOnboardingPollerIDs mocks base method.
-func (m *MockService) ListEdgeOnboardingPollerIDs(arg0 context.Context, arg1 ...models.EdgeOnboardingStatus) ([]string, error) {
+// ListEdgeOnboardingGatewayIDs mocks base method.
+func (m *MockService) ListEdgeOnboardingGatewayIDs(arg0 context.Context, arg1 ...models.EdgeOnboardingStatus) ([]string, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{arg0}
 	for _, a := range arg1 {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "ListEdgeOnboardingPollerIDs", varargs...)
+	ret := m.ctrl.Call(m, "ListEdgeOnboardingGatewayIDs", varargs...)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListEdgeOnboardingPollerIDs indicates an expected call of ListEdgeOnboardingPollerIDs.
-func (mr *MockServiceMockRecorder) ListEdgeOnboardingPollerIDs(arg0 any, arg1 ...any) *gomock.Call {
+// ListEdgeOnboardingGatewayIDs indicates an expected call of ListEdgeOnboardingGatewayIDs.
+func (mr *MockServiceMockRecorder) ListEdgeOnboardingGatewayIDs(arg0 any, arg1 ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{arg0}, arg1...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingPollerIDs", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingPollerIDs), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEdgeOnboardingGatewayIDs", reflect.TypeOf((*MockService)(nil).ListEdgeOnboardingGatewayIDs), varargs...)
 }
 
 // ListMergeAuditEvents mocks base method.
@@ -855,19 +855,19 @@ func (mr *MockServiceMockRecorder) ListMergeAuditEvents(arg0, arg1, arg2 any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMergeAuditEvents", reflect.TypeOf((*MockService)(nil).ListMergeAuditEvents), arg0, arg1, arg2)
 }
 
-// ListNeverReportedPollers mocks base method.
-func (m *MockService) ListNeverReportedPollers(arg0 context.Context, arg1 []string) ([]string, error) {
+// ListNeverReportedGateways mocks base method.
+func (m *MockService) ListNeverReportedGateways(arg0 context.Context, arg1 []string) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListNeverReportedPollers", arg0, arg1)
+	ret := m.ctrl.Call(m, "ListNeverReportedGateways", arg0, arg1)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListNeverReportedPollers indicates an expected call of ListNeverReportedPollers.
-func (mr *MockServiceMockRecorder) ListNeverReportedPollers(arg0, arg1 any) *gomock.Call {
+// ListNeverReportedGateways indicates an expected call of ListNeverReportedGateways.
+func (mr *MockServiceMockRecorder) ListNeverReportedGateways(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNeverReportedPollers", reflect.TypeOf((*MockService)(nil).ListNeverReportedPollers), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListNeverReportedGateways", reflect.TypeOf((*MockService)(nil).ListNeverReportedGateways), arg0, arg1)
 }
 
 // ListOCSFDevices mocks base method.
@@ -900,34 +900,34 @@ func (mr *MockServiceMockRecorder) ListOCSFDevicesByType(arg0, arg1, arg2, arg3 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOCSFDevicesByType", reflect.TypeOf((*MockService)(nil).ListOCSFDevicesByType), arg0, arg1, arg2, arg3)
 }
 
-// ListPollerStatuses mocks base method.
-func (m *MockService) ListPollerStatuses(arg0 context.Context, arg1 []string) ([]models.PollerStatus, error) {
+// ListGatewayStatuses mocks base method.
+func (m *MockService) ListGatewayStatuses(arg0 context.Context, arg1 []string) ([]models.GatewayStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPollerStatuses", arg0, arg1)
-	ret0, _ := ret[0].([]models.PollerStatus)
+	ret := m.ctrl.Call(m, "ListGatewayStatuses", arg0, arg1)
+	ret0, _ := ret[0].([]models.GatewayStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListPollerStatuses indicates an expected call of ListPollerStatuses.
-func (mr *MockServiceMockRecorder) ListPollerStatuses(arg0, arg1 any) *gomock.Call {
+// ListGatewayStatuses indicates an expected call of ListGatewayStatuses.
+func (mr *MockServiceMockRecorder) ListGatewayStatuses(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollerStatuses", reflect.TypeOf((*MockService)(nil).ListPollerStatuses), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGatewayStatuses", reflect.TypeOf((*MockService)(nil).ListGatewayStatuses), arg0, arg1)
 }
 
-// ListPollers mocks base method.
-func (m *MockService) ListPollers(arg0 context.Context) ([]string, error) {
+// ListGateways mocks base method.
+func (m *MockService) ListGateways(arg0 context.Context) ([]string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListPollers", arg0)
+	ret := m.ctrl.Call(m, "ListGateways", arg0)
 	ret0, _ := ret[0].([]string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListPollers indicates an expected call of ListPollers.
-func (mr *MockServiceMockRecorder) ListPollers(arg0 any) *gomock.Call {
+// ListGateways indicates an expected call of ListGateways.
+func (mr *MockServiceMockRecorder) ListGateways(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollers", reflect.TypeOf((*MockService)(nil).ListPollers), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGateways", reflect.TypeOf((*MockService)(nil).ListGateways), arg0)
 }
 
 // ListPromotableSightings mocks base method.
@@ -1214,18 +1214,18 @@ func (mr *MockServiceMockRecorder) StoreUser(arg0, arg1 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreUser", reflect.TypeOf((*MockService)(nil).StoreUser), arg0, arg1)
 }
 
-// UpdatePollerStatus mocks base method.
-func (m *MockService) UpdatePollerStatus(arg0 context.Context, arg1 *models.PollerStatus) error {
+// UpdateGatewayStatus mocks base method.
+func (m *MockService) UpdateGatewayStatus(arg0 context.Context, arg1 *models.GatewayStatus) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePollerStatus", arg0, arg1)
+	ret := m.ctrl.Call(m, "UpdateGatewayStatus", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// UpdatePollerStatus indicates an expected call of UpdatePollerStatus.
-func (mr *MockServiceMockRecorder) UpdatePollerStatus(arg0, arg1 any) *gomock.Call {
+// UpdateGatewayStatus indicates an expected call of UpdateGatewayStatus.
+func (mr *MockServiceMockRecorder) UpdateGatewayStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePollerStatus", reflect.TypeOf((*MockService)(nil).UpdatePollerStatus), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateGatewayStatus", reflect.TypeOf((*MockService)(nil).UpdateGatewayStatus), arg0, arg1)
 }
 
 // UpdateServiceStatus mocks base method.

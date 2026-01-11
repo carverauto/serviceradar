@@ -128,9 +128,11 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
 		mockAggregatorFactory := NewMockAggregatorFactory(ctrl)
 
-		// Create mock collector and aggregator
-		mockCollector := NewMockCollector(ctrl)
-		mockAggregator := NewMockAggregator(ctrl)
+	// Create mock collector and aggregator
+	mockCollector := NewMockCollector(ctrl)
+	mockAggregator := NewMockAggregator(ctrl)
+	mockCollectorNew := NewMockCollector(ctrl)
+	mockAggregatorNew := NewMockAggregator(ctrl)
 
 		// Create service with mocks
 		testLogger := logger.NewTestLogger()
@@ -157,31 +159,46 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 			},
 		}
 
-		dataChan := make(chan DataPoint)
-		// Channel to signal when GetResults is called
+		initialDataChan := make(chan DataPoint)
+		newDataChan := make(chan DataPoint)
+		// Channel to signal when GetResults is called for the new target.
 		getResultsCalled := make(chan struct{})
 
-		// Set up expectations
-		mockCollectorFactory.EXPECT().
-			CreateCollector(newTarget, gomock.Any()).
-			Return(mockCollector, nil)
-
-		mockAggregatorFactory.EXPECT().
-			CreateAggregator(time.Duration(newTarget.Interval), newTarget.MaxPoints).
-			Return(mockAggregator, nil)
-
-		mockCollector.EXPECT().
-			Start(gomock.Any()).
-			Return(nil)
-
-		mockCollector.EXPECT().
-			GetResults().
-			DoAndReturn(func() <-chan DataPoint {
-				close(getResultsCalled) // Signal that GetResults was called
-				return dataChan
-			})
+		initialTarget := &service.config.Targets[0]
+		gomock.InOrder(
+			mockCollectorFactory.EXPECT().
+				CreateCollector(initialTarget, gomock.Any()).
+				Return(mockCollector, nil),
+			mockAggregatorFactory.EXPECT().
+				CreateAggregator(time.Duration(initialTarget.Interval), initialTarget.MaxPoints).
+				Return(mockAggregator, nil),
+			mockCollector.EXPECT().
+				Start(gomock.Any()).
+				Return(nil),
+			mockCollector.EXPECT().
+				GetResults().
+				Return(initialDataChan),
+			mockCollectorFactory.EXPECT().
+				CreateCollector(newTarget, gomock.Any()).
+				Return(mockCollectorNew, nil),
+			mockAggregatorFactory.EXPECT().
+				CreateAggregator(time.Duration(newTarget.Interval), newTarget.MaxPoints).
+				Return(mockAggregatorNew, nil),
+			mockCollectorNew.EXPECT().
+				Start(gomock.Any()).
+				Return(nil),
+			mockCollectorNew.EXPECT().
+				GetResults().
+				DoAndReturn(func() <-chan DataPoint {
+					close(getResultsCalled) // Signal that GetResults was called
+					return newDataChan
+				}),
+		)
 
 		// Test adding target
+		err = service.Start(context.Background())
+		require.NoError(t, err)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 

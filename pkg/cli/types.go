@@ -15,7 +15,7 @@ type CmdConfig struct {
 	ConfigFile      string
 	AdminHash       string
 	DBPasswordFile  string
-	PollerFile      string
+	GatewayFile      string
 	Action          string
 	Agent           string
 	ServiceType     string
@@ -60,7 +60,7 @@ type CmdConfig struct {
 	EdgePackageComponentType   string
 	EdgePackageParentType      string
 	EdgePackageParentID        string
-	EdgePackagePollerID        string
+	EdgePackageGatewayID        string
 	EdgePackageSite            string
 	EdgePackageSelectors       []string
 	EdgePackageMetadata        string
@@ -75,11 +75,36 @@ type CmdConfig struct {
 	EdgePackageTypes           []string
 	EdgePackageComponentFilter string
 	EdgePackageParentFilter    string
-	EdgePackagePollerFilter    string
+	EdgePackageGatewayFilter    string
 	EdgeOutputFormat           string
 	EdgePackageReissueToken    bool
 	EdgeJoinTTLSeconds         int
 	EdgeDownloadTTLSeconds     int
+	// NATS bootstrap configuration
+	NATSBootstrapToken    string
+	NATSOutputDir         string
+	NATSOperatorName      string
+	NATSImportSeed        string
+	NATSVerifyMode        bool
+	NATSConfigPath        string
+	NATSNoSystemAccount   bool
+	NATSJetStream         bool
+	NATSJetStreamDir      string
+	NATSTLSCert           string
+	NATSTLSKey            string
+	NATSTLSCA             string
+	NATSNoTLS             bool
+	NATSOutputFormat      string
+	NATSBootstrapExpires  string
+	NATSLocalBootstrap    bool
+	NATSWriteSystemCreds  bool
+	NATSWritePlatform     bool
+	NATSPlatformAccount   string
+	NATSPlatformUser      string
+	NATSSystemUser        string
+	NATSTenantLimit       int
+	AdminNatsAction       string
+	AdminCommand          string
 }
 
 // logStyles defines styles for logging messages
@@ -99,13 +124,13 @@ type model struct {
 	}
 }
 
-// PollerConfig represents a subset of the poller configuration.
-type PollerConfig struct {
+// GatewayConfig represents a subset of the gateway configuration.
+type GatewayConfig struct {
 	Agents       map[string]AgentConfig `json:"agents"`
 	CoreAddress  string                 `json:"core_address"`
 	ListenAddr   string                 `json:"listen_addr"`
 	PollInterval string                 `json:"poll_interval"`
-	PollerID     string                 `json:"poller_id"`
+	GatewayID     string                 `json:"gateway_id"`
 	Partition    string                 `json:"partition"`
 	ServiceName  string                 `json:"service_name"`
 	ServiceType  string                 `json:"service_type"`

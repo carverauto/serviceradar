@@ -47,7 +47,7 @@ func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultPr
 		Concurrency: 10,
 		Timeout:     time.Second * 30,
 		AgentID:     "test-agent",
-		PollerID:    "test-poller",
+		GatewayID:    "test-gateway",
 		Partition:   "test-partition",
 	}
 
@@ -133,7 +133,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"poller_id":       "test-poller",
+				"gateway_id":       "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -144,7 +144,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"poller_id":       "test-poller",
+				"gateway_id":       "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -156,7 +156,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"poller_id":       "test-poller",
+				"gateway_id":       "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -168,7 +168,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "456",
 				"all_ips":         "192.168.1.10",
 				"agent_id":        "test-agent",
-				"poller_id":       "test-poller",
+				"gateway_id":       "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -182,7 +182,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 	assert.Equal(t, "armis:123", aggregator.DeviceID)
 	assert.Equal(t, []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}, aggregator.ExpectedIPs)
 	assert.Equal(t, "test-agent", aggregator.AgentID)
-	assert.Equal(t, "test-poller", aggregator.PollerID)
+	assert.Equal(t, "test-gateway", aggregator.GatewayID)
 	assert.Equal(t, "test-partition", aggregator.Partition)
 
 	// Should not have created aggregator for device 456 (1 target)
@@ -344,7 +344,7 @@ func TestProcessAggregatedResults(t *testing.T) {
 	aggregator := &DeviceResultAggregator{
 		DeviceID:  "armis:123",
 		AgentID:   "test-agent",
-		PollerID:  "test-poller",
+		GatewayID:  "test-gateway",
 		Partition: "test-partition",
 		Metadata: map[string]interface{}{
 			"armis_device_id": "123",
@@ -417,7 +417,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 					"all_ips":         "192.168.1.1,192.168.1.2,10.0.0.1",
 					"primary_ip":      "192.168.1.1",
 					"agent_id":        "test-agent",
-					"poller_id":       "test-poller",
+					"gateway_id":       "test-gateway",
 					"partition":       "default",
 				},
 			},
@@ -428,7 +428,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 		Concurrency: 10,
 		Timeout:     time.Second * 30,
 		AgentID:     "test-agent",
-		PollerID:    "test-poller",
+		GatewayID:    "test-gateway",
 		Partition:   "default",
 	}
 
@@ -592,7 +592,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 func TestEdgeCases(t *testing.T) {
 	config := &models.Config{
 		AgentID:   "test-agent",
-		PollerID:  "test-poller",
+		GatewayID:  "test-gateway",
 		Partition: "test-partition",
 	}
 

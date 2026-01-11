@@ -13,7 +13,7 @@ const insertDiscoveredInterfaceSQL = `
 INSERT INTO discovered_interfaces (
     timestamp,
     agent_id,
-    poller_id,
+    gateway_id,
     device_ip,
     device_id,
     if_index,
@@ -34,7 +34,7 @@ const insertTopologyEventSQL = `
 INSERT INTO topology_discovery_events (
     timestamp,
     agent_id,
-    poller_id,
+    gateway_id,
     local_device_ip,
     local_device_id,
     local_if_index,
@@ -114,10 +114,10 @@ func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interfac
 	}
 
 	agentID := strings.TrimSpace(iface.AgentID)
-	pollerID := strings.TrimSpace(iface.PollerID)
+	gatewayID := strings.TrimSpace(iface.GatewayID)
 	deviceIP := strings.TrimSpace(iface.DeviceIP)
 
-	if agentID == "" || pollerID == "" || deviceIP == "" {
+	if agentID == "" || gatewayID == "" || deviceIP == "" {
 		return nil, ErrDiscoveredIdentifiersMissing
 	}
 
@@ -126,7 +126,7 @@ func buildDiscoveredInterfaceArgs(iface *models.DiscoveredInterface) ([]interfac
 	return []interface{}{
 		sanitizeTimestamp(iface.Timestamp),
 		agentID,
-		pollerID,
+		gatewayID,
 		deviceIP,
 		strings.TrimSpace(iface.DeviceID),
 		iface.IfIndex,
@@ -148,11 +148,11 @@ func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}
 	}
 
 	agentID := strings.TrimSpace(event.AgentID)
-	pollerID := strings.TrimSpace(event.PollerID)
+	gatewayID := strings.TrimSpace(event.GatewayID)
 	deviceIP := strings.TrimSpace(event.LocalDeviceIP)
 	protocol := strings.TrimSpace(event.ProtocolType)
 
-	if agentID == "" || pollerID == "" || deviceIP == "" || protocol == "" {
+	if agentID == "" || gatewayID == "" || deviceIP == "" || protocol == "" {
 		return nil, ErrTopologyIdentifiersMissing
 	}
 
@@ -161,7 +161,7 @@ func buildTopologyEventArgs(event *models.TopologyDiscoveryEvent) ([]interface{}
 	return []interface{}{
 		sanitizeTimestamp(event.Timestamp),
 		agentID,
-		pollerID,
+		gatewayID,
 		deviceIP,
 		strings.TrimSpace(event.LocalDeviceID),
 		event.LocalIfIndex,

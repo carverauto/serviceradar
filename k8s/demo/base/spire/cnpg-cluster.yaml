@@ -27,6 +27,12 @@ spec:
     shared_preload_libraries:
       - timescaledb
       - age
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+
+  certificates:
+    clientCASecret: serviceradar-cnpg-client-ca
 
   managed:
     roles:

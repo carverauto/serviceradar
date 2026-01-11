@@ -38,6 +38,12 @@ var (
 	errKeyFileRequired        = errors.New("tls.key_file is required for mTLS")
 	errCAFileRequired         = errors.New("tls.ca_file is required for mTLS")
 	errInvalidSecurityMode    = errors.New("unsupported security mode")
+	errResolverURLNotSet      = errors.New("resolver NATS URL not configured")
+	errResolverTLSRequired    = errors.New("resolver TLS config required")
+	errOperatorConfigNotSet   = errors.New("operator config path not set")
+	errOperatorNotInit        = errors.New("operator not initialized")
+	errResolverPathNotSet     = errors.New("resolver path not configured")
+	errAccountKeyJWTRequired  = errors.New("account public key and JWT are required")
 )
 
 // ErrCASMismatch indicates a compare-and-swap failure due to a stale revision.

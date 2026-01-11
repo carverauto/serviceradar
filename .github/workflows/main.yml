@@ -15,6 +15,7 @@ jobs:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
       SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+      SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       TEST_CNPG_DATABASE: serviceradar_web_ng_test
@@ -85,6 +86,7 @@ jobs:
         env:
           SRQL_TEST_DATABASE_URL: ${{ secrets.SRQL_TEST_DATABASE_URL }}
           SRQL_TEST_ADMIN_URL: ${{ secrets.SRQL_TEST_ADMIN_URL }}
+          SRQL_TEST_DATABASE_CA_CERT: ${{ secrets.SRQL_TEST_DATABASE_CA_CERT }}
         run: |
           set -euo pipefail
 
@@ -92,6 +94,19 @@ jobs:
             echo "SRQL fixture DSNs must be configured via SRQL_TEST_DATABASE_URL and SRQL_TEST_ADMIN_URL secrets." >&2
             exit 1
           fi
+
+          if [ -z "${SRQL_TEST_DATABASE_CA_CERT:-}" ]; then
+            echo "SRQL_TEST_DATABASE_CA_CERT secret must be configured to verify SRQL fixture TLS." >&2
+            exit 1
+          fi
+
+          ca_file="${RUNNER_TEMP}/srql-fixture-ca.crt"
+          printf "%s" "${SRQL_TEST_DATABASE_CA_CERT}" > "${ca_file}"
+
+          {
+            echo "PGSSLROOTCERT=${ca_file}"
+            echo "SRQL_TEST_DATABASE_CA_CERT=${ca_file}"
+          } >> "$GITHUB_ENV"
 
           parser="$(command -v python3 || command -v python || true)"
           if [ -z "${parser}" ]; then
@@ -152,3 +167,6 @@ jobs:
             --config=ci \
             --test_tag_filters=-manual \
             //...
+
+      - name: serviceradar_core integration tests
+        run: make test-integration

@@ -1,10 +1,11 @@
 # Project Context
 
 ## Purpose
-ServiceRadar is a distributed monitoring platform for infrastructure that lives in hard-to-reach or intermittently connected environments (README.md, docs/docs/intro.md). Agents installed alongside on-prem services stream health data to pollers, pollers feed the Go-based core via gRPC, and the SRQL + CNPG/Timescale analytics stack provides real-time insights even when sites experience outages. The product’s goal is to give operators one resilient control plane for discovery, alerting, and troubleshooting across SNMP/LLDP networks, OTEL telemetry, syslog feeds, and specialized device types such as Dusk network nodes.
+ServiceRadar is a distributed monitoring platform for infrastructure that lives in hard-to-reach or intermittently connected environments (README.md, docs/docs/intro.md). Agents installed alongside on-prem services stream health data to gateways; gateways feed the core-elx control plane via gRPC, and the SRQL + CNPG/Timescale analytics stack provides real-time insights even when sites experience outages. The product’s goal is to give operators one resilient control plane for discovery, alerting, and troubleshooting across SNMP/LLDP networks, OTEL telemetry, syslog feeds, and specialized device types such as Dusk network nodes.
 
 ## Tech Stack
-- Go services (`cmd/core`, `cmd/poller`, `cmd/agent`, `cmd/sync`, `cmd/datasvc`, etc.) built with Bazel/Go modules power the control plane, discovery, and sync integrations.
+- Elixir services (`elixir/serviceradar_core`, `elixir/serviceradar_agent_gateway`) handle control-plane APIs, gateway orchestration, and registration.
+- Go services (`cmd/agent`, `cmd/sync`, `cmd/datasvc`, etc.) built with Bazel/Go modules power collectors, discovery, and sync integrations.
 - Rust components (rule engine, collectors, flow/log agents) live under `rust/` and share bootstrap/config libraries for KV-backed hot reloads.
 - Rust SRQL service (`rust/srql`) translates `/api/query` requests into CNPG queries using Diesel + pooled connections.
 - Phoenix LiveView web UI (`web-ng/`) is served through an edge proxy (Caddy/Nginx/Ingress) and talks to the core API plus SRQL endpoints; legacy Next.js code remains in `web/` for reference only.
@@ -25,8 +26,8 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 ### Architecture Patterns
 ServiceRadar is layered (docs/docs/architecture.md):
 - **User Edge**: Phoenix web UI → edge proxy (Caddy/Nginx/Ingress); the proxy terminates TLS and routes `/api/*` to web-ng.
-- **Service Layer**: Go `core` handles control-plane APIs and webhooks while Rust `srql` translates analytics queries and `datasvc` exposes KV over gRPC.
-- **Monitoring Layer**: Stateless pollers fan out to gRPC agents deployed on monitored hosts; pollers combine push/pull checks (HTTP, ICMP, SNMP, custom checkers).
+- **Service Layer**: core-elx handles control-plane APIs and webhooks while Rust `srql` translates analytics queries and `datasvc` exposes KV over gRPC.
+- **Monitoring Layer**: Stateless gateways fan out to gRPC agents deployed on monitored hosts; gateways orchestrate push/pull checks (HTTP, ICMP, SNMP, custom checkers).
 - **Identity Plane**: SPIRE server/controller/workload agents mint SPIFFE identities used for every mutual-TLS hop.
 - **Data Layer**: CNPG/Timescale hypertables capture raw events; SRQL and the registry build MV pipelines (device tables, planner, etc.).
 Edge proxies terminate TLS and route traffic; watchers + KV descriptors keep service configs synchronized across demo and customer clusters (docs/docs/agents.md).
@@ -48,12 +49,12 @@ Edge proxies terminate TLS and route traffic; watchers + KV descriptors keep ser
 - Monitoring focus: SNMP/LLDP/CDP discovery, OTEL metrics, syslog ingestion, network mapper graph, Dusk node health, and specialized rule engines (README.md).
 - Device pipeline: In demo, Armis faker → sync → core → CNPG maintains 50–70k canonical devices; runbook in docs/docs/agents.md covers pausing sync, truncating tables, recreating the MV, and verifying counts.
 - KV-backed configuration: datasvc exposes KV gRPC endpoints that populate `/api/admin/config` descriptors; watchers mirror config into services and agent-scoped checkers follow the `agents/<id>/checkers/<service>/<service>.json` layout.
-- Identity & security: SPIRE-issued certs + mTLS across agents/pollers/core/datasvc, core-issued JWTs for user/API traffic, API keys for internal automation, and webhook integrations for Discord/others (docs/docs/intro.md, docs/docs/architecture.md).
+- Identity & security: SPIRE-issued certs + mTLS across agents/gateways/core/datasvc, core-issued JWTs for user/API traffic, API keys for internal automation, and webhook integrations for Discord/others (docs/docs/intro.md, docs/docs/architecture.md).
 - Analytics: SRQL gives a key:value DSL that maps to CNPG SQL; device registry/search planner keep hot-path reads in memory while CNPG handles historical queries.
 
 ## Important Constraints
-- Must operate across unreliable links; pollers continue querying agents locally and buffer until core connectivity returns.
-- All internal RPCs require mTLS with SPIFFE identities; KV, pollers, agents, and sync will refuse plaintext (docs/docs/kv-configuration.md, docs/docs/tls-security.md).
+- Must operate across unreliable links; gateways continue orchestrating agents locally and buffer until core connectivity returns.
+- All internal RPCs require mTLS with SPIFFE identities; KV, gateways, agents, and sync will refuse plaintext (docs/docs/kv-configuration.md, docs/docs/tls-security.md).
 - Core is the policy enforcement point—JWT/JWKS must stay in sync with clients or the web UI cannot reach APIs.
 - KV service expects co-located NATS JetStream and enforces RBAC per certificate DN; watchers rely on `CONFIG_SOURCE=kv` to auto-reload.
 - CNPG datasets (device_updates/unified_devices) must stay pruned to keep queries fast and storage bounded; follow the reset procedure before reseeding demo data.

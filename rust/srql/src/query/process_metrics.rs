@@ -6,7 +6,7 @@ use crate::{
     schema::process_metrics::dsl::{
         agent_id as col_agent_id, cpu_usage as col_cpu_usage, device_id as col_device_id,
         host_id as col_host_id, memory_usage as col_memory_usage, name as col_name,
-        partition as col_partition, pid as col_pid, poller_id as col_poller_id, process_metrics,
+        partition as col_partition, pid as col_pid, gateway_id as col_gateway_id, process_metrics,
         start_time as col_start_time, status as col_status, timestamp as col_timestamp,
     },
     time::TimeRange,
@@ -115,7 +115,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "name" | "status"
         | "start_time" => collect_text_params(params, filter),
         "pid" => {
             params.push(BindParam::Int(i64::from(parse_i32(
@@ -141,8 +141,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 
 fn apply_filter<'a>(mut query: ProcessQuery<'a>, filter: &Filter) -> Result<ProcessQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;

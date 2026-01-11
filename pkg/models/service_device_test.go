@@ -26,8 +26,8 @@ import (
 
 const (
 	testAgentID      = "test-agent"
-	testPollerID     = "test-poller"
-	testPollerHostIP = "192.168.1.100"
+	testGatewayID     = "test-gateway"
+	testGatewayHostIP = "192.168.1.100"
 )
 
 func TestGenerateServiceDeviceID(t *testing.T) {
@@ -38,10 +38,10 @@ func TestGenerateServiceDeviceID(t *testing.T) {
 		expected    string
 	}{
 		{
-			name:        "Poller device ID",
-			serviceType: ServiceTypePoller,
-			serviceID:   "k8s-poller",
-			expected:    "serviceradar:poller:k8s-poller",
+			name:        "Gateway device ID",
+			serviceType: ServiceTypeGateway,
+			serviceID:   "k8s-gateway",
+			expected:    "serviceradar:gateway:k8s-gateway",
 		},
 		{
 			name:        "Agent device ID",
@@ -57,9 +57,9 @@ func TestGenerateServiceDeviceID(t *testing.T) {
 		},
 		{
 			name:        "Service ID with special characters",
-			serviceType: ServiceTypePoller,
-			serviceID:   "poller-test_123",
-			expected:    "serviceradar:poller:poller-test_123",
+			serviceType: ServiceTypeGateway,
+			serviceID:   "gateway-test_123",
+			expected:    "serviceradar:gateway:gateway-test_123",
 		},
 		{
 			name:        "Empty service ID",
@@ -125,8 +125,8 @@ func TestIsServiceDevice(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "Poller device ID",
-			deviceID: "serviceradar:poller:k8s-poller",
+			name:     "Gateway device ID",
+			deviceID: "serviceradar:gateway:k8s-gateway",
 			expected: true,
 		},
 		{
@@ -178,13 +178,13 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	checkerID := string(DiscoverySourceSysmon) + "@test-agent"
 	checkerKind := string(DiscoverySourceSysmon)
 	agentID := testAgentID
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	hostIP := "192.168.1.102"
 	metadata := map[string]string{
 		"check_interval": "30s",
 	}
 
-	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, "", metadata)
+	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, gatewayID, hostIP, "", metadata)
 
 	require.NotNil(t, result)
 	assert.Equal(t, "serviceradar:checker:sysmon@test-agent", result.DeviceID)
@@ -194,7 +194,7 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, hostIP, result.IP)
 	assert.Equal(t, DiscoverySourceServiceRadar, result.Source)
 	assert.Equal(t, agentID, result.AgentID)
-	assert.Equal(t, pollerID, result.PollerID)
+	assert.Equal(t, gatewayID, result.GatewayID)
 	assert.Equal(t, defaultServicePartition, result.Partition)
 	assert.True(t, result.IsAvailable)
 	assert.Equal(t, ConfidenceHighSelfReported, result.Confidence)
@@ -205,17 +205,17 @@ func TestCreateCheckerDeviceUpdate(t *testing.T) {
 	assert.Equal(t, checkerID, result.Metadata["checker_id"])
 	assert.Equal(t, checkerKind, result.Metadata["checker_kind"])
 	assert.Equal(t, agentID, result.Metadata["agent_id"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
+	assert.Equal(t, gatewayID, result.Metadata["gateway_id"])
 }
 
 func TestCreateCheckerDeviceUpdate_NilMetadata(t *testing.T) {
 	checkerID := string(DiscoverySourceSysmon) + "@test-agent"
 	checkerKind := string(DiscoverySourceSysmon)
 	agentID := testAgentID
-	pollerID := testPollerID
+	gatewayID := testGatewayID
 	hostIP := "192.168.1.102"
 
-	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, "", nil)
+	result := CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, gatewayID, hostIP, "", nil)
 
 	require.NotNil(t, result)
 	require.NotNil(t, result.Metadata)
@@ -223,30 +223,30 @@ func TestCreateCheckerDeviceUpdate_NilMetadata(t *testing.T) {
 	assert.Equal(t, checkerID, result.Metadata["checker_id"])
 	assert.Equal(t, checkerKind, result.Metadata["checker_kind"])
 	assert.Equal(t, agentID, result.Metadata["agent_id"])
-	assert.Equal(t, pollerID, result.Metadata["poller_id"])
+	assert.Equal(t, gatewayID, result.Metadata["gateway_id"])
 }
 
 func TestServiceDeviceIDUniqueness(t *testing.T) {
 	// Test that different service types with same ID produce different device IDs
 	serviceID := "test-123"
 
-	pollerID := GenerateServiceDeviceID(ServiceTypePoller, serviceID)
+	gatewayID := GenerateServiceDeviceID(ServiceTypeGateway, serviceID)
 	agentID := GenerateServiceDeviceID(ServiceTypeAgent, serviceID)
 	checkerID := GenerateServiceDeviceID(ServiceTypeChecker, serviceID)
 
-	assert.NotEqual(t, pollerID, agentID)
-	assert.NotEqual(t, pollerID, checkerID)
+	assert.NotEqual(t, gatewayID, agentID)
+	assert.NotEqual(t, gatewayID, checkerID)
 	assert.NotEqual(t, agentID, checkerID)
 
 	// Verify they all have the service partition prefix
-	assert.True(t, IsServiceDevice(pollerID))
+	assert.True(t, IsServiceDevice(gatewayID))
 	assert.True(t, IsServiceDevice(agentID))
 	assert.True(t, IsServiceDevice(checkerID))
 }
 
 func TestServiceVsNetworkDeviceIDs(t *testing.T) {
 	// Test that service devices and network devices have distinct ID formats
-	serviceID := GenerateServiceDeviceID(ServiceTypePoller, testPollerID)
+	serviceID := GenerateServiceDeviceID(ServiceTypeGateway, testGatewayID)
 	networkID := GenerateNetworkDeviceID("network", "192.168.1.1")
 
 	assert.NotEqual(t, serviceID, networkID)
@@ -256,7 +256,7 @@ func TestServiceVsNetworkDeviceIDs(t *testing.T) {
 
 func TestServiceTypesConstants(t *testing.T) {
 	// Verify ServiceType constants are correctly defined
-	assert.Equal(t, ServiceTypePoller, ServiceType("poller"))
+	assert.Equal(t, ServiceTypeGateway, ServiceType("gateway"))
 	assert.Equal(t, ServiceTypeAgent, ServiceType("agent"))
 	assert.Equal(t, ServiceTypeChecker, ServiceType("checker"))
 	assert.Equal(t, ServiceTypeNetworkDevice, ServiceType("network"))
@@ -269,8 +269,8 @@ func TestServiceDevicePartitionConstant(t *testing.T) {
 
 func TestHighCardinalityCheckerIDs(t *testing.T) {
 	// Test that we can create many unique checker IDs without collision
-	pollerID := "poller-1"
-	hostIP := testPollerHostIP
+	gatewayID := "gateway-1"
+	hostIP := testGatewayHostIP
 
 	checkerTypes := []string{"sysmon", "rperf", "snmp", "mapper"}
 	deviceIDs := make(map[string]bool)
@@ -280,7 +280,7 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 		agentID := fmt.Sprintf("agent-%d", i)
 		for _, checkerType := range checkerTypes {
 			checkerID := checkerType + "@" + agentID
-			result := CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, pollerID, hostIP, "", nil)
+			result := CreateCheckerDeviceUpdate(checkerID, checkerType, agentID, gatewayID, hostIP, "", nil)
 
 			// Ensure each device ID is unique
 			assert.False(t, deviceIDs[result.DeviceID], "Duplicate device ID: %s", result.DeviceID)

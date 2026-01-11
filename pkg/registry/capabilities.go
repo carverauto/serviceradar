@@ -164,7 +164,7 @@ func cloneCapability(src *models.CollectorCapability) *models.CollectorCapabilit
 	dst := &models.CollectorCapability{
 		DeviceID:    src.DeviceID,
 		AgentID:     src.AgentID,
-		PollerID:    src.PollerID,
+		GatewayID:    src.GatewayID,
 		LastSeen:    src.LastSeen,
 		ServiceName: src.ServiceName,
 	}

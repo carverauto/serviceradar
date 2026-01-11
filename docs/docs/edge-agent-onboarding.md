@@ -1,6 +1,6 @@
 # Edge Agent & Checker Onboarding
 
-This guide expands on the edge onboarding runbook and documents how pollers,
+This guide expands on the edge onboarding runbook and documents how gateways,
 agents, and checkers fit together. Use it when modelling new edge sites, when
 planning upcoming automation (GH-1909 / serviceradar-55), and when falling back
 to today’s manual steps.
@@ -11,24 +11,24 @@ to today’s manual steps.
 
 | Component | Purpose | Parent | Downstream scope | KV document |
 |-----------|---------|--------|------------------|-------------|
-| Poller | Site gateway that maintains the control channel to Core and Data Service. | None | Agents | `config/pollers/<poller-id>` |
-| Agent | Executes discovery tasks for a poller (SNMP, sysmon, custom scanners). | Poller | Checkers | `config/pollers/<poller-id>/agents/<agent-id>` |
+| Gateway | Site gateway that maintains the control channel to Core and Data Service. | None | Agents | `config/gateways/<gateway-id>` |
+| Agent | Executes discovery tasks for a gateway (SNMP, sysmon, custom scanners). | Gateway | Checkers | `config/gateways/<gateway-id>/agents/<agent-id>` |
 | Checker | Device-specific worker (e.g. SNMP credential set, sysmon target). | Agent | N/A | `config/agents/<agent-id>/checkers/<checker-id>` |
 
 Key rules:
 
-- Agents cannot exist without a poller; checkers cannot exist without an agent.
-- Poller IDs must be unique. Agent/checker IDs only need to be unique within
-  their parent scope (`poller-id + agent-id`, `agent-id + checker-id`).
+- Agents cannot exist without a gateway; checkers cannot exist without an agent.
+- Gateway IDs must be unique. Agent/checker IDs only need to be unique within
+  their parent scope (`gateway-id + agent-id`, `agent-id + checker-id`).
 - Activation flows propagate upward: a checker activates only after its agent
-  is active, which requires the parent poller to be active.
+  is active, which requires the parent gateway to be active.
 
 ---
 
 ## 2. Operator Personas
 
 - **Cluster admin** – issues packages, rotates credentials, and monitors status.
-- **Edge site owner** – installs the poller/agent/checker containers on remote
+- **Edge site owner** – installs the gateway/agent/checker containers on remote
   hosts using the generated archive.
 - **Security reviewer** – audits package lineage and parent-child associations
   in CNPG (`edge_onboarding_packages` and `edge_onboarding_events` tables).
@@ -46,9 +46,9 @@ updates.
 | Field | Notes |
 |-------|-------|
 | Label | Human-readable name shown in the UI. Seeds the default ID. |
-| Component type | Poller / Agent / Checker (mandatory). |
-| Component ID | Optional for pollers (auto-slugged from label); required for agents/checkers. Provide a lowercase slug with hyphens only. |
-| Parent | Auto-populated drop-down: pollers for agents, agents for checkers. Hidden for pollers. |
+| Component type | Gateway / Agent / Checker (mandatory). |
+| Component ID | Optional for gateways (auto-slugged from label); required for agents/checkers. Provide a lowercase slug with hyphens only. |
+| Parent | Auto-populated drop-down: gateways for agents, agents for checkers. Hidden for gateways. |
 | SPIRE selectors | Optional extra selectors beyond the defaults. |
 | Metadata JSON | Transport addresses, credentials and installer hints. |
 | Join & download TTL | Defaults of 30 m / 15 m; override for slow sites. |
@@ -58,9 +58,9 @@ updates.
 
 | Type | Package contents | KV mutation | Status transitions |
 |------|------------------|-------------|--------------------|
-| Poller | `edge-poller.env`, SPIRE join token, bundle | `config/pollers/<id>` → create/refresh with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
-| Agent | `edge-agent.env`, SPIRE join token, bundle | `config/pollers/<poller-id>/agents/<agent-id>` (`status: pending`) | Same as poller; activation tied to agent status reports |
-| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | `config/agents/<agent-id>/checkers/<checker-id>` (`status: pending`) | Same as poller; activation triggered by agent heartbeat |
+| Gateway | `edge-gateway.env`, SPIRE join token, bundle | `config/gateways/<id>` → create/refresh with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
+| Agent | `edge-agent.env`, SPIRE join token, bundle | `config/gateways/<gateway-id>/agents/<agent-id>` (`status: pending`) | Same as gateway; activation tied to agent status reports |
+| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | `config/agents/<agent-id>/checkers/<checker-id>` (`status: pending`) | Same as gateway; activation triggered by agent heartbeat |
 
 On activation, Core updates the relevant KV node to `status: "active"` and
 emits an audit event capturing the parent association.
@@ -71,8 +71,8 @@ emits an audit event capturing the parent association.
 
 `serviceradar-cli edge package create` gains the following arguments:
 
-- `--component-type (poller|agent|checker)`
-- `--parent-id <poller-or-agent-id>` (required for agent/checker)
+- `--component-type (gateway|agent|checker)`
+- `--parent-id <gateway-or-agent-id>` (required for agent/checker)
 - `--checker-kind` and `--checker-config-file` (checker-only helpers)
 
 Example agent issuance:
@@ -98,15 +98,15 @@ and `parent_id` columns so operators can confirm hierarchy from the terminal.
 
 When Core accepts the creation request it performs the following:
 
-1. **Validate parents** – ensure poller or agent exists (activated or pending).
+1. **Validate parents** – ensure gateway or agent exists (activated or pending).
 2. **Persist package** – insert record into `edge_onboarding_packages` with the
    parent linkage fields.
 3. **Update KV**:
-   - Poller: upsert `config/pollers/<poller-id>` with metadata, `status` and a
+   - Gateway: upsert `config/gateways/<gateway-id>` with metadata, `status` and a
      generated timestamp.
-   - Agent: upsert `config/pollers/<poller-id>/agents/<agent-id>.json`.
+   - Agent: upsert `config/gateways/<gateway-id>/agents/<agent-id>.json`.
    - Checker: upsert `config/agents/<agent-id>/checkers/<checker-id>.json`.
-4. **Broadcast cache updates** – notify Core’s in-memory poller/agent registries
+4. **Broadcast cache updates** – notify Core’s in-memory gateway/agent registries
    so report-status calls accept the pending IDs immediately.
 
 All KV writes use optimistic concurrency with revision checks to avoid clobbering
@@ -118,8 +118,8 @@ reporting pipelines:
 
 | Trigger | Condition | KV effect |
 |---------|-----------|-----------|
-| Poller report | `poller_id` matches pending package | `config/pollers/<id>.status = "active"` |
-| Agent report | `agent_id` + `poller_id` matches pending agent | `.../agents/<agent-id>.status = "active"` |
+| Gateway report | `gateway_id` matches pending package | `config/gateways/<id>.status = "active"` |
+| Agent report | `agent_id` + `gateway_id` matches pending agent | `.../agents/<agent-id>.status = "active"` |
 | Checker report | agent heartbeat includes checker metrics / `checker_id` | `.../checkers/<checker-id>.status = "active"` |
 
 Revocation and expiry events set `status: "disabled"` and cache evictions ensure
@@ -140,7 +140,7 @@ README.txt
 ```
 
 Additional files for checkers may include credential bundles (encrypted ZIP) or
-device target manifests. Install scripts (`edge-poller-restart.sh`,
+device target manifests. Install scripts (`edge-gateway-restart.sh`,
 `edge-agent-install.sh`, `edge-checker-install.sh`) consume the env file, apply
 metadata, and restart Docker Compose services. The scripts must no-op if the
 KV status is already `active` to keep replays idempotent.
@@ -151,13 +151,13 @@ KV status is already `active` to keep replays idempotent.
 
 Until GH-1909 lands, operators can emulate the flow:
 
-1. Issue a poller package via the UI (only option presently).
+1. Issue a gateway package via the UI (only option presently).
 2. For agents:
-   - Duplicate the poller metadata, update addresses, and save as
+   - Duplicate the gateway metadata, update addresses, and save as
      `agent-metadata.json`.
-   - Issue another poller package solely to obtain SPIRE artifacts.
-   - Rename `edge-poller.env` to `edge-agent.env` and adjust variables.
-   - `serviceradar-cli kv get --key config/pollers/<poller-id>/agents/<agent-id>.json`
+   - Issue another gateway package solely to obtain SPIRE artifacts.
+   - Rename `edge-gateway.env` to `edge-agent.env` and adjust variables.
+   - `serviceradar-cli kv get --key config/gateways/<gateway-id>/agents/<agent-id>.json`
      → merge the new agent definition and `kv put` it back with `status: "pending"`.
 3. For checkers:
    - Edit the agent’s KV blob under
@@ -187,7 +187,7 @@ Failure modes:
 | Symptom | Resolution |
 |---------|------------|
 | 409 on create | Refresh parent list; ensure parent not revoked. |
-| Agent stays pending | Verify poller reports agent in status heartbeat; check KV revision to ensure automation updated entry. |
+| Agent stays pending | Verify gateway reports agent in status heartbeat; check KV revision to ensure automation updated entry. |
 | Checker missing credentials | Confirm metadata JSON carried the credential payload; reissue package if file omitted. |
 
 ---
@@ -212,10 +212,10 @@ Failure modes:
 - Add metrics labels (`component_type` / `parent_type`) and logs.
 
 ### KV Integrations
-- Build helper functions in `pkg/kv/edgeconfig` to upsert poller/agent/checker documents with optimistic revision checks.
+- Build helper functions in `pkg/kv/edgeconfig` to upsert gateway/agent/checker documents with optimistic revision checks.
 - Ensure rollbacks handle partial failure (e.g., KV failure after package persistence) by revoking created SPIRE entries and marking package aborted.
 - Cover new helpers with unit tests exercising pending→active transitions.
-- `pkg/core/edge_onboarding.applyComponentKVUpdates` writes `pending` documents to the appropriate KV keys (`config/pollers/<poller>.json`, `config/pollers/<poller>/agents/<agent>.json`, `config/agents/<agent>/checkers/<checker>.json`).
+- `pkg/core/edge_onboarding.applyComponentKVUpdates` writes `pending` documents to the appropriate KV keys (`config/gateways/<gateway>.json`, `config/gateways/<gateway>/agents/<agent>.json`, `config/agents/<agent>/checkers/<checker>.json`).
 
 ### CLI
 - Expand `serviceradar-cli edge package create/list/download` flags and output to surface component type, parent, and checker metadata.
@@ -223,7 +223,7 @@ Failure modes:
 - Update integration tests under `pkg/cli` to exercise new arguments.
 
 ### Web UI
-- Refactor create modal into a stepper supporting component selection, parent dropdowns (fed by `/api/admin/edge-packages?status=activated,issued` plus poller/agent caches), and type-specific metadata hints.
+- Refactor create modal into a stepper supporting component selection, parent dropdowns (fed by `/api/admin/edge-packages?status=activated,issued` plus gateway/agent caches), and type-specific metadata hints.
 - Show component/parent badges in the table and drawer views; expand audit timeline with parent linkage.
 - Expose download token copy helpers per type (rename env file names in success modal).
 - Add form validation and error handling for parent conflicts (409 status).

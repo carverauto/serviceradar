@@ -1,2 +1,14 @@
 # Package placeholder for repository alias helper.
+package(default_visibility = ["//visibility:public"])
+
 exports_files(["repo_alias.bzl"])
+
+filegroup(
+    name = "hex_cache",
+    srcs = ["hex_cache.tar.gz"],
+)
+
+config_setting(
+    name = "use_hex_cache",
+    define_values = {"use_hex_cache": "true"},
+)

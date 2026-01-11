@@ -37,9 +37,9 @@ func isGRPCService(serviceType string) bool {
 	return grpcServices[serviceType]
 }
 
-// addChecker adds a service check to the specified agent in the poller configuration.
-func addChecker(pollerFile, agentName, serviceType, serviceName, details string, port int32) error {
-	config, err := readPollerConfig(pollerFile)
+// addChecker adds a service check to the specified agent in the gateway configuration.
+func addChecker(gatewayFile, agentName, serviceType, serviceName, details string, port int32) error {
+	config, err := readGatewayConfig(gatewayFile)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func addChecker(pollerFile, agentName, serviceType, serviceName, details string,
 		updatedAgent.Checks[len(updatedAgent.Checks)-1].ServiceName,
 	)
 
-	return writePollerConfig(pollerFile, config)
+	return writeGatewayConfig(gatewayFile, config)
 }
 
 // addOrUpdateCheck adds a new check or updates an existing one in the agent's checks.
@@ -136,9 +136,9 @@ func isMatchingCheck(check CheckConfig, actualType, actualName, serviceType stri
 	return false
 }
 
-// removeChecker removes a service check from the specified agent in the poller configuration.
-func removeChecker(pollerFile, agentName, serviceType, serviceName string) error {
-	config, err := readPollerConfig(pollerFile)
+// removeChecker removes a service check from the specified agent in the gateway configuration.
+func removeChecker(gatewayFile, agentName, serviceType, serviceName string) error {
+	config, err := readGatewayConfig(gatewayFile)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func removeChecker(pollerFile, agentName, serviceType, serviceName string) error
 
 	config.Agents[agentName] = updatedAgent
 
-	return writePollerConfig(pollerFile, config)
+	return writeGatewayConfig(gatewayFile, config)
 }
 
 // removeCheck removes a check from the agent's checks based on service type and name.
@@ -211,9 +211,9 @@ func listAvailableCheckers(checks []CheckConfig, _, _ string) {
 	}
 }
 
-// enableAllCheckers enables all standard checkers for a given agent in the poller config.
-func enableAllCheckers(pollerFile, agentName string) error {
-	config, err := readPollerConfig(pollerFile)
+// enableAllCheckers enables all standard checkers for a given agent in the gateway config.
+func enableAllCheckers(gatewayFile, agentName string) error {
+	config, err := readGatewayConfig(gatewayFile)
 	if err != nil {
 		return err
 	}
@@ -234,20 +234,20 @@ func enableAllCheckers(pollerFile, agentName string) error {
 
 	config.Agents[agentName] = updatedAgent
 
-	return writePollerConfig(pollerFile, config)
+	return writeGatewayConfig(gatewayFile, config)
 }
 
-// readPollerConfig reads and parses the poller configuration file.
-func readPollerConfig(pollerFile string) (*PollerConfig, error) {
-	data, err := os.ReadFile(pollerFile)
+// readGatewayConfig reads and parses the gateway configuration file.
+func readGatewayConfig(gatewayFile string) (*GatewayConfig, error) {
+	data, err := os.ReadFile(gatewayFile)
 	if err != nil {
-		return &PollerConfig{}, fmt.Errorf("failed to read poller config file: %w", err)
+		return &GatewayConfig{}, fmt.Errorf("failed to read gateway config file: %w", err)
 	}
 
-	var config PollerConfig
+	var config GatewayConfig
 
 	if err := json.Unmarshal(data, &config); err != nil {
-		return &PollerConfig{}, fmt.Errorf("failed to parse poller config: %w", err)
+		return &GatewayConfig{}, fmt.Errorf("failed to parse gateway config: %w", err)
 	}
 
 	return &config, nil

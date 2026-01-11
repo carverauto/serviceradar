@@ -70,11 +70,11 @@ ServiceRadar consists of these main components:
 ### Core Services
 - **Core**: Main API and business logic service
 - **Web**: Next.js web interface
-- **Nginx**: Reverse proxy and load balancer
+- **Caddy**: Reverse proxy and TLS termination (default for Compose)
 - **CNPG**: Time-series database (TimeBase fork)
 
 ### Data Collection Services
-- **Poller**: Device polling and monitoring service
+- **Gateway**: Device polling and monitoring service
 - **Agent**: Network discovery and ICMP monitoring
 - **Flowgger**: Syslog message collector
 - **Trapd**: SNMP trap collector
@@ -83,7 +83,6 @@ ServiceRadar consists of these main components:
 ### Supporting Services
 - **NATS**: Message bus and event streaming
 - **KV**: Key-value store for configuration
-- **Sync**: Device discovery synchronization
 - **DB Event Writer**: NATS to database bridge
 
 ### Monitoring Services
@@ -123,7 +122,7 @@ Default exposed ports:
 
 | Service | Port | Protocol | Purpose |
 |---------|------|----------|---------|
-| Nginx | 80 | HTTP | Web interface and API |
+| Caddy | 80/443 | HTTP(S) | Web interface and API |
 | Core | 8090 | HTTP | Direct API access |
 | NATS | 4222, 8222 | TCP | Message bus |
 | Flowgger | 514 | UDP | Syslog collection |
@@ -148,7 +147,9 @@ docker-compose up -d mapper
 
 ### Verify KV Seeding (first boot)
 
-Docker Compose now starts KV-backed config watchers. After the first `docker compose up -d`, confirm the datasvc bucket has defaults and watcher snapshots:
+Legacy KV-backed config watchers only run when the legacy profile is enabled. After a
+`docker compose --profile legacy up -d`, confirm the datasvc bucket has defaults and
+watcher snapshots:
 
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
@@ -156,12 +157,16 @@ docker run --rm --network serviceradar_serviceradar-net \
   ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
   nats --server tls://nats:4222 \
        --tlsca /etc/serviceradar/certs/root.pem \
-       --tlscert /etc/serviceradar/certs/poller.pem \
-       --tlskey /etc/serviceradar/certs/poller-key.pem \
+       --tlscert /etc/serviceradar/certs/gateway.pem \
+       --tlskey /etc/serviceradar/certs/gateway-key.pem \
        kv ls serviceradar-datasvc
 ```
 
-You should see config entries for `config/core.json`, `config/pollers/docker-poller.json`, `config/agents/docker-agent.json`, the poller template, and watcher snapshots under `watchers/<service>/...json` (poller, agent, core). If the bucket is empty, rerun `docker compose up -d config-updater poller-kv-seed` to seed defaults, then refresh the Settings → Watcher Telemetry panel in the UI.
+You should see config entries for `config/core.json`, `config/gateways/docker-gateway.json`,
+`config/agents/docker-agent.json`, the gateway template, and watcher snapshots under
+`watchers/<service>/...json` (gateway, agent, core). If the bucket is empty, rerun
+`docker compose --profile legacy up -d config-updater gateway-kv-seed` to seed defaults,
+then refresh the Settings → Watcher Telemetry panel in the UI.
 
 ### SPIFFE In Docker Compose
 
@@ -186,25 +191,49 @@ To verify the SPIRE components:
 docker compose ps spire-server spire-agent
 docker logs serviceradar-spire-bootstrap
 docker exec serviceradar-spire-server /opt/spire/bin/spire-server entry show
-docker exec serviceradar-poller ls /run/spire/sockets/agent.sock
+docker exec serviceradar-agent-gateway ls /run/spire/sockets/agent.sock
 ```
 
-Need the full edge onboarding workflow (where a poller runs outside Docker and
+Need the full edge onboarding workflow (where a gateway runs outside Docker and
 bootstraps against the demo namespace)? See the dedicated
 [Secure Edge Onboarding](./edge-onboarding.md) runbook, which still relies on
 the helper scripts under `docker/compose/edge-*`.
 
-### Edge Poller Against the Kubernetes Core
+### Elixir mTLS Cluster Validation (Docker)
 
-When you need to run the poller away from the cluster (for example on an edge host) but still connect back to the demo namespace:
+The default Docker Compose stack now runs the Elixir web/gateway/agent with
+`ssl_dist.conf` and EPMD discovery wired in:
+
+```bash
+docker compose up -d
+```
+
+Legacy Go services (core/gateway/agent and the KV seeders) are now behind the
+`legacy` profile. Use `docker compose --profile legacy up -d` if you need them.
+
+Verify the cluster from the web node:
+
+```bash
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "Node.list()"
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "ServiceRadar.GatewayRegistry.count()"
+docker exec serviceradar-web-ng-mtls bin/serviceradar_web_ng rpc "ServiceRadar.AgentRegistry.count()"
+```
+
+If nodes do not appear, confirm the `RELEASE_COOKIE` and `SSL_DIST_OPTFILE`
+settings for each container and ensure the service hostnames (`web-ng`,
+`agent-gateway-elx`, `agent-elx`) resolve inside the compose network.
+
+### Edge Gateway Against the Kubernetes Core
+
+When you need to run the gateway away from the cluster (for example on an edge host) but still connect back to the demo namespace:
 
 > Need everything reset in one shot? Run:
 > ```bash
-> docker/compose/edge-poller-restart.sh
+> docker/compose/edge-gateway-restart.sh
 > ```
 > The helper stops the stack, clears the nested SPIRE runtime volume,
 > regenerates configs, refreshes the upstream join token/bundle, and restarts
-> the poller/agent pair. Use `--skip-refresh` if you want to reuse an existing
+> the gateway/agent pair. Use `--skip-refresh` if you want to reuse an existing
 > join token or `--dry-run` to preview the steps.
 
 1. **Collect upstream credentials from the cluster.**
@@ -212,7 +241,7 @@ When you need to run the poller away from the cluster (for example on an edge ho
    ```bash
    docker/compose/refresh-upstream-credentials.sh \
      --namespace demo \
-     --spiffe-id spiffe://carverauto.dev/ns/edge/poller-nested-spire
+     --spiffe-id spiffe://carverauto.dev/ns/edge/gateway-nested-spire
    ```
 
    The helper contacts the demo SPIRE server via `kubectl`, generates a fresh
@@ -225,29 +254,29 @@ When you need to run the poller away from the cluster (for example on an edge ho
 2. **Prime the Docker volumes with certs/config.**
 
    ```bash
-   docker compose --env-file edge-poller.env \
-     -f docker/compose/poller-stack.compose.yml up -d config-updater
-   docker compose -f docker/compose/poller-stack.compose.yml stop config-updater
+   docker compose --env-file edge-gateway.env \
+     -f docker/compose/gateway-stack.compose.yml up -d config-updater
+   docker compose -f docker/compose/gateway-stack.compose.yml stop config-updater
    ```
 
-3. **Rewrite the generated poller configuration for the edge environment.**
+3. **Rewrite the generated gateway configuration for the edge environment.**
 
    ```bash
    CORE_ADDRESS=23.138.124.18:50052 \
-     POLLERS_AGENT_ADDRESS=agent:50051 \
-   docker/compose/setup-edge-poller.sh
+     GATEWAY_AGENT_ADDRESS=agent:50051 \
+   docker/compose/setup-edge-gateway.sh
    ```
 
-   The helper copies the SPIFFE template into the config volume, updates `core_address`, and stages a nested SPIRE config from `docker/compose/edge/poller-spire/`.
+   The helper copies the SPIFFE template into the config volume, updates `core_address`, and stages a nested SPIRE config from `docker/compose/edge/gateway-spire/`.
    When `KV_ADDRESS` is omitted, it also removes the sample sweep/sysmon checker
    configs so the Docker agent only talks to the local services required for edge
    validation.
 
-4. **Start the poller (and optional agent) without re-running the config-updater.**
+4. **Start the gateway (and optional agent) without re-running the config-updater.**
 
    ```bash
-   docker compose --env-file edge-poller.env \
-     -f docker/compose/poller-stack.compose.yml up -d --no-deps poller agent
+   docker compose --env-file edge-gateway.env \
+     -f docker/compose/gateway-stack.compose.yml up -d --no-deps gateway agent
    ```
 
 ### Provisioning Packages from the Core API
@@ -259,8 +288,8 @@ onboarding package through Core:
   (`POST /api/admin/edge-packages`).
 - **Download** bundles securely:
   `serviceradar-cli edge-package-download --core-url https://core.example.org --id <package> --download-token <token> --output edge-package.tar.gz`
-  writes a tarball containing `edge-poller.env`, the SPIRE artifacts, and a README. Extract it on the edge host and run
-  `docker/compose/edge-poller-restart.sh --env-file edge-poller.env` to apply the configuration.
+  writes a tarball containing `edge-gateway.env`, the SPIRE artifacts, and a README. Extract it on the edge host and run
+  `docker/compose/edge-gateway-restart.sh --env-file edge-gateway.env` to apply the configuration.
 - **Revoke** compromised or unused packages:  
   `serviceradar-cli edge-package-revoke --core-url https://core.example.org --id <package> --reason "Rotated edge host"`
   deletes the downstream SPIRE entry and blocks future agent attestations.
@@ -268,7 +297,7 @@ onboarding package through Core:
 All `/api/admin/edge-packages` routes and the `/admin/edge-packages` UI are
 RBAC-protected (admin role).
 
-All generated nested SPIRE configuration lives under `generated-config/poller-spire/`. Re-run the `config-updater` container whenever you change trust domains or upstream addresses so the HCL files stay in sync.
+All generated nested SPIRE configuration lives under `generated-config/gateway-spire/`. Re-run the `config-updater` container whenever you change trust domains or upstream addresses so the HCL files stay in sync.
 
 ## Device Configuration
 
@@ -380,9 +409,14 @@ docker-compose logs web
 
 ### Database Maintenance
 
-Use Postgres tooling (psql/pg_dump) against CNPG (default host `cnpg-rw:5432`, database `serviceradar`). Example health check:
+Use Postgres tooling (psql/pg_dump) against CNPG (default host `cnpg-rw:5432`, database `serviceradar`). CNPG enforces mTLS + password for TCP connections. Example health check:
 ```bash
-psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verify-full" -c "SELECT 1;"
+PGSSLMODE=verify-full \
+PGSSLROOTCERT=/etc/serviceradar/certs/root.pem \
+PGSSLCERT=/etc/serviceradar/certs/workstation.pem \
+PGSSLKEY=/etc/serviceradar/certs/workstation-key.pem \
+PGPASSWORD=<password> \
+psql -h cnpg-rw -p 5432 -U serviceradar -d serviceradar -c "SELECT 1;"
 ```
 
 ## Security Considerations
@@ -433,8 +467,8 @@ docker-compose restart core
 
 #### Can't Access Web Interface
 
-1. **Check nginx status**: `docker-compose ps nginx`
-2. **Check nginx logs**: `docker-compose logs nginx`
+1. **Check caddy status**: `docker-compose ps caddy`
+2. **Check caddy logs**: `docker-compose logs caddy`
 3. **Verify core service**: `docker-compose ps core`
 4. **Test direct access**: `curl http://localhost:8090/api/status`
 
@@ -474,7 +508,7 @@ docker-compose logs core | grep ERROR
 docker-compose logs web | grep -E "(error|Error)"
 
 # Network logs
-docker-compose logs agent poller mapper
+docker-compose logs agent gateway mapper
 ```
 
 #### Real-Time Monitoring
@@ -522,7 +556,7 @@ ALTER SETTINGS max_threads = 8;
 
 ServiceRadar supports horizontal scaling of certain components:
 
-1. **Multiple Pollers**: Deploy additional poller instances for load distribution
+1. **Multiple Gateways**: Deploy additional gateway instances for load distribution
 2. **Multiple Agents**: Deploy agents across different network segments
 3. **Database Clustering**: Configure CNPG in cluster mode (Enterprise feature)
 
@@ -534,15 +568,24 @@ For high availability, deploy multiple ServiceRadar instances behind a load bala
 # docker-compose.ha.yml
 version: '3.8'
 services:
-  nginx-lb:
-    image: nginx:alpine
+  caddy:
+    image: caddy:2.8.4-alpine
     ports:
+      - "80:80"
       - "443:443"
     volumes:
-      - ./nginx-lb.conf:/etc/nginx/nginx.conf
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - serviceradar-1
       - serviceradar-2
+```
+
+Example `Caddyfile`:
+
+```
+https://example.com {
+  reverse_proxy serviceradar-1:4000 serviceradar-2:4000
+}
 ```
 
 ## Migration and Upgrades
@@ -568,16 +611,16 @@ Notes:
 - `docker/compose/update-config.sh` preserves existing configs by default; set `FORCE_REGENERATE_CONFIG=true` only if you intentionally want to overwrite generated configs.
 - Equivalent one-liner: `make compose-upgrade`
 
-Verification (optional): confirm your poller KV entry still contains your checker after an upgrade.
+Verification (optional): confirm your gateway KV entry still contains your checker after an upgrade.
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
   -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
   ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
   nats --server tls://nats:4222 \
        --tlsca /etc/serviceradar/certs/root.pem \
-       --tlscert /etc/serviceradar/certs/poller.pem \
-       --tlskey /etc/serviceradar/certs/poller-key.pem \
-       kv get --raw serviceradar-datasvc config/pollers/docker-poller.json
+       --tlscert /etc/serviceradar/certs/gateway.pem \
+       --tlskey /etc/serviceradar/certs/gateway-key.pem \
+       kv get --raw serviceradar-datasvc config/gateways/docker-gateway.json
 ```
 
 ### Data Migration
@@ -603,7 +646,7 @@ When migrating between major versions:
 Default configuration files are available in the `docker/compose/` directory:
 
 - `core.docker.json`: Core service configuration
-- `poller.docker.json`: Poller service configuration
+- `gateway.docker.json`: Gateway service configuration
 - `web.docker.json`: Web interface configuration
 - `nats.docker.conf`: NATS message bus configuration
 
@@ -617,8 +660,8 @@ graph TD
     C --> E[core]
     D --> F[kv]
     E --> G[web]
-    G --> H[nginx]
-    F --> I[sync]
+    G --> H[caddy]
+    F --> I[agent]
     D --> J[db-event-writer]
 ```
 

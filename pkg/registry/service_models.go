@@ -25,9 +25,9 @@ const (
 	RegistrationSourceImplicit       RegistrationSource = "implicit" // From heartbeat
 )
 
-// PollerRegistration represents a poller registration request.
-type PollerRegistration struct {
-	PollerID           string
+// GatewayRegistration represents a gateway registration request.
+type GatewayRegistration struct {
+	GatewayID           string
 	ComponentID        string // From edge onboarding package
 	RegistrationSource RegistrationSource
 	Metadata           map[string]string
@@ -38,7 +38,7 @@ type PollerRegistration struct {
 // AgentRegistration represents an agent registration request.
 type AgentRegistration struct {
 	AgentID            string
-	PollerID           string // Parent poller (required)
+	GatewayID           string // Parent gateway (required)
 	ComponentID        string
 	RegistrationSource RegistrationSource
 	Metadata           map[string]string
@@ -50,7 +50,7 @@ type AgentRegistration struct {
 type CheckerRegistration struct {
 	CheckerID          string
 	AgentID            string // Parent agent (required)
-	PollerID           string // Grandparent poller (denormalized for queries)
+	GatewayID           string // Grandparent gateway (denormalized for queries)
 	CheckerKind        string // snmp, sysmon, rperf, etc.
 	ComponentID        string
 	RegistrationSource RegistrationSource
@@ -62,19 +62,19 @@ type CheckerRegistration struct {
 // ServiceHeartbeat represents a service status report.
 type ServiceHeartbeat struct {
 	ServiceID   string
-	ServiceType string // "poller", "agent", "checker"
-	PollerID    string
-	AgentID     string // Empty for pollers
-	CheckerID   string // Empty for agents/pollers
+	ServiceType string // "gateway", "agent", "checker"
+	GatewayID    string
+	AgentID     string // Empty for gateways
+	CheckerID   string // Empty for agents/gateways
 	Timestamp   time.Time
 	SourceIP    string
 	Healthy     bool
 	Metadata    map[string]string
 }
 
-// RegisteredPoller represents a registered poller in the system.
-type RegisteredPoller struct {
-	PollerID           string
+// RegisteredGateway represents a registered gateway in the system.
+type RegisteredGateway struct {
+	GatewayID           string
 	ComponentID        string
 	Status             ServiceStatus
 	RegistrationSource RegistrationSource
@@ -93,7 +93,7 @@ type RegisteredPoller struct {
 // RegisteredAgent represents a registered agent in the system.
 type RegisteredAgent struct {
 	AgentID            string
-	PollerID           string
+	GatewayID           string
 	ComponentID        string
 	Status             ServiceStatus
 	RegistrationSource RegistrationSource
@@ -112,7 +112,7 @@ type RegisteredAgent struct {
 type RegisteredChecker struct {
 	CheckerID          string
 	AgentID            string
-	PollerID           string
+	GatewayID           string
 	CheckerKind        string
 	ComponentID        string
 	Status             ServiceStatus
@@ -138,7 +138,7 @@ type RegistrationEvent struct {
 	EventID            string
 	EventType          string // 'registered', 'activated', 'deactivated', 'revoked', 'deleted'
 	ServiceID          string
-	ServiceType        string // 'poller', 'agent', 'checker'
+	ServiceType        string // 'gateway', 'agent', 'checker'
 	ParentID           string
 	RegistrationSource RegistrationSource
 	Actor              string

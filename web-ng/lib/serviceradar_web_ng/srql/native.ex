@@ -20,4 +20,11 @@ defmodule ServiceRadarWebNG.SRQL.Native do
 
   def translate(_query, _limit, _cursor, _direction, _mode),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Parse an SRQL query and return the AST as JSON.
+  This allows consuming the structured query without re-parsing in Elixir.
+  """
+  def parse_ast(_query),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

@@ -53,7 +53,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Ok(protoc) = env::var("PROTOC") {
-        println!("cargo:warning=PROTOC={}", protoc);
         if !Path::new(&protoc).exists() {
             return Err(format!("protoc not found at {}", protoc).into());
         }

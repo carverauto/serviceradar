@@ -10,7 +10,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error {
+func (m *Manager) StoreRperfMetrics(ctx context.Context, gatewayID string, metrics *models.RperfMetrics, timestamp time.Time) error {
 	for i := range metrics.Results {
 		result := &metrics.Results[i] // Access the element by reference
 		metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(result.Target, " ", "_")))
@@ -30,7 +30,7 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			"packets_sent":     result.PacketsSent,
 		})
 		if err != nil {
-			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).
+			m.logger.Error().Str("metricName", metricName).Str("gatewayID", gatewayID).
 				Err(err).Msg("Failed to marshal rperf metadata")
 
 			continue
@@ -44,24 +44,24 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			Metadata:  string(metadata), // Convert []byte to string
 		}
 
-		if err := m.db.StoreMetric(ctx, pollerID, metric); err != nil {
-			m.logger.Error().Str("metricName", metricName).Str("pollerID", pollerID).
+		if err := m.db.StoreMetric(ctx, gatewayID, metric); err != nil {
+			m.logger.Error().Str("metricName", metricName).Str("gatewayID", gatewayID).
 				Err(err).Msg("Error storing rperf metric")
 
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
 
-		m.logger.Info().Str("metricName", metricName).Str("pollerID", pollerID).
+		m.logger.Info().Str("metricName", metricName).Str("gatewayID", gatewayID).
 			Float64("bits_per_second", result.BitsPerSec).Msg("Stored rperf metric")
 	}
 
 	return nil
 }
 
-func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, start, end time.Time) ([]models.RperfMetric, error) {
+func (m *Manager) GetRperfMetrics(ctx context.Context, gatewayID, target string, start, end time.Time) ([]models.RperfMetric, error) {
 	metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(target, " ", "_")))
 
-	dbMetrics, err := m.db.GetMetrics(ctx, pollerID, metricName, start, end)
+	dbMetrics, err := m.db.GetMetrics(ctx, gatewayID, metricName, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -72,14 +72,14 @@ func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, 
 		dm := &dbMetrics[i] // Access the element by reference
 
 		if dm.Metadata == "" {
-			m.logger.Warn().Str("metricName", dm.Name).Str("pollerID", pollerID).Msg("Empty metadata for rperf metric")
+			m.logger.Warn().Str("metricName", dm.Name).Str("gatewayID", gatewayID).Msg("Empty metadata for rperf metric")
 			continue
 		}
 
 		var metaMap map[string]interface{}
 
 		if err := json.Unmarshal([]byte(dm.Metadata), &metaMap); err != nil {
-			m.logger.Error().Str("metricName", dm.Name).Str("pollerID", pollerID).Err(err).Msg("Failed to unmarshal metadata for rperf metric")
+			m.logger.Error().Str("metricName", dm.Name).Str("gatewayID", gatewayID).Err(err).Msg("Failed to unmarshal metadata for rperf metric")
 			continue
 		}
 

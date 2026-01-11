@@ -1,6 +1,6 @@
 # Edge Onboarding Library
 
-This package provides a common onboarding library for ServiceRadar edge services (pollers, agents, checkers) to automatically bootstrap themselves using an onboarding token.
+This package provides a common onboarding library for ServiceRadar edge services (gateways, agents, checkers) to automatically bootstrap themselves using an onboarding token.
 
 ## Overview
 
@@ -11,7 +11,7 @@ The edge onboarding library eliminates the need for manual shell scripts and con
 - **KV (datasvc) is the source of truth** - All dynamic configuration comes from KV, not ConfigMaps
 - **Sticky bootstrap configs** - Only KV/Core addresses are in static config (chicken/egg problem)
 - **Deployment-aware** - Automatically detects Docker, Kubernetes, or bare-metal and uses appropriate addresses
-- **Component-specific** - Pollers get nested SPIRE server, agents/checkers use workload API
+- **Component-specific** - Gateways get nested SPIRE server, agents/checkers use workload API
 - **Self-contained** - Services only need an onboarding token to start
 
 ## Usage
@@ -34,7 +34,7 @@ func main() {
 	b, err := edgeonboarding.NewBootstrapper(&edgeonboarding.Config{
 		Token:      "your-onboarding-token-here",
 		KVEndpoint: "23.138.124.23:50057", // Bootstrap config
-		ServiceType: models.EdgeOnboardingComponentTypePoller,
+		ServiceType: models.EdgeOnboardingComponentTypeGateway,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Get generated configs
-	pollerConfig, _ := b.GetConfig("poller.json")
+	gatewayConfig, _ := b.GetConfig("gateway.json")
 	spireConfig, _ := b.GetConfig("spire-server.conf")
 
 	log.Printf("SPIFFE ID: %s", b.GetSPIFFEID())
@@ -62,7 +62,7 @@ func main() {
 docker run \
   -e ONBOARDING_TOKEN=abc123xyz456 \
   -e KV_ENDPOINT=23.138.124.23:50057 \
-  ghcr.io/carverauto/serviceradar-poller:latest
+  ghcr.io/carverauto/serviceradar-agent-gateway:latest
 ```
 
 ## Architecture
@@ -79,8 +79,8 @@ docker run \
    - Extracts decrypted SPIRE credentials
 
 3. **SPIRE Configuration**
-   - **Pollers**: Set up nested SPIRE server with upstream attestation
-   - **Agents**: Configure workload API access to poller's SPIRE
+   - **Gateways**: Set up nested SPIRE server with upstream attestation
+   - **Agents**: Configure workload API access to gateway's SPIRE
    - **Checkers**: Configure workload API access
 
 4. **Service Configuration**
@@ -94,17 +94,17 @@ docker run \
 
 ### Component Types
 
-#### Poller
+#### Gateway
 - Runs **nested SPIRE server** that attests to upstream (k8s) SPIRE
 - Provides workload API for co-located agent
 - Connects to Core and reports status
 - Configuration includes: Core address, KV address, agent address, SPIRE config
 
 #### Agent
-- Uses **workload API** from parent poller's nested SPIRE
-- Shares network namespace with poller (in Docker)
+- Uses **workload API** from parent gateway's nested SPIRE
+- Shares network namespace with gateway (in Docker)
 - Connects to KV to fetch checker configs
-- Configuration includes: KV address, parent poller ID, workload API socket
+- Configuration includes: KV address, parent gateway ID, workload API socket
 
 #### Checker
 - Uses **workload API** from parent agent
@@ -116,8 +116,8 @@ docker run \
 #### Docker
 - **Detection**: Checks for `/.dockerenv` or `docker` in cgroups
 - **Addresses**: Uses LoadBalancer IPs (can't resolve k8s DNS)
-- **SPIRE**: Nested server for pollers, shared workload API for agents
-- **Network**: Agent shares network namespace with poller (`network_mode: "service:poller"`)
+- **SPIRE**: Nested server for gateways, shared workload API for agents
+- **Network**: Agent shares network namespace with gateway (`network_mode: "service:agent-gateway"`)
 
 #### Kubernetes
 - **Detection**: Checks for `KUBERNETES_SERVICE_HOST` or service account token
@@ -128,7 +128,7 @@ docker run \
 #### Bare Metal
 - **Detection**: Default when not Docker or k8s
 - **Addresses**: Uses configured addresses from package
-- **SPIRE**: Same as Docker (nested server for pollers)
+- **SPIRE**: Same as Docker (nested server for gateways)
 - **Network**: Standard networking
 
 ## Configuration
@@ -160,7 +160,7 @@ type Config struct {
 
 **Dynamic (From KV - Fetched at Runtime)**:
 - Checker configurations
-- Known pollers list
+- Known gateways list
 - Service-specific settings
 - Feature flags
 
@@ -176,7 +176,7 @@ KV_ENDPOINT=<host:port>        # Bootstrap config
 # Optional
 STORAGE_PATH=/var/lib/serviceradar
 DEPLOYMENT_TYPE=docker         # docker, kubernetes, bare-metal
-SERVICE_ID=my-poller-1         # Override component ID
+SERVICE_ID=my-gateway-1         # Override component ID
 ```
 
 ## Generated Configurations
@@ -186,8 +186,8 @@ The bootstrapper generates these configuration files/data:
 ### All Components
 - `spire-workload-api-socket` - Path to workload API socket
 
-### Pollers
-- `poller.json` - Poller service configuration
+### Gateways
+- `gateway.json` - Gateway service configuration
 - `spire-server.conf` - Nested SPIRE server config
 - `spire-agent.conf` - Nested SPIRE agent config
 - SPIRE trust bundle (`upstream-bundle.pem`)
@@ -258,18 +258,18 @@ Handles SPIRE credential rotation. Should be called periodically (e.g., via cron
 - Deployment type detection
 - SPIRE configuration (structure)
 - Service config generation
-- Component-specific logic (poller, agent, checker)
+- Component-specific logic (gateway, agent, checker)
 
 ### TODO 🔴
 - Actual API calls to Core for package download
 - Complete SPIRE HCL config generation
 - Credential rotation implementation
 - Integration tests
-- Service integration (poller, agent, checker binaries)
+- Service integration (gateway, agent, checker binaries)
 
 ## Example Integration
 
-### In Poller Service
+### In Gateway Service
 
 ```go
 package main
@@ -291,7 +291,7 @@ func main() {
 		b, err := edgeonboarding.NewBootstrapper(&edgeonboarding.Config{
 			Token:       token,
 			KVEndpoint:  kvEndpoint,
-			ServiceType: models.EdgeOnboardingComponentTypePoller,
+			ServiceType: models.EdgeOnboardingComponentTypeGateway,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -301,11 +301,11 @@ func main() {
 			log.Fatal(err)
 		}
 
-		// Use generated configs to start poller
-		startPollerWithConfig(b.GetAllConfigs())
+		// Use generated configs to start gateway
+		startGatewayWithConfig(b.GetAllConfigs())
 	} else {
 		// k8s deployment - use traditional config
-		startPollerWithStaticConfig()
+		startGatewayWithStaticConfig()
 	}
 }
 ```

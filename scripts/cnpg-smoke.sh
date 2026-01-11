@@ -60,22 +60,22 @@ if not token:
     raise SystemExit("missing access token in login response")
 print(token)' <<<"$LOGIN_JSON")"
 
-log "Fetching poller inventory"
-POLLERS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
+log "Fetching gateway inventory"
+GATEWAYS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
 set -euo pipefail
 curl -fsS -H "Authorization: Bearer $TOKEN" \
-     http://serviceradar-core:8090/api/pollers
+     http://serviceradar-core:8090/api/gateways
 ')"
 
-POLL_ID="$(python3 -c 'import json,sys
+GATEWAY_ID="$(python3 -c 'import json,sys
 data=json.load(sys.stdin)
 if not isinstance(data, list) or not data:
-    raise SystemExit("no pollers returned from /api/pollers")
-poller=data[0]
-poller_id=poller.get("poller_id")
-if not poller_id:
-    raise SystemExit("poller entry missing poller_id")
-print(poller_id)' <<<"$POLLERS_JSON")"
+    raise SystemExit("no gateways returned from /api/gateways")
+gateway=data[0]
+gateway_id=gateway.get("gateway_id")
+if not gateway_id:
+    raise SystemExit("gateway entry missing gateway_id")
+print(gateway_id)' <<<"$GATEWAYS_JSON")"
 
 log "Validating /api/devices response"
 DEVICES_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
@@ -96,13 +96,13 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
      "http://serviceradar-core:8090/api/services/tree"
 ')"
 
-POLL_ID="$POLL_ID" python3 -c 'import json,sys,os
+GATEWAY_ID="$GATEWAY_ID" python3 -c 'import json,sys,os
 data=json.load(sys.stdin)
-poller_id=os.environ.get("POLL_ID")
+gateway_id=os.environ.get("GATEWAY_ID")
 if not isinstance(data, list) or not data:
     raise SystemExit("service registry tree is empty")
-if poller_id and all(node.get("poller_id") != poller_id for node in data):
-    raise SystemExit("poller ID not present in service registry tree")' <<<"$REGISTRY_JSON" >/dev/null
+if gateway_id and all(node.get("gateway_id") != gateway_id for node in data):
+    raise SystemExit("gateway ID not present in service registry tree")' <<<"$REGISTRY_JSON" >/dev/null
 
 log "Inspecting device metrics status"
 METRICS_STATUS_JSON="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env TOKEN="$TOKEN" bash -lc '
@@ -160,37 +160,43 @@ PY
 
 EVENT_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 EVENT_DEVICE="smoke-${EVENT_ID}"
+EVENT_TENANT_ID="${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}"
 
 EVENT_JSON=$(cat <<EOF
 {
-  "specversion": "1.0",
   "id": "$EVENT_ID",
-  "source": "cnpg-smoke-test",
-  "type": "com.carverauto.serviceradar.device.lifecycle",
-  "subject": "events.devices.lifecycle",
-  "datacontenttype": "application/json",
   "time": "$EVENT_TIME",
-  "data": {
-    "device_id": "$EVENT_DEVICE",
-    "action": "smoke_test",
-    "actor": "cnpg-smoke",
-    "timestamp": "$EVENT_TIME",
-    "severity": "Low",
-    "metadata": {
-      "smoke": "true"
-    }
-  }
+  "class_uid": 1008,
+  "category_uid": 1,
+  "type_uid": 100801,
+  "activity_id": 1,
+  "activity_name": "Create",
+  "severity_id": 2,
+  "severity": "Low",
+  "message": "CNPG smoke event for $EVENT_DEVICE",
+  "log_name": "events.ocsf.processed",
+  "log_provider": "cnpg-smoke-test",
+  "log_level": "info",
+  "metadata": {
+    "version": "1.7.0",
+    "smoke": true
+  },
+  "unmapped": {
+    "device_id": "$EVENT_DEVICE"
+  },
+  "raw_data": "cnpg-smoke",
+  "tenant_id": "$EVENT_TENANT_ID"
 }
 EOF
 )
 EVENT_B64="$(printf '%s' "$EVENT_JSON" | base64 | tr -d '\n')"
 
-log "Publishing lifecycle CloudEvent $EVENT_ID to events.devices.lifecycle"
+log "Publishing OCSF event $EVENT_ID to events.ocsf.processed"
 kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env EVENT_DATA="$EVENT_B64" bash -lc '
 set -euo pipefail
 echo "$EVENT_DATA" | base64 -d >/tmp/cnpg-smoke-event.json
 MSG="$(cat /tmp/cnpg-smoke-event.json)"
-nats --context serviceradar pub events.devices.lifecycle "$MSG" >/dev/null 2>&1
+nats --context serviceradar pub events.ocsf.processed "$MSG" >/dev/null 2>&1
 rm -f /tmp/cnpg-smoke-event.json
 '
 
@@ -200,7 +206,7 @@ for attempt in $(seq 1 6); do
     EVENT_LOOKUP="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env PGPASSWORD="$CNPG_PASSWORD" CNPG_USER="$CNPG_USER" CNPG_HOST="$CNPG_HOST" EVENT_ID="$EVENT_ID" bash -lc '
 set -euo pipefail
 psql "host=$CNPG_HOST user=$CNPG_USER dbname=telemetry sslmode=verify-full sslrootcert=/etc/serviceradar/cnpg/ca.crt" \
-     -At -c "SELECT short_message FROM events WHERE id = '\''$EVENT_ID'\'' ORDER BY event_timestamp DESC LIMIT 1;"
+     -At -c "SELECT message FROM ocsf_events WHERE id = '\''$EVENT_ID'\'' ORDER BY time DESC LIMIT 1;"
 ')"
     if [[ -n "${EVENT_LOOKUP// }" ]]; then
         break
@@ -212,7 +218,7 @@ if [[ -z "${EVENT_LOOKUP// }" ]]; then
     FALLBACK_COUNT="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env PGPASSWORD="$CNPG_PASSWORD" CNPG_USER="$CNPG_USER" CNPG_HOST="$CNPG_HOST" bash -lc '
 set -euo pipefail
 psql "host=$CNPG_HOST user=$CNPG_USER dbname=telemetry sslmode=verify-full sslrootcert=/etc/serviceradar/cnpg/ca.crt" \
-     -At -c "SELECT COUNT(*) FROM events;"
+     -At -c "SELECT COUNT(*) FROM ocsf_events;"
 ')"
     FALLBACK_COUNT="${FALLBACK_COUNT//[[:space:]]/}"
     log "db-event-writer did not ingest $EVENT_ID within the polling window; events table currently has ${FALLBACK_COUNT:-0} rows"

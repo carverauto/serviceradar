@@ -15,42 +15,42 @@ This document tracks the implementation status of the service registry extension
 **Models (service_models.go)** - ✅ **COMPLETE**
 - [x] ServiceStatus enum (pending, active, inactive, revoked)
 - [x] RegistrationSource enum (edge_onboarding, k8s_spiffe, config, implicit)
-- [x] PollerRegistration, AgentRegistration, CheckerRegistration
+- [x] GatewayRegistration, AgentRegistration, CheckerRegistration
 - [x] ServiceHeartbeat
-- [x] RegisteredPoller, RegisteredAgent, RegisteredChecker
+- [x] RegisteredGateway, RegisteredAgent, RegisteredChecker
 - [x] ServiceFilter
 - [x] RegistrationEvent
 
 **ServiceRegistry Implementation (service_registry.go)** - ✅ **CORE COMPLETE**
-- [x] RegisterPoller() - Explicit registration with parent validation
-- [x] RegisterAgent() - With parent poller validation
+- [x] RegisterGateway() - Explicit registration with parent validation
+- [x] RegisterAgent() - With parent gateway validation
 - [x] RegisterChecker() - With parent agent validation
 - [x] RecordHeartbeat() - Routes by service type
 - [x] RecordBatchHeartbeats() - Batch processing
-- [x] recordPollerHeartbeat() - Updates last_seen, activates pending
+- [x] recordGatewayHeartbeat() - Updates last_seen, activates pending
 - [x] recordAgentHeartbeat() - Updates last_seen, activates pending
 - [x] recordCheckerHeartbeat() - Updates last_seen, activates pending
 - [x] emitRegistrationEvent() - Audit trail to stream
-- [x] invalidatePollerCache() - Cache management
+- [x] invalidateGatewayCache() - Cache management
 - [x] **Auto-registration on first heartbeat** - Creates implicit registrations
 
 **Query Methods (service_registry_queries.go)** - ✅ **COMPLETE**
-- [x] GetPoller() - By poller_id with FINAL
+- [x] GetGateway() - By gateway_id with FINAL
 - [x] GetAgent() - By agent_id with FINAL
 - [x] GetChecker() - By checker_id with FINAL
-- [x] ListPollers() - With status/source filtering
-- [x] ListAgentsByPoller() - All agents under poller
+- [x] ListGateways() - With status/source filtering
+- [x] ListAgentsByGateway() - All agents under gateway
 - [x] ListCheckersByAgent() - All checkers under agent
 - [x] UpdateServiceStatus() - Manual status override
-- [x] IsKnownPoller() - **Replaces pkg/core/pollers.go:701** with caching
+- [x] IsKnownGateway() - **Replaces pkg/core/gateways.go:701** with caching
 - [x] MarkInactive() - Background job support
 - [x] ArchiveInactive() - Long-term retention management
-- [x] refreshPollerCache() - 5-minute cache refresh
+- [x] refreshGatewayCache() - 5-minute cache refresh
 
 ### Database Schema (Migration 9)
 
 **Schema (00000000000009_service_registry.up.sql)** - ✅ **COMPLETE**
-- [x] Extended `pollers` stream with registry fields
+- [x] Extended `gateways` stream with registry fields
 - [x] Created `agents` stream (versioned_kv)
 - [x] Created `checkers` stream (versioned_kv)
 - [x] Created `service_registration_events` stream (90-day TTL)
@@ -69,15 +69,15 @@ This document tracks the implementation status of the service registry extension
 
 ### Original Design (service-registry-design.md)
 ```sql
-CREATE TABLE pollers_registry (...)
+CREATE TABLE gateways_registry (...)
 ENGINE = ReplacingMergeTree(updated_at)
-PRIMARY KEY (poller_id);
+PRIMARY KEY (gateway_id);
 ```
 
 ### Actual Implementation
 ```sql
-CREATE STREAM pollers (...)
-PRIMARY KEY (poller_id)
+CREATE STREAM gateways (...)
+PRIMARY KEY (gateway_id)
 SETTINGS mode='versioned_kv', version_column='_tp_time';
 ```
 
@@ -98,18 +98,18 @@ SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 **Tasks**:
 - [ ] Wire up edge onboarding to call service registry
-  - [ ] Modify `pkg/core/edge_onboarding.go::CreatePackage()` to call `RegisterPoller/Agent/Checker`
+  - [ ] Modify `pkg/core/edge_onboarding.go::CreatePackage()` to call `RegisterGateway/Agent/Checker`
   - [ ] Pass correct RegistrationSource (edge_onboarding)
   - [ ] Extract created_by from auth context
 - [ ] Auto-update KV on package creation
-  - [ ] Write `config/pollers/<id>/agents/<id>.json` on agent package creation
+  - [ ] Write `config/gateways/<id>/agents/<id>.json` on agent package creation
   - [ ] Write `config/agents/<id>/checkers/<id>.json` on checker package creation
   - [ ] Set status: 'pending'
 - [ ] Update activation flow
   - [ ] Transition status from 'pending' to 'active' on first heartbeat
   - [ ] Already implemented in recordHeartbeat methods ✅
 - [ ] UI updates for component type selection
-  - [ ] Dropdown for poller/agent/checker
+  - [ ] Dropdown for gateway/agent/checker
   - [ ] Parent selector with validation
   - [ ] Metadata forms tailored to type
 
@@ -121,19 +121,19 @@ SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 **Status**: Core exists, needs wiring to rest of system
 
-#### 2.1 Replace isKnownPoller() in Core
+#### 2.1 Replace isKnownGateway() in Core
 
-**Current Code** (`pkg/core/pollers.go:701`):
+**Current Code** (`pkg/core/gateways.go:701`):
 ```go
-func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
-    for _, known := range s.config.KnownPollers {
-        if known == pollerID {
+func (s *Server) isKnownGateway(ctx context.Context, gatewayID string) bool {
+    for _, known := range s.config.KnownGateways {
+        if known == gatewayID {
             return true
         }
     }
 
     if s.edgeOnboarding != nil {
-        if s.edgeOnboarding.isPollerAllowed(ctx, pollerID) {
+        if s.edgeOnboarding.isGatewayAllowed(ctx, gatewayID) {
             return true
         }
     }
@@ -144,17 +144,17 @@ func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
 
 **Needs to Become**:
 ```go
-func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
+func (s *Server) isKnownGateway(ctx context.Context, gatewayID string) bool {
     // Backwards compatibility: check static config first
-    for _, known := range s.config.KnownPollers {
-        if known == pollerID {
+    for _, known := range s.config.KnownGateways {
+        if known == gatewayID {
             return true
         }
     }
 
     // Primary path: check service registry
     if s.serviceRegistry != nil {
-        known, err := s.serviceRegistry.IsKnownPoller(ctx, pollerID)
+        known, err := s.serviceRegistry.IsKnownGateway(ctx, gatewayID)
         if err != nil {
             s.logger.Warn().Err(err).Msg("Failed to check service registry")
         }
@@ -170,17 +170,17 @@ func (s *Server) isKnownPoller(ctx context.Context, pollerID string) bool {
 **Tasks**:
 - [ ] Add `serviceRegistry *registry.ServiceRegistry` to Server struct
 - [ ] Initialize in Server constructor from config
-- [ ] Update isKnownPoller() to call registry
+- [ ] Update isKnownGateway() to call registry
 - [ ] Keep static config as fallback for backwards compat
 - [ ] Add feature flag if needed
 
-#### 2.2 Record Heartbeats from ReportStatus
+#### 2.2 Record Heartbeats from PushStatus
 
 **Current Code** (`pkg/core/services.go:869`):
 ```go
 // Activation code exists for edge onboarding
 if s.edgeOnboarding != nil {
-    if pollerID != "" {
+    if gatewayID != "" {
         if err := s.edgeOnboarding.RecordActivation(...); err != nil {
             // log
         }
@@ -194,7 +194,7 @@ if s.edgeOnboarding != nil {
 if s.serviceRegistry != nil {
     heartbeat := &registry.ServiceHeartbeat{
         ServiceType: determineServiceType(agentID, serviceType),
-        PollerID:    pollerID,
+        GatewayID:    gatewayID,
         AgentID:     agentID,
         Timestamp:   timestamp,
         SourceIP:    sourceIP,
@@ -211,20 +211,20 @@ if s.edgeOnboarding != nil { ... }
 ```
 
 **Tasks**:
-- [ ] Add heartbeat recording to `ReportStatus` handler
-- [ ] Add helper `determineServiceType()` to detect poller/agent/checker
-- [ ] Ensure pollerID, agentID extracted from status report
+- [ ] Add heartbeat recording to `PushStatus` handler
+- [ ] Add helper `determineServiceType()` to detect gateway/agent/checker
+- [ ] Ensure gatewayID, agentID extracted from status report
 - [ ] Handle errors gracefully (don't fail status report)
 
 #### 2.3 Testing
 
 **Unit Tests Needed**:
 - [ ] `pkg/registry/service_registry_test.go` - Core functionality
-  - [ ] RegisterPoller with duplicate detection
+  - [ ] RegisterGateway with duplicate detection
   - [ ] RegisterAgent with parent validation
   - [ ] RegisterChecker with parent validation
   - [ ] RecordHeartbeat status transitions
-  - [ ] IsKnownPoller caching behavior
+  - [ ] IsKnownGateway caching behavior
   - [ ] MarkInactive threshold logic
 - [ ] `pkg/registry/service_registry_queries_test.go` - Query methods
   - [ ] List operations with filters
@@ -241,13 +241,13 @@ if s.edgeOnboarding != nil { ... }
 ### Phase 3: API & Dashboard - 🔴 NOT STARTED
 
 **REST API Endpoints** (`pkg/core/api/service_registry.go` - new file):
-- [ ] `GET /api/admin/services/pollers` - List all pollers
+- [ ] `GET /api/admin/services/gateways` - List all gateways
 - [ ] `GET /api/admin/services/agents` - List all agents
 - [ ] `GET /api/admin/services/checkers` - List all checkers
-- [ ] `GET /api/admin/services/pollers/:id` - Get poller details
+- [ ] `GET /api/admin/services/gateways/:id` - Get gateway details
 - [ ] `GET /api/admin/services/agents/:id` - Get agent details
 - [ ] `GET /api/admin/services/checkers/:id` - Get checker details
-- [ ] `GET /api/admin/services/pollers/:id/agents` - List agents by poller
+- [ ] `GET /api/admin/services/gateways/:id/agents` - List agents by gateway
 - [ ] `GET /api/admin/services/agents/:id/checkers` - List checkers by agent
 - [ ] `POST /api/admin/services/:type/:id/status` - Admin status override
 - [ ] `GET /api/admin/services/stats` - Registry statistics
@@ -279,7 +279,7 @@ if s.edgeOnboarding != nil { ... }
 **ClusterSPIFFEID Manifests**:
 - [ ] Add serviceradar-specific annotations
   - `serviceradar.io/register: "true"`
-  - `serviceradar.io/service-type: "poller|agent|checker"`
+  - `serviceradar.io/service-type: "gateway|agent|checker"`
   - `serviceradar.io/metadata: "{}"`
 - [ ] Update existing ClusterSPIFFEID resources
 - [ ] Document registration behavior
@@ -302,7 +302,7 @@ if s.edgeOnboarding != nil { ... }
 - [ ] Alert on unexpected inactivity
 
 **Cache Warming**:
-- [ ] Already implemented in `refreshPollerCache()` ✅
+- [ ] Already implemented in `refreshGatewayCache()` ✅
 - [ ] Ensure cache refresh runs on schedule
 - [ ] Monitor cache hit rate
 
@@ -346,8 +346,8 @@ if s.edgeOnboarding != nil { ... }
    - Verify status transitions
 
 2. **Core Integration** (2-3 days)
-   - Replace `isKnownPoller()` logic
-   - Add heartbeat recording from `ReportStatus`
+   - Replace `isKnownGateway()` logic
+   - Add heartbeat recording from `PushStatus`
    - Test backwards compatibility
 
 3. **Basic Testing** (2 days)
@@ -384,7 +384,7 @@ if s.edgeOnboarding != nil { ... }
 ## 📋 Open Questions
 
 1. **Should we backfill existing services?**
-   - Pollers reporting to core but not in registry
+   - Gateways reporting to core but not in registry
    - Agents/checkers from implicit heartbeats
    - Migration strategy for production
 
@@ -426,7 +426,7 @@ if s.edgeOnboarding != nil { ... }
 - [ ] Lifecycle tracking visible in UI
 
 **Performance**:
-- [x] IsKnownPoller() query < 10ms (cached) - implemented
+- [x] IsKnownGateway() query < 10ms (cached) - implemented
 - [ ] Support 1000+ edge services without degradation - needs testing
 - [x] Batch operations for efficiency - implemented
 

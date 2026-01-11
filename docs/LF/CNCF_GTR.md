@@ -70,9 +70,9 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe the target persona or user(s) for the project?  
   - Primary: platform/SRE/NOC teams operating fleets of Linux servers, appliances, and network gear; secondary: data/analyst users issuing SRQL queries.
 * Explain the primary use case for the project. What additional use cases are supported by the project?  
-  - Primary: service/device health monitoring via agents and pollers with SPIFFE identities and CNPG storage. Additional: SRQL analytics over timeseries/events, SNMP/syslog/flow ingestion, webhook alerting.
+  - Primary: service/device health monitoring via agents and gateways with SPIFFE identities and CNPG storage. Additional: SRQL analytics over timeseries/events, SNMP/syslog/flow ingestion, webhook alerting.
 * Explain which use cases have been identified as unsupported by the project.  
-  - Not an APM profiler, configuration manager, or general-purpose log lake; Proton is no longer used; no poller-ng.
+  - Not an APM profiler, configuration manager, or general-purpose log lake; Proton is no longer used; no gateway-ng.
 * Describe the intended types of organizations who would benefit from adopting this project. (i.e. financial services, any software manufacturer, organizations providing platform engineering services)?  
   - Platform teams, MSPs, and regulated orgs needing workload identity and gRPC-based monitoring with on-prem CNPG.
 * Please describe any completed end user research and link to any reports.  
@@ -92,7 +92,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Explain the design principles and best practices the project is following.  
   - Secure-by-default (SPIFFE mTLS, Core-validated JWT auth), minimal dependencies, horizontally scalable stateless services, CNPG as the system of record, deterministic configs via KV overlays.
 * Outline or link to the project’s architecture requirements? Describe how they differ for Proof of Concept, Development, Test and Production environments, as applicable.  
-  - See `docs/docs/architecture.md`; POCs can run single-instance CNPG and one poller, while prod uses CNPG HA, multiple pollers/agents, edge proxy routing, and OTEL collectors.
+  - See `docs/docs/architecture.md`; POCs can run single-instance CNPG and one gateway, while prod uses CNPG HA, multiple gateways/agents, edge proxy routing, and OTEL collectors.
 * Define any specific service dependencies the project relies on in the cluster.  
   - CNPG Postgres (`cnpg-rw` host, database `serviceradar`), NATS JetStream, SPIRE (Server/Agent), edge proxy (Caddy/Nginx/Ingress), OTEL collector, optional Discord/webhook endpoints.
 * Describe how the project implements Identity and Access Management.  
@@ -102,14 +102,14 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe any compliance requirements addressed by the project.  
   - SPDX SBOM and third-party attributions (`docs/LF/SBOM.spdx`, `docs/LF/third-party-deps.html`), signed releases via `scripts/cut-release.sh`, Dependabot updates, and secure transport defaults.
 * Describe the project’s High Availability requirements.  
-  - Run CNPG in HA mode, at least two pollers, and redundant OTEL collectors; services are stateless and can be scaled horizontally behind Kubernetes Services.
+  - Run CNPG in HA mode, at least two gateways, and redundant OTEL collectors; services are stateless and can be scaled horizontally behind Kubernetes Services.
 * Describe the project’s resource requirements, including CPU, Network and Memory.  
-  - Pollers/agents are lightweight (sub-CPU core, sub-512Mi typical); Core/SRQL sized to CNPG throughput; OTEL sizing driven by trace volume; NATS sized to event throughput.
+  - Gateways/agents are lightweight (sub-CPU core, sub-512Mi typical); Core/SRQL sized to CNPG throughput; OTEL sizing driven by trace volume; NATS sized to event throughput.
 * Describe the project’s storage requirements, including its use of ephemeral and/or persistent storage.  
   - CNPG persistent volumes store all telemetry and registry data; services otherwise use ephemeral storage; no Proton volumes.
 * Please outline the project’s API Design:  
     * Describe the project’s API topology and conventions  
-      - REST/JSON routed through the edge proxy for user/API clients; gRPC for agents/pollers and internal services; SRQL exposed via `/api/query`.  
+      - REST/JSON routed through the edge proxy for user/API clients; gRPC for agents/gateways and internal services; SRQL exposed via `/api/query`.  
     * Describe the project defaults  
       - CNPG host `cnpg-rw`, database `serviceradar`, SPIFFE mTLS enabled, Core enforces JWT, OTLP enabled to OTEL collector.  
     * Outline any additional configurations from default to make reasonable use of the project  
@@ -148,7 +148,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
       - SPIFFE/SPIRE, Core JWT auth, and CNPG credentials are treated as critical paths; defaults avoid Proton and external data sinks; secrets managed via Kubernetes secrets and Helm values.  
 * Cloud Native Threat Modeling  
     * Explain the least minimal privileges required by the project and reasons for additional privileges.  
-      - Services run as non-root, need network access to CNPG/NATS/OTEL/edge proxy; pollers/agents require only outbound gRPC; CNPG requires standard DB creds.  
+      - Services run as non-root, need network access to CNPG/NATS/OTEL/edge proxy; gateways/agents require only outbound gRPC; CNPG requires standard DB creds.  
     * Describe how the project is handling certificate rotation and mitigates any issues with certificates.  
       - SPIRE handles workload cert rotation; edge proxy/ingress certs follow Kubernetes secret rotation; JWKS keys exposed by Core for JWT validation.  
     * Describe how the project is following and implementing [secure software supply chain best practices](https://project.linuxfoundation.org/hubfs/CNCF_SSCP_v1.pdf)  
@@ -161,7 +161,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Project Installation and Configuration
 
 * Describe what project installation and configuration look like.  
-  - `helm upgrade --install serviceradar ./helm/serviceradar -f values.yaml` with CNPG enabled; configure ingress hosts, CNPG credentials (database `serviceradar`), and SPIRE/edge proxy endpoints; agents/pollers point at core gRPC with SPIFFE IDs.
+  - `helm upgrade --install serviceradar ./helm/serviceradar -f values.yaml` with CNPG enabled; configure ingress hosts, CNPG credentials (database `serviceradar`), and SPIRE/edge proxy endpoints; agents/gateways point at core gRPC with SPIFFE IDs.
 
 ### Project Enablement and Rollback
 
@@ -183,7 +183,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * How can a rollout or rollback fail? Describe any impact to already running workloads.  
   - Failures usually from CNPG connectivity or missing secrets; rollbacks can fail if schema breaks compatibility, so migrations are additive.
 * Describe any specific metrics that should inform a rollback.  
-  - Pod readiness failures, OTEL collector liveness, CNPG error rates, gRPC connection failures from pollers/agents.
+  - Pod readiness failures, OTEL collector liveness, CNPG error rates, gRPC connection failures from gateways/agents.
 * Explain how upgrades and rollbacks were tested and how the upgrade->downgrade->upgrade path was tested.  
   - Exercised in staging namespaces with Helm upgrades/rollbacks, validating KV SPIFFE connects and OTEL readiness before production.
 * Explain how the project informs users of deprecations and removals of features and APIs.  
@@ -196,19 +196,19 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Scalability/Reliability
 
 * Describe how the project increases the size or count of existing API objects.  
-  - Stateless services scale via replicas; pollers and agents are horizontally scaled; CNPG scales vertically and via HA.
+  - Stateless services scale via replicas; gateways and agents are horizontally scaled; CNPG scales vertically and via HA.
 * Describe how the project defines Service Level Objectives (SLOs) and Service Level Indicators (SLIs).  
-  - Core API latency, poller job backlog, CNPG query latency, and OTEL export success are the primary SLIs; target SLOs tracked in staging dashboards (work-in-progress to formalize).
+  - Core API latency, gateway job backlog, CNPG query latency, and OTEL export success are the primary SLIs; target SLOs tracked in staging dashboards (work-in-progress to formalize).
 * Describe any operations that will increase in time covered by existing SLIs/SLOs.  
   - Bulk device backfills and SRQL long-range queries increase CNPG latency; monitor query duration and queue depth.
 * Describe the increase in resource usage in any components as a result of enabling this project, to include CPU, Memory, Storage, Throughput.  
-  - CNPG storage grows with telemetry; OTEL CPU rises with trace volume; pollers consume network toward agents proportional to check rate.
+  - CNPG storage grows with telemetry; OTEL CPU rises with trace volume; gateways consume network toward agents proportional to check rate.
 * Describe which conditions enabling / using this project would result in resource exhaustion of some node resources (PIDs, sockets, inodes, etc.)  
   - Excessive concurrent SRQL queries can exhaust CNPG connections; runaway OTLP exports can exhaust sockets if collectors are unreachable.
 * Describe the load testing that has been performed on the project and the results.  
-  - Staging tests cover multi-agent, multi-poller ingestion and SRQL query load; no formal public benchmark yet.
+  - Staging tests cover multi-agent, multi-gateway ingestion and SRQL query load; no formal public benchmark yet.
 * Describe the recommended limits of users, requests, system resources, etc. and how they were obtained.  
-  - Start with CNPG sized for expected ingest QPS and 2–3 pollers; increase OTEL collector replicas with sustained >70% CPU; keep CNPG connections below configured max_connections/2.
+  - Start with CNPG sized for expected ingest QPS and 2–3 gateways; increase OTEL collector replicas with sustained >70% CPU; keep CNPG connections below configured max_connections/2.
 * Describe which resilience pattern the project uses and how, including the circuit breaker pattern.  
   - Client retries with backoff for CNPG/NATS, readiness/liveness probes, and Helm-driven rollbacks; no server-side circuit breaker yet.
 
@@ -223,22 +223,22 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe how the project surfaces project resource requirements for adopters to monitor cloud and infrastructure costs, e.g. FinOps  
   - Metrics include request rates, queue depth, and exporter failures; CNPG metrics expose storage and CPU utilization for cost tracking.
 * Which parameters is the project covering to ensure the health of the application/service and its workloads?  
-  - Pod readiness, CNPG connectivity, KV SPIFFE connection status, OTEL exporter success, poller-agent gRPC health, webhook delivery.
+  - Pod readiness, CNPG connectivity, KV SPIFFE connection status, OTEL exporter success, gateway-agent gRPC health, webhook delivery.
 * How can an operator determine if the project is in use by workloads?  
-  - Check active agent connections, poller job counts, and SRQL query metrics; CNPG ingest tables should show fresh writes.
+  - Check active agent connections, gateway job counts, and SRQL query metrics; CNPG ingest tables should show fresh writes.
 * How can someone using this project know that it is working for their instance?  
   - Successful SRQL queries return recent device/service data; UI shows live status; no “transport error” logs from KV connections.
 * Describe the SLOs (Service Level Objectives) for this project.  
   - Targeting >99% successful poll cycles and <1s Core API p95 in staging; formalized SLO doc pending.
 * What are the SLIs (Service Level Indicators) an operator can use to determine the health of the service?  
-  - Core/SRQL latency, poller backlog, CNPG query errors, OTEL export success, KV connectivity, webhook delivery success.
+  - Core/SRQL latency, gateway backlog, CNPG query errors, OTEL export success, KV connectivity, webhook delivery success.
 
 ### Dependencies
 
 * Describe the specific running services the project depends on in the cluster.  
   - CNPG Postgres (database `serviceradar`), NATS JetStream, SPIRE, edge proxy, OTEL collector; optional Discord/webhooks.
 * Describe the project’s dependency lifecycle policy.  
-  - Weekly Dependabot updates for Go/Rust/Actions; Bazel MODULE.lock maintained; Proton removed; poller-ng unused.
+  - Weekly Dependabot updates for Go/Rust/Actions; Bazel MODULE.lock maintained; Proton removed; gateway-ng unused.
 * How does the project incorporate and consider source composition analysis as part of its development and security hygiene? Describe how this source composition analysis (SCA) is tracked.  
   - SPDX SBOM regenerated via syft (`docs/LF/SBOM.spdx`), repolinter report (`docs/LF/repo_lint.md`), and third-party HTML (`docs/LF/third-party-deps.html`).
 * Describe how the project implements changes based on source composition analysis (SCA) and the timescale.  
@@ -247,7 +247,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Troubleshooting
 
 * How does this project recover if a key component or feature becomes unavailable? e.g Kubernetes API server, etcd, database, leader node, etc.  
-  - Services retry CNPG/NATS/OTEL with backoff; pollers cache recent data; Helm rollbacks restore last-good revisions; SPIRE auto-rotates certs after outages.
+  - Services retry CNPG/NATS/OTEL with backoff; gateways cache recent data; Helm rollbacks restore last-good revisions; SPIRE auto-rotates certs after outages.
 * Describe the known failure modes.  
   - CNPG outages halt ingest; OTEL collector downtime buffers traces; missing secrets block pods; misconfigured SPIFFE IDs prevent KV connectivity.
 

@@ -22,7 +22,7 @@ type CNPGDatabase struct {
 type Metrics struct {
 	Enabled             bool  `json:"enabled"`
 	Retention           int32 `json:"retention"`
-	MaxPollers          int32 `json:"max_pollers"`
+	MaxGateways          int32 `json:"max_gateways"`
 	DeviceRetentionDays int32 `json:"device_retention_days,omitempty"` // Days to keep devices in ocsf_devices (default: 3)
 }
 

@@ -1,0 +1,16 @@
+{{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceradar-nats-creds
+type: Opaque
+stringData:
+{{- if .Values.natsCreds.platform }}
+  platform.creds: |-
+{{ .Values.natsCreds.platform | nindent 4 }}
+{{- end }}
+{{- if .Values.natsCreds.system }}
+  system.creds: |-
+{{ .Values.natsCreds.system | nindent 4 }}
+{{- end }}
+{{- end }}

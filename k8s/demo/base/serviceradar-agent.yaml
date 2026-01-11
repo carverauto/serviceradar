@@ -32,7 +32,6 @@ spec:
           cp /config/snmp-checker.json /etc/serviceradar/checkers/snmp-checker.json &&
           cp /config/external.json /etc/serviceradar/checkers/external.json &&
           cp /config/sweep.json /etc/serviceradar/checkers/sweep/sweep.json &&
-          cp /config/sync-checker.json /etc/serviceradar/checkers/sync-checker.json &&
           cp /config/rperf-checker.json /etc/serviceradar/checkers/rperf-checker.json &&
           cp /config/mapper-checker.json /etc/serviceradar/checkers/mapper-checker.json &&
           cp /config/zen-checker.json /etc/serviceradar/checkers/zen-checker.json &&

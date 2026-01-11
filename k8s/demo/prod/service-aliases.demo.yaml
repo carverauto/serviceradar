@@ -38,14 +38,6 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: sync
-  namespace: demo
-spec:
-  type: ExternalName
-  externalName: serviceradar-sync.demo.svc.cluster.local
-apiVersion: v1
-kind: Service
-metadata:
   name: mapper
   namespace: demo
 spec:

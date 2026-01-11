@@ -4,6 +4,10 @@
 cmd/logos/.venv
 cmd/otel/target
 _build
+elixir/datasvc/deps
+elixir/serviceradar_core/deps
+elixir/serviceradar_core_elx/deps
+elixir/serviceradar_poller/deps
 node_modules
 dist
 target

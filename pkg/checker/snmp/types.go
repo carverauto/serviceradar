@@ -18,6 +18,7 @@
 package snmp
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -147,6 +148,8 @@ type SNMPService struct {
 	config            *SNMPConfig
 	mu                sync.RWMutex
 	done              chan struct{}
+	serviceCtx        context.Context
+	cancel            context.CancelFunc
 	collectorFactory  CollectorFactory
 	aggregatorFactory AggregatorFactory
 	status            map[string]TargetStatus

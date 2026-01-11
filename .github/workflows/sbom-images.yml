@@ -44,8 +44,6 @@ jobs:
             repo: ghcr.io/carverauto/serviceradar-trapd
           - name: serviceradar-otel
             repo: ghcr.io/carverauto/serviceradar-otel
-          - name: serviceradar-web
-            repo: ghcr.io/carverauto/serviceradar-web
           - name: serviceradar-srql
             repo: ghcr.io/carverauto/serviceradar-srql
           - name: serviceradar-db-event-writer
@@ -153,5 +151,5 @@ jobs:
           echo "  --type spdx \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-identity-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
           echo "  --certificate-oidc-issuer-regexp='.*' \\" >> $GITHUB_STEP_SUMMARY
-          echo "  ghcr.io/carverauto/serviceradar-core:latest" >> $GITHUB_STEP_SUMMARY
+          echo "  ghcr.io/carverauto/serviceradar-core-elx:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

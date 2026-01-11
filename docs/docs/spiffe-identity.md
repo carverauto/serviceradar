@@ -96,7 +96,7 @@ runtime expectations:
 3. **RBAC checks** – Datasvc and other control-plane services inspect the
    SPIFFE URI from client certificates (SAN URI) instead of legacy CN values.
 
-As of this change, `serviceradar-core`, `serviceradar-poller`, `serviceradar-
+As of this change, `serviceradar-core`, `serviceradar-agent-gateway`, `serviceradar-
 datasvc`, and the `serviceradar-agent` chart/manifests ship in SPIFFE mode.
 Mapper/sync/checkers are queued for migration.
 
@@ -114,6 +114,58 @@ Mapper/sync/checkers are queued for migration.
   metal), we plan to expose a `serviceradar-cli` bootstrap path that programs
   entries directly through the SPIRE API. Until then the controller remains the
   authoritative path on Kubernetes.
+
+## Certificate Rotation and Expiry Monitoring
+
+- **SPIRE rotations**: SVIDs rotate automatically via the Workload API. No
+  manual renewal steps are required on Kubernetes.
+- **Static certs**: For non-SPIRE deployments (for example local dev with
+  static TLS assets), regenerate certificates and restart the BEAM nodes so
+  `ssl_dist.conf` and the SVID files reload.
+- **Expiry monitor**: `ServiceRadar.SPIFFE.CertMonitor` logs warnings and
+  emits telemetry when certificates approach expiration.
+
+Environment variables for the expiry monitor:
+
+```bash
+SPIFFE_CERT_MONITOR_ENABLED=true
+SPIFFE_CERT_MONITOR_INTERVAL_SECONDS=600
+SPIFFE_CERT_WARN_SECONDS=86400
+SPIFFE_CERT_CRITICAL_SECONDS=21600
+```
+
+Telemetry emitted:
+
+- Event: `[:serviceradar, :spiffe, :cert_expiry]`
+- Measurements: `seconds_remaining`, `days_remaining`
+- Metadata: `status` (`ok`, `warning`, `critical`, `expired`), `expires_at`
+
+## Validating mTLS ERTS Cluster Formation (Staging)
+
+1. **Confirm TLS distribution is enabled** for each BEAM node.
+   - Web/core: `CLUSTER_TLS_ENABLED=true` and `SSL_DIST_OPTFILE` set.
+   - Gateway/agent releases: `ENABLE_TLS_DIST=true` and `ssl_dist.conf` present.
+2. **Verify node connectivity** from the core/web node:
+
+```bash
+bin/serviceradar_web_ng rpc "Node.list()"
+```
+
+3. **Validate registry sync** (gateways and agents visible across nodes):
+
+```bash
+bin/serviceradar_web_ng rpc "ServiceRadar.GatewayRegistry.count()"
+bin/serviceradar_web_ng rpc "ServiceRadar.AgentRegistry.count()"
+```
+
+4. **Check cluster health telemetry**:
+
+```bash
+bin/serviceradar_web_ng rpc "ServiceRadar.ClusterHealth.health_check_response()"
+```
+
+If any call fails, confirm the cookies, SPIFFE IDs, and `ssl_dist.conf` paths
+match across nodes, then re-check node visibility.
 
 ## Next Steps
 

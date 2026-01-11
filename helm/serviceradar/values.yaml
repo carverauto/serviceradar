@@ -9,6 +9,31 @@ global:
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
 
+# Per-tenant configuration for multi-tenant deployments
+# Each tenant can have its own intermediate CA for edge component certificates
+tenants: {}
+  # Example tenant configuration:
+  # acme-corp:
+  #   ca:
+  #     # Option 1: Inline CA certificate and key (for dev/simple deployments)
+  #     certificate: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ...
+  #       -----END CERTIFICATE-----
+  #     privateKey: |
+  #       -----BEGIN RSA PRIVATE KEY-----
+  #       ...
+  #       -----END RSA PRIVATE KEY-----
+  #     chain: |
+  #       -----BEGIN CERTIFICATE-----
+  #       ... (tenant CA + root CA)
+  #       -----END CERTIFICATE-----
+  #
+  #     # Option 2: Reference an ExternalSecret (for production with Vault/AWS Secrets Manager)
+  #     # externalSecretRef:
+  #     #   name: tenant-acme-corp-ca-external
+  #     #   refreshInterval: 1h
+
 image:
   registryPullSecret: ghcr-io-cred
   tags:
@@ -20,7 +45,6 @@ image:
     nats: "2.12.2-alpine"
     datasvc: *appTag
     agent: *appTag
-    poller: *appTag
     snmpChecker: *appTag
     dbEventWriter: *appTag
     otel: *appTag
@@ -28,7 +52,6 @@ image:
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
-    sync: *appTag
     rperfClient: *appTag
     faker: *appTag
     rperfChecker: *appTag
@@ -43,12 +66,27 @@ kv:
   serverSPIFFEID: ""
   workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
+natsCreds:
+  # Inline NATS .creds files for platform/system accounts.
+  # When set, these are stored in the serviceradar-nats-creds Secret.
+  platform: ""
+  system: ""
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  database:
+    poolSize: 40
+    queueTargetMs: 2000
+    queueIntervalMs: 2000
+  syncIngestor:
+    batchConcurrency: 2
+    coalesceMs: 250
+    maxInflight: 2
+    queueMaxChunks: 10
+    async: true
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -114,6 +152,9 @@ cnpg:
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
+  clientCASecret: ""
+  clientCAFromCerts: false
+  requireClientCert: false
 webNg:
   host: ""
   checkOrigin: "false"
@@ -173,13 +214,11 @@ spire:
   clusterName: carverauto-cluster
   agentServiceAccount: spire-agent
   coreServiceAccount: serviceradar-core
-  pollerServiceAccount: serviceradar-poller
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
   joinTokenTTL: 15m
   otelServiceAccount: serviceradar-otel
-  syncServiceAccount: serviceradar-sync
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
   dbEventWriterServiceAccount: serviceradar-db-event-writer
@@ -187,43 +226,6 @@ spire:
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd
-  nestedPoller:
-    enabled: false
-    name: poller-nested-spire
-    containerName: poller-nested-spire
-    podLabelKey: app
-    podLabelValue: serviceradar-poller
-    spiffeID: ""
-    x509TTL: 4h
-    jwtTTL: 30m
-    admin: true
-    storeSVID: true
-    joinTokenMode: disabled
-    serverPort: 8083
-    upstreamServerAddress: ""
-    upstreamServerPort: 8081
-    upstreamAgentSocketPath: /run/spire/nested/upstream/agent.sock
-    downstreamAgentSocketPath: /run/spire/nested/workload/agent.sock
-    upstreamAgentDataDir: /run/spire/nested/upstream-agent
-    downstreamAgentDataDir: /run/spire/nested/downstream-agent
-    serverDataDir: /run/spire/nested/server
-    logLevel: INFO
-    extraSelectors: []
-    downstreamX509TTLSeconds: 14400
-    downstreamJWTTTLSeconds: 1800
-    downstreamWaitSeconds: 5
-    downstreamRefreshSeconds: 300
-    downstreamRegistrationMode: disabled
-    downstreamRetrySeconds: 5
-    adminUsername: admin
-    adminSecret: serviceradar-secrets
-    adminSecretKey: admin-password
-    joinToken:
-      enabled: true
-      ttlSeconds: 900
-      coreURL: http://serviceradar-core:8090
-      apiKeySecret: serviceradar-secrets
-      apiKeyKey: api-key
   bundleConfigMap: spire-bundle
   server:
     image: ghcr.io/spiffe/spire-server:1.11.2
@@ -301,6 +303,8 @@ secrets:
   adminBcryptHash: ""
   # Base64-encoded 32-byte key for edge onboarding; used by core and seeded into config.
   edgeOnboardingKey: "5yV33bvFfRKBz5y20XPVnxyysYhXc/LXdG4jtrvrkN0="
+  # Base64-encoded 32-byte key for AshCloak (optional override).
+  cloakKey: ""
 # Network sweep defaults (can be tuned per-deploy)
 sweep:
   # Target networks and ports to scan
@@ -350,3 +354,11 @@ sweep:
       rateLimit: 1000
       timeout: 5s
       maxBatch: 64
+
+# =============================================================================
+# SPIFFE Configuration (shared by all Elixir components)
+# =============================================================================
+
+spiffe:
+  mode: "filesystem"
+  trustDomain: "serviceradar.local"

@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNG.ApiDeviceControllerPropertyTest do
       "page" => SRQLGenerators.untrusted_param_value(),
       "search" => SRQLGenerators.untrusted_param_value(),
       "status" => SRQLGenerators.untrusted_param_value(),
-      "poller_id" => SRQLGenerators.untrusted_param_value(),
+      "gateway_id" => SRQLGenerators.untrusted_param_value(),
       "device_type" => SRQLGenerators.untrusted_param_value()
     })
   end

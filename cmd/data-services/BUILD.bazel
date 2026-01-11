@@ -13,6 +13,7 @@ go_library(
         "//alias:lifecycle",
         "//alias:models",
         "//alias:config-bootstrap",
+        "//alias:nats-accounts",
         "//proto",
         "@org_golang_google_grpc//:grpc",
     ],

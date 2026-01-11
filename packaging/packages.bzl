@@ -1,48 +1,6 @@
 """Component packaging metadata."""
 
 PACKAGES = {
-    "core": {
-        "package_name": "serviceradar-core",
-        "description": "ServiceRadar Core API service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "jq"],
-        "rpm_requires": ["systemd", "jq"],
-        "binary": {
-            "target": "//cmd/core:core",
-            "dest": "/usr/local/bin/serviceradar-core",
-        },
-        "files": [
-            {
-                "src": "config/core.json",
-                "dest": "/etc/serviceradar/core.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "config/api.env",
-                "dest": "/etc/serviceradar/api.env",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-                "allow_empty": True,
-            },
-        ],
-        "directories": [
-            {"path": "/var/lib/serviceradar", "mode": "0755"},
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-core.service",
-            "dest": "/lib/systemd/system/serviceradar-core.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/core.json",
-            "/etc/serviceradar/api.env",
-        ],
-    },
     "web-ng": {
         "package_name": "serviceradar-web-ng",
         "description": "ServiceRadar Phoenix web UI (web-ng)",
@@ -115,38 +73,6 @@ PACKAGES = {
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },
-    "poller": {
-        "package_name": "serviceradar-poller",
-        "description": "ServiceRadar Poller Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/poller:poller",
-            "dest": "/usr/local/bin/serviceradar-poller",
-        },
-        "files": [
-            {
-                "src": "config/poller.json",
-                "dest": "/etc/serviceradar/poller.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-                "allow_empty": True,
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-poller.service",
-            "dest": "/lib/systemd/system/serviceradar-poller.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/poller.json",
-        ],
-    },
     "mapper": {
         "package_name": "serviceradar-mapper",
         "description": "ServiceRadar Mapper Service",
@@ -208,37 +134,6 @@ PACKAGES = {
         "prerm": "scripts/preremove.sh",
         "conffiles": [
             "/etc/serviceradar/datasvc.json",
-        ],
-    },
-    "sync": {
-        "package_name": "serviceradar-sync",
-        "description": "ServiceRadar Sync Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/sync:sync",
-            "dest": "/usr/local/bin/serviceradar-sync",
-        },
-        "files": [
-            {
-                "src": "config/sync.json",
-                "dest": "/etc/serviceradar/sync.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-sync.service",
-            "dest": "/lib/systemd/system/serviceradar-sync.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/sync.json",
         ],
     },
     "event-writer": {

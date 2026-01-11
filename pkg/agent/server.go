@@ -149,7 +149,6 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 		checkerConfs:    make(map[string]*CheckerConfig),
 		configDir:       configDir,
 		services:        make([]Service, 0),
-		listenAddr:      cfg.ListenAddr,
 		registry:        initRegistry(log),
 		errChan:         make(chan error, defaultErrChansize),
 		done:            make(chan struct{}),
@@ -342,7 +341,7 @@ func createSweepService(
 		Concurrency:   sweepConfig.Concurrency,
 		Timeout:       time.Duration(sweepConfig.Timeout),
 		AgentID:       cfg.AgentID,
-		PollerID:      cfg.AgentID, // Use AgentID as PollerID for now
+		GatewayID:      cfg.AgentID, // Use AgentID as GatewayID for now
 		Partition:     cfg.Partition,
 	}
 
@@ -882,11 +881,6 @@ func (s *Server) RestartServices(ctx context.Context) {
 	}
 }
 
-// ListenAddr returns the server's listening address.
-func (s *Server) ListenAddr() string {
-	return s.config.ListenAddr
-}
-
 // SecurityConfig returns the server's security configuration.
 func (s *Server) SecurityConfig() *models.SecurityConfig {
 	return s.config.Security
@@ -1037,14 +1031,14 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 
 // GetStatus handles status requests for various service types.
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	// Ensure AgentId and PollerId are set
+	// Ensure AgentId and GatewayId are set
 	if req.AgentId == "" {
 		req.AgentId = s.config.AgentID
 	}
 
-	if req.PollerId == "" {
-		s.logger.Warn().Interface("request", req).Msg("PollerId is empty in request")
-		req.PollerId = "unknown-poller" // Fallback to avoid empty
+	if req.GatewayId == "" {
+		s.logger.Warn().Interface("request", req).Msg("GatewayId is empty in request")
+		req.GatewayId = "unknown-gateway" // Fallback to avoid empty
 	}
 
 	var response *proto.StatusResponse
@@ -1063,8 +1057,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Include AgentID in the response
 	if response != nil {
 		response.AgentId = s.config.AgentID
-		if response.PollerId == "" {
-			response.PollerId = req.PollerId
+		if response.GatewayId == "" {
+			response.GatewayId = req.GatewayId
 		}
 
 		response.Available = true
@@ -1105,7 +1099,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     req.AgentId,
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 		Details:     req.Details,
 	}
 
@@ -1122,7 +1116,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 			ServiceName: req.ServiceName,
 			ServiceType: req.ServiceType,
 			AgentId:     s.config.AgentID,
-			PollerId:    req.PollerId,
+			GatewayId:    req.GatewayId,
 			Timestamp:   time.Now().Unix(),
 		}, nil
 	}
@@ -1143,7 +1137,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 				ServiceName: req.ServiceName,
 				ServiceType: req.ServiceType,
 				AgentId:     s.config.AgentID,
-				PollerId:    req.PollerId,
+				GatewayId:    req.GatewayId,
 				Timestamp:   time.Now().Unix(),
 			}, nil
 		}
@@ -1161,7 +1155,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 				ServiceName: req.ServiceName,
 				ServiceType: req.ServiceType,
 				AgentId:     s.config.AgentID,
-				PollerId:    req.PollerId,
+				GatewayId:    req.GatewayId,
 				Timestamp:   time.Now().Unix(),
 			}, nil
 		}
@@ -1208,7 +1202,7 @@ func (s *Server) handleGrpcStreamResults(req *proto.ResultsRequest, stream proto
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     req.AgentId,
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 		Details:     req.Details,
 	}
 
@@ -1388,9 +1382,9 @@ func (s *Server) handleSweepStreamResults(req *proto.ResultsRequest, stream prot
 		return status.Errorf(codes.Internal, "Failed to get sweep results: %v", err)
 	}
 
-	// Set AgentId and PollerId from the request
+	// Set AgentId and GatewayId from the request
 	response.AgentId = s.config.AgentID
-	response.PollerId = req.PollerId
+	response.GatewayId = req.GatewayId
 
 	// If no new data, send empty final chunk
 	if !response.HasNewData || len(response.Data) == 0 {
@@ -1451,14 +1445,14 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 				ServiceName: req.ServiceName,
 				ServiceType: req.ServiceType,
 				AgentId:     s.config.AgentID,
-				PollerId:    req.PollerId,
+				GatewayId:    req.GatewayId,
 				Timestamp:   time.Now().Unix(),
 			}, nil
 		}
 
-		// Set AgentId and PollerId from the request
+		// Set AgentId and GatewayId from the request
 		response.AgentId = s.config.AgentID
-		response.PollerId = req.PollerId
+		response.GatewayId = req.GatewayId
 
 		return response, nil
 	}
@@ -1471,7 +1465,7 @@ func (s *Server) handleSweepGetResults(ctx context.Context, req *proto.ResultsRe
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     s.config.AgentID,
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 		Timestamp:   time.Now().Unix(),
 	}, nil
 }
@@ -1578,7 +1572,7 @@ func (s *Server) handleDefaultChecker(
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     req.AgentId,
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 	}, nil
 }
 

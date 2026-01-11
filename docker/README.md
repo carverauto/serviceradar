@@ -58,7 +58,7 @@ This directory contains Docker configurations for ServiceRadar components.
 
 ServiceRadar provides pre-built multi-architecture (amd64/arm64) container images:
 
-- **Core Service**: `ghcr.io/carverauto/serviceradar-core:latest`
+- **Core Service (Elixir)**: `ghcr.io/carverauto/serviceradar-core-elx:latest`
 - **Certificate Generator**: `ghcr.io/carverauto/serviceradar-cert-generator:latest`
 
 Images are automatically built and published via GitHub Actions on every push to main/develop branches and tagged releases.
@@ -74,7 +74,7 @@ Images are automatically built and published via GitHub Actions on every push to
 
 The Docker setup consists of:
 
-- **ServiceRadar Core**: Main service handling API, gRPC, and business logic
+- **ServiceRadar Core (Elixir)**: Central Elixir service handling device registry, alerts, and business logic
 - **Optional Services**:
   - NATS: Messaging system (profile: full)
 
@@ -95,9 +95,10 @@ All inter-service communication uses mTLS for authentication and encryption:
 
 ## Configuration
 
-ServiceRadar uses configuration files from `packaging/core/config/`:
-- `core.docker.json` - Main configuration (Docker-specific with correct CNPG connection)
-- `api.env` - Environment variables for authentication and API settings
+ServiceRadar core-elx uses environment-based configuration. See `docker-compose.elx.yml` for available options:
+- Database configuration via `CNPG_*` environment variables
+- Feature flags via `SERVICERADAR_CORE_*` environment variables
+- Cluster configuration via `CLUSTER_*` environment variables
 
 ### Default Setup
 

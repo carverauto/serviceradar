@@ -21,7 +21,6 @@ import (
 type MockAgentServiceClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentServiceClientMockRecorder
-	isgomock struct{}
 }
 
 // MockAgentServiceClientMockRecorder is the mock recorder for MockAgentServiceClient.
@@ -105,7 +104,6 @@ func (mr *MockAgentServiceClientMockRecorder) StreamResults(ctx, in any, opts ..
 type MockAgentServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentServiceServerMockRecorder
-	isgomock struct{}
 }
 
 // MockAgentServiceServerMockRecorder is the mock recorder for MockAgentServiceServer.
@@ -185,7 +183,6 @@ func (mr *MockAgentServiceServerMockRecorder) mustEmbedUnimplementedAgentService
 type MockUnsafeAgentServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeAgentServiceServerMockRecorder
-	isgomock struct{}
 }
 
 // MockUnsafeAgentServiceServerMockRecorder is the mock recorder for MockUnsafeAgentServiceServer.
@@ -217,111 +214,179 @@ func (mr *MockUnsafeAgentServiceServerMockRecorder) mustEmbedUnimplementedAgentS
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedAgentServiceServer", reflect.TypeOf((*MockUnsafeAgentServiceServer)(nil).mustEmbedUnimplementedAgentServiceServer))
 }
 
-// MockPollerServiceClient is a mock of PollerServiceClient interface.
-type MockPollerServiceClient struct {
+// MockAgentGatewayServiceClient is a mock of AgentGatewayServiceClient interface.
+type MockAgentGatewayServiceClient struct {
 	ctrl     *gomock.Controller
-	recorder *MockPollerServiceClientMockRecorder
-	isgomock struct{}
+	recorder *MockAgentGatewayServiceClientMockRecorder
 }
 
-// MockPollerServiceClientMockRecorder is the mock recorder for MockPollerServiceClient.
-type MockPollerServiceClientMockRecorder struct {
-	mock *MockPollerServiceClient
+// MockAgentGatewayServiceClientMockRecorder is the mock recorder for MockAgentGatewayServiceClient.
+type MockAgentGatewayServiceClientMockRecorder struct {
+	mock *MockAgentGatewayServiceClient
 }
 
-// NewMockPollerServiceClient creates a new mock instance.
-func NewMockPollerServiceClient(ctrl *gomock.Controller) *MockPollerServiceClient {
-	mock := &MockPollerServiceClient{ctrl: ctrl}
-	mock.recorder = &MockPollerServiceClientMockRecorder{mock}
+// NewMockAgentGatewayServiceClient creates a new mock instance.
+func NewMockAgentGatewayServiceClient(ctrl *gomock.Controller) *MockAgentGatewayServiceClient {
+	mock := &MockAgentGatewayServiceClient{ctrl: ctrl}
+	mock.recorder = &MockAgentGatewayServiceClientMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPollerServiceClient) EXPECT() *MockPollerServiceClientMockRecorder {
+func (m *MockAgentGatewayServiceClient) EXPECT() *MockAgentGatewayServiceClientMockRecorder {
 	return m.recorder
 }
 
-// ReportStatus mocks base method.
-func (m *MockPollerServiceClient) ReportStatus(ctx context.Context, in *PollerStatusRequest, opts ...grpc.CallOption) (*PollerStatusResponse, error) {
+// GetConfig mocks base method.
+func (m *MockAgentGatewayServiceClient) GetConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (*AgentConfigResponse, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, in}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "ReportStatus", varargs...)
-	ret0, _ := ret[0].(*PollerStatusResponse)
+	ret := m.ctrl.Call(m, "GetConfig", varargs...)
+	ret0, _ := ret[0].(*AgentConfigResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ReportStatus indicates an expected call of ReportStatus.
-func (mr *MockPollerServiceClientMockRecorder) ReportStatus(ctx, in any, opts ...any) *gomock.Call {
+// GetConfig indicates an expected call of GetConfig.
+func (mr *MockAgentGatewayServiceClientMockRecorder) GetConfig(ctx, in any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReportStatus", reflect.TypeOf((*MockPollerServiceClient)(nil).ReportStatus), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).GetConfig), varargs...)
+}
+
+// Hello mocks base method.
+func (m *MockAgentGatewayServiceClient) Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Hello", varargs...)
+	ret0, _ := ret[0].(*AgentHelloResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Hello indicates an expected call of Hello.
+func (mr *MockAgentGatewayServiceClientMockRecorder) Hello(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Hello", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).Hello), varargs...)
+}
+
+// PushStatus mocks base method.
+func (m *MockAgentGatewayServiceClient) PushStatus(ctx context.Context, in *GatewayStatusRequest, opts ...grpc.CallOption) (*GatewayStatusResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PushStatus", varargs...)
+	ret0, _ := ret[0].(*GatewayStatusResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PushStatus indicates an expected call of PushStatus.
+func (mr *MockAgentGatewayServiceClientMockRecorder) PushStatus(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).PushStatus), varargs...)
 }
 
 // StreamStatus mocks base method.
-func (m *MockPollerServiceClient) StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse], error) {
+func (m *MockAgentGatewayServiceClient) StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "StreamStatus", varargs...)
-	ret0, _ := ret[0].(grpc.ClientStreamingClient[PollerStatusChunk, PollerStatusResponse])
+	ret0, _ := ret[0].(grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse])
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // StreamStatus indicates an expected call of StreamStatus.
-func (mr *MockPollerServiceClientMockRecorder) StreamStatus(ctx any, opts ...any) *gomock.Call {
+func (mr *MockAgentGatewayServiceClientMockRecorder) StreamStatus(ctx any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamStatus", reflect.TypeOf((*MockPollerServiceClient)(nil).StreamStatus), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).StreamStatus), varargs...)
 }
 
-// MockPollerServiceServer is a mock of PollerServiceServer interface.
-type MockPollerServiceServer struct {
+// MockAgentGatewayServiceServer is a mock of AgentGatewayServiceServer interface.
+type MockAgentGatewayServiceServer struct {
 	ctrl     *gomock.Controller
-	recorder *MockPollerServiceServerMockRecorder
-	isgomock struct{}
+	recorder *MockAgentGatewayServiceServerMockRecorder
 }
 
-// MockPollerServiceServerMockRecorder is the mock recorder for MockPollerServiceServer.
-type MockPollerServiceServerMockRecorder struct {
-	mock *MockPollerServiceServer
+// MockAgentGatewayServiceServerMockRecorder is the mock recorder for MockAgentGatewayServiceServer.
+type MockAgentGatewayServiceServerMockRecorder struct {
+	mock *MockAgentGatewayServiceServer
 }
 
-// NewMockPollerServiceServer creates a new mock instance.
-func NewMockPollerServiceServer(ctrl *gomock.Controller) *MockPollerServiceServer {
-	mock := &MockPollerServiceServer{ctrl: ctrl}
-	mock.recorder = &MockPollerServiceServerMockRecorder{mock}
+// NewMockAgentGatewayServiceServer creates a new mock instance.
+func NewMockAgentGatewayServiceServer(ctrl *gomock.Controller) *MockAgentGatewayServiceServer {
+	mock := &MockAgentGatewayServiceServer{ctrl: ctrl}
+	mock.recorder = &MockAgentGatewayServiceServerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockPollerServiceServer) EXPECT() *MockPollerServiceServerMockRecorder {
+func (m *MockAgentGatewayServiceServer) EXPECT() *MockAgentGatewayServiceServerMockRecorder {
 	return m.recorder
 }
 
-// ReportStatus mocks base method.
-func (m *MockPollerServiceServer) ReportStatus(arg0 context.Context, arg1 *PollerStatusRequest) (*PollerStatusResponse, error) {
+// GetConfig mocks base method.
+func (m *MockAgentGatewayServiceServer) GetConfig(arg0 context.Context, arg1 *AgentConfigRequest) (*AgentConfigResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReportStatus", arg0, arg1)
-	ret0, _ := ret[0].(*PollerStatusResponse)
+	ret := m.ctrl.Call(m, "GetConfig", arg0, arg1)
+	ret0, _ := ret[0].(*AgentConfigResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ReportStatus indicates an expected call of ReportStatus.
-func (mr *MockPollerServiceServerMockRecorder) ReportStatus(arg0, arg1 any) *gomock.Call {
+// GetConfig indicates an expected call of GetConfig.
+func (mr *MockAgentGatewayServiceServerMockRecorder) GetConfig(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReportStatus", reflect.TypeOf((*MockPollerServiceServer)(nil).ReportStatus), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).GetConfig), arg0, arg1)
+}
+
+// Hello mocks base method.
+func (m *MockAgentGatewayServiceServer) Hello(arg0 context.Context, arg1 *AgentHelloRequest) (*AgentHelloResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Hello", arg0, arg1)
+	ret0, _ := ret[0].(*AgentHelloResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Hello indicates an expected call of Hello.
+func (mr *MockAgentGatewayServiceServerMockRecorder) Hello(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Hello", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).Hello), arg0, arg1)
+}
+
+// PushStatus mocks base method.
+func (m *MockAgentGatewayServiceServer) PushStatus(arg0 context.Context, arg1 *GatewayStatusRequest) (*GatewayStatusResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PushStatus", arg0, arg1)
+	ret0, _ := ret[0].(*GatewayStatusResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PushStatus indicates an expected call of PushStatus.
+func (mr *MockAgentGatewayServiceServerMockRecorder) PushStatus(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).PushStatus), arg0, arg1)
 }
 
 // StreamStatus mocks base method.
-func (m *MockPollerServiceServer) StreamStatus(arg0 grpc.ClientStreamingServer[PollerStatusChunk, PollerStatusResponse]) error {
+func (m *MockAgentGatewayServiceServer) StreamStatus(arg0 grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamStatus", arg0)
 	ret0, _ := ret[0].(error)
@@ -329,55 +394,54 @@ func (m *MockPollerServiceServer) StreamStatus(arg0 grpc.ClientStreamingServer[P
 }
 
 // StreamStatus indicates an expected call of StreamStatus.
-func (mr *MockPollerServiceServerMockRecorder) StreamStatus(arg0 any) *gomock.Call {
+func (mr *MockAgentGatewayServiceServerMockRecorder) StreamStatus(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamStatus", reflect.TypeOf((*MockPollerServiceServer)(nil).StreamStatus), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).StreamStatus), arg0)
 }
 
-// mustEmbedUnimplementedPollerServiceServer mocks base method.
-func (m *MockPollerServiceServer) mustEmbedUnimplementedPollerServiceServer() {
+// mustEmbedUnimplementedAgentGatewayServiceServer mocks base method.
+func (m *MockAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "mustEmbedUnimplementedPollerServiceServer")
+	m.ctrl.Call(m, "mustEmbedUnimplementedAgentGatewayServiceServer")
 }
 
-// mustEmbedUnimplementedPollerServiceServer indicates an expected call of mustEmbedUnimplementedPollerServiceServer.
-func (mr *MockPollerServiceServerMockRecorder) mustEmbedUnimplementedPollerServiceServer() *gomock.Call {
+// mustEmbedUnimplementedAgentGatewayServiceServer indicates an expected call of mustEmbedUnimplementedAgentGatewayServiceServer.
+func (mr *MockAgentGatewayServiceServerMockRecorder) mustEmbedUnimplementedAgentGatewayServiceServer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedPollerServiceServer", reflect.TypeOf((*MockPollerServiceServer)(nil).mustEmbedUnimplementedPollerServiceServer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedAgentGatewayServiceServer", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).mustEmbedUnimplementedAgentGatewayServiceServer))
 }
 
-// MockUnsafePollerServiceServer is a mock of UnsafePollerServiceServer interface.
-type MockUnsafePollerServiceServer struct {
+// MockUnsafeAgentGatewayServiceServer is a mock of UnsafeAgentGatewayServiceServer interface.
+type MockUnsafeAgentGatewayServiceServer struct {
 	ctrl     *gomock.Controller
-	recorder *MockUnsafePollerServiceServerMockRecorder
-	isgomock struct{}
+	recorder *MockUnsafeAgentGatewayServiceServerMockRecorder
 }
 
-// MockUnsafePollerServiceServerMockRecorder is the mock recorder for MockUnsafePollerServiceServer.
-type MockUnsafePollerServiceServerMockRecorder struct {
-	mock *MockUnsafePollerServiceServer
+// MockUnsafeAgentGatewayServiceServerMockRecorder is the mock recorder for MockUnsafeAgentGatewayServiceServer.
+type MockUnsafeAgentGatewayServiceServerMockRecorder struct {
+	mock *MockUnsafeAgentGatewayServiceServer
 }
 
-// NewMockUnsafePollerServiceServer creates a new mock instance.
-func NewMockUnsafePollerServiceServer(ctrl *gomock.Controller) *MockUnsafePollerServiceServer {
-	mock := &MockUnsafePollerServiceServer{ctrl: ctrl}
-	mock.recorder = &MockUnsafePollerServiceServerMockRecorder{mock}
+// NewMockUnsafeAgentGatewayServiceServer creates a new mock instance.
+func NewMockUnsafeAgentGatewayServiceServer(ctrl *gomock.Controller) *MockUnsafeAgentGatewayServiceServer {
+	mock := &MockUnsafeAgentGatewayServiceServer{ctrl: ctrl}
+	mock.recorder = &MockUnsafeAgentGatewayServiceServerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockUnsafePollerServiceServer) EXPECT() *MockUnsafePollerServiceServerMockRecorder {
+func (m *MockUnsafeAgentGatewayServiceServer) EXPECT() *MockUnsafeAgentGatewayServiceServerMockRecorder {
 	return m.recorder
 }
 
-// mustEmbedUnimplementedPollerServiceServer mocks base method.
-func (m *MockUnsafePollerServiceServer) mustEmbedUnimplementedPollerServiceServer() {
+// mustEmbedUnimplementedAgentGatewayServiceServer mocks base method.
+func (m *MockUnsafeAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "mustEmbedUnimplementedPollerServiceServer")
+	m.ctrl.Call(m, "mustEmbedUnimplementedAgentGatewayServiceServer")
 }
 
-// mustEmbedUnimplementedPollerServiceServer indicates an expected call of mustEmbedUnimplementedPollerServiceServer.
-func (mr *MockUnsafePollerServiceServerMockRecorder) mustEmbedUnimplementedPollerServiceServer() *gomock.Call {
+// mustEmbedUnimplementedAgentGatewayServiceServer indicates an expected call of mustEmbedUnimplementedAgentGatewayServiceServer.
+func (mr *MockUnsafeAgentGatewayServiceServerMockRecorder) mustEmbedUnimplementedAgentGatewayServiceServer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedPollerServiceServer", reflect.TypeOf((*MockUnsafePollerServiceServer)(nil).mustEmbedUnimplementedPollerServiceServer))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "mustEmbedUnimplementedAgentGatewayServiceServer", reflect.TypeOf((*MockUnsafeAgentGatewayServiceServer)(nil).mustEmbedUnimplementedAgentGatewayServiceServer))
 }

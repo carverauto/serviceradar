@@ -6,7 +6,7 @@ use crate::{
     schema::cpu_metrics::dsl::{
         agent_id as col_agent_id, cluster as col_cluster, core_id as col_core_id, cpu_metrics,
         device_id as col_device_id, frequency_hz as col_frequency_hz, host_id as col_host_id,
-        label as col_label, partition as col_partition, poller_id as col_poller_id,
+        label as col_label, partition as col_partition, gateway_id as col_gateway_id,
         timestamp as col_timestamp, usage_percent as col_usage_percent,
     },
     time::TimeRange,
@@ -72,7 +72,7 @@ struct CpuStatsPayload {
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let payload = execute_stats(conn, plan, &spec).await?;
         return Ok(payload);
     }
@@ -91,7 +91,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
 
-    if let Some(spec) = parse_stats_spec(plan.stats.as_deref())? {
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         let sql = build_stats_query(plan, &spec)?;
         let params = sql.binds.into_iter().map(bind_param_from_stats).collect();
         return Ok((rewrite_placeholders(&sql.sql), params));
@@ -188,7 +188,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" | "cluster" | "label" => {
             collect_text_params(params, filter)
         }
         "core_id" => {
@@ -209,8 +209,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 
 fn apply_filter<'a>(mut query: CpuQuery<'a>, filter: &Filter) -> Result<CpuQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -304,9 +304,9 @@ fn apply_primary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQuer
             OrderDirection::Asc => query.order(col_usage_percent.asc()),
             OrderDirection::Desc => query.order(col_usage_percent.desc()),
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => query.order(col_device_id.asc()),
@@ -340,9 +340,9 @@ fn apply_secondary_order<'a>(query: CpuQuery<'a>, clause: &OrderClause) -> CpuQu
                 diesel::QueryDsl::then_order_by(query, col_usage_percent.desc())
             }
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_poller_id.asc()),
-            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_gateway_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_device_id.asc()),
@@ -444,7 +444,7 @@ fn build_stats_order_clause(plan: &QueryPlan, alias: &str) -> String {
 
 fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlBindValue>)>> {
     match filter.field.as_str() {
-        "poller_id" => Ok(Some(build_text_clause("poller_id", filter)?)),
+        "gateway_id" => Ok(Some(build_text_clause("gateway_id", filter)?)),
         "agent_id" => Ok(Some(build_text_clause("agent_id", filter)?)),
         "host_id" => Ok(Some(build_text_clause("host_id", filter)?)),
         "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
@@ -706,7 +706,7 @@ mod tests {
             r#"avg(usage_percent) as avg_cpu by device_id"#,
             "demo-partition",
         );
-        let spec = parse_stats_spec(plan.stats.as_deref()).unwrap().unwrap();
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw())).unwrap().unwrap();
         assert_eq!(spec.alias, "avg_cpu");
 
         let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");
@@ -738,7 +738,7 @@ mod tests {
             limit: 100,
             offset: 0,
             time_range: Some(TimeRange { start, end }),
-            stats: Some(stats.to_string()),
+            stats: Some(crate::parser::StatsSpec::from_raw(stats)),
             downsample: None,
             rollup_stats: None,
         }

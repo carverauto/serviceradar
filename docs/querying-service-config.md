@@ -7,7 +7,7 @@ With the JSON column type for the `config` field in the `services` stream, you c
 ```sql
 CREATE STREAM services (
     timestamp         DateTime64(3),
-    poller_id         string,
+    gateway_id         string,
     agent_id          string,
     service_name      string,
     service_type      string,
@@ -38,7 +38,7 @@ The `config` field contains safe metadata about service configuration:
 ```sql
 SELECT 
     service_name,
-    poller_id,
+    gateway_id,
     json_extract_string(config, 'kv_store_id') AS kv_store_id,
     json_extract_string(config, 'kv_enabled') AS kv_enabled
 FROM services
@@ -76,7 +76,7 @@ GROUP BY kv_enabled;
 ```sql
 SELECT 
     service_name,
-    poller_id,
+    gateway_id,
     json_extract_string(config, 'rbac_configured') AS rbac_configured,
     json_extract_string(config, 'tls_configured') AS tls_configured
 FROM services
@@ -105,7 +105,7 @@ LIMIT 100;
 SELECT 
     json_extract_string(config, 'kv_store_id') AS kv_store_id,
     count(DISTINCT service_name) AS unique_services,
-    count(DISTINCT poller_id) AS unique_pollers,
+    count(DISTINCT gateway_id) AS unique_gateways,
     count() AS total_records
 FROM services
 WHERE json_extract_string(config, 'kv_enabled') = 'true'
@@ -158,7 +158,7 @@ ORDER BY total_services DESC;
 ### 9. Find Configuration Drift
 
 ```sql
--- Find services with different KV stores across pollers
+-- Find services with different KV stores across gateways
 SELECT 
     service_name,
     count(DISTINCT json_extract_string(config, 'kv_store_id')) AS unique_kv_stores,
@@ -177,7 +177,7 @@ HAVING unique_kv_stores > 1;
 SELECT DISTINCT
     service_name,
     agent_id,
-    poller_id,
+    gateway_id,
     json_extract_string(config, 'kv_store_id') AS kv_store_id
 FROM services
 WHERE service_type = 'grpc'

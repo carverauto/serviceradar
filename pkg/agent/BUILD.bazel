@@ -13,6 +13,7 @@ go_library(
         "kv.go",
         "mapper_checker.go",
         "mock_agent.go",
+        "push_loop.go",
         "registry.go",
         "server.go",
         "snmp_checker.go",
@@ -23,6 +24,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/agentgateway",
         "//pkg/checker",
         "//pkg/checker/snmp",
         "//pkg/config",
@@ -32,6 +34,7 @@ go_library(
         "//pkg/logger",
         "//pkg/models",
         "//pkg/scan",
+        "//pkg/sync",
         "//pkg/sweeper",
         "//proto",
         "//proto/discovery",

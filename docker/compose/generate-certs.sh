@@ -18,14 +18,21 @@ set -e
 # Configuration
 CERT_DIR="${CERT_DIR:-./docker/compose/certs}"
 DAYS_VALID=3650
+TENANT_CA_DAYS_VALID=3650  # 10 years for tenant CAs
+COMPONENT_DAYS_VALID=365   # 1 year for edge component certs
 COUNTRY="US"
 STATE="CA"
 LOCALITY="San Francisco"
 ORGANIZATION="ServiceRadar"
 ORG_UNIT="Docker"
 
+# Default tenant for development (creates a "default" tenant CA)
+DEFAULT_TENANT_SLUG="${DEFAULT_TENANT_SLUG:-default}"
+DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-default}"
+
 # Create certificate directory
 mkdir -p "$CERT_DIR"
+mkdir -p "$CERT_DIR/tenants"
 
 # Create serviceradar user and group if they don't exist (skip in Alpine containers)
 if command -v groupadd >/dev/null 2>&1; then
@@ -58,11 +65,159 @@ else
     echo "Root CA already exists."
 fi
 
-# Function to generate certificate for a component
+# Function to generate a tenant intermediate CA
+# Usage: generate_tenant_ca <tenant_slug>
+generate_tenant_ca() {
+    local tenant_slug=$1
+    local tenant_ca_dir="$CERT_DIR/tenants/$tenant_slug"
+
+    mkdir -p "$tenant_ca_dir"
+
+    if [ -f "$tenant_ca_dir/ca.pem" ]; then
+        echo "Tenant CA for $tenant_slug already exists."
+        return
+    fi
+
+    echo "Generating tenant intermediate CA for $tenant_slug..."
+
+    local cn="tenant-${tenant_slug}.ca.serviceradar"
+
+    # Generate CA private key
+    openssl genrsa -out "$tenant_ca_dir/ca-key.pem" 4096
+
+    # Create CA config
+    cat > "$tenant_ca_dir/ca.conf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_ca
+prompt = no
+
+[req_distinguished_name]
+C = $COUNTRY
+ST = $STATE
+L = $LOCALITY
+O = $ORGANIZATION
+OU = Tenant-$tenant_slug
+CN = $cn
+
+[v3_ca]
+basicConstraints = critical, CA:TRUE, pathlen:0
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+EOF
+
+    # Generate CSR
+    openssl req -new -sha256 -key "$tenant_ca_dir/ca-key.pem" \
+        -out "$tenant_ca_dir/ca.csr" -config "$tenant_ca_dir/ca.conf"
+
+    # Sign with root CA (intermediate CA)
+    openssl x509 -req -in "$tenant_ca_dir/ca.csr" -CA "$CERT_DIR/root.pem" \
+        -CAkey "$CERT_DIR/root-key.pem" -CAcreateserial -out "$tenant_ca_dir/ca.pem" \
+        -days $TENANT_CA_DAYS_VALID -sha256 -extensions v3_ca -extfile "$tenant_ca_dir/ca.conf"
+
+    # Create CA chain (tenant CA + root CA)
+    cat "$tenant_ca_dir/ca.pem" "$CERT_DIR/root.pem" > "$tenant_ca_dir/ca-chain.pem"
+
+    # Clean up
+    rm "$tenant_ca_dir/ca.csr" "$tenant_ca_dir/ca.conf"
+
+    # Set permissions
+    chmod 644 "$tenant_ca_dir/ca.pem" "$tenant_ca_dir/ca-chain.pem"
+    chmod 600 "$tenant_ca_dir/ca-key.pem"
+
+    echo "Tenant CA for $tenant_slug generated: $tenant_ca_dir/ca.pem"
+}
+
+# Function to generate a tenant-scoped component certificate
+# Usage: generate_tenant_component_cert <tenant_slug> <component_id> <partition_id> [extra_san]
+# CN format: <component_id>.<partition_id>.<tenant_slug>.serviceradar
+generate_tenant_component_cert() {
+    local tenant_slug=$1
+    local component_id=$2
+    local partition_id=$3
+    local extra_san="${4:-}"
+
+    local tenant_ca_dir="$CERT_DIR/tenants/$tenant_slug"
+    local component_dir="$tenant_ca_dir/components"
+    local cert_name="${component_id}-${partition_id}"
+
+    # Ensure tenant CA exists
+    if [ ! -f "$tenant_ca_dir/ca.pem" ]; then
+        echo "Error: Tenant CA for $tenant_slug does not exist. Generate it first."
+        return 1
+    fi
+
+    mkdir -p "$component_dir"
+
+    if [ -f "$component_dir/$cert_name.pem" ]; then
+        echo "Component certificate $cert_name for $tenant_slug already exists."
+        return
+    fi
+
+    echo "Generating component certificate: $component_id.$partition_id.$tenant_slug.serviceradar"
+
+    local cn="${component_id}.${partition_id}.${tenant_slug}.serviceradar"
+    local spiffe_id="spiffe://serviceradar.local/${component_id}/${tenant_slug}/${partition_id}"
+
+    # Build SAN list
+    local san="DNS:$cn,DNS:${component_id}.serviceradar,DNS:localhost,IP:127.0.0.1,URI:$spiffe_id"
+    if [ -n "$extra_san" ]; then
+        san="${san},${extra_san}"
+    fi
+
+    # Generate private key
+    openssl genrsa -out "$component_dir/$cert_name-key.pem" 2048
+
+    # Create config
+    cat > "$component_dir/$cert_name.conf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = $COUNTRY
+ST = $STATE
+L = $LOCALITY
+O = $ORGANIZATION
+OU = Tenant-$tenant_slug
+CN = $cn
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = keyEncipherment, dataEncipherment, digitalSignature
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = $san
+EOF
+
+    # Generate CSR
+    openssl req -new -sha256 -key "$component_dir/$cert_name-key.pem" \
+        -out "$component_dir/$cert_name.csr" -config "$component_dir/$cert_name.conf"
+
+    # Sign with tenant CA
+    openssl x509 -req -in "$component_dir/$cert_name.csr" -CA "$tenant_ca_dir/ca.pem" \
+        -CAkey "$tenant_ca_dir/ca-key.pem" -CAcreateserial -out "$component_dir/$cert_name.pem" \
+        -days $COMPONENT_DAYS_VALID -sha256 -extensions v3_req -extfile "$component_dir/$cert_name.conf"
+
+    # Create full chain (component cert + tenant CA + root CA)
+    cat "$component_dir/$cert_name.pem" "$tenant_ca_dir/ca-chain.pem" > "$component_dir/$cert_name-chain.pem"
+
+    # Clean up
+    rm "$component_dir/$cert_name.csr" "$component_dir/$cert_name.conf"
+
+    # Set permissions
+    chmod 644 "$component_dir/$cert_name.pem" "$component_dir/$cert_name-chain.pem"
+    chmod 600 "$component_dir/$cert_name-key.pem"
+
+    echo "Component certificate generated: $component_dir/$cert_name.pem"
+}
+
+# Function to generate certificate for a component (platform services, signed by root CA)
 generate_cert() {
     local component=$1
     local cn=$2
     local san=$3
+    local required_dns=""
     
     if [ -f "$CERT_DIR/$component.pem" ]; then
         if [ "$component" = "cnpg" ] && [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
@@ -73,6 +228,18 @@ generate_cert() {
                     break
                 fi
             done
+        fi
+        if [ "$component" = "core" ]; then
+            required_dns="core-elx"
+        elif [ "$component" = "agent" ]; then
+            required_dns="agent-elx-t2"
+        fi
+
+        if [ -n "$required_dns" ]; then
+            if ! openssl x509 -in "$CERT_DIR/$component.pem" -noout -text | grep -q "DNS:${required_dns}"; then
+                echo "Certificate for $component missing SAN DNS:${required_dns}; regenerating..."
+                rm -f "$CERT_DIR/$component.pem" "$CERT_DIR/$component-key.pem"
+            fi
         fi
 
         if [ -f "$CERT_DIR/$component.pem" ]; then
@@ -141,21 +308,20 @@ EOF
 # Include comprehensive cross-service SAN entries for all inter-service communication
 
 # Core services that many others connect to - include common client service names
-generate_cert "core" "core.serviceradar" "DNS:core,DNS:core.serviceradar,DNS:serviceradar-core,DNS:poller.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
-generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:flowgger.serviceradar,DNS:otel.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
-generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:sync.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "sync" "sync.serviceradar" "DNS:sync,DNS:sync.serviceradar,DNS:serviceradar-sync,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
-generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:zen.serviceradar,DNS:serviceradar-zen,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper,DNS:agent.serviceradar,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that are clients to others
-generate_cert "poller" "poller.serviceradar" "DNS:poller,DNS:poller.serviceradar,DNS:serviceradar-poller,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:poller.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gateway,DNS:agent-gateway-t2,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 
@@ -166,6 +332,9 @@ if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
     done
 fi
 generate_cert "cnpg" "cnpg.serviceradar" "${CNPG_SAN}"
+
+# Client cert for DB auth (CN must match DB username)
+generate_cert "db-client" "serviceradar" "DNS:serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Client cert intended for developers connecting from outside the Docker network
 generate_cert "workstation" "workstation.serviceradar" "DNS:workstation,DNS:workstation.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -178,7 +347,7 @@ generate_cert "flowgger" "flowgger.serviceradar" "DNS:flowgger,DNS:flowgger.serv
 
 # Edge / checker
 generate_cert "sysmon-osx" "sysmon-osx.serviceradar" "DNS:sysmon-osx,DNS:sysmon-osx.serviceradar,DNS:serviceradar-sysmon-osx,DNS:sysmon-osx-checker,DNS:localhost,IP:127.0.0.1"
-generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
+generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:localhost,IP:127.0.0.1"
 
 # Generate JWT secret for authentication
 JWT_SECRET_FILE="$CERT_DIR/jwt-secret"
@@ -208,7 +377,40 @@ else
     echo "API key already exists."
 fi
 
+# Generate default tenant CA for local development
+echo ""
+echo "=== Generating tenant CAs ==="
+generate_tenant_ca "$DEFAULT_TENANT_SLUG"
+
+# Generate example tenant-scoped edge component certificates for development
+# These follow the CN format: <component>.<partition>.<tenant>.serviceradar
+echo ""
+echo "=== Generating tenant-scoped component certificates ==="
+
+# Default tenant agent
+generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "agent-001" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
+
+# Docker Compose dev agent (matches docker/compose/agent.mtls.json)
+generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "docker-agent" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2"
+
+# Support multi-tenant testing with a second tenant
+if [ "${ENABLE_MULTI_TENANT:-false}" = "true" ]; then
+    echo ""
+    echo "=== Multi-tenant mode enabled, generating additional tenant ==="
+    generate_tenant_ca "acme-corp"
+    generate_tenant_component_cert "acme-corp" "agent-001" "partition-1" "DNS:agent"
+fi
+
+echo ""
 echo "All certificates and secrets generated successfully in $CERT_DIR"
 echo ""
-echo "Files generated:"
+echo "Platform certificates:"
 ls -la "$CERT_DIR"/*.pem "$CERT_DIR"/jwt-secret "$CERT_DIR"/api-key 2>/dev/null | awk '{print $9}' | sort
+
+echo ""
+echo "Tenant CAs:"
+find "$CERT_DIR/tenants" -name "ca.pem" 2>/dev/null | sort
+
+echo ""
+echo "Tenant component certificates:"
+find "$CERT_DIR/tenants" -path "*/components/*.pem" -not -name "*-key.pem" -not -name "*-chain.pem" 2>/dev/null | sort

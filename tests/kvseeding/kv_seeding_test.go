@@ -108,14 +108,14 @@ func TestPrecedenceOverlay(t *testing.T) {
 	require.NoError(t, err, "create temp KV bucket")
 	t.Cleanup(func() { _ = js.DeleteKeyValue(bucket) })
 
-	// Use poller (scoped key) to verify we can overlay a specific field.
-	desc, ok := config.ServiceDescriptorFor("poller")
+	// Use agent (scoped key) to verify we can overlay a specific field.
+	desc, ok := config.ServiceDescriptorFor("agent")
 	require.True(t, ok)
 
-	key, err := desc.ResolveKVKey(config.KeyContext{PollerID: "precedence-poller"})
+	key, err := desc.ResolveKVKey(config.KeyContext{AgentID: "precedence-agent"})
 	require.NoError(t, err)
 
-	defaults, err := os.ReadFile("packaging/poller/config/poller.json")
+	defaults, err := os.ReadFile("packaging/agent/config/agent.json")
 	require.NoError(t, err)
 
 	_, err = kv.Create(key, defaults)
@@ -199,7 +199,6 @@ func defaultConfigs(t *testing.T) []defaultConfig {
 		{Service: "trapd", Path: "packaging/trapd/config/trapd.json"},
 		{Service: "faker", Path: "packaging/faker/config/faker.json"},
 		{Service: "profiler", Path: "packaging/profiler/config/profiler.toml"},
-		{Service: "poller", Path: "packaging/poller/config/poller.json", Context: &config.KeyContext{PollerID: "test-poller"}},
 		{Service: "agent", Path: "packaging/agent/config/agent.json", Context: &config.KeyContext{AgentID: "test-agent"}},
 	}
 }

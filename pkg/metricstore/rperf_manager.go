@@ -43,14 +43,14 @@ const (
 
 // StoreRperfMetric stores an rperf metric in the database.
 func (m *rperfManagerImpl) StoreRperfMetric(
-	ctx context.Context, pollerID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
+	ctx context.Context, gatewayID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
 	if rperfResult == nil {
 		return errRperfMetricNil
 	}
 
 	if !rperfResult.Success {
-		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
-			rperfResult.Target, pollerID, rperfResult.Error)
+		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on gateway %s. Error: %v",
+			rperfResult.Target, gatewayID, rperfResult.Error)
 
 		return nil
 	}
@@ -58,8 +58,8 @@ func (m *rperfManagerImpl) StoreRperfMetric(
 	// Marshal the RperfMetric as metadata
 	metadataBytes, err := json.Marshal(rperfResult)
 	if err != nil {
-		return fmt.Errorf("failed to marshal rperf result metadata for poller %s, target %s: %w",
-			pollerID, rperfResult.Target, err)
+		return fmt.Errorf("failed to marshal rperf result metadata for gateway %s, target %s: %w",
+			gatewayID, rperfResult.Target, err)
 	}
 
 	metadataStr := string(metadataBytes)
@@ -95,22 +95,22 @@ func (m *rperfManagerImpl) StoreRperfMetric(
 		},
 	}
 
-	if err := m.db.StoreMetrics(ctx, pollerID, metricsToStore); err != nil {
-		return fmt.Errorf("failed to store rperf metrics for poller %s, target %s: %w",
-			pollerID, rperfResult.Target, err)
+	if err := m.db.StoreMetrics(ctx, gatewayID, metricsToStore); err != nil {
+		return fmt.Errorf("failed to store rperf metrics for gateway %s, target %s: %w",
+			gatewayID, rperfResult.Target, err)
 	}
 
-	log.Printf("Stored %d rperf metrics for poller %s, target %s", len(metricsToStore), pollerID, rperfResult.Target)
+	log.Printf("Stored %d rperf metrics for gateway %s, target %s", len(metricsToStore), gatewayID, rperfResult.Target)
 
 	return nil
 }
 
-// GetRperfMetrics retrieves rperf metrics for a poller within a time range.
+// GetRperfMetrics retrieves rperf metrics for a gateway within a time range.
 func (m *rperfManagerImpl) GetRperfMetrics(
-	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
-	log.Printf("Fetching rperf metrics for poller %s from %v to %v", pollerID, startTime, endTime)
+	ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
+	log.Printf("Fetching rperf metrics for gateway %s from %v to %v", gatewayID, startTime, endTime)
 
-	tsMetrics, err := m.db.GetMetricsByType(ctx, pollerID, "rperf", startTime, endTime)
+	tsMetrics, err := m.db.GetMetricsByType(ctx, gatewayID, "rperf", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf timeseries metrics: %w", err)
 	}
@@ -119,14 +119,14 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 
 	for i := range tsMetrics {
 		if tsMetrics[i].Metadata == "" {
-			log.Printf("Warning: empty metadata for rperf metric %s on poller %s", tsMetrics[i].Name, pollerID)
+			log.Printf("Warning: empty metadata for rperf metric %s on gateway %s", tsMetrics[i].Name, gatewayID)
 			continue
 		}
 
 		var rperfMetric models.RperfMetric
 
 		if err := json.Unmarshal([]byte(tsMetrics[i].Metadata), &rperfMetric); err != nil {
-			log.Printf("Failed to unmarshal rperf metadata for metric %s on poller %s: %v", tsMetrics[i].Name, pollerID, err)
+			log.Printf("Failed to unmarshal rperf metadata for metric %s on gateway %s: %v", tsMetrics[i].Name, gatewayID, err)
 			continue
 		}
 
@@ -134,7 +134,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 		rperfMetrics = append(rperfMetrics, &rperfMetric)
 	}
 
-	log.Printf("Retrieved %d rperf metrics for poller %s", len(rperfMetrics), pollerID)
+	log.Printf("Retrieved %d rperf metrics for gateway %s", len(rperfMetrics), gatewayID)
 
 	return rperfMetrics, nil
 }

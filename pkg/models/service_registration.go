@@ -8,7 +8,7 @@ import (
 const defaultServicePartition = "default"
 
 // CreateCheckerDeviceUpdate creates a DeviceUpdate for a checker to register itself as a device
-func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP, partition string, metadata map[string]string) *DeviceUpdate {
+func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, gatewayID, hostIP, partition string, metadata map[string]string) *DeviceUpdate {
 	serviceType := ServiceTypeChecker
 
 	if metadata == nil {
@@ -25,7 +25,7 @@ func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP
 	metadata["checker_id"] = checkerID
 	metadata["checker_kind"] = checkerKind
 	metadata["agent_id"] = agentID
-	metadata["poller_id"] = pollerID
+	metadata["gateway_id"] = gatewayID
 
 	// Generate service-aware device ID
 	deviceID := GenerateServiceDeviceID(serviceType, checkerID)
@@ -37,7 +37,7 @@ func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, pollerID, hostIP
 		IP:          hostIP,
 		Source:      DiscoverySourceServiceRadar,
 		AgentID:     agentID,
-		PollerID:    pollerID,
+		GatewayID:    gatewayID,
 		Partition:   normalizedPartition,
 		Timestamp:   time.Now(),
 		Metadata:    metadata,

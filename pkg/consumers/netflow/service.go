@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,11 +67,16 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to build NATS TLS config: %w", err)
 	}
 
-	nc, err := nats.Connect(s.cfg.NATSURL,
+	opts := []nats.Option{
 		nats.Secure(tlsConf),
 		nats.RootCAs(s.cfg.Security.TLS.CAFile),
 		nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
-	)
+	}
+	if strings.TrimSpace(s.cfg.NATSCredsFile) != "" {
+		opts = append(opts, nats.UserCredentials(strings.TrimSpace(s.cfg.NATSCredsFile)))
+	}
+
+	nc, err := nats.Connect(s.cfg.NATSURL, opts...)
 	if err != nil {
 		return err
 	}

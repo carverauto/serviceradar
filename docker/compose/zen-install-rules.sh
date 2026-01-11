@@ -63,9 +63,9 @@ install_rule() {
     fi
 }
 
-install_rule "$DATA_DIR/strip_full_message.json" "events.syslog" "strip_full_message"
-install_rule "$DATA_DIR/cef_severity.json" "events.syslog" "cef_severity"
-install_rule "$DATA_DIR/snmp_severity.json" "events.snmp" "snmp_severity"
-install_rule "$DATA_DIR/passthrough.json" "events.otel.logs" "passthrough"
+install_rule "$DATA_DIR/strip_full_message.json" "logs.syslog" "strip_full_message"
+install_rule "$DATA_DIR/cef_severity.json" "logs.syslog" "cef_severity"
+install_rule "$DATA_DIR/snmp_severity.json" "logs.snmp" "snmp_severity"
+install_rule "$DATA_DIR/passthrough.json" "logs.otel" "passthrough"
 
 echo "✅ Initial zen rules installation completed successfully"

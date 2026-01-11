@@ -165,7 +165,7 @@ func TestDeviceRegistry_RetractionEventFieldPreservation(t *testing.T) {
 			Timestamp:   time.Now(),
 			IsAvailable: false,
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Confidence:  models.GetSourceConfidence(models.DiscoverySourceArmis),
 			Metadata: map[string]string{
 				"_deleted":        "true",
@@ -190,7 +190,7 @@ func TestDeviceRegistry_RetractionEventFieldPreservation(t *testing.T) {
 				assert.Equal(t, originalEvent.MAC, update.MAC)
 				assert.Equal(t, originalEvent.IsAvailable, update.IsAvailable)
 				assert.Equal(t, originalEvent.AgentID, update.AgentID)
-				assert.Equal(t, originalEvent.PollerID, update.PollerID)
+				assert.Equal(t, originalEvent.GatewayID, update.GatewayID)
 				assert.Equal(t, originalEvent.Metadata, update.Metadata)
 
 				return nil

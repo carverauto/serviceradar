@@ -271,12 +271,12 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 			if isCollectorService(serviceType) {
 				upsertCollector(collectors, deviceID, string(serviceType), update.IP, hostname)
 
-				// If this agent reports to a poller, ensure the poller exists for future edges.
-				if serviceType == models.ServiceTypeAgent && strings.TrimSpace(update.PollerID) != "" {
-					pollerID := models.GenerateServiceDeviceID(models.ServiceTypePoller, strings.TrimSpace(update.PollerID))
-					upsertCollector(collectors, pollerID, string(models.ServiceTypePoller), "", "")
-					addCollectorParent(collectorParents, deviceID, pollerID)
-					addReportedEdge(reported, deviceID, pollerID)
+				// If this agent reports to a gateway, ensure the gateway exists for future edges.
+				if serviceType == models.ServiceTypeAgent && strings.TrimSpace(update.GatewayID) != "" {
+					gatewayID := models.GenerateServiceDeviceID(models.ServiceTypeGateway, strings.TrimSpace(update.GatewayID))
+					upsertCollector(collectors, gatewayID, string(models.ServiceTypeGateway), "", "")
+					addCollectorParent(collectorParents, deviceID, gatewayID)
+					addReportedEdge(reported, deviceID, gatewayID)
 				}
 			} else {
 				hostCollectorID := hostCollectorFromUpdate(update)
@@ -299,7 +299,7 @@ func buildAgeGraphParams(updates []*models.DeviceUpdate) *ageGraphParams {
 
 		// If this update was produced by a checker, link the checker service to the target device.
 		if checkerSvc := strings.TrimSpace(update.Metadata["checker_service"]); checkerSvc != "" {
-			if checkerID := checkerServiceID(checkerSvc, update.AgentID, update.PollerID); checkerID != "" {
+			if checkerID := checkerServiceID(checkerSvc, update.AgentID, update.GatewayID); checkerID != "" {
 				hostCollectorID := hostCollectorFromUpdate(update)
 				upsertService(services, checkerID, string(models.ServiceTypeChecker), "", "", hostCollectorID)
 				addTargetEdge(targets, checkerID, deviceID)
@@ -474,10 +474,10 @@ func collectorIDsForUpdate(update *models.DeviceUpdate) []collectorRef {
 		})
 	}
 
-	if pollerID := strings.TrimSpace(update.PollerID); pollerID != "" {
+	if gatewayID := strings.TrimSpace(update.GatewayID); gatewayID != "" {
 		collectors = append(collectors, collectorRef{
-			id:   models.GenerateServiceDeviceID(models.ServiceTypePoller, pollerID),
-			kind: string(models.ServiceTypePoller),
+			id:   models.GenerateServiceDeviceID(models.ServiceTypeGateway, gatewayID),
+			kind: string(models.ServiceTypeGateway),
 			ip:   "",
 		})
 	}
@@ -675,7 +675,7 @@ func deriveServiceType(update *models.DeviceUpdate) models.ServiceType {
 }
 
 func isCollectorService(serviceType models.ServiceType) bool {
-	return serviceType == models.ServiceTypeAgent || serviceType == models.ServiceTypePoller
+	return serviceType == models.ServiceTypeAgent || serviceType == models.ServiceTypeGateway
 }
 
 func hostCollectorFromUpdate(update *models.DeviceUpdate) string {
@@ -685,8 +685,8 @@ func hostCollectorFromUpdate(update *models.DeviceUpdate) string {
 	if agentID := strings.TrimSpace(update.AgentID); agentID != "" {
 		return models.GenerateServiceDeviceID(models.ServiceTypeAgent, agentID)
 	}
-	if pollerID := strings.TrimSpace(update.PollerID); pollerID != "" {
-		return models.GenerateServiceDeviceID(models.ServiceTypePoller, pollerID)
+	if gatewayID := strings.TrimSpace(update.GatewayID); gatewayID != "" {
+		return models.GenerateServiceDeviceID(models.ServiceTypeGateway, gatewayID)
 	}
 	return ""
 }
@@ -699,7 +699,7 @@ func collectorTypeFromID(deviceID string) string {
 	return ""
 }
 
-func checkerServiceID(serviceName, agentID, pollerID string) string {
+func checkerServiceID(serviceName, agentID, gatewayID string) string {
 	serviceName = strings.TrimSpace(serviceName)
 	if serviceName == "" {
 		return ""
@@ -709,8 +709,8 @@ func checkerServiceID(serviceName, agentID, pollerID string) string {
 		return models.GenerateServiceDeviceID(models.ServiceTypeChecker, fmt.Sprintf("%s@%s", serviceName, agentID))
 	}
 
-	if pollerID := strings.TrimSpace(pollerID); pollerID != "" {
-		return models.GenerateServiceDeviceID(models.ServiceTypeChecker, fmt.Sprintf("%s@%s", serviceName, pollerID))
+	if gatewayID := strings.TrimSpace(gatewayID); gatewayID != "" {
+		return models.GenerateServiceDeviceID(models.ServiceTypeChecker, fmt.Sprintf("%s@%s", serviceName, gatewayID))
 	}
 
 	return ""

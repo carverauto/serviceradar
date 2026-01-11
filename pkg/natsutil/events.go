@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,31 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/tenant"
+)
+
+const (
+	ocsfClassEventLogActivity  = 1008
+	ocsfCategorySystemActivity = 1
+	ocsfActivityLogCreate      = 1
+	ocsfVersion                = "1.7.0"
+	ocsfEventsSubject          = "events.ocsf.processed"
+
+	// EnvNATSTenantPrefixEnabled is the environment variable to enable tenant prefixing.
+	// When set to "true", all NATS subjects will be prefixed with the tenant slug.
+	EnvNATSTenantPrefixEnabled = "NATS_TENANT_PREFIX_ENABLED"
+
+	// DefaultTenant is used when no tenant is found in context and prefixing is enabled.
+	DefaultTenant = "default"
+
+	// Severity name constants for OCSF events.
+	severityInformational = "Informational"
+	severityLow           = "Low"
+	severityMedium        = "Medium"
+	severityHigh          = "High"
+	severityCritical      = "Critical"
+	severityFatal         = "Fatal"
+	severityUnknown       = "Unknown"
 )
 
 var (
@@ -24,46 +50,120 @@ var (
 	ErrEventPayloadNil = errors.New("event payload is nil")
 )
 
-// EventPublisher provides methods for publishing CloudEvents to NATS JetStream.
+// IsTenantPrefixEnabled returns true if NATS tenant prefixing is enabled via environment.
+func IsTenantPrefixEnabled() bool {
+	val := os.Getenv(EnvNATSTenantPrefixEnabled)
+	return val == "true" || val == "1" || val == "yes"
+}
+
+// EventPublisher provides methods for publishing OCSF events to NATS JetStream.
 type EventPublisher struct {
-	js       jetstream.JetStream
-	stream   string
-	subjects []string
-	logger   zerolog.Logger
+	js              jetstream.JetStream
+	stream          string
+	subjects        []string
+	logger          zerolog.Logger
+	tenantPrefixing bool // Whether to prefix subjects with tenant slug
+}
+
+type ocsfEvent struct {
+	ID           string           `json:"id"`
+	Time         time.Time        `json:"time"`
+	ClassUID     int              `json:"class_uid"`
+	CategoryUID  int              `json:"category_uid"`
+	TypeUID      int              `json:"type_uid"`
+	ActivityID   int              `json:"activity_id"`
+	ActivityName string           `json:"activity_name,omitempty"`
+	SeverityID   int              `json:"severity_id"`
+	Severity     string           `json:"severity,omitempty"`
+	Message      string           `json:"message,omitempty"`
+	StatusID     *int             `json:"status_id,omitempty"`
+	Status       string           `json:"status,omitempty"`
+	StatusCode   string           `json:"status_code,omitempty"`
+	StatusDetail string           `json:"status_detail,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
+	Observables  []map[string]any `json:"observables,omitempty"`
+	TraceID      string           `json:"trace_id,omitempty"`
+	SpanID       string           `json:"span_id,omitempty"`
+	Actor        map[string]any   `json:"actor,omitempty"`
+	Device       map[string]any   `json:"device,omitempty"`
+	SrcEndpoint  map[string]any   `json:"src_endpoint,omitempty"`
+	DstEndpoint  map[string]any   `json:"dst_endpoint,omitempty"`
+	LogName      string           `json:"log_name,omitempty"`
+	LogProvider  string           `json:"log_provider,omitempty"`
+	LogLevel     string           `json:"log_level,omitempty"`
+	LogVersion   string           `json:"log_version,omitempty"`
+	Unmapped     map[string]any   `json:"unmapped,omitempty"`
+	RawData      string           `json:"raw_data,omitempty"`
+	TenantID     string           `json:"tenant_id,omitempty"`
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
+// Tenant prefixing is automatically determined by the NATS_TENANT_PREFIX_ENABLED env var.
 func NewEventPublisher(js jetstream.JetStream, streamName string, subjects []string) *EventPublisher {
 	return &EventPublisher{
-		js:       js,
-		stream:   streamName,
-		subjects: append([]string(nil), subjects...),
-		logger:   logger.WithComponent("natsutil.events"),
+		js:              js,
+		stream:          streamName,
+		subjects:        append([]string(nil), subjects...),
+		logger:          logger.WithComponent("natsutil.events"),
+		tenantPrefixing: IsTenantPrefixEnabled(),
 	}
 }
 
-// PublishPollerHealthEvent publishes a poller health event to the events stream.
-func (p *EventPublisher) PublishPollerHealthEvent(
-	ctx context.Context, _, _, _ string, data *models.PollerHealthEventData) error {
-	event := models.CloudEvent{
-		SpecVersion:     "1.0",
-		ID:              uuid.New().String(),
-		Source:          "serviceradar/core",
-		Type:            "com.carverauto.serviceradar.poller.health",
-		DataContentType: "application/json",
-		Subject:         "events.poller.health",
-		Time:            &data.Timestamp,
-		Data:            data,
+// NewEventPublisherWithPrefixing creates an EventPublisher with explicit tenant prefix control.
+func NewEventPublisherWithPrefixing(
+	js jetstream.JetStream, streamName string, subjects []string, enablePrefixing bool) *EventPublisher {
+	return &EventPublisher{
+		js:              js,
+		stream:          streamName,
+		subjects:        append([]string(nil), subjects...),
+		logger:          logger.WithComponent("natsutil.events"),
+		tenantPrefixing: enablePrefixing,
 	}
-
-	return p.publishEvent(ctx, &event)
 }
 
-// PublishPollerRecoveryEvent publishes a poller recovery event.
-func (p *EventPublisher) PublishPollerRecoveryEvent(
-	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:       pollerID,
+// IsTenantPrefixingEnabled returns whether tenant prefixing is enabled for this publisher.
+func (p *EventPublisher) IsTenantPrefixingEnabled() bool {
+	return p.tenantPrefixing
+}
+
+// SetTenantPrefixing enables or disables tenant prefixing.
+func (p *EventPublisher) SetTenantPrefixing(enabled bool) {
+	p.tenantPrefixing = enabled
+}
+
+// PublishGatewayHealthEvent publishes a gateway health event to the events stream.
+func (p *EventPublisher) PublishGatewayHealthEvent(
+	ctx context.Context, gatewayID, previousState, currentState string, data *models.GatewayHealthEventData) error {
+	if data == nil {
+		return ErrEventPayloadNil
+	}
+
+	if data.GatewayID == "" {
+		data.GatewayID = gatewayID
+	}
+	if data.PreviousState == "" {
+		data.PreviousState = previousState
+	}
+	if data.CurrentState == "" {
+		data.CurrentState = currentState
+	}
+	if data.Timestamp.IsZero() {
+		data.Timestamp = time.Now().UTC()
+	}
+
+	severityID, severity := severityForState(data.CurrentState)
+	message := fmt.Sprintf("Gateway %s state %s -> %s", data.GatewayID, data.PreviousState, data.CurrentState)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event.Unmapped = gatewayHealthUnmapped(data)
+
+	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
+}
+
+// PublishGatewayRecoveryEvent publishes a gateway recovery event.
+func (p *EventPublisher) PublishGatewayRecoveryEvent(
+	ctx context.Context, gatewayID, sourceIP, partition, remoteAddr string, lastSeen time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:      gatewayID,
 		PreviousState:  "unhealthy",
 		CurrentState:   "healthy",
 		Timestamp:      time.Now(),
@@ -74,14 +174,14 @@ func (p *EventPublisher) PublishPollerRecoveryEvent(
 		RecoveryReason: "status_report_received",
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "unhealthy", "healthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "unhealthy", "healthy", data)
 }
 
-// PublishPollerOfflineEvent publishes a poller offline event.
-func (p *EventPublisher) PublishPollerOfflineEvent(
-	ctx context.Context, pollerID, sourceIP, partition string, lastSeen time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:      pollerID,
+// PublishGatewayOfflineEvent publishes a gateway offline event.
+func (p *EventPublisher) PublishGatewayOfflineEvent(
+	ctx context.Context, gatewayID, sourceIP, partition string, lastSeen time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:     gatewayID,
 		PreviousState: "healthy",
 		CurrentState:  "unhealthy",
 		Timestamp:     time.Now(),
@@ -91,14 +191,14 @@ func (p *EventPublisher) PublishPollerOfflineEvent(
 		AlertSent:     true,
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "healthy", "unhealthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "healthy", "unhealthy", data)
 }
 
-// PublishPollerFirstSeenEvent publishes an event when a poller reports for the first time.
-func (p *EventPublisher) PublishPollerFirstSeenEvent(
-	ctx context.Context, pollerID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
-	data := &models.PollerHealthEventData{
-		PollerID:      pollerID,
+// PublishGatewayFirstSeenEvent publishes an event when a gateway reports for the first time.
+func (p *EventPublisher) PublishGatewayFirstSeenEvent(
+	ctx context.Context, gatewayID, sourceIP, partition, remoteAddr string, timestamp time.Time) error {
+	data := &models.GatewayHealthEventData{
+		GatewayID:     gatewayID,
 		PreviousState: "unknown",
 		CurrentState:  "healthy",
 		Timestamp:     timestamp,
@@ -108,7 +208,7 @@ func (p *EventPublisher) PublishPollerFirstSeenEvent(
 		RemoteAddr:    remoteAddr,
 	}
 
-	return p.PublishPollerHealthEvent(ctx, pollerID, "unknown", "healthy", data)
+	return p.PublishGatewayHealthEvent(ctx, gatewayID, "unknown", "healthy", data)
 }
 
 // PublishDeviceLifecycleEvent publishes lifecycle changes (delete, restore, etc.) for a device.
@@ -121,58 +221,62 @@ func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *
 		data.Timestamp = time.Now().UTC()
 	}
 
-	if data.Severity == "" {
-		data.Severity = "Medium"
-	}
+	severityID, severity := severityForLifecycle(data)
+	message := fmt.Sprintf("Device %s %s", data.DeviceID, data.Action)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event.Unmapped = deviceLifecycleUnmapped(data)
 
-	if data.Level == 0 {
-		data.Level = 5
-	}
-
-	event := models.CloudEvent{
-		SpecVersion:     "1.0",
-		ID:              uuid.New().String(),
-		Source:          "serviceradar/core",
-		Type:            "com.carverauto.serviceradar.device.lifecycle",
-		DataContentType: "application/json",
-		Subject:         "events.devices.lifecycle",
-		Time:            &data.Timestamp,
-		Data:            data,
-	}
-
-	return p.publishEvent(ctx, &event)
+	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
 }
 
-func (p *EventPublisher) publishEvent(ctx context.Context, event *models.CloudEvent) error {
+func (p *EventPublisher) publishEvent(ctx context.Context, subject string, event *ocsfEvent, eventID string) error {
 	if event == nil {
 		return ErrEventPayloadNil
 	}
 
+	// Apply tenant prefix if enabled
+	qualifiedSubject := p.applyTenantPrefix(ctx, subject)
+
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event %s: %w", event.Type, err)
+		return fmt.Errorf("failed to marshal event %s: %w", eventID, err)
 	}
 
-	ack, err := p.js.Publish(ctx, event.Subject, eventBytes)
+	ack, err := p.js.Publish(ctx, qualifiedSubject, eventBytes)
 	if err != nil && isStreamMissingErr(err) {
-		if ensureErr := p.ensureStream(ctx, event.Subject); ensureErr != nil {
-			return fmt.Errorf("failed to ensure stream for %s: %w", event.Subject, ensureErr)
+		if ensureErr := p.ensureStream(ctx, qualifiedSubject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for %s: %w", qualifiedSubject, ensureErr)
 		}
 
-		ack, err = p.js.Publish(ctx, event.Subject, eventBytes)
+		ack, err = p.js.Publish(ctx, qualifiedSubject, eventBytes)
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to publish event %s: %w", event.Type, err)
+		return fmt.Errorf("failed to publish event %s: %w", eventID, err)
 	}
 
 	p.logger.Debug().
-		Str("event_id", event.ID).
-		Str("subject", event.Subject).
+		Str("event_id", eventID).
+		Str("subject", qualifiedSubject).
 		Uint64("sequence", ack.Sequence).
 		Msg("Published event")
 
 	return nil
+}
+
+// applyTenantPrefix adds the tenant prefix to a subject if prefixing is enabled.
+// Extracts tenant from context; falls back to DefaultTenant if not found.
+func (p *EventPublisher) applyTenantPrefix(ctx context.Context, subject string) string {
+	if !p.tenantPrefixing {
+		return subject
+	}
+
+	tenantSlug := tenant.SlugFromContext(ctx)
+	if tenantSlug == "" {
+		tenantSlug = DefaultTenant
+	}
+
+	return tenant.PrefixChannelWithSlug(tenantSlug, subject)
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.
@@ -189,7 +293,7 @@ func ConnectWithEventPublisher(
 		return nil, nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	subjects := []string{"events.>", "snmp.traps"}
+	subjects := []string{ocsfEventsSubject, "logs.>", "otel.traces.>", "otel.metrics.>"}
 
 	stream, err := js.Stream(ctx, streamName)
 	if err != nil {
@@ -289,7 +393,7 @@ func CreateEventPublisherWithDomain(
 	}
 
 	if len(subjects) == 0 {
-		subjects = []string{"events.poller.*", "events.syslog.*", "events.snmp.*"}
+		subjects = []string{ocsfEventsSubject, "logs.>", "otel.traces.>", "otel.metrics.>"}
 	}
 
 	streamSubjects := append([]string(nil), subjects...)
@@ -425,4 +529,180 @@ func isStreamMissingErr(err error) bool {
 		errors.Is(err, nats.ErrStreamNotFound) ||
 		errors.Is(err, nats.ErrNoStreamResponse) ||
 		errors.Is(err, nats.ErrNoResponders)
+}
+
+func buildOCSFEvent(message string, eventTime time.Time, severityID int, severity string, tenantID string) *ocsfEvent {
+	if eventTime.IsZero() {
+		eventTime = time.Now().UTC()
+	}
+
+	if severity == "" {
+		severity = severityName(severityID)
+	}
+
+	return &ocsfEvent{
+		ID:           uuid.New().String(),
+		Time:         eventTime,
+		ClassUID:     ocsfClassEventLogActivity,
+		CategoryUID:  ocsfCategorySystemActivity,
+		TypeUID:      ocsfClassEventLogActivity*100 + ocsfActivityLogCreate,
+		ActivityID:   ocsfActivityLogCreate,
+		ActivityName: "Create",
+		SeverityID:   severityID,
+		Severity:     severity,
+		Message:      message,
+		Metadata:     defaultOCSFMetadata(),
+		Actor:        map[string]any{"app_name": "serviceradar-core"},
+		LogName:      ocsfEventsSubject,
+		LogProvider:  "serviceradar-core",
+		TenantID:     tenantID,
+	}
+}
+
+func defaultOCSFMetadata() map[string]any {
+	return map[string]any{
+		"version": ocsfVersion,
+		"product": map[string]any{
+			"vendor_name": "ServiceRadar",
+			"name":        "core",
+		},
+		"logged_time": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func severityForState(state string) (int, string) {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "healthy":
+		return 1, severityInformational
+	case "degraded":
+		return 3, severityMedium
+	case "unhealthy", "offline":
+		return 5, severityCritical
+	default:
+		return 0, severityUnknown
+	}
+}
+
+func severityForLifecycle(data *models.DeviceLifecycleEventData) (int, string) {
+	if data == nil {
+		return 0, severityUnknown
+	}
+
+	if data.Severity != "" {
+		return severityFromText(data.Severity)
+	}
+
+	if data.Level != 0 {
+		return severityFromLevel(data.Level)
+	}
+
+	return 1, severityInformational
+}
+
+func severityFromText(text string) (int, string) {
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "fatal":
+		return 6, severityFatal
+	case "critical":
+		return 5, severityCritical
+	case "error", "high":
+		return 4, severityHigh
+	case "warn", "warning", "medium":
+		return 3, severityMedium
+	case "notice", "low":
+		return 2, severityLow
+	case "info", "informational":
+		return 1, severityInformational
+	default:
+		return 0, severityUnknown
+	}
+}
+
+func severityFromLevel(level int32) (int, string) {
+	switch level {
+	case 0:
+		return 6, severityFatal
+	case 1, 2:
+		return 5, severityCritical
+	case 3:
+		return 4, severityHigh
+	case 4:
+		return 3, severityMedium
+	case 5:
+		return 2, severityLow
+	case 6, 7:
+		return 1, severityInformational
+	default:
+		return 0, severityUnknown
+	}
+}
+
+func severityName(id int) string {
+	switch id {
+	case 1:
+		return severityInformational
+	case 2:
+		return severityLow
+	case 3:
+		return severityMedium
+	case 4:
+		return severityHigh
+	case 5:
+		return severityCritical
+	case 6:
+		return severityFatal
+	default:
+		return severityUnknown
+	}
+}
+
+func gatewayHealthUnmapped(data *models.GatewayHealthEventData) map[string]any {
+	if data == nil {
+		return nil
+	}
+
+	unmapped := map[string]any{
+		"gateway_id":     data.GatewayID,
+		"previous_state": data.PreviousState,
+		"current_state":  data.CurrentState,
+		"source_ip":      data.SourceIP,
+		"remote_addr":    data.RemoteAddr,
+		"partition":      data.Partition,
+		"alert_sent":     data.AlertSent,
+	}
+
+	if data.Host != "" {
+		unmapped["host"] = data.Host
+	}
+	if data.RecoveryReason != "" {
+		unmapped["recovery_reason"] = data.RecoveryReason
+	}
+	if !data.LastSeen.IsZero() {
+		unmapped["last_seen"] = data.LastSeen.UTC().Format(time.RFC3339Nano)
+	}
+
+	return unmapped
+}
+
+func deviceLifecycleUnmapped(data *models.DeviceLifecycleEventData) map[string]any {
+	if data == nil {
+		return nil
+	}
+
+	unmapped := map[string]any{
+		"device_id":   data.DeviceID,
+		"partition":   data.Partition,
+		"action":      data.Action,
+		"actor":       data.Actor,
+		"reason":      data.Reason,
+		"severity":    data.Severity,
+		"level":       data.Level,
+		"remote_addr": data.RemoteAddr,
+	}
+
+	if len(data.Metadata) > 0 {
+		unmapped["metadata"] = data.Metadata
+	}
+
+	return unmapped
 }

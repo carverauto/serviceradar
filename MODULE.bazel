@@ -173,6 +173,9 @@ buildbuddy_toolchain_ext.gcc_toolchain(
         # Allow Debian/Ubuntu GCC 11 built-ins when remote execution falls back to distro toolchain.
         "/usr/lib/gcc/x86_64-linux-gnu/11/include",
         "/usr/lib/gcc/x86_64-linux-gnu/11/include-fixed",
+        # Debian/Ubuntu GCC 5 built-ins used by older remote workers.
+        "/usr/lib/gcc/x86_64-linux-gnu/5/include",
+        "/usr/lib/gcc/x86_64-linux-gnu/5/include-fixed",
     ],
     gcc_major_version = "13",
 )
@@ -404,8 +407,10 @@ use_repo(
     "com_github_gosnmp_gosnmp",
     "com_github_jackc_pgx_v5",
     "com_github_markbates_goth",
+    "com_github_nats_io_jwt_v2",
     "com_github_nats_io_nats_go",
     "com_github_nats_io_nats_server_v2",
+    "com_github_nats_io_nkeys",
     "com_github_rs_zerolog",
     "com_github_shirou_gopsutil_v3",
     "com_github_spiffe_go_spiffe_v2",
@@ -866,9 +871,9 @@ http_file(
 
 http_file(
     name = "debian_libgcc_s1_amd64_deb",
-    sha256 = "14bcff824455af407442054c92f62a47190210607026d4771afa2000fb217d56",
+    sha256 = "fccd4b6791f71a3b300fef3bfa8259dcbbd14221392d2b5d332d93bbfb00479f",
     urls = [
-        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-11_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/g/gcc-15/libgcc-s1_15.2.0-12_amd64.deb",
     ],
 )
 
@@ -1078,6 +1083,21 @@ filegroup(
     strip_prefix = "apache-age-1.6.0",
     urls = [
         "https://downloads.apache.org/age/PG17/1.6.0/apache-age-1.6.0-src.tar.gz",
+    ],
+)
+
+# Bun runtime for Phoenix React Server SSR
+# Used by web-ng for client-side React components (GoRules JDM editor)
+http_archive(
+    name = "bun_linux_amd64",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+exports_files(["bun"])
+""",
+    sha256 = "368206c3038d8faabc63e3059eeea64c2af9c50ed0dfbfb86f64984ba69db1af",
+    strip_prefix = "bun-linux-x64",
+    urls = [
+        "https://github.com/oven-sh/bun/releases/download/bun-v1.1.42/bun-linux-x64.zip",
     ],
 )
 

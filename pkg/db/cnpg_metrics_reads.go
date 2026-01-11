@@ -30,12 +30,12 @@ SELECT
 	if_index,
 	device_id,
 	partition,
-	poller_id
+	gateway_id
 FROM timeseries_metrics`
 
 func (db *DB) cnpgQueryTimeseriesMetrics(
 	ctx context.Context,
-	pollerID, filterValue, filterColumn string,
+	gatewayID, filterValue, filterColumn string,
 	start, end time.Time,
 ) ([]models.TimeseriesMetric, error) {
 	column, err := sanitizeTimeseriesColumn(filterColumn)
@@ -44,11 +44,11 @@ func (db *DB) cnpgQueryTimeseriesMetrics(
 	}
 
 	query := cnpgTimeseriesSelect + fmt.Sprintf(`
-WHERE poller_id = $1
+WHERE gateway_id = $1
   AND %s = $2
   AND timestamp BETWEEN $3 AND $4`, column)
 
-	rows, err := db.pgPool.Query(ctx, query, pollerID, filterValue, start.UTC(), end.UTC())
+	rows, err := db.pgPool.Query(ctx, query, gatewayID, filterValue, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg timeseries metrics: %w", err)
 	}
@@ -164,16 +164,16 @@ func (db *DB) cnpgGetDeviceMetricTypes(
 
 func (db *DB) cnpgGetCPUMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	coreID int,
 	start, end time.Time,
 ) ([]models.CPUMetric, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM cpu_metrics
-		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
+		WHERE gateway_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
-		pollerID, coreID, start.UTC(), end.UTC())
+		gatewayID, coreID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg cpu metrics: %w", err)
 	}
@@ -215,15 +215,15 @@ func (db *DB) cnpgGetCPUMetrics(
 
 func (db *DB) cnpgGetAllCPUMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent, frequency_hz, label, cluster
 		FROM cpu_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg all cpu metrics: %w", err)
 	}
@@ -272,9 +272,9 @@ func (db *DB) cnpgGetAllCPUMetrics(
 	clusterRows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, cluster, frequency_hz
 		FROM cpu_cluster_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, cluster ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg cpu cluster metrics: %w", err)
 	}
@@ -323,15 +323,15 @@ func (db *DB) cnpgGetAllCPUMetrics(
 
 func (db *DB) cnpgGetAllDiskMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.DiskMetric, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT mount_point, used_bytes, total_bytes, timestamp, agent_id, host_id
 		FROM disk_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg all disk metrics: %w", err)
 	}
@@ -371,15 +371,15 @@ func (db *DB) cnpgGetAllDiskMetrics(
 
 func (db *DB) cnpgGetDiskMetrics(
 	ctx context.Context,
-	pollerID, mountPoint string,
+	gatewayID, mountPoint string,
 	start, end time.Time,
 ) ([]models.DiskMetric, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM disk_metrics
-		WHERE poller_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
+		WHERE gateway_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
-		pollerID, mountPoint, start.UTC(), end.UTC())
+		gatewayID, mountPoint, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg disk metrics: %w", err)
 	}
@@ -419,15 +419,15 @@ func (db *DB) cnpgGetDiskMetrics(
 
 func (db *DB) cnpgGetMemoryMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.MemoryMetric, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM memory_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg memory metrics: %w", err)
 	}
@@ -466,15 +466,15 @@ func (db *DB) cnpgGetMemoryMetrics(
 
 func (db *DB) cnpgGetAllDiskMetricsGrouped(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.SysmonDiskResponse, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM disk_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg grouped disk metrics: %w", err)
 	}
@@ -533,15 +533,15 @@ func (db *DB) cnpgGetAllDiskMetricsGrouped(
 
 func (db *DB) cnpgGetMemoryMetricsGrouped(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.SysmonMemoryResponse, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM memory_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg grouped memory metrics: %w", err)
 	}
@@ -586,15 +586,15 @@ func (db *DB) cnpgGetMemoryMetricsGrouped(
 
 func (db *DB) cnpgGetAllProcessMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.ProcessMetric, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM process_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, pid ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg process metrics: %w", err)
 	}
@@ -635,15 +635,15 @@ func (db *DB) cnpgGetAllProcessMetrics(
 
 func (db *DB) cnpgGetAllProcessMetricsGrouped(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	start, end time.Time,
 ) ([]models.SysmonProcessResponse, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, pid, name, cpu_usage, memory_usage, status, start_time
 		FROM process_metrics
-		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE gateway_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, pid ASC`,
-		pollerID, start.UTC(), end.UTC())
+		gatewayID, start.UTC(), end.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("cnpg grouped process metrics: %w", err)
 	}
@@ -701,12 +701,12 @@ func (db *DB) cnpgGetAllProcessMetricsGrouped(
 	return result, nil
 }
 
-func (db *DB) cnpgGetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
+func (db *DB) cnpgGetAllMountPoints(ctx context.Context, gatewayID string) ([]string, error) {
 	rows, err := db.pgPool.Query(ctx, `
 		SELECT DISTINCT mount_point
 		FROM disk_metrics
-		WHERE poller_id = $1
-		ORDER BY mount_point`, pollerID)
+		WHERE gateway_id = $1
+		ORDER BY mount_point`, gatewayID)
 	if err != nil {
 		return nil, fmt.Errorf("cnpg mount points: %w", err)
 	}
@@ -803,7 +803,7 @@ func buildTimeseriesFilterClause(
 
 func isAllowedTimeseriesColumn(column string) bool {
 	switch column {
-	case "poller_id", "metric_name", "metric_type", "device_id", "partition":
+	case "gateway_id", "metric_name", "metric_type", "device_id", "partition":
 		return true
 	default:
 		return false
@@ -833,7 +833,7 @@ func scanCNPGTimeseriesMetric(row pgx.Row) (*models.TimeseriesMetric, error) {
 		ifIndex   sql.NullInt32
 		deviceID  sql.NullString
 		partition sql.NullString
-		pollerID  sql.NullString
+		gatewayID  sql.NullString
 	)
 
 	if err := row.Scan(
@@ -846,7 +846,7 @@ func scanCNPGTimeseriesMetric(row pgx.Row) (*models.TimeseriesMetric, error) {
 		&ifIndex,
 		&deviceID,
 		&partition,
-		&pollerID,
+		&gatewayID,
 	); err != nil {
 		return nil, fmt.Errorf("cnpg scan timeseries metric: %w", err)
 	}
@@ -858,7 +858,7 @@ func scanCNPGTimeseriesMetric(row pgx.Row) (*models.TimeseriesMetric, error) {
 	}
 	metric.DeviceID = stringFromNull(deviceID)
 	metric.Partition = stringFromNull(partition)
-	metric.PollerID = stringFromNull(pollerID)
+	metric.GatewayID = stringFromNull(gatewayID)
 	if len(metadata) > 0 {
 		metric.Metadata = string(metadata)
 	}

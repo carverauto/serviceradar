@@ -258,7 +258,7 @@ func searchTextForRecord(record *DeviceRecord) string {
 	}
 
 	parts := make([]string, 0, 16)
-	parts = append(parts, record.DeviceID, record.IP, record.PollerID, record.AgentID)
+	parts = append(parts, record.DeviceID, record.IP, record.GatewayID, record.AgentID)
 	if record.Hostname != nil {
 		parts = append(parts, *record.Hostname)
 	}

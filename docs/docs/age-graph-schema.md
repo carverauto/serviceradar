@@ -14,9 +14,9 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 - `Device`
   - Required: `id` (canonical_device_id)
   - Optional: `ip`, `hostname`
-- `Collector` (agent or poller)
-  - Required: `id` (`serviceradar:agent:<id>` or `serviceradar:poller:<id>`)
-  - Optional: `type` (agent|poller), `ip`, `hostname`
+- `Collector` (agent or gateway)
+  - Required: `id` (`serviceradar:agent:<id>` or `serviceradar:gateway:<id>`)
+  - Optional: `type` (agent|gateway), `ip`, `hostname`
 - `Service` (internal services and checker service devices)
   - Required: `id` (`service_device_id`), `type` (e.g., sync, mapper, otel, checker)
   - Optional: `ip`, `hostname`, `collector_id` (host owner for convenience)
@@ -39,7 +39,7 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 
 ## Canonical ID mapping
 - Devices: `unified_devices.canonical_device_id` → `Device.id`
-- Collectors: `serviceradar:agent:<id>` / `serviceradar:poller:<id>` → `Collector.id`
+- Collectors: `serviceradar:agent:<id>` / `serviceradar:gateway:<id>` → `Collector.id`
 - Services (internal + checker): `service_device_id` (e.g., `serviceradar:service:ssh@agent-1`, `serviceradar:checker:sysmon@agent-1`) → `Service.id`
 - Interfaces: `<device_id>/<ifname>` (fallback `ifindex:<n>`) → `Interface.id`
   - Direction: mapper seeds/neighbor discoveries must flow through DIRE to obtain the canonical device ID before interface/link creation.
@@ -51,9 +51,9 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 
 ### DIRE → AGE mapping (required fields)
 - `canonical_device_id` → `Device.id`; `ip`, `hostname` applied as properties.
-- `agent_id`/`poller_id` → `Collector.id` (`serviceradar:agent:<id>` / `serviceradar:poller:<id>`) + `REPORTED_BY` from Device → Collector.
-- `service_device_id` (internal services + checkers) → `Service.id`; `service_type` drives `Service.type`; `collector_id` derived from host agent/poller to create `HOSTS_SERVICE` (and `RUNS_CHECKER` when type = checker).
-- Checker-sourced updates: `checker_service` + agent/poller IDs produce a `Service` node (checker) with `TARGETS` → Device; collector host IPs are not promoted to Device nodes.
+- `agent_id`/`gateway_id` → `Collector.id` (`serviceradar:agent:<id>` / `serviceradar:gateway:<id>`) + `REPORTED_BY` from Device → Collector.
+- `service_device_id` (internal services + checkers) → `Service.id`; `service_type` drives `Service.type`; `collector_id` derived from host agent/gateway to create `HOSTS_SERVICE` (and `RUNS_CHECKER` when type = checker).
+- Checker-sourced updates: `checker_service` + agent/gateway IDs produce a `Service` node (checker) with `TARGETS` → Device; collector host IPs are not promoted to Device nodes.
 - Mapper/DIRE-resolved interfaces: use DIRE-resolved `device_id` to form `Interface.id = <device_id>/<ifname or ifindex>` and add `HAS_INTERFACE`; topology events add `CONNECTS_TO` between interface IDs derived from DIRE-managed device IDs.
 
 ## Query guidance

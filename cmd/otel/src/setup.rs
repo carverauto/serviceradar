@@ -48,6 +48,7 @@ pub fn log_configuration_info(config: &Config) {
             nats.url, nats.subject, nats.stream
         );
         debug!("NATS timeout: {:?}", nats.timeout);
+        debug!("NATS creds file: {:?}", nats.creds_file);
         debug!("NATS TLS cert: {:?}", nats.tls_cert);
         debug!("NATS TLS key: {:?}", nats.tls_key);
         debug!("NATS TLS CA: {:?}", nats.tls_ca);

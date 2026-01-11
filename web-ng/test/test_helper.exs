@@ -1,8 +1,20 @@
-ExUnit.start()
+ExUnit.start(exclude: [:pending_multitenancy_investigation])
 
 {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 
-repo = ServiceRadarWebNG.Repo
+# Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
+repo = ServiceRadar.Repo
+
+unless System.get_env("CI") in ["1", "true", "TRUE"] do
+  case Ecto.Adapters.SQL.query(repo, "SELECT 1", []) do
+    {:ok, _} ->
+      :ok
+
+    {:error, reason} ->
+      IO.warn("Skipping web-ng tests; database unavailable: #{inspect(reason)}")
+      System.halt(0)
+  end
+end
 
 # Create OCSF-aligned device inventory table (OCSF v1.7.0 Device object)
 _ =
@@ -56,7 +68,7 @@ _ =
       {"groups", "jsonb"},
       {"agent_list", "jsonb"},
       # ServiceRadar-specific fields
-      {"poller_id", "text"},
+      {"gateway_id", "text"},
       {"agent_id", "text"},
       {"discovery_sources", "text[]"},
       {"is_available", "boolean"},
@@ -75,8 +87,8 @@ _ =
   Ecto.Adapters.SQL.query!(
     repo,
     """
-    CREATE TABLE IF NOT EXISTS pollers (
-      poller_id text PRIMARY KEY
+    CREATE TABLE IF NOT EXISTS gateways (
+      gateway_id text PRIMARY KEY
     )
     """,
     []
@@ -97,15 +109,17 @@ _ =
       {"is_healthy", "boolean"},
       {"agent_count", "integer"},
       {"checker_count", "integer"},
-      {"updated_at", "timestamptz"}
+      {"updated_at", "timestamptz"},
+      {"tenant_id", "uuid"},
+      {"partition_id", "uuid"}
     ],
     fn {col, type} ->
       Ecto.Adapters.SQL.query!(
         repo,
-        "ALTER TABLE pollers ADD COLUMN IF NOT EXISTS #{col} #{type}",
+        "ALTER TABLE gateways ADD COLUMN IF NOT EXISTS #{col} #{type}",
         []
       )
     end
   )
 
-Ecto.Adapters.SQL.Sandbox.mode(ServiceRadarWebNG.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)

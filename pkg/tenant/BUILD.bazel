@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tenant",
+    srcs = ["tenant.go"],
+    importpath = "github.com/carverauto/serviceradar/pkg/tenant",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//credentials",
+        "@org_golang_google_grpc//peer",
+    ],
+)
+
+go_test(
+    name = "tenant_test",
+    srcs = ["tenant_test.go"],
+    embed = [":tenant"],
+    deps = [
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)

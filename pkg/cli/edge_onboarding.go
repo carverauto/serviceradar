@@ -29,7 +29,7 @@ const (
 
 	edgeCommandPackage = "package"
 
-	componentTypePoller  = "poller"
+	componentTypeGateway  = "gateway"
 	componentTypeAgent   = "agent"
 	componentTypeChecker = "checker"
 )
@@ -41,7 +41,7 @@ type edgePackageView struct {
 	ComponentType      string     `json:"component_type"`
 	ParentType         string     `json:"parent_type,omitempty"`
 	ParentID           string     `json:"parent_id,omitempty"`
-	PollerID           string     `json:"poller_id"`
+	GatewayID           string     `json:"gateway_id"`
 	Site               string     `json:"site,omitempty"`
 	Status             string     `json:"status"`
 	DownstreamSPIFFEID string     `json:"downstream_spiffe_id"`
@@ -84,7 +84,7 @@ type edgePackageDeliverAPIResponse struct {
 type edgePackageRevokeAPIResponse struct {
 	PackageID string    `json:"package_id"`
 	Status    string    `json:"status"`
-	PollerID  string    `json:"poller_id"`
+	GatewayID  string    `json:"gateway_id"`
 	UpdatedAt time.Time `json:"updated_at"`
 	RevokedAt time.Time `json:"revoked_at"`
 }
@@ -202,7 +202,7 @@ func buildEdgePackageCreatePayload(cfg *CmdConfig, componentType, parentType str
 	// Add optional string fields
 	addOptionalString(payload, "component_id", cfg.EdgePackageComponentID)
 	addOptionalString(payload, "parent_id", cfg.EdgePackageParentID)
-	addOptionalString(payload, "poller_id", cfg.EdgePackagePollerID)
+	addOptionalString(payload, "gateway_id", cfg.EdgePackageGatewayID)
 	addOptionalString(payload, "site", cfg.EdgePackageSite)
 	addOptionalString(payload, "checker_kind", cfg.EdgePackageCheckerKind)
 	addOptionalString(payload, "checker_config_json", cfg.EdgePackageCheckerConfig)
@@ -316,8 +316,8 @@ func RunEdgePackageList(cfg *CmdConfig) error {
 	if cfg.EdgePackageLimit > 0 {
 		params.Set("limit", strconv.Itoa(cfg.EdgePackageLimit))
 	}
-	if trimmed := strings.TrimSpace(cfg.EdgePackagePollerFilter); trimmed != "" {
-		params.Set("poller_id", trimmed)
+	if trimmed := strings.TrimSpace(cfg.EdgePackageGatewayFilter); trimmed != "" {
+		params.Set("gateway_id", trimmed)
 	}
 	if trimmed := strings.TrimSpace(cfg.EdgePackageParentFilter); trimmed != "" {
 		params.Set("parent_id", trimmed)
@@ -582,9 +582,9 @@ func RunEdgePackageDownload(cfg *CmdConfig) error {
 	if packageID == "" {
 		packageID = strings.TrimSpace(cfg.EdgePackageID)
 	}
-	pollerID := strings.TrimSpace(resp.Header.Get("X-Edge-Poller-ID"))
-	if pollerID != "" {
-		fmt.Printf("Wrote onboarding archive to %s (package %s, poller %s)\n", outputPath, packageID, pollerID)
+	gatewayID := strings.TrimSpace(resp.Header.Get("X-Edge-Gateway-ID"))
+	if gatewayID != "" {
+		fmt.Printf("Wrote onboarding archive to %s (package %s, gateway %s)\n", outputPath, packageID, gatewayID)
 	} else {
 		fmt.Printf("Wrote onboarding archive to %s (package %s)\n", outputPath, packageID)
 	}
@@ -743,8 +743,8 @@ func printCreateResult(result edgePackageCreateAPIResponse, token, datasvc strin
 	if result.Package.ComponentID != "" {
 		fmt.Printf("Component ID : %s\n", result.Package.ComponentID)
 	}
-	if result.Package.PollerID != "" {
-		fmt.Printf("Poller ID    : %s\n", result.Package.PollerID)
+	if result.Package.GatewayID != "" {
+		fmt.Printf("Gateway ID    : %s\n", result.Package.GatewayID)
 	}
 	if result.Package.Site != "" {
 		fmt.Printf("Site         : %s\n", result.Package.Site)
@@ -795,8 +795,8 @@ func printPackageDetails(pkg edgePackageView) {
 	if pkg.ParentID != "" {
 		fmt.Printf("Parent     : %s (%s)\n", pkg.ParentID, pkg.ParentType)
 	}
-	if pkg.PollerID != "" {
-		fmt.Printf("Poller ID  : %s\n", pkg.PollerID)
+	if pkg.GatewayID != "" {
+		fmt.Printf("Gateway ID  : %s\n", pkg.GatewayID)
 	}
 	if pkg.Site != "" {
 		fmt.Printf("Site       : %s\n", pkg.Site)
@@ -886,10 +886,10 @@ func normalizePackageFormat(raw string) (string, error) {
 func normalizeComponentType(raw string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {
-		value = componentTypePoller
+		value = componentTypeGateway
 	}
 	switch value {
-	case componentTypePoller, componentTypeAgent, componentTypeChecker:
+	case componentTypeGateway, componentTypeAgent, componentTypeChecker:
 		return value, nil
 	default:
 		trimmed := strings.TrimSpace(raw)

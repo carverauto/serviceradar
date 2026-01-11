@@ -38,7 +38,7 @@ message ServiceStatus {
     string service_type = 4;
     int64 response_time = 5;
     string agent_id = 6;
-    string poller_id = 7;
+    string gateway_id = 7;
     string partition = 8;
     string source = 9;
     string kv_store_id = 10; // KV store identifier this service is using
@@ -76,7 +76,7 @@ func ExtractSafeConfigMetadata(config interface{}) map[string]string {
 Services communicate their KV store usage to the core:
 
 ```go
-func (s *Server) extractSafeKVMetadata(svc *proto.ServiceStatus) map[string]string {
+func (s *Server) extractSafeKVMetadata(svc *proto.GatewayServiceStatus) map[string]string {
     metadata := make(map[string]string)
     metadata["service_type"] = svc.ServiceType
     
@@ -139,7 +139,7 @@ The `services` table stores safe metadata about service configurations:
 
 ```sql
 CREATE TABLE services (
-    poller_id String,
+    gateway_id String,
     service_name String,
     service_type String,
     agent_id String,

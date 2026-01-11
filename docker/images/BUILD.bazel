@@ -442,7 +442,7 @@ genrule(
     name = "web_ng_build_info_json",
     srcs = [
         ":web_ng_image_base_amd64.digest",
-        "//docker/images:core_image_amd64.digest",
+        "//docker/images:core_elx_image_amd64.digest",
         "//:VERSION",
     ],
     outs = ["web_ng_build_info.json"],
@@ -451,7 +451,7 @@ genrule(
 set -euo pipefail
 
 web_digest_file="$(location :web_ng_image_base_amd64.digest)"
-core_digest_file="$(location //docker/images:core_image_amd64.digest)"
+core_digest_file="$(location //docker/images:core_elx_image_amd64.digest)"
 version_file="$(location //:VERSION)"
 info_file="bazel-out/stable-status.txt"
 
@@ -466,7 +466,7 @@ web_short=$$(printf '%s' "$$web_short" | cut -c1-12)
 
 core_digest=$$(cat "$$core_digest_file")
 if [[ "$$core_digest" != sha256:* ]]; then
-  echo "unexpected core digest format: $$core_digest" >&2
+  echo "unexpected core-elx digest format: $$core_digest" >&2
   exit 1
 fi
 
@@ -514,12 +514,25 @@ pkg_tar(
     target_compatible_with = [],
 )
 
+# Bun runtime for Phoenix React Server SSR (GoRules JDM editor)
+pkg_tar(
+    name = "bun_runtime_layer_amd64",
+    files = {
+        "@bun_linux_amd64//:bun": "usr/local/bin/bun",
+    },
+    modes = {
+        "usr/local/bin/bun": "0755",
+    },
+    package_dir = "/",
+)
+
 oci_image(
     name = "web_ng_image_amd64",
     target_compatible_with = [],
     base = ":web_ng_image_base_amd64",
     tars = [
         ":web_ng_build_info_layer_amd64",
+        ":bun_runtime_layer_amd64",
     ],
     entrypoint = ["/app/bin/serviceradar_web_ng"],
     cmd = ["start"],
@@ -542,51 +555,84 @@ oci_load(
     repo_tags = ["ghcr.io/carverauto/serviceradar-web-ng:local"],
 )
 
-pkg_tar(
-    name = "core_layer_amd64",
-    files = {
-        "//cmd/core:core": "usr/local/bin/serviceradar-core",
-        "//docker/compose:entrypoint-core.sh": "usr/local/bin/entrypoint.sh",
-        "@jq_linux_amd64//file": "usr/local/bin/jq",
-        "@curl_linux_amd64//file": "usr/local/bin/curl",
-        "@grpcurl_linux_amd64//:grpcurl": "usr/local/bin/grpcurl",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-core": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "usr/local/bin/jq": "0755",
-        "usr/local/bin/curl": "0755",
-        "usr/local/bin/grpcurl": "0755",
-    },
-    empty_dirs = [
-        "etc/serviceradar",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-        "data",
-    ],
-    package_dir = "/",
+# elixir core-elx ------------------------------------------------------------
+
+genrule(
+    name = "core_elx_release_rootfs_amd64",
+    srcs = ["//elixir/serviceradar_core_elx:release_tar"],
+    outs = ["core_elx_release_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TAR=$(location //elixir/serviceradar_core_elx:release_tar)
+ROOT=$(@D)/rootfs
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}/app"
+tar -xzf "$${TAR}" -C "$${ROOT}/app"
+tar -czf "$@" -C "$${ROOT}" .
+""",
 )
 
 oci_image(
-    name = "core_image_amd64",
-    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
-    tars = [":core_layer_amd64"],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-core"],
-    workdir = "/data",
+    name = "core_elx_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    tars = [":core_elx_release_rootfs_amd64"],
+    entrypoint = ["/app/bin/serviceradar_core_elx"],
+    cmd = ["start"],
     env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
     },
-    exposed_ports = ["8090/tcp", "50052/tcp"],
+    workdir = "/app",
     labels = {
-        "org.opencontainers.image.title": "serviceradar-core",
+        "org.opencontainers.image.title": "serviceradar-core-elx",
     },
 )
 
 oci_load(
-    name = "core_image_amd64_tar",
-    image = ":core_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-core:local"],
+    name = "core_elx_image_amd64_tar",
+    image = ":core_elx_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-core-elx:local"],
+)
+
+# elixir agent-gateway -------------------------------------------------------
+
+genrule(
+    name = "agent_gateway_release_rootfs_amd64",
+    srcs = ["//elixir/serviceradar_agent_gateway:release_tar"],
+    outs = ["agent_gateway_release_rootfs_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TAR=$(location //elixir/serviceradar_agent_gateway:release_tar)
+ROOT=$(@D)/rootfs
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}/app"
+tar -xzf "$${TAR}" -C "$${ROOT}/app"
+tar -czf "$@" -C "$${ROOT}" .
+""",
+)
+
+oci_image(
+    name = "agent_gateway_image_amd64",
+    base = "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
+    tars = [":agent_gateway_release_rootfs_amd64"],
+    entrypoint = ["/app/bin/serviceradar_agent_gateway"],
+    cmd = ["start"],
+    env = {
+        "HOME": "/app",
+        "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
+        "MIX_ENV": "prod",
+    },
+    workdir = "/app",
+    labels = {
+        "org.opencontainers.image.title": "serviceradar-agent-gateway",
+    },
+)
+
+oci_load(
+    name = "agent_gateway_image_amd64_tar",
+    image = ":agent_gateway_image_amd64",
+    repo_tags = ["ghcr.io/carverauto/serviceradar-agent-gateway:local"],
 )
 
 pkg_tar(
@@ -962,90 +1008,6 @@ oci_load(
     name = "rperf_client_image_amd64_tar",
     image = ":rperf_client_image_amd64",
     repo_tags = ["ghcr.io/carverauto/serviceradar-rperf-client:local"],
-)
-
-pkg_tar(
-    name = "poller_layer_amd64",
-    files = {
-        "//cmd/poller:poller": "usr/local/bin/serviceradar-poller",
-        "//docker/compose:poller.docker.json": "etc/serviceradar/poller.json",
-        "//docker/compose:entrypoint-poller.sh": "usr/local/bin/poller-entrypoint.sh",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-poller": "0755",
-        "etc/serviceradar/poller.json": "0644",
-        "usr/local/bin/poller-entrypoint.sh": "0755",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "poller_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [":alpine_netutils_rootfs_amd64", ":common_tools_amd64", ":poller_layer_amd64"],
-    entrypoint = ["/usr/local/bin/poller-entrypoint.sh"],
-    cmd = ["/usr/local/bin/serviceradar-poller", "-config", "/etc/serviceradar/poller.json"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50053/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-poller",
-    },
-)
-
-oci_load(
-    name = "poller_image_amd64_tar",
-    image = ":poller_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-poller:local"],
-)
-
-pkg_tar(
-    name = "sync_layer_amd64",
-    files = {
-        "//cmd/sync:sync": "usr/local/bin/serviceradar-sync",
-        "//docker/compose:entrypoint-sync.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:sync.docker.json": "etc/serviceradar/sync.json",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-sync": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "etc/serviceradar/sync.json": "0644",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "sync_image_amd64",
-    base = "@ubuntu_jammy_linux_amd64//:ubuntu_jammy_linux_amd64",
-    tars = [":common_tools_amd64", ":sync_layer_amd64"],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-sync"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50058/tcp"],
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-sync",
-    },
-)
-
-oci_load(
-    name = "sync_image_amd64_tar",
-    image = ":sync_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-sync:local"],
 )
 
 pkg_tar(

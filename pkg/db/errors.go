@@ -51,9 +51,9 @@ var (
 	// CNPG discovery + topology validation errors.
 
 	ErrDiscoveredInterfaceNil       = errors.New("discovered interface is nil")
-	ErrDiscoveredIdentifiersMissing = errors.New("agent_id, poller_id, and device_ip are required")
+	ErrDiscoveredIdentifiersMissing = errors.New("agent_id, gateway_id, and device_ip are required")
 	ErrTopologyEventNil             = errors.New("topology discovery event is nil")
-	ErrTopologyIdentifiersMissing   = errors.New("agent_id, poller_id, local_device_ip, and protocol_type are required")
+	ErrTopologyIdentifiersMissing   = errors.New("agent_id, gateway_id, local_device_ip, and protocol_type are required")
 
 	// Edge onboarding helpers.
 
@@ -69,19 +69,19 @@ var (
 
 	// Registry validation errors.
 
-	ErrPollerStatusNil              = errors.New("poller status nil")
-	ErrPollerIDMissing              = errors.New("poller id is required")
+	ErrGatewayStatusNil              = errors.New("gateway status nil")
+	ErrGatewayIDMissing              = errors.New("gateway id is required")
 	ErrServiceStatusNil             = errors.New("service status nil")
-	ErrServiceStatusPollerIDMissing = errors.New("service status poller id is required")
+	ErrServiceStatusGatewayIDMissing = errors.New("service status gateway id is required")
 	ErrServiceNil                   = errors.New("service nil")
-	ErrServicePollerIDMissing       = errors.New("service poller id required")
+	ErrServiceGatewayIDMissing       = errors.New("service gateway id required")
 	ErrServiceRegistrationEventNil  = errors.New("service registration event is nil")
 
 	// Sweep validation errors.
 
 	ErrSweepStateNil        = errors.New("sweep host state is nil")
 	ErrSweepHostIPMissing   = errors.New("host ip is required")
-	ErrSweepPollerIDMissing = errors.New("poller id is required")
+	ErrSweepGatewayIDMissing = errors.New("gateway id is required")
 	ErrSweepAgentIDMissing  = errors.New("agent id is required")
 
 	// Rows helpers.

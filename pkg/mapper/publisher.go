@@ -105,7 +105,7 @@ func (p *RegistryPublisher) convertDiscoveredDeviceToUpdate(device *DiscoveredDe
 		IP:          device.IP,
 		Source:      discoverySource,
 		AgentID:     p.config.AgentID,
-		PollerID:    p.config.PollerID,
+		GatewayID:    p.config.GatewayID,
 		Partition:   partition,
 		Timestamp:   time.Now(),
 		Hostname:    &hostname,
@@ -156,7 +156,7 @@ func (p *RegistryPublisher) PublishInterface(ctx context.Context, iface *Discove
 	discoveredInterface := &models.DiscoveredInterface{
 		Timestamp:     time.Now(),
 		AgentID:       p.config.AgentID,
-		PollerID:      p.config.PollerID,
+		GatewayID:      p.config.GatewayID,
 		DeviceIP:      iface.DeviceIP,
 		DeviceID:      iface.DeviceID,
 		IfIndex:       iface.IfIndex,
@@ -200,7 +200,7 @@ func (p *RegistryPublisher) PublishTopologyLink(ctx context.Context, link *Topol
 	topologyEvent := &models.TopologyDiscoveryEvent{
 		Timestamp:              time.Now(),
 		AgentID:                p.config.AgentID,
-		PollerID:               p.config.PollerID,
+		GatewayID:               p.config.GatewayID,
 		LocalDeviceIP:          link.LocalDeviceIP,
 		LocalDeviceID:          link.LocalDeviceID,
 		LocalIfIndex:           link.LocalIfIndex,
@@ -250,7 +250,7 @@ func (p *RegistryPublisher) PublishBatchInterfaces(ctx context.Context, interfac
 		modelInterfaces[i] = &models.DiscoveredInterface{
 			Timestamp:     time.Now(),
 			AgentID:       p.config.AgentID,
-			PollerID:      p.config.PollerID,
+			GatewayID:      p.config.GatewayID,
 			DeviceIP:      iface.DeviceIP,
 			DeviceID:      iface.DeviceID,
 			IfIndex:       iface.IfIndex,
@@ -284,7 +284,7 @@ func (p *RegistryPublisher) PublishBatchTopologyLinks(ctx context.Context, links
 		modelEvents[i] = &models.TopologyDiscoveryEvent{
 			Timestamp:              time.Now(),
 			AgentID:                p.config.AgentID,
-			PollerID:               p.config.PollerID,
+			GatewayID:               p.config.GatewayID,
 			LocalDeviceIP:          link.LocalDeviceIP,
 			LocalDeviceID:          link.LocalDeviceID,
 			LocalIfIndex:           link.LocalIfIndex,

@@ -19,7 +19,6 @@ package sync
 import (
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -113,59 +112,6 @@ func (nb *NetworkBlacklist) FilterDevices(devices []*models.DeviceUpdate) []*mod
 			Int("original_count", len(devices)).
 			Int("remaining_count", len(filtered)).
 			Msg("Filtered devices based on network blacklist")
-	}
-
-	return filtered
-}
-
-// FilterKVData filters out KV entries whose keys contain blacklisted IP addresses
-func (nb *NetworkBlacklist) FilterKVData(kvData map[string][]byte, devices []*models.DeviceUpdate) map[string][]byte {
-	if len(nb.networks) == 0 || len(kvData) == 0 {
-		return kvData
-	}
-
-	// Create a set of allowed IPs from the filtered devices
-	allowedIPs := make(map[string]bool, len(devices))
-
-	for _, device := range devices {
-		if device.IP != "" {
-			allowedIPs[device.IP] = true
-		}
-	}
-
-	filtered := make(map[string][]byte)
-	blacklistedCount := 0
-
-	for key, value := range kvData {
-		// Check if key contains an IP address pattern (e.g., "agentID/192.168.1.1")
-		// Keys can be in format "deviceID" or "agentID/IP"
-		parts := strings.Split(key, "/")
-
-		if len(parts) == 2 {
-			ip := parts[1]
-
-			if nb.IsBlacklisted(ip) || !allowedIPs[ip] {
-				blacklistedCount++
-
-				nb.logger.Debug().
-					Str("key", key).
-					Str("ip", ip).
-					Msg("Filtering out blacklisted KV entry")
-
-				continue
-			}
-		}
-
-		// Keep entries that don't follow the agentID/IP pattern or are not blacklisted
-		filtered[key] = value
-	}
-
-	if blacklistedCount > 0 {
-		nb.logger.Info().
-			Int("filtered_count", blacklistedCount).
-			Int("original_count", len(kvData)).
-			Int("remaining_count", len(filtered)).
-			Msg("Filtered KV data based on network blacklist")
 	}
 
 	return filtered

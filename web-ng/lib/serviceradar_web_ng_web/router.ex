@@ -1,9 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Router do
   use ServiceRadarWebNGWeb, :router
+  use AshAuthentication.Phoenix.Router
+  import AshAdmin.Router
 
   import Oban.Web.Router
   import Phoenix.LiveDashboard.Router
   import ServiceRadarWebNGWeb.UserAuth
+
+  alias ServiceRadarWebNG.Accounts.Scope
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -12,7 +16,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
+    plug :set_ash_actor
   end
 
   pipeline :api do
@@ -23,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
   end
@@ -41,9 +48,23 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug ServiceRadarWebNGWeb.Plugs.BasicAuth
   end
 
+  pipeline :oban_access do
+    plug :require_oban_access
+  end
+
   # API pipeline for token-gated endpoints (no session auth required)
   pipeline :api_token_auth do
     plug :accepts, ["json"]
+  end
+
+  # JSON:API pipeline for Ash resources (v2 API)
+  pipeline :ash_json_api do
+    plug :accepts, ["json"]
+    plug :fetch_session
+    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
+    plug :fetch_current_scope_for_user
+    plug :set_ash_actor
+    plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -81,6 +102,23 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Package actions
     post "/edge-packages/:id/revoke", EdgeController, :revoke
+
+    # NATS platform administration (super admin)
+    post "/nats/bootstrap-token", NatsController, :generate_bootstrap_token
+    post "/nats/bootstrap", NatsController, :bootstrap
+    get "/nats/status", NatsController, :status
+    get "/nats/tenants", NatsController, :tenants
+    post "/nats/tenants/:id/reprovision", NatsController, :reprovision
+
+    # Collector package management (tenant admin)
+    get "/collectors", CollectorController, :index
+    post "/collectors", CollectorController, :create
+    get "/collectors/:id", CollectorController, :show
+    post "/collectors/:id/revoke", CollectorController, :revoke
+
+    # Tenant NATS account & credentials
+    get "/nats/account", CollectorController, :account_status
+    get "/nats/credentials", CollectorController, :credentials
   end
 
   # Edge package download - token-gated (no session auth required)
@@ -89,31 +127,116 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through :api_token_auth
 
     post "/edge-packages/:id/download", EdgeController, :download
+    post "/collectors/:id/download", CollectorController, :download
+  end
+
+  # Edge package bundle download - public endpoint with token in query param
+  # Allows one-liner curl commands for zero-touch provisioning
+  scope "/api", ServiceRadarWebNG.Api do
+    pipe_through :api
+
+    get "/edge-packages/:id/bundle", EdgeController, :bundle
+    get "/collectors/:id/bundle", CollectorController, :bundle
+
+    # Collector enrollment endpoint for serviceradar-cli
+    # Usage: serviceradar-cli enroll --token <token>
+    # Token decodes to: GET /api/enroll/:package_id?token=<secret>
+    get "/enroll/:package_id", EnrollController, :enroll
+  end
+
+  # Ash JSON:API v2 endpoints
+  scope "/api/v2" do
+    pipe_through :ash_json_api
+
+    forward "/", ServiceRadarWebNGWeb.AshJsonApiRouter
   end
 
   scope "/dev" do
     pipe_through [:browser, :dev_routes]
 
-    live_dashboard "/dashboard", metrics: ServiceRadarWebNGWeb.Telemetry
+    live_dashboard "/dashboard",
+      metrics: ServiceRadarWebNGWeb.Telemetry,
+      additional_pages: [
+        broadway: {BroadwayDashboard, pipelines: [ServiceRadar.EventWriter.Pipeline]}
+      ]
+
     forward "/mailbox", Plug.Swoosh.MailboxPreview
+
+    # AshAdmin for Ash resource management (dev/staging only)
+    ash_admin("/ash",
+      domains: [
+        ServiceRadar.Identity,
+        ServiceRadar.Inventory,
+        ServiceRadar.Infrastructure,
+        ServiceRadar.Monitoring,
+        ServiceRadar.Edge
+      ],
+      actor: fn conn ->
+        # Get actor from session for AshAdmin
+        case conn.assigns[:current_scope] do
+          %{user: user} when not is_nil(user) -> user
+          _ -> nil
+        end
+      end
+    )
   end
 
   scope "/admin", ServiceRadarWebNGWeb do
-    pipe_through [:browser]
+    pipe_through [:browser, :require_authenticated_user]
 
     live_session :admin,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/jobs", Admin.JobLive.Index, :index
+      live "/jobs/:id", Admin.JobLive.Show, :show
       live "/edge-packages", Admin.EdgePackageLive.Index, :index
       live "/edge-packages/new", Admin.EdgePackageLive.Index, :new
       live "/edge-packages/:id", Admin.EdgePackageLive.Index, :show
+      live "/integrations", Admin.IntegrationLive.Index, :index
+      live "/integrations/new", Admin.IntegrationLive.Index, :new
+      live "/integrations/:id", Admin.IntegrationLive.Index, :show
+      live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
+      live "/cluster", Admin.ClusterLive.Index, :index
+      live "/nats", Admin.NatsLive.Index, :index
+      live "/nats/tenants/:id", Admin.NatsLive.Show, :show
+      live "/collectors", Admin.CollectorLive.Index, :index
+      live "/collectors/:id", Admin.CollectorLive.Index, :show
+      live "/edge-sites", Admin.EdgeSitesLive.Index, :index
+      live "/edge-sites/new", Admin.EdgeSitesLive.Index, :new
+      live "/edge-sites/:id", Admin.EdgeSitesLive.Show, :show
     end
 
-    oban_dashboard("/oban",
-      oban_name: Oban,
-      as: :admin_oban_dashboard,
-      resolver: ServiceRadarWebNGWeb.ObanResolver
+    scope "/" do
+      pipe_through [:oban_access]
+
+      oban_dashboard("/oban",
+        oban_name: Oban,
+        as: :admin_oban_dashboard,
+        resolver: ServiceRadarWebNGWeb.ObanResolver
+      )
+    end
+  end
+
+  ## AshAuthentication routes
+  # These routes handle password, magic link, and OAuth callbacks
+
+  scope "/", ServiceRadarWebNGWeb do
+    pipe_through :browser
+
+    sign_out_route(AuthController, "/auth/sign-out")
+
+    # Interactive magic link sign-in (require_interaction? is set in the strategy)
+    magic_sign_in_route(ServiceRadar.Identity.User, :magic_link,
+      auth_routes_prefix: "/auth",
+      overrides: [ServiceRadarWebNGWeb.AuthOverrides, AshAuthentication.Phoenix.Overrides.Default],
+      live_view: ServiceRadarWebNGWeb.AuthLive.MagicLinkSignIn,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}],
+      path: "/auth/user/magic_link",
+      token_as_route_param?: false
     )
+
+    reset_route(path: "/auth/password-reset", auth_routes_prefix: "/auth")
+
+    auth_routes(AuthController, ServiceRadar.Identity.User, path: "/auth")
   end
 
   ## Authentication routes
@@ -123,42 +246,72 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Redirect /dashboard to /analytics
     get "/dashboard", PageController, :redirect_to_analytics
+    get "/users/settings", PageController, :redirect_to_settings_profile
 
     live_session :require_authenticated_user,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
       live "/analytics", AnalyticsLive.Index, :index
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
-      live "/pollers", PollerLive.Index, :index
-      live "/pollers/:poller_id", PollerLive.Show, :show
+
+      # Connected agents view (tenant-scoped, visible to all authenticated users)
       live "/agents", AgentLive.Index, :index
       live "/agents/:uid", AgentLive.Show, :show
+
+      # Gateways
+      live "/gateways", GatewayLive.Index, :index
+      live "/gateways/:gateway_id", GatewayLive.Show, :show
       live "/events", EventLive.Index, :index
       live "/events/:event_id", EventLive.Show, :show
+      live "/alerts", AlertLive.Index, :index
+      live "/alerts/:alert_id", AlertLive.Show, :show
       live "/observability", LogLive.Index, :index
       live "/observability/metrics/:span_id", MetricLive.Show, :show
       live "/logs", LogLive.Index, :index
       live "/logs/:log_id", LogLive.Show, :show
       live "/services", ServiceLive.Index, :index
       live "/interfaces", InterfaceLive.Index, :index
-      live "/users/settings", UserLive.Settings, :edit
+      live "/settings/profile", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      # Cluster visibility for all authenticated users
+      live "/settings/cluster", Settings.ClusterLive.Index, :index
+      live "/settings/cluster/nodes/:node_name", NodeLive.Show, :show
+      live "/settings/rules", Settings.RulesLive.Index, :index
+
+      # Zen Rule Editor - visual JDM editor for rule logic
+      live "/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new
+      live "/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit
+      live "/settings/rules/zen/clone/:clone_id", Settings.ZenRuleEditorLive, :clone
+
+      get "/infrastructure", PageController, :redirect_to_settings_cluster
+      get "/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node
     end
 
     post "/users/update-password", UserSessionController, :update_password
+    post "/tenants/switch/:tenant_id", TenantController, :switch
+  end
+
+  scope "/", ServiceRadarWebNGWeb do
+    pipe_through :browser
+
+    # AshAuthentication.Phoenix sign-in LiveView
+    ash_authentication_live_session :authentication,
+      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
+      live "/users/log-in", AuthLive.SignIn, :sign_in
+    end
   end
 
   scope "/", ServiceRadarWebNGWeb do
     pipe_through [:browser]
 
-    live_session :current_user,
+    # Custom registration with organization creation
+    live_session :registration,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", UserLive.Registration, :new
-      live "/users/log-in", UserLive.Login, :new
-      live "/users/log-in/:token", UserLive.Confirmation, :new
+      live "/users/register", AuthLive.Register
     end
 
-    post "/users/log-in", UserSessionController, :create
+    # Legacy session routes (kept for logout and magic link token handling)
     delete "/users/log-out", UserSessionController, :delete
   end
 
@@ -169,6 +322,68 @@ defmodule ServiceRadarWebNGWeb.Router do
       conn
       |> Plug.Conn.send_resp(:not_found, "Not Found")
       |> Plug.Conn.halt()
+    end
+  end
+
+  # Set the Ash actor and tenant from the current user for policy enforcement
+  # Includes partition context from request header or session
+  defp set_ash_actor(conn, _opts) do
+    case conn.assigns[:current_scope] do
+      %Scope{user: user} = scope when not is_nil(user) ->
+        partition_id = get_partition_id_from_request(conn)
+        tenant_id = Scope.tenant_id(scope)
+
+        actor = %{
+          id: user.id,
+          tenant_id: tenant_id,
+          role: user.role,
+          email: user.email
+        }
+
+        actor = if partition_id, do: Map.put(actor, :partition_id, partition_id), else: actor
+
+        conn
+        |> assign(:ash_actor, actor)
+        |> assign(:current_partition_id, partition_id)
+        |> Ash.PlugHelpers.set_actor(actor)
+        |> maybe_set_tenant(tenant_id)
+
+      _ ->
+        conn
+    end
+  end
+
+  defp maybe_set_tenant(conn, nil), do: conn
+
+  defp maybe_set_tenant(conn, tenant_id) do
+    case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
+      tenant_schema when is_binary(tenant_schema) ->
+        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
+
+      _ ->
+        conn
+    end
+  end
+
+  # Extract partition ID from X-Partition-Id header or session
+  defp get_partition_id_from_request(conn) do
+    case Plug.Conn.get_req_header(conn, "x-partition-id") do
+      [partition_id | _] when byte_size(partition_id) > 0 ->
+        cast_uuid(partition_id)
+
+      _ ->
+        conn
+        |> Plug.Conn.get_session(:current_partition_id)
+        |> cast_uuid()
+    end
+  end
+
+  defp cast_uuid(nil), do: nil
+
+  defp cast_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
     end
   end
 end

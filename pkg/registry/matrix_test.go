@@ -18,7 +18,7 @@ func TestCapabilityMatrixSetAndGet(t *testing.T) {
 	input := &models.DeviceCapabilitySnapshot{
 		DeviceID:    "default:10.0.0.1",
 		Capability:  "ICMP",
-		ServiceID:   "poller-1",
+		ServiceID:   "gateway-1",
 		ServiceType: "icmp",
 		State:       "ok",
 		Enabled:     true,
@@ -30,7 +30,7 @@ func TestCapabilityMatrixSetAndGet(t *testing.T) {
 
 	matrix.Set(input)
 
-	got, ok := matrix.Get("default:10.0.0.1", "icmp", "poller-1")
+	got, ok := matrix.Get("default:10.0.0.1", "icmp", "gateway-1")
 	require.True(t, ok)
 	require.NotNil(t, got)
 	require.NotSame(t, input, got)
@@ -42,7 +42,7 @@ func TestCapabilityMatrixSetAndGet(t *testing.T) {
 	got.Metadata["latency_ms"] = 42
 	got.LastChecked = got.LastChecked.Add(time.Hour)
 
-	check, ok := matrix.Get("default:10.0.0.1", "icmp", "poller-1")
+	check, ok := matrix.Get("default:10.0.0.1", "icmp", "gateway-1")
 	require.True(t, ok)
 	require.EqualValues(t, 12, check.Metadata["latency_ms"])
 	require.Equal(t, now, check.LastChecked)

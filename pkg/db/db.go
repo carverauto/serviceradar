@@ -309,7 +309,7 @@ func normalizeCNPGValue(value interface{}) interface{} {
 	}
 }
 
-// GetAllMountPoints retrieves all unique mount points for a poller.
+// GetAllMountPoints retrieves all unique mount points for a gateway.
 // PublishDeviceUpdate publishes a single device update to the device_updates stream.
 func (db *DB) PublishDeviceUpdate(ctx context.Context, update *models.DeviceUpdate) error {
 	return db.PublishBatchDeviceUpdates(ctx, []*models.DeviceUpdate{update})
@@ -336,7 +336,7 @@ func normalizeDeviceUpdate(update *models.DeviceUpdate) {
 
 	// Ensure required fields
 	if update.DeviceID == "" {
-		// Check if this is a service component (poller/agent/checker)
+		// Check if this is a service component (gateway/agent/checker)
 		if update.ServiceType != nil && update.ServiceID != "" {
 			// Generate service-aware device ID: serviceradar:type:id
 			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)

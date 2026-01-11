@@ -22,14 +22,14 @@ type SNMPDiscoveryDataPayload struct {
 	Interfaces []*discoverypb.DiscoveredInterface `json:"interfaces"`
 	Topology   []*discoverypb.TopologyLink        `json:"topology"`
 	AgentID    string                             `json:"agent_id"`  // Agent that ran the discovery engine
-	PollerID   string                             `json:"poller_id"` // Poller that initiated the discovery
+	GatewayID   string                             `json:"gateway_id"` // Gateway that initiated the discovery
 }
 
 // ServiceMetricsPayload is the enhanced payload structure for ALL service metrics reports.
 // It includes metadata about the collector infrastructure along with the service-specific data.
 type ServiceMetricsPayload struct {
-	PollerID    string          `json:"poller_id"`    // Poller that collected the metrics
-	AgentID     string          `json:"agent_id"`     // Agent that the poller belongs to
+	GatewayID    string          `json:"gateway_id"`    // Gateway that collected the metrics
+	AgentID     string          `json:"agent_id"`     // Agent that the gateway belongs to
 	Partition   string          `json:"partition"`    // Partition for the collection
 	ServiceType string          `json:"service_type"` // Type of service (snmp, sysmon, icmp, etc.)
 	ServiceName string          `json:"service_name"` // Name of the service instance
@@ -40,8 +40,8 @@ type ServiceMetricsPayload struct {
 // It includes metadata about the collector infrastructure along with the target data.
 // Deprecated: Use ServiceMetricsPayload instead
 type SNMPMetricsPayload struct {
-	PollerID  string          `json:"poller_id"` // Poller that collected the metrics
-	AgentID   string          `json:"agent_id"`  // Agent that the poller belongs to
+	GatewayID  string          `json:"gateway_id"` // Gateway that collected the metrics
+	AgentID   string          `json:"agent_id"`  // Agent that the gateway belongs to
 	Partition string          `json:"partition"` // Partition from SNMP checker config
 	Targets   json.RawMessage `json:"targets"`   // Target statuses and metrics (map[string]snmp.TargetStatus)
 }

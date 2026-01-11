@@ -40,10 +40,10 @@ else
         end
       end
 
-      def create_pollers_table(conn) do
+      def create_gateways_table(conn) do
         sql = """
-        CREATE TABLE IF NOT EXISTS pollers (
-          poller_id text PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS gateways (
+          gateway_id text PRIMARY KEY,
           component_id text NULL,
           registration_source text NULL,
           status text NULL,
@@ -63,12 +63,12 @@ else
         Postgrex.query!(conn, sql, [])
       end
 
-      def insert_poller(conn, poller_id) do
+      def insert_gateway(conn, gateway_id) do
         now = DateTime.utc_now()
 
         sql = """
-        INSERT INTO pollers (
-          poller_id,
+        INSERT INTO gateways (
+          gateway_id,
           component_id,
           registration_source,
           status,
@@ -98,7 +98,7 @@ else
           $13,
           $14
         )
-        ON CONFLICT (poller_id) DO UPDATE SET
+        ON CONFLICT (gateway_id) DO UPDATE SET
           component_id = excluded.component_id,
           registration_source = excluded.registration_source,
           status = excluded.status,
@@ -115,11 +115,11 @@ else
         """
 
         Postgrex.query!(conn, sql, [
-          poller_id,
+          gateway_id,
           "srql-itest",
           "integration",
           "ready",
-          "spiffe://example.test/poller",
+          "spiffe://example.test/gateway",
           now,
           now,
           now,
@@ -132,8 +132,8 @@ else
         ])
       end
 
-      def delete_poller(conn, poller_id) do
-        Postgrex.query!(conn, "DELETE FROM pollers WHERE poller_id = $1", [poller_id])
+      def delete_gateway(conn, gateway_id) do
+        Postgrex.query!(conn, "DELETE FROM gateways WHERE gateway_id = $1", [gateway_id])
       end
     end
 
@@ -144,26 +144,26 @@ else
       on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
 
       conn = start_supervised!({Postgrex, PostgrexHelpers.connection_opts()})
-      PostgrexHelpers.create_pollers_table(conn)
+      PostgrexHelpers.create_gateways_table(conn)
 
-      poller_id = "srql-itest-" <> Ecto.UUID.generate()
-      PostgrexHelpers.insert_poller(conn, poller_id)
+      gateway_id = "srql-itest-" <> Ecto.UUID.generate()
+      PostgrexHelpers.insert_gateway(conn, gateway_id)
 
       on_exit(fn ->
         if Process.alive?(conn) do
           try do
-            PostgrexHelpers.delete_poller(conn, poller_id)
+            PostgrexHelpers.delete_gateway(conn, gateway_id)
           catch
             :exit, _ -> :ok
           end
         end
       end)
 
-      {:ok, poller_id: poller_id}
+      {:ok, gateway_id: gateway_id}
     end
 
-    test "translates SRQL pollers query via NIF", %{poller_id: poller_id} do
-      query = "in:pollers poller_id:#{poller_id} is_healthy:true limit:5"
+    test "translates SRQL gateways query via NIF", %{gateway_id: gateway_id} do
+      query = "in:gateways gateway_id:#{gateway_id} is_healthy:true limit:5"
 
       assert {:ok, json} =
                ServiceRadarWebNG.SRQL.Native.translate(query, nil, nil, nil, nil)
@@ -173,8 +173,8 @@ else
       assert is_list(params)
     end
 
-    test "executes SRQL pollers query via NIF", %{poller_id: poller_id} do
-      query = "in:pollers poller_id:#{poller_id} is_healthy:true limit:5"
+    test "executes SRQL gateways query via NIF", %{gateway_id: gateway_id} do
+      query = "in:gateways gateway_id:#{gateway_id} is_healthy:true limit:5"
 
       assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
       assert is_map(response)
@@ -183,11 +183,11 @@ else
       assert is_list(results)
       assert length(results) == 1
 
-      poller = hd(results)
-      assert poller["poller_id"] == poller_id
-      assert poller["is_healthy"] == true
-      assert poller["agent_count"] == 7
-      assert poller["checker_count"] == 3
+      gateway = hd(results)
+      assert gateway["gateway_id"] == gateway_id
+      assert gateway["is_healthy"] == true
+      assert gateway["agent_count"] == 7
+      assert gateway["checker_count"] == 3
     end
   end
 end

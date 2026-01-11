@@ -19,6 +19,7 @@ package datasvc
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"log"
 	"strings"
 
@@ -105,7 +106,7 @@ func (*Server) extractIdentity(ctx context.Context) (string, error) {
 		return id, nil
 	}
 
-	return cert.Subject.String(), nil
+	return subjectIdentity(cert), nil
 }
 
 // authorizeMethod checks if the role is permitted to execute the method.
@@ -162,4 +163,25 @@ func spiffeIDFromCertificate(cert *x509.Certificate) string {
 	}
 
 	return ""
+}
+
+func subjectIdentity(cert *x509.Certificate) string {
+	if cert == nil {
+		return ""
+	}
+
+	cn := strings.TrimSpace(cert.Subject.CommonName)
+	org := ""
+	if len(cert.Subject.Organization) > 0 {
+		org = strings.TrimSpace(cert.Subject.Organization[0])
+	}
+
+	switch {
+	case cn == "":
+		return cert.Subject.String()
+	case org == "":
+		return fmt.Sprintf("CN=%s", cn)
+	default:
+		return fmt.Sprintf("CN=%s,O=%s", cn, org)
+	}
 }

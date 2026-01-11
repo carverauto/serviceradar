@@ -84,7 +84,7 @@ type archiveMetadataFile struct {
 	ComponentType      string                 `json:"component_type"`
 	ParentType         string                 `json:"parent_type"`
 	ParentID           string                 `json:"parent_id"`
-	PollerID           string                 `json:"poller_id"`
+	GatewayID           string                 `json:"gateway_id"`
 	Site               string                 `json:"site"`
 	Status             string                 `json:"status"`
 	DownstreamSPIFFEID string                 `json:"downstream_spiffe_id"`
@@ -116,7 +116,7 @@ type edgePackagePayload struct {
 	ComponentType          string     `json:"component_type"`
 	ParentType             string     `json:"parent_type"`
 	ParentID               string     `json:"parent_id"`
-	PollerID               string     `json:"poller_id"`
+	GatewayID               string     `json:"gateway_id"`
 	Site                   string     `json:"site"`
 	Status                 string     `json:"status"`
 	DownstreamSPIFFEID     string     `json:"downstream_spiffe_id"`
@@ -319,7 +319,7 @@ func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
 
 	componentID := strings.TrimSpace(m.ComponentID)
 	if componentID == "" {
-		componentID = strings.TrimSpace(m.PollerID)
+		componentID = strings.TrimSpace(m.GatewayID)
 	}
 	if componentID == "" {
 		return nil, ErrComponentIDEmpty
@@ -327,7 +327,7 @@ func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
 
 	componentType := models.EdgeOnboardingComponentType(strings.TrimSpace(m.ComponentType))
 	if componentType == models.EdgeOnboardingComponentTypeNone {
-		componentType = models.EdgeOnboardingComponentTypePoller
+		componentType = models.EdgeOnboardingComponentTypeGateway
 	}
 
 	parentType := models.EdgeOnboardingComponentType(strings.TrimSpace(m.ParentType))
@@ -346,7 +346,7 @@ func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
 		ComponentType:          componentType,
 		ParentType:             parentType,
 		ParentID:               strings.TrimSpace(m.ParentID),
-		PollerID:               m.PollerID,
+		GatewayID:               m.GatewayID,
 		Site:                   m.Site,
 		Status:                 status,
 		DownstreamSPIFFEID:     strings.TrimSpace(m.DownstreamSPIFFEID),
@@ -376,10 +376,10 @@ func (m *archiveMetadataFile) toModel() (*models.EdgeOnboardingPackage, error) {
 	}
 
 	if pkg.ComponentType == models.EdgeOnboardingComponentTypeNone {
-		pkg.ComponentType = models.EdgeOnboardingComponentTypePoller
+		pkg.ComponentType = models.EdgeOnboardingComponentTypeGateway
 	}
-	if pkg.PollerID == "" {
-		pkg.PollerID = componentID
+	if pkg.GatewayID == "" {
+		pkg.GatewayID = componentID
 	}
 
 	if pkg.MetadataJSON == "" && len(m.Metadata) > 0 {
@@ -595,7 +595,7 @@ func (p edgePackagePayload) toModel() (*models.EdgeOnboardingPackage, error) {
 		ComponentType:          componentType,
 		ParentType:             parentType,
 		ParentID:               p.ParentID,
-		PollerID:               p.PollerID,
+		GatewayID:               p.GatewayID,
 		Site:                   p.Site,
 		Status:                 status,
 		DownstreamSPIFFEID:     p.DownstreamSPIFFEID,

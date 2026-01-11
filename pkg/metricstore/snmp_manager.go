@@ -40,16 +40,16 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // parseMetadata extracts a map from a JSON string metadata.
-func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
+func parseMetadata(metadataStr, metricName, gatewayID string) (map[string]interface{}, bool) {
 	if metadataStr == "" {
-		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
+		log.Printf("Warning: empty metadata for metric %s on gateway %s", metricName, gatewayID)
 		return nil, false
 	}
 
 	var metadata map[string]interface{}
 
 	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
-		log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+		log.Printf("Failed to unmarshal metadata for metric %s on gateway %s: %v", metricName, gatewayID, err)
 		return nil, false
 	}
 
@@ -58,7 +58,7 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 
 // StoreSNMPMetric stores an SNMP metric in the database.
 func (s *snmpManagerImpl) StoreSNMPMetric(
-	ctx context.Context, pollerID string, metric *models.SNMPMetric, timestamp time.Time) error {
+	ctx context.Context, gatewayID string, metric *models.SNMPMetric, timestamp time.Time) error {
 	if metric == nil {
 		return errSNMPMetricNil
 	}
@@ -78,8 +78,8 @@ func (s *snmpManagerImpl) StoreSNMPMetric(
 	// Marshal the original SNMPMetric as metadata
 	metadataBytes, err := json.Marshal(metric)
 	if err != nil {
-		return fmt.Errorf("failed to marshal SNMP metric metadata for poller %s, OID %s: %w",
-			pollerID, metric.OIDName, err)
+		return fmt.Errorf("failed to marshal SNMP metric metadata for gateway %s, OID %s: %w",
+			gatewayID, metric.OIDName, err)
 	}
 
 	metadataStr := string(metadataBytes)
@@ -94,22 +94,22 @@ func (s *snmpManagerImpl) StoreSNMPMetric(
 	}
 
 	// Store using db.StoreMetric
-	if err := s.db.StoreMetric(ctx, pollerID, tsMetric); err != nil {
-		return fmt.Errorf("failed to store SNMP metric for poller %s, OID %s: %w",
-			pollerID, metric.OIDName, err)
+	if err := s.db.StoreMetric(ctx, gatewayID, tsMetric); err != nil {
+		return fmt.Errorf("failed to store SNMP metric for gateway %s, OID %s: %w",
+			gatewayID, metric.OIDName, err)
 	}
 
-	log.Printf("Stored SNMP metric for poller %s, OID %s", pollerID, metric.OIDName)
+	log.Printf("Stored SNMP metric for gateway %s, OID %s", gatewayID, metric.OIDName)
 
 	return nil
 }
 
-// GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
+// GetSNMPMetrics fetches SNMP metrics from the database for a given gateway.
 func (s *snmpManagerImpl) GetSNMPMetrics(
-	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
-	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
+	ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
+	log.Printf("Fetching SNMP metrics for gateway %s from %v to %v", gatewayID, startTime, endTime)
 
-	tsMetrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
+	tsMetrics, err := s.db.GetMetricsByType(ctx, gatewayID, "snmp", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
@@ -127,7 +127,7 @@ func (s *snmpManagerImpl) GetSNMPMetrics(
 		}
 
 		// Extract scale and is_delta from metadata
-		metadata, ok := parseMetadata(tsMetrics[i].Metadata, tsMetrics[i].Name, pollerID)
+		metadata, ok := parseMetadata(tsMetrics[i].Metadata, tsMetrics[i].Name, gatewayID)
 		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale

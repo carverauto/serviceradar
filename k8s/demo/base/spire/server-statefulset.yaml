@@ -58,6 +58,9 @@ spec:
               mountPath: /run/spire/cnpg/ca.crt
               subPath: ca.crt
               readOnly: true
+            - name: cert-data
+              mountPath: /run/spire/certs
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /live
@@ -123,6 +126,9 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
   volumeClaimTemplates:
     - metadata:
         name: spire-data

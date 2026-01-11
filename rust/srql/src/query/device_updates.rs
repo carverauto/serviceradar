@@ -7,7 +7,7 @@ use crate::{
         agent_id as col_agent_id, available as col_available, device_id as col_device_id,
         device_updates, discovery_source as col_discovery_source, hostname as col_hostname,
         ip as col_ip, mac as col_mac, observed_at as col_observed_at, partition as col_partition,
-        poller_id as col_poller_id,
+        gateway_id as col_gateway_id,
     },
     time::TimeRange,
 };
@@ -125,8 +125,8 @@ fn apply_filter<'a>(
                 "hostname filter does not support lists"
             )?;
         }
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -185,7 +185,7 @@ fn collect_text_params(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "device_id" | "poller_id" | "agent_id" | "partition" | "discovery_source" | "source" => {
+        "device_id" | "gateway_id" | "agent_id" | "partition" | "discovery_source" | "source" => {
             collect_text_params(params, filter, true)
         }
         "ip" | "mac" | "hostname" => collect_text_params(params, filter, false),

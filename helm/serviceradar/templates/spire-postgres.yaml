@@ -13,6 +13,7 @@
   {{- $superPass = (b64dec $existingSuper.data.password) }}
 {{- end }}
 {{- $cnpg := default (dict) .Values.cnpg }}
+{{- $clientCASecret := $cnpg.clientCASecret }}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns "serviceradar-db-credentials") }}
 {{- $appUser := default "serviceradar" $cnpg.username }}
 {{- $appPass := default "" $cnpg.password }}
@@ -131,6 +132,15 @@ spec:
       - {{ $lib | quote }}
       {{- end }}
     {{- end }}
+    {{- if $cnpg.requireClientCert }}
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+    {{- end }}
+  {{- if $clientCASecret }}
+  certificates:
+    clientCASecret: {{ $clientCASecret | quote }}
+  {{- end }}
   managed:
     roles:
       - name: {{ default "spire" $pg.username }}

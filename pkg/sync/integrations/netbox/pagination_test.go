@@ -83,15 +83,14 @@ func TestNetboxIntegration_Fetch_FollowsPagination(t *testing.T) {
 			InsecureSkipVerify: true,
 			Credentials:        map[string]string{"api_token": "test-token"},
 			AgentID:            "agent",
-			PollerID:           "poller",
+			GatewayID:           "gateway",
 			Partition:          "partition",
 		},
 		Logger: logger.NewTestLogger(),
 	}
 
-	data, events, err := integ.Fetch(context.Background())
+	events, err := integ.Fetch(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, data)
 	require.Len(t, events, 75)
 
 	mu.Lock()
@@ -167,7 +166,7 @@ func TestNetboxIntegration_Reconcile_DoesNotRetractPaginatedDevices(t *testing.T
 			InsecureSkipVerify: true,
 			Credentials:        map[string]string{"api_token": "test-token"},
 			AgentID:            "agent",
-			PollerID:           "poller",
+			GatewayID:           "gateway",
 			Partition:          "partition",
 		},
 		Querier:         mockQuerier,
@@ -216,15 +215,14 @@ func TestNetboxIntegration_Fetch_ReturnsErrorOnPaginationFailure(t *testing.T) {
 			InsecureSkipVerify: true,
 			Credentials:        map[string]string{"api_token": "test-token"},
 			AgentID:            "agent",
-			PollerID:           "poller",
+			GatewayID:           "gateway",
 			Partition:          "partition",
 		},
 		Logger: logger.NewTestLogger(),
 	}
 
-	data, events, err := integ.Fetch(context.Background())
+	events, err := integ.Fetch(context.Background())
 	require.Error(t, err)
-	require.Nil(t, data)
 	require.Nil(t, events)
 }
 

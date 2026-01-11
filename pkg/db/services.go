@@ -25,8 +25,8 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 }
 
 // GetServiceHistory retrieves the recent history for a service.
-func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
-	return db.cnpgGetServiceHistory(ctx, pollerID, serviceName, limit)
+func (db *DB) GetServiceHistory(ctx context.Context, gatewayID, serviceName string, limit int) ([]models.ServiceStatus, error) {
+	return db.cnpgGetServiceHistory(ctx, gatewayID, serviceName, limit)
 }
 
 // StoreServices stores information about monitored services.

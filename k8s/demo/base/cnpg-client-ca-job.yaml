@@ -1,0 +1,150 @@
+# base/cnpg-client-ca-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-cnpg-client-ca
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg-client-ca
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cnpg-client-ca
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: cnpg-client-ca
+    spec:
+      serviceAccountName: serviceradar-secret-generator
+      restartPolicy: OnFailure
+      containers:
+      - name: cnpg-client-ca
+        image: ghcr.io/carverauto/serviceradar-tools:latest
+        imagePullPolicy: Always
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          SECRET_NAME="${CNPG_CLIENT_CA_SECRET:-serviceradar-cnpg-client-ca}"
+          CERT_DIR="${CERT_DIR:-/etc/serviceradar/certs}"
+          CA_CERT="${CERT_DIR}/root.pem"
+          CA_KEY="${CERT_DIR}/root-key.pem"
+
+          APISERVER="https://kubernetes.default.svc"
+          SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
+          TOKEN=$(cat "${SERVICEACCOUNT}/token")
+          NAMESPACE=$(cat "${SERVICEACCOUNT}/namespace")
+          CACERT="${SERVICEACCOUNT}/ca.crt"
+
+          echo "🔐 Ensuring CNPG client CA secret ${SECRET_NAME}"
+
+          for i in $(seq 1 60); do
+            if [ -s "${CA_CERT}" ] && [ -s "${CA_KEY}" ]; then
+              break
+            fi
+            echo "⏳ Waiting for ${CA_CERT} and ${CA_KEY}..."
+            sleep 2
+          done
+
+          if [ ! -s "${CA_CERT}" ] || [ ! -s "${CA_KEY}" ]; then
+            echo "❌ CNPG client CA source files missing; aborting"
+            exit 1
+          fi
+
+          existing_secret=$(mktemp)
+          has_secret=false
+          if curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+            -o "${existing_secret}" \
+            "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" >/dev/null 2>&1; then
+            has_secret=true
+          fi
+
+          missing_keys=""
+          if [ "${has_secret}" = true ]; then
+            if ! jq -e '.data | has("ca.crt")' "${existing_secret}" >/dev/null; then
+              missing_keys="${missing_keys} ca.crt"
+            fi
+            if ! jq -e '.data | has("ca.key")' "${existing_secret}" >/dev/null; then
+              missing_keys="${missing_keys} ca.key"
+            fi
+            if [ -z "${missing_keys#"${missing_keys%%[![:space:]]*}"}" ]; then
+              echo "✅ CNPG client CA secret already present"
+              exit 0
+            fi
+            echo "ℹ️ CNPG client CA secret missing:${missing_keys}; patching in-place"
+          else
+            echo "ℹ️ CNPG client CA secret not found; creating"
+          fi
+
+          CA_CERT_B64=$(base64 -w 0 "${CA_CERT}")
+          CA_KEY_B64=$(base64 -w 0 "${CA_KEY}")
+
+          if [ "${has_secret}" = false ]; then
+            cat <<EOF >/tmp/secret.json
+          {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": "${SECRET_NAME}",
+              "labels": {
+                "app.kubernetes.io/part-of": "serviceradar",
+                "app.kubernetes.io/component": "cnpg-client-ca"
+              }
+            },
+            "type": "Opaque",
+            "data": {
+              "ca.crt": "${CA_CERT_B64}",
+              "ca.key": "${CA_KEY_B64}"
+            }
+          }
+          EOF
+            curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+              --header "Content-Type: application/json" \
+              -X POST "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets" \
+              -d @/tmp/secret.json
+            echo "✅ Created ${SECRET_NAME}"
+            exit 0
+          fi
+
+          patch_file=$(mktemp)
+          echo "[" > "${patch_file}"
+          first=1
+          add_patch() {
+            key="$1"
+            val="$2"
+            if [ "${first}" -eq 0 ]; then
+              echo "," >> "${patch_file}"
+            fi
+            first=0
+            printf '{"op":"add","path":"/data/%s","value":"%s"}' "${key}" "${val}" >> "${patch_file}"
+          }
+
+          if echo " ${missing_keys} " | grep -q " ca.crt "; then
+            add_patch "ca.crt" "${CA_CERT_B64}"
+          fi
+          if echo " ${missing_keys} " | grep -q " ca.key "; then
+            add_patch "ca.key" "${CA_KEY_B64}"
+          fi
+          echo "]" >> "${patch_file}"
+
+          curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+            --header "Content-Type: application/json-patch+json" \
+            -X PATCH "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" \
+            -d @"${patch_file}"
+
+          echo "✅ Patched ${SECRET_NAME}"
+        env:
+        - name: CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: CNPG_CLIENT_CA_SECRET
+          value: "serviceradar-cnpg-client-ca"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data

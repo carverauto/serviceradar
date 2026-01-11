@@ -106,12 +106,13 @@ func (p *MTLSProvider) setCredentialNeeds() error {
 	roleNeeds := map[models.ServiceRole]struct {
 		needsClient, needsServer bool
 	}{
-		models.RolePoller:      {true, true},  // Client to Agent/Core, Server for health
-		models.RoleAgent:       {true, true},  // Client to checkers, Server for Poller
+		models.RoleGateway:      {true, true},  // Client to Agent/Core, Server for health
+		models.RoleAgent:       {true, true},  // Client to checkers, Server for Gateway
 		models.RoleCore:        {true, true},  // Core now dials external services (KV/DataSvc) and serves RPCs
 		models.RoleKVStore:     {true, true},  // Client to NATS, Server for gRPC
 		models.RoleDataService: {true, true},  // Client to NATS, Server for gRPC
-		models.RoleChecker:     {true, true},  // Client to KV/telemetry, Server for Poller/Agent
+		models.RoleChecker:     {true, true},  // Client to KV/telemetry, Server for Gateway/Agent
+		models.RoleSync:        {true, true},  // Client to gateway, optional server for health
 	}
 
 	needs, ok := roleNeeds[p.config.Role]
@@ -251,6 +252,9 @@ func normalizePaths(config *models.SecurityConfig, log logger.Logger) (certPath,
 		log.Info().Str("caFile", config.TLS.CAFile).Msg("ClientCAFile not specified, using CAFile for client verification")
 
 		clientCaPath = config.TLS.CAFile
+		if clientCaPath != "" && !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
+			clientCaPath = filepath.Join(config.CertDir, clientCaPath)
+		}
 	} else if !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
 		clientCaPath = filepath.Join(config.CertDir, clientCaPath)
 

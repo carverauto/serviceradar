@@ -104,8 +104,7 @@ func setupTempDir(t *testing.T) (tmpDir string, cleanup func()) {
 
 func setupServerConfig() *ServerConfig {
 	return &ServerConfig{
-		ListenAddr: ":50051",
-		Security:   &models.SecurityConfig{},
+		Security: &models.SecurityConfig{},
 	}
 }
 
@@ -188,7 +187,6 @@ func TestNewServerBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
-	assert.Equal(t, config.ListenAddr, server.ListenAddr())
 	assert.Equal(t, config.Security, server.SecurityConfig())
 
 	t.Logf("server.configStore = %v", server.configStore)
@@ -230,7 +228,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -245,7 +243,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 	assert.True(t, response.Available)
 	assert.NotEmpty(t, response.Data)
 }
@@ -292,7 +290,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "1", // Current sequence
 	}
 
@@ -307,7 +305,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 }
 
 func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
@@ -325,7 +323,7 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -339,7 +337,7 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 	assert.Equal(t, "network_sweep", response.ServiceName)
 	assert.Equal(t, "sweep", response.ServiceType)
 	assert.Equal(t, "test-agent", response.AgentId)
-	assert.Equal(t, "test-poller", response.PollerId)
+	assert.Equal(t, "test-gateway", response.GatewayId)
 	assert.Contains(t, string(response.Data), "No sweep service configured")
 }
 
@@ -377,7 +375,7 @@ func TestServer_GetResults_SweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -408,7 +406,7 @@ func TestServer_GetResults_UnsupportedServiceType(t *testing.T) {
 		ServiceName:  "some_service",
 		ServiceType:  "unsupported",
 		AgentId:      "test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "",
 	}
 
@@ -512,7 +510,6 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	err = s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
-	assert.Equal(t, config.ListenAddr, s.ListenAddr())
 	assert.Equal(t, config.Security, s.SecurityConfig())
 	assert.Len(t, s.services, 1)
 	assert.Equal(t, "mock_sweep", s.services[0].Name())
@@ -524,7 +521,7 @@ func TestServerGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -537,7 +534,7 @@ func TestServerGetStatus(t *testing.T) {
 			name: "sweep status request",
 			req: &proto.StatusRequest{
 				ServiceType: "sweep",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 			},
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
@@ -589,7 +586,7 @@ func TestServerLifecycle(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -615,7 +612,7 @@ func TestServerListServices(t *testing.T) {
 	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
 	require.NoError(t, err)
 
 	services := server.ListServices()
@@ -665,8 +662,7 @@ func TestServerGetResults(t *testing.T) {
 	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
-		ListenAddr: ":50051",
-		AgentID:    "test-agent",
+		AgentID: "test-agent",
 	}, createTestLogger())
 	require.NoError(t, err)
 
@@ -682,7 +678,7 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "ping",
 				ServiceType: "icmp",
 				AgentId:     "test-agent",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 				Details:     "1.1.1.1",
 			},
 			wantErr: true,
@@ -698,7 +694,7 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "network_sweep",
 				ServiceType: "sweep",
 				AgentId:     "test-agent",
-				PollerId:    "test-poller",
+				GatewayId:    "test-gateway",
 				Details:     "",
 			},
 			wantErr: false,
@@ -747,8 +743,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
-		ListenAddr: ":50051",
-		AgentID:    "test-agent",
+		AgentID: "test-agent",
 	}, createTestLogger())
 	require.NoError(t, err)
 
@@ -760,7 +755,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		AgentId:     "test-agent",
-		PollerId:    "test-poller",
+		GatewayId:    "test-gateway",
 		Details:     "1.1.1.1",
 	}
 
@@ -780,7 +775,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
 		AgentId:     "test-agent",
-		PollerId:    "test-poller",
+		GatewayId:    "test-gateway",
 		Details:     "",
 	}
 

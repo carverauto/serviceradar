@@ -314,8 +314,8 @@ func mergeKeyContexts(base config.KeyContext, override *config.KeyContext) confi
 	if override.AgentID != "" {
 		base.AgentID = override.AgentID
 	}
-	if override.PollerID != "" {
-		base.PollerID = override.PollerID
+	if override.GatewayID != "" {
+		base.GatewayID = override.GatewayID
 	}
 	return base
 }

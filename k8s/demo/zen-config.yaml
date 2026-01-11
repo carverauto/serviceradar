@@ -9,15 +9,16 @@ data:
       "stream_name": "events",
       "consumer_name": "zen-consumer",
       "subjects": [
-        "events.syslog",
-        "events.snmp",
-        "events.otel.logs",
-        "events.otel.metrics.raw"
+        "*.logs.syslog",
+        "*.logs.snmp",
+        "*.logs.otel",
+        "*.logs.internal.>",
+        "*.otel.metrics.raw"
       ],
       "decision_groups": [
         {
           "name": "syslog",
-          "subjects": ["events.syslog"],
+          "subjects": ["*.logs.syslog"],
           "rules": [
             {"order": 1, "key": "strip_full_message"},
             {"order": 2, "key": "cef_severity"}
@@ -26,7 +27,7 @@ data:
         },
         {
           "name": "snmp",
-          "subjects": ["events.snmp"],
+          "subjects": ["*.logs.snmp"],
           "rules": [
             {"order": 1, "key": "snmp_severity"}
           ],
@@ -34,7 +35,7 @@ data:
         },
         {
           "name": "otel_logs",
-          "subjects": ["events.otel.logs"],
+          "subjects": ["*.logs.otel"],
           "rules": [
             {"order": 1, "key": "passthrough"}
           ],
@@ -42,11 +43,19 @@ data:
         },
         {
           "name": "otel_metrics_raw",
-          "subjects": ["events.otel.metrics.raw"],
+          "subjects": ["*.otel.metrics.raw"],
           "rules": [
             {"order": 1, "key": "passthrough"}
           ],
           "format": "otel_metrics"
+        },
+        {
+          "name": "internal_logs",
+          "subjects": ["*.logs.internal.>"],
+          "rules": [
+            {"order": 1, "key": "passthrough"}
+          ],
+          "format": "json"
         }
       ],
       "agent_id": "k8s-zen-consumer",

@@ -24,7 +24,7 @@ template:
   spec:
     containers:
     - name: runner
-      image: ghcr.io/carverauto/arc-runner@sha256:4d98cb36fc9a2dd82636e790d2be8c0d14de76584e90c91b7325fb811b8ef9fc
+      image: ghcr.io/carverauto/arc-runner@sha256:3c64956f1b4c8027f03b414ca699da181eb87fdb05f8a03444b403cfca81eb11
       command:
         - /home/runner/run.sh
       args:

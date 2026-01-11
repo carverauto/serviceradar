@@ -2,9 +2,9 @@ package models
 
 import "time"
 
-// Service represents a monitored service associated with a poller.
+// Service represents a monitored service associated with a gateway.
 type Service struct {
-	PollerID    string            `json:"poller_id"`
+	GatewayID    string            `json:"gateway_id"`
 	ServiceName string            `json:"service_name"`
 	ServiceType string            `json:"service_type"`
 	AgentID     string            `json:"agent_id"`

@@ -31,6 +31,11 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
         - name: zen-data
           mountPath: /var/lib/serviceradar
         - name: spire-agent-socket
@@ -90,6 +95,11 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+      - name: nats-creds
+        secret:
+          name: serviceradar-nats-creds
+      {{- end }}
       - name: zen-data
         persistentVolumeClaim:
           claimName: serviceradar-zen-data

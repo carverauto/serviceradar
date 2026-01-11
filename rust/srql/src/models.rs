@@ -3,8 +3,11 @@
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
-use diesel::sql_types::{Array, Float8, Int4, Int8, Nullable, Text, Timestamptz};
+use diesel::sql_types::{
+    Array, Bool, Float8, Int4, Int8, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid,
+};
 use serde::Serialize;
+use uuid::Uuid;
 
 /// OCSF-aligned agent row (OCSF v1.7.0 Agent object)
 #[derive(Debug, Clone, Queryable, Serialize)]
@@ -18,7 +21,7 @@ pub struct AgentRow {
     pub vendor_name: Option<String>,
     pub uid_alt: Option<String>,
     pub policies: Option<serde_json::Value>,
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub capabilities: Option<Vec<String>>,
     pub ip: Option<String>,
     pub first_seen_time: Option<DateTime<Utc>>,
@@ -39,7 +42,7 @@ impl AgentRow {
             "vendor_name": self.vendor_name,
             "uid_alt": self.uid_alt,
             "policies": self.policies,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "capabilities": self.capabilities.unwrap_or_default(),
             "ip": self.ip,
             "first_seen_time": self.first_seen_time,
@@ -100,7 +103,7 @@ pub struct DeviceRow {
     pub agent_list: Option<serde_json::Value>,
 
     // ServiceRadar-specific fields
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub agent_id: Option<String>,
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
@@ -156,7 +159,7 @@ impl DeviceRow {
             "agent_list": self.agent_list,
 
             // ServiceRadar-specific
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
@@ -190,7 +193,7 @@ pub struct EventRow {
 pub struct DiscoveredInterfaceRow {
     pub timestamp: DateTime<Utc>,
     pub agent_id: Option<String>,
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub device_ip: Option<String>,
     pub device_id: Option<String>,
     pub if_index: Option<i32>,
@@ -211,7 +214,7 @@ impl DiscoveredInterfaceRow {
         serde_json::json!({
             "timestamp": self.timestamp,
             "agent_id": self.agent_id,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "device_ip": self.device_ip,
             "uid": self.device_id,
             "if_index": self.if_index,
@@ -255,7 +258,7 @@ impl EventRow {
 pub struct DeviceUpdateRow {
     pub observed_at: DateTime<Utc>,
     pub agent_id: String,
-    pub poller_id: String,
+    pub gateway_id: String,
     pub partition: String,
     pub device_id: String,
     pub discovery_source: String,
@@ -272,7 +275,7 @@ impl DeviceUpdateRow {
         serde_json::json!({
             "observed_at": self.observed_at,
             "agent_id": self.agent_id,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "partition": self.partition,
             "uid": self.device_id,
             "discovery_source": self.discovery_source,
@@ -382,7 +385,7 @@ impl TraceSpanRow {
 #[diesel(table_name = crate::schema::service_status)]
 pub struct ServiceStatusRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: String,
+    pub gateway_id: String,
     pub agent_id: Option<String>,
     pub service_name: String,
     pub service_type: Option<String>,
@@ -399,7 +402,7 @@ impl ServiceStatusRow {
             "timestamp": self.timestamp,
             "last_seen": self.timestamp,
             "created_at": self.created_at,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "service_name": self.service_name,
             "service_type": self.service_type,
@@ -413,29 +416,47 @@ impl ServiceStatusRow {
     }
 }
 
-#[derive(Debug, Clone, Queryable, Serialize)]
-#[diesel(table_name = crate::schema::pollers)]
-pub struct PollerRow {
-    pub poller_id: String,
+#[derive(Debug, Clone, QueryableByName, Serialize)]
+#[diesel(table_name = crate::schema::gateways)]
+pub struct GatewayRow {
+    #[diesel(sql_type = Text)]
+    pub gateway_id: String,
+    #[diesel(sql_type = Nullable<Text>)]
     pub component_id: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub registration_source: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub status: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub spiffe_identity: Option<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub first_registered: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub first_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
     pub metadata: Option<serde_json::Value>,
+    #[diesel(sql_type = Nullable<Text>)]
     pub created_by: Option<String>,
+    #[diesel(sql_type = Nullable<Bool>)]
     pub is_healthy: Option<bool>,
+    #[diesel(sql_type = Nullable<Int4>)]
     pub agent_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Int4>)]
     pub checker_count: Option<i32>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
     pub updated_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = SqlUuid)]
+    pub tenant_id: Uuid,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    pub partition_id: Option<Uuid>,
 }
 
-impl PollerRow {
+impl GatewayRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "component_id": self.component_id,
             "registration_source": self.registration_source,
             "status": self.status,
@@ -508,7 +529,7 @@ impl OtelMetricRow {
 #[diesel(table_name = crate::schema::timeseries_metrics)]
 pub struct TimeseriesMetricRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: String,
+    pub gateway_id: String,
     pub agent_id: Option<String>,
     pub metric_name: String,
     pub metric_type: String,
@@ -529,7 +550,7 @@ impl TimeseriesMetricRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "metric_name": self.metric_name,
             "metric_type": self.metric_type,
@@ -552,7 +573,7 @@ impl TimeseriesMetricRow {
 #[diesel(table_name = crate::schema::cpu_metrics)]
 pub struct CpuMetricRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: String,
+    pub gateway_id: String,
     pub agent_id: Option<String>,
     pub host_id: Option<String>,
     pub core_id: Option<i32>,
@@ -569,7 +590,7 @@ impl CpuMetricRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "host_id": self.host_id,
             "core_id": self.core_id,
@@ -587,7 +608,7 @@ impl CpuMetricRow {
 #[diesel(table_name = crate::schema::memory_metrics)]
 pub struct MemoryMetricRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub agent_id: Option<String>,
     pub host_id: Option<String>,
     pub total_bytes: Option<i64>,
@@ -603,7 +624,7 @@ impl MemoryMetricRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "host_id": self.host_id,
             "total_bytes": self.total_bytes,
@@ -620,7 +641,7 @@ impl MemoryMetricRow {
 #[diesel(table_name = crate::schema::disk_metrics)]
 pub struct DiskMetricRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub agent_id: Option<String>,
     pub host_id: Option<String>,
     pub mount_point: Option<String>,
@@ -638,7 +659,7 @@ impl DiskMetricRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "host_id": self.host_id,
             "mount_point": self.mount_point,
@@ -657,7 +678,7 @@ impl DiskMetricRow {
 #[diesel(table_name = crate::schema::process_metrics)]
 pub struct ProcessMetricRow {
     pub timestamp: DateTime<Utc>,
-    pub poller_id: Option<String>,
+    pub gateway_id: Option<String>,
     pub agent_id: Option<String>,
     pub host_id: Option<String>,
     pub pid: Option<i32>,
@@ -675,7 +696,7 @@ impl ProcessMetricRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp,
-            "poller_id": self.poller_id,
+            "gateway_id": self.gateway_id,
             "agent_id": self.agent_id,
             "host_id": self.host_id,
             "pid": self.pid,

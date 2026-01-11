@@ -1,7 +1,7 @@
 Name:           serviceradar-snmp-checker
 Version:        %{version}
 Release:        %{release}%{?dist}
-Summary:        ServiceRadar SNMP poller
+Summary:        ServiceRadar SNMP checker
 License:        Proprietary
 
 BuildRequires:  systemd-rpm-macros

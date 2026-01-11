@@ -605,7 +605,7 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 		ID: "test-job",
 		Params: &DiscoveryParams{
 			AgentID:  "agent1",
-			PollerID: "poller1",
+			GatewayID: "gateway1",
 		},
 	}
 

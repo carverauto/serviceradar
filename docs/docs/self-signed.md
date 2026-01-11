@@ -1,11 +1,11 @@
 ---
 sidebar_position: 12
-title: SSL Configuration for Nginx
+title: SSL Configuration for Caddy
 ---
 
-# SSL Configuration for Nginx
+# SSL Configuration for Caddy
 
-ServiceRadar supports secure HTTPS connections through Nginx with SSL certificates. This guide explains how to configure Nginx to use SSL certificates for securing your ServiceRadar web interface.
+ServiceRadar supports secure HTTPS connections through Caddy with SSL certificates. This guide explains how to configure Caddy to use SSL certificates for securing your ServiceRadar web interface.
 
 ## Overview
 
@@ -19,15 +19,15 @@ While production environments should ideally use certificates from trusted certi
 
 ## Prerequisites
 
-- ServiceRadar with Web UI and Nginx installed
+- ServiceRadar with Web UI and Caddy installed
 - Root or sudo access to the server
 - SSL certificates (self-signed or from a certificate authority)
 
 ## Certificate Generation
 
-ServiceRadar already provides comprehensive instructions for generating certificates in the [TLS Security](./tls-security.md) documentation. You can use those same certificates for securing your Nginx configuration.
+ServiceRadar already provides comprehensive instructions for generating certificates in the [TLS Security](./tls-security.md) documentation. You can use those same certificates for securing your Caddy configuration.
 
-If you've already generated certificates for other ServiceRadar components using the instructions in the TLS Security section, you can reuse them for Nginx. Otherwise, follow those instructions to generate your certificates first, then return to this guide to configure Nginx.
+If you've already generated certificates for other ServiceRadar components using the instructions in the TLS Security section, you can reuse them for Caddy. Otherwise, follow those instructions to generate your certificates first, then return to this guide to configure Caddy.
 
 Alternatively, you can generate a simple self-signed certificate using OpenSSL:
 
@@ -65,110 +65,37 @@ sudo chmod 644 /etc/ssl/certs/web.pem
 sudo chmod 600 /etc/ssl/private/web-key.pem
 ```
 
-## Configuring Nginx for SSL
+## Configuring Caddy for SSL
 
-Update your Nginx configuration to use SSL:
+Update your Caddy configuration to use SSL:
 
-1. Edit or create the ServiceRadar Nginx configuration file:
+1. Edit or create the ServiceRadar Caddyfile:
 
 ```bash
-sudo nano /etc/nginx/conf.d/serviceradar-web-ng.conf
+sudo nano /etc/caddy/Caddyfile
 ```
 
 2. Replace the content with the following configuration:
 
-```nginx
-# ServiceRadar Web Interface - Nginx Configuration
-# HTTPS Server Block
-server {
-    listen 443 ssl;
-    server_name serviceradar.example.com serviceradar;
-    
-    # Paths to your self-signed certificate and key
-    ssl_certificate /etc/ssl/certs/web.pem;
-    ssl_certificate_key /etc/ssl/private/web-key.pem;
-    
-    # SSL security settings
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    
-    # Static assets
-    location /assets/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-    
-    # SRQL routes
-    location /api/query {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /api/stream {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # API routes
-    location /api/ {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-    
-    # Auth API routes
-    location /auth/ {
-        proxy_pass http://localhost:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-API-Key" always;
-    }
-    
-    # Main app
-    location / {
-        proxy_pass http://127.0.0.1:4000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-
-# HTTP Server Block (Redirect to HTTPS)
-server {
-    listen 80;
-    server_name serviceradar.example.com serviceradar;
-    return 301 https://$host$request_uri;
+```caddy
+https://serviceradar.example.com {
+  tls /etc/ssl/certs/web.pem /etc/ssl/private/web-key.pem
+  reverse_proxy 127.0.0.1:4000
 }
 ```
 
 Replace `serviceradar.example.com` with your actual domain name and remove or replace `serviceradar` with your actual hostname if different.
 
-3. Test the Nginx configuration:
+3. Validate the Caddy configuration:
 
 ```bash
-sudo nginx -t
+sudo caddy validate --config /etc/caddy/Caddyfile
 ```
 
-4. If the test is successful, restart Nginx:
+4. If the validation is successful, reload Caddy:
 
 ```bash
-sudo systemctl restart nginx
+sudo systemctl reload caddy
 ```
 
 ## Firewall Configuration
@@ -197,17 +124,15 @@ For production environments, consider obtaining a certificate from a trusted cer
 
 ## Using Let's Encrypt (For Production)
 
-For public-facing ServiceRadar instances, Let's Encrypt provides free, trusted certificates:
+For public-facing ServiceRadar instances, Caddy can automatically obtain and renew Let's Encrypt certificates when you specify a public domain in the Caddyfile:
 
-```bash
-# Install certbot
-sudo apt install certbot python3-certbot-nginx
-
-# Obtain and install certificate
-sudo certbot --nginx -d serviceradar.example.com
-
-# Certificate renewal will be handled automatically by a systemd timer
+```caddy
+https://your-domain.com {
+  reverse_proxy 127.0.0.1:4000
+}
 ```
+
+No separate certbot workflow is required when Caddy is managing TLS.
 
 ## Troubleshooting
 
@@ -228,21 +153,21 @@ openssl x509 -in /etc/ssl/certs/web.pem -text -noout
 
 3. Verify that the hostname in the certificate matches your server's hostname.
 
-### Nginx Configuration Issues
+### Caddy Configuration Issues
 
-If Nginx fails to start:
+If Caddy fails to start:
 
-1. Check the Nginx error log:
+1. Check the Caddy logs:
 ```bash
-sudo tail -f /var/log/nginx/error.log
+sudo journalctl -xeu caddy
 ```
 
-2. Verify the Nginx configuration:
+2. Verify the Caddy configuration:
 ```bash
-sudo nginx -t
+sudo caddy validate --config /etc/caddy/Caddyfile
 ```
 
-3. Ensure the certificate paths in the Nginx configuration match the actual paths.
+3. Ensure the certificate paths in the Caddyfile match the actual paths.
 
 ## Next Steps
 

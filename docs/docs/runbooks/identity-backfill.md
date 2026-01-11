@@ -87,6 +87,6 @@ Post-run checks:
 
 ## 4) Demo Validation Loop
 1. Truncate identity tables if performing a full reseed: `TRUNCATE network_sightings, sighting_events, merge_audit;`
-2. Replay ingestion (faker/sync/poller) until ~50k sightings land.
+2. Replay ingestion (faker/sync/gateway) until ~50k sightings land.
 3. Run reconciliation once promotions are eligible; verify device count hovers at 50k (+internal) and that newly promoted devices remain unavailable until probed.
 4. Monitor identity metrics/alerts added in `identity-alerts.md` and `identity-metrics.md`.

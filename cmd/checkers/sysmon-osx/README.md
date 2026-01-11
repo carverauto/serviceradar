@@ -5,7 +5,7 @@ The `sysmon-osx` checker is a lightweight gRPC service that exposes CPU metrics 
 ## Features
 - Collects per-core CPU usage via `github.com/shirou/gopsutil/v3/cpu`.
 - Samples per-core frequency using `pkg/cpufreq`, which reads the Linux cpufreq sysfs interface (falling back to `/proc/cpuinfo` and perf counters) and, on macOS, calls the embedded Objective-C++ IOReport collector.
-- Reports metrics through the standard `monitoring.AgentService` gRPC API so existing agent/poller/core pipelines ingest the data with no downstream changes.
+- Reports metrics through the standard `monitoring.AgentService` gRPC API so existing agent/gateway/core pipelines ingest the data with no downstream changes.
 
 ## Configuration
 Example configuration (`cmd/checkers/sysmon-osx/sysmon-osx.json.example`):
@@ -42,7 +42,7 @@ Key options:
      "details": "osx-host.example.com:50110"
    }
    ```
-5. Restart the agent so the poller discovers the new checker; CPU frequency metrics will flow through the existing sysmon paths.
+5. Restart the agent so the gateway discovers the new checker; CPU frequency metrics will flow through the existing sysmon paths.
 
 ## macOS Host Deployment
 - Build the macOS checker with `make sysmonosx-build-checker-darwin`; the binary is written to `dist/sysmonosx/mac-host/bin/serviceradar-sysmon-osx`.

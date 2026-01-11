@@ -75,6 +75,54 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
           "The time the connection spent waiting before being checked out for the query"
       ),
 
+      # Ash Framework Metrics
+      summary("ash.action.stop.duration",
+        tags: [:domain, :resource, :action, :action_type],
+        unit: {:native, :millisecond},
+        description: "Duration of Ash resource actions"
+      ),
+      counter("ash.action.stop.count",
+        tags: [:domain, :resource, :action, :action_type],
+        description: "Count of Ash resource actions"
+      ),
+      summary("ash.query.stop.duration",
+        tags: [:domain, :resource],
+        unit: {:native, :millisecond},
+        description: "Duration of Ash queries"
+      ),
+      counter("ash.query.stop.count",
+        tags: [:domain, :resource],
+        description: "Count of Ash queries"
+      ),
+
+      # SRQL Metrics
+      summary("serviceradar.srql.query.duration",
+        tags: [:path, :entity, :status],
+        unit: {:native, :millisecond},
+        description: "Duration of SRQL queries"
+      ),
+      counter("serviceradar.srql.query.count",
+        tags: [:path, :entity, :status],
+        description: "Count of SRQL queries"
+      ),
+
+      # API Error Metrics
+      counter("serviceradar.api.error.count",
+        tags: [:status, :path, :method],
+        description: "Count of API errors by status code"
+      ),
+
+      # Cluster Metrics
+      last_value("serviceradar.cluster.nodes.count",
+        description: "Number of connected ERTS nodes"
+      ),
+      last_value("serviceradar.cluster.gateways.count",
+        description: "Number of registered gateways in Horde"
+      ),
+      last_value("serviceradar.cluster.agents.count",
+        description: "Number of registered agents in Horde"
+      ),
+
       # VM Metrics
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
@@ -85,9 +133,45 @@ defmodule ServiceRadarWebNGWeb.Telemetry do
 
   defp periodic_measurements do
     [
-      # A module, function and arguments to be invoked periodically.
-      # This function must call :telemetry.execute/3 and a metric must be added above.
-      # {ServiceRadarWebNGWeb, :count_users, []}
+      # Cluster health measurements
+      {__MODULE__, :measure_cluster_health, []}
     ]
+  end
+
+  @doc """
+  Emits cluster health metrics periodically.
+  Called by telemetry_poller to gather Horde registry and cluster stats.
+  """
+  def measure_cluster_health do
+    # Cluster node count
+    node_count = length(Node.list()) + 1
+
+    :telemetry.execute(
+      [:serviceradar, :cluster, :nodes],
+      %{count: node_count},
+      %{}
+    )
+
+    # Gateway and agent registry counts (via ClusterStatus which works from any node)
+    # web-ng doesn't run ClusterHealth - those only run on core-elx
+    {gateway_count, agent_count} =
+      try do
+        status = ServiceRadar.Cluster.ClusterStatus.get_status()
+        {status.gateway_count, status.agent_count}
+      catch
+        :exit, _ -> {0, 0}
+      end
+
+    :telemetry.execute(
+      [:serviceradar, :cluster, :gateways],
+      %{count: gateway_count},
+      %{}
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :cluster, :agents],
+      %{count: agent_count},
+      %{}
+    )
   end
 end

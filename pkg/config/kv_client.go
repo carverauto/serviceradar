@@ -732,6 +732,11 @@ func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVSt
 		}
 	}
 
+	credsFile := strings.TrimSpace(os.Getenv("KV_NATS_CREDS_FILE"))
+	if credsFile != "" {
+		opts = append(opts, nats.UserCredentials(credsFile))
+	}
+
 	nc, err := nats.Connect(addr, opts...)
 	if err != nil {
 		return nil, err

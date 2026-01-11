@@ -9,7 +9,6 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
-{{- $syncSA := .Values.spire.syncServiceAccount | default "serviceradar-sync" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 {{- $mapperSA := .Values.spire.mapperServiceAccount | default "serviceradar-mapper" -}}
 {{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
@@ -98,14 +97,14 @@ data:
         }
       },
       "alert_threshold": "5m",
-      "known_pollers": [
-        "k8s-poller",
-        "docker-poller"
+      "known_gateways": [
+        "k8s-gateway",
+        "docker-gateway"
       ],
       "metrics": {
         "enabled": true,
         "retention": 100,
-        "max_pollers": 10000
+        "max_gateways": 10000
       },
       "features": {
         "use_log_digest": true,
@@ -157,14 +156,14 @@ data:
           "unix:group:root"
         ],
         "default_metadata": {
-          "poller": {
+          "gateway": {
             "core_address": "{{ include "serviceradar.coreAddress" . }}",
             "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
             "kv_address": "serviceradar-datasvc:50057",
             "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
             "spire_upstream_address": "spire-server.{{$spireNamespace}}.svc.cluster.local",
             "spire_upstream_port": "8081",
-            "spire_parent_id": "spiffe://{{$trustDomain}}/ns/edge/poller-nested-spire",
+            "spire_parent_id": "spiffe://{{$trustDomain}}/ns/edge/gateway-nested-spire",
             "agent_address": "agent:50051",
             "agent_spiffe_id": "spiffe://{{$trustDomain}}/services/agent",
             "nested_spire_wait_attempts": "120",
@@ -179,7 +178,7 @@ data:
         },
         "join_token_ttl": "15m",
         "download_token_ttl": "10m",
-        "poller_id_prefix": "edge"
+        "gateway_id_prefix": "edge"
       },
       "cors": {
         "allowed_origins": ["*"],
@@ -230,6 +229,9 @@ data:
         "max_reconnects": 10,
         "reconnect_wait": "2s",
         "drain_timeout": "30s",
+{{- if .Values.natsCreds.platform }}
+        "creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "security": {
           "mode": "mtls",
           "tls": {
@@ -242,7 +244,7 @@ data:
       "events": {
         "enabled": true,
         "stream_name": "events",
-        "subjects": ["events.>", "snmp.traps"]
+        "subjects": ["events.>", "logs.>", "otel.traces.>", "otel.metrics.>"]
       },
       "snmp": {
         "enabled": false,
@@ -298,110 +300,7 @@ data:
         }
       ]
     }
-  
-  poller.json: |
-      {
-        "agents": {
-          "k8s-agent": {
-              "address": "serviceradar-agent:50051",
-              "security": {
-                "mode": "spiffe",
-                "cert_dir": "/etc/serviceradar/certs",
-                "role": "poller",
-                "trust_domain": "{{$trustDomain}}",
-                "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$agentSA}}",
-                "workload_socket": "unix:/run/spire/sockets/agent.sock",
-                "tls": {
-                  "cert_file": "poller.pem",
-                  "key_file": "poller-key.pem",
-                  "ca_file": "root.pem",
-                  "client_ca_file": "root.pem"
-                }
-              },
-              "checks": [
-              {
-                "service_type": "port",
-                "service_name": "SSH",
-                "details": "serviceradar-agent:22"
-              },
-              {
-                "service_type": "icmp",
-                "service_name": "ping",
-                "details": "8.8.8.8"
-              },
-              {
-                "service_type": "sweep",
-                "service_name": "network_sweep",
-                "details": "",
-                "results_interval": "2m"
-              },
-              {
-                "service_type": "grpc",
-                "service_name": "sync",
-                "results_interval": "5m"
-              }
-            ]
-          }
-        },
-        "core_address": "{{ include "serviceradar.coreAddress" . }}",
-        "core_security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "poller.pem",
-            "key_file": "poller-key.pem",
-            "ca_file": "root.pem"
-          }
-        },
-        "listen_addr": ":50053",
-        "poll_interval": "30s",
-        "poller_id": "k8s-poller",
-        "partition": "default",
-        "source_ip": "poller",
-        "service_name": "PollerService",
-        "service_type": "grpc",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "poller.pem",
-            "key_file": "poller-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "logging": {
-          "level": "info",
-          "debug": false,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
-            "service_name": "serviceradar-poller",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {
-              "x-api-key": "your-collector-api-key"
-            },
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/poller.pem",
-              "key_file": "/etc/serviceradar/certs/poller-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-otel"
-            }
-          }
-        }
-      }
-  
+
   agent.json: |
       {
         "checkers_dir": "/etc/serviceradar/checkers",
@@ -488,27 +387,6 @@ data:
         "enabled": true
       }
   
-  sync-checker.json: |
-      {
-        "name": "sync",
-        "type": "grpc",
-        "address": "serviceradar-sync:50058",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$syncSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        }
-      }
-  
   mapper-checker.json: |
       {
         "name": "mapper",
@@ -517,7 +395,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$mapperSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -538,7 +416,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$rperfCheckerSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -559,7 +437,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$zenSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -580,7 +458,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$dbEventWriterSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -601,7 +479,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$trapdSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -622,7 +500,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$flowggerSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -638,13 +516,16 @@ data:
   zen.json: |
       {
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "stream_name": "events",
         "consumer_name": "zen-consumer",
-        "subjects": ["events.syslog", "events.snmp", "events.otel.logs"],
+        "subjects": ["*.logs.syslog", "*.logs.snmp", "*.logs.otel", "*.logs.internal.>"],
         "decision_groups": [
           {
             "name": "syslog",
-            "subjects": ["events.syslog"],
+            "subjects": ["*.logs.syslog"],
             "rules": [
               {"order": 1, "key": "strip_full_message"},
               {"order": 2, "key": "cef_severity"}
@@ -653,7 +534,7 @@ data:
           },
           {
             "name": "snmp",
-            "subjects": ["events.snmp"],
+            "subjects": ["*.logs.snmp"],
             "rules": [
               {"order": 1, "key": "snmp_severity"}
             ],
@@ -661,11 +542,19 @@ data:
           },
           {
             "name": "otel_logs",
-            "subjects": ["events.otel.logs"],
+            "subjects": ["*.logs.otel"],
             "rules": [
               {"order": 1, "key": "passthrough"}
             ],
             "format": "protobuf"
+          },
+          {
+            "name": "internal_logs",
+            "subjects": ["*.logs.internal.>"],
+            "rules": [
+              {"order": 1, "key": "passthrough"}
+            ],
+            "format": "json"
           }
         ],
         "agent_id": "k8s-zen-consumer",
@@ -764,7 +653,7 @@ data:
         "security": {
           "mode": "spiffe",
           "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
+          "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
           "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$snmpCheckerSA}}",
           "workload_socket": "unix:/run/spire/sockets/agent.sock",
@@ -965,17 +854,6 @@ data:
             }
           },
           {
-            user: "CN=serviceradar-poller,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-            permissions: {
-              publish: {
-                allow: [">"]
-              }
-              subscribe: {
-                allow: [">"]
-              }
-            }
-          },
-          {
             user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
@@ -1012,7 +890,7 @@ data:
             user: "CN=serviceradar-flowgger,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["events.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: ["logs.syslog", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -1023,7 +901,7 @@ data:
             user: "CN=serviceradar-otel,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["events.otel.>", "$JS.API.>"]
+                allow: ["otel.>", "logs.otel", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -1045,7 +923,7 @@ data:
             user: "CN=serviceradar-trapd,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["snmp.traps", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: ["logs.snmp", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
               }
               subscribe: {
                 allow: ["$JS.API.>", "_INBOX.>"]
@@ -1086,9 +964,14 @@ data:
       [nats]
       # NATS server URL with mTLS (Kubernetes deployment)
       url = "tls://serviceradar-nats:4222"
+{{- if .Values.natsCreds.platform }}
+      creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
       
-      # Subject to publish traces to (default: events.otel)
-      subject = "events.otel"
+      # Subject to publish traces/metrics to (default: otel)
+      subject = "otel"
+      # Subject to publish logs to (default: <subject>.logs)
+      logs_subject = "logs.otel"
       
       # JetStream stream name (default: events)
       stream = "events"
@@ -1107,12 +990,15 @@ data:
       key_file = "/etc/serviceradar/certs/otel-key.pem"
       ca_file = "/etc/serviceradar/certs/root.pem"
   
-  trapd.json: |
+    trapd.json: |
       {
         "listen_addr": "0.0.0.0:162",
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "stream_name": "events",
-        "subject": "snmp.traps",
+        "subject": "logs.snmp",
         "nats_security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -1139,88 +1025,6 @@ data:
             "key_file": "/etc/serviceradar/certs/trapd-key.pem",
             "ca_file": "/etc/serviceradar/certs/root.pem",
             "server_name": "serviceradar-otel"
-          }
-        }
-      }
-  
-  sync.json: |
-      {
-        "kv_address": "serviceradar-datasvc:50057",
-        "listen_addr": ":50058",
-        "poll_interval": "5m",
-        "discovery_interval": "5m",
-        "update_interval": "5m",
-        "agent_id": "k8s-agent",
-        "poller_id": "k8s-poller",
-        "nats_url": "tls://serviceradar-nats:4222",
-        "security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "poller",
-          "trust_domain": "{{ $trustDomain }}",
-          "server_spiffe_id": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $datasvcSA }}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "sync.pem",
-            "key_file": "sync-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "nats_security": {
-          "mode": "mtls",
-          "cert_dir": "/etc/serviceradar/certs",
-          "server_name": "nats.serviceradar",
-          "role": "poller",
-          "tls": {
-            "cert_file": "sync.pem",
-            "key_file": "sync-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        },
-        "sources": {
-          "armis": {
-            "type": "armis",
-            "endpoint": "http://serviceradar-faker:8080",
-            "prefix": "armis/",
-            "poll_interval": "5m",
-            "sweep_interval": "5m",
-            "agent_id": "k8s-agent",
-            "poller_id": "k8s-poller",
-            "partition": "default",
-            "credentials": {
-              "username": "${kv:secrets/armis/username}",
-              "password": "${kv:secrets/armis/password}"
-            },
-            "page_size": 1000,
-            "network_blacklist": [],
-            "queries": [
-              {
-                "label": "all_devices",
-                "query": "in:devices",
-                "sweep_modes": ["icmp"]
-              }
-            ]
-          }
-        },
-        "logging": {
-          "level": "debug",
-          "debug": true,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-otel:4317",
-            "service_name": "serviceradar-sync",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {},
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/sync.pem",
-              "key_file": "/etc/serviceradar/certs/sync-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem"
-            }
           }
         }
       }
@@ -1388,6 +1192,9 @@ data:
       {
         "listen_addr": "0.0.0.0:50057",
         "nats_url": "tls://serviceradar-nats:4222",
+{{- if .Values.natsCreds.platform }}
+        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
+{{- end }}
         "nats_security": {
           "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
@@ -1416,9 +1223,7 @@ data:
         "rbac": {
           "roles": [
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "admin"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.pollerServiceAccount | default "serviceradar-poller" }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $otelSA }}", "role": "reader"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $syncSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $mapperSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $snmpCheckerSA }}", "role": "writer"},

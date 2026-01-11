@@ -23,7 +23,7 @@ type WatcherRegistration struct {
 	Service string
 	Scope   ConfigScope
 	KVKey   string
-	// InstanceID uniquely identifies the process publishing watcher state (agent_id, poller_id, etc.)
+	// InstanceID uniquely identifies the process publishing watcher state (agent_id, gateway_id, etc.)
 	InstanceID string
 }
 

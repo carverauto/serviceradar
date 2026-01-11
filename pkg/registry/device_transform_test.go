@@ -24,7 +24,7 @@ func TestDeviceRecordFromOCSF(t *testing.T) {
 		LastSeenTime:  &last,
 		IsAvailable:   &isAvailable,
 		Type:          "router",
-		PollerID:      "poller-x",
+		GatewayID:      "gateway-x",
 		AgentID:       "agent-x",
 		DiscoverySources: []string{
 			string(models.DiscoverySourceSweep),
@@ -48,8 +48,8 @@ func TestDeviceRecordFromOCSF(t *testing.T) {
 	if record.IP != "10.0.0.50" {
 		t.Fatalf("expected IP to be trimmed, got %q", record.IP)
 	}
-	if record.PollerID != "poller-x" {
-		t.Fatalf("expected poller ID, got %q", record.PollerID)
+	if record.GatewayID != "gateway-x" {
+		t.Fatalf("expected gateway ID, got %q", record.GatewayID)
 	}
 	if record.AgentID != "agent-x" {
 		t.Fatalf("expected agent ID, got %q", record.AgentID)
@@ -105,7 +105,7 @@ func TestOCSFDeviceFromRecord(t *testing.T) {
 	record := &DeviceRecord{
 		DeviceID:         "default:10.0.0.70",
 		IP:               "10.0.0.70",
-		PollerID:         "poller-x",
+		GatewayID:         "gateway-x",
 		AgentID:          "agent-x",
 		Hostname:         &hostname,
 		MAC:              &mac,
@@ -181,7 +181,7 @@ func TestLegacyDeviceFromRecord(t *testing.T) {
 	record := &DeviceRecord{
 		DeviceID:         "default:10.0.0.80",
 		IP:               "10.0.0.80",
-		PollerID:         "poller-z",
+		GatewayID:         "gateway-z",
 		AgentID:          "agent-z",
 		DiscoverySources: []string{"mapper", "armis"},
 		IsAvailable:      true,
