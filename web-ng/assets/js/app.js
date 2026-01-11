@@ -24,16 +24,14 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
-// JDM Editor hydration (lazy loaded)
+// Preload JDM editor CSS - ensures styles are bundled
+import '@gorules/jdm-editor/dist/style.css'
+
+// JDM Editor hydration (lazy loaded, CSS is statically imported above)
 let JdmEditorModule = null;
 async function loadJdmEditor() {
   if (!JdmEditorModule) {
-    // Import both the editor components and CSS
-    const [module] = await Promise.all([
-      import('@gorules/jdm-editor'),
-      import('@gorules/jdm-editor/dist/style.css')
-    ]);
-    JdmEditorModule = module;
+    JdmEditorModule = await import('@gorules/jdm-editor');
   }
   return JdmEditorModule;
 }
@@ -74,12 +72,15 @@ const Hooks = {
           hook.pushEvent('jdm_editor_change', { definition: newDef });
         }, []);
 
-        return React.createElement(JdmConfigProvider, null,
-          React.createElement(DecisionGraph, {
-            value: definition,
-            onChange: handleChange,
-            disabled: props.readOnly
-          })
+        // Wrap in a full-height container - ReactFlow needs explicit height
+        return React.createElement('div', { style: { height: '100%', width: '100%' } },
+          React.createElement(JdmConfigProvider, null,
+            React.createElement(DecisionGraph, {
+              value: definition,
+              onChange: handleChange,
+              disabled: props.readOnly
+            })
+          )
         );
       };
 
@@ -98,12 +99,15 @@ const Hooks = {
             hook.pushEvent('jdm_editor_change', { definition: newDef });
           }, []);
 
-          return React.createElement(JdmConfigProvider, null,
-            React.createElement(DecisionGraph, {
-              value: def,
-              onChange: handleChange,
-              disabled: props.readOnly
-            })
+          // Wrap in a full-height container - ReactFlow needs explicit height
+          return React.createElement('div', { style: { height: '100%', width: '100%' } },
+            React.createElement(JdmConfigProvider, null,
+              React.createElement(DecisionGraph, {
+                value: def,
+                onChange: handleChange,
+                disabled: props.readOnly
+              })
+            )
           );
         };
         this.reactRoot.render(React.createElement(UpdatedEditor));
