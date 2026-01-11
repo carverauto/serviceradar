@@ -897,6 +897,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                 <th>Duration</th>
                 <th>Hosts</th>
                 <th>Success Rate</th>
+                <th>Metrics</th>
               </tr>
             </thead>
             <tbody>
@@ -941,6 +942,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     failed_count = Enum.count(assigns.recent, &(&1.status == :failed))
 
+    # Aggregate scanner metrics from recent completions
+    aggregate_metrics = aggregate_scanner_metrics(completed_recent)
+
     assigns =
       assigns
       |> assign(:total_hosts, total_hosts)
@@ -948,34 +952,134 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:avg_success_rate, avg_success_rate)
       |> assign(:failed_count, failed_count)
       |> assign(:completed_count, length(completed_recent))
+      |> assign(:aggregate_metrics, aggregate_metrics)
 
     ~H"""
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="bg-base-200/50 rounded-lg p-4">
-        <div class="text-xs text-base-content/60 uppercase tracking-wide">Running</div>
-        <div class="text-2xl font-bold mt-1 flex items-center gap-2">
-          {length(@running)}
-          <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
+    <div class="space-y-4">
+      <!-- Main Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-base-200/50 rounded-lg p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Running</div>
+          <div class="text-2xl font-bold mt-1 flex items-center gap-2">
+            {length(@running)}
+            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
+          </div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
+          <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
+          <div class="text-xs text-base-content/60">{@available_hosts} available</div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
+          <div class={"text-2xl font-bold mt-1 #{success_rate_color(@avg_success_rate)}"}>
+            {@avg_success_rate}%
+          </div>
+        </div>
+        <div class="bg-base-200/50 rounded-lg p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent Executions</div>
+          <div class="text-2xl font-bold mt-1">{@completed_count}</div>
+          <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
         </div>
       </div>
-      <div class="bg-base-200/50 rounded-lg p-4">
-        <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
-        <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
-        <div class="text-xs text-base-content/60">{@available_hosts} available</div>
-      </div>
-      <div class="bg-base-200/50 rounded-lg p-4">
-        <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
-        <div class={"text-2xl font-bold mt-1 #{success_rate_color(@avg_success_rate)}"}>
-          {@avg_success_rate}%
+
+      <!-- Scanner Metrics Summary (only if we have metrics) -->
+      <div :if={@aggregate_metrics.has_data} class="bg-base-200/30 rounded-lg p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <.icon name="hero-chart-bar" class="size-4 text-base-content/60" />
+          <span class="text-xs text-base-content/60 uppercase tracking-wide">
+            Scanner Performance (Recent Scans)
+          </span>
         </div>
-      </div>
-      <div class="bg-base-200/50 rounded-lg p-4">
-        <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent Executions</div>
-        <div class="text-2xl font-bold mt-1">{@completed_count}</div>
-        <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div>
+            <div class="text-base-content/60 text-xs">Packets Sent</div>
+            <div class="font-semibold font-mono">{format_number(@aggregate_metrics.packets_sent)}</div>
+          </div>
+          <div>
+            <div class="text-base-content/60 text-xs">Packets Received</div>
+            <div class="font-semibold font-mono">{format_number(@aggregate_metrics.packets_recv)}</div>
+          </div>
+          <div>
+            <div class="text-base-content/60 text-xs">Avg Drop Rate</div>
+            <div class={"font-semibold font-mono #{if @aggregate_metrics.avg_drop_rate > 1.0, do: "text-warning", else: ""}"}>
+              {Float.round(@aggregate_metrics.avg_drop_rate, 2)}%
+            </div>
+          </div>
+          <div>
+            <div class="text-base-content/60 text-xs">Total Retries</div>
+            <div class="font-semibold font-mono">
+              {format_number(@aggregate_metrics.retries_successful)}/{format_number(@aggregate_metrics.retries_attempted)}
+            </div>
+          </div>
+          <div>
+            <div class="text-base-content/60 text-xs">Rate Deferrals</div>
+            <div class={"font-semibold font-mono #{if @aggregate_metrics.rate_limit_deferrals > 0, do: "text-info", else: ""}"}>
+              {format_number(@aggregate_metrics.rate_limit_deferrals)}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     """
+  end
+
+  defp aggregate_scanner_metrics(executions) do
+    executions_with_metrics =
+      Enum.filter(executions, fn e ->
+        e.scanner_metrics && e.scanner_metrics != %{}
+      end)
+
+    if Enum.empty?(executions_with_metrics) do
+      %{has_data: false}
+    else
+      packets_sent =
+        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
+          acc + (get_in(e.scanner_metrics, ["packets_sent"]) || 0)
+        end)
+
+      packets_recv =
+        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
+          acc + (get_in(e.scanner_metrics, ["packets_recv"]) || 0)
+        end)
+
+      retries_attempted =
+        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
+          acc + (get_in(e.scanner_metrics, ["retries_attempted"]) || 0)
+        end)
+
+      retries_successful =
+        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
+          acc + (get_in(e.scanner_metrics, ["retries_successful"]) || 0)
+        end)
+
+      rate_limit_deferrals =
+        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
+          acc + (get_in(e.scanner_metrics, ["rate_limit_deferrals"]) || 0)
+        end)
+
+      # Calculate average drop rate
+      drop_rates =
+        executions_with_metrics
+        |> Enum.map(fn e -> get_in(e.scanner_metrics, ["rx_drop_rate_percent"]) || 0.0 end)
+
+      avg_drop_rate =
+        if Enum.empty?(drop_rates) do
+          0.0
+        else
+          Enum.sum(drop_rates) / length(drop_rates)
+        end
+
+      %{
+        has_data: true,
+        packets_sent: packets_sent,
+        packets_recv: packets_recv,
+        retries_attempted: retries_attempted,
+        retries_successful: retries_successful,
+        rate_limit_deferrals: rate_limit_deferrals,
+        avg_drop_rate: avg_drop_rate
+      }
+    end
   end
 
   # Running Scan Card Component
@@ -1064,6 +1168,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :group, :map, default: nil
 
   defp recent_execution_row(assigns) do
+    has_metrics = assigns.execution.scanner_metrics && assigns.execution.scanner_metrics != %{}
+    assigns = assign(assigns, :has_metrics, has_metrics)
+
     ~H"""
     <tr class="hover:bg-base-200/40">
       <td>
@@ -1092,9 +1199,99 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       <td>
         <.success_rate_badge execution={@execution} />
       </td>
+      <td>
+        <div :if={@has_metrics} class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
+            <.icon name="hero-chart-bar" class="size-4" />
+          </div>
+          <div
+            tabindex="0"
+            class="dropdown-content z-[1] card card-compact w-80 p-2 shadow bg-base-100 border border-base-200"
+          >
+            <div class="card-body p-2">
+              <h3 class="text-sm font-semibold mb-2">Scanner Metrics</h3>
+              <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
+            </div>
+          </div>
+        </div>
+        <span :if={!@has_metrics} class="text-base-content/40 text-xs">—</span>
+      </td>
     </tr>
     """
   end
+
+  # Scanner Metrics Grid Component
+  attr :metrics, :map, required: true
+
+  defp scanner_metrics_grid(assigns) do
+    metrics = assigns.metrics || %{}
+
+    assigns =
+      assigns
+      |> assign(:packets_sent, Map.get(metrics, "packets_sent", 0))
+      |> assign(:packets_recv, Map.get(metrics, "packets_recv", 0))
+      |> assign(:packets_dropped, Map.get(metrics, "packets_dropped", 0))
+      |> assign(:retries_attempted, Map.get(metrics, "retries_attempted", 0))
+      |> assign(:retries_successful, Map.get(metrics, "retries_successful", 0))
+      |> assign(:rate_limit_deferrals, Map.get(metrics, "rate_limit_deferrals", 0))
+      |> assign(:rx_drop_rate_percent, Map.get(metrics, "rx_drop_rate_percent", 0.0))
+      |> assign(:port_exhaustion_count, Map.get(metrics, "port_exhaustion_count", 0))
+
+    ~H"""
+    <div class="grid grid-cols-2 gap-2 text-xs">
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Packets Sent</div>
+        <div class="font-semibold font-mono">{format_number(@packets_sent)}</div>
+      </div>
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Packets Received</div>
+        <div class="font-semibold font-mono">{format_number(@packets_recv)}</div>
+      </div>
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Packets Dropped</div>
+        <div class={"font-semibold font-mono #{if @packets_dropped > 0, do: "text-warning", else: ""}"}>
+          {format_number(@packets_dropped)}
+        </div>
+      </div>
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">RX Drop Rate</div>
+        <div class={"font-semibold font-mono #{if @rx_drop_rate_percent > 1.0, do: "text-warning", else: ""}"}>
+          {Float.round(@rx_drop_rate_percent || 0.0, 2)}%
+        </div>
+      </div>
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Retries</div>
+        <div class="font-semibold font-mono">
+          {format_number(@retries_successful)}/{format_number(@retries_attempted)}
+        </div>
+      </div>
+      <div class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Rate Limit Deferrals</div>
+        <div class={"font-semibold font-mono #{if @rate_limit_deferrals > 0, do: "text-info", else: ""}"}>
+          {format_number(@rate_limit_deferrals)}
+        </div>
+      </div>
+      <div :if={@port_exhaustion_count > 0} class="col-span-2 bg-error/10 rounded p-2">
+        <div class="text-error/80">Port Exhaustion Events</div>
+        <div class="font-semibold font-mono text-error">{format_number(@port_exhaustion_count)}</div>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_number(nil), do: "0"
+  defp format_number(n) when is_float(n), do: Float.round(n, 2) |> to_string()
+
+  defp format_number(n) when is_integer(n) do
+    n
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.replace(~r/.{3}/, "\\0,")
+    |> String.reverse()
+    |> String.trim_leading(",")
+  end
+
+  defp format_number(n), do: to_string(n)
 
   # Execution Status Badge
   attr :status, :atom, required: true

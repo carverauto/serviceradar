@@ -444,6 +444,10 @@ func (m *mockSweeper) GetStatus(_ context.Context) (*models.SweepSummary, error)
 	return m.summary, nil
 }
 
+func (*mockSweeper) GetScannerStats() *models.ScannerStats {
+	return nil
+}
+
 func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {
 	// Ensure LastSweep timestamp is different to trigger change detection
 	if newSummary.LastSweep == m.summary.LastSweep {
