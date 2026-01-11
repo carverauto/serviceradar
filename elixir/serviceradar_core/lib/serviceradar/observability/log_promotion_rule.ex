@@ -21,12 +21,28 @@ defmodule ServiceRadar.Observability.LogPromotionRule do
     strategy :context
   end
 
+  code_interface do
+    define :list, action: :read
+    define :list_active, action: :active
+    define :create, action: :create
+    define :update, action: :update
+    define :destroy, action: :destroy
+  end
+
   actions do
-    defaults [:read, :create, :update, :destroy]
+    defaults [:read, :destroy]
 
     read :active do
       filter expr(enabled == true)
       prepare build(sort: [priority: :asc, inserted_at: :asc])
+    end
+
+    create :create do
+      accept [:name, :enabled, :priority, :match, :event]
+    end
+
+    update :update do
+      accept [:name, :enabled, :priority, :match, :event]
     end
   end
 

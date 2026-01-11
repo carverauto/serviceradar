@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
       {:error, _changeset} ->
         conn
         |> put_flash(:error, "Failed to update password.")
-        |> redirect(to: ~p"/users/settings")
+        |> redirect(to: ~p"/settings/profile")
     end
   end
 

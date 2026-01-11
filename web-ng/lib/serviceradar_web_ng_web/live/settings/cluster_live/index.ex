@@ -11,11 +11,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.SettingsComponents
+
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadar.Cluster.ClusterStatus
-  alias ServiceRadar.GatewayRegistry
-  alias ServiceRadar.AgentRegistry
 
   @refresh_interval :timer.seconds(10)
+  @stale_threshold_ms :timer.minutes(2)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -23,18 +26,44 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       # Subscribe to cluster events (same topics used by AgentRegistry)
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "cluster:events")
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:status")
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "gateway:platform")
 
       # Schedule periodic refresh
       schedule_refresh()
     end
 
+    current_scope = socket.assigns.current_scope
+
+    is_platform_admin =
+      case current_scope do
+        nil -> false
+        scope -> Scope.platform_admin?(scope)
+      end
+
+    tenant_info = get_tenant_id(socket)
+
+    gateways_cache = load_initial_gateways_cache()
+    agents_cache = load_initial_agents_cache()
+    gateways = compute_gateways(gateways_cache)
+    agents = compute_connected_agents(agents_cache, is_platform_admin, tenant_info)
+
+    cluster_status = load_cluster_status()
+    cluster_health = build_cluster_health(gateways, agents)
+    job_counts = load_job_counts(current_scope)
+
     socket =
       socket
       |> assign(:page_title, "Cluster Status")
-      |> assign(:cluster_status, load_cluster_status())
-      |> assign(:cluster_health, load_cluster_health())
-      |> assign(:gateways, load_gateways())
-      |> assign(:agents, load_agents())
+      |> assign(:cluster_status, cluster_status)
+      |> assign(:cluster_health, cluster_health)
+      |> assign(:gateways_cache, gateways_cache)
+      |> assign(:agents_cache, agents_cache)
+      |> assign(:gateways, gateways)
+      |> assign(:agents, agents)
+      |> assign(:is_platform_admin, is_platform_admin)
+      |> assign(:tenant_info, tenant_info)
+      |> assign(:job_counts, job_counts)
       |> assign(:oban_stats, load_oban_stats())
       |> assign(:events, [])
 
@@ -45,12 +74,56 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def handle_info(:refresh, socket) do
     schedule_refresh()
 
+    cluster_status = load_cluster_status()
+    now_ms = System.system_time(:millisecond)
+
+    pruned_gateways_cache =
+      socket.assigns.gateways_cache
+      |> Enum.reject(fn {_id, gw} ->
+        last_ms = parse_timestamp_to_ms(Map.get(gw, :last_heartbeat))
+
+        delta_ms =
+          if is_integer(last_ms) do
+            max(now_ms - last_ms, 0)
+          else
+            nil
+          end
+
+        not is_integer(delta_ms) or delta_ms > @stale_threshold_ms
+      end)
+      |> Map.new()
+
+    refreshed_gateways_cache =
+      merge_gateways_cache(pruned_gateways_cache, load_initial_gateways_cache())
+
+    pruned_agents_cache =
+      socket.assigns.agents_cache
+      |> Enum.reject(fn {_id, agent} ->
+        not agent_active?(agent, now_ms)
+      end)
+      |> Map.new()
+
+    gateways = compute_gateways(refreshed_gateways_cache)
+
+    agents =
+      compute_connected_agents(
+        pruned_agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_info
+      )
+
+    cluster_health = build_cluster_health(gateways, agents)
+    job_counts = load_job_counts(socket.assigns.current_scope)
+
     {:noreply,
      socket
-     |> assign(:cluster_status, load_cluster_status())
-     |> assign(:cluster_health, load_cluster_health())
-     |> assign(:gateways, load_gateways())
-     |> assign(:agents, load_agents())
+     |> assign(:cluster_status, cluster_status)
+     |> assign(:cluster_health, cluster_health)
+     |> assign(:gateways_cache, refreshed_gateways_cache)
+     |> assign(:agents_cache, pruned_agents_cache)
+     |> assign(:gateways, gateways)
+     |> assign(:agents, agents)
+     |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())}
   end
 
@@ -60,7 +133,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_status, load_cluster_status())
-     |> assign(:cluster_health, load_cluster_health())
+     |> assign(
+       :cluster_health,
+       build_cluster_health(socket.assigns.gateways, socket.assigns.agents)
+     )
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)
      |> put_flash(:info, "Node joined: #{node}")}
   end
@@ -71,7 +147,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     {:noreply,
      socket
      |> assign(:cluster_status, load_cluster_status())
-     |> assign(:cluster_health, load_cluster_health())
+     |> assign(
+       :cluster_health,
+       build_cluster_health(socket.assigns.gateways, socket.assigns.agents)
+     )
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)
      |> put_flash(:error, "Node disconnected: #{node}")}
   end
@@ -79,9 +158,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def handle_info({:agent_registered, metadata}, socket) do
     event = %{type: :agent_registered, agent_id: metadata.agent_id, timestamp: DateTime.utc_now()}
 
+    agents =
+      compute_connected_agents(
+        socket.assigns.agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_info
+      )
+
     {:noreply,
      socket
-     |> assign(:agents, load_agents())
+     |> assign(:agents, agents)
+     |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, agents))
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)}
   end
 
@@ -90,20 +177,114 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     {:noreply,
      socket
-     |> assign(:agents, load_agents())
+     |> assign(:agents, socket.assigns.agents)
      |> update(:events, fn events -> [event | Enum.take(events, 49)] end)}
+  end
+
+  def handle_info({:gateway_registered, gateway_info}, socket) do
+    gateway_id = gateway_info[:gateway_id]
+
+    if is_nil(gateway_id) or gateway_id == "" do
+      {:noreply, socket}
+    else
+      updated_cache =
+        Map.put(socket.assigns.gateways_cache, gateway_id, %{
+          gateway_id: gateway_id,
+          node: gateway_info[:node] || Node.self(),
+          partition: gateway_info[:partition] || "default",
+          domain: gateway_info[:domain] || "default",
+          status: gateway_info[:status] || :available,
+          registered_at: gateway_info[:registered_at] || DateTime.utc_now(),
+          last_heartbeat: gateway_info[:last_heartbeat] || DateTime.utc_now()
+        })
+
+      gateways = compute_gateways(updated_cache)
+      cluster_health = build_cluster_health(gateways, socket.assigns.agents)
+
+      {:noreply,
+       socket
+       |> assign(:gateways_cache, updated_cache)
+       |> assign(:gateways, gateways)
+       |> assign(:cluster_health, cluster_health)}
+    end
+  end
+
+  def handle_info({:gateway_unregistered, gateway_id}, socket) do
+    updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_id)
+    gateways = compute_gateways(updated_cache)
+    cluster_health = build_cluster_health(gateways, socket.assigns.agents)
+
+    {:noreply,
+     socket
+     |> assign(:gateways_cache, updated_cache)
+     |> assign(:gateways, gateways)
+     |> assign(:cluster_health, cluster_health)}
+  end
+
+  def handle_info({:agent_status, agent_info}, socket) do
+    agent_id = agent_info[:agent_id]
+
+    if is_nil(agent_id) or agent_id == "" do
+      {:noreply, socket}
+    else
+      updated_cache =
+        Map.put(socket.assigns.agents_cache, agent_id, %{
+          agent_id: agent_id,
+          tenant_id: agent_info[:tenant_id],
+          tenant_slug: agent_info[:tenant_slug] || "default",
+          last_seen: agent_info[:last_seen] || DateTime.utc_now(),
+          last_seen_mono: System.monotonic_time(:millisecond),
+          service_count: agent_info[:service_count] || 0,
+          partition: agent_info[:partition],
+          source_ip: agent_info[:source_ip]
+        })
+
+      agents =
+        compute_connected_agents(
+          updated_cache,
+          socket.assigns.is_platform_admin,
+          socket.assigns.tenant_info
+        )
+
+      cluster_health = build_cluster_health(socket.assigns.gateways, agents)
+
+      {:noreply,
+       socket
+       |> assign(:agents_cache, updated_cache)
+       |> assign(:agents, agents)
+       |> assign(:cluster_health, cluster_health)}
+    end
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("refresh", _params, socket) do
+    cluster_status = load_cluster_status()
+
+    refreshed_gateways_cache =
+      merge_gateways_cache(socket.assigns.gateways_cache, load_initial_gateways_cache())
+
+    gateways = compute_gateways(refreshed_gateways_cache)
+
+    agents =
+      compute_connected_agents(
+        socket.assigns.agents_cache,
+        socket.assigns.is_platform_admin,
+        socket.assigns.tenant_info
+      )
+
+    cluster_health = build_cluster_health(gateways, agents)
+    job_counts = load_job_counts(socket.assigns.current_scope)
+
     {:noreply,
      socket
-     |> assign(:cluster_status, load_cluster_status())
-     |> assign(:cluster_health, load_cluster_health())
-     |> assign(:gateways, load_gateways())
-     |> assign(:agents, load_agents())
+     |> assign(:cluster_status, cluster_status)
+     |> assign(:cluster_health, cluster_health)
+     |> assign(:gateways_cache, refreshed_gateways_cache)
+     |> assign(:gateways, gateways)
+     |> assign(:agents, agents)
+     |> assign(:job_counts, job_counts)
      |> assign(:oban_stats, load_oban_stats())}
   end
 
@@ -111,7 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-7xl p-6 space-y-6">
+      <.settings_shell current_path="/settings/cluster">
         <.settings_nav current_path="/settings/cluster" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
@@ -135,33 +316,35 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             icon="hero-globe-alt"
           />
           <.health_card
+            :if={@is_platform_admin}
             title="Nodes"
             value={@cluster_status.node_count}
             variant={if @cluster_status.node_count > 1, do: "success", else: "info"}
             icon="hero-server-stack"
           />
           <.health_card
+            :if={@is_platform_admin}
             title="Gateways"
-            value={@cluster_health.gateway_count}
+            value={length(@gateways)}
             variant="info"
             icon="hero-cpu-chip"
           />
           <.health_card
             title="Agents"
-            value={@cluster_health.agent_count}
+            value={length(@agents)}
             variant="info"
             icon="hero-cube"
           />
           <.health_card
             title="Jobs"
-            value={@oban_stats.total_executing}
+            value={@job_counts.total}
             variant={oban_variant(@oban_stats)}
             icon="hero-queue-list"
           />
         </div>
         
     <!-- Cluster Nodes -->
-        <.ui_panel>
+        <.ui_panel :if={@is_platform_admin}>
           <:header>
             <div>
               <div class="text-sm font-semibold">Cluster Nodes</div>
@@ -182,7 +365,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               </thead>
               <tbody>
                 <tr class="bg-base-200/30">
-                  <td class="font-mono text-sm">{to_string(@cluster_status.self)}</td>
+                  <td class="font-mono text-sm">
+                    <.link navigate={~p"/settings/cluster/nodes/#{node_param(@cluster_status.self)}"}>
+                      {to_string(@cluster_status.self)}
+                    </.link>
+                  </td>
                   <td>
                     <.ui_badge variant="info" size="xs">Self</.ui_badge>
                   </td>
@@ -192,7 +379,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                 </tr>
                 <%= for node <- @cluster_status.connected_nodes do %>
                   <tr>
-                    <td class="font-mono text-sm">{to_string(node)}</td>
+                    <td class="font-mono text-sm">
+                      <.link navigate={~p"/settings/cluster/nodes/#{node_param(node)}"}>
+                        {to_string(node)}
+                      </.link>
+                    </td>
                     <td>
                       <.ui_badge variant="ghost" size="xs">Remote</.ui_badge>
                     </td>
@@ -212,94 +403,30 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </.ui_panel>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Gateway Registry -->
-          <.ui_panel>
+          <.ui_panel :if={@is_platform_admin}>
             <:header>
               <div>
-                <div class="text-sm font-semibold">Gateways</div>
+                <div class="text-sm font-semibold">Agent Gateways</div>
                 <p class="text-xs text-base-content/60">
-                  {@cluster_health.gateway_count} gateway(s) in cluster
+                  {length(@gateways)} gateway(s) in cluster
                 </p>
               </div>
             </:header>
 
-            <div class="overflow-x-auto">
-              <%= if @gateways == [] do %>
-                <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                  <div class="text-sm font-semibold text-base-content">No gateways</div>
-                  <p class="mt-1 text-xs text-base-content/60">
-                    Deploy gateways to join the cluster.
-                  </p>
-                </div>
-              <% else %>
-                <table class="table table-sm">
-                  <thead>
-                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                      <th>Partition</th>
-                      <th>Node</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for gateway <- @gateways do %>
-                      <tr>
-                        <td class="font-mono text-xs">
-                          {Map.get(gateway, :partition_id, "default")}
-                        </td>
-                        <td class="font-mono text-xs">{format_node(Map.get(gateway, :node))}</td>
-                        <td><.status_badge status={Map.get(gateway, :status)} /></td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-              <% end %>
-            </div>
+            <.gateways_table gateways={@gateways} expanded={true} />
           </.ui_panel>
-          
-    <!-- Agent Registry -->
+
           <.ui_panel>
             <:header>
               <div>
-                <div class="text-sm font-semibold">Agents</div>
+                <div class="text-sm font-semibold">Connected Agents</div>
                 <p class="text-xs text-base-content/60">
-                  {@cluster_health.agent_count} agent(s) in cluster
+                  {length(@agents)} agent(s) reporting
                 </p>
               </div>
             </:header>
 
-            <div class="overflow-x-auto">
-              <%= if @agents == [] do %>
-                <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                  <div class="text-sm font-semibold text-base-content">No agents</div>
-                  <p class="mt-1 text-xs text-base-content/60">
-                    Deploy agents to join the cluster.
-                  </p>
-                </div>
-              <% else %>
-                <table class="table table-sm">
-                  <thead>
-                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                      <th>Agent ID</th>
-                      <th>Gateway</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for agent <- @agents do %>
-                      <tr>
-                        <td class="font-mono text-xs max-w-[10rem] truncate">
-                          {Map.get(agent, :agent_id, "—")}
-                        </td>
-                        <td class="font-mono text-xs">
-                          {format_node(Map.get(agent, :gateway_node))}
-                        </td>
-                        <td><.status_badge status={Map.get(agent, :status)} /></td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-              <% end %>
-            </div>
+            <.agents_table agents={@agents} expanded={true} />
           </.ui_panel>
         </div>
         
@@ -385,34 +512,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             </table>
           </div>
         </.ui_panel>
-      </div>
+      </.settings_shell>
     </Layouts.app>
-    """
-  end
-
-  # Settings navigation component
-  defp settings_nav(assigns) do
-    ~H"""
-    <div class="flex flex-wrap gap-2 mb-4">
-      <.link
-        navigate={~p"/users/settings"}
-        class={[
-          "btn btn-sm",
-          if(@current_path == "/users/settings", do: "btn-primary", else: "btn-ghost")
-        ]}
-      >
-        <.icon name="hero-user" class="size-4" /> Profile
-      </.link>
-      <.link
-        navigate={~p"/settings/cluster"}
-        class={[
-          "btn btn-sm",
-          if(@current_path == "/settings/cluster", do: "btn-primary", else: "btn-ghost")
-        ]}
-      >
-        <.icon name="hero-server-stack" class="size-4" /> Cluster
-      </.link>
-    </div>
     """
   end
 
@@ -460,26 +561,127 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     """
   end
 
-  attr :status, :atom, default: nil
+  attr :gateways, :list, required: true
+  attr :expanded, :boolean, default: false
 
-  defp status_badge(assigns) do
-    {label, variant} =
-      case assigns.status do
-        :available -> {"Available", "success"}
-        :connected -> {"Connected", "success"}
-        :busy -> {"Busy", "warning"}
-        :unavailable -> {"Unavailable", "error"}
-        :disconnected -> {"Disconnected", "error"}
-        _ -> {"Unknown", "ghost"}
-      end
-
-    assigns =
-      assigns
-      |> assign(:label, label)
-      |> assign(:variant, variant)
-
+  defp gateways_table(assigns) do
     ~H"""
-    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <th>Status</th>
+            <th>Gateway ID</th>
+            <th :if={@expanded}>Partition</th>
+            <th :if={@expanded}>Node</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@gateways == []}>
+            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
+              No agent gateways registered
+            </td>
+          </tr>
+          <%= for gateway <- @gateways do %>
+            <tr class="hover:bg-base-200/40 cursor-pointer">
+              <td>
+                <.link
+                  navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
+                  class="flex items-center gap-1.5"
+                >
+                  <span class={"size-2 rounded-full #{if gateway.active, do: "bg-success", else: "bg-warning"}"}>
+                  </span>
+                  <span class="text-xs">{if gateway.active, do: "Active", else: "Stale"}</span>
+                </.link>
+              </td>
+              <td>
+                <.link
+                  navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs block"
+                >
+                  {gateway.gateway_id}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link
+                  navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs block"
+                >
+                  {gateway.partition}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link
+                  navigate={~p"/settings/cluster/nodes/#{node_param(gateway.node)}"}
+                  class="font-mono text-xs text-base-content/60 block"
+                >
+                  {gateway.short_name}
+                </.link>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :agents, :list, required: true
+  attr :expanded, :boolean, default: false
+
+  defp agents_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr class="text-xs uppercase tracking-wide text-base-content/60">
+            <th>Status</th>
+            <th>Agent ID</th>
+            <th>Tenant</th>
+            <th :if={@expanded}>Last Seen</th>
+            <th :if={@expanded}>Services</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@agents == []}>
+            <td colspan={if @expanded, do: 5, else: 3} class="text-center text-base-content/60 py-6">
+              No agents have pushed status yet
+            </td>
+          </tr>
+          <%= for agent <- @agents do %>
+            <tr class="hover:bg-base-200/40 cursor-pointer">
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="flex items-center gap-1.5">
+                  <span class={"size-2 rounded-full #{if agent.active, do: "bg-success", else: "bg-warning"}"}>
+                  </span>
+                  <span class="text-xs">{if agent.active, do: "Active", else: "Stale"}</span>
+                </.link>
+              </td>
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.agent_id}
+                </.link>
+              </td>
+              <td>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {agent.tenant_slug}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
+                  {format_time(agent.last_seen)}
+                </.link>
+              </td>
+              <td :if={@expanded}>
+                <.link navigate={~p"/agents/#{agent.agent_id}"} class="text-xs block">
+                  {agent.service_count}
+                </.link>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
     """
   end
 
@@ -523,29 +725,300 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     _ -> %{enabled: false, self: Node.self(), connected_nodes: [], node_count: 1, topologies: []}
   end
 
-  defp load_cluster_health do
-    # Use ClusterStatus which queries coordinator via RPC if needed
-    status = ClusterStatus.get_status()
-
+  defp build_cluster_health(gateways, agents) do
     %{
-      gateway_count: status.gateway_count,
-      agent_count: status.agent_count,
-      status: status.status
+      gateway_count: length(gateways),
+      agent_count: length(agents)
     }
-  rescue
-    _ -> %{gateway_count: 0, agent_count: 0, status: :unknown}
   end
 
-  defp load_gateways do
-    GatewayRegistry.all_gateways()
-  rescue
-    _ -> []
+  defp load_job_counts(scope) do
+    job_scope = job_scope_opts(scope)
+    total = JobCatalog.list_all_jobs(job_scope) |> length()
+    %{total: total}
   end
 
-  defp load_agents do
-    AgentRegistry.all_agents()
-  rescue
-    _ -> []
+  defp job_scope_opts(scope) do
+    scope = scope || %{}
+    tenant_id = Scope.tenant_id(scope)
+    platform_admin? = can_view_platform_jobs?(scope)
+
+    [tenant_id: tenant_id, platform_admin?: platform_admin?]
+  end
+
+  defp can_view_platform_jobs?(%{active_tenant: tenant}), do: platform_tenant?(tenant)
+  defp can_view_platform_jobs?(_), do: false
+
+  defp platform_tenant?(%{is_platform_tenant: true}), do: true
+  defp platform_tenant?(_), do: false
+
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{active_tenant: %{id: id, slug: slug}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id, tenant: %{slug: slug}}} when not is_nil(id) ->
+        {id, to_string(slug)}
+
+      %{user: %{tenant_id: id}} when not is_nil(id) ->
+        {id, nil}
+
+      _ ->
+        {nil, nil}
+    end
+  end
+
+  defp load_initial_gateways_cache do
+    [Node.self() | Node.list()]
+    |> Task.async_stream(
+      &fetch_gateways_from_node/1,
+      timeout: 1_500,
+      on_timeout: :kill_task,
+      max_concurrency: 4
+    )
+    |> Enum.flat_map(&unwrap_gateway_result/1)
+    |> Enum.reduce(%{}, &put_gateway_entry/2)
+  end
+
+  defp fetch_gateways_from_node(node) do
+    case :rpc.call(node, ServiceRadar.GatewayTracker, :list_gateways, [], 1_000) do
+      gateways when is_list(gateways) -> gateways
+      _ -> []
+    end
+  end
+
+  defp unwrap_gateway_result({:ok, gateways}) when is_list(gateways), do: gateways
+  defp unwrap_gateway_result(_), do: []
+
+  defp put_gateway_entry(gateway, acc) do
+    case gateway_id_from(gateway) do
+      nil ->
+        acc
+
+      gateway_id ->
+        incoming = normalize_gateway_entry(gateway, gateway_id)
+
+        Map.update(acc, gateway_id, incoming, fn existing ->
+          prefer_gateway_entry(existing, incoming)
+        end)
+    end
+  end
+
+  defp gateway_id_from(gateway) do
+    gateway_id = Map.get(gateway, :gateway_id) || Map.get(gateway, "gateway_id")
+
+    if is_binary(gateway_id) and gateway_id != "", do: gateway_id, else: nil
+  end
+
+  defp normalize_gateway_entry(gateway, gateway_id) do
+    %{
+      gateway_id: gateway_id,
+      node: fetch_gateway_field(gateway, :node, "node", Node.self()),
+      partition: fetch_gateway_field(gateway, :partition, "partition", "default"),
+      domain: fetch_gateway_field(gateway, :domain, "domain", "default"),
+      status: fetch_gateway_field(gateway, :status, "status", :available),
+      registered_at: fetch_gateway_field(gateway, :registered_at, "registered_at", nil),
+      last_heartbeat: fetch_gateway_field(gateway, :last_heartbeat, "last_heartbeat", nil)
+    }
+  end
+
+  defp fetch_gateway_field(gateway, atom_key, string_key, default) do
+    Map.get(gateway, atom_key) || Map.get(gateway, string_key) || default
+  end
+
+  defp load_initial_agents_cache do
+    all_agents =
+      [Node.self() | Node.list()]
+      |> Task.async_stream(
+        fn node ->
+          case :rpc.call(node, ServiceRadar.AgentTracker, :list_agents, [], 1_000) do
+            agents when is_list(agents) -> agents
+            _ -> []
+          end
+        end,
+        timeout: 1_500,
+        on_timeout: :kill_task,
+        max_concurrency: 4
+      )
+      |> Enum.flat_map(fn
+        {:ok, agents} -> agents
+        _ -> []
+      end)
+
+    all_agents
+    |> Enum.reduce(%{}, fn agent, acc ->
+      agent_id = Map.get(agent, :agent_id) || Map.get(agent, "agent_id")
+
+      Map.put(acc, agent_id, %{
+        agent_id: agent_id,
+        tenant_id: Map.get(agent, :tenant_id) || Map.get(agent, "tenant_id"),
+        tenant_slug: Map.get(agent, :tenant_slug) || Map.get(agent, "tenant_slug") || "default",
+        last_seen: Map.get(agent, :last_seen) || Map.get(agent, "last_seen"),
+        last_seen_mono: Map.get(agent, :last_seen_mono) || Map.get(agent, "last_seen_mono"),
+        service_count: Map.get(agent, :service_count) || Map.get(agent, "service_count") || 0,
+        partition: Map.get(agent, :partition) || Map.get(agent, "partition"),
+        source_ip: Map.get(agent, :source_ip) || Map.get(agent, "source_ip")
+      })
+    end)
+  end
+
+  defp compute_gateways(gateways_cache) do
+    now_ms = System.system_time(:millisecond)
+
+    gateways_cache
+    |> Map.values()
+    |> Enum.map(fn gateway ->
+      last_heartbeat_ms = parse_timestamp_to_ms(Map.get(gateway, :last_heartbeat))
+
+      delta_ms =
+        if is_integer(last_heartbeat_ms), do: max(now_ms - last_heartbeat_ms, 0), else: nil
+
+      active = is_integer(delta_ms) and delta_ms < @stale_threshold_ms
+      node_str = to_string(gateway.node)
+
+      gateway
+      |> Map.put(:active, active)
+      |> Map.put(:full_name, node_str)
+      |> Map.put(:short_name, node_str |> String.split("@") |> List.first())
+    end)
+    |> Enum.sort_by(& &1.gateway_id)
+  end
+
+  defp merge_gateways_cache(existing_cache, incoming_cache) do
+    Map.merge(existing_cache, incoming_cache, fn _gateway_id, existing, incoming ->
+      prefer_gateway_entry(existing, incoming)
+    end)
+  end
+
+  defp prefer_gateway_entry(existing, incoming) do
+    existing_ms = parse_timestamp_to_ms(Map.get(existing, :last_heartbeat))
+    incoming_ms = parse_timestamp_to_ms(Map.get(incoming, :last_heartbeat))
+
+    cond do
+      is_integer(incoming_ms) and is_integer(existing_ms) and incoming_ms > existing_ms ->
+        Map.merge(existing, incoming)
+
+      is_integer(incoming_ms) and not is_integer(existing_ms) ->
+        Map.merge(existing, incoming)
+
+      true ->
+        Map.merge(incoming, existing)
+    end
+  end
+
+  defp parse_timestamp_to_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
+
+  defp parse_timestamp_to_ms(%NaiveDateTime{} = ndt) do
+    ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+  end
+
+  defp parse_timestamp_to_ms(ts) when is_integer(ts) do
+    cond do
+      ts < 0 ->
+        nil
+
+      ts > 10_000_000_000_000_000 ->
+        div(ts, 1_000_000)
+
+      ts > 10_000_000_000_000 ->
+        div(ts, 1_000)
+
+      ts > 10_000_000_000 ->
+        ts
+
+      true ->
+        ts * 1_000
+    end
+  end
+
+  defp parse_timestamp_to_ms(ts) when is_binary(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp parse_timestamp_to_ms(_), do: nil
+
+  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_info) do
+    {tenant_id, tenant_slug} =
+      case tenant_info do
+        {id, slug} -> {id, slug}
+        id when is_binary(id) -> {id, nil}
+        _ -> {nil, nil}
+      end
+
+    now_ms = System.system_time(:millisecond)
+
+    agents_cache
+    |> Map.values()
+    |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
+    |> Enum.map(fn agent ->
+      Map.put(agent, :active, agent_active?(agent, now_ms))
+    end)
+    |> Enum.sort_by(& &1.agent_id)
+  end
+
+  defp agent_active?(agent, now_ms) do
+    last_seen_ms = agent_last_seen_ms(agent)
+
+    cond do
+      is_integer(last_seen_ms) ->
+        delta_ms = max(now_ms - last_seen_ms, 0)
+        delta_ms < @stale_threshold_ms
+
+      is_integer(agent[:last_seen_mono]) and is_nil(agent[:last_seen]) ->
+        now_mono = System.monotonic_time(:millisecond)
+        delta_ms = max(now_mono - agent[:last_seen_mono], 0)
+        delta_ms < @stale_threshold_ms
+
+      true ->
+        false
+    end
+  end
+
+  defp agent_last_seen_ms(agent) do
+    case Map.get(agent, :last_seen) do
+      %DateTime{} = dt ->
+        DateTime.to_unix(dt, :millisecond)
+
+      %NaiveDateTime{} = ndt ->
+        ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+
+      ts when is_binary(ts) ->
+        parse_iso8601_ms(ts)
+
+      ts when is_integer(ts) ->
+        parse_timestamp_to_ms(ts)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_iso8601_ms(ts) do
+    case DateTime.from_iso8601(ts) do
+      {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp agent_visible?(_agent, true, _tenant_id, _tenant_slug), do: true
+
+  defp agent_visible?(agent, false, tenant_id, tenant_slug) do
+    agent_tenant_id = Map.get(agent, :tenant_id)
+    agent_tenant_slug = Map.get(agent, :tenant_slug)
+
+    cond do
+      tenant_id != nil and agent_tenant_id != nil ->
+        to_string(agent_tenant_id) == to_string(tenant_id)
+
+      tenant_slug != nil and agent_tenant_slug != nil ->
+        to_string(agent_tenant_slug) == to_string(tenant_slug)
+
+      true ->
+        false
+    end
   end
 
   defp load_oban_stats do
@@ -591,9 +1064,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     Process.send_after(self(), :refresh, @refresh_interval)
   end
 
-  defp format_node(nil), do: "—"
-  defp format_node(node) when is_atom(node), do: to_string(node)
-  defp format_node(node), do: to_string(node)
+  defp node_param(node), do: to_string(node)
+
+  defp format_time(nil), do: "—"
+  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
+  defp format_time(_), do: "—"
 
   defp format_timestamp(nil), do: "—"
 

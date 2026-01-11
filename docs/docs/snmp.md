@@ -45,10 +45,11 @@ Traps complement polling by pushing urgent events:
 - `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `packaging/zen/rules/snmp_severity.json`.
 - `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
 
-These and the syslog-focused rules share the same GoRules/zen runtime. A Web UI rule builder backed by GoRules is on the roadmap so you can compose new branches without editing JSON directly.
+These and the syslog-focused rules share the same GoRules/zen runtime. Use the Rule Builder UI to manage them; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
+- Use **Settings → Events** to manage Zen normalization rules for SNMP traps.
 - Rules live in the `serviceradar-datasvc` bucket under `agents/<agent-id>/<stream>/<subject>/<rule>.json`. For the demo stack that becomes `agents/default-agent/events/logs.snmp/snmp_severity.json`.
 - Update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
 

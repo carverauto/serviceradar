@@ -17,6 +17,14 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     strategy :context
   end
 
+  code_interface do
+    define :list, action: :read
+    define :list_active, action: :active
+    define :create, action: :create
+    define :update, action: :update
+    define :destroy, action: :destroy
+  end
+
   actions do
     defaults [:read, :destroy]
 
@@ -26,10 +34,42 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     end
 
     create :create do
+      accept [
+        :name,
+        :description,
+        :enabled,
+        :priority,
+        :signal,
+        :match,
+        :group_by,
+        :threshold,
+        :window_seconds,
+        :bucket_seconds,
+        :cooldown_seconds,
+        :renotify_seconds,
+        :event,
+        :alert
+      ]
       validate ServiceRadar.Observability.Validations.WindowBucket
     end
 
     update :update do
+      accept [
+        :name,
+        :description,
+        :enabled,
+        :priority,
+        :signal,
+        :match,
+        :group_by,
+        :threshold,
+        :window_seconds,
+        :bucket_seconds,
+        :cooldown_seconds,
+        :renotify_seconds,
+        :event,
+        :alert
+      ]
       validate ServiceRadar.Observability.Validations.WindowBucket
     end
   end

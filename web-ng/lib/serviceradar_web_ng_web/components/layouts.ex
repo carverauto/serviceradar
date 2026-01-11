@@ -159,14 +159,6 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/infrastructure"}
-                  label="Infrastructure"
-                  icon="hero-cpu-chip"
-                  active={@current_path && String.starts_with?(@current_path, "/infrastructure")}
-                />
-              </li>
-              <li>
-                <.sidebar_link
                   href={~p"/interfaces"}
                   label="Interfaces"
                   icon="hero-globe-alt"
@@ -199,10 +191,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/admin/jobs"}
+                  href={~p"/settings/cluster"}
                   label="Settings"
                   icon="hero-adjustments-horizontal"
-                  active={@current_path && String.starts_with?(@current_path, "/admin")}
+                  active={
+                    @current_path &&
+                      (String.starts_with?(@current_path, "/settings") ||
+                         String.starts_with?(@current_path, "/admin") ||
+                         String.starts_with?(@current_path, "/users/settings"))
+                  }
                 />
               </li>
             </ul>
@@ -278,8 +275,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   </div>
                 </li>
                 <li>
-                  <.link href={~p"/users/settings"} class="text-sm">
-                    <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+                  <.link href={~p"/settings/profile"} class="text-sm">
+                    <.icon name="hero-cog-6-tooth" class="size-4" /> Account
                   </.link>
                 </li>
                 <li>

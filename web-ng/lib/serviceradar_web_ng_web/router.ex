@@ -246,6 +246,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Redirect /dashboard to /analytics
     get "/dashboard", PageController, :redirect_to_analytics
+    get "/users/settings", PageController, :redirect_to_settings_profile
 
     live_session :require_authenticated_user,
       on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}] do
@@ -270,16 +271,16 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/logs/:log_id", LogLive.Show, :show
       live "/services", ServiceLive.Index, :index
       live "/interfaces", InterfaceLive.Index, :index
-      live "/users/settings", UserLive.Settings, :edit
+      live "/settings/profile", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
 
       # Cluster visibility for all authenticated users
       live "/settings/cluster", Settings.ClusterLive.Index, :index
+      live "/settings/cluster/nodes/:node_name", NodeLive.Show, :show
+      live "/settings/rules", Settings.RulesLive.Index, :index
 
-      # Infrastructure view - all authenticated users can see Connected Agents tab
-      # Platform admins (super_admin role) can see all tabs (nodes, gateways)
-      live "/infrastructure", InfrastructureLive.Index, :index
-      live "/infrastructure/nodes/:node_name", NodeLive.Show, :show
+      get "/infrastructure", PageController, :redirect_to_settings_cluster
+      get "/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node
     end
 
     post "/users/update-password", UserSessionController, :update_password

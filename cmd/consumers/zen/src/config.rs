@@ -359,11 +359,13 @@ mod tests {
         assert_eq!(cfg.decision_groups.len(), 4);
         assert_eq!(cfg.decision_groups[0].name, "syslog");
         assert_eq!(cfg.decision_groups[0].subjects, vec!["*.logs.syslog"]);
-        assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
-        assert_eq!(cfg.decision_groups[0].rules[1].key, "cef_severity");
+        assert_eq!(cfg.decision_groups[0].rules[0].key, "passthrough");
+        assert_eq!(cfg.decision_groups[0].rules[1].key, "strip_full_message");
+        assert_eq!(cfg.decision_groups[0].rules[2].key, "cef_severity");
         assert_eq!(cfg.decision_groups[1].name, "snmp");
         assert_eq!(cfg.decision_groups[1].subjects, vec!["*.logs.snmp"]);
-        assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
+        assert_eq!(cfg.decision_groups[1].rules[0].key, "passthrough");
+        assert_eq!(cfg.decision_groups[1].rules[1].key, "snmp_severity");
         assert_eq!(cfg.decision_groups[2].name, "otel_logs");
         assert_eq!(cfg.decision_groups[2].subjects, vec!["*.logs.otel"]);
         assert_eq!(cfg.decision_groups[2].format, MessageFormat::Protobuf);

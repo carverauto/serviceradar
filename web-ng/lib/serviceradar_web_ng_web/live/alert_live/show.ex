@@ -190,11 +190,15 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   end
 
   defp inline_value(%{value: value} = assigns) when is_boolean(value) do
-    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
+    assigns = assign(assigns, :value_text, to_string(value))
+
+    ~H|<span class="text-sm font-mono">{@value_text}</span>|
   end
 
   defp inline_value(%{value: value} = assigns) when is_number(value) do
-    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
+    assigns = assign(assigns, :value_text, to_string(value))
+
+    ~H|<span class="text-sm font-mono">{@value_text}</span>|
   end
 
   defp inline_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
@@ -209,8 +213,10 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     ~H|<span class="text-sm font-mono">{@summary}</span>|
   end
 
-  defp inline_value(%{value: _value} = assigns) do
-    ~H|<span class="text-sm font-mono">{to_string(@value)}</span>|
+  defp inline_value(%{value: value} = assigns) do
+    assigns = assign(assigns, :value_text, to_string(value))
+
+    ~H|<span class="text-sm font-mono">{@value_text}</span>|
   end
 
   attr :value, :any, default: nil

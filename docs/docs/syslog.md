@@ -31,10 +31,11 @@ The default decision group for syslog chains two GoRules/zen flows that focus on
 - `strip_full_message` removes the duplicated `full_message` field that UniFi devices emit so only the structured payload remains.
 - `cef_severity` inspects the CEF header segment and maps the embedded numeric severity into the ServiceRadar priority scale (`Low`, `Medium`, `High`, `Very High`, or `Unknown`).
 
-You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered ConfigMap `k8s/demo/base/serviceradar-zen-rules.yaml`. Future releases will surface these flows in a Web UI rule builder powered by GoRules so operators can drag-and-drop additional matchers without touching JSON.
+You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered ConfigMap `k8s/demo/base/serviceradar-zen-rules.yaml`. The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
+- Use **Settings → Events** to manage Zen normalization rules for syslog.
 - Rules are stored in the NATS JetStream key-value bucket `serviceradar-datasvc` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `logs.syslog`.
 - The `zen-put-rule` helper (packaged in the `serviceradar-tools` container) publishes rule updates. Launch the toolbox pod and run:
 

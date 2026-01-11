@@ -15,15 +15,17 @@
       "name": "syslog",
       "subjects": ["*.logs.syslog"],
       "rules": [
-        {"order": 1, "key": "strip_full_message"},
-        {"order": 2, "key": "cef_severity"}
+        {"order": 1, "key": "passthrough"},
+        {"order": 2, "key": "strip_full_message"},
+        {"order": 3, "key": "cef_severity"}
       ]
     },
     {
       "name": "snmp",
       "subjects": ["*.logs.snmp"],
       "rules": [
-        {"order": 1, "key": "cef_severity"}
+        {"order": 1, "key": "passthrough"},
+        {"order": 2, "key": "snmp_severity"}
       ]
     },
     {

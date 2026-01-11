@@ -21,8 +21,19 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     strategy :context
   end
 
+  code_interface do
+    define :list, action: :read
+    define :list_by_rule, action: :by_rule, args: [:rule_id]
+  end
+
   actions do
     defaults [:read]
+
+    read :by_rule do
+      argument :rule_id, :uuid, allow_nil?: false
+      filter expr(rule_id == ^arg(:rule_id))
+      prepare build(sort: [event_time: :desc])
+    end
 
     create :record do
       accept [

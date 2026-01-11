@@ -21,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
      |> assign(:node_info, nil)
      |> assign(:node_type, :unknown)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/nodes"})}
+     |> assign(:srql, %{enabled: false, page_path: "/settings/cluster/nodes"})}
   end
 
   @impl true
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
      |> assign(:gateways, gateways)
      |> assign(:agents, agents)
      |> assign(:error, error)
-     |> assign(:srql, %{enabled: false, page_path: "/infrastructure/nodes/#{node_name}"})}
+     |> assign(:srql, %{enabled: false, page_path: "/settings/cluster/nodes/#{node_name}"})}
   end
 
   defp detect_node_type(node_name) when is_binary(node_name) do
@@ -130,8 +130,8 @@ defmodule ServiceRadarWebNGWeb.NodeLive.Show do
             <span class="font-mono text-xs">{@node_name}</span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/infrastructure?tab=nodes"} variant="ghost" size="sm">
-              Back to nodes
+            <.ui_button href={~p"/settings/cluster"} variant="ghost" size="sm">
+              Back to cluster
             </.ui_button>
           </:actions>
         </.header>

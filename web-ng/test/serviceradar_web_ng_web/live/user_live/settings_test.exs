@@ -10,14 +10,14 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       {:ok, _lv, html} =
         conn
         |> log_in_user(user_fixture())
-        |> live(~p"/users/settings")
+        |> live(~p"/settings/profile")
 
       assert html =~ "Change Email"
       assert html =~ "Save Password"
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
-      assert {:error, redirect} = live(conn, ~p"/users/settings")
+      assert {:error, redirect} = live(conn, ~p"/settings/profile")
 
       assert {:redirect, %{to: path, flash: flash}} = redirect
       assert path == ~p"/users/log-in"
@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     test "updates the user email", %{conn: conn, user: user} do
       new_email = unique_user_email()
 
-      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       result =
         lv
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
 
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       result =
         lv
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
 
     test "renders errors with invalid data (phx-submit)", %{conn: conn, user: user} do
-      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       # Ash doesn't have "did not change" validation - it just succeeds
       # So test a truly invalid email format instead
@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
 
     test "renders errors with invalid data (phx-change)", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       result =
         lv
@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
 
     test "renders errors with invalid data (phx-submit)", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       result =
         lv

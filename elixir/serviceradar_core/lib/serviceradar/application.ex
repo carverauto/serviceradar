@@ -116,6 +116,12 @@ defmodule ServiceRadar.Application do
         # Platform tenant bootstrap (requires repo + Ash + TenantRegistry ETS)
         ServiceRadar.Identity.PlatformTenantBootstrap,
 
+        # Template seeding for rule builder defaults
+        template_seeder_child(),
+
+        # Zen rule defaults for tenant onboarding
+        zen_rule_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -232,7 +238,8 @@ defmodule ServiceRadar.Application do
         # Preload tenant slug mappings for edge resolution
         ServiceRadar.Cluster.TenantRegistryLoader,
         # DataService client for KV operations (used to push config to Go/Rust services)
-        datasvc_client_child()
+        datasvc_client_child(),
+        zen_rule_sync_child()
       ]
     else
       []
@@ -258,6 +265,30 @@ defmodule ServiceRadar.Application do
   defp datasvc_client_child do
     if datasvc_enabled?() do
       ServiceRadar.DataService.Client
+    else
+      nil
+    end
+  end
+
+  defp zen_rule_sync_child do
+    if datasvc_enabled?() and Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.ZenRuleSync
+    else
+      nil
+    end
+  end
+
+  defp template_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.TemplateSeeder
+    else
+      nil
+    end
+  end
+
+  defp zen_rule_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.ZenRuleSeeder
     else
       nil
     end

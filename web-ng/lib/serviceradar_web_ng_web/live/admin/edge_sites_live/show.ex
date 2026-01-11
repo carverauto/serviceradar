@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.AdminComponents
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
 
@@ -117,8 +117,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-6xl p-6 space-y-6">
-        <.admin_nav current_path="/admin/edge-sites" />
+      <.settings_shell current_path="/admin/edge-sites">
+        <.settings_nav current_path="/admin/edge-sites" />
+        <.edge_nav current_path="/admin/edge-sites" class="mt-2" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -153,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         <.collectors_card collectors={@collectors} site={@site} />
 
         <.danger_zone_card site={@site} />
-      </div>
+      </.settings_shell>
     </Layouts.app>
     """
   end

@@ -74,6 +74,15 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   @doc """
+  Get a value and revision from the KV store.
+  """
+  @spec get_with_revision(String.t(), keyword()) ::
+          {:ok, binary(), non_neg_integer()} | {:error, :not_found | term()}
+  def get_with_revision(key, opts \\ []) do
+    GenServer.call(__MODULE__, {:get_with_revision, key, opts}, opts[:timeout] || @default_timeout)
+  end
+
+  @doc """
   Delete a key from the KV store.
   """
   @spec delete(String.t(), keyword()) :: :ok | {:error, term()}
@@ -206,6 +215,17 @@ defmodule ServiceRadar.DataService.Client do
     case ensure_connected(state) do
       {:ok, state} ->
         result = do_get(state.channel, key, opts)
+        {:reply, result, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:get_with_revision, key, opts}, _from, state) do
+    case ensure_connected(state) do
+      {:ok, state} ->
+        result = do_get_with_revision(state.channel, key, opts)
         {:reply, result, state}
 
       {:error, _reason} = error ->
@@ -426,6 +446,28 @@ defmodule ServiceRadar.DataService.Client do
     case Proto.KVService.Stub.get(channel, request, timeout: timeout) do
       {:ok, %Proto.GetResponse{found: true, value: value}} ->
         {:ok, value}
+
+      {:ok, %Proto.GetResponse{found: false}} ->
+        {:error, :not_found}
+
+      {:error, %GRPC.RPCError{} = error} ->
+        Logger.error("gRPC error getting key #{key}: #{GRPC.RPCError.message(error)}")
+        {:error, error}
+
+      {:error, reason} ->
+        Logger.error("Error getting key #{key}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp do_get_with_revision(channel, key, opts) do
+    timeout = opts[:timeout] || @default_timeout
+
+    request = %Proto.GetRequest{key: key}
+
+    case Proto.KVService.Stub.get(channel, request, timeout: timeout) do
+      {:ok, %Proto.GetResponse{found: true, value: value, revision: revision}} ->
+        {:ok, value, revision}
 
       {:ok, %Proto.GetResponse{found: false}} ->
         {:error, :not_found}

@@ -31,6 +31,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
   alias ServiceRadar.Oban.TenantQueues
+  alias ServiceRadar.Observability.{TemplateSeeder, ZenRuleSeeder}
 
   require Logger
 
@@ -92,6 +93,12 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
           # Don't fail tenant creation, account can be created later via admin action
       end
+
+      TemplateSeeder.seed_for_tenant(tenant)
+      Logger.debug("Seeded rule templates for tenant: #{tenant_slug}")
+
+      ZenRuleSeeder.seed_for_tenant(tenant)
+      Logger.debug("Seeded Zen rules for tenant: #{tenant_slug}")
 
       {:ok, tenant}
     else

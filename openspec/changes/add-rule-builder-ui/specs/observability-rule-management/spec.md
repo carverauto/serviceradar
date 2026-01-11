@@ -34,6 +34,32 @@ The system SHALL persist Zen rule definitions in the tenant schema and SHALL pub
 - **THEN** the KV entry SHALL be removed or marked inactive
 - **AND** the rule record SHALL reflect the disabled state
 
+### Requirement: Default Zen Rules and Reconciliation
+The system SHALL seed baseline Zen rules into each tenant schema during onboarding (including the platform tenant)
+and SHALL reconcile stored Zen rules to datasvc KV from core-elx.
+
+#### Scenario: Tenant onboarding seeds Zen rules
+- **WHEN** a tenant is created
+- **THEN** the default Zen rules SHALL be inserted into the tenant schema
+- **AND** each rule SHALL be eligible for KV sync without manual tooling
+
+#### Scenario: Core-elx reconciles Zen rules
+- **WHEN** core-elx starts or performs a scheduled reconciliation
+- **THEN** active Zen rules in the database SHALL be re-published to KV
+
+### Requirement: Default Passthrough Rules
+The system SHALL seed a default passthrough rule and template for every supported Zen subject and SHALL label them
+as the baseline option.
+
+#### Scenario: Passthrough defaults are seeded
+- **WHEN** a tenant is onboarded
+- **THEN** each supported Zen subject SHALL have a passthrough rule
+- **AND** each supported Zen subject SHALL have a passthrough template
+
+#### Scenario: Passthrough defaults are labeled
+- **WHEN** an operator reviews Zen rules or templates
+- **THEN** passthrough defaults SHALL be labeled as the baseline option via name or description
+
 ### Requirement: Tenant-Scoped Rule Enforcement
 The system SHALL enforce tenant isolation for all rule CRUD operations using Ash multi-tenancy.
 
@@ -48,3 +74,26 @@ The system SHALL validate rule inputs against supported subjects and templates, 
 #### Scenario: Unsupported subject is rejected
 - **WHEN** a user selects an unsupported subject
 - **THEN** the system SHALL reject the rule with a validation error
+
+### Requirement: Tenant-Scoped Template Libraries
+The system SHALL provide tenant-scoped template libraries for Zen rules and response rules, seeded with editable default templates.
+
+#### Scenario: Default templates are available
+- **WHEN** an operator opens the template library
+- **THEN** the system SHALL show seeded default templates for the tenant
+
+#### Scenario: Create a custom template
+- **WHEN** an operator creates a new template
+- **THEN** the template SHALL be saved for the tenant
+
+#### Scenario: Edit a template
+- **WHEN** an operator edits an existing template
+- **THEN** the template definition SHALL be updated
+- **AND** existing rules SHALL remain unchanged unless explicitly edited
+
+### Requirement: Template-Based Rule Creation
+The system SHALL allow operators to select a template when creating or editing Zen and response rules, using the template to prefill builder fields.
+
+#### Scenario: Create a rule from a template
+- **WHEN** an operator selects a template while creating a rule
+- **THEN** the rule builder SHALL prefill fields from the template
