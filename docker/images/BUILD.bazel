@@ -514,12 +514,25 @@ pkg_tar(
     target_compatible_with = [],
 )
 
+# Bun runtime for Phoenix React Server SSR (GoRules JDM editor)
+pkg_tar(
+    name = "bun_runtime_layer_amd64",
+    files = {
+        "@bun_linux_amd64//:bun": "usr/local/bin/bun",
+    },
+    modes = {
+        "usr/local/bin/bun": "0755",
+    },
+    package_dir = "/",
+)
+
 oci_image(
     name = "web_ng_image_amd64",
     target_compatible_with = [],
     base = ":web_ng_image_base_amd64",
     tars = [
         ":web_ng_build_info_layer_amd64",
+        ":bun_runtime_layer_amd64",
     ],
     entrypoint = ["/app/bin/serviceradar_web_ng"],
     cmd = ["start"],

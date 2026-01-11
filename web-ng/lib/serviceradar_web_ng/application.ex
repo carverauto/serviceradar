@@ -38,6 +38,12 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_pubsub(ServiceRadar.PubSub)
       |> maybe_add_pubsub(ServiceRadarWebNG.PubSub)
 
+    # Note: We don't start Phoenix.React here because the JDM editor uses
+    # client-side rendering via LiveView hooks. The editor has complex browser
+    # dependencies (ReactFlow, Monaco Editor) that don't work well with SSR.
+    # If we add simpler React components that benefit from SSR, enable Phoenix.React here.
+    # react_children = [Phoenix.React]
+
     endpoint_children = [
       # Start to serve requests, typically the last entry
       ServiceRadarWebNGWeb.Endpoint
