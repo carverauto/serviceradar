@@ -58,12 +58,19 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
   end
 
   defp init_editor(socket, scope, rule, mode) do
-    # Get or create jdm_definition
+    # Get JDM definition: prefer user-authored, fall back to compiled, then default
     jdm_definition =
-      if rule && rule.jdm_definition && map_size(rule.jdm_definition) > 0 do
-        rule.jdm_definition
-      else
-        default_jdm_definition()
+      cond do
+        rule && rule.jdm_definition && is_map(rule.jdm_definition) &&
+            map_size(rule.jdm_definition) > 0 ->
+          rule.jdm_definition
+
+        rule && rule.compiled_jdm && is_map(rule.compiled_jdm) &&
+            map_size(rule.compiled_jdm) > 0 ->
+          rule.compiled_jdm
+
+        true ->
+          default_jdm_definition()
       end
 
     ash_form = build_form(scope, rule, mode)
