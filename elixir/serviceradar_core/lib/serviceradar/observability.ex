@@ -35,8 +35,12 @@ defmodule ServiceRadar.Observability do
 
   resources do
     resource ServiceRadar.Observability.Log
+    resource ServiceRadar.Observability.ZenRule
+    resource ServiceRadar.Observability.ZenRuleTemplate
     resource ServiceRadar.Observability.LogPromotionRule
+    resource ServiceRadar.Observability.LogPromotionRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRule
+    resource ServiceRadar.Observability.StatefulAlertRuleTemplate
     resource ServiceRadar.Observability.StatefulAlertRuleState
     resource ServiceRadar.Observability.StatefulAlertRuleHistory
     # Metrics resources - all map to TimescaleDB hypertables with migrate?: false

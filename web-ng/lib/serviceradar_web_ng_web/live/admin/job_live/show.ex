@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.AdminComponents
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
@@ -121,8 +121,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-6xl p-6 space-y-6">
-        <.admin_nav current_path="/admin/jobs" />
+      <.settings_shell current_path="/admin/jobs">
+        <.settings_nav current_path="/admin/jobs" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="flex items-center gap-3">
@@ -403,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
             </.ui_panel>
           </div>
         </div>
-      </div>
+      </.settings_shell>
     </Layouts.app>
     """
   end

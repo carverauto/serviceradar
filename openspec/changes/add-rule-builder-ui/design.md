@@ -6,24 +6,28 @@ Zen rules are currently JSON-only and written via KV tooling; stateful alert rul
   - Unified UI for log normalization and response rules (no raw JSON).
   - Clean, consistent Settings navigation that makes rules easy to discover.
   - Tenant-scoped persistence and KV synchronization for Zen rules.
-  - Simple rule templates for syslog, SNMP traps, OTEL logs, and internal logs.
+  - Tenant-scoped template libraries for Zen and response rules with editable defaults.
   - Keep Zen and stateful engines operationally separate but user-facing unified.
 - Non-Goals:
   - Full GoRules graph editor or arbitrary JDM imports.
   - Cross-tenant rule sharing or bypassing Ash multi-tenancy.
 
 ## Decisions
-- **Rule naming in UI**: Use a single section titled "Event Notifications & Response Rules" with two tabs:
+- **Rule naming in UI**: Use a single section titled "Events" with two tabs:
   - "Log Normalization" (Zen)
   - "Response Rules" (Stateful alerts)
-- **Settings layout**: Introduce a shared Settings layout with a left navigation and route all settings pages under
-  `/settings/*`, keeping a compatibility redirect for `/users/settings`.
+- **Settings layout**: Introduce a shared Settings layout with tab-based navigation in the main content area and
+  route all settings pages under `/settings/*`, keeping a compatibility redirect for `/users/settings`.
 - **Storage model**: Add a new Ash resource (tenant-scoped) for Zen rules that stores both:
   - A structured builder config (for UI editing)
   - The compiled JDM JSON (for KV sync)
+- **Template libraries**: Add tenant-scoped template resources for Zen and response rules that are seeded with default templates per tenant. Templates are editable and reusable as a starting point for rule creation/editing.
+- **Template editing behavior**: Editing a template updates the template definition only; existing rules are not mutated automatically.
 - **Sync pipeline**: On create/update/delete, core-elx writes the compiled JDM to datasvc KV under
   `agents/<agent-id>/<stream>/<subject>/<rule>.json`, and stores the KV revision on the rule record.
   A reconciliation job re-publishes all active rules on startup.
+- **Tenant onboarding defaults**: Tenant creation (including the platform tenant) seeds baseline Zen rules into the
+  tenant schema so the KV bootstrap happens automatically once datasvc is reachable.
 - **Subject model**: Zen rules target a finite subject set: `logs.syslog`, `logs.snmp`,
   `logs.otel`, and `logs.internal.*`. The UI constrains these choices to reduce errors.
 - **Promotion flow**: Log promotion rules (existing `LogPromotionRule`) and stateful alert rules
@@ -35,6 +39,7 @@ Zen rules are currently JSON-only and written via KV tooling; stateful alert rul
 
 ## Migration Plan
 - Add new tables and Ash resources for Zen rules.
+- Add template tables and seed tenant defaults.
 - Seed existing JSON rules into the new table (optional script or one-time import).
 - Update docs to reference the UI and deprecate manual KV steps.
 

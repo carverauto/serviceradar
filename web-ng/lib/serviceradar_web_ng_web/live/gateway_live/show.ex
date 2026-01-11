@@ -162,8 +162,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
             <span class="font-mono text-xs">{@gateway_id}</span>
           </:subtitle>
           <:actions>
-            <.ui_button href={~p"/infrastructure?tab=gateways"} variant="ghost" size="sm">
-              Back to infrastructure
+            <.ui_button href={~p"/settings/cluster"} variant="ghost" size="sm">
+              Back to cluster
             </.ui_button>
           </:actions>
         </.header>

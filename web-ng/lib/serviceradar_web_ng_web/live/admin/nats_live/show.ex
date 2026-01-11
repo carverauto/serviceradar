@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.AdminComponents
+  import ServiceRadarWebNGWeb.SettingsComponents
 
   require Ash.Query
   require Logger
@@ -96,8 +96,9 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-4xl p-6 space-y-6">
-        <.admin_nav current_path="/admin/nats" />
+      <.settings_shell current_path="/admin/nats">
+        <.settings_nav current_path="/admin/nats" />
+        <.edge_nav current_path="/admin/nats" class="mt-2" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -126,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
         <.nats_credentials_panel tenant={@tenant} />
 
         <.actions_panel tenant={@tenant} />
-      </div>
+      </.settings_shell>
 
       <.confirm_modal
         :if={@show_confirm_modal}
