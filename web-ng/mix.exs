@@ -81,7 +81,10 @@ defmodule ServiceRadarWebNG.MixProject do
       {:open_api_spex, "~> 3.16"},
 
       # Igniter - code generation and refactoring
-      {:igniter, "~> 0.5", only: [:dev, :test]}
+      {:igniter, "~> 0.5", only: [:dev, :test]},
+
+      # Phoenix React Server - Server-side rendering for React components
+      {:phoenix_react_server, "~> 0.7.3"}
     ]
   end
 
@@ -102,6 +105,7 @@ defmodule ServiceRadarWebNG.MixProject do
       "assets.deploy": [
         "tailwind serviceradar_web_ng --minify",
         "esbuild serviceradar_web_ng --minify",
+        "phx.react.bun.bundle --component-base=assets/component --output=priv/react/server.js",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],

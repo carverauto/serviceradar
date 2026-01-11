@@ -126,11 +126,12 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
+# Note: The JDM editor uses monaco-editor which requires font loaders
 config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -145,6 +146,14 @@ config :tailwind,
     ),
     cd: Path.expand("..", __DIR__)
   ]
+
+# Phoenix React Server - React rendering for components (GoRules JDM editor)
+# Bun runtime renders React components, LiveView handles the interactivity
+config :phoenix_react_server, Phoenix.React,
+  runtime: Phoenix.React.Runtime.Bun,
+  component_base: Path.expand("../assets/component", __DIR__),
+  render_timeout: 5_000,
+  cache_ttl: 60
 
 # Configure Elixir's Logger
 config :logger, :default_formatter,

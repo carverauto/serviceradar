@@ -97,6 +97,7 @@ defmodule ServiceRadarWebNGWeb do
       import ServiceRadarWebNGWeb.CoreComponents
       import ServiceRadarWebNGWeb.UIComponents
       import ServiceRadarWebNGWeb.SRQLComponents
+      import ServiceRadarWebNGWeb.ReactComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

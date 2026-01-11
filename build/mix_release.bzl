@@ -248,10 +248,27 @@ if [ "{run_assets}" = "true" ]; then
   [ -f "$PRESERVED_STATIC/robots.txt" ] && cp "$PRESERVED_STATIC/robots.txt" priv/static/
   [ -d "$PRESERVED_STATIC/images" ] && cp -r "$PRESERVED_STATIC/images" priv/static/
 
+  # Install npm dependencies for React components (if bun is available)
+  if command -v bun >/dev/null 2>&1; then
+    if [ -f assets/package.json ]; then
+      (cd assets && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
+    if [ -f assets/component/package.json ]; then
+      (cd assets/component && bun install --frozen-lockfile 2>/dev/null || bun install)
+    fi
+  fi
+
   TAILWIND_INPUT=assets/css/app.css \
   TAILWIND_OUTPUT=priv/static/assets/css/app.css \
   mix tailwind serviceradar_web_ng --minify
   mix esbuild serviceradar_web_ng --minify
+
+  # Bundle React components for Phoenix React Server (if component directory exists)
+  if [ -d assets/component ] && [ -f assets/component/package.json ]; then
+    mkdir -p priv/react
+    mix phx.react.bun.bundle --component-base=assets/component --output=priv/react/server.js 2>/dev/null || echo "React bundle skipped (phoenix_react_server not available)"
+  fi
+
   mix phx.digest priv/static -o "$DIGEST_ROOT"
   rm priv/static
   mv "$DIGEST_ROOT" priv/static

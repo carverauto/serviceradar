@@ -182,6 +182,16 @@ if config_env() != :test do
   config :serviceradar_core, :start_ash_oban_scheduler, false
 end
 
+# Phoenix React Server production configuration
+# In production, use the bundled server.js created by mix phx.react.bun.bundle
+if config_env() == :prod do
+  config :phoenix_react_server, Phoenix.React.Runtime.Bun,
+    cmd: System.find_executable("bun"),
+    server_js: Path.expand("../priv/react/server.js", __DIR__),
+    port: String.to_integer(System.get_env("REACT_RENDER_PORT", "12666")),
+    env: :prod
+end
+
 if config_env() == :prod do
   database_url = System.get_env("DATABASE_URL")
 

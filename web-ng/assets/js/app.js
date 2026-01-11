@@ -24,8 +24,99 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 
+// JDM Editor hydration (lazy loaded)
+let JdmEditorModule = null;
+async function loadJdmEditor() {
+  if (!JdmEditorModule) {
+    // Import both the editor components and CSS
+    const [module] = await Promise.all([
+      import('@gorules/jdm-editor'),
+      import('@gorules/jdm-editor/dist/style.css')
+    ]);
+    JdmEditorModule = module;
+  }
+  return JdmEditorModule;
+}
+
 // Custom hooks
 const Hooks = {
+  /**
+   * JDM Editor Hook
+   *
+   * Hydrates the server-rendered GoRules JDM editor with client-side
+   * interactivity. Syncs changes back to the LiveView via pushEvent.
+   */
+  JdmEditorHook: {
+    async mounted() {
+      const container = this.el;
+      const propsData = container.dataset.props;
+
+      if (!propsData) {
+        console.error('JdmEditorHook: Missing data-props attribute');
+        return;
+      }
+
+      const props = JSON.parse(propsData);
+      const { createRoot } = await import('react-dom/client');
+      const React = await import('react');
+      const { JdmConfigProvider, DecisionGraph } = await loadJdmEditor();
+
+      // Store reference for event handlers
+      const hook = this;
+
+      // Create a React element with event handlers
+      const EditorWithHandlers = () => {
+        const [definition, setDefinition] = React.useState(props.definition);
+
+        const handleChange = React.useCallback((newDef) => {
+          setDefinition(newDef);
+          // Push change event to LiveView
+          hook.pushEvent('jdm_editor_change', { definition: newDef });
+        }, []);
+
+        return React.createElement(JdmConfigProvider, null,
+          React.createElement(DecisionGraph, {
+            value: definition,
+            onChange: handleChange,
+            disabled: props.readOnly
+          })
+        );
+      };
+
+      // Clear container and render fresh (SSR may not work with complex React deps)
+      container.innerHTML = '';
+      this.reactRoot = createRoot(container);
+      this.reactRoot.render(React.createElement(EditorWithHandlers));
+
+      // Handle updates from LiveView
+      this.handleEvent('jdm_editor_update', ({ definition }) => {
+        // Re-render with new definition
+        const UpdatedEditor = () => {
+          const [def, setDef] = React.useState(definition);
+          const handleChange = React.useCallback((newDef) => {
+            setDef(newDef);
+            hook.pushEvent('jdm_editor_change', { definition: newDef });
+          }, []);
+
+          return React.createElement(JdmConfigProvider, null,
+            React.createElement(DecisionGraph, {
+              value: def,
+              onChange: handleChange,
+              disabled: props.readOnly
+            })
+          );
+        };
+        this.reactRoot.render(React.createElement(UpdatedEditor));
+      });
+    },
+
+    destroyed() {
+      if (this.reactRoot) {
+        this.reactRoot.unmount();
+      }
+    }
+  },
+
   TimeseriesChart: {
     mounted() {
       const el = this.el

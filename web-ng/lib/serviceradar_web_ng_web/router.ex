@@ -279,6 +279,11 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/cluster/nodes/:node_name", NodeLive.Show, :show
       live "/settings/rules", Settings.RulesLive.Index, :index
 
+      # Zen Rule Editor - visual JDM editor for rule logic
+      live "/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new
+      live "/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit
+      live "/settings/rules/zen/clone/:clone_id", Settings.ZenRuleEditorLive, :clone
+
       get "/infrastructure", PageController, :redirect_to_settings_cluster
       get "/infrastructure/nodes/:node_name", PageController, :redirect_to_settings_cluster_node
     end

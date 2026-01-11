@@ -690,14 +690,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   Normalize and enrich logs before promoting them into events.
                 </p>
               </div>
-              <.ui_button
-                id="open_zen_presets"
-                variant="ghost"
-                size="xs"
-                phx-click="open_zen_presets"
-              >
-                Manage presets
-              </.ui_button>
+              <div class="flex items-center gap-2">
+                <.link navigate={~p"/settings/rules/zen/new"} class="btn btn-primary btn-xs">
+                  <.icon name="hero-plus" class="w-3 h-3" />
+                  New Rule
+                </.link>
+                <.ui_button
+                  id="open_zen_presets"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="open_zen_presets"
+                >
+                  Manage presets
+                </.ui_button>
+              </div>
             </:header>
 
             <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,360px)_1fr] gap-6">
@@ -789,6 +795,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                         </td>
                         <td class="text-right">
                           <div class="flex justify-end gap-2">
+                            <.link
+                              navigate={~p"/settings/rules/zen/#{rule.id}"}
+                              class="btn btn-xs btn-ghost"
+                            >
+                              <.icon name="hero-squares-2x2" class="w-3 h-3" />
+                              Builder
+                            </.link>
                             <.ui_button
                               size="xs"
                               variant="ghost"

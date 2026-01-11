@@ -46,6 +46,7 @@ defmodule ServiceRadar.Observability.ZenRule do
         :subject,
         :template,
         :builder_config,
+        :jdm_definition,
         :agent_id
       ]
 
@@ -64,6 +65,7 @@ defmodule ServiceRadar.Observability.ZenRule do
         :subject,
         :template,
         :builder_config,
+        :jdm_definition,
         :agent_id
       ]
 
@@ -158,6 +160,13 @@ defmodule ServiceRadar.Observability.ZenRule do
     attribute :builder_config, :map do
       default %{}
       public? true
+    end
+
+    # User-authored JDM definition from the visual/JSON editor
+    # When present, this takes precedence over template + builder_config
+    attribute :jdm_definition, :map do
+      public? true
+      description "User-authored JDM JSON from the rule editor (takes precedence over template)"
     end
 
     attribute :compiled_jdm, :map do
