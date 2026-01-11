@@ -34,7 +34,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     "icmp_available": true,
     "icmp_response_time_ns": 1500000,
     "last_sweep_time": "2024-01-01T00:00:00Z",
-    "execution_id": "optional-uuid-for-sweep-jobs-tracking"
+    "execution_id": "uuid-for-sweep-execution-tracking",
+    "sweep_group_id": "uuid-for-sweep-group",
+    "config_hash": "hash-for-change-detection"
   }
   ```
   """
@@ -99,8 +101,20 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     Enum.each(results_by_execution, fn {execution_id, results} ->
       if execution_id do
+        # Extract additional context from first result
+        first_result = List.first(results) || %{}
+        sweep_group_id = first_result["sweep_group_id"] || first_result["sweepGroupId"]
+        agent_id = first_result["agent_id"] || first_result["agentId"]
+        config_version = first_result["config_hash"] || first_result["configHash"]
+
         # Full ingest with SweepHostResult records
-        case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id) do
+        opts = [
+          sweep_group_id: sweep_group_id,
+          agent_id: agent_id,
+          config_version: config_version
+        ]
+
+        case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id, opts) do
           {:ok, _stats} ->
             :ok
 

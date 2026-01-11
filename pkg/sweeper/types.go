@@ -74,4 +74,7 @@ type unmarshalConfig struct {
 	} `json:"tcp_settings"`
 	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
+	// Execution tracking for sweep results
+	SweepGroupID string `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash   string `json:"config_hash,omitempty"`    // Hash of config for change detection
 }

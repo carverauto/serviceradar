@@ -49,8 +49,11 @@ type Config struct {
 	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
 	AgentID      string `json:"agent_id,omitempty"`
-	GatewayID     string `json:"gateway_id,omitempty"`
+	GatewayID    string `json:"gateway_id,omitempty"`
 	Partition    string `json:"partition,omitempty"`
+	// Execution tracking for sweep results
+	SweepGroupID string `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash   string `json:"config_hash,omitempty"`    // Hash of config for change detection
 	ICMPSettings struct {
 		RateLimit int // Packets per second
 		Timeout   time.Duration

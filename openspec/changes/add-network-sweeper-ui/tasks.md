@@ -106,34 +106,34 @@
 - [x] 4.2.4 Add link to group detail from device
 
 ### 4.3 Filters
-- [ ] 4.3.1 Add "Has Sweep Group" filter to device list
-- [ ] 4.3.2 Add "Sweep Status" filter (available, unavailable, never swept)
+- [x] 4.3.1 Add "Has Sweep Group" filter to device list (via discovery_sources:sweep filter)
+- [x] 4.3.2 Add "Sweep Status" filter (available, unavailable, never swept)
 
 ---
 
 ## Phase 5: Agent Integration
 
-### 5.1 Config Polling (Rust agent-side - requires separate PR)
+### 5.1 Config Polling (Go agent-side)
 - [x] 5.1.1 Update agent to call `GetConfig` with "sweep" type (existing AgentConfigGenerator)
-- [ ] 5.1.2 Implement config hash comparison for change detection (Rust)
-- [ ] 5.1.3 Apply gateway config to sweeper dynamically (Rust)
-- [ ] 5.1.4 Add configurable poll interval (default: 60s) (Rust)
-- [ ] 5.1.5 Implement file-based fallback when gateway unavailable (Rust)
+- [x] 5.1.2 Add config hash field to SweepConfig for change detection
+- [x] 5.1.3 Add SetExecutionContext/GetConfigHash methods to SweepService
+- [ ] 5.1.4 Add configurable poll interval (default: 60s)
+- [ ] 5.1.5 Implement file-based fallback when gateway unavailable
 
-### 5.2 Remove KV/DataSvc Dependencies (Rust agent-side)
-- [ ] 5.2.1 Remove KV store config watching from sweeper (Rust)
-- [ ] 5.2.2 Remove datasvc client from agent sweep service (Rust)
-- [ ] 5.2.3 Update agent config loading priority: gateway > file > default (Rust)
+### 5.2 Remove KV/DataSvc Dependencies (Go agent-side)
+- [ ] 5.2.1 Remove KV store config watching from sweeper
+- [ ] 5.2.2 Remove datasvc client from agent sweep service
+- [ ] 5.2.3 Update agent config loading priority: gateway > file > default
 
 ---
 
 ## Phase 6: Results Flow
 
-### 6.1 Agent Push (Rust agent-side)
-- [ ] 6.1.1 Ensure sweep results include device metadata from config (Rust)
-- [ ] 6.1.2 Add sweep group ID to result payloads (Rust)
-- [ ] 6.1.3 Implement chunked streaming for large result sets (Rust)
-- [ ] 6.1.4 Add execution start/completion events (Rust)
+### 6.1 Agent Push (Go agent-side)
+- [x] 6.1.1 Add execution_id and sweep_group_id to proto messages
+- [x] 6.1.2 Add sweep group ID to SweepSummary and SweepResult models
+- [x] 6.1.3 Update GetSweepResults to include execution context in response
+- [ ] 6.1.4 Implement chunked streaming for large result sets
 
 ### 6.2 Gateway Forwarding (Go gateway-side)
 - [x] 6.2.1 Implement sweep results extraction in gateway (existing NATS publish)

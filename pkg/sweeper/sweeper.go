@@ -1151,6 +1151,9 @@ func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.C
 		},
 		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
 		ICMPRateLimit:             temp.ICMPRateLimit,
+		// Execution tracking
+		SweepGroupID: temp.SweepGroupID,
+		ConfigHash:   temp.ConfigHash,
 	}
 }
 

@@ -68,6 +68,8 @@ type SweepConfig struct {
 	Interval      Duration              `json:"interval"`
 	Concurrency   int                   `json:"concurrency"`
 	Timeout       Duration              `json:"timeout"`
+	SweepGroupID  string                `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
 }
 
 // CheckerConfig defines the configuration for individual checker services.

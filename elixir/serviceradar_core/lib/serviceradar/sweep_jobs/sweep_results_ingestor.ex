@@ -46,6 +46,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @doc """
   Ingest a batch of sweep results for an execution.
 
+  ## Options
+  - `:actor` - The actor performing the operation (defaults to system actor)
+  - `:sweep_group_id` - The sweep group UUID (required to create execution if missing)
+  - `:agent_id` - The agent that performed the sweep
+  - `:config_version` - Config version hash for the execution
+
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
   @spec ingest_results([map()], String.t(), String.t(), keyword()) ::
@@ -53,11 +59,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   def ingest_results(results, execution_id, tenant_id, opts \\ []) do
     actor = Keyword.get(opts, :actor, system_actor(tenant_id))
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    sweep_group_id = Keyword.get(opts, :sweep_group_id)
+    agent_id = Keyword.get(opts, :agent_id)
+    config_version = Keyword.get(opts, :config_version)
 
     results = List.wrap(results)
     total_count = length(results)
 
     Logger.info("SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}")
+
+    # Ensure execution record exists (creates one if missing)
+    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, actor) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}")
+        # Continue anyway - we'll just update what we can
+        :ok
+    end
     start_time = System.monotonic_time(:millisecond)
 
     # Process in batches
@@ -431,6 +451,75 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         updated_at: DateTime.utc_now()
       ]
     )
+  end
+
+  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, _actor) do
+    # Check if execution exists
+    existing =
+      from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+        where: e.id == ^execution_id,
+        select: e.id
+      )
+      |> Repo.one()
+
+    if existing do
+      Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
+      :ok
+    else
+      # Create execution record if we have a sweep_group_id
+      if sweep_group_id && sweep_group_id != "" do
+        create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_schema)
+      else
+        Logger.warning("SweepResultsIngestor: Cannot create execution - no sweep_group_id provided")
+        :ok
+      end
+    end
+  end
+
+  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_schema) do
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    # Extract tenant_id from schema name (format: "tenant_<uuid>")
+    tenant_id =
+      case String.split(tenant_schema, "tenant_") do
+        [_, uuid] -> uuid
+        _ -> nil
+      end
+
+    record = %{
+      id: execution_id,
+      tenant_id: tenant_id,
+      sweep_group_id: sweep_group_id,
+      agent_id: agent_id,
+      config_version: config_version,
+      status: :running,
+      started_at: timestamp,
+      hosts_total: 0,
+      hosts_available: 0,
+      hosts_failed: 0,
+      inserted_at: timestamp,
+      updated_at: timestamp
+    }
+
+    case Repo.insert_all(
+           {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+           [record],
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {1, _} ->
+        Logger.info("SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}")
+        :ok
+
+      {0, _} ->
+        # Record already exists (race condition), that's fine
+        Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
+        :ok
+    end
+  rescue
+    e ->
+      Logger.error("SweepResultsIngestor: Failed to create execution: #{inspect(e)}")
+      {:error, e}
   end
 
   defp merge_stats(stats1, stats2) do

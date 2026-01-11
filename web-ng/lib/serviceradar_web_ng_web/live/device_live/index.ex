@@ -214,6 +214,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <!-- Quick Filters -->
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
+          <.link
+            navigate={~p"/devices?q=is_available:true"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_available", "true"), do: "btn-primary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-check-circle" class="size-3" /> Available
+          </.link>
+          <.link
+            navigate={~p"/devices?q=is_available:false"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-x-circle" class="size-3" /> Unavailable
+          </.link>
+          <.link
+            navigate={~p"/devices?q=discovery_sources:sweep"}
+            class={"btn btn-xs #{if has_filter?(@srql, "discovery_sources", "sweep"), do: "btn-info", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-signal" class="size-3" /> Swept
+          </.link>
+          <.link
+            :if={has_any_filter?(@srql)}
+            navigate={~p"/devices"}
+            class="btn btn-xs btn-ghost"
+          >
+            <.icon name="hero-x-mark" class="size-3" /> Clear
+          </.link>
+        </div>
+
         <!-- Bulk Actions Bar -->
         <div
           :if={@selected_count > 0}
@@ -1039,5 +1069,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       nil -> nil
       tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
     end
+  end
+
+  # Filter helpers for quick filter buttons
+  defp has_filter?(srql, field, value) do
+    query = Map.get(srql || %{}, :query, "") || ""
+    String.contains?(query, "#{field}:#{value}")
+  end
+
+  defp has_any_filter?(srql) do
+    query = Map.get(srql || %{}, :query, "") || ""
+    String.trim(query) != ""
   end
 end

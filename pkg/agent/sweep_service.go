@@ -29,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/google/uuid"
 )
 
 // SweepService implements Service for network scanning.
@@ -43,6 +44,11 @@ type SweepService struct {
 	cachedResults      *models.SweepSummary
 	lastSweepTimestamp int64
 	currentSequence    uint64
+
+	// Execution context for result tracking
+	sweepGroupID   string // Current sweep group UUID from config
+	executionID    string // Current execution UUID (generated per sweep cycle)
+	configHash     string // Config hash for change detection
 }
 
 // NewSweepService creates a new SweepService.
@@ -122,13 +128,17 @@ func (*SweepService) Name() string {
 
 // UpdateConfig updates the service configuration.
 func (s *SweepService) UpdateConfig(config *models.Config) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	newConfig := applyDefaultConfig(config)
 
+	// Update execution context for result tracking (takes its own lock)
+	if newConfig.SweepGroupID != "" || newConfig.ConfigHash != "" {
+		s.SetExecutionContext(newConfig.SweepGroupID, newConfig.ConfigHash)
+	}
+
+	s.mu.Lock()
 	s.config = newConfig
 	s.logger.Info().Msgf("Updated sweep config: %+v", newConfig)
+	s.mu.Unlock()
 
 	return s.sweeper.UpdateConfig(newConfig)
 }
@@ -291,9 +301,19 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		s.lastSweepTimestamp = summary.LastSweep
 		s.currentSequence++
 
-		// Sequence updated
+		// Generate a new execution ID for this sweep cycle
+		s.executionID = uuid.New().String()
 
-		s.logger.Info().Uint64("newSequence", s.currentSequence).Msg("Sweep data changed, updated sequence")
+		s.logger.Info().
+			Uint64("newSequence", s.currentSequence).
+			Str("executionID", s.executionID).
+			Msg("Sweep data changed, updated sequence and execution ID")
+	}
+
+	// Populate execution context in cached results
+	if s.cachedResults != nil {
+		s.cachedResults.ExecutionID = s.executionID
+		s.cachedResults.SweepGroupID = s.sweepGroupID
 	}
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
@@ -307,6 +327,8 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			CurrentSequence: currentSeqStr,
 			ServiceName:     "network_sweep",
 			ServiceType:     "sweep",
+			ExecutionId:     s.executionID,
+			SweepGroupId:    s.sweepGroupID,
 		}, nil
 	}
 
@@ -317,7 +339,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return nil, fmt.Errorf("failed to marshal sweep results: %w", err)
 	}
 
-	s.logger.Info().Str("sequence", currentSeqStr).Int("hostCount", len(s.cachedResults.Hosts)).Msg("Returning new sweep data")
+	s.logger.Info().
+		Str("sequence", currentSeqStr).
+		Int("hostCount", len(s.cachedResults.Hosts)).
+		Str("executionID", s.executionID).
+		Str("sweepGroupID", s.sweepGroupID).
+		Msg("Returning new sweep data")
 
 	return &proto.ResultsResponse{
 		HasNewData:      true,
@@ -327,5 +354,33 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
+		ExecutionId:     s.executionID,
+		SweepGroupId:    s.sweepGroupID,
 	}, nil
+}
+
+// SetExecutionContext updates the sweep group ID and config hash from config.
+// This should be called when the sweep config is updated from the gateway.
+func (s *SweepService) SetExecutionContext(sweepGroupID, configHash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sweepGroupID != sweepGroupID || s.configHash != configHash {
+		s.logger.Info().
+			Str("oldGroupID", s.sweepGroupID).
+			Str("newGroupID", sweepGroupID).
+			Str("oldHash", s.configHash).
+			Str("newHash", configHash).
+			Msg("Updating sweep execution context")
+
+		s.sweepGroupID = sweepGroupID
+		s.configHash = configHash
+	}
+}
+
+// GetConfigHash returns the current config hash for change detection.
+func (s *SweepService) GetConfigHash() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.configHash
 }
