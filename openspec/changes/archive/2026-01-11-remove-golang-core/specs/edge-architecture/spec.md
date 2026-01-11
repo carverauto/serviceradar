@@ -31,10 +31,3 @@ The platform SHALL NOT include or reference the deprecated golang-based servicer
 - **THEN** all diagrams and descriptions reference core-elx
 - **AND** no references to deprecated golang core exist
 
-## REMOVED Requirements
-
-### Requirement: Golang Core Service
-
-**Reason**: The golang-based serviceradar-core has been fully replaced by core-elx (Elixir). All functionality has been migrated to the Elixir implementation as part of the ERTS cluster architecture.
-
-**Migration**: No migration needed - core-elx has been in production. This removal only cleans up deprecated code artifacts.
