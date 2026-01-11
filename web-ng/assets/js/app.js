@@ -36,6 +36,22 @@ async function loadJdmEditor() {
   return JdmEditorModule;
 }
 
+// Helper: Get current theme from Phoenix (data-theme attribute on html)
+function getPhoenixTheme() {
+  const dataTheme = document.documentElement.getAttribute('data-theme');
+  // Map Phoenix themes to JDM editor themes
+  // Common dark themes in daisyUI
+  const darkThemes = ['dark', 'night', 'dracula', 'synthwave', 'halloween', 'forest', 'black', 'luxury', 'business', 'coffee', 'dim', 'sunset'];
+  if (dataTheme && darkThemes.includes(dataTheme.toLowerCase())) {
+    return 'dark';
+  }
+  // Check system preference if no explicit theme
+  if (!dataTheme && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+  return 'light';
+}
+
 // Custom hooks
 const Hooks = {
   /**
@@ -43,6 +59,7 @@ const Hooks = {
    *
    * Hydrates the server-rendered GoRules JDM editor with client-side
    * interactivity. Syncs changes back to the LiveView via pushEvent.
+   * Supports dark mode based on Phoenix theme.
    */
   JdmEditorHook: {
     async mounted() {
@@ -62,9 +79,37 @@ const Hooks = {
       // Store reference for event handlers
       const hook = this;
 
-      // Create a React element with event handlers
-      const EditorWithHandlers = () => {
+      // Get initial theme
+      let currentTheme = getPhoenixTheme();
+
+      // Create a React element with event handlers and theme support
+      const EditorWithHandlers = ({ initialTheme }) => {
         const [definition, setDefinition] = React.useState(props.definition);
+        const [theme, setTheme] = React.useState(initialTheme);
+
+        // Listen for theme changes
+        React.useEffect(() => {
+          const observer = new MutationObserver(() => {
+            const newTheme = getPhoenixTheme();
+            if (newTheme !== theme) {
+              setTheme(newTheme);
+            }
+          });
+          observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['data-theme']
+          });
+
+          // Also listen for system theme changes
+          const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+          const handleMediaChange = () => setTheme(getPhoenixTheme());
+          mediaQuery.addEventListener('change', handleMediaChange);
+
+          return () => {
+            observer.disconnect();
+            mediaQuery.removeEventListener('change', handleMediaChange);
+          };
+        }, [theme]);
 
         const handleChange = React.useCallback((newDef) => {
           setDefinition(newDef);
@@ -73,8 +118,13 @@ const Hooks = {
         }, []);
 
         // Wrap in a full-height container - ReactFlow needs explicit height
-        return React.createElement('div', { style: { height: '100%', width: '100%' } },
-          React.createElement(JdmConfigProvider, null,
+        // Apply theme class to container for JDM editor styling
+        return React.createElement('div', {
+          style: { height: '100%', width: '100%' },
+          className: theme === 'dark' ? 'grl-dark' : 'grl-light',
+          'data-theme': theme
+        },
+          React.createElement(JdmConfigProvider, { theme },
             React.createElement(DecisionGraph, {
               value: definition,
               onChange: handleChange,
@@ -87,21 +137,38 @@ const Hooks = {
       // Clear container and render fresh (SSR may not work with complex React deps)
       container.innerHTML = '';
       this.reactRoot = createRoot(container);
-      this.reactRoot.render(React.createElement(EditorWithHandlers));
+      this.reactRoot.render(React.createElement(EditorWithHandlers, { initialTheme: currentTheme }));
 
       // Handle updates from LiveView
       this.handleEvent('jdm_editor_update', ({ definition }) => {
         // Re-render with new definition
-        const UpdatedEditor = () => {
+        const UpdatedEditor = ({ initialTheme }) => {
           const [def, setDef] = React.useState(definition);
+          const [theme, setTheme] = React.useState(initialTheme);
+
+          React.useEffect(() => {
+            const observer = new MutationObserver(() => {
+              setTheme(getPhoenixTheme());
+            });
+            observer.observe(document.documentElement, {
+              attributes: true,
+              attributeFilter: ['data-theme']
+            });
+            return () => observer.disconnect();
+          }, []);
+
           const handleChange = React.useCallback((newDef) => {
             setDef(newDef);
             hook.pushEvent('jdm_editor_change', { definition: newDef });
           }, []);
 
           // Wrap in a full-height container - ReactFlow needs explicit height
-          return React.createElement('div', { style: { height: '100%', width: '100%' } },
-            React.createElement(JdmConfigProvider, null,
+          return React.createElement('div', {
+            style: { height: '100%', width: '100%' },
+            className: theme === 'dark' ? 'grl-dark' : 'grl-light',
+            'data-theme': theme
+          },
+            React.createElement(JdmConfigProvider, { theme },
               React.createElement(DecisionGraph, {
                 value: def,
                 onChange: handleChange,
@@ -110,7 +177,7 @@ const Hooks = {
             )
           );
         };
-        this.reactRoot.render(React.createElement(UpdatedEditor));
+        this.reactRoot.render(React.createElement(UpdatedEditor, { initialTheme: getPhoenixTheme() }));
       });
     },
 

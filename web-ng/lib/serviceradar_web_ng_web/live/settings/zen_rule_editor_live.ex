@@ -77,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
     |> assign(:form, to_form(ash_form))
     |> assign(:dirty, false)
     |> assign(:saving, false)
+    |> assign(:properties_collapsed, false)
   end
 
   defp page_title(:create, _), do: "Create Zen Rule"
@@ -157,6 +158,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
     {:noreply, redirect(socket, to: ~p"/settings/rules?tab=logs")}
   end
 
+  def handle_event("toggle_properties", _params, socket) do
+    {:noreply, assign(socket, :properties_collapsed, !socket.assigns.properties_collapsed)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -168,19 +173,29 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">{@page_title}</h1>
             <p class="text-sm text-base-content/60">
-              Build decision logic for log normalization using the visual editor or JSON.
+              Build decision logic for log normalization using the visual editor.
             </p>
           </div>
           <div class="flex items-center gap-2">
+            <span :if={@dirty} class="badge badge-warning badge-sm gap-1">
+              <.icon name="hero-exclamation-triangle-mini" class="w-3 h-3" />
+              Unsaved
+            </span>
             <.ui_button variant="ghost" phx-click="cancel">
               Cancel
             </.ui_button>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-          <!-- Rule Properties Panel -->
-          <div class="space-y-4">
+        <div class={[
+          "grid gap-6 transition-all duration-200",
+          if(@properties_collapsed, do: "grid-cols-1", else: "grid-cols-1 lg:grid-cols-[320px_1fr]")
+        ]}>
+          <!-- Rule Properties Panel - Collapsible -->
+          <div class={[
+            "transition-all duration-200 overflow-hidden",
+            if(@properties_collapsed, do: "lg:hidden", else: "space-y-4")
+          ]}>
             <.ui_panel>
               <:header>
                 <div class="text-sm font-semibold">Rule Properties</div>
@@ -224,25 +239,71 @@ defmodule ServiceRadarWebNGWeb.Settings.ZenRuleEditorLive do
                 </div>
               </.form>
             </.ui_panel>
+          </div>
 
-            <.ui_panel :if={@dirty}>
-              <div class="flex items-center gap-2 text-warning">
-                <.icon name="hero-exclamation-triangle" class="w-4 h-4" />
-                <span class="text-sm">Unsaved changes</span>
-              </div>
-            </.ui_panel>
+          <!-- Collapsed Properties Summary (visible when collapsed on large screens) -->
+          <div :if={@properties_collapsed} class="hidden lg:block">
+            <.form
+              for={@form}
+              id="zen_rule_form"
+              class="hidden"
+              phx-change="validate"
+              phx-submit="save"
+            >
+              <.input field={@form[:name]} type="hidden" />
+              <.input field={@form[:description]} type="hidden" />
+              <.input field={@form[:subject]} type="hidden" />
+              <.input field={@form[:order]} type="hidden" />
+              <.input field={@form[:enabled]} type="hidden" />
+              <.input field={@form[:stream_name]} type="hidden" value="events" />
+              <.input field={@form[:agent_id]} type="hidden" value="default-agent" />
+              <.input field={@form[:template]} type="hidden" value="passthrough" />
+            </.form>
           </div>
 
           <!-- JDM Editor Panel -->
-          <.ui_panel class="min-h-[600px]">
+          <.ui_panel class={[
+            "min-h-[600px]",
+            if(@properties_collapsed, do: "lg:col-span-1", else: "")
+          ]}>
             <:header>
-              <div class="text-sm font-semibold">Decision Logic</div>
-              <div class="text-xs text-base-content/60">
-                Build your rule logic using the visual editor or switch to JSON view.
+              <div class="flex items-center gap-3">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs hidden lg:flex"
+                  phx-click="toggle_properties"
+                  title={if @properties_collapsed, do: "Show properties", else: "Hide properties"}
+                >
+                  <.icon
+                    name={if @properties_collapsed, do: "hero-chevron-right", else: "hero-chevron-left"}
+                    class="w-4 h-4"
+                  />
+                </button>
+                <div>
+                  <div class="text-sm font-semibold">Decision Logic</div>
+                  <div class="text-xs text-base-content/60">
+                    Build your rule logic using the visual editor.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  :if={@properties_collapsed}
+                  type="submit"
+                  form="zen_rule_form"
+                  class="btn btn-primary btn-sm"
+                  phx-disable-with="Saving..."
+                >
+                  <.icon name="hero-check" class="w-4 h-4" />
+                  Save
+                </button>
               </div>
             </:header>
 
-            <div class="h-[calc(100vh-400px)] min-h-[500px]">
+            <div class={[
+              "min-h-[500px]",
+              if(@properties_collapsed, do: "h-[calc(100vh-280px)]", else: "h-[calc(100vh-400px)]")
+            ]}>
               <.jdm_editor
                 id="zen-rule-jdm-editor"
                 definition={@jdm_definition}
