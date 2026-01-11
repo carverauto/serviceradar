@@ -438,6 +438,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp update_execution(execution_id, stats, tenant_schema, _actor) do
+    timestamp = DateTime.utc_now()
+
     from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
       where: e.id == ^execution_id
     )
@@ -447,10 +449,32 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         hosts_available: stats.hosts_available,
         hosts_failed: stats.hosts_failed,
         status: :completed,
-        completed_at: DateTime.utc_now(),
-        updated_at: DateTime.utc_now()
+        completed_at: timestamp,
+        updated_at: timestamp
       ]
     )
+
+    # Broadcast execution completion for real-time UI updates
+    broadcast_execution_update(%{
+      id: execution_id,
+      status: :completed,
+      hosts_total: stats.hosts_total,
+      hosts_available: stats.hosts_available,
+      hosts_failed: stats.hosts_failed,
+      completed_at: timestamp
+    })
+  end
+
+  defp broadcast_execution_update(execution) do
+    Phoenix.PubSub.broadcast(
+      ServiceRadar.PubSub,
+      "sweep:executions",
+      {:sweep_execution_update, execution}
+    )
+  rescue
+    _ ->
+      # PubSub not available (e.g., in tests), ignore
+      :ok
   end
 
   defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, _actor) do
@@ -509,6 +533,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          ) do
       {1, _} ->
         Logger.info("SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}")
+
+        # Broadcast new execution for real-time UI updates
+        broadcast_execution_update(%{
+          id: execution_id,
+          sweep_group_id: sweep_group_id,
+          status: :running,
+          agent_id: agent_id,
+          started_at: timestamp
+        })
+
         :ok
 
       {0, _} ->

@@ -84,10 +84,10 @@
 - [x] 3.3.5 Implement group deletion with confirmation
 
 ### 3.4 Active Scans Dashboard
-- [ ] 3.4.1 Create `ActiveScansComponent` for running scans
-- [ ] 3.4.2 Add real-time progress indicators via PubSub
-- [ ] 3.4.3 Show recent completions with success/failure badges
-- [ ] 3.4.4 Add aggregate statistics cards
+- [x] 3.4.1 Create `ActiveScansComponent` for running scans
+- [x] 3.4.2 Add real-time progress indicators via PubSub
+- [x] 3.4.3 Show recent completions with success/failure badges
+- [x] 3.4.4 Add aggregate statistics cards
 
 ---
 

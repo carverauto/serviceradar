@@ -12,11 +12,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepProfile}
+
+  @refresh_interval :timer.seconds(15)
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
+
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "sweep:executions")
+      # Refresh active scans periodically
+      :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
+    end
 
     socket =
       socket
@@ -24,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:active_tab, :groups)
       |> assign(:sweep_groups, load_sweep_groups(scope))
       |> assign(:sweep_profiles, load_sweep_profiles(scope))
+      |> assign(:running_executions, load_running_executions(scope))
+      |> assign(:recent_executions, load_recent_executions(scope))
       |> assign(:selected_group, nil)
       |> assign(:selected_profile, nil)
       |> assign(:show_form, nil)
@@ -285,6 +295,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   @impl true
+  def handle_info(:refresh_active_scans, socket) do
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     socket
+     |> assign(:running_executions, load_running_executions(scope))
+     |> assign(:recent_executions, load_recent_executions(scope))}
+  end
+
+  def handle_info({:sweep_execution_update, _execution}, socket) do
+    # Real-time update from PubSub
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     socket
+     |> assign(:running_executions, load_running_executions(scope))
+     |> assign(:recent_executions, load_recent_executions(scope))}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
@@ -309,12 +341,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <%= if @show_form == :show_group do %>
               <.group_detail group={@selected_group} />
             <% else %>
-              <.tab_navigation active_tab={@active_tab} />
+              <.tab_navigation active_tab={@active_tab} running_count={length(@running_executions)} />
 
-              <%= if @active_tab == :groups do %>
-                <.sweep_groups_panel groups={@sweep_groups} />
-              <% else %>
-                <.profiles_panel profiles={@sweep_profiles} />
+              <%= case @active_tab do %>
+                <% :groups -> %>
+                  <.sweep_groups_panel groups={@sweep_groups} />
+                <% :profiles -> %>
+                  <.profiles_panel profiles={@sweep_profiles} />
+                <% :active_scans -> %>
+                  <.active_scans_panel
+                    running={@running_executions}
+                    recent={@recent_executions}
+                    groups={@sweep_groups}
+                  />
               <% end %>
             <% end %>
           <% end %>
@@ -326,6 +365,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Tab Navigation
   attr :active_tab, :atom, required: true
+  attr :running_count, :integer, default: 0
 
   defp tab_navigation(assigns) do
     ~H"""
@@ -345,6 +385,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                if(@active_tab == :profiles, do: "border-primary text-primary", else: "border-transparent text-base-content/60 hover:text-base-content")}
       >
         Scanner Profiles
+      </button>
+      <button
+        phx-click="switch_tab"
+        phx-value-tab="active_scans"
+        class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 " <>
+               if(@active_tab == :active_scans, do: "border-primary text-primary", else: "border-transparent text-base-content/60 hover:text-base-content")}
+      >
+        Active Scans
+        <span
+          :if={@running_count > 0}
+          class="inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-semibold rounded-full bg-success text-success-content animate-pulse"
+        >
+          {@running_count}
+        </span>
       </button>
     </div>
     """
@@ -537,6 +591,341 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     </.ui_panel>
     """
   end
+
+  # Active Scans Panel
+  attr :running, :list, required: true
+  attr :recent, :list, required: true
+  attr :groups, :list, required: true
+
+  defp active_scans_panel(assigns) do
+    # Build a map of group_id -> group for quick lookup
+    groups_map = Map.new(assigns.groups, &{&1.id, &1})
+    assigns = assign(assigns, :groups_map, groups_map)
+
+    ~H"""
+    <div class="space-y-4">
+      <!-- Statistics Cards -->
+      <.scan_statistics running={@running} recent={@recent} />
+
+      <!-- Running Scans -->
+      <.ui_panel>
+        <:header>
+          <div class="flex items-center gap-2">
+            <.icon name="hero-play-circle" class="size-5 text-success" />
+            <div class="text-sm font-semibold">Running Scans</div>
+            <span
+              :if={length(@running) > 0}
+              class="ml-1 inline-flex items-center justify-center size-5 text-xs font-semibold rounded-full bg-success/20 text-success"
+            >
+              {length(@running)}
+            </span>
+          </div>
+        </:header>
+
+        <div :if={@running == []} class="py-8 text-center text-base-content/60">
+          <.icon name="hero-clock" class="size-8 mx-auto mb-2 opacity-50" />
+          <p>No scans currently running</p>
+        </div>
+
+        <div :if={@running != []} class="space-y-3">
+          <%= for execution <- @running do %>
+            <.running_scan_card execution={execution} group={Map.get(@groups_map, execution.sweep_group_id)} />
+          <% end %>
+        </div>
+      </.ui_panel>
+
+      <!-- Recent Completions -->
+      <.ui_panel>
+        <:header>
+          <div class="flex items-center gap-2">
+            <.icon name="hero-clock" class="size-5 text-base-content/60" />
+            <div class="text-sm font-semibold">Recent Completions</div>
+          </div>
+        </:header>
+
+        <div :if={@recent == []} class="py-8 text-center text-base-content/60">
+          <.icon name="hero-document-text" class="size-8 mx-auto mb-2 opacity-50" />
+          <p>No recent scan executions</p>
+        </div>
+
+        <div :if={@recent != []} class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <th>Status</th>
+                <th>Sweep Group</th>
+                <th>Started</th>
+                <th>Duration</th>
+                <th>Hosts</th>
+                <th>Success Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for execution <- @recent do %>
+                <.recent_execution_row execution={execution} group={Map.get(@groups_map, execution.sweep_group_id)} />
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </.ui_panel>
+    </div>
+    """
+  end
+
+  # Statistics Cards Component
+  attr :running, :list, required: true
+  attr :recent, :list, required: true
+
+  defp scan_statistics(assigns) do
+    # Calculate stats from recent executions
+    completed_recent = Enum.filter(assigns.recent, &(&1.status == :completed))
+
+    total_hosts = Enum.reduce(completed_recent, 0, fn e, acc -> acc + (e.hosts_total || 0) end)
+    available_hosts = Enum.reduce(completed_recent, 0, fn e, acc -> acc + (e.hosts_available || 0) end)
+
+    avg_success_rate =
+      if length(completed_recent) > 0 do
+        completed_recent
+        |> Enum.map(fn e ->
+          if e.hosts_total && e.hosts_total > 0 do
+            (e.hosts_available || 0) / e.hosts_total * 100
+          else
+            0
+          end
+        end)
+        |> Enum.sum()
+        |> Kernel./(length(completed_recent))
+        |> Float.round(1)
+      else
+        0.0
+      end
+
+    failed_count = Enum.count(assigns.recent, &(&1.status == :failed))
+
+    assigns =
+      assigns
+      |> assign(:total_hosts, total_hosts)
+      |> assign(:available_hosts, available_hosts)
+      |> assign(:avg_success_rate, avg_success_rate)
+      |> assign(:failed_count, failed_count)
+      |> assign(:completed_count, length(completed_recent))
+
+    ~H"""
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-base-200/50 rounded-lg p-4">
+        <div class="text-xs text-base-content/60 uppercase tracking-wide">Running</div>
+        <div class="text-2xl font-bold mt-1 flex items-center gap-2">
+          {length(@running)}
+          <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
+        </div>
+      </div>
+      <div class="bg-base-200/50 rounded-lg p-4">
+        <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
+        <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
+        <div class="text-xs text-base-content/60">{@available_hosts} available</div>
+      </div>
+      <div class="bg-base-200/50 rounded-lg p-4">
+        <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
+        <div class={"text-2xl font-bold mt-1 #{success_rate_color(@avg_success_rate)}"}>
+          {@avg_success_rate}%
+        </div>
+      </div>
+      <div class="bg-base-200/50 rounded-lg p-4">
+        <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent Executions</div>
+        <div class="text-2xl font-bold mt-1">{@completed_count}</div>
+        <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
+      </div>
+    </div>
+    """
+  end
+
+  # Running Scan Card Component
+  attr :execution, :map, required: true
+  attr :group, :map, default: nil
+
+  defp running_scan_card(assigns) do
+    # Calculate elapsed time
+    elapsed_ms =
+      if assigns.execution.started_at do
+        DateTime.diff(DateTime.utc_now(), assigns.execution.started_at, :millisecond)
+      else
+        0
+      end
+
+    assigns = assign(assigns, :elapsed_ms, elapsed_ms)
+
+    ~H"""
+    <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
+      <div class="flex items-start justify-between">
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <span class="loading loading-spinner loading-sm text-success"></span>
+          </div>
+          <div>
+            <div class="font-medium">
+              {if @group, do: @group.name, else: "Unknown Group"}
+            </div>
+            <div class="text-xs text-base-content/60 flex items-center gap-2">
+              <span :if={@execution.agent_id}>
+                <.icon name="hero-server" class="size-3 inline" />
+                {@execution.agent_id}
+              </span>
+              <span>Started {format_relative_time(@execution.started_at)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
+          <div :if={@execution.hosts_total && @execution.hosts_total > 0} class="text-xs text-base-content/60">
+            {@execution.hosts_available || 0} / {@execution.hosts_total} hosts
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div :if={@execution.hosts_total && @execution.hosts_total > 0} class="mt-3">
+        <div class="h-1.5 bg-base-300 rounded-full overflow-hidden">
+          <div
+            class="h-full bg-success transition-all duration-300"
+            style={"width: #{progress_percent(@execution)}%"}
+          >
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # Recent Execution Row Component
+  attr :execution, :map, required: true
+  attr :group, :map, default: nil
+
+  defp recent_execution_row(assigns) do
+    ~H"""
+    <tr class="hover:bg-base-200/40">
+      <td>
+        <.execution_status_badge status={@execution.status} />
+      </td>
+      <td>
+        <div class="font-medium">
+          {if @group, do: @group.name, else: "Unknown Group"}
+        </div>
+        <div :if={@execution.agent_id} class="text-xs text-base-content/60">
+          {@execution.agent_id}
+        </div>
+      </td>
+      <td class="text-xs text-base-content/60">
+        {format_relative_time(@execution.started_at)}
+      </td>
+      <td class="font-mono text-xs">
+        {format_duration(@execution.duration_ms)}
+      </td>
+      <td class="text-xs">
+        <span :if={@execution.hosts_total}>
+          {@execution.hosts_available || 0} / {@execution.hosts_total}
+        </span>
+        <span :if={!@execution.hosts_total} class="text-base-content/40">—</span>
+      </td>
+      <td>
+        <.success_rate_badge execution={@execution} />
+      </td>
+    </tr>
+    """
+  end
+
+  # Execution Status Badge
+  attr :status, :atom, required: true
+
+  defp execution_status_badge(assigns) do
+    ~H"""
+    <span class={[
+      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+      status_badge_class(@status)
+    ]}>
+      <.icon name={status_icon(@status)} class="size-3" />
+      {status_label(@status)}
+    </span>
+    """
+  end
+
+  # Success Rate Badge
+  attr :execution, :map, required: true
+
+  defp success_rate_badge(assigns) do
+    rate =
+      if assigns.execution.hosts_total && assigns.execution.hosts_total > 0 do
+        ((assigns.execution.hosts_available || 0) / assigns.execution.hosts_total * 100)
+        |> Float.round(1)
+      else
+        nil
+      end
+
+    assigns = assign(assigns, :rate, rate)
+
+    ~H"""
+    <span :if={@rate} class={"text-xs font-medium #{success_rate_color(@rate)}"}>
+      {@rate}%
+    </span>
+    <span :if={!@rate} class="text-xs text-base-content/40">—</span>
+    """
+  end
+
+  # Helper functions for Active Scans panel
+
+  defp status_badge_class(:completed), do: "bg-success/20 text-success"
+  defp status_badge_class(:failed), do: "bg-error/20 text-error"
+  defp status_badge_class(:running), do: "bg-info/20 text-info"
+  defp status_badge_class(_), do: "bg-base-200 text-base-content/60"
+
+  defp status_icon(:completed), do: "hero-check-circle"
+  defp status_icon(:failed), do: "hero-x-circle"
+  defp status_icon(:running), do: "hero-arrow-path"
+  defp status_icon(_), do: "hero-clock"
+
+  defp status_label(:completed), do: "Completed"
+  defp status_label(:failed), do: "Failed"
+  defp status_label(:running), do: "Running"
+  defp status_label(:pending), do: "Pending"
+  defp status_label(_), do: "Unknown"
+
+  defp success_rate_color(rate) when rate >= 90, do: "text-success"
+  defp success_rate_color(rate) when rate >= 70, do: "text-warning"
+  defp success_rate_color(_rate), do: "text-error"
+
+  defp progress_percent(%{hosts_total: total, hosts_available: available, hosts_failed: failed})
+       when is_integer(total) and total > 0 do
+    scanned = (available || 0) + (failed || 0)
+    Float.round(scanned / total * 100, 1)
+  end
+
+  defp progress_percent(_), do: 0
+
+  defp format_relative_time(nil), do: "—"
+
+  defp format_relative_time(%DateTime{} = dt) do
+    diff_seconds = DateTime.diff(DateTime.utc_now(), dt, :second)
+
+    cond do
+      diff_seconds < 60 -> "#{diff_seconds}s ago"
+      diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
+      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)}h ago"
+      true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+    end
+  end
+
+  defp format_relative_time(_), do: "—"
+
+  defp format_duration(nil), do: "—"
+  defp format_duration(ms) when is_integer(ms) and ms < 1000, do: "#{ms}ms"
+  defp format_duration(ms) when is_integer(ms) and ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
+
+  defp format_duration(ms) when is_integer(ms) do
+    minutes = div(ms, 60_000)
+    seconds = div(rem(ms, 60_000), 1000)
+    "#{minutes}m #{seconds}s"
+  end
+
+  defp format_duration(_), do: "—"
 
   # Group Form
   attr :form, :any, required: true
@@ -894,6 +1283,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     case Ash.get(SweepProfile, id, actor: actor, tenant: tenant, authorize?: false) do
       {:ok, profile} -> profile
       {:error, _} -> nil
+    end
+  end
+
+  defp load_running_executions(scope) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    case Ash.read(SweepGroupExecution, action: :running, actor: actor, tenant: tenant, authorize?: false) do
+      {:ok, executions} -> executions
+      {:error, _} -> []
+    end
+  end
+
+  defp load_recent_executions(scope) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    case Ash.read(SweepGroupExecution,
+           action: :recent,
+           actor: actor,
+           tenant: tenant,
+           authorize?: false
+         ) do
+      {:ok, executions} ->
+        # Filter out running ones (they appear in the running section)
+        Enum.reject(executions, &(&1.status == :running))
+
+      {:error, _} ->
+        []
     end
   end
 

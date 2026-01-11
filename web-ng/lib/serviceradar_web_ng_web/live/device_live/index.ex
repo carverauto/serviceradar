@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
 
   @default_limit 20
   @max_limit 100
@@ -17,6 +17,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @presence_window "last_24h"
   @presence_bucket "24h"
   @presence_device_cap 200
+
+  @interval_options [
+    {"5 minutes", "5m"},
+    {"15 minutes", "15m"},
+    {"30 minutes", "30m"},
+    {"1 hour", "1h"},
+    {"2 hours", "2h"},
+    {"6 hours", "6h"},
+    {"12 hours", "12h"},
+    {"24 hours", "24h"}
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -31,8 +42,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:limit, @default_limit)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)
      |> assign(:show_sweep_modal, false)
+     |> assign(:sweep_modal_mode, :select)
      |> assign(:sweep_groups, [])
+     |> assign(:sweep_profiles, [])
+     |> assign(:new_group_form, %{
+       "name" => "",
+       "interval" => "1h",
+       "profile_id" => "",
+       "enabled" => true
+     })
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -141,24 +162,150 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_event("open_sweep_modal", _params, socket) do
     scope = socket.assigns.current_scope
     sweep_groups = load_sweep_groups(scope)
+    sweep_profiles = load_sweep_profiles(scope)
 
     {:noreply,
      socket
      |> assign(:show_sweep_modal, true)
-     |> assign(:sweep_groups, sweep_groups)}
+     |> assign(:sweep_modal_mode, :select)
+     |> assign(:sweep_groups, sweep_groups)
+     |> assign(:sweep_profiles, sweep_profiles)
+     |> assign(:new_group_form, %{
+       "name" => "",
+       "interval" => "1h",
+       "profile_id" => "",
+       "enabled" => true
+     })}
   end
 
   def handle_event("close_sweep_modal", _params, socket) do
-    {:noreply, assign(socket, :show_sweep_modal, false)}
+    {:noreply,
+     socket
+     |> assign(:show_sweep_modal, false)
+     |> assign(:sweep_modal_mode, :select)}
+  end
+
+  def handle_event("sweep_modal_show_create", _params, socket) do
+    {:noreply, assign(socket, :sweep_modal_mode, :create)}
+  end
+
+  def handle_event("sweep_modal_show_select", _params, socket) do
+    {:noreply, assign(socket, :sweep_modal_mode, :select)}
+  end
+
+  def handle_event("update_new_group_form", %{"field" => field, "value" => value}, socket) do
+    form = socket.assigns.new_group_form
+    updated_form = Map.put(form, field, value)
+    {:noreply, assign(socket, :new_group_form, updated_form)}
+  end
+
+  def handle_event("toggle_select_all_matching", _params, socket) do
+    current = socket.assigns.select_all_matching
+
+    socket =
+      if current do
+        # Turning off - clear selection
+        socket
+        |> assign(:select_all_matching, false)
+        |> assign(:selected_devices, MapSet.new())
+        |> assign(:total_matching_count, nil)
+      else
+        # Turning on - get total count
+        scope = socket.assigns.current_scope
+        query = Map.get(socket.assigns.srql || %{}, :query, "")
+        total = get_total_matching_count(scope, query)
+
+        socket
+        |> assign(:select_all_matching, true)
+        |> assign(:total_matching_count, total)
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("add_to_sweep_group", %{"group_id" => group_id}, socket) do
     scope = socket.assigns.current_scope
-    selected = socket.assigns.selected_devices
-    devices = socket.assigns.devices
 
-    # Get IP addresses for selected devices
-    ips =
+    # Get IPs either from selection or all matching
+    ips = get_selected_ips(socket)
+
+    if ips == [] do
+      {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
+    else
+      case add_devices_to_group(scope, group_id, ips) do
+        {:ok, group} ->
+          {:noreply,
+           socket
+           |> assign(:show_sweep_modal, false)
+           |> assign(:sweep_modal_mode, :select)
+           |> assign(:selected_devices, MapSet.new())
+           |> assign(:select_all_matching, false)
+           |> assign(:total_matching_count, nil)
+           |> put_flash(:info, "Added #{length(ips)} device(s) to #{group.name}")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to add devices to sweep group")}
+      end
+    end
+  end
+
+  def handle_event("create_and_add_to_sweep_group", _params, socket) do
+    scope = socket.assigns.current_scope
+    form = socket.assigns.new_group_form
+
+    # Validate name
+    name = String.trim(form["name"] || "")
+
+    if name == "" do
+      {:noreply, put_flash(socket, :error, "Please enter a name for the sweep group")}
+    else
+      # Get IPs from selection
+      ips = get_selected_ips(socket)
+
+      if ips == [] do
+        {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
+      else
+        # Create the group with selected devices as static_targets
+        params = %{
+          name: name,
+          interval: form["interval"] || "1h",
+          profile_id: if(form["profile_id"] == "", do: nil, else: form["profile_id"]),
+          enabled: form["enabled"] == true || form["enabled"] == "true",
+          static_targets: ips,
+          partition: "default"
+        }
+
+        case create_sweep_group(scope, params) do
+          {:ok, group} ->
+            {:noreply,
+             socket
+             |> assign(:show_sweep_modal, false)
+             |> assign(:sweep_modal_mode, :select)
+             |> assign(:selected_devices, MapSet.new())
+             |> assign(:select_all_matching, false)
+             |> assign(:total_matching_count, nil)
+             |> put_flash(:info, "Created sweep group \"#{group.name}\" with #{length(ips)} device(s)")}
+
+          {:error, changeset} ->
+            error_msg = format_changeset_errors(changeset)
+            {:noreply, put_flash(socket, :error, "Failed to create sweep group: #{error_msg}")}
+        end
+      end
+    end
+  end
+
+  # Get IPs from selected devices or all matching devices
+  defp get_selected_ips(socket) do
+    if socket.assigns.select_all_matching do
+      # Fetch all IPs matching the current filter
+      scope = socket.assigns.current_scope
+      query = Map.get(socket.assigns.srql || %{}, :query, "")
+      get_all_matching_ips(scope, query)
+    else
+      # Get IPs from visible selected devices
+      selected = socket.assigns.selected_devices
+      devices = socket.assigns.devices
+
       devices
       |> Enum.filter(fn row ->
         with true <- is_map(row),
@@ -172,21 +319,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Enum.filter(&is_binary/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
-
-    if ips == [] do
-      {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
-    else
-      case add_devices_to_group(scope, group_id, ips) do
-        {:ok, group} ->
-          {:noreply,
-           socket
-           |> assign(:show_sweep_modal, false)
-           |> assign(:selected_devices, MapSet.new())
-           |> put_flash(:info, "Added #{length(ips)} device(s) to #{group.name}")}
-
-        {:error, _reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to add devices to sweep group")}
-      end
     end
   end
 
@@ -205,10 +337,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     all_selected = MapSet.size(visible_uids) > 0 and MapSet.subset?(visible_uids, assigns.selected_devices)
 
+    # Compute effective count (either selected or all matching)
+    effective_count =
+      if assigns.select_all_matching do
+        assigns.total_matching_count || 0
+      else
+        selected_count
+      end
+
     assigns =
       assigns
       |> assign(:pagination, pagination)
       |> assign(:selected_count, selected_count)
+      |> assign(:effective_count, effective_count)
       |> assign(:all_selected, all_selected)
 
     ~H"""
@@ -246,13 +387,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         <!-- Bulk Actions Bar -->
         <div
-          :if={@selected_count > 0}
-          class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-between"
+          :if={@selected_count > 0 or @select_all_matching}
+          class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3"
         >
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-3">
             <span class="text-sm font-medium text-primary">
-              {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
+              <%= if @select_all_matching do %>
+                <.icon name="hero-check-badge" class="size-4 inline" />
+                All {@total_matching_count} matching device(s) selected
+              <% else %>
+                {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
+              <% end %>
             </span>
+
+            <!-- Select All Matching Toggle -->
+            <button
+              :if={!@select_all_matching and has_any_filter?(@srql)}
+              phx-click="toggle_select_all_matching"
+              class="text-xs text-primary hover:text-primary-focus underline"
+            >
+              Select all matching filter
+            </button>
+
             <button
               phx-click="clear_selection"
               class="text-xs text-base-content/60 hover:text-base-content"
@@ -410,16 +566,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <!-- Sweep Group Modal -->
       <.sweep_group_modal
         :if={@show_sweep_modal}
+        mode={@sweep_modal_mode}
         sweep_groups={@sweep_groups}
-        selected_count={@selected_count}
+        sweep_profiles={@sweep_profiles}
+        selected_count={@effective_count}
+        new_group_form={@new_group_form}
+        interval_options={interval_options()}
       />
     </Layouts.app>
     """
   end
 
+  defp interval_options, do: @interval_options
+
   # Sweep Group Modal Component
+  attr :mode, :atom, default: :select
   attr :sweep_groups, :list, required: true
+  attr :sweep_profiles, :list, default: []
   attr :selected_count, :integer, required: true
+  attr :new_group_form, :map, default: %{}
+  attr :interval_options, :list, default: []
 
   defp sweep_group_modal(assigns) do
     ~H"""
@@ -434,56 +600,163 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </button>
         </form>
 
-        <h3 class="text-lg font-bold">Add to Sweep Group</h3>
-        <p class="py-2 text-sm text-base-content/70">
-          Add {@selected_count} selected device(s) to a network sweep group.
-        </p>
+        <%= if @mode == :create do %>
+          <!-- Create New Group Form -->
+          <div class="flex items-center gap-2 mb-4">
+            <button
+              phx-click="sweep_modal_show_select"
+              class="btn btn-sm btn-ghost btn-circle"
+            >
+              <.icon name="hero-arrow-left" class="size-4" />
+            </button>
+            <h3 class="text-lg font-bold">Create New Sweep Group</h3>
+          </div>
 
-        <div class="mt-4 space-y-2">
-          <%= if @sweep_groups == [] do %>
-            <div class="p-4 bg-base-200 rounded-lg text-center">
-              <p class="text-sm text-base-content/60 mb-3">
-                No sweep groups configured yet.
-              </p>
-              <.link navigate={~p"/settings/networks/groups/new"}>
-                <.ui_button variant="primary" size="sm">
-                  <.icon name="hero-plus" class="size-4" /> Create Sweep Group
-                </.ui_button>
-              </.link>
+          <p class="text-sm text-base-content/70 mb-4">
+            Create a new sweep group with {@selected_count} selected device(s).
+          </p>
+
+          <div class="space-y-4">
+            <!-- Group Name -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">Group Name</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g., Office Network Scan"
+                class="input input-bordered w-full"
+                value={@new_group_form["name"]}
+                phx-blur="update_new_group_form"
+                phx-value-field="name"
+              />
             </div>
-          <% else %>
-            <%= for group <- @sweep_groups do %>
-              <button
-                class="w-full p-3 bg-base-200 hover:bg-base-300 rounded-lg text-left transition-colors"
-                phx-click="add_to_sweep_group"
-                phx-value-group_id={group.id}
+
+            <!-- Schedule Interval -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">Scan Interval</span>
+              </label>
+              <select
+                class="select select-bordered w-full"
+                phx-change="update_new_group_form"
+                phx-value-field="interval"
+                name="value"
               >
-                <div class="flex items-center justify-between">
-                  <div>
-                    <div class="font-medium">{group.name}</div>
-                    <div class="text-xs text-base-content/60">
-                      {length(group.static_targets || [])} target(s) • Every {group.interval}
+                <%= for {label, value} <- @interval_options do %>
+                  <option value={value} selected={@new_group_form["interval"] == value}>
+                    {label}
+                  </option>
+                <% end %>
+              </select>
+            </div>
+
+            <!-- Scanner Profile (optional) -->
+            <div>
+              <label class="label">
+                <span class="label-text font-medium">Scanner Profile</span>
+                <span class="label-text-alt text-base-content/50">Optional</span>
+              </label>
+              <select
+                class="select select-bordered w-full"
+                phx-change="update_new_group_form"
+                phx-value-field="profile_id"
+                name="value"
+              >
+                <option value="">Default settings</option>
+                <%= for profile <- @sweep_profiles do %>
+                  <option value={profile.id} selected={@new_group_form["profile_id"] == profile.id}>
+                    {profile.name}
+                  </option>
+                <% end %>
+              </select>
+            </div>
+
+            <!-- Enable Toggle -->
+            <div class="flex items-center gap-3">
+              <input
+                type="checkbox"
+                class="toggle toggle-primary"
+                checked={@new_group_form["enabled"]}
+                phx-click="update_new_group_form"
+                phx-value-field="enabled"
+                phx-value-value={!@new_group_form["enabled"]}
+              />
+              <span class="label-text">Enable immediately after creation</span>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
+              <button
+                phx-click="sweep_modal_show_select"
+                class="btn btn-ghost"
+              >
+                Back
+              </button>
+              <button
+                phx-click="create_and_add_to_sweep_group"
+                class="btn btn-primary"
+              >
+                <.icon name="hero-plus" class="size-4" />
+                Create & Add Devices
+              </button>
+            </div>
+          </div>
+        <% else %>
+          <!-- Select Existing Group -->
+          <h3 class="text-lg font-bold">Add to Sweep Group</h3>
+          <p class="py-2 text-sm text-base-content/70">
+            Add {@selected_count} selected device(s) to a network sweep group.
+          </p>
+
+          <div class="mt-4 space-y-2">
+            <%= if @sweep_groups == [] do %>
+              <div class="p-4 bg-base-200 rounded-lg text-center">
+                <p class="text-sm text-base-content/60 mb-3">
+                  No sweep groups configured yet.
+                </p>
+                <button
+                  phx-click="sweep_modal_show_create"
+                  class="btn btn-primary btn-sm"
+                >
+                  <.icon name="hero-plus" class="size-4" /> Create Sweep Group
+                </button>
+              </div>
+            <% else %>
+              <%= for group <- @sweep_groups do %>
+                <button
+                  class="w-full p-3 bg-base-200 hover:bg-base-300 rounded-lg text-left transition-colors"
+                  phx-click="add_to_sweep_group"
+                  phx-value-group_id={group.id}
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="font-medium">{group.name}</div>
+                      <div class="text-xs text-base-content/60">
+                        {length(group.static_targets || [])} target(s) • Every {group.interval}
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                      </span>
+                      <.icon name="hero-chevron-right" class="size-4 text-base-content/40" />
                     </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
-                    </span>
-                    <.icon name="hero-chevron-right" class="size-4 text-base-content/40" />
-                  </div>
-                </div>
-              </button>
-            <% end %>
+                </button>
+              <% end %>
 
-            <div class="divider text-xs">or</div>
+              <div class="divider text-xs">or</div>
 
-            <.link navigate={~p"/settings/networks/groups/new"} class="block">
-              <button class="w-full p-3 border border-dashed border-base-300 hover:border-primary rounded-lg text-center transition-colors">
+              <button
+                phx-click="sweep_modal_show_create"
+                class="w-full p-3 border border-dashed border-base-300 hover:border-primary rounded-lg text-center transition-colors"
+              >
                 <.icon name="hero-plus" class="size-4 mr-1" />
                 <span class="text-sm">Create New Sweep Group</span>
               </button>
-            </.link>
-          <% end %>
-        </div>
+            <% end %>
+          </div>
+        <% end %>
       </div>
       <form method="dialog" class="modal-backdrop">
         <button phx-click="close_sweep_modal">close</button>
@@ -1048,6 +1321,96 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         error
     end
   end
+
+  defp load_sweep_profiles(scope) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    case Ash.read(SweepProfile, actor: actor, tenant: tenant, authorize?: false) do
+      {:ok, profiles} -> profiles
+      {:error, _} -> []
+    end
+  end
+
+  defp create_sweep_group(scope, params) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    SweepGroup
+    |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
+    |> Ash.create()
+  end
+
+  defp get_total_matching_count(scope, query) do
+    srql_module = srql_module()
+    # Get count by querying with limit 0 - SRQL should return total_count
+    full_query = "in:devices #{query} limit:0"
+
+    case srql_module.query(full_query, %{scope: scope}) do
+      {:ok, %{"pagination" => %{"total_count" => count}}} when is_integer(count) ->
+        count
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        # Fall back to fetching actual count with larger limit
+        count_query = "in:devices #{query} limit:10000"
+
+        case srql_module.query(count_query, %{scope: scope}) do
+          {:ok, %{"results" => results}} -> length(results)
+          _ -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp get_all_matching_ips(scope, query) do
+    srql_module = srql_module()
+    # Fetch all matching devices up to a reasonable limit
+    full_query = "in:devices #{query} limit:10000"
+
+    case srql_module.query(full_query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        results
+        |> Enum.filter(&is_map/1)
+        |> Enum.map(fn row -> Map.get(row, "ip") end)
+        |> Enum.filter(&is_binary/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+
+      _ ->
+        []
+    end
+  end
+
+  defp format_changeset_errors(changeset) do
+    case changeset do
+      %Ash.Changeset{errors: errors} when is_list(errors) and errors != [] ->
+        errors
+        |> Enum.map(&format_single_error/1)
+        |> Enum.join(", ")
+
+      %Ecto.Changeset{errors: errors} when is_list(errors) and errors != [] ->
+        errors
+        |> Enum.map(fn {field, {msg, _opts}} -> "#{field}: #{msg}" end)
+        |> Enum.join(", ")
+
+      _ ->
+        "Unknown error"
+    end
+  end
+
+  defp format_single_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
+    do: "#{field}: #{msg}"
+
+  defp format_single_error(%Ash.Error.Changes.Required{field: field}),
+    do: "#{field} is required"
+
+  defp format_single_error(%{message: msg}) when is_binary(msg),
+    do: msg
+
+  defp format_single_error(err),
+    do: inspect(err)
 
   defp build_actor(scope) do
     case scope do
