@@ -160,10 +160,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     # Get IP addresses for selected devices
     ips =
       devices
-      |> Enum.filter(&is_map/1)
       |> Enum.filter(fn row ->
-        uid = Map.get(row, "uid") || Map.get(row, "id")
-        is_binary(uid) and MapSet.member?(selected, uid)
+        with true <- is_map(row),
+             uid when is_binary(uid) <- Map.get(row, "uid") || Map.get(row, "id") do
+          MapSet.member?(selected, uid)
+        else
+          _ -> false
+        end
       end)
       |> Enum.map(fn row -> Map.get(row, "ip") end)
       |> Enum.filter(&is_binary/1)

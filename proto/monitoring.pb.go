@@ -416,6 +416,8 @@ type ResultsResponse struct {
 	CurrentSequence string                 `protobuf:"bytes,9,opt,name=current_sequence,json=currentSequence,proto3" json:"current_sequence,omitempty"`  // Current sequence of this response
 	HasNewData      bool                   `protobuf:"varint,10,opt,name=has_new_data,json=hasNewData,proto3" json:"has_new_data,omitempty"`             // Whether data changed since last_sequence
 	SweepCompletion *SweepCompletionStatus `protobuf:"bytes,11,opt,name=sweep_completion,json=sweepCompletion,proto3" json:"sweep_completion,omitempty"` // Sweep completion status for coordination
+	ExecutionId     string                 `protobuf:"bytes,12,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`             // Sweep execution UUID for result tracking
+	SweepGroupId    string                 `protobuf:"bytes,13,opt,name=sweep_group_id,json=sweepGroupId,proto3" json:"sweep_group_id,omitempty"`        // Sweep group UUID this execution belongs to
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -525,6 +527,20 @@ func (x *ResultsResponse) GetSweepCompletion() *SweepCompletionStatus {
 		return x.SweepCompletion
 	}
 	return nil
+}
+
+func (x *ResultsResponse) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *ResultsResponse) GetSweepGroupId() string {
+	if x != nil {
+		return x.SweepGroupId
+	}
+	return ""
 }
 
 type SweepServiceStatus struct {
@@ -747,6 +763,8 @@ type SweepCompletionStatus struct {
 	TotalTargets     int32                        `protobuf:"varint,4,opt,name=total_targets,json=totalTargets,proto3" json:"total_targets,omitempty"`              // Total number of targets to sweep
 	CompletedTargets int32                        `protobuf:"varint,5,opt,name=completed_targets,json=completedTargets,proto3" json:"completed_targets,omitempty"`  // Number of targets completed so far
 	ErrorMessage     string                       `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`               // Error details if status is FAILED
+	ExecutionId      string                       `protobuf:"bytes,7,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`                  // Sweep execution UUID for tracking
+	SweepGroupId     string                       `protobuf:"bytes,8,opt,name=sweep_group_id,json=sweepGroupId,proto3" json:"sweep_group_id,omitempty"`             // Sweep group UUID this execution belongs to
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -819,6 +837,20 @@ func (x *SweepCompletionStatus) GetCompletedTargets() int32 {
 func (x *SweepCompletionStatus) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *SweepCompletionStatus) GetExecutionId() string {
+	if x != nil {
+		return x.ExecutionId
+	}
+	return ""
+}
+
+func (x *SweepCompletionStatus) GetSweepGroupId() string {
+	if x != nil {
+		return x.SweepGroupId
 	}
 	return ""
 }
@@ -1770,7 +1802,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
 	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\a \x01(\tR\tgatewayId\"\xa1\x03\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\"\xea\x03\n" +
 	"\x0fResultsResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12!\n" +
@@ -1785,7 +1817,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\fhas_new_data\x18\n" +
 	" \x01(\bR\n" +
 	"hasNewData\x12L\n" +
-	"\x10sweep_completion\x18\v \x01(\v2!.monitoring.SweepCompletionStatusR\x0fsweepCompletion\"\xc5\x01\n" +
+	"\x10sweep_completion\x18\v \x01(\v2!.monitoring.SweepCompletionStatusR\x0fsweepCompletion\x12!\n" +
+	"\fexecution_id\x18\f \x01(\tR\vexecutionId\x12$\n" +
+	"\x0esweep_group_id\x18\r \x01(\tR\fsweepGroupId\"\xc5\x01\n" +
 	"\x12SweepServiceStatus\x12\x18\n" +
 	"\anetwork\x18\x01 \x01(\tR\anetwork\x12\x1f\n" +
 	"\vtotal_hosts\x18\x02 \x01(\x05R\n" +
@@ -1805,14 +1839,16 @@ const file_monitoring_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\x04 \x01(\x05R\vtotalChunks\x12)\n" +
 	"\x10current_sequence\x18\x05 \x01(\tR\x0fcurrentSequence\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\"\xf6\x02\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\"\xbf\x03\n" +
 	"\x15SweepCompletionStatus\x12@\n" +
 	"\x06status\x18\x01 \x01(\x0e2(.monitoring.SweepCompletionStatus.StatusR\x06status\x12'\n" +
 	"\x0fcompletion_time\x18\x02 \x01(\x03R\x0ecompletionTime\x12'\n" +
 	"\x0ftarget_sequence\x18\x03 \x01(\tR\x0etargetSequence\x12#\n" +
 	"\rtotal_targets\x18\x04 \x01(\x05R\ftotalTargets\x12+\n" +
 	"\x11completed_targets\x18\x05 \x01(\x05R\x10completedTargets\x12#\n" +
-	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\"R\n" +
+	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\x12!\n" +
+	"\fexecution_id\x18\a \x01(\tR\vexecutionId\x12$\n" +
+	"\x0esweep_group_id\x18\b \x01(\tR\fsweepGroupId\"R\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0f\n" +
 	"\vNOT_STARTED\x10\x01\x12\x0f\n" +

@@ -256,6 +256,8 @@ type SweepSummary struct {
 	LastSweep      int64        `json:"last_sweep"` // Unix timestamp
 	Ports          []PortCount  `json:"ports"`
 	Hosts          []HostResult `json:"hosts"`
+	ExecutionID    string       `json:"execution_id,omitempty"`    // Sweep execution UUID for result tracking
+	SweepGroupID   string       `json:"sweep_group_id,omitempty"`  // Sweep group UUID this execution belongs to
 }
 
 // SweepConfig defines the network sweep tool configuration.
@@ -270,6 +272,8 @@ type SweepConfig struct {
 	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	SweepGroupID  string         `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash    string         `json:"config_hash,omitempty"`    // Hash of config for change detection
 }
 
 // DeviceTarget represents a single device/network with its specific sweep configuration

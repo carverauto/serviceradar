@@ -265,7 +265,7 @@ type SNMPMetric struct {
 // SweepResult represents a single sweep result to be stored.
 type SweepResult struct {
 	AgentID         string            `json:"agent_id"`
-	GatewayID        string            `json:"gateway_id"`
+	GatewayID       string            `json:"gateway_id"`
 	Partition       string            `json:"partition"`
 	DeviceID        string            `json:"device_id"`
 	DiscoverySource string            `json:"discovery_source"`
@@ -275,6 +275,8 @@ type SweepResult struct {
 	Timestamp       time.Time         `json:"timestamp"`
 	Available       bool              `json:"available,omitempty"`
 	Metadata        map[string]string `json:"metadata,omitempty"`
+	ExecutionID     string            `json:"execution_id,omitempty"`   // Sweep execution UUID for result tracking
+	SweepGroupID    string            `json:"sweep_group_id,omitempty"` // Sweep group UUID this execution belongs to
 }
 
 // SysmonDiskResponse represents a disk metrics response grouped by timestamp.

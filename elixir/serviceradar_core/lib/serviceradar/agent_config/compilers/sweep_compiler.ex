@@ -72,9 +72,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         |> Enum.map(&compile_group(&1, profile_map, tenant_id))
         |> Enum.reject(&is_nil/1)
 
+      # Compute config hash for change detection
+      config_hash = compute_config_hash(compiled_groups)
+
       config = %{
         "groups" => compiled_groups,
-        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "config_hash" => config_hash
       }
 
       {:ok, config}
@@ -100,6 +104,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   # Private helpers
+
+  defp compute_config_hash(compiled_groups) do
+    # Sort groups by ID for deterministic hashing
+    sorted_groups = Enum.sort_by(compiled_groups, & &1["id"])
+
+    # Compute SHA256 hash of the JSON-encoded config
+    sorted_groups
+    |> Jason.encode!()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 16)
+  end
 
   defp build_system_actor(tenant_id) do
     %{
@@ -167,6 +183,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
     %{
       "id" => group.id,
+      "sweep_group_id" => group.id,
       "name" => group.name,
       "description" => group.description,
       "schedule" => schedule,
