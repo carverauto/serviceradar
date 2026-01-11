@@ -12,7 +12,7 @@ import (
 const insertNetflowSQL = `
 INSERT INTO netflow_metrics (
     timestamp,
-    poller_id,
+    gateway_id,
     agent_id,
     device_id,
     flow_direction,
@@ -70,7 +70,7 @@ func buildNetflowMetricArgs(metric *models.NetflowMetric) ([]interface{}, error)
 
 	return []interface{}{
 		sanitizeTimestamp(metric.Timestamp),
-		"", // poller_id (not provided today)
+		"", // gateway_id (not provided today)
 		"", // agent_id
 		"", // device_id
 		"", // flow_direction

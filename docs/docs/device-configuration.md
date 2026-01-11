@@ -543,7 +543,7 @@ netstat -tulnp | grep :514
 
 ```bash
 # View SNMP collection logs
-docker-compose logs poller | grep -i snmp
+docker-compose logs agent-gateway | grep -i snmp
 
 # View syslog collection logs
 docker-compose logs flowgger

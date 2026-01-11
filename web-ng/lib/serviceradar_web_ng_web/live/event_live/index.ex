@@ -4,6 +4,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Infrastructure.HealthPubSub
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -11,6 +14,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      tenant_id = Scope.tenant_id(socket.assigns[:current_scope])
+
+      if is_binary(tenant_id) and tenant_id != "" do
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic(tenant_id))
+        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic(tenant_id))
+      end
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "Events")
@@ -67,6 +79,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   def handle_event("srql_builder_remove_filter", params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "events")}
+  end
+
+  @impl true
+  def handle_info({:health_event, _event}, socket) do
+    {:noreply, refresh_events(socket)}
+  end
+
+  @impl true
+  def handle_info({:ocsf_event, _event}, socket) do
+    {:noreply, refresh_events(socket)}
   end
 
   @impl true
@@ -379,4 +401,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   defp compute_summary(_), do: %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
+
+  defp refresh_events(socket) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    query = Map.get(srql, :query, "")
+    limit = Map.get(socket.assigns, :limit, @default_limit)
+    params = %{"q" => query, "limit" => limit}
+    uri = Map.get(srql, :page_path, "/events")
+
+    socket =
+      SRQLPage.load_list(socket, params, uri, :events,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    assign(socket, :summary, compute_summary(socket.assigns.events))
+  end
 end

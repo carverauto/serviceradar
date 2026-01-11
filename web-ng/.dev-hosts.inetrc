@@ -1,0 +1,4 @@
+{lookup, [file, native, dns]}.
+{host, {172,18,0,2}, ["core-elx"]}.
+{host, {172,18,0,5}, ["poller-elx"]}.
+{host, {172,18,0,6}, ["agent-elx"]}.

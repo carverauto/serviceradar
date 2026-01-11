@@ -8,7 +8,7 @@ func ShowHelp() {
 Usage:
   serviceradar [options] [password]
   serviceradar update-config [options]
-  serviceradar update-poller [options]
+  serviceradar update-gateway [options]
   serviceradar generate-tls [options]
   serviceradar generate-jwt-keys [options]
   serviceradar spire-join-token [options]
@@ -16,7 +16,7 @@ Usage:
 Commands:
   (default)        Generate bcrypt hash from password
   update-config    Update core.json with new admin password hash
-  update-poller    Manage service checks in poller.json
+  update-gateway    Manage service checks in gateway.json
   generate-tls     Generate mTLS certificates for ServiceRadar services
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
@@ -38,10 +38,10 @@ Options for update-config:
   -file string        path to core.json config file
   -admin-hash string  bcrypt hash for admin user
 
-Options for update-poller:
-  -file string        path to poller.json config file
+Options for update-gateway:
+  -file string        path to gateway.json config file
   -action string      action to perform: add or remove (default "add")
-  -agent string       agent name in poller.json (default "local-agent")
+  -agent string       agent name in gateway.json (default "local-agent")
   -type string        service type (e.g., sysmon, rperf-checker, snmp)
   -name string        service name (defaults to service type)
   -details string     service details (e.g., IP:port for grpc)
@@ -62,14 +62,14 @@ Examples:
   # Update core.json
   serviceradar update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
 
-  # Add a checker to poller.json
-  serviceradar update-poller -file /etc/serviceradar/poller.json -type sysmon
+  # Add a checker to gateway.json
+  serviceradar update-gateway -file /etc/serviceradar/gateway.json -type sysmon
   
-  # Remove a checker from poller.json
-  serviceradar update-poller -file /etc/serviceradar/poller.json -action remove -type sysmon
+  # Remove a checker from gateway.json
+  serviceradar update-gateway -file /etc/serviceradar/gateway.json -action remove -type sysmon
   
   # Enable all standard checkers
-  serviceradar update-poller -file /etc/serviceradar/poller.json -enable-all
+  serviceradar update-gateway -file /etc/serviceradar/gateway.json -enable-all
 
   # Generate mTLS certificates
   serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
@@ -80,7 +80,7 @@ Examples:
   serviceradar spire-join-token \
     -core-url https://core.demo.serviceradar.cloud \
     -api-key "$SERVICERADAR_API_KEY" \
-    -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire \
+    -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/gateway-nested-spire \
     -selector unix:uid:0 -selector unix:gid:0 \
     -selector unix:user:root -selector unix:path:/opt/spire/bin/spire-server
 
@@ -98,7 +98,7 @@ Options for spire-join-token:
   -ttl int                Join token TTL in seconds
   -agent-spiffe-id string Optional alias SPIFFE ID to assign to the agent
   -no-downstream          Do not register a downstream entry
-  -downstream-spiffe-id string  SPIFFE ID for the downstream poller SPIRE server
+  -downstream-spiffe-id string  SPIFFE ID for the downstream gateway SPIRE server
   -selector value         Downstream selector (repeatable, e.g. k8s:ns:demo)
   -x509-ttl int           Downstream X.509 SVID TTL in seconds
   -jwt-ttl int            Downstream JWT SVID TTL in seconds
@@ -137,11 +137,11 @@ Options for edge package create:
   --bearer string              Bearer token used to authenticate with core
   --tls-skip-verify            Skip TLS certificate verification
   --label string               Display label for the package (required)
-  --component-type string      Component type (poller, agent, checker[:kind], default poller)
+  --component-type string      Component type (gateway, agent, checker[:kind], default gateway)
   --component-id string        Optional component identifier override
-  --parent-type string         Parent component type (poller, agent, checker)
+  --parent-type string         Parent component type (gateway, agent, checker)
   --parent-id string           Parent identifier
-  --poller-id string           Poller identifier override
+  --gateway-id string           Gateway identifier override
   --site string                Site/location note
   --metadata-json string       Metadata JSON payload
   --metadata-file string       Path to metadata JSON file (alternative to --metadata-json)
@@ -162,7 +162,7 @@ Options for edge package list:
   --limit int              Maximum number of packages to return (default 50)
   --status value           Filter by status (repeatable)
   --component-type value   Filter by component type (repeatable)
-  --poller-id string       Filter by poller identifier
+  --gateway-id string       Filter by gateway identifier
   --parent-id string       Filter by parent identifier
   --component-id string    Filter by component identifier
   --output string          Output format: text or json (default text)

@@ -11,14 +11,14 @@ import (
 )
 
 const (
-	serviceTypePoller  = "poller"
+	serviceTypeGateway  = "gateway"
 	serviceTypeAgent   = "agent"
 	serviceTypeChecker = "checker"
 )
 
-// GetPoller retrieves a poller by ID.
-func (r *ServiceRegistry) GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error) {
-	return r.getPollerCNPG(ctx, pollerID)
+// GetGateway retrieves a gateway by ID.
+func (r *ServiceRegistry) GetGateway(ctx context.Context, gatewayID string) (*RegisteredGateway, error) {
+	return r.getGatewayCNPG(ctx, gatewayID)
 }
 
 // GetAgent retrieves an agent by ID.
@@ -31,18 +31,18 @@ func (r *ServiceRegistry) GetChecker(ctx context.Context, checkerID string) (*Re
 	return r.getCheckerCNPG(ctx, checkerID)
 }
 
-// ListPollers retrieves all pollers matching filter.
-func (r *ServiceRegistry) ListPollers(ctx context.Context, filter *ServiceFilter) ([]*RegisteredPoller, error) {
+// ListGateways retrieves all gateways matching filter.
+func (r *ServiceRegistry) ListGateways(ctx context.Context, filter *ServiceFilter) ([]*RegisteredGateway, error) {
 	if filter == nil {
 		filter = &ServiceFilter{}
 	}
 
-	return r.listPollersCNPG(ctx, filter)
+	return r.listGatewaysCNPG(ctx, filter)
 }
 
-// ListAgentsByPoller retrieves all agents under a poller.
-func (r *ServiceRegistry) ListAgentsByPoller(ctx context.Context, pollerID string) ([]*RegisteredAgent, error) {
-	return r.listAgentsByPollerCNPG(ctx, pollerID)
+// ListAgentsByGateway retrieves all agents under a gateway.
+func (r *ServiceRegistry) ListAgentsByGateway(ctx context.Context, gatewayID string) ([]*RegisteredAgent, error) {
+	return r.listAgentsByGatewayCNPG(ctx, gatewayID)
 }
 
 // ListCheckersByAgent retrieves all checkers under an agent.
@@ -53,14 +53,14 @@ func (r *ServiceRegistry) ListCheckersByAgent(ctx context.Context, agentID strin
 // UpdateServiceStatus updates the status of a service.
 func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType string, serviceID string, status ServiceStatus) error {
 	switch serviceType {
-	case serviceTypePoller:
-		poller, err := r.GetPoller(ctx, serviceID)
+	case serviceTypeGateway:
+		gateway, err := r.GetGateway(ctx, serviceID)
 		if err != nil {
 			return err
 		}
-		poller.Status = status
+		gateway.Status = status
 
-		if err := r.upsertCNPGPoller(ctx, poller); err != nil {
+		if err := r.upsertCNPGGateway(ctx, gateway); err != nil {
 			return err
 		}
 
@@ -99,46 +99,46 @@ func (r *ServiceRegistry) UpdateServiceStatus(ctx context.Context, serviceType s
 	return nil
 }
 
-// IsKnownPoller checks if a poller is registered and active/pending.
-// This replaces the logic in pkg/core/pollers.go
-func (r *ServiceRegistry) IsKnownPoller(ctx context.Context, pollerID string) (bool, error) {
+// IsKnownGateway checks if a gateway is registered and active/pending.
+// This replaces the logic in pkg/core/gateways.go
+func (r *ServiceRegistry) IsKnownGateway(ctx context.Context, gatewayID string) (bool, error) {
 	// Check cache first
-	r.pollerCacheMu.RLock()
+	r.gatewayCacheMu.RLock()
 	if time.Now().Before(r.cacheExpiry) {
-		known, exists := r.pollerCache[pollerID]
-		r.pollerCacheMu.RUnlock()
+		known, exists := r.gatewayCache[gatewayID]
+		r.gatewayCacheMu.RUnlock()
 		if exists {
 			return known, nil
 		}
 	}
-	r.pollerCacheMu.RUnlock()
+	r.gatewayCacheMu.RUnlock()
 
-	known, err := r.isKnownPollerCNPG(ctx, pollerID)
+	known, err := r.isKnownGatewayCNPG(ctx, gatewayID)
 	if err != nil {
 		return false, err
 	}
 
 	// Update cache
-	r.pollerCacheMu.Lock()
+	r.gatewayCacheMu.Lock()
 	if time.Now().After(r.cacheExpiry) {
 		// Refresh entire cache
-		r.refreshPollerCache(ctx)
+		r.refreshGatewayCache(ctx)
 	} else {
-		r.pollerCache[pollerID] = known
+		r.gatewayCache[gatewayID] = known
 	}
-	r.pollerCacheMu.Unlock()
+	r.gatewayCacheMu.Unlock()
 
 	return known, nil
 }
 
-// refreshPollerCache refreshes the entire poller cache.
-// Must be called with pollerCacheMu locked.
-func (r *ServiceRegistry) refreshPollerCache(ctx context.Context) {
-	r.refreshPollerCacheCNPG(ctx)
+// refreshGatewayCache refreshes the entire gateway cache.
+// Must be called with gatewayCacheMu locked.
+func (r *ServiceRegistry) refreshGatewayCache(ctx context.Context) {
+	r.refreshGatewayCacheCNPG(ctx)
 }
 
-// updatePollerStatusByLastSeen is a helper function that updates poller statuses based on last seen time.
-func (r *ServiceRegistry) updatePollerStatusByLastSeen(
+// updateGatewayStatusByLastSeen is a helper function that updates gateway statuses based on last seen time.
+func (r *ServiceRegistry) updateGatewayStatusByLastSeen(
 	ctx context.Context,
 	threshold time.Duration,
 	filterStatus ServiceStatus,
@@ -148,22 +148,22 @@ func (r *ServiceRegistry) updatePollerStatusByLastSeen(
 	cutoff := time.Now().UTC().Add(-threshold)
 	count := 0
 
-	pollers, err := r.ListPollers(ctx, &ServiceFilter{
+	gateways, err := r.ListGateways(ctx, &ServiceFilter{
 		Statuses: []ServiceStatus{filterStatus},
 	})
 	if err != nil {
 		return 0, err
 	}
 
-	for _, poller := range pollers {
-		if poller.LastSeen != nil && poller.LastSeen.Before(cutoff) {
-			if err := r.UpdateServiceStatus(ctx, serviceTypePoller, poller.PollerID, targetStatus); err != nil {
-				r.logger.Warn().Err(err).Str("poller_id", poller.PollerID).Msg(errorMsg)
+	for _, gateway := range gateways {
+		if gateway.LastSeen != nil && gateway.LastSeen.Before(cutoff) {
+			if err := r.UpdateServiceStatus(ctx, serviceTypeGateway, gateway.GatewayID, targetStatus); err != nil {
+				r.logger.Warn().Err(err).Str("gateway_id", gateway.GatewayID).Msg(errorMsg)
 			} else {
 				count++
 				r.logger.Info().
-					Str("poller_id", poller.PollerID).
-					Time("last_seen", *poller.LastSeen).
+					Str("gateway_id", gateway.GatewayID).
+					Time("last_seen", *gateway.LastSeen).
 					Msg(successMsg)
 			}
 		}
@@ -174,13 +174,13 @@ func (r *ServiceRegistry) updatePollerStatusByLastSeen(
 
 // MarkInactive marks services as inactive if they haven't reported within threshold.
 func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Duration) (int, error) {
-	return r.updatePollerStatusByLastSeen(
+	return r.updateGatewayStatusByLastSeen(
 		ctx,
 		threshold,
 		ServiceStatusActive,
 		ServiceStatusInactive,
-		"Marked poller inactive",
-		"Failed to mark poller inactive",
+		"Marked gateway inactive",
+		"Failed to mark gateway inactive",
 	)
 }
 
@@ -188,20 +188,20 @@ func (r *ServiceRegistry) MarkInactive(ctx context.Context, threshold time.Durat
 func (r *ServiceRegistry) ArchiveInactive(ctx context.Context, retentionPeriod time.Duration) (int, error) {
 	// For now, we'll just mark them as revoked rather than deleting
 	// In the future, could move to separate archive table
-	return r.updatePollerStatusByLastSeen(
+	return r.updateGatewayStatusByLastSeen(
 		ctx,
 		retentionPeriod,
 		ServiceStatusInactive,
 		ServiceStatusRevoked,
-		"Archived poller",
-		"Failed to archive poller",
+		"Archived gateway",
+		"Failed to archive gateway",
 	)
 }
 
-func (r *ServiceRegistry) getPollerCNPG(ctx context.Context, pollerID string) (*RegisteredPoller, error) {
+func (r *ServiceRegistry) getGatewayCNPG(ctx context.Context, gatewayID string) (*RegisteredGateway, error) {
 	rows, err := r.queryCNPGRows(ctx, `
 		SELECT
-			poller_id,
+			gateway_id,
 			component_id,
 			status,
 			registration_source,
@@ -213,22 +213,22 @@ func (r *ServiceRegistry) getPollerCNPG(ctx context.Context, pollerID string) (*
 			created_by,
 			agent_count,
 			checker_count
-		FROM pollers
-		WHERE poller_id = $1
-		LIMIT 1`, pollerID)
+		FROM gateways
+		WHERE gateway_id = $1
+		LIMIT 1`, gatewayID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query poller: %w", err)
+		return nil, fmt.Errorf("failed to query gateway: %w", err)
 	}
 	defer func() {
 		_ = rows.Close()
 	}()
 
 	if !rows.Next() {
-		return nil, fmt.Errorf("poller not found: %w", db.ErrFailedToQuery)
+		return nil, fmt.Errorf("gateway not found: %w", db.ErrFailedToQuery)
 	}
 
 	var (
-		poller       RegisteredPoller
+		gateway       RegisteredGateway
 		statusStr    string
 		sourceStr    string
 		firstSeenPtr *time.Time
@@ -239,38 +239,38 @@ func (r *ServiceRegistry) getPollerCNPG(ctx context.Context, pollerID string) (*
 	)
 
 	if err := rows.Scan(
-		&poller.PollerID,
-		&poller.ComponentID,
+		&gateway.GatewayID,
+		&gateway.ComponentID,
 		&statusStr,
 		&sourceStr,
-		&poller.FirstRegistered,
+		&gateway.FirstRegistered,
 		&firstSeenPtr,
 		&lastSeenPtr,
 		&metadataRaw,
-		&poller.SPIFFEIdentity,
-		&poller.CreatedBy,
+		&gateway.SPIFFEIdentity,
+		&gateway.CreatedBy,
 		&agentCount,
 		&checkerCount,
 	); err != nil {
-		return nil, fmt.Errorf("failed to scan poller: %w", err)
+		return nil, fmt.Errorf("failed to scan gateway: %w", err)
 	}
 
-	poller.Status = ServiceStatus(statusStr)
-	poller.RegistrationSource = RegistrationSource(sourceStr)
-	poller.FirstSeen = firstSeenPtr
-	poller.LastSeen = lastSeenPtr
-	poller.AgentCount = agentCount
-	poller.CheckerCount = checkerCount
-	poller.Metadata = decodeServiceMetadata(metadataRaw)
+	gateway.Status = ServiceStatus(statusStr)
+	gateway.RegistrationSource = RegistrationSource(sourceStr)
+	gateway.FirstSeen = firstSeenPtr
+	gateway.LastSeen = lastSeenPtr
+	gateway.AgentCount = agentCount
+	gateway.CheckerCount = checkerCount
+	gateway.Metadata = decodeServiceMetadata(metadataRaw)
 
-	return &poller, rows.Err()
+	return &gateway, rows.Err()
 }
 
 func (r *ServiceRegistry) getAgentCNPG(ctx context.Context, agentID string) (*RegisteredAgent, error) {
 	rows, err := r.queryCNPGRows(ctx, `
 		SELECT
 			agent_id,
-			poller_id,
+			gateway_id,
 			component_id,
 			status,
 			registration_source,
@@ -306,7 +306,7 @@ func (r *ServiceRegistry) getAgentCNPG(ctx context.Context, agentID string) (*Re
 
 	if err := rows.Scan(
 		&agent.AgentID,
-		&agent.PollerID,
+		&agent.GatewayID,
 		&agent.ComponentID,
 		&statusStr,
 		&sourceStr,
@@ -335,7 +335,7 @@ func (r *ServiceRegistry) getCheckerCNPG(ctx context.Context, checkerID string) 
 		SELECT
 			checker_id,
 			agent_id,
-			poller_id,
+			gateway_id,
 			checker_kind,
 			component_id,
 			status,
@@ -372,7 +372,7 @@ func (r *ServiceRegistry) getCheckerCNPG(ctx context.Context, checkerID string) 
 	if err := rows.Scan(
 		&checker.CheckerID,
 		&checker.AgentID,
-		&checker.PollerID,
+		&checker.GatewayID,
 		&checker.CheckerKind,
 		&checker.ComponentID,
 		&statusStr,
@@ -396,11 +396,11 @@ func (r *ServiceRegistry) getCheckerCNPG(ctx context.Context, checkerID string) 
 	return &checker, rows.Err()
 }
 
-func (r *ServiceRegistry) listPollersCNPG(ctx context.Context, filter *ServiceFilter) ([]*RegisteredPoller, error) {
+func (r *ServiceRegistry) listGatewaysCNPG(ctx context.Context, filter *ServiceFilter) ([]*RegisteredGateway, error) {
 	builder := strings.Builder{}
 	builder.WriteString(`
 SELECT
-	poller_id,
+	gateway_id,
 	component_id,
 	status,
 	registration_source,
@@ -412,7 +412,7 @@ SELECT
 	created_by,
 	agent_count,
 	checker_count
-FROM pollers
+FROM gateways
 WHERE 1=1`)
 
 	args := make([]interface{}, 0)
@@ -453,17 +453,17 @@ WHERE 1=1`)
 
 	rows, err := r.queryCNPGRows(ctx, builder.String(), args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list pollers: %w", err)
+		return nil, fmt.Errorf("failed to list gateways: %w", err)
 	}
 	defer func() {
 		_ = rows.Close()
 	}()
 
-	var pollers []*RegisteredPoller
+	var gateways []*RegisteredGateway
 
 	for rows.Next() {
 		var (
-			poller       RegisteredPoller
+			gateway       RegisteredGateway
 			statusStr    string
 			sourceStr    string
 			firstSeenPtr *time.Time
@@ -474,42 +474,42 @@ WHERE 1=1`)
 		)
 
 		if err := rows.Scan(
-			&poller.PollerID,
-			&poller.ComponentID,
+			&gateway.GatewayID,
+			&gateway.ComponentID,
 			&statusStr,
 			&sourceStr,
-			&poller.FirstRegistered,
+			&gateway.FirstRegistered,
 			&firstSeenPtr,
 			&lastSeenPtr,
 			&metadataRaw,
-			&poller.SPIFFEIdentity,
-			&poller.CreatedBy,
+			&gateway.SPIFFEIdentity,
+			&gateway.CreatedBy,
 			&agentCount,
 			&checkerCount,
 		); err != nil {
-			r.logger.Error().Err(err).Msg("Error scanning poller")
+			r.logger.Error().Err(err).Msg("Error scanning gateway")
 			continue
 		}
 
-		poller.Status = ServiceStatus(statusStr)
-		poller.RegistrationSource = RegistrationSource(sourceStr)
-		poller.FirstSeen = firstSeenPtr
-		poller.LastSeen = lastSeenPtr
-		poller.AgentCount = agentCount
-		poller.CheckerCount = checkerCount
-		poller.Metadata = decodeServiceMetadata(metadataRaw)
+		gateway.Status = ServiceStatus(statusStr)
+		gateway.RegistrationSource = RegistrationSource(sourceStr)
+		gateway.FirstSeen = firstSeenPtr
+		gateway.LastSeen = lastSeenPtr
+		gateway.AgentCount = agentCount
+		gateway.CheckerCount = checkerCount
+		gateway.Metadata = decodeServiceMetadata(metadataRaw)
 
-		pollers = append(pollers, &poller)
+		gateways = append(gateways, &gateway)
 	}
 
-	return pollers, rows.Err()
+	return gateways, rows.Err()
 }
 
-func (r *ServiceRegistry) listAgentsByPollerCNPG(ctx context.Context, pollerID string) ([]*RegisteredAgent, error) {
+func (r *ServiceRegistry) listAgentsByGatewayCNPG(ctx context.Context, gatewayID string) ([]*RegisteredAgent, error) {
 	rows, err := r.queryCNPGRows(ctx, `
 		SELECT
 			agent_id,
-			poller_id,
+			gateway_id,
 			component_id,
 			status,
 			registration_source,
@@ -521,8 +521,8 @@ func (r *ServiceRegistry) listAgentsByPollerCNPG(ctx context.Context, pollerID s
 			created_by,
 			checker_count
 		FROM agents
-		WHERE poller_id = $1
-		ORDER BY first_registered DESC`, pollerID)
+		WHERE gateway_id = $1
+		ORDER BY first_registered DESC`, gatewayID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list agents: %w", err)
 	}
@@ -544,7 +544,7 @@ func (r *ServiceRegistry) listAgentsByPollerCNPG(ctx context.Context, pollerID s
 
 		if err := rows.Scan(
 			&agent.AgentID,
-			&agent.PollerID,
+			&agent.GatewayID,
 			&agent.ComponentID,
 			&statusStr,
 			&sourceStr,
@@ -577,7 +577,7 @@ func (r *ServiceRegistry) listCheckersByAgentCNPG(ctx context.Context, agentID s
 		SELECT
 			checker_id,
 			agent_id,
-			poller_id,
+			gateway_id,
 			checker_kind,
 			component_id,
 			status,
@@ -613,7 +613,7 @@ func (r *ServiceRegistry) listCheckersByAgentCNPG(ctx context.Context, agentID s
 		if err := rows.Scan(
 			&checker.CheckerID,
 			&checker.AgentID,
-			&checker.PollerID,
+			&checker.GatewayID,
 			&checker.CheckerKind,
 			&checker.ComponentID,
 			&statusStr,
@@ -641,38 +641,38 @@ func (r *ServiceRegistry) listCheckersByAgentCNPG(ctx context.Context, agentID s
 	return checkers, rows.Err()
 }
 
-func (r *ServiceRegistry) isKnownPollerCNPG(ctx context.Context, pollerID string) (bool, error) {
+func (r *ServiceRegistry) isKnownGatewayCNPG(ctx context.Context, gatewayID string) (bool, error) {
 	rows, err := r.queryCNPGRows(ctx, `
 		SELECT COUNT(*)
-		FROM pollers
-		WHERE poller_id = $1
-		  AND status IN ('pending', 'active')`, pollerID)
+		FROM gateways
+		WHERE gateway_id = $1
+		  AND status IN ('pending', 'active')`, gatewayID)
 	if err != nil {
-		return false, fmt.Errorf("failed to check poller: %w", err)
+		return false, fmt.Errorf("failed to check gateway: %w", err)
 	}
 	defer func() {
 		_ = rows.Close()
 	}()
 
 	if !rows.Next() {
-		return false, fmt.Errorf("failed to check poller: %w", db.ErrFailedToQuery)
+		return false, fmt.Errorf("failed to check gateway: %w", db.ErrFailedToQuery)
 	}
 
 	var count int
 	if err := rows.Scan(&count); err != nil {
-		return false, fmt.Errorf("failed to scan poller count: %w", err)
+		return false, fmt.Errorf("failed to scan gateway count: %w", err)
 	}
 
 	return count > 0, rows.Err()
 }
 
-func (r *ServiceRegistry) refreshPollerCacheCNPG(ctx context.Context) {
+func (r *ServiceRegistry) refreshGatewayCacheCNPG(ctx context.Context) {
 	rows, err := r.queryCNPGRows(ctx, `
-		SELECT poller_id
-		FROM pollers
+		SELECT gateway_id
+		FROM gateways
 		WHERE status IN ('pending', 'active')`)
 	if err != nil {
-		r.logger.Warn().Err(err).Msg("Failed to refresh poller cache (cnpg)")
+		r.logger.Warn().Err(err).Msg("Failed to refresh gateway cache (cnpg)")
 		return
 	}
 	defer func() {
@@ -681,24 +681,24 @@ func (r *ServiceRegistry) refreshPollerCacheCNPG(ctx context.Context) {
 
 	newCache := make(map[string]bool)
 	for rows.Next() {
-		var pollerID string
-		if err := rows.Scan(&pollerID); err != nil {
+		var gatewayID string
+		if err := rows.Scan(&gatewayID); err != nil {
 			continue
 		}
-		newCache[pollerID] = true
+		newCache[gatewayID] = true
 	}
 
 	if err := rows.Err(); err != nil {
-		r.logger.Warn().Err(err).Msg("Error while refreshing poller cache (cnpg)")
+		r.logger.Warn().Err(err).Msg("Error while refreshing gateway cache (cnpg)")
 		return
 	}
 
-	r.pollerCache = newCache
-	r.cacheExpiry = time.Now().Add(pollerCacheTTL)
+	r.gatewayCache = newCache
+	r.cacheExpiry = time.Now().Add(gatewayCacheTTL)
 
 	r.logger.Debug().
 		Int("cache_size", len(newCache)).
-		Msg("Refreshed poller cache (cnpg)")
+		Msg("Refreshed gateway cache (cnpg)")
 }
 
 func decodeServiceMetadata(raw []byte) map[string]string {

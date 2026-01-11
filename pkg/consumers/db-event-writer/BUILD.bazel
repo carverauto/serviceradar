@@ -7,6 +7,8 @@ go_library(
         "config.go",
         "consumer.go",
         "errors.go",
+        "json_logs.go",
+        "ocsf_events.go",
         "processor.go",
         "service.go",
     ],

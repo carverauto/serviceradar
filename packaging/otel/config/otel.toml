@@ -10,14 +10,20 @@ port = 4317
 # NATS server URL (required to enable NATS output)
 url = "nats://localhost:4222"
 
-# Subject to publish traces to (default: events.otel)
-subject = "events.otel"
+# Subject to publish traces/metrics to (default: otel)
+subject = "otel"
+
+# Subject to publish logs to (default: <subject>.logs)
+logs_subject = "logs.otel"
 
 # JetStream stream name (default: events)
 stream = "events"
 
 # Timeout for NATS operations in seconds (default: 30)
 timeout_secs = 30
+
+# NATS credentials file for JWT auth
+creds_file = "/etc/serviceradar/creds/platform.creds"
 
 # Optional TLS configuration
 [nats.tls]

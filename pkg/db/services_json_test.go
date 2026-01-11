@@ -17,7 +17,7 @@ func TestStoreServices_WithJSONConfig(t *testing.T) {
 	
 	services := []*models.Service{
 		{
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			ServiceName: "auth-service",
 			ServiceType: "grpc",
 			AgentID:     "agent-1",
@@ -33,7 +33,7 @@ func TestStoreServices_WithJSONConfig(t *testing.T) {
 			},
 		},
 		{
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			ServiceName: "legacy-service",
 			ServiceType: "http",
 			AgentID:     "agent-2",

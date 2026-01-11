@@ -203,9 +203,9 @@ test_api_status() {
     [[ "$http_code" == "200" ]]
 }
 
-test_api_pollers() {
+test_api_gateways() {
     local result
-    result=$(http_request "GET" "/api/pollers")
+    result=$(http_request "GET" "/api/gateways")
 
     local http_code
     http_code=$(echo "$result" | head -n1)
@@ -275,7 +275,7 @@ main() {
     echo ""
     echo "--- API Endpoint Tests ---"
     run_test "GET /api/status" test_api_status || true
-    run_test "GET /api/pollers" test_api_pollers || true
+    run_test "GET /api/gateways" test_api_gateways || true
     run_test "GET /api/devices" test_api_devices || true
     run_test "POST /api/query (SRQL)" test_srql_query || true
 

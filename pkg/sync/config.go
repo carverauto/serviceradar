@@ -39,23 +39,76 @@ var (
 // Config defines the configuration for the sync service including sources, logging, and OTEL settings.
 type Config struct {
 	Sources           map[string]*models.SourceConfig `json:"sources" hot:"rebuild"`           // integration configs
-	KVAddress         string                          `json:"kv_address"`                      // KV gRPC server address (optional)
 	ListenAddr        string                          `json:"listen_addr"`                     // gRPC listen address
 	PollInterval      models.Duration                 `json:"poll_interval" hot:"reload"`      // Polling interval
 	DiscoveryInterval models.Duration                 `json:"discovery_interval" hot:"reload"` // Fetch cadence
 	UpdateInterval    models.Duration                 `json:"update_interval" hot:"reload"`    // External update cadence
 	AgentID           string                          `json:"agent_id"`
-	PollerID          string                          `json:"poller_id"`
+	GatewayID          string                          `json:"gateway_id"`
 	Security          *models.SecurityConfig          `json:"security" hot:"rebuild"`
 	Logging           *logger.Config                  `json:"logging"`
+	GatewayAddr       string                          `json:"gateway_addr"`          // Agent-gateway address for push mode
+	GatewaySecurity   *models.SecurityConfig          `json:"gateway_security"`      // mTLS config for gateway connection
+	TenantID          string                          `json:"tenant_id,omitempty"`   // Tenant UUID for routing
+	TenantSlug        string                          `json:"tenant_slug,omitempty"` // Tenant slug for routing
+	Partition         string                          `json:"partition,omitempty"`   // Partition identifier
+}
+
+// Clone returns a deep copy of the Config.
+func (c *Config) Clone() Config {
+	clone := Config{
+		ListenAddr:        c.ListenAddr,
+		PollInterval:      c.PollInterval,
+		DiscoveryInterval: c.DiscoveryInterval,
+		UpdateInterval:    c.UpdateInterval,
+		AgentID:           c.AgentID,
+		GatewayID:          c.GatewayID,
+		GatewayAddr:       c.GatewayAddr,
+		TenantID:          c.TenantID,
+		TenantSlug:        c.TenantSlug,
+		Partition:         c.Partition,
+	}
+
+	// Deep copy Sources map
+	if c.Sources != nil {
+		clone.Sources = make(map[string]*models.SourceConfig, len(c.Sources))
+		for k, v := range c.Sources {
+			if v != nil {
+				srcCopy := *v
+				clone.Sources[k] = &srcCopy
+			}
+		}
+	}
+
+	// Deep copy Security
+	if c.Security != nil {
+		secCopy := *c.Security
+		clone.Security = &secCopy
+	}
+
+	// Deep copy GatewaySecurity
+	if c.GatewaySecurity != nil {
+		gsCopy := *c.GatewaySecurity
+		clone.GatewaySecurity = &gsCopy
+	}
+
+	// Deep copy Logging
+	if c.Logging != nil {
+		logCopy := *c.Logging
+		clone.Logging = &logCopy
+	}
+
+	return clone
 }
 
 func (c *Config) Validate() error {
 	if len(c.Sources) == 0 {
-		return errMissingSources
+		if c.GatewayAddr == "" {
+			return errMissingSources
+		}
 	}
 
-	if c.ListenAddr == "" {
+	if c.ListenAddr == "" && c.GatewayAddr == "" {
 		return errListenAddrRequired
 	}
 
@@ -79,6 +132,14 @@ func (c *Config) Validate() error {
 
 	if c.Security != nil {
 		c.normalizeCertPaths(c.Security)
+	}
+
+	if c.GatewaySecurity != nil {
+		c.normalizeCertPaths(c.GatewaySecurity)
+	}
+
+	if c.Partition == "" {
+		c.Partition = "default"
 	}
 
 	return nil
@@ -108,4 +169,42 @@ func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
 	} else if tls.ClientCAFile == "" {
 		tls.ClientCAFile = tls.CAFile
 	}
+}
+
+// GetEffectiveDiscoveryInterval returns the discovery interval for a source.
+// If the source has a per-source DiscoveryInterval set, it returns that.
+// Otherwise, it returns the global DiscoveryInterval from the config.
+func (c *Config) GetEffectiveDiscoveryInterval(source *models.SourceConfig) time.Duration {
+	if source != nil && time.Duration(source.DiscoveryInterval) > 0 {
+		return time.Duration(source.DiscoveryInterval)
+	}
+
+	return time.Duration(c.DiscoveryInterval)
+}
+
+// GetEffectivePollInterval returns the poll interval for a source.
+// If the source has a per-source PollInterval set, it returns that.
+// Otherwise, it returns the global PollInterval from the config.
+func (c *Config) GetEffectivePollInterval(source *models.SourceConfig) time.Duration {
+	if source != nil && time.Duration(source.PollInterval) > 0 {
+		return time.Duration(source.PollInterval)
+	}
+
+	return time.Duration(c.PollInterval)
+}
+
+// GetEffectiveSweepInterval returns the sweep interval for a source.
+// If the source has a per-source SweepInterval set, it returns that.
+// Otherwise, it returns a default of 1 hour.
+// Note: SweepInterval is stored as a string in SourceConfig, so we parse it.
+func (c *Config) GetEffectiveSweepInterval(source *models.SourceConfig) time.Duration {
+	const defaultSweepInterval = 1 * time.Hour
+
+	if source != nil && source.SweepInterval != "" {
+		if d, err := time.ParseDuration(source.SweepInterval); err == nil && d > 0 {
+			return d
+		}
+	}
+
+	return defaultSweepInterval
 }

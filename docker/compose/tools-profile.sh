@@ -42,9 +42,8 @@ alias nats-kv='nats stream info KV_serviceradar-datasvc'
 alias nats-datasvc='nats stream info KV_serviceradar-datasvc'
 alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client certificate:"; openssl x509 -in /etc/serviceradar/certs/client.pem -subject -issuer -noout; echo ""; echo "2. Root CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert:"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error </dev/null 2>/dev/null || echo "  ✗ Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert:"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem -verify_return_error </dev/null 2>/dev/null || echo "  ✗ mTLS verification failed"'
 
-alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052'
+alias grpc-core='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core-elx:50052'
 alias grpc-agent='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051'
-alias grpc-poller='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller:50053'
 alias grpc-datasvc='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057'
 alias grpc-mapper='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056'
 alias grpc-trapd='grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043'
@@ -77,7 +76,7 @@ cnpg_sql() {
 alias cnpg-sql='cnpg_sql'
 
 alias ping-nats='ping -c 3 serviceradar-nats'
-alias ping-core='ping -c 3 serviceradar-core'
+alias ping-core='ping -c 3 serviceradar-core-elx'
 alias telnet-nats='telnet serviceradar-nats 4222'
 alias nc-nats='nc -zv serviceradar-nats 4222'
 
@@ -86,9 +85,9 @@ test_connectivity() {
     echo "Testing NATS..."
     nc -zv serviceradar-nats 4222 || echo "  NATS connection failed"
     echo "Testing Core API..."
-    nc -zv serviceradar-core 8090 || echo "  Core API connection failed"
+    nc -zv serviceradar-core-elx 8090 || echo "  Core API connection failed"
     echo "Testing Core gRPC..."
-    nc -zv serviceradar-core 50052 || echo "  Core gRPC connection failed"
+    nc -zv serviceradar-core-elx 50052 || echo "  Core gRPC connection failed"
     echo "Testing CNPG..."
     nc -zv "${CNPG_HOST:-cnpg-rw}" "${CNPG_PORT:-5432}" || echo "  CNPG connection failed"
     echo "Legacy streaming DB removed; skipping legacy connectivity checks."
@@ -107,7 +106,7 @@ nats_js_status() {
 
 test_grpc() {
     echo "=== gRPC Service Health Checks ==="
-    for service in core:50052 agent:50051 poller:50053 kv:50057 mapper:50056 trapd:50043; do
+    for service in core:50052 agent:50051 kv:50057 mapper:50056 trapd:50043; do
         host="${service%%:*}"
         port="${service##*:}"
         echo "Testing serviceradar-${service}..."

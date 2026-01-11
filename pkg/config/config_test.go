@@ -101,9 +101,9 @@ func TestOverlayFromKVAllowsSecurityOverrides(t *testing.T) {
 		CoreSecurity: testSecurityConfig{
 			Mode: securityModeSpiffe,
 			TLS: testTLSConfig{
-				CertFile: "/etc/serviceradar/certs/poller.pem",
+				CertFile: "/etc/serviceradar/certs/gateway.pem",
 			},
-			Role: "poller",
+			Role: "gateway",
 		},
 		ServiceName: "serviceradar-core",
 	}

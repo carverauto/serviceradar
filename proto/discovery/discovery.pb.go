@@ -185,7 +185,7 @@ func (SNMPCredentials_SNMPVersion) EnumDescriptor() ([]byte, []int) {
 type GetLatestCachedResultsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	AgentId        string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                         // ID of the agent requesting
-	PollerId       string                 `protobuf:"bytes,2,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`                      // ID of the poller requesting
+	GatewayId      string                 `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`                   // ID of the gateway requesting
 	IncludeRawData bool                   `protobuf:"varint,3,opt,name=include_raw_data,json=includeRawData,proto3" json:"include_raw_data,omitempty"` // Whether to include raw SNMP data
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -228,9 +228,9 @@ func (x *GetLatestCachedResultsRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *GetLatestCachedResultsRequest) GetPollerId() string {
+func (x *GetLatestCachedResultsRequest) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -247,7 +247,7 @@ type StatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DiscoveryId   string                 `protobuf:"bytes,1,opt,name=discovery_id,json=discoveryId,proto3" json:"discovery_id,omitempty"` // Optional: if provided, get status of specific discovery job
 	AgentId       string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`             // ID of the agent requesting status
-	PollerId      string                 `protobuf:"bytes,3,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`          // ID of the poller requesting status
+	GatewayId     string                 `protobuf:"bytes,3,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`       // ID of the gateway requesting status
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -296,9 +296,9 @@ func (x *StatusRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *StatusRequest) GetPollerId() string {
+func (x *StatusRequest) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -391,7 +391,7 @@ type DiscoveryRequest struct {
 	TimeoutSeconds int32                          `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`                                      // Timeout in seconds for each operation
 	Retries        int32                          `protobuf:"varint,7,opt,name=retries,proto3" json:"retries,omitempty"`                                                                          // Number of retries for failed operations
 	AgentId        string                         `protobuf:"bytes,8,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                                            // ID of the agent performing discovery
-	PollerId       string                         `protobuf:"bytes,9,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`                                                         // ID of the poller initiating discovery
+	GatewayId      string                         `protobuf:"bytes,9,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`                                                      // ID of the gateway initiating discovery
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -482,9 +482,9 @@ func (x *DiscoveryRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *DiscoveryRequest) GetPollerId() string {
+func (x *DiscoveryRequest) GetGatewayId() string {
 	if x != nil {
-		return x.PollerId
+		return x.GatewayId
 	}
 	return ""
 }
@@ -1192,21 +1192,23 @@ var File_discovery_discovery_proto protoreflect.FileDescriptor
 
 const file_discovery_discovery_proto_rawDesc = "" +
 	"\n" +
-	"\x19discovery/discovery.proto\x12\tdiscovery\x1a\x1egoogle/protobuf/wrappers.proto\"\x81\x01\n" +
+	"\x19discovery/discovery.proto\x12\tdiscovery\x1a\x1egoogle/protobuf/wrappers.proto\"\x83\x01\n" +
 	"\x1dGetLatestCachedResultsRequest\x12\x19\n" +
-	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\x02 \x01(\tR\bpollerId\x12(\n" +
-	"\x10include_raw_data\x18\x03 \x01(\bR\x0eincludeRawData\"j\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x02 \x01(\tR\tgatewayId\x12(\n" +
+	"\x10include_raw_data\x18\x03 \x01(\bR\x0eincludeRawData\"l\n" +
 	"\rStatusRequest\x12!\n" +
 	"\fdiscovery_id\x18\x01 \x01(\tR\vdiscoveryId\x12\x19\n" +
-	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\x03 \x01(\tR\bpollerId\"\xbf\x01\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\x03 \x01(\tR\tgatewayId\"\xbf\x01\n" +
 	"\x0eStatusResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12-\n" +
 	"\x12active_discoveries\x18\x03 \x03(\tR\x11activeDiscoveries\x12!\n" +
 	"\fpending_jobs\x18\x04 \x01(\x05R\vpendingJobs\x12%\n" +
-	"\x0ecompleted_jobs\x18\x05 \x01(\x05R\rcompletedJobs\"\x86\x04\n" +
+	"\x0ecompleted_jobs\x18\x05 \x01(\x05R\rcompletedJobs\"\x88\x04\n" +
 	"\x10DiscoveryRequest\x12\x14\n" +
 	"\x05seeds\x18\x01 \x03(\tR\x05seeds\x12=\n" +
 	"\x04type\x18\x02 \x01(\x0e2).discovery.DiscoveryRequest.DiscoveryTypeR\x04type\x12<\n" +
@@ -1215,8 +1217,9 @@ const file_discovery_discovery_proto_rawDesc = "" +
 	"\vconcurrency\x18\x05 \x01(\x05R\vconcurrency\x12'\n" +
 	"\x0ftimeout_seconds\x18\x06 \x01(\x05R\x0etimeoutSeconds\x12\x18\n" +
 	"\aretries\x18\a \x01(\x05R\aretries\x12\x19\n" +
-	"\bagent_id\x18\b \x01(\tR\aagentId\x12\x1b\n" +
-	"\tpoller_id\x18\t \x01(\tR\bpollerId\x1a:\n" +
+	"\bagent_id\x18\b \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"gateway_id\x18\t \x01(\tR\tgatewayId\x1a:\n" +
 	"\fOptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"B\n" +

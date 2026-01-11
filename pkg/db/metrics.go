@@ -38,23 +38,23 @@ type rperfWrapper struct {
 // queryTimeseriesMetrics executes a query on timeseries_metrics and returns the results.
 func (db *DB) queryTimeseriesMetrics(
 	ctx context.Context,
-	pollerID, filterValue, filterColumn string,
+	gatewayID, filterValue, filterColumn string,
 	start, end time.Time,
 ) ([]models.TimeseriesMetric, error) {
-	return db.cnpgQueryTimeseriesMetrics(ctx, pollerID, filterValue, filterColumn, start, end)
+	return db.cnpgQueryTimeseriesMetrics(ctx, gatewayID, filterValue, filterColumn, start, end)
 }
 
 // StoreRperfMetrics stores rperf-checker data as timeseries metrics.
-func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string, timestamp time.Time) error {
+func (db *DB) StoreRperfMetrics(ctx context.Context, gatewayID, _, message string, timestamp time.Time) error {
 	var wrapper rperfWrapper
 
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
-		db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Failed to unmarshal outer rperf wrapper")
+		db.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Failed to unmarshal outer rperf wrapper")
 		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
 	}
 
 	if wrapper.Status == "" {
-		db.logger.Warn().Str("poller_id", pollerID).Msg("No nested status found in rperf message")
+		db.logger.Warn().Str("gateway_id", gatewayID).Msg("No nested status found in rperf message")
 		return nil
 	}
 
@@ -64,30 +64,30 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	}
 
 	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
-		db.logger.Error().Err(err).Str("poller_id", pollerID).Msg("Failed to unmarshal nested rperf data")
+		db.logger.Error().Err(err).Str("gateway_id", gatewayID).Msg("Failed to unmarshal nested rperf data")
 		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
 	}
 
 	if len(rperfData.Results) == 0 {
-		db.logger.Warn().Str("poller_id", pollerID).Msg("No rperf results found")
+		db.logger.Warn().Str("gateway_id", gatewayID).Msg("No rperf results found")
 		return nil
 	}
 
-	storedCount, err := db.storeRperfMetrics(ctx, pollerID, rperfData.Results, timestamp)
+	storedCount, err := db.storeRperfMetrics(ctx, gatewayID, rperfData.Results, timestamp)
 	if err != nil {
 		return fmt.Errorf("failed to store rperf metrics: %w", err)
 	}
 
-	db.logger.Info().Int("stored_count", storedCount).Str("poller_id", pollerID).Msg("Stored rperf metrics")
+	db.logger.Info().Int("stored_count", storedCount).Str("gateway_id", gatewayID).Msg("Stored rperf metrics")
 
 	return nil
 }
 
 // StoreRperfMetricsBatch stores multiple rperf metrics in a single batch operation.
 func (db *DB) StoreRperfMetricsBatch(
-	ctx context.Context, pollerID string, metrics []*models.RperfMetric, timestamp time.Time) error {
+	ctx context.Context, gatewayID string, metrics []*models.RperfMetric, timestamp time.Time) error {
 	if len(metrics) == 0 {
-		db.logger.Debug().Str("poller_id", pollerID).Msg("No rperf metrics to store")
+		db.logger.Debug().Str("gateway_id", gatewayID).Msg("No rperf metrics to store")
 		return nil
 	}
 
@@ -96,24 +96,24 @@ func (db *DB) StoreRperfMetricsBatch(
 		rperfMetrics[i] = *m
 	}
 
-	storedCount, err := db.storeRperfMetrics(ctx, pollerID, rperfMetrics, timestamp)
+	storedCount, err := db.storeRperfMetrics(ctx, gatewayID, rperfMetrics, timestamp)
 	if err != nil {
 		return fmt.Errorf("failed to store rperf metrics: %w", err)
 	}
 
 	if storedCount == 0 {
-		db.logger.Debug().Str("poller_id", pollerID).Msg("No valid rperf metrics to send")
+		db.logger.Debug().Str("gateway_id", gatewayID).Msg("No valid rperf metrics to send")
 		return nil
 	}
 
-	db.logger.Info().Int("stored_count", storedCount).Str("poller_id", pollerID).Msg("Stored rperf metrics batch")
+	db.logger.Info().Int("stored_count", storedCount).Str("gateway_id", gatewayID).Msg("Stored rperf metrics batch")
 
 	return nil
 }
 
 func (db *DB) storeRperfMetrics(
 	ctx context.Context,
-	pollerID string,
+	gatewayID string,
 	metrics []models.RperfMetric,
 	timestamp time.Time,
 ) (int, error) {
@@ -129,7 +129,7 @@ func (db *DB) storeRperfMetrics(
 			if result.Error != nil {
 				db.logger.Warn().
 					Str("target", result.Target).
-					Str("poller_id", pollerID).
+					Str("gateway_id", gatewayID).
 					Str("error", *result.Error).
 					Msg("Skipping metrics storage for failed rperf test")
 			}
@@ -139,7 +139,7 @@ func (db *DB) storeRperfMetrics(
 		metadataBytes, err := json.Marshal(result)
 		if err != nil {
 			db.logger.Error().Err(err).
-				Str("poller_id", pollerID).
+				Str("gateway_id", gatewayID).
 				Str("target", result.Target).
 				Msg("Failed to marshal rperf result metadata")
 			continue
@@ -158,7 +158,7 @@ func (db *DB) storeRperfMetrics(
 		return 0, nil
 	}
 
-	if err := db.cnpgInsertTimeseriesMetrics(ctx, pollerID, series); err != nil {
+	if err := db.cnpgInsertTimeseriesMetrics(ctx, gatewayID, series); err != nil {
 		return 0, err
 	}
 
@@ -177,27 +177,27 @@ func buildRperfMetric(ts time.Time, target, suffix, value, metadata string) *mod
 }
 
 // StoreMetric stores a single timeseries metric using the CNPG helper.
-func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
+func (db *DB) StoreMetric(ctx context.Context, gatewayID string, metric *models.TimeseriesMetric) error {
 	if metric == nil {
 		return nil
 	}
 
-	return db.StoreMetrics(ctx, pollerID, []*models.TimeseriesMetric{metric})
+	return db.StoreMetrics(ctx, gatewayID, []*models.TimeseriesMetric{metric})
 }
 
 // StoreMetrics stores multiple timeseries metrics via CNPG.
-func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
+func (db *DB) StoreMetrics(ctx context.Context, gatewayID string, metrics []*models.TimeseriesMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
 
-	return db.cnpgInsertTimeseriesMetrics(ctx, pollerID, metrics)
+	return db.cnpgInsertTimeseriesMetrics(ctx, gatewayID, metrics)
 }
 
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(
 	ctx context.Context,
-	pollerID, agentID, hostID, partition, hostIP, deviceID string,
+	gatewayID, agentID, hostID, partition, hostIP, deviceID string,
 	sysmon *models.SysmonMetrics,
 	timestamp time.Time,
 ) error {
@@ -206,7 +206,7 @@ func (db *DB) StoreSysmonMetrics(
 	}
 
 	if !db.useCNPGWrites() {
-		db.logger.Warn().Str("poller_id", pollerID).Msg("CNPG writes disabled; skipping sysmon metrics")
+		db.logger.Warn().Str("gateway_id", gatewayID).Msg("CNPG writes disabled; skipping sysmon metrics")
 		return nil
 	}
 
@@ -215,7 +215,7 @@ func (db *DB) StoreSysmonMetrics(
 	}
 
 	db.logger.Info().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Str("device_id", deviceID).
 		Int("cpu_count", len(sysmon.CPUs)).
 		Int("cluster_count", len(sysmon.Clusters)).
@@ -224,23 +224,23 @@ func (db *DB) StoreSysmonMetrics(
 		Bool("has_memory", sysmon.Memory != nil).
 		Msg("Storing sysmon metrics")
 
-	if err := db.cnpgInsertCPUMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.CPUs, timestamp); err != nil {
+	if err := db.cnpgInsertCPUMetrics(ctx, gatewayID, agentID, hostID, deviceID, partition, sysmon.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
-	if err := db.cnpgInsertCPUClusterMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.Clusters, timestamp); err != nil {
+	if err := db.cnpgInsertCPUClusterMetrics(ctx, gatewayID, agentID, hostID, deviceID, partition, sysmon.Clusters, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU cluster metrics: %w", err)
 	}
 
-	if err := db.cnpgInsertDiskMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.Disks, timestamp); err != nil {
+	if err := db.cnpgInsertDiskMetrics(ctx, gatewayID, agentID, hostID, deviceID, partition, sysmon.Disks, timestamp); err != nil {
 		return fmt.Errorf("failed to store disk metrics: %w", err)
 	}
 
-	if err := db.cnpgInsertMemoryMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.Memory, timestamp); err != nil {
+	if err := db.cnpgInsertMemoryMetrics(ctx, gatewayID, agentID, hostID, deviceID, partition, sysmon.Memory, timestamp); err != nil {
 		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
-	if err := db.cnpgInsertProcessMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, sysmon.Processes, timestamp); err != nil {
+	if err := db.cnpgInsertProcessMetrics(ctx, gatewayID, agentID, hostID, deviceID, partition, sysmon.Processes, timestamp); err != nil {
 		return fmt.Errorf("failed to store process metrics: %w", err)
 	}
 
@@ -249,8 +249,8 @@ func (db *DB) StoreSysmonMetrics(
 
 // Metric read helpers.
 func (db *DB) GetMetrics(
-	ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error) {
-	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricName, "metric_name", start, end)
+	ctx context.Context, gatewayID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	metrics, err := db.queryTimeseriesMetrics(ctx, gatewayID, metricName, "metric_name", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
@@ -259,8 +259,8 @@ func (db *DB) GetMetrics(
 }
 
 func (db *DB) GetMetricsByType(
-	ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
-	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricType, "metric_type", start, end)
+	ctx context.Context, gatewayID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	metrics, err := db.queryTimeseriesMetrics(ctx, gatewayID, metricType, "metric_type", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics by type: %w", err)
 	}
@@ -269,52 +269,52 @@ func (db *DB) GetMetricsByType(
 }
 
 func (db *DB) GetCPUMetrics(
-	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
-	return db.cnpgGetCPUMetrics(ctx, pollerID, coreID, start, end)
+	ctx context.Context, gatewayID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+	return db.cnpgGetCPUMetrics(ctx, gatewayID, coreID, start, end)
 }
 
 func (db *DB) GetAllCPUMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
-	return db.cnpgGetAllCPUMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	return db.cnpgGetAllCPUMetrics(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetAllDiskMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
-	return db.cnpgGetAllDiskMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.DiskMetric, error) {
+	return db.cnpgGetAllDiskMetrics(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetDiskMetrics(
-	ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
-	return db.cnpgGetDiskMetrics(ctx, pollerID, mountPoint, start, end)
+	ctx context.Context, gatewayID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+	return db.cnpgGetDiskMetrics(ctx, gatewayID, mountPoint, start, end)
 }
 
 func (db *DB) GetMemoryMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
-	return db.cnpgGetMemoryMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.MemoryMetric, error) {
+	return db.cnpgGetMemoryMetrics(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetAllDiskMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
-	return db.cnpgGetAllDiskMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	return db.cnpgGetAllDiskMetricsGrouped(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetMemoryMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
-	return db.cnpgGetMemoryMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	return db.cnpgGetMemoryMetricsGrouped(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetAllProcessMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.ProcessMetric, error) {
-	return db.cnpgGetAllProcessMetrics(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.ProcessMetric, error) {
+	return db.cnpgGetAllProcessMetrics(ctx, gatewayID, start, end)
 }
 
 func (db *DB) GetAllProcessMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
-	return db.cnpgGetAllProcessMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, gatewayID string, start, end time.Time) ([]models.SysmonProcessResponse, error) {
+	return db.cnpgGetAllProcessMetricsGrouped(ctx, gatewayID, start, end)
 }
 
-func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
-	return db.cnpgGetAllMountPoints(ctx, pollerID)
+func (db *DB) GetAllMountPoints(ctx context.Context, gatewayID string) ([]string, error) {
+	return db.cnpgGetAllMountPoints(ctx, gatewayID)
 }
 
 func (db *DB) GetMetricsForDevice(

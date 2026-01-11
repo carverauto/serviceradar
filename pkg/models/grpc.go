@@ -19,12 +19,13 @@ package models
 type ServiceRole string
 
 const (
-	RolePoller      ServiceRole = "poller"  // Client and Server
+	RoleGateway      ServiceRole = "gateway"  // Client and Server
 	RoleAgent       ServiceRole = "agent"   // Server only
 	RoleCore        ServiceRole = "core"    // Server only
 	RoleKVStore     ServiceRole = "kv"      // Server only
 	RoleDataService ServiceRole = "datasvc" // Client and Server (NATS + gRPC)
 	RoleChecker     ServiceRole = "checker" // Server only (for SNMP, Dusk checkers)
+	RoleSync        ServiceRole = "sync"    // Client and Server (gateway)
 )
 
 type TLSConfig struct {

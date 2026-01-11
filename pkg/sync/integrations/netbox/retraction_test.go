@@ -61,7 +61,7 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 	currentEvents := []*models.DeviceUpdate{
 		{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			DeviceID:    "test-partition:192.168.1.2",
 			Source:      models.DiscoverySourceNetbox,
@@ -81,7 +81,7 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 	integration := &NetboxIntegration{
 		Config: &models.SourceConfig{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Endpoint:    "https://netbox.example.com",
 			Credentials: map[string]string{"api_token": "test-token"},
@@ -104,7 +104,7 @@ func TestNetboxIntegration_RetractionsWithSubmitter(t *testing.T) {
 			assert.False(t, result.IsAvailable)
 			assert.Equal(t, "true", result.Metadata["_deleted"])
 			assert.Equal(t, "test-agent", result.AgentID)
-			assert.Equal(t, "test-poller", result.PollerID)
+			assert.Equal(t, "test-gateway", result.GatewayID)
 			assert.Equal(t, "test-partition", result.Partition)
 
 			return nil
@@ -148,7 +148,7 @@ func TestNetboxIntegration_NoRetractionEvents(t *testing.T) {
 	currentEvents := []*models.DeviceUpdate{
 		{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			DeviceID:    "test-partition:192.168.1.1",
 			Source:      models.DiscoverySourceNetbox,
@@ -164,7 +164,7 @@ func TestNetboxIntegration_NoRetractionEvents(t *testing.T) {
 		},
 		{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			DeviceID:    "test-partition:192.168.1.2",
 			Source:      models.DiscoverySourceNetbox,
@@ -184,7 +184,7 @@ func TestNetboxIntegration_NoRetractionEvents(t *testing.T) {
 	integration := &NetboxIntegration{
 		Config: &models.SourceConfig{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Endpoint:    "https://netbox.example.com",
 			Credentials: map[string]string{"api_token": "test-token"},
@@ -225,7 +225,7 @@ func TestNetboxIntegration_ResultSubmitterError(t *testing.T) {
 	integration := &NetboxIntegration{
 		Config: &models.SourceConfig{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Endpoint:    "https://netbox.example.com",
 			Credentials: map[string]string{"api_token": "test-token"},
@@ -272,7 +272,7 @@ func TestNetboxIntegration_NoResultSubmitter(t *testing.T) {
 	integration := &NetboxIntegration{
 		Config: &models.SourceConfig{
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Endpoint:    "https://netbox.example.com",
 			Credentials: map[string]string{"api_token": "test-token"},
@@ -299,7 +299,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	integration := &NetboxIntegration{
 		Config: &models.SourceConfig{
 			AgentID:   "test-agent",
-			PollerID:  "test-poller",
+			GatewayID:  "test-gateway",
 			Partition: "test-partition",
 		},
 		Logger: logger.NewTestLogger(),
@@ -312,7 +312,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 			IP:          "192.168.1.2",
 			Source:      models.DiscoverySourceNetbox,
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Timestamp:   time.Now(),
 			IsAvailable: true,
@@ -326,7 +326,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 			IP:          "192.168.1.3",
 			Source:      models.DiscoverySourceNetbox,
 			AgentID:     "test-agent",
-			PollerID:    "test-poller",
+			GatewayID:    "test-gateway",
 			Partition:   "test-partition",
 			Timestamp:   time.Now(),
 			IsAvailable: true,
@@ -387,7 +387,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	assert.False(t, event1.IsAvailable)
 	assert.Equal(t, "true", event1.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event1.AgentID)
-	assert.Equal(t, "test-poller", event1.PollerID)
+	assert.Equal(t, "test-gateway", event1.GatewayID)
 	assert.Equal(t, "test-partition", event1.Partition)
 
 	// Check second retraction event
@@ -398,7 +398,7 @@ func TestNetboxIntegration_generateRetractionEvents(t *testing.T) {
 	assert.False(t, event2.IsAvailable)
 	assert.Equal(t, "true", event2.Metadata["_deleted"])
 	assert.Equal(t, "test-agent", event2.AgentID)
-	assert.Equal(t, "test-poller", event2.PollerID)
+	assert.Equal(t, "test-gateway", event2.GatewayID)
 	assert.Equal(t, "test-partition", event2.Partition)
 
 	// Verify timestamps are recent

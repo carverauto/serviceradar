@@ -122,7 +122,7 @@ func (c *SNMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (avai
 		ServiceType: "snmp",
 		ServiceName: "snmp",
 		AgentId:     req.AgentId,
-		PollerId:    req.PollerId,
+		GatewayId:    req.GatewayId,
 	}
 
 	resp, err := c.agentClient.GetStatus(ctx, reqCheck)

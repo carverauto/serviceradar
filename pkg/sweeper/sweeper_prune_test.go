@@ -29,7 +29,7 @@ func TestRunSweep_ClearsPreviousResults(t *testing.T) {
 		Timeout:       2 * time.Second,
 		Concurrency:   10,
 		AgentID:       "test-agent",
-		PollerID:      "test-agent",
+		GatewayID:      "test-agent",
 		Partition:     "default",
 	}
 

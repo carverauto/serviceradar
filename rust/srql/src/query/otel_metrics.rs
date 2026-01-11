@@ -355,7 +355,7 @@ impl MetricsGroupField {
 
 fn build_stats_query(plan: &QueryPlan) -> Result<Option<MetricsStatsSql>> {
     let stats_raw = match plan.stats.as_ref() {
-        Some(value) if !value.trim().is_empty() => value.trim(),
+        Some(value) if !value.as_raw().trim().is_empty() => value.as_raw().trim(),
         _ => return Ok(None),
     };
 

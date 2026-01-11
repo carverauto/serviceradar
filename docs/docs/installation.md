@@ -7,8 +7,6 @@ title: Installation Guide
 
 ServiceRadar components are distributed as Debian packages for Ubuntu/Debian systems and RPM packages for RHEL/Oracle Linux systems. Below are the recommended installation steps for different deployment scenarios.
 
-> Note: The legacy Next.js UI (`serviceradar-web`) is deprecated. The Phoenix `serviceradar-web-ng` package is now the supported web UI.
-
 ## Debian/Ubuntu Installation
 
 ### Standard Setup (Recommended)
@@ -16,11 +14,11 @@ ServiceRadar components are distributed as Debian packages for Ubuntu/Debian sys
 Install these components on your monitored host:
 
 ```bash
-# Download and install agent and poller components
+# Download and install agent and gateway components
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
 
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-poller_1.0.52.deb
+sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb
 ```
 
 On a separate machine (recommended) or the same host for the core service:
@@ -139,11 +137,11 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/ser
 sudo dpkg -i serviceradar-agent_1.0.52.deb
 ```
 
-2. **On monitoring host** (install the poller):
+2. **On monitoring host** (install the gateway):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller_1.0.52.deb
-sudo dpkg -i serviceradar-poller_1.0.52.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
+sudo dpkg -i serviceradar-agent-gateway_1.0.52.deb
 ```
 
 3. **On core host** (install the core service):
@@ -161,8 +159,8 @@ After installation, verify the services are running:
 # Check agent status
 systemctl status serviceradar-agent
 
-# Check poller status
-systemctl status serviceradar-poller
+# Check gateway status
+systemctl status serviceradar-agent-gateway
 
 # Check core status
 systemctl status serviceradar-core
@@ -181,12 +179,12 @@ If you're using UFW (Ubuntu's Uncomplicated Firewall), add these rules:
 ```bash
 # On agent hosts
 sudo ufw allow 50051/tcp  # For agent gRPC server
-sudo ufw allow 50080/tcp  # For SNMP (poller) checker (if applicable)
+sudo ufw allow 50080/tcp  # For SNMP (gateway) checker (if applicable)
 sudo ufw allow 50081/tcp  # For RPerf checker (if applicable)
 sudo ufw allow 50082/tcp  # For Dusk checker (if applicable)
 
 # On core host
-sudo ufw allow 50052/tcp  # For poller connections
+sudo ufw allow 50052/tcp  # For gateway connections
 sudo ufw allow 8090/tcp   # For API (internal use)
 
 # If running web UI
@@ -196,14 +194,14 @@ sudo ufw allow 80/tcp     # For web interface
 sudo ufw allow 50054/tcp  # For serviceradar-datasvc gRPC service
 ```
 
-> **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Next.js service (port 3000) is also not exposed externally as Nginx (port 80) proxies requests to it.
+> **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Web-NG service (port 4000) is also not exposed externally as Caddy (port 80) proxies requests to it.
 
 ### SELinux Configuration (if enabled)
 
 If you have SELinux enabled on your Debian/Ubuntu system:
 
 ```bash
-# Allow HTTP connections (for Nginx)
+# Allow HTTP connections (for Caddy)
 sudo setsebool -P httpd_can_network_connect 1
 
 # Configure port types
@@ -235,7 +233,7 @@ sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.
 # Enable CodeReady Builder repository (Oracle Linux only)
 sudo dnf config-manager --set-enabled ol9_codeready_builder
 
-# Note: Node.js/Nginx are only required for the legacy Next.js UI.
+# Note: Node.js and the legacy web package are only required for the deprecated Next.js UI.
 # The Phoenix web-ng UI does not require them.
 ```
 
@@ -249,7 +247,7 @@ Download the latest ServiceRadar RPM packages from the releases page:
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 #### 2. Install Core Service
@@ -268,13 +266,13 @@ The web UI provides a dashboard interface:
 sudo dnf install -y ./serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
 ```
 
-#### 4. Install Agent and Poller
+#### 4. Install Agent and Gateway
 
 On each monitored host:
 
 ```bash
 sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 ### Distributed Setup
@@ -288,11 +286,11 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/ser
 sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
 ```
 
-2. **On monitoring host** (install the poller):
+2. **On monitoring host** (install the gateway):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-poller-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-poller-1.0.52-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
 ```
 
 3. **On core host** (install the core service):
@@ -372,13 +370,12 @@ sudo firewall-cmd --permanent --add-port=80/tcp      # Web UI
 sudo firewall-cmd --permanent --add-port=8090/tcp    # Core API
 sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
 sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
-sudo firewall-cmd --permanent --add-port=50053/tcp   # Poller
+sudo firewall-cmd --permanent --add-port=50053/tcp   # Gateway
 sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
-sudo firewall-cmd --permanent --add-port=50058/tcp   # serviceradar-sync
 sudo firewall-cmd --reload
 ```
 
-> **Security Note:** Port 4222 (NATS) is not included in the firewall rules as the NATS Server is configured to listen only on 127.0.0.1 (localhost) by default. Port 3000 (Next.js) is also not exposed externally as Nginx (port 80) proxies requests to it.
+> **Security Note:** Port 4222 (NATS) is not included in the firewall rules as the NATS Server is configured to listen only on 127.0.0.1 (localhost) by default. Port 4000 (Web-NG) is also not exposed externally as Caddy (port 80) proxies requests to it.
 
 #### SELinux Configuration
 
@@ -388,7 +385,7 @@ The installation should configure SELinux automatically. If you encounter issues
 # Check SELinux status
 getenforce
 
-# Allow HTTP connections (for Nginx)
+# Allow HTTP connections (for Caddy)
 sudo setsebool -P httpd_can_network_connect 1
 
 # Configure port types
@@ -409,13 +406,13 @@ sudo systemctl status serviceradar-core
 sudo systemctl status serviceradar-web-ng
 
 # Check reverse proxy (optional)
-sudo systemctl status nginx
+sudo systemctl status caddy
 
 # Check agent (on monitored host)
 sudo systemctl status serviceradar-agent
 
-# Check poller (on monitored host)
-sudo systemctl status serviceradar-poller
+# Check gateway (on monitored host)
+sudo systemctl status serviceradar-agent-gateway
 
 # Check NATS Server (if installed)
 sudo systemctl status nats
@@ -446,7 +443,7 @@ sudo journalctl -xeu serviceradar-core
 sudo journalctl -xeu serviceradar-web-ng
 
 # Check reverse proxy logs (optional)
-sudo cat /var/log/nginx/error.log
+sudo journalctl -xeu caddy
 
 # Check NATS Server logs (if installed)
 sudo cat /var/log/nats/nats.log
@@ -473,20 +470,20 @@ sudo ausearch -m avc --start recent
 sudo setenforce 0
 
 # Create a custom policy module
-sudo ausearch -m avc -c nginx 2>&1 | audit2allow -M serviceradar-nginx
-sudo semodule -i serviceradar-nginx.pp
+sudo ausearch -m avc -c caddy 2>&1 | audit2allow -M serviceradar-caddy
+sudo semodule -i serviceradar-caddy.pp
 ```
 
-### Nginx Connection Issues
+### Caddy Connection Issues
 
-If Nginx can't connect to the backend services:
+If Caddy can't connect to the backend services:
 
 ```bash
 # Test direct connection to API
 curl http://localhost:8090/api/status
 
-# Test direct connection to Next.js
-curl http://localhost:3000
+# Test direct connection to Web-NG
+curl http://localhost:4000
 
 # Check API key
 sudo cat /etc/serviceradar/api.env
@@ -517,14 +514,14 @@ If needed, you can uninstall ServiceRadar components:
 
 #### Debian/Ubuntu:
 ```bash
-sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
+sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
 sudo apt remove -y serviceradar-nats serviceradar-datasvc
 sudo apt remove -y nats-server
 ```
 
 #### RHEL/Oracle Linux:
 ```bash
-sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-poller
+sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
 sudo dnf remove -y serviceradar-nats serviceradar-datasvc
 sudo dnf remove -y nats-server
 ```

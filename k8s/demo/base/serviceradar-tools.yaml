@@ -78,7 +78,7 @@ spec:
           alias nc-nats='nc -zv serviceradar-nats 4222'
           alias ping-nats='ping serviceradar-nats'
           alias sr-devices='serviceradar-cli devices list'
-          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-poller:50053..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-poller:50053 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-datasvc:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-mapper:50056..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
+          alias test-grpc='echo "=== gRPC Service Health Checks ==="; echo "Testing serviceradar-core:50052..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-core:50052 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-agent:50051..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-agent:50051 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-datasvc:50057..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-datasvc:50057 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-mapper:50056..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-mapper:50056 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"; echo "Testing serviceradar-trapd:50043..."; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem serviceradar-trapd:50043 grpc.health.v1.Health/Check 2>/dev/null && echo "  ✓ Healthy" || echo "  ✗ Unhealthy"'
           alias nats-cert-check='echo "=== NATS Certificate Check ==="; echo "1. Client Certificate:"; openssl x509 -in /etc/serviceradar/certs/client.pem -subject -issuer -noout; echo ""; echo "2. Client CA:"; openssl x509 -in /etc/serviceradar/certs/root.pem -subject -issuer -noout; echo ""; echo "3. Testing NATS without client cert (server cert only):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -verify_return_error 2>/dev/null || echo "Server cert verification failed"; echo ""; echo "4. Testing NATS with client cert (mTLS):"; timeout 5 openssl s_client -connect serviceradar-nats:4222 -CAfile /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/client.pem -key /etc/serviceradar/certs/client-key.pem -verify_return_error 2>/dev/null || echo "mTLS verification failed"'
           alias nats-skip-verify='echo "=== NOTE: This NATS CLI version does not support --tls-skip-verify ==="; echo "To debug TLS issues, check the NATS server certificate SAN entries"; echo "The server cert must include: serviceradar-nats"'
           
@@ -380,6 +380,8 @@ data:
     CNPG_USERNAME="${CNPG_USERNAME:-postgres}"
     CNPG_SSLMODE="${CNPG_SSLMODE:-verify-full}"
     CNPG_CA_FILE="${CNPG_CA_FILE:-/etc/serviceradar/cnpg/ca.crt}"
+    CNPG_CERT_FILE="${CNPG_CERT_FILE:-/etc/serviceradar/certs/client.pem}"
+    CNPG_KEY_FILE="${CNPG_KEY_FILE:-/etc/serviceradar/certs/client-key.pem}"
     CNPG_SERVICE_NAME="${CNPG_SERVICE_NAME:-serviceradar}"
     CNPG_PASSWORD_FILE="${CNPG_PASSWORD_FILE:-}"
     CNPG_PASSWORD_VALUE="${CNPG_PASSWORD:-}"
@@ -400,6 +402,12 @@ data:
             printf 'user=%s\n' "${CNPG_USERNAME}"
             printf 'sslmode=%s\n' "${CNPG_SSLMODE}"
             printf 'sslrootcert=%s\n' "${CNPG_CA_FILE}"
+            if [ -f "${CNPG_CERT_FILE}" ] && [ -f "${CNPG_KEY_FILE}" ]; then
+                printf 'sslcert=%s\n' "${CNPG_CERT_FILE}"
+                printf 'sslkey=%s\n' "${CNPG_KEY_FILE}"
+            else
+                echo "⚠️ CNPG client cert files not found; continuing without sslcert/sslkey" >&2
+            fi
         } > /root/.pg_service.conf
         chmod 600 /root/.pg_service.conf
       fi

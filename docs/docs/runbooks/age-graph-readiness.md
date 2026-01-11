@@ -40,7 +40,7 @@ Use the same `psql` entrypoint above (`docker compose ... exec cnpg psql ... -c 
   SELECT properties->>'id' AS collector_device_node
   FROM serviceradar."Device"
   WHERE properties->>'id' LIKE 'serviceradar:agent:%'
-     OR properties->>'id' LIKE 'serviceradar:poller:%';
+     OR properties->>'id' LIKE 'serviceradar:gateway:%';
   ```
 - Pick a real device ID (non-`serviceradar:`) and verify collector-owned services are returned without creating a device node for the collector host:
   ```sql

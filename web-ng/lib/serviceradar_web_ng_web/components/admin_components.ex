@@ -21,6 +21,26 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
         label: "Edge Onboarding",
         href: "/admin/edge-packages",
         active: String.starts_with?(assigns.current_path || "", "/admin/edge-packages")
+      },
+      %{
+        label: "Integrations",
+        href: "/admin/integrations",
+        active: String.starts_with?(assigns.current_path || "", "/admin/integrations")
+      },
+      %{
+        label: "Collectors",
+        href: "/admin/collectors",
+        active: String.starts_with?(assigns.current_path || "", "/admin/collectors")
+      },
+      %{
+        label: "Edge Sites",
+        href: "/admin/edge-sites",
+        active: String.starts_with?(assigns.current_path || "", "/admin/edge-sites")
+      },
+      %{
+        label: "NATS",
+        href: "/admin/nats",
+        active: String.starts_with?(assigns.current_path || "", "/admin/nats")
       }
     ]
 

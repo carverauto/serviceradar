@@ -6,6 +6,7 @@ import "time"
 type NetflowConfig struct {
 	ListenAddr     string             `json:"listen_addr"`
 	NATSURL        string             `json:"nats_url"`
+	NATSCredsFile  string             `json:"nats_creds_file,omitempty"`
 	StreamName     string             `json:"stream_name"`
 	ConsumerName   string             `json:"consumer_name"`
 	Security       *SecurityConfig    `json:"security"`

@@ -17,6 +17,7 @@ go_library(
     deps = [
         "//pkg/logger",
         "//pkg/models",
+        "//pkg/tenant",
         "//proto",
         "@com_github_rs_zerolog//:zerolog",
         "@com_github_spiffe_go_spiffe_v2//spiffeid",

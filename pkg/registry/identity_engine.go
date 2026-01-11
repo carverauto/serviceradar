@@ -213,7 +213,7 @@ func strongIdentifierCacheKey(partition, idType, idValue string) string {
 // Otherwise, it generates a new deterministic ServiceRadar UUID based on the identifiers.
 //
 // Resolution priority:
-//  1. Skip service component IDs (serviceradar:poller:*, serviceradar:agent:*)
+//  1. Skip service component IDs (serviceradar:gateway:*, serviceradar:agent:*)
 //  2. Strong identifiers (Armis ID > Integration ID > NetBox ID > MAC) -> deterministic sr: UUID
 //  3. Existing sr: device_id if present -> preserve
 //  4. IP-only fallback -> lookup or generate

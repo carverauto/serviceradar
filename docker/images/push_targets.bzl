@@ -7,7 +7,7 @@ load("@rules_multirun//:defs.bzl", "command", "multirun")
 
 GHCR_PUSH_TARGETS = [
     {"image": "arc_runner_image_amd64", "repository": "ghcr.io/carverauto/arc-runner"},
-    {"image": "core_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core"},
+    {"image": "core_elx_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-core-elx"},
     {"image": "agent_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent"},
     {"image": "db_event_writer_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-db-event-writer"},
     {"image": "mapper_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-mapper"},
@@ -17,8 +17,7 @@ GHCR_PUSH_TARGETS = [
     {"image": "otel_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-otel"},
     {"image": "snmp_checker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-snmp-checker"},
     {"image": "rperf_client_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-rperf-client"},
-    {"image": "poller_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-poller"},
-    {"image": "sync_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-sync"},
+    {"image": "agent_gateway_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-faker"},
     {"image": "zen_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-zen"},
     {"image": "config_updater_image_amd64", "repository": "ghcr.io/carverauto/serviceradar-config-updater"},

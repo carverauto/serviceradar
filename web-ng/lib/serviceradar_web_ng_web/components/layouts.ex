@@ -154,15 +154,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/services"}
                   label="Services"
                   icon="hero-cog-6-tooth"
-                  active={@current_path in ["/services", "/pollers"]}
-                />
-              </li>
-              <li>
-                <.sidebar_link
-                  href={~p"/agents"}
-                  label="Agents"
-                  icon="hero-cpu-chip"
-                  active={@current_path == "/agents"}
+                  active={@current_path in ["/services", "/gateways"]}
                 />
               </li>
               <li>
@@ -178,7 +170,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   href={~p"/events"}
                   label="Events"
                   icon="hero-bell-alert"
-                  active={@current_path == "/events"}
+                  active={@current_path && String.starts_with?(@current_path, "/events")}
+                />
+              </li>
+              <li>
+                <.sidebar_link
+                  href={~p"/alerts"}
+                  label="Alerts"
+                  icon="hero-exclamation-triangle"
+                  active={@current_path && String.starts_with?(@current_path, "/alerts")}
                 />
               </li>
               <li>
@@ -191,10 +191,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
-                  href={~p"/admin/jobs"}
+                  href={~p"/settings/cluster"}
                   label="Settings"
                   icon="hero-adjustments-horizontal"
-                  active={@current_path && String.starts_with?(@current_path, "/admin")}
+                  active={
+                    @current_path &&
+                      (String.starts_with?(@current_path, "/settings") ||
+                         String.starts_with?(@current_path, "/admin") ||
+                         String.starts_with?(@current_path, "/users/settings"))
+                  }
                 />
               </li>
             </ul>
@@ -218,6 +223,49 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                 tabindex="0"
                 class="dropdown-content menu bg-base-200 rounded-box z-10 w-56 p-2 shadow-lg mb-2"
               >
+                <li :if={@current_scope && @current_scope.active_tenant}>
+                  <div class="flex flex-col gap-1">
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/60">
+                      Organization
+                    </span>
+                    <span class="text-sm font-medium">
+                      {@current_scope.active_tenant.name}
+                    </span>
+                    <span class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Role
+                    </span>
+                    <span class="text-xs font-medium">
+                      {format_role(@current_scope.user.role)}
+                    </span>
+                    <%= if length(@current_scope.tenant_memberships) > 0 do %>
+                      <div class="mt-1 border-t border-base-300 pt-1">
+                        <span class="text-[9px] uppercase tracking-wider text-base-content/50">
+                          Switch to
+                        </span>
+                        <%= for membership <- @current_scope.tenant_memberships do %>
+                          <%= if membership.tenant && membership.tenant.id != @current_scope.active_tenant.id do %>
+                            <.link
+                              href={~p"/tenants/switch/#{membership.tenant.id}"}
+                              method="post"
+                              class="block text-xs text-base-content/70 hover:text-base-content py-0.5"
+                            >
+                              {membership.tenant.name}
+                            </.link>
+                          <% end %>
+                        <% end %>
+                        <%= if @current_scope.user.tenant && @current_scope.user.tenant.id != @current_scope.active_tenant.id do %>
+                          <.link
+                            href={~p"/tenants/switch/#{@current_scope.user.tenant.id}"}
+                            method="post"
+                            class="block text-xs text-base-content/70 hover:text-base-content py-0.5"
+                          >
+                            {@current_scope.user.tenant.name}
+                          </.link>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  </div>
+                </li>
                 <li>
                   <div class="flex flex-col gap-2">
                     <span class="text-[10px] uppercase tracking-wider text-base-content/60">
@@ -227,8 +275,8 @@ defmodule ServiceRadarWebNGWeb.Layouts do
                   </div>
                 </li>
                 <li>
-                  <.link href={~p"/users/settings"} class="text-sm">
-                    <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+                  <.link href={~p"/settings/profile"} class="text-sm">
+                    <.icon name="hero-cog-6-tooth" class="size-4" /> Account
                   </.link>
                 </li>
                 <li>
@@ -254,6 +302,15 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp user_initials(_), do: "?"
+
+  defp format_role(role) when is_atom(role) do
+    role
+    |> Atom.to_string()
+    |> String.split("_")
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp format_role(role) when is_binary(role), do: role
 
   attr :href, :string, required: true
   attr :label, :string, required: true
@@ -326,6 +383,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       |> String.split("/")
       |> Enum.reject(&(&1 == ""))
 
+    # Treat agents and gateways as children of infrastructure
+    segments = normalize_infrastructure_path(segments)
+
     case segments do
       [] ->
         []
@@ -339,6 +399,17 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           %{label: format_id(id), icon: nil, href: nil}
         ]
 
+      [section, subsection, id] ->
+        [
+          %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
+          %{
+            label: section_label(subsection),
+            icon: section_icon(subsection),
+            href: "/#{section}?tab=#{subsection}"
+          },
+          %{label: format_id(id), icon: nil, href: nil}
+        ]
+
       [section, id | _rest] ->
         [
           %{label: section_label(section), icon: section_icon(section), href: "/#{section}"},
@@ -349,25 +420,44 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp build_breadcrumbs(_), do: []
 
+  # Normalize paths so agents and gateways appear under infrastructure
+  defp normalize_infrastructure_path(["agents" | rest]) do
+    ["infrastructure", "agents" | rest]
+  end
+
+  defp normalize_infrastructure_path(["gateways" | rest]) do
+    ["infrastructure", "gateways" | rest]
+  end
+
+  defp normalize_infrastructure_path(segments), do: segments
+
   defp section_label("analytics"), do: "Analytics"
   defp section_label("devices"), do: "Devices"
-  defp section_label("pollers"), do: "Pollers"
+  defp section_label("infrastructure"), do: "Infrastructure"
+  defp section_label("gateways"), do: "Gateways"
   defp section_label("agents"), do: "Agents"
+  defp section_label("nodes"), do: "Nodes"
   defp section_label("events"), do: "Events"
+  defp section_label("alerts"), do: "Alerts"
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
   defp section_label("services"), do: "Services"
   defp section_label("interfaces"), do: "Interfaces"
   defp section_label("admin"), do: "Settings"
+  defp section_label("settings"), do: "Settings"
   defp section_label(other), do: String.capitalize(other)
 
   defp section_icon("analytics"), do: "hero-chart-bar-micro"
   defp section_icon("devices"), do: "hero-server-micro"
-  defp section_icon("pollers"), do: "hero-cog-6-tooth-micro"
-  defp section_icon("agents"), do: "hero-cpu-chip-micro"
+  defp section_icon("infrastructure"), do: "hero-cpu-chip-micro"
+  defp section_icon("gateways"), do: "hero-cog-6-tooth-micro"
+  defp section_icon("agents"), do: "hero-cube-micro"
+  defp section_icon("nodes"), do: "hero-server-stack-micro"
   defp section_icon("events"), do: "hero-bell-alert-micro"
+  defp section_icon("alerts"), do: "hero-exclamation-triangle-micro"
   defp section_icon("logs"), do: "hero-presentation-chart-line-micro"
   defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"
+  defp section_icon("settings"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
   defp section_icon("interfaces"), do: "hero-globe-alt-micro"

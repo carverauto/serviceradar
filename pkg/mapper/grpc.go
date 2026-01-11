@@ -90,7 +90,7 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 		Timeout:     time.Duration(req.TimeoutSeconds) * time.Second,
 		Retries:     int(req.Retries),
 		AgentID:     req.AgentId,
-		PollerID:    req.PollerId,
+		GatewayID:    req.GatewayId,
 	}
 
 	// Start discovery

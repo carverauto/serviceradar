@@ -69,7 +69,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			`INSERT INTO device_updates (
 				observed_at,
 				agent_id,
-				poller_id,
+				gateway_id,
 				partition,
 				device_id,
 				discovery_source,
@@ -81,7 +81,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
 			observed,
 			update.AgentID,
-			update.PollerID,
+			update.GatewayID,
 			update.Partition,
 			update.DeviceID,
 			arbitrarySource,
@@ -128,7 +128,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				first_seen_time, last_seen_time, created_time, modified_time,
 				risk_level_id, risk_level, risk_score,
 				os, hw_info,
-				poller_id, agent_id, discovery_sources, is_available, metadata
+				gateway_id, agent_id, discovery_sources, is_available, metadata
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18,$19,$20::jsonb)
 			ON CONFLICT (uid) DO UPDATE SET
 				type_id = CASE WHEN ocsf_devices.type_id = 0 THEN EXCLUDED.type_id ELSE ocsf_devices.type_id END,
@@ -145,7 +145,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 				risk_score = COALESCE(EXCLUDED.risk_score, ocsf_devices.risk_score),
 				os = COALESCE(EXCLUDED.os, ocsf_devices.os),
 				hw_info = COALESCE(EXCLUDED.hw_info, ocsf_devices.hw_info),
-				poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), ocsf_devices.poller_id),
+				gateway_id = COALESCE(NULLIF(EXCLUDED.gateway_id, ''), ocsf_devices.gateway_id),
 				agent_id = COALESCE(NULLIF(EXCLUDED.agent_id, ''), ocsf_devices.agent_id),
 				discovery_sources = (
 					SELECT array_agg(DISTINCT src) FROM unnest(
@@ -169,7 +169,7 @@ func (db *DB) cnpgInsertDeviceUpdates(ctx context.Context, updates []*models.Dev
 			riskScore,
 			nullableBytes(osJSON),
 			nullableBytes(hwInfoJSON),
-			update.PollerID,
+			update.GatewayID,
 			update.AgentID,
 			discoverySources,
 			update.IsAvailable,

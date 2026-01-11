@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Topology do
 
   defp normalize_node(%{} = raw) do
     id =
-      first_string(raw, ["id", "uid", "device_id", "poller_id", "agent_id", "name"]) ||
+      first_string(raw, ["id", "uid", "device_id", "gateway_id", "agent_id", "name"]) ||
         fallback_id(raw)
 
     label = first_string(raw, ["label", "hostname", "name"]) || id

@@ -26,7 +26,7 @@ var (
 	errStubRowsScanDest       = errors.New("unsupported scan destination")
 )
 
-func TestGetPollerCNPG(t *testing.T) {
+func TestGetGatewayCNPG(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
@@ -35,14 +35,14 @@ func TestGetPollerCNPG(t *testing.T) {
 	client := &testCNPGClient{
 		useReads: true,
 		queryFn: func(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
-			require.Contains(t, query, "FROM pollers")
+			require.Contains(t, query, "FROM gateways")
 			require.Len(t, args, 1)
-			require.Equal(t, "poller-1", args[0])
+			require.Equal(t, "gateway-1", args[0])
 
 			return &stubRows{
 				rows: [][]interface{}{
 					{
-						"poller-1",
+						"gateway-1",
 						"component-1",
 						"active",
 						"implicit",
@@ -50,7 +50,7 @@ func TestGetPollerCNPG(t *testing.T) {
 						&firstSeen,
 						&now,
 						[]byte(`{"env":"prod"}`),
-						"spiffe://poller",
+						"spiffe://gateway",
 						"system",
 						3,
 						5,
@@ -63,18 +63,18 @@ func TestGetPollerCNPG(t *testing.T) {
 	registry := NewServiceRegistry(nil, logger.NewTestLogger())
 	registry.cnpgClient = client
 
-	poller, err := registry.GetPoller(context.Background(), "poller-1")
+	gateway, err := registry.GetGateway(context.Background(), "gateway-1")
 	require.NoError(t, err)
-	require.Equal(t, "component-1", poller.ComponentID)
-	require.Equal(t, ServiceStatusActive, poller.Status)
-	require.NotNil(t, poller.FirstSeen)
-	require.Equal(t, firstSeen.Unix(), poller.FirstSeen.Unix())
-	require.Equal(t, map[string]string{"env": "prod"}, poller.Metadata)
-	require.Equal(t, 3, poller.AgentCount)
-	require.Equal(t, 5, poller.CheckerCount)
+	require.Equal(t, "component-1", gateway.ComponentID)
+	require.Equal(t, ServiceStatusActive, gateway.Status)
+	require.NotNil(t, gateway.FirstSeen)
+	require.Equal(t, firstSeen.Unix(), gateway.FirstSeen.Unix())
+	require.Equal(t, map[string]string{"env": "prod"}, gateway.Metadata)
+	require.Equal(t, 3, gateway.AgentCount)
+	require.Equal(t, 5, gateway.CheckerCount)
 }
 
-func TestListPollersCNPGFilters(t *testing.T) {
+func TestListGatewaysCNPGFilters(t *testing.T) {
 	t.Parallel()
 
 	client := &testCNPGClient{
@@ -95,7 +95,7 @@ func TestListPollersCNPGFilters(t *testing.T) {
 			return &stubRows{
 				rows: [][]interface{}{
 					{
-						"poller-a",
+						"gateway-a",
 						"component-a",
 						"active",
 						"implicit",
@@ -123,12 +123,12 @@ func TestListPollersCNPGFilters(t *testing.T) {
 		Offset:   2,
 	}
 
-	pollers, err := registry.ListPollers(context.Background(), filter)
+	gateways, err := registry.ListGateways(context.Background(), filter)
 	require.NoError(t, err)
-	require.Len(t, pollers, 1)
-	require.Equal(t, "poller-a", pollers[0].PollerID)
-	require.Equal(t, map[string]string{"tier": "edge"}, pollers[0].Metadata)
-	require.Equal(t, 1, pollers[0].AgentCount)
+	require.Len(t, gateways, 1)
+	require.Equal(t, "gateway-a", gateways[0].GatewayID)
+	require.Equal(t, map[string]string{"tier": "edge"}, gateways[0].Metadata)
+	require.Equal(t, 1, gateways[0].AgentCount)
 }
 
 func TestEmitRegistrationEventUsesWriter(t *testing.T) {
@@ -143,7 +143,7 @@ func TestEmitRegistrationEventUsesWriter(t *testing.T) {
 		"registered",
 		serviceTypeAgent,
 		"agent-1",
-		"poller-1",
+		"gateway-1",
 		RegistrationSourceImplicit,
 		"system",
 		map[string]string{"component": "edge"},
@@ -154,7 +154,7 @@ func TestEmitRegistrationEventUsesWriter(t *testing.T) {
 	event := writer.events[0]
 	require.Equal(t, "registered", event.EventType)
 	require.Equal(t, "agent-1", event.ServiceID)
-	require.Equal(t, "poller-1", event.ParentID)
+	require.Equal(t, "gateway-1", event.ParentID)
 	require.Equal(t, "implicit", event.RegistrationSource)
 	require.Equal(t, "system", event.Actor)
 	require.Equal(t, map[string]string{"component": "edge"}, event.Metadata)
@@ -170,13 +170,13 @@ func TestDeleteServiceEmitsEvent(t *testing.T) {
 	client := &testCNPGClient{
 		useReads: true,
 		queryFn: func(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
-			if strings.Contains(query, "FROM pollers") && strings.Contains(query, "WHERE poller_id = $1") {
+			if strings.Contains(query, "FROM gateways") && strings.Contains(query, "WHERE gateway_id = $1") {
 				require.Len(t, args, 1)
-				require.Equal(t, "poller-1", args[0])
+				require.Equal(t, "gateway-1", args[0])
 				return &stubRows{
 					rows: [][]interface{}{
 						{
-							"poller-1",
+							"gateway-1",
 							"component-1",
 							"revoked",
 							"implicit",
@@ -200,11 +200,11 @@ func TestDeleteServiceEmitsEvent(t *testing.T) {
 	registry.cnpgClient = client
 	registry.eventWriter = writer
 
-	err := registry.DeleteService(context.Background(), serviceTypePoller, "poller-1")
+	err := registry.DeleteService(context.Background(), serviceTypeGateway, "gateway-1")
 	require.NoError(t, err)
 	require.Len(t, writer.events, 1)
 	require.Equal(t, "deleted", writer.events[0].EventType)
-	require.Equal(t, "poller-1", writer.events[0].ServiceID)
+	require.Equal(t, "gateway-1", writer.events[0].ServiceID)
 }
 
 func TestPurgeInactivePurgesServices(t *testing.T) {
@@ -217,11 +217,11 @@ func TestPurgeInactivePurgesServices(t *testing.T) {
 		useReads: true,
 		queryFn: func(ctx context.Context, query string, args ...interface{}) (db.Rows, error) {
 			switch {
-			case strings.Contains(query, "FROM pollers") && strings.Contains(query, "WHERE poller_id = $1"):
+			case strings.Contains(query, "FROM gateways") && strings.Contains(query, "WHERE gateway_id = $1"):
 				return &stubRows{
 					rows: [][]interface{}{
 						{
-							"poller-old",
+							"gateway-old",
 							"component-x",
 							"revoked",
 							"implicit",
@@ -240,7 +240,7 @@ func TestPurgeInactivePurgesServices(t *testing.T) {
 				require.Len(t, args, 6)
 				return &stubRows{
 					rows: [][]interface{}{
-						{"poller", "poller-old"},
+						{"gateway", "gateway-old"},
 					},
 				}, nil
 			default:
@@ -257,7 +257,7 @@ func TestPurgeInactivePurgesServices(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 	require.Len(t, writer.events, 1)
-	require.Equal(t, "poller-old", writer.events[0].ServiceID)
+	require.Equal(t, "gateway-old", writer.events[0].ServiceID)
 }
 
 type testRegistrationEventWriter struct {

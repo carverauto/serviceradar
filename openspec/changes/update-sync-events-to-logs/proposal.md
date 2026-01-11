@@ -1,0 +1,28 @@
+# Change: Sync Lifecycle Logs Instead of Events
+
+## Why
+Integration sync lifecycle updates (start/finish) are operational noise and should not appear as notable events by default. They should be stored as logs with metadata so failures can be promoted when needed.
+
+## What Changes
+- Record integration sync lifecycle updates as OTEL log records instead of OCSF events.
+- Ensure log records include structured fields (stage/result/source) to support promotion rules.
+- Keep log-to-event promotion as the only path for creating events from sync failures/timeouts.
+
+## Promotion Guidance
+Use log promotion rules with `attribute_equals` keys such as
+`serviceradar.sync.result`, `serviceradar.sync.stage`, or
+`serviceradar.sync.integration_source_id` to promote failures/timeouts. Example
+rule:
+
+```
+match:
+  attribute_equals:
+    serviceradar.sync.result: [failed, timeout]
+event:
+  log_name: sync.ingestor.failed
+  severity_text: ERROR
+```
+
+## Impact
+- Affected specs: observability-signals
+- Affected code: sync ingestion pipeline, sync event writer, log promotion rules

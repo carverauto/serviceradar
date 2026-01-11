@@ -15,7 +15,7 @@ diesel::table! {
         vendor_name -> Nullable<Text>,
         uid_alt -> Nullable<Text>,
         policies -> Nullable<Jsonb>,
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         capabilities -> Nullable<Array<Text>>,
         ip -> Nullable<Text>,
         first_seen_time -> Nullable<Timestamptz>,
@@ -76,7 +76,7 @@ diesel::table! {
         agent_list -> Nullable<Jsonb>,
 
         // ServiceRadar-specific fields
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
@@ -87,8 +87,8 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    pollers (poller_id) {
-        poller_id -> Text,
+    gateways (gateway_id) {
+        gateway_id -> Text,
         component_id -> Nullable<Text>,
         registration_source -> Nullable<Text>,
         status -> Nullable<Text>,
@@ -102,6 +102,8 @@ diesel::table! {
         agent_count -> Nullable<Int4>,
         checker_count -> Nullable<Int4>,
         updated_at -> Nullable<Timestamptz>,
+        tenant_id -> Uuid,
+        partition_id -> Nullable<Uuid>,
     }
 }
 
@@ -152,9 +154,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    service_status (timestamp, poller_id, service_name) {
+    service_status (timestamp, gateway_id, service_name) {
         timestamp -> Timestamptz,
-        poller_id -> Text,
+        gateway_id -> Text,
         agent_id -> Nullable<Text>,
         service_name -> Text,
         service_type -> Nullable<Text>,
@@ -173,7 +175,7 @@ diesel::table! {
     discovered_interfaces (timestamp, device_id, if_index) {
         timestamp -> Timestamptz,
         agent_id -> Nullable<Text>,
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         device_ip -> Nullable<Text>,
         device_id -> Nullable<Text>,
         if_index -> Nullable<Int4>,
@@ -247,9 +249,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    timeseries_metrics (timestamp, poller_id, metric_name) {
+    timeseries_metrics (timestamp, gateway_id, metric_name) {
         timestamp -> Timestamptz,
-        poller_id -> Text,
+        gateway_id -> Text,
         agent_id -> Nullable<Text>,
         metric_name -> Text,
         metric_type -> Text,
@@ -270,9 +272,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    cpu_metrics (timestamp, poller_id, core_id) {
+    cpu_metrics (timestamp, gateway_id, core_id) {
         timestamp -> Timestamptz,
-        poller_id -> Text,
+        gateway_id -> Text,
         agent_id -> Nullable<Text>,
         host_id -> Nullable<Text>,
         core_id -> Nullable<Int4>,
@@ -289,9 +291,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    disk_metrics (timestamp, poller_id, mount_point) {
+    disk_metrics (timestamp, gateway_id, mount_point) {
         timestamp -> Timestamptz,
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
         host_id -> Nullable<Text>,
         mount_point -> Nullable<Text>,
@@ -309,9 +311,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    memory_metrics (timestamp, poller_id) {
+    memory_metrics (timestamp, gateway_id) {
         timestamp -> Timestamptz,
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
         host_id -> Nullable<Text>,
         total_bytes -> Nullable<Int8>,
@@ -327,9 +329,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    process_metrics (timestamp, poller_id, pid) {
+    process_metrics (timestamp, gateway_id, pid) {
         timestamp -> Timestamptz,
-        poller_id -> Nullable<Text>,
+        gateway_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
         host_id -> Nullable<Text>,
         pid -> Nullable<Int4>,
@@ -350,7 +352,7 @@ diesel::table! {
     device_updates (observed_at, device_id) {
         observed_at -> Timestamptz,
         agent_id -> Text,
-        poller_id -> Text,
+        gateway_id -> Text,
         partition -> Text,
         device_id -> Text,
         discovery_source -> Text,

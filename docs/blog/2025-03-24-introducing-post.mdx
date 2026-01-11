@@ -23,7 +23,7 @@ Our project is driven by a few core goals:
 
 At its heart, ServiceRadar consists of four key components:
 1. **Agent**: Runs on your monitored hosts, collecting service status via gRPC.
-2. **Poller**: Coordinates monitoring across agents and networks.
+2. **Gateway**: Coordinates monitoring across agents and networks.
 3. **Core Service**: Processes data, powers the API, and triggers alerts.
 4. **Web UI**: Delivers a sleek, modern dashboard for visualizing your infrastructure.
 
@@ -40,7 +40,7 @@ ServiceRadar embraces a distributed, stateless architecture that thrives in clou
 Security isn’t an afterthought—it’s baked into ServiceRadar’s DNA. We implement zero-trust principles through mutual TLS (mTLS) authentication between components, ensuring that every connection is verified and encrypted. The Web UI talks to the Core Service via a secure API key, and Nginx acts as a reverse proxy to keep things locked down. Curious about the details? Our [TLS Security guide](https://docs.serviceradar.io/docs/tls-security) walks you through it.
 
 ### Zero-Touch Deployment (The Vision)
-Our ultimate goal is to make ServiceRadar as hands-off as possible. We’re working toward a zero-touch configuration deployment system—imagine spinning up a new agent or poller with minimal manual setup. While we’re not fully there yet, features like automatic API key generation and pre-configured Debian/RHEL packages are steps in that direction. Stay tuned as we refine this process to streamline your experience even further.
+Our ultimate goal is to make ServiceRadar as hands-off as possible. We’re working toward a zero-touch configuration deployment system—imagine spinning up a new agent or gateway with minimal manual setup. While we’re not fully there yet, features like automatic API key generation and pre-configured Debian/RHEL packages are steps in that direction. Stay tuned as we refine this process to streamline your experience even further.
 
 ## What’s Next for ServiceRadar?
 

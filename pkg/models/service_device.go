@@ -6,8 +6,8 @@ import "fmt"
 type ServiceType string
 
 const (
-	// ServiceTypePoller represents a poller service
-	ServiceTypePoller ServiceType = "poller"
+	// ServiceTypeGateway represents a gateway service
+	ServiceTypeGateway ServiceType = "gateway"
 	// ServiceTypeAgent represents an agent service
 	ServiceTypeAgent ServiceType = "agent"
 	// ServiceTypeChecker represents a checker service
@@ -35,7 +35,7 @@ const ServiceDevicePartition = "serviceradar"
 
 // GenerateServiceDeviceID creates a device ID for a service component
 // Format: serviceradar:service_type:service_id
-// Example: serviceradar:poller:k8s-poller
+// Example: serviceradar:gateway:k8s-gateway
 func GenerateServiceDeviceID(serviceType ServiceType, serviceID string) string {
 	return fmt.Sprintf("%s:%s:%s", ServiceDevicePartition, serviceType, serviceID)
 }

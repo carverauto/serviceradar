@@ -33,6 +33,6 @@ func (db *DB) StoreSweepHostStates(ctx context.Context, states []*models.SweepHo
 }
 
 // GetSweepHostStates retrieves the latest sweep host states from CNPG.
-func (db *DB) GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error) {
-	return db.cnpgGetSweepHostStates(ctx, pollerID, limit)
+func (db *DB) GetSweepHostStates(ctx context.Context, gatewayID string, limit int) ([]*models.SweepHostState, error) {
+	return db.cnpgGetSweepHostStates(ctx, gatewayID, limit)
 }

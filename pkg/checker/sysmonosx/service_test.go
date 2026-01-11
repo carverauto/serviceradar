@@ -63,7 +63,7 @@ func TestServiceGetStatusSuccess(t *testing.T) {
 		ServiceName: "sysmon-osx",
 		ServiceType: "cpu-monitor",
 		AgentId:     "agent-123",
-		PollerId:    "poller-456",
+		GatewayId:    "gateway-456",
 	}
 
 	resp, err := service.GetStatus(context.Background(), req)

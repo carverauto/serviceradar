@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @moduledoc """
   Context module for edge onboarding audit events.
 
-  Provides functions to record and query audit events for edge onboarding packages.
-  Events are stored in a TimescaleDB hypertable for efficient time-series queries.
+  Delegates to ServiceRadar.Edge.OnboardingEvents Ash-based implementation
+  while maintaining backwards compatibility with existing callers.
 
   ## Async Recording
 
@@ -11,12 +11,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   the main request. Use `record_sync/3` for synchronous recording when needed.
   """
 
-  import Ecto.Query
-  alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNG.Edge.OnboardingEvent
-  alias ServiceRadarWebNG.Edge.Workers.RecordEventWorker
-
-  @default_limit 50
+  alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
+  alias ServiceRadar.Edge.OnboardingEvent
+  alias ServiceRadar.Identity.Tenant
 
   @doc """
   Lists events for a specific package, ordered by time descending.
@@ -33,13 +30,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec list_for_package(String.t(), keyword()) :: [OnboardingEvent.t()]
   def list_for_package(package_id, opts \\ []) do
-    limit = Keyword.get(opts, :limit, @default_limit)
+    tenant = require_tenant!(opts)
 
-    OnboardingEvent
-    |> where([e], e.package_id == ^package_id)
-    |> order_by([e], desc: e.event_time)
-    |> limit(^limit)
-    |> Repo.all()
+    opts_with_actor =
+      opts
+      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put(:tenant, tenant)
+
+    AshEvents.list_for_package!(package_id, opts_with_actor)
   end
 
   @doc """
@@ -60,10 +58,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
       {:ok, %Oban.Job{}}
 
   """
-  @spec record(String.t(), String.t(), keyword()) ::
+  @spec record(String.t(), String.t() | atom(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
-    RecordEventWorker.enqueue(package_id, event_type, opts)
+    tenant = require_tenant!(opts)
+    opts_with_tenant = Keyword.put(opts, :tenant, tenant)
+    AshEvents.record(package_id, event_type, opts_with_tenant)
   end
 
   @doc """
@@ -80,24 +80,28 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
     * `:event_time` - Override the event timestamp (default: now)
 
   """
-  @spec record_sync(String.t(), String.t(), keyword()) ::
-          {:ok, OnboardingEvent.t()} | {:error, Ecto.Changeset.t()}
+  @spec record_sync(String.t(), String.t() | atom(), keyword()) ::
+          {:ok, OnboardingEvent.t()} | {:error, Ash.Error.t()}
   def record_sync(package_id, event_type, opts \\ []) do
-    event = OnboardingEvent.build(package_id, event_type, opts)
+    tenant = require_tenant!(opts)
 
-    changeset = OnboardingEvent.changeset(event, %{})
+    opts_with_actor =
+      opts
+      |> Keyword.put_new(:actor_user, system_actor())
+      |> Keyword.put(:tenant, tenant)
 
-    Repo.insert(changeset)
+    AshEvents.record_sync(package_id, event_type, opts_with_actor)
   end
 
   @doc """
   Records an event without returning an error on failure.
   Used for fire-and-forget audit logging where we don't want to fail the main operation.
   """
-  @spec record!(String.t(), String.t(), keyword()) :: :ok
+  @spec record!(String.t(), String.t() | atom(), keyword()) :: :ok
   def record!(package_id, event_type, opts \\ []) do
-    record(package_id, event_type, opts)
-    :ok
+    tenant = require_tenant!(opts)
+    opts_with_tenant = Keyword.put(opts, :tenant, tenant)
+    AshEvents.record!(package_id, event_type, opts_with_tenant)
   end
 
   @doc """
@@ -107,19 +111,45 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec recent(keyword()) :: [OnboardingEvent.t()]
   def recent(opts \\ []) do
-    limit = Keyword.get(opts, :limit, @default_limit)
-    since = Keyword.get(opts, :since)
+    tenant = require_tenant!(opts)
 
-    OnboardingEvent
-    |> maybe_filter_since(since)
-    |> order_by([e], desc: e.event_time)
-    |> limit(^limit)
-    |> Repo.all()
+    opts_with_actor =
+      opts
+      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put(:tenant, tenant)
+
+    AshEvents.recent!(opts_with_actor)
   end
 
-  defp maybe_filter_since(query, nil), do: query
+  # Private helpers
 
-  defp maybe_filter_since(query, since) when is_struct(since, DateTime) do
-    where(query, [e], e.event_time >= ^since)
+  defp system_actor do
+    %{
+      id: "00000000-0000-0000-0000-000000000000",
+      email: "system@serviceradar.local",
+      role: :super_admin
+    }
+  end
+
+  defp require_tenant!(opts) do
+    case Keyword.fetch(opts, :tenant) do
+      {:ok, tenant} -> normalize_tenant!(tenant)
+      :error -> raise ArgumentError, "tenant is required for onboarding events"
+    end
+  end
+
+  defp normalize_tenant!(%Tenant{} = tenant), do: tenant
+
+  defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
+
+  defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
+    case Ash.get(Tenant, tenant_id, authorize?: false) do
+      {:ok, %Tenant{} = tenant} -> tenant
+      _ -> raise ArgumentError, "tenant not found for onboarding events"
+    end
+  end
+
+  defp normalize_tenant!(_tenant) do
+    raise ArgumentError, "invalid tenant for onboarding events"
   end
 end

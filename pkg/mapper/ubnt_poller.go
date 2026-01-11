@@ -507,7 +507,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		// generate DeviceID using IP+MAC
 		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
 		deviceID := ""
-		if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		if device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
 			deviceID = GenerateDeviceID(device.MAC)
 		}
 
@@ -691,7 +691,7 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 
 	// Generate standardized device ID
 	deviceID := ""
-	if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+	if device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
 		deviceID = GenerateDeviceID(device.MAC)
 	}
 
@@ -765,7 +765,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
 	// Ensure we have a proper device ID
-	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
 		deviceID = GenerateDeviceID(device.MAC)
 	}
 

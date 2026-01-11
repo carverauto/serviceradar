@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
 
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
+    ServiceRadarWebNG.DataCase.ensure_test_tenant()
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
@@ -59,21 +60,80 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   @doc """
   Logs the given `user` into the `conn`.
 
+  Generates an Ash JWT token and stores it in the session under the :user key,
+  matching what AshAuthentication.Phoenix.Controller.store_in_session/2 does.
+
   It returns an updated `conn`.
   """
-  def log_in_user(conn, user, opts \\ []) do
-    token = ServiceRadarWebNG.Accounts.generate_user_session_token(user)
+  def log_in_user(conn, user, _opts \\ []) do
+    tenant_schema =
+      case Map.fetch(user.__metadata__, :tenant) do
+        {:ok, tenant} when is_binary(tenant) -> tenant
+        _ -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(user.tenant_id)
+      end
 
-    maybe_set_token_authenticated_at(token, opts[:token_authenticated_at])
+    # Generate an Ash JWT token for the user
+    {:ok, token, _claims} =
+      AshAuthentication.Jwt.token_for_user(
+        user,
+        %{"tenant_id" => user.tenant_id},
+        tenant: tenant_schema
+      )
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
-    |> Plug.Conn.put_session(:user_token, token)
+    |> Plug.Conn.put_session("user_token", token)
+    |> Plug.Conn.put_session("active_tenant_id", user.tenant_id)
+    |> Plug.Conn.put_session("tenant", tenant_schema)
+    |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
 
-  defp maybe_set_token_authenticated_at(_token, nil), do: nil
+  @doc """
+  Setup helper that registers and logs in users with API bearer token authentication.
 
-  defp maybe_set_token_authenticated_at(token, authenticated_at) do
-    ServiceRadarWebNG.AccountsFixtures.override_token_authenticated_at(token, authenticated_at)
+  Use this for testing API endpoints that require `:api_key_auth` pipeline.
+
+      setup :register_and_log_in_api_user
+
+  It stores an updated connection (with Authorization header) and a registered user
+  in the test context.
+  """
+  def register_and_log_in_api_user(%{conn: conn} = context) do
+    user = ServiceRadarWebNG.AccountsFixtures.user_fixture()
+    scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+    opts =
+      context
+      |> Map.take([:token_authenticated_at])
+      |> Enum.into([])
+
+    %{conn: log_in_api_user(conn, user, opts), user: user, scope: scope}
+  end
+
+  @doc """
+  Logs the given `user` into the `conn` using API bearer token authentication.
+
+  This sets the `Authorization: Bearer <token>` header for API routes
+  that use the `:api_key_auth` pipeline.
+
+  It returns an updated `conn`.
+  """
+  def log_in_api_user(conn, user, _opts \\ []) do
+    tenant_schema =
+      case Map.fetch(user.__metadata__, :tenant) do
+        {:ok, tenant} when is_binary(tenant) -> tenant
+        _ -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(user.tenant_id)
+      end
+
+    # Generate an Ash JWT token for the user
+    {:ok, token, _claims} =
+      AshAuthentication.Jwt.token_for_user(
+        user,
+        %{"tenant_id" => user.tenant_id},
+        tenant: tenant_schema
+      )
+
+    conn
+    |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
   end
 end

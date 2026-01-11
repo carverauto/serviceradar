@@ -22,8 +22,8 @@ service DiscoveryService {
 }
 
 message GetLatestCachedResultsRequest {
-  string agent_id = 1;      // ID of the agent requesting
-  string poller_id = 2;     // ID of the poller requesting
+  string agent_id = 1;       // ID of the agent requesting
+  string gateway_id = 2;     // ID of the gateway requesting
   bool include_raw_data = 3; // Whether to include raw SNMP data
   // string scope = 4; // Optional: if mapper has multiple internal scheduled jobs/scopes
 }
@@ -32,7 +32,7 @@ message GetLatestCachedResultsRequest {
 message StatusRequest {
   string discovery_id = 1;  // Optional: if provided, get status of specific discovery job
   string agent_id = 2;      // ID of the agent requesting status
-  string poller_id = 3;     // ID of the poller requesting status
+  string gateway_id = 3;    // ID of the gateway requesting status
 }
 
 // StatusResponse contains information about the discovery service status
@@ -61,7 +61,7 @@ message DiscoveryRequest {
   int32 timeout_seconds = 6;          // Timeout in seconds for each operation
   int32 retries = 7;                  // Number of retries for failed operations
   string agent_id = 8;                // ID of the agent performing discovery
-  string poller_id = 9;               // ID of the poller initiating discovery
+  string gateway_id = 9;              // ID of the gateway initiating discovery
 }
 
 // SNMPCredentials contains information needed to authenticate with SNMP devices

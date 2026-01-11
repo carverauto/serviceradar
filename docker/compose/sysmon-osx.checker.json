@@ -4,7 +4,7 @@
   "address": "${SYSMON_OSX_ADDRESS:-sysmon-osx:50110}",
   "security": {
     "mode": "spiffe",
-    "role": "poller",
+    "role": "checker",
     "cert_dir": "/etc/serviceradar/certs",
     "trust_domain": "carverauto.dev",
     "server_spiffe_id": "spiffe://carverauto.dev/ns/demo/sa/serviceradar-sysmon-osx",

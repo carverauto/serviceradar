@@ -109,7 +109,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 ## Long-Term Vision (24+ Months)
 
 ### Next-Generation Architecture
-- [ ] **BEAM VM PoC**: Proof-of-concept agent/poller implementation in Elixir or Gleam
+- [ ] **BEAM VM PoC**: Proof-of-concept agent/gateway implementation in Elixir or Gleam
   - Leverage OTP supervision trees for fault tolerance
   - Hot code reloading for zero-downtime updates
   - Distributed Erlang for cluster coordination

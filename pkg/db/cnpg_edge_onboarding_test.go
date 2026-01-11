@@ -33,10 +33,10 @@ func TestBuildEdgeOnboardingPackageArgs(t *testing.T) {
 		PackageID:              "33c687b4-900f-4b70-9c77-57bcf8a2275d",
 		Label:                  "test",
 		ComponentID:            "component-1",
-		ComponentType:          models.EdgeOnboardingComponentTypePoller,
+		ComponentType:          models.EdgeOnboardingComponentTypeGateway,
 		ParentType:             models.EdgeOnboardingComponentTypeAgent,
 		ParentID:               "parent-1",
-		PollerID:               "poller-1",
+		GatewayID:               "gateway-1",
 		Site:                   "site-a",
 		Status:                 models.EdgeOnboardingStatusActivated,
 		SecurityMode:           "mtls",
@@ -73,7 +73,7 @@ func TestBuildEdgeOnboardingPackageArgs(t *testing.T) {
 	assert.Equal(t, pkg.Label, args[1])
 	assert.Equal(t, pkg.ComponentID, args[2])
 	assert.Equal(t, string(pkg.ComponentType), args[3])
-	assert.Equal(t, pkg.PollerID, args[6])
+	assert.Equal(t, pkg.GatewayID, args[6])
 	assert.Equal(t, pkg.Site, args[7])
 	assert.Equal(t, pkg.SecurityMode, args[8])
 	assert.Equal(t, string(pkg.Status), args[9])
@@ -246,7 +246,7 @@ func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
 		"checker",
 		"agent",
 		"agent-1",
-		"edge-poller",
+		"edge-gateway",
 		"edge-site",
 		"delivered",
 		"mtls",
@@ -271,7 +271,7 @@ func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
 		(*time.Time)(nil),
 		"deleter",
 		"rotated",
-		[]byte(`{"security_mode":"mtls","poller_endpoint":"poller:50053"}`),
+		[]byte(`{"security_mode":"mtls","gateway_endpoint":"gateway:50053"}`),
 		int64(7),
 		"notes",
 	}}
@@ -286,7 +286,7 @@ func TestScanEdgeOnboardingPackageIncludesSecurityMode(t *testing.T) {
 	assert.Equal(t, models.EdgeOnboardingStatusDelivered, pkg.Status)
 	assert.Equal(t, "mtls", pkg.SecurityMode)
 	assert.Equal(t, []string{"role:edge"}, pkg.Selectors)
-	assert.JSONEq(t, `{"security_mode":"mtls","poller_endpoint":"poller:50053"}`, pkg.MetadataJSON)
+	assert.JSONEq(t, `{"security_mode":"mtls","gateway_endpoint":"gateway:50053"}`, pkg.MetadataJSON)
 	assert.Equal(t, `{"interval":30}`, pkg.CheckerConfigJSON)
 	require.NotNil(t, pkg.DeliveredAt)
 	assert.WithinDuration(t, delivered, *pkg.DeliveredAt, time.Second)

@@ -21,16 +21,40 @@ const (
 type EdgeOnboardingComponentType string
 
 const (
-	EdgeOnboardingComponentTypePoller  EdgeOnboardingComponentType = "poller"
+	EdgeOnboardingComponentTypeGateway  EdgeOnboardingComponentType = "gateway"
 	EdgeOnboardingComponentTypeAgent   EdgeOnboardingComponentType = "agent"
 	EdgeOnboardingComponentTypeChecker EdgeOnboardingComponentType = "checker"
+	EdgeOnboardingComponentTypeSync    EdgeOnboardingComponentType = "sync"
 	EdgeOnboardingComponentTypeNone    EdgeOnboardingComponentType = ""
+)
+
+// CollectorType identifies the type of data collector.
+type CollectorType string
+
+const (
+	CollectorTypeFlowgger CollectorType = "flowgger" // Syslog collector (RFC 5424, RFC 3164)
+	CollectorTypeTrapd    CollectorType = "trapd"    // SNMP trap collector (v1, v2c, v3)
+	CollectorTypeNetflow  CollectorType = "netflow"  // NetFlow/sFlow/IPFIX collector
+	CollectorTypeOtel     CollectorType = "otel"     // OpenTelemetry collector
+)
+
+// CollectorPackageStatus represents the lifecycle state of a collector package.
+type CollectorPackageStatus string
+
+const (
+	CollectorPackageStatusPending      CollectorPackageStatus = "pending"
+	CollectorPackageStatusProvisioning CollectorPackageStatus = "provisioning"
+	CollectorPackageStatusReady        CollectorPackageStatus = "ready"
+	CollectorPackageStatusDownloaded   CollectorPackageStatus = "downloaded"
+	CollectorPackageStatusInstalled    CollectorPackageStatus = "installed"
+	CollectorPackageStatusRevoked      CollectorPackageStatus = "revoked"
+	CollectorPackageStatusFailed       CollectorPackageStatus = "failed"
 )
 
 var (
 	ErrEdgeOnboardingDisabled          = errors.New("edge onboarding: service disabled")
 	ErrEdgeOnboardingInvalidRequest    = errors.New("edge onboarding: invalid request")
-	ErrEdgeOnboardingPollerConflict    = errors.New("edge onboarding: poller already provisioned")
+	ErrEdgeOnboardingGatewayConflict    = errors.New("edge onboarding: gateway already provisioned")
 	ErrEdgeOnboardingComponentConflict = errors.New("edge onboarding: component already provisioned")
 	ErrEdgeOnboardingSpireUnavailable  = errors.New("edge onboarding: spire admin unavailable")
 	ErrEdgeOnboardingDownloadRequired  = errors.New("edge onboarding: download token required")
@@ -41,7 +65,7 @@ var (
 	ErrEdgeOnboardingDecryptFailed     = errors.New("edge onboarding: decrypt failed")
 )
 
-// EdgeOnboardingPackage models the material tracked for an edge poller bootstrap.
+// EdgeOnboardingPackage models the material tracked for an edge gateway bootstrap.
 type EdgeOnboardingPackage struct {
 	PackageID              string                      `json:"package_id"`
 	Label                  string                      `json:"label"`
@@ -49,7 +73,7 @@ type EdgeOnboardingPackage struct {
 	ComponentType          EdgeOnboardingComponentType `json:"component_type"`
 	ParentType             EdgeOnboardingComponentType `json:"parent_type,omitempty"`
 	ParentID               string                      `json:"parent_id,omitempty"`
-	PollerID               string                      `json:"poller_id"`
+	GatewayID               string                      `json:"gateway_id"`
 	Site                   string                      `json:"site,omitempty"`
 	Status                 EdgeOnboardingStatus        `json:"status"`
 	SecurityMode           string                      `json:"security_mode,omitempty"`
@@ -91,7 +115,7 @@ type EdgeOnboardingEvent struct {
 
 // EdgeOnboardingListFilter allows filtering onboarding packages.
 type EdgeOnboardingListFilter struct {
-	PollerID    string
+	GatewayID    string
 	ComponentID string
 	ParentID    string
 	Statuses    []EdgeOnboardingStatus
@@ -107,7 +131,7 @@ type EdgeOnboardingCreateRequest struct {
 	ParentType         EdgeOnboardingComponentType
 	SecurityMode       string
 	ParentID           string
-	PollerID           string
+	GatewayID           string
 	Site               string
 	Selectors          []string
 	MetadataJSON       string
@@ -166,4 +190,52 @@ type EdgeTemplate struct {
 	Kind          string                      `json:"kind"`           // Component kind (e.g., "sysmon", "snmp", "rperf")
 	SecurityMode  string                      `json:"security_mode"`  // Security mode for the template (e.g., "mtls", "spire")
 	TemplateKey   string                      `json:"template_key"`   // Full KV key path (e.g., "templates/checkers/mtls/sysmon.json")
+}
+
+// CollectorPackage represents a collector deployment package with NATS credentials.
+type CollectorPackage struct {
+	PackageID              string                 `json:"package_id"`
+	TenantID               string                 `json:"tenant_id"`
+	CollectorType          CollectorType          `json:"collector_type"`
+	UserName               string                 `json:"user_name"`
+	Site                   string                 `json:"site,omitempty"`
+	Hostname               string                 `json:"hostname,omitempty"`
+	Status                 CollectorPackageStatus `json:"status"`
+	NatsCredentialID       string                 `json:"nats_credential_id,omitempty"`
+	DownloadTokenHash      string                 `json:"download_token_hash,omitempty"`
+	DownloadTokenExpiresAt time.Time              `json:"download_token_expires_at,omitempty"`
+	DownloadedAt           *time.Time             `json:"downloaded_at,omitempty"`
+	DownloadedByIP         string                 `json:"downloaded_by_ip,omitempty"`
+	InstalledAt            *time.Time             `json:"installed_at,omitempty"`
+	RevokedAt              *time.Time             `json:"revoked_at,omitempty"`
+	RevokeReason           string                 `json:"revoke_reason,omitempty"`
+	ErrorMessage           string                 `json:"error_message,omitempty"`
+	ConfigOverrides        map[string]interface{} `json:"config_overrides,omitempty"`
+	CreatedAt              time.Time              `json:"created_at"`
+	UpdatedAt              time.Time              `json:"updated_at"`
+}
+
+// NatsCredential represents a NATS user credential issued to a collector.
+type NatsCredential struct {
+	CredentialID   string        `json:"credential_id"`
+	TenantID       string        `json:"tenant_id"`
+	UserName       string        `json:"user_name"`
+	UserPublicKey  string        `json:"user_public_key"`
+	CredentialType string        `json:"credential_type"` // collector, service, admin
+	CollectorType  CollectorType `json:"collector_type,omitempty"`
+	Status         string        `json:"status"` // active, revoked, expired
+	IssuedAt       time.Time     `json:"issued_at"`
+	ExpiresAt      *time.Time    `json:"expires_at,omitempty"`
+	RevokedAt      *time.Time    `json:"revoked_at,omitempty"`
+	RevokeReason   string        `json:"revoke_reason,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// CollectorDownloadResult contains the package contents for a collector download.
+type CollectorDownloadResult struct {
+	Package         *CollectorPackage `json:"package"`
+	NatsCredsFile   string            `json:"nats_creds_file"`   // .creds file content
+	CollectorConfig string            `json:"collector_config"`  // Collector-specific config
+	MTLSBundle      []byte            `json:"mtls_bundle"`       // mTLS certificates from tenant CA
+	InstallScript   string            `json:"install_script"`    // Installation instructions
 }

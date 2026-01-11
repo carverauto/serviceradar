@@ -151,7 +151,7 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
 
     // Handle stats mode (aggregation queries)
     if let Some(raw_stats) = plan.stats.as_ref().and_then(|s| {
-        let trimmed = s.trim();
+        let trimmed = s.as_raw().trim();
         if trimmed.is_empty() {
             None
         } else {

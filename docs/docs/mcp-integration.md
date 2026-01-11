@@ -125,7 +125,7 @@ Get recent logs with simple filtering.
 
 **Parameters:**
 - `limit` (optional): Maximum results (default 100)
-- `poller_id` (optional): Filter by poller ID
+- `gateway_id` (optional): Filter by gateway ID
 
 ### Event Management Tools
 
@@ -146,7 +146,7 @@ Get alert-level events (high severity events).
 **Parameters:**
 - `limit` (optional): Maximum results (default 50)
 - `start_time` (optional): Start time filter
-- `poller_id` (optional): Filter by poller ID
+- `gateway_id` (optional): Filter by gateway ID
 
 #### `events.getEventTypes`
 Get available event types in the system.
@@ -160,7 +160,7 @@ Retrieves network sweep results with comprehensive filtering.
 - `filter` (optional): SRQL WHERE clause
 - `start_time` (optional): Start time for filtering
 - `end_time` (optional): End time for filtering
-- `poller_id` (optional): Filter by poller ID
+- `gateway_id` (optional): Filter by gateway ID
 - `network` (optional): Filter by network range
 - `limit` (optional): Maximum number of results
 
@@ -169,7 +169,7 @@ Get recent network sweeps with simple filtering.
 
 **Parameters:**
 - `limit` (optional): Maximum results (default 20)
-- `poller_id` (optional): Filter by poller ID
+- `gateway_id` (optional): Filter by gateway ID
 - `hours` (optional): Last N hours (default 24)
 
 ### SRQL Power User Tools
@@ -281,7 +281,7 @@ in:logs time:last_24h
 
 ### Aggregations
 ```text
-in:devices stats:"count() as total by poller_id" sort:total:desc
+in:devices stats:"count() as total by gateway_id" sort:total:desc
 in:activity time:last_1h stats:"count() as events by severity_id" having:"events>100"
 ```
 

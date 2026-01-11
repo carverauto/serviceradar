@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultEdgeOnboardingPackageLimit = 100
-	edgePackageProjection             = "package_id,label,component_id,component_type,parent_type,parent_id,poller_id," +
+	edgePackageProjection             = "package_id,label,component_id,component_type,parent_type,parent_id,gateway_id," +
 		"site,status,security_mode,downstream_entry_id,downstream_spiffe_id,selectors,checker_kind,checker_config_json," +
 		"join_token_ciphertext,join_token_expires_at,bundle_ciphertext,download_token_hash," +
 		"download_token_expires_at,created_by,created_at,updated_at,delivered_at,activated_at," +
@@ -73,8 +73,8 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 	argIdx := 1
 
 	if filter != nil {
-		if v := strings.TrimSpace(filter.PollerID); v != "" {
-			conditions = append(conditions, fmt.Sprintf("poller_id = $%d", argIdx))
+		if v := strings.TrimSpace(filter.GatewayID); v != "" {
+			conditions = append(conditions, fmt.Sprintf("gateway_id = $%d", argIdx))
 			args = append(args, v)
 			argIdx++
 		}
@@ -145,15 +145,15 @@ func (db *DB) ListEdgeOnboardingPackages(ctx context.Context, filter *models.Edg
 	return packages, rows.Err()
 }
 
-// ListEdgeOnboardingPollerIDs returns poller IDs with packages in the supplied statuses.
-func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error) {
+// ListEdgeOnboardingGatewayIDs returns gateway IDs with packages in the supplied statuses.
+func (db *DB) ListEdgeOnboardingGatewayIDs(ctx context.Context, statuses ...models.EdgeOnboardingStatus) ([]string, error) {
 	if !db.cnpgConfigured() {
 		return nil, ErrCNPGUnavailable
 	}
 
 	args := []interface{}{}
 	argIdx := 1
-	conditions := []string{"component_type = 'poller'"}
+	conditions := []string{"component_type = 'gateway'"}
 
 	if len(statuses) > 0 {
 		placeholders := make([]string, 0, len(statuses))
@@ -165,29 +165,29 @@ func (db *DB) ListEdgeOnboardingPollerIDs(ctx context.Context, statuses ...model
 		conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ", ")))
 	}
 
-	query := "SELECT DISTINCT poller_id FROM edge_onboarding_packages"
+	query := "SELECT DISTINCT gateway_id FROM edge_onboarding_packages"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	rows, err := db.pgPool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("%w edge onboarding poller ids: %w", ErrFailedToQuery, err)
+		return nil, fmt.Errorf("%w edge onboarding gateway ids: %w", ErrFailedToQuery, err)
 	}
 	defer rows.Close()
 
-	var pollerIDs []string
+	var gatewayIDs []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("%w edge onboarding poller id: %w", ErrFailedToScan, err)
+			return nil, fmt.Errorf("%w edge onboarding gateway id: %w", ErrFailedToScan, err)
 		}
 		if strings.TrimSpace(id) != "" {
-			pollerIDs = append(pollerIDs, id)
+			gatewayIDs = append(gatewayIDs, id)
 		}
 	}
 
-	return pollerIDs, rows.Err()
+	return gatewayIDs, rows.Err()
 }
 
 // InsertEdgeOnboardingEvent records a package event.
@@ -280,7 +280,7 @@ func scanEdgeOnboardingPackage(row pgx.Row) (*models.EdgeOnboardingPackage, erro
 		&componentType,
 		&parentType,
 		&pkg.ParentID,
-		&pkg.PollerID,
+		&pkg.GatewayID,
 		&pkg.Site,
 		&status,
 		&pkg.SecurityMode,

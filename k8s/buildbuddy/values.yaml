@@ -33,18 +33,9 @@ affinity:
 
 extraVolumes:
   - name: cache-volume
-    ephemeral:
-      volumeClaimTemplate:
-        metadata:
-          labels:
-            app.kubernetes.io/name: buildbuddy-cache
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: local-path
-          resources:
-            requests:
-              storage: 50Gi
+    hostPath:
+      path: /var/lib/buildbuddy/cache
+      type: DirectoryOrCreate
   # Mount a Docker config with auth (secret must be created separately, e.g.
   # kubectl -n buildbuddy create secret docker-registry dockerhub-auth ...).
   - name: dockerhub-auth
@@ -66,6 +57,14 @@ config:
     app_target: grpcs://remote.buildbuddy.io:443
     enable_oci: true
     default_isolation_type: oci
+    oci:
+      mounts:
+        - source: /cache
+          destination: /cache
+          type: bind
+          options:
+            - rbind
+            - rw
     local_cache_directory: /cache
     local_cache_size_bytes: 50000000000
     root_directory: /cache/remotebuilds/

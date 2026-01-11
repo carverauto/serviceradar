@@ -29,7 +29,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// CoreService exposes control-plane RPCs for pollers and agents.
+// CoreService exposes control-plane RPCs for gateways and agents.
 type CoreServiceClient interface {
 	// GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
 	GetCanonicalDevice(ctx context.Context, in *GetCanonicalDeviceRequest, opts ...grpc.CallOption) (*GetCanonicalDeviceResponse, error)
@@ -93,7 +93,7 @@ func (c *coreServiceClient) ListTemplates(ctx context.Context, in *ListTemplates
 // All implementations must embed UnimplementedCoreServiceServer
 // for forward compatibility.
 //
-// CoreService exposes control-plane RPCs for pollers and agents.
+// CoreService exposes control-plane RPCs for gateways and agents.
 type CoreServiceServer interface {
 	// GetCanonicalDevice resolves identities to canonical device records backed by the shared identity map.
 	GetCanonicalDevice(context.Context, *GetCanonicalDeviceRequest) (*GetCanonicalDeviceResponse, error)

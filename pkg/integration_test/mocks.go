@@ -93,19 +93,19 @@ func (m *MockCoreService) EXPECT() *MockCoreServiceMockRecorder {
 	return m.recorder
 }
 
-// ReportStatus mocks base method.
-func (m *MockCoreService) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+// PushStatus mocks base method.
+func (m *MockCoreService) PushStatus(ctx context.Context, req *proto.GatewayStatusRequest) (*proto.GatewayStatusResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReportStatus", ctx, req)
-	ret0, _ := ret[0].(*proto.PollerStatusResponse)
+	ret := m.ctrl.Call(m, "PushStatus", ctx, req)
+	ret0, _ := ret[0].(*proto.GatewayStatusResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ReportStatus indicates an expected call of ReportStatus.
-func (mr *MockCoreServiceMockRecorder) ReportStatus(ctx, req interface{}) *gomock.Call {
+// PushStatus indicates an expected call of PushStatus.
+func (mr *MockCoreServiceMockRecorder) PushStatus(ctx, req interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReportStatus", reflect.TypeOf((*MockCoreService)(nil).ReportStatus), ctx, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockCoreService)(nil).PushStatus), ctx, req)
 }
 
 // MockSyncService is a mock of SyncService interface.

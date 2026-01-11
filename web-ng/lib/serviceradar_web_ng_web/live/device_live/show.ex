@@ -62,9 +62,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
 
     srql_module = srql_module()
+    scope = Map.get(socket.assigns, :current_scope)
 
     {results, error, viz} =
-      case srql_module.query(query) do
+      case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => results} = resp} when is_list(results) ->
           viz =
             case Map.get(resp, "viz") do
@@ -97,10 +98,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
-    metric_sections = load_metric_sections(srql_module, uid)
-    sysmon_summary = load_sysmon_summary(srql_module, uid)
-    availability = load_availability(srql_module, uid)
-    healthcheck_summary = load_healthcheck_summary(srql_module, uid)
+    metric_sections = load_metric_sections(srql_module, uid, scope)
+    sysmon_summary = load_sysmon_summary(srql_module, uid, scope)
+    availability = load_availability(srql_module, uid, scope)
+    healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
     {:noreply,
      socket
@@ -182,7 +183,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
               <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
               <.kv_inline label="Model" value={Map.get(@device_row, "model")} />
-              <.kv_inline label="Poller" value={Map.get(@device_row, "poller_id")} mono />
+              <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
@@ -257,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       "metadata",
       "hostname",
       "ip",
-      "poller_id",
+      "gateway_id",
       "last_seen",
       "os_info",
       "version_info",
@@ -790,11 +791,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp load_metric_sections(srql_module, device_uid) do
+  defp load_metric_sections(srql_module, device_uid, scope) do
     device_uid = escape_value(device_uid)
 
     metric_section_specs()
-    |> Enum.map(&build_metric_section(srql_module, &1, device_uid))
+    |> Enum.map(&build_metric_section(srql_module, &1, device_uid, scope))
   end
 
   defp metric_section_specs do
@@ -823,7 +824,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ]
   end
 
-  defp build_metric_section(srql_module, spec, device_uid) do
+  defp build_metric_section(srql_module, spec, device_uid, scope) do
     query = metric_query(spec.entity, device_uid, spec.series)
 
     base = %{
@@ -835,7 +836,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       error: nil
     }
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
         panels = build_metric_panels(resp, results)
         %{base | panels: panels}
@@ -1190,14 +1191,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Data Loading Functions
   # ---------------------------------------------------------------------------
 
-  defp load_availability(srql_module, device_uid) do
+  defp load_availability(srql_module, device_uid, scope) do
     escaped_id = escape_value(device_uid)
 
     query =
       "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" " <>
         "time:#{@availability_window} bucket:#{@availability_bucket} agg:count sort:timestamp:asc limit:100"
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         build_availability(rows)
 
@@ -1206,7 +1207,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         fallback_query =
           "in:healthcheck_results uid:\"#{escaped_id}\" time:#{@availability_window} limit:200"
 
-        case srql_module.query(fallback_query) do
+        case srql_module.query(fallback_query, %{scope: scope}) do
           {:ok, %{"results" => rows}} when is_list(rows) ->
             build_availability_from_healthchecks(rows)
 
@@ -1292,14 +1293,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_sysmon_summary(srql_module, device_uid) do
+  defp load_sysmon_summary(srql_module, device_uid, scope) do
     escaped_id = escape_value(device_uid)
 
     # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
-    cpu_data = load_cpu_summary(srql_module, escaped_id)
-    memory_data = load_memory_summary(srql_module, escaped_id)
-    disk_data = load_disk_summary(srql_module, escaped_id)
-    icmp_rtt = load_icmp_rtt(srql_module, escaped_id)
+    cpu_data = load_cpu_summary(srql_module, escaped_id, scope)
+    memory_data = load_memory_summary(srql_module, escaped_id, scope)
+    disk_data = load_disk_summary(srql_module, escaped_id, scope)
+    icmp_rtt = load_icmp_rtt(srql_module, escaped_id, scope)
 
     has_sysmon_metrics = is_map(cpu_data) or is_map(memory_data) or disk_data != []
 
@@ -1315,10 +1316,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_cpu_summary(srql_module, escaped_id) do
+  defp load_cpu_summary(srql_module, escaped_id, scope) do
     query = "in:cpu_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:64"
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         # Get unique cores and calculate average
         values =
@@ -1345,10 +1346,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_memory_summary(srql_module, escaped_id) do
+  defp load_memory_summary(srql_module, escaped_id, scope) do
     query = "in:memory_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:4"
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
         used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
         total = extract_numeric(Map.get(row, "total_bytes"))
@@ -1366,10 +1367,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_disk_summary(srql_module, escaped_id) do
+  defp load_disk_summary(srql_module, escaped_id, scope) do
     query = "in:disk_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:24"
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         # Group by mount point and take the latest for each
         rows
@@ -1385,11 +1386,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_icmp_rtt(srql_module, escaped_id) do
+  defp load_icmp_rtt(srql_module, escaped_id, scope) do
     query =
       "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" sort:timestamp:desc limit:1"
 
-    case srql_module.query(query) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [row | _]}} when is_map(row) ->
         row
         |> Map.get("value")
@@ -1559,9 +1560,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_healthcheck_time(_), do: ""
 
-  defp load_healthcheck_summary(srql_module, device_uid) do
+  defp load_healthcheck_summary(srql_module, device_uid, scope) do
     case service_query_for_device(device_uid) do
-      {:ok, query} -> query_service_summary(srql_module, query)
+      {:ok, query} -> query_service_summary(srql_module, query, scope)
       :error -> nil
     end
   end
@@ -1574,8 +1575,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:service, "agent", agent_id} ->
         {:ok, service_query(%{"agent_id" => agent_id})}
 
-      {:service, "poller", poller_id} ->
-        {:ok, service_query(%{"poller_id" => poller_id})}
+      {:service, "gateway", gateway_id} ->
+        {:ok, service_query(%{"gateway_id" => gateway_id})}
 
       {:service, _service_type, service_id} ->
         {:ok, service_query(%{"service_name" => service_id})}
@@ -1603,8 +1604,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     "in:services " <> filter_expr <> " time:last_24h sort:timestamp:desc limit:200"
   end
 
-  defp query_service_summary(srql_module, query) do
-    case srql_module.query(query) do
+  defp query_service_summary(srql_module, query, scope) do
+    case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         build_healthcheck_summary(rows)
 

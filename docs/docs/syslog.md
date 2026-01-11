@@ -10,7 +10,7 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 1. Expose the syslog listener (`service/serviceradar-syslog`) on UDP/TCP 514. In Docker Compose, this maps to the host automatically; in Kubernetes, create a `LoadBalancer` or `NodePort`.
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
-3. Tag syslog inputs with `tenant`, `site`, or `device` metadata using the [Sync service configuration](./sync.md) so SRQL queries stay filterable.
+3. Tag syslog inputs with `tenant`, `site`, or `device` metadata using the [sync runtime configuration](./sync.md) so SRQL queries stay filterable.
 
 ## Configure Devices
 
@@ -20,8 +20,8 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 ## Event Pipeline
 
-1. The `serviceradar-flowgger` gateway accepts syslog over UDP/TCP 514 and publishes each message to the NATS JetStream stream named `events` on the `events.syslog` subject.
-2. JetStream retains the raw envelope while `serviceradar-zen` (the zen engine) consumes the same stream using the `zen-consumer` durable. The consumer appends a `.processed` suffix (for example `events.syslog.processed`) after rules execute so downstream writers can subscribe without reprocessing the original payload.
+1. The `serviceradar-flowgger` gateway accepts syslog over UDP/TCP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
+2. JetStream retains the raw envelope while `serviceradar-zen` (the zen engine) consumes the same stream using the `zen-consumer` durable. The consumer appends a `.processed` suffix (for example `logs.syslog.processed`) after rules execute so downstream writers can subscribe without reprocessing the original payload.
 3. The `serviceradar-db-event-writer` deployment reads the `.processed` subjects and batches inserts into the CNPG/Timescale tables. Because both the raw and processed subjects live in the `events` stream you can replay either layer during troubleshooting.
 
 ## Zen Rules
@@ -31,17 +31,18 @@ The default decision group for syslog chains two GoRules/zen flows that focus on
 - `strip_full_message` removes the duplicated `full_message` field that UniFi devices emit so only the structured payload remains.
 - `cef_severity` inspects the CEF header segment and maps the embedded numeric severity into the ServiceRadar priority scale (`Low`, `Medium`, `High`, `Very High`, or `Unknown`).
 
-You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered ConfigMap `k8s/demo/base/serviceradar-zen-rules.yaml`. Future releases will surface these flows in a Web UI rule builder powered by GoRules so operators can drag-and-drop additional matchers without touching JSON.
+You can inspect the JSON definitions in `packaging/zen/rules/` or the rendered ConfigMap `k8s/demo/base/serviceradar-zen-rules.yaml`. The Rule Builder UI now manages these flows without touching JSON; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
-- Rules are stored in the NATS JetStream key-value bucket `serviceradar-datasvc` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `events.syslog`.
+- Use **Settings → Events** to manage Zen normalization rules for syslog.
+- Rules are stored in the NATS JetStream key-value bucket `serviceradar-datasvc` using the key pattern `agents/<agent-id>/<stream>/<subject>/<rule>.json`. The demo agent ID is `default-agent`, stream `events`, and subject `logs.syslog`.
 - The `zen-put-rule` helper (packaged in the `serviceradar-tools` container) publishes rule updates. Launch the toolbox pod and run:
 
   ```bash
   kubectl -n demo exec deploy/serviceradar-tools -- \
     zen-put-rule --agent default-agent --stream events \
-    --subject events.syslog --rule strip_full_message \
+    --subject logs.syslog --rule strip_full_message \
     --file /etc/serviceradar/zen/rules/strip_full_message.json
   ```
 

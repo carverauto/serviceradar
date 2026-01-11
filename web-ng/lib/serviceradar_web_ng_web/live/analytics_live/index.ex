@@ -163,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp load_analytics(socket) do
     srql_module = srql_module()
+    scope = Map.get(socket.assigns, :current_scope)
 
     # Try to get metrics stats from continuous aggregation first (more efficient)
     hourly_stats = get_hourly_metrics_stats()
@@ -220,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     results =
       queries
       |> Task.async_stream(
-        fn {key, query} -> {key, srql_module.query(query)} end,
+        fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
         ordered: false,
         timeout: 30_000
       )
@@ -405,6 +406,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp extract_count_value(value) when is_integer(value), do: value
   defp extract_count_value(value) when is_float(value), do: trunc(value)
+  defp extract_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
 
   defp extract_count_value(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
@@ -427,6 +429,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp parse_count_value(value) when is_integer(value), do: value
   defp parse_count_value(value) when is_float(value), do: trunc(value)
+  defp parse_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
 
   defp parse_count_value(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do

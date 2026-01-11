@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceradar-nats-creds
+type: Opaque
+stringData:
+  platform.creds: |
+    # Replace with NATS platform account creds.
+  system.creds: |
+    # Replace with NATS system account creds.

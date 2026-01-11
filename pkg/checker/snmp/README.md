@@ -1,4 +1,4 @@
-# SNMP Poller
+# SNMP Checker
 
 ## Key Components
 

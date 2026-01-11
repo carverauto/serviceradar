@@ -28,12 +28,12 @@ import (
 
 // RperfManager defines the interface for managing rperf metrics.
 type RperfManager interface {
-	StoreRperfMetric(ctx context.Context, pollerID string, metric *models.RperfMetric, timestamp time.Time) error
-	GetRperfMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error)
+	StoreRperfMetric(ctx context.Context, gatewayID string, metric *models.RperfMetric, timestamp time.Time) error
+	GetRperfMetrics(ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]*models.RperfMetric, error)
 }
 
 // SNMPManager defines the interface for managing SNMP metrics.
 type SNMPManager interface {
 	GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]models.SNMPMetric, error)
-	StoreSNMPMetric(ctx context.Context, pollerID string, metric *models.SNMPMetric, timestamp time.Time) error
+	StoreSNMPMetric(ctx context.Context, gatewayID string, metric *models.SNMPMetric, timestamp time.Time) error
 }

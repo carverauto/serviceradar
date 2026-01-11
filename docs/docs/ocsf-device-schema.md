@@ -109,7 +109,7 @@ The `ocsf_devices` table stores discovered devices using OCSF-aligned field name
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `poller_id` | text | ServiceRadar poller that discovered/monitors this device |
+| `gateway_id` | text | ServiceRadar gateway that discovered/monitors this device |
 | `agent_id` | text | ServiceRadar agent ID |
 | `discovery_sources` | text[] | List of discovery sources (snmp, icmp, grpc, armis, etc.) |
 | `is_available` | boolean | Current availability status |
@@ -153,7 +153,7 @@ Query parameters:
 - `search` - Search hostname, IP, or device ID
 - `status` - Filter by online/offline
 - `device_type` - Filter by type name
-- `poller_id` - Filter by poller
+- `gateway_id` - Filter by gateway
 
 ### Get Device
 

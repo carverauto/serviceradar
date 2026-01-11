@@ -90,7 +90,7 @@ func TestScanCNPGTimeseriesMetric(t *testing.T) {
 			sql.NullInt32{Int32: 7, Valid: true},
 			sql.NullString{String: "default:1.2.3.4", Valid: true},
 			sql.NullString{String: "default", Valid: true},
-			sql.NullString{String: "poller-1", Valid: true},
+			sql.NullString{String: "gateway-1", Valid: true},
 		},
 	}
 
@@ -104,7 +104,7 @@ func TestScanCNPGTimeseriesMetric(t *testing.T) {
 	assert.EqualValues(t, 7, metric.IfIndex)
 	assert.Equal(t, "default:1.2.3.4", metric.DeviceID)
 	assert.Equal(t, "default", metric.Partition)
-	assert.Equal(t, "poller-1", metric.PollerID)
+	assert.Equal(t, "gateway-1", metric.GatewayID)
 	assert.JSONEq(t, `{"foo":"bar"}`, metric.Metadata)
 	assert.WithinDuration(t, now, metric.Timestamp, time.Second)
 }

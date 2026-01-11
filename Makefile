@@ -197,7 +197,57 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@cd cmd/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@echo "$(COLOR_BOLD)Running web-ng precommit$(COLOR_RESET)"
-	@cd web-ng && mix precommit
+	@ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	case "$${ENV_FILE}" in \
+	  /*|./*|../*) ;; \
+	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
+	esac; \
+	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
+	cd web-ng && mix precommit
+
+.PHONY: test-integration
+test-integration: ## Run serviceradar_core integration tests (requires SRQL/CNPG fixture)
+	@echo "$(COLOR_BOLD)Running serviceradar_core integration tests$(COLOR_RESET)"
+	@set -eu; \
+	ENV_FILE="$${ENV_FILE:-$(CURDIR)/.env}"; \
+	case "$${ENV_FILE}" in \
+	  /*|./*|../*) ;; \
+	  *) ENV_FILE="$(CURDIR)/$${ENV_FILE}" ;; \
+	esac; \
+	if [ -f "$${ENV_FILE}" ]; then set -a; . "$${ENV_FILE}"; set +a; fi; \
+	db_url="$${SERVICERADAR_TEST_DATABASE_URL:-$${SRQL_TEST_DATABASE_URL:-}}"; \
+	admin_url="$${SERVICERADAR_TEST_ADMIN_URL:-$${SRQL_TEST_ADMIN_URL:-}}"; \
+	if [ -z "$${db_url}" ]; then \
+	  if [ -n "$${CNPG_HOST:-}" ] || [ -n "$${CNPG_PASSWORD:-}" ]; then \
+	    db_host="$${CNPG_HOST:-localhost}"; \
+	    db_port="$${CNPG_PORT:-5455}"; \
+	    db_name="$${SERVICERADAR_TEST_DATABASE:-$${CNPG_DATABASE:-serviceradar}}"; \
+	    db_user="$${CNPG_USERNAME:-serviceradar}"; \
+	    db_pass="$${CNPG_PASSWORD:-}"; \
+	    db_sslmode="$${CNPG_SSL_MODE:-verify-full}"; \
+	    if [ -z "$${db_pass}" ]; then \
+	      echo "CNPG_PASSWORD is required to build the test DSN." >&2; \
+	      exit 1; \
+	    fi; \
+	    db_url="postgres://$${db_user}:$${db_pass}@$${db_host}:$${db_port}/$${db_name}?sslmode=$${db_sslmode}"; \
+	    export CNPG_TLS_SERVER_NAME="$${CNPG_TLS_SERVER_NAME:-$${db_host}}"; \
+	  fi; \
+	fi; \
+	if [ -z "$${db_url}" ]; then \
+	  echo "Set SERVICERADAR_TEST_DATABASE_URL, SRQL_TEST_DATABASE_URL, or CNPG_* env vars." >&2; \
+	  exit 1; \
+	fi; \
+	if [ -n "$${admin_url}" ]; then \
+	  export PGSSLROOTCERT="$${PGSSLROOTCERT:-$${SERVICERADAR_TEST_DATABASE_CA_CERT:-$${SRQL_TEST_DATABASE_CA_CERT:-}}}"; \
+	  export PGSSLCERT="$${PGSSLCERT:-$${SERVICERADAR_TEST_DATABASE_CERT:-$${SRQL_TEST_DATABASE_CERT:-}}}"; \
+	  export PGSSLKEY="$${PGSSLKEY:-$${SERVICERADAR_TEST_DATABASE_KEY:-$${SRQL_TEST_DATABASE_KEY:-}}}"; \
+	  ./scripts/reset-test-db.sh "$${admin_url}" "$${db_url}"; \
+	fi; \
+	export SERVICERADAR_TEST_DATABASE_URL="$${db_url}"; \
+	cd elixir/serviceradar_core; \
+	MIX_ENV=test mix deps.get; \
+	MIX_ENV=test mix ash.migrate; \
+	MIX_ENV=test mix test --include integration --no-start
 
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
@@ -271,17 +321,19 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/nats_account.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build-binaries
 build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
@@ -301,32 +353,11 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
 	@cp cmd/flowgger/target/release/flowgger bin/serviceradar-flowgger
 
-.PHONY: kodata-prep
-kodata-prep: build-web ## Prepare kodata directories
-	@echo "$(COLOR_BOLD)Preparing kodata directories$(COLOR_RESET)"
-	@mkdir -p cmd/core/.kodata
-	@cp -r pkg/core/api/web/dist cmd/core/.kodata/web
-
 # Build Debian packages
 .PHONY: deb-agent
-deb-agent: build-web ## Build the agent Debian package
+deb-agent: ## Build the agent Debian package
 	@echo "$(COLOR_BOLD)Building agent Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-
-.PHONY: deb-poller
-deb-poller: build-web ## Build the poller Debian package
-	@echo "$(COLOR_BOLD)Building poller Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
-
-.PHONY: deb-core
-deb-core: build-web ## Build the core Debian package (standard)
-	@echo "$(COLOR_BOLD)Building core Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb core
-
-.PHONY: deb-web
-deb-web: build-web ## Build the web Debian package
-	@echo "$(COLOR_BOLD)Building web Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 
 .PHONY: deb-kv
 deb-kv: ## Build the KV Debian package
@@ -337,11 +368,6 @@ deb-kv: ## Build the KV Debian package
 deb-sync: ## Build the KV Sync Debian package
 	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
-
-.PHONY: deb-core-container
-deb-core-container: build-web ## Build the core Debian package with container support
-	@echo "$(COLOR_BOLD)Building core Debian package with container support$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
 
 .PHONY: deb-dusk
 deb-dusk: ## Build the Dusk checker Debian package
@@ -379,12 +405,9 @@ deb-all: ## Build all Debian packages
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb --all
 
 .PHONY: deb-all-container
-deb-all-container: ## Build all Debian packages with container support for core
-	@echo "$(COLOR_BOLD)Building all Debian packages with container support for core$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
+deb-all-container: ## Build all Debian packages
+	@echo "$(COLOR_BOLD)Building all Debian packages$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb nats
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
@@ -396,25 +419,10 @@ deb-all-container: ## Build all Debian packages with container support for core
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon-checker
 
 # Build RPM packages
-.PHONY: rpm-core
-rpm-core: ## Build the core RPM package
-	@echo "$(COLOR_BOLD)Building core RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm core
-
 .PHONY: rpm-agent
 rpm-agent: ## Build the agent RPM package
 	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm agent
-
-.PHONY: rpm-poller
-rpm-poller: ## Build the poller RPM package
-	@echo "$(COLOR_BOLD)Building poller RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm poller
-
-.PHONY: rpm-web
-rpm-web: ## Build the web RPM package
-	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm web
 
 .PHONY: rpm-nats
 rpm-nats: ## Build the NATS RPM package
@@ -491,12 +499,6 @@ docs-deploy: ## Deploy Docusaurus website to GitHub pages
 docs-setup: ## Initial setup for Docusaurus development
 	@echo "$(COLOR_BOLD)Setting up Docusaurus development environment$(COLOR_RESET)"
 	@cd docs && pnpm install
-
-# Web UI build
-.PHONY: build-web
-build-web: ## Build the Next.js web interface
-	@echo "$(COLOR_BOLD)Legacy Next.js web build is disabled; use web-ng$(COLOR_RESET)"
-	@exit 1
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker

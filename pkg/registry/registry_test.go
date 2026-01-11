@@ -81,7 +81,7 @@ func TestProcessBatchDeviceUpdatesUpdatesStore(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:    "default:10.1.0.1",
 		IP:          "10.1.0.1",
-		PollerID:    "poller-1",
+		GatewayID:   "gateway-1",
 		AgentID:     "agent-1",
 		Source:      models.DiscoverySourceSNMP,
 		Timestamp:   ts,
@@ -102,7 +102,7 @@ func TestProcessBatchDeviceUpdatesUpdatesStore(t *testing.T) {
 	require.NotNil(t, record)
 
 	assert.Equal(t, "10.1.0.1", record.IP)
-	assert.Equal(t, "poller-1", record.PollerID)
+	assert.Equal(t, "gateway-1", record.GatewayID)
 	assert.Equal(t, "agent-1", record.AgentID)
 	assert.Equal(t, []string{"snmp"}, record.DiscoverySources)
 	assert.Equal(t, "router", record.DeviceType)
@@ -1629,8 +1629,12 @@ func TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator(t 
 	registry := NewDeviceRegistry(mockDB, testLogger, WithIdentityEngine(mockDB))
 
 	// Simulate a batch of devices like faker would generate
-	updates := make([]*models.DeviceUpdate, 100)
-	for i := 0; i < 100; i++ {
+	updateCount := 100
+	if testing.Short() {
+		updateCount = 10
+	}
+	updates := make([]*models.DeviceUpdate, updateCount)
+	for i := 0; i < updateCount; i++ {
 		updates[i] = &models.DeviceUpdate{
 			IP:          fmt.Sprintf("10.0.%d.%d", i/256, i%256),
 			DeviceID:    fmt.Sprintf("default:10.0.%d.%d", i/256, i%256),
@@ -1654,7 +1658,7 @@ func TestProcessBatchDeviceUpdates_CanonicalDeviceIDMatchesForStatsAggregator(t 
 
 	err := registry.ProcessBatchDeviceUpdates(ctx, updates)
 	require.NoError(t, err)
-	require.Len(t, published, 100, "should publish all 100 updates")
+	require.Len(t, published, updateCount, "should publish all updates")
 
 	// Verify ALL published updates would pass isCanonicalRecord check
 	nonCanonicalCount := 0
@@ -1798,15 +1802,15 @@ func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
 		IsAvailable: true,
 		LastSeen:    time.Now(),
 	}
-	pollerRecord := &DeviceRecord{
-		DeviceID:    "serviceradar:poller:docker-poller",
+	gatewayRecord := &DeviceRecord{
+		DeviceID:    "serviceradar:gateway:docker-gateway",
 		IP:          sharedIP,
 		IsAvailable: true,
 		LastSeen:    time.Now(),
 	}
 
 	reg.UpsertDeviceRecord(agentRecord)
-	reg.UpsertDeviceRecord(pollerRecord)
+	reg.UpsertDeviceRecord(gatewayRecord)
 
 	ctx := context.Background()
 
@@ -1815,10 +1819,10 @@ func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "serviceradar:agent:docker-agent", device.UID)
 
-	// Test 2: Looking up poller by ID should return poller
-	device, err = reg.GetDeviceByIDStrict(ctx, "serviceradar:poller:docker-poller")
+	// Test 2: Looking up gateway by ID should return gateway
+	device, err = reg.GetDeviceByIDStrict(ctx, "serviceradar:gateway:docker-gateway")
 	require.NoError(t, err)
-	assert.Equal(t, "serviceradar:poller:docker-poller", device.UID)
+	assert.Equal(t, "serviceradar:gateway:docker-gateway", device.UID)
 
 	// Test 3: Looking up a non-existent device ID should return ErrDeviceNotFound,
 	// NOT the first device at some IP
@@ -1832,5 +1836,5 @@ func TestGetDeviceByIDStrictAndByIP(t *testing.T) {
 	require.Len(t, devicesAtIP, 2)
 	deviceIDs := []string{devicesAtIP[0].UID, devicesAtIP[1].UID}
 	assert.Contains(t, deviceIDs, agentRecord.DeviceID)
-	assert.Contains(t, deviceIDs, pollerRecord.DeviceID)
+	assert.Contains(t, deviceIDs, gatewayRecord.DeviceID)
 }

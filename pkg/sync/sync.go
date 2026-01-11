@@ -18,19 +18,15 @@ package sync
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
-	"google.golang.org/grpc"
-
-	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
-	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -45,84 +41,56 @@ const (
 func New(
 	ctx context.Context,
 	config *Config,
-	kvClient KVClient,
 	registry map[string]IntegrationFactory,
-	grpcClient GRPCClient,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
-	return NewSimpleSyncService(ctx, config, kvClient, registry, grpcClient, log)
+	return NewSimpleSyncService(ctx, config, registry, log)
 }
 
 // NewDefault provides a production-ready constructor with default settings
 func NewDefault(ctx context.Context, config *Config, log logger.Logger) (*SimpleSyncService, error) {
-	return NewWithGRPC(ctx, config, log)
+	return createSimpleSyncService(ctx, config, log)
 }
 
-// NewWithGRPC sets up the gRPC client for production use with default integrations
-func NewWithGRPC(ctx context.Context, config *Config, log logger.Logger) (*SimpleSyncService, error) {
-	// Setup gRPC client for KV Store, if configured
-	kvClient, grpcClient, err := setupGRPCClient(ctx, config, log)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create simplified sync service
-	service, err := createSimpleSyncService(ctx, config, kvClient, grpcClient, log)
-	if err != nil {
-		if grpcClient != nil {
-			_ = grpcClient.Close()
-		}
-
-		return nil, err
-	}
-
-	return service, nil
+// NewEmbedded creates a sync service that shares an existing gateway client (agent-embedded mode).
+func NewEmbedded(
+	ctx context.Context,
+	config *Config,
+	gatewayClient *agentgateway.GatewayClient,
+	log logger.Logger,
+) (*SimpleSyncService, error) {
+	return NewSimpleSyncServiceWithMetrics(
+		ctx,
+		config,
+		defaultIntegrationRegistry(),
+		NewInMemoryMetrics(log),
+		log,
+		gatewayClient,
+	)
 }
 
 // createSimpleSyncService creates a new SimpleSyncService instance with the provided dependencies
 func createSimpleSyncService(
 	ctx context.Context,
 	config *Config,
-	kvClient KVClient,
-	grpcClient GRPCClient,
 	log logger.Logger,
 ) (*SimpleSyncService, error) {
-	serverName := getServerName(config)
-
 	return NewSimpleSyncService(
 		ctx,
 		config,
-		kvClient,
-		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
-		grpcClient,
+		defaultIntegrationRegistry(),
 		log,
 	)
 }
 
 // defaultIntegrationRegistry creates the default integration factory registry
-func defaultIntegrationRegistry(
-	kvClient proto.KVServiceClient,
-	grpcClient GRPCClient,
-	serverName string,
-) map[string]IntegrationFactory {
+func defaultIntegrationRegistry() map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig, log logger.Logger) Integration {
-			var conn *grpc.ClientConn
-
-			if grpcClient != nil {
-				conn = grpcClient.GetConnection()
-			}
-
-			return NewArmisIntegration(ctx, config, kvClient, conn, serverName, log)
+			return NewArmisIntegration(ctx, config, log)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig, log logger.Logger) Integration {
-			var conn *grpc.ClientConn
-
-			if grpcClient != nil {
-				conn = grpcClient.GetConnection()
-			}
-
-			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName, log)
+			integ := NewNetboxIntegration(ctx, config, log)
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == trueString {
 				integ.ExpandSubnets = true
 			}
@@ -132,61 +100,12 @@ func defaultIntegrationRegistry(
 	}
 }
 
-// setupGRPCClient creates a gRPC client for the KV service
-func setupGRPCClient(ctx context.Context, config *Config, log logger.Logger) (proto.KVServiceClient, GRPCClient, error) {
-	if config.KVAddress == "" {
-		return nil, nil, nil
-	}
-
-	clientCfg := ggrpc.ClientConfig{
-		Address:          config.KVAddress,
-		MaxRetries:       3,
-		Logger:           log,
-		DisableTelemetry: true,
-	}
-
-	if config.Security != nil {
-		provider, errSec := ggrpc.NewSecurityProvider(ctx, config.Security, log)
-		if errSec != nil {
-			return nil, nil, fmt.Errorf("failed to create security provider: %w", errSec)
-		}
-
-		clientCfg.SecurityProvider = provider
-	}
-
-	c, errCli := ggrpc.NewClient(ctx, clientCfg)
-	if errCli != nil {
-		if clientCfg.SecurityProvider != nil {
-			_ = clientCfg.SecurityProvider.Close()
-		}
-
-		return nil, nil, fmt.Errorf("failed to create KV gRPC client: %w", errCli)
-	}
-
-	grpcClient := GRPCClient(c)
-	kvClient := proto.NewKVServiceClient(c.GetConnection())
-
-	return kvClient, grpcClient, nil
-}
-
-// getServerName extracts the server name from config
-func getServerName(config *Config) string {
-	if config.Security != nil {
-		return config.Security.ServerName
-	}
-
-	return ""
-}
-
 // SRQL adapters removed; SRQL now handled externally.
 
-// NewArmisIntegration creates a new ArmisIntegration with a gRPC client
+// NewArmisIntegration creates a new ArmisIntegration instance.
 func NewArmisIntegration(
 	_ context.Context,
 	config *models.SourceConfig,
-	kvClient proto.KVServiceClient,
-	grpcConn *grpc.ClientConn,
-	serverName string,
 	log logger.Logger,
 ) *armis.ArmisIntegration {
 	// Extract page size if specified
@@ -217,20 +136,6 @@ func NewArmisIntegration(
 		Logger:     log,
 	}
 
-	var dataClient proto.DataServiceClient
-	if grpcConn != nil {
-		dataClient = proto.NewDataServiceClient(grpcConn)
-	}
-
-	// Create the default KV writer
-	kvWriter := &armis.DefaultKVWriter{
-		KVClient:   kvClient,
-		DataClient: dataClient,
-		ServerName: serverName,
-		AgentID:    config.AgentID,
-		Logger:     log,
-	}
-
 	// No default sweep config - the agent's file config is authoritative
 	// The sync service should only provide network updates
 
@@ -258,15 +163,10 @@ func NewArmisIntegration(
 
 	return &armis.ArmisIntegration{
 		Config:        config,
-		KVClient:      kvClient,
-		DataClient:    dataClient,
-		GRPCConn:      grpcConn,
-		ServerName:    serverName,
 		PageSize:      pageSize,
 		HTTPClient:    httpClient,
 		TokenProvider: cachedTokenProvider, // Using cached token provider
 		DeviceFetcher: defaultImpl,
-		KVWriter:      kvWriter,
 		SweeperConfig: nil, // No default config - agent's file config is authoritative
 		SweepQuerier:  nil,
 		Updater:       armisUpdater,
@@ -278,18 +178,12 @@ func NewArmisIntegration(
 func NewNetboxIntegration(
 	_ context.Context,
 	config *models.SourceConfig,
-	kvClient proto.KVServiceClient,
-	grpcConn *grpc.ClientConn,
-	serverName string,
 	log logger.Logger,
 ) *netbox.NetboxIntegration {
 	// SRQL-based Querier removed; leave nil until external SRQL available
 
 	return &netbox.NetboxIntegration{
 		Config:        config,
-		KvClient:      kvClient,
-		GrpcConn:      grpcConn,
-		ServerName:    serverName,
 		ExpandSubnets: false, // Default: treat as /32
 		Querier:       nil,
 		Logger:        log,

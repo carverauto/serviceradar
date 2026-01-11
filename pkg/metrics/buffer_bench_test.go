@@ -43,7 +43,7 @@ func NewChannelBuffer(size int) MetricStore {
 func (b *ChannelBuffer) Add(
 	timestamp time.Time,
 	responseTime int64,
-	serviceName, deviceID, partition, agentID, pollerID string) {
+	serviceName, deviceID, partition, agentID, gatewayID string) {
 	point := metricPoint{
 		timestamp:    timestamp.UnixNano(),
 		responseTime: responseTime,
@@ -51,7 +51,7 @@ func (b *ChannelBuffer) Add(
 		deviceID:     deviceID,
 		partition:    partition,
 		agentID:      agentID,
-		pollerID:     pollerID,
+		gatewayID:     gatewayID,
 	}
 
 	select {
@@ -90,13 +90,13 @@ func benchmarkBuffer(b *testing.B, buffer MetricStore) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
+			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "gateway-1")
 		}
 	})
 
 	b.Run("GetPoints", func(b *testing.B) {
 		for i := 0; i < 1000; i++ {
-			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
+			buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "gateway-1")
 		}
 
 		b.ResetTimer()
@@ -145,13 +145,13 @@ func BenchmarkImplementations(b *testing.B) {
 				b.ResetTimer()
 
 				for i := 0; i < b.N; i++ {
-					buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
+					buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "gateway-1")
 				}
 			})
 
 			b.Run("GetPoints", func(b *testing.B) {
 				for i := 0; i < 1000; i++ {
-					buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "poller-1")
+					buffer.Add(now, int64(i), "test-service", "device-1", "partition-1", "agent-1", "gateway-1")
 				}
 
 				b.ResetTimer()

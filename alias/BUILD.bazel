@@ -6,6 +6,11 @@ alias(
     actual = "//pkg/agent:agent",
 )
 
+alias(
+    name = "agentgateway",
+    actual = "//pkg/agentgateway:agentgateway",
+)
+
 # pkg/checker
 alias(
     name = "checker",
@@ -54,32 +59,6 @@ alias(
 alias(
     name = "netflow",
     actual = "//pkg/consumers/netflow:netflow",
-)
-
-# pkg/core
-alias(
-    name = "core",
-    actual = "//pkg/core:core",
-)
-
-alias(
-    name = "alerts",
-    actual = "//pkg/core/alerts:alerts",
-)
-
-alias(
-    name = "api",
-    actual = "//pkg/core/api:api",
-)
-
-alias(
-    name = "core-bootstrap",
-    actual = "//pkg/core/bootstrap:bootstrap",
-)
-
-alias(
-    name = "auth",
-    actual = "//pkg/core/auth:auth",
 )
 
 # pkg/cpufreq
@@ -159,12 +138,6 @@ alias(
     actual = "//pkg/mapper:mapper",
 )
 
-# pkg/mcp
-alias(
-    name = "mcp",
-    actual = "//pkg/mcp:mcp",
-)
-
 # pkg/metrics
 alias(
     name = "metrics",
@@ -189,16 +162,16 @@ alias(
     actual = "//pkg/monitoring:monitoring",
 )
 
+# pkg/nats
+alias(
+    name = "nats-accounts",
+    actual = "//pkg/nats/accounts:accounts",
+)
+
 # pkg/natsutil
 alias(
     name = "natsutil",
     actual = "//pkg/natsutil:natsutil",
-)
-
-# pkg/poller
-alias(
-    name = "poller",
-    actual = "//pkg/poller:poller",
 )
 
 # pkg/registry

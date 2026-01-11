@@ -196,7 +196,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 			Timeout:     timeout,
 			Retries:     jobConfig.Retries,
 			AgentID:     e.config.StreamConfig.AgentID,
-			PollerID:    e.config.StreamConfig.PollerID,
+			GatewayID:    e.config.StreamConfig.GatewayID,
 		}
 
 		// Start the job immediately
@@ -254,7 +254,7 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 	if job, exists := e.activeJobs[discoveryID]; exists {
 		job.Results.RawData["scheduled_job_name"] = name
 		job.Results.RawData["agent_id"] = params.AgentID
-		job.Results.RawData["poller_id"] = params.PollerID
+		job.Results.RawData["gateway_id"] = params.GatewayID
 	}
 
 	e.mu.RUnlock()
@@ -292,9 +292,9 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		RawData:       make(map[string]interface{}),
 	}
 
-	// Initialize RawData with AgentID and PollerID
+	// Initialize RawData with AgentID and GatewayID
 	results.RawData["agent_id"] = params.AgentID
-	results.RawData["poller_id"] = params.PollerID
+	results.RawData["gateway_id"] = params.GatewayID
 
 	job := &DiscoveryJob{
 		ID:         discoveryID,
@@ -1300,9 +1300,9 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
 
 			for _, iface := range interfaces {
-				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.GatewayID != "" {
 					iface.DeviceID = fmt.Sprintf("%s:%s:%s",
-						job.Params.AgentID, job.Params.PollerID, iface.DeviceIP)
+						job.Params.AgentID, job.Params.GatewayID, iface.DeviceIP)
 				}
 
 				job.Results.Interfaces = append(job.Results.Interfaces, iface)

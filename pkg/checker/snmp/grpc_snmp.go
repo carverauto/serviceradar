@@ -32,30 +32,30 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-type Poller struct {
+type Gateway struct {
 	Config SNMPConfig
 	mu     sync.RWMutex
 }
 
-type PollerService struct {
+type GatewayService struct {
 	proto.UnimplementedAgentServiceServer
-	checker *Poller
+	checker *Gateway
 	service *SNMPService
 	logger  logger.Logger
 }
 
-func NewSNMPPollerService(checker *Poller, service *SNMPService, log logger.Logger) *PollerService {
-	return &PollerService{checker: checker, service: service, logger: log}
+func NewSNMPGatewayService(checker *Gateway, service *SNMPService, log logger.Logger) *GatewayService {
+	return &GatewayService{checker: checker, service: service, logger: log}
 }
 
 type HealthServer struct {
 	grpc_health_v1.UnimplementedHealthServer
-	checker *Poller
+	checker *Gateway
 	logger  logger.Logger
 }
 
 // GetStatus implements the AgentService GetStatus method.
-func (s *PollerService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *GatewayService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 

@@ -170,7 +170,7 @@ type OCSFDevice struct {
 	AgentList         []OCSFAgent             `json:"agent_list,omitempty" db:"agent_list"`
 
 	// ServiceRadar-specific fields
-	PollerID         string            `json:"poller_id,omitempty" db:"poller_id"`
+	GatewayID         string            `json:"gateway_id,omitempty" db:"gateway_id"`
 	AgentID          string            `json:"agent_id,omitempty" db:"agent_id"`
 	DiscoverySources []string          `json:"discovery_sources,omitempty" db:"discovery_sources"`
 	IsAvailable      *bool             `json:"is_available,omitempty" db:"is_available"`
@@ -283,7 +283,7 @@ func (d *OCSFDevice) ToLegacyDevice() *Device {
 	device := &Device{
 		DeviceID:         d.UID,
 		AgentID:          d.AgentID,
-		PollerID:         d.PollerID,
+		GatewayID:         d.GatewayID,
 		DiscoverySources: d.DiscoverySources,
 		IP:               d.IP,
 		MAC:              d.MAC,
@@ -350,7 +350,7 @@ func NewOCSFDeviceFromUpdate(update *DeviceUpdate) *OCSFDevice {
 		ModifiedTime: now,
 		FirstSeenTime: &now,
 		LastSeenTime:  &now,
-		PollerID:     update.PollerID,
+		GatewayID:     update.GatewayID,
 		AgentID:      update.AgentID,
 		DiscoverySources: []string{string(update.Source)},
 		IsAvailable:  &update.IsAvailable,

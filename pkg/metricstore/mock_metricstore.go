@@ -43,32 +43,32 @@ func (m *MockRperfManager) EXPECT() *MockRperfManagerMockRecorder {
 }
 
 // GetRperfMetrics mocks base method.
-func (m *MockRperfManager) GetRperfMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
+func (m *MockRperfManager) GetRperfMetrics(ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRperfMetrics", ctx, pollerID, startTime, endTime)
+	ret := m.ctrl.Call(m, "GetRperfMetrics", ctx, gatewayID, startTime, endTime)
 	ret0, _ := ret[0].([]*models.RperfMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetRperfMetrics indicates an expected call of GetRperfMetrics.
-func (mr *MockRperfManagerMockRecorder) GetRperfMetrics(ctx, pollerID, startTime, endTime any) *gomock.Call {
+func (mr *MockRperfManagerMockRecorder) GetRperfMetrics(ctx, gatewayID, startTime, endTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRperfMetrics", reflect.TypeOf((*MockRperfManager)(nil).GetRperfMetrics), ctx, pollerID, startTime, endTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRperfMetrics", reflect.TypeOf((*MockRperfManager)(nil).GetRperfMetrics), ctx, gatewayID, startTime, endTime)
 }
 
 // StoreRperfMetric mocks base method.
-func (m *MockRperfManager) StoreRperfMetric(ctx context.Context, pollerID string, metric *models.RperfMetric, timestamp time.Time) error {
+func (m *MockRperfManager) StoreRperfMetric(ctx context.Context, gatewayID string, metric *models.RperfMetric, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreRperfMetric", ctx, pollerID, metric, timestamp)
+	ret := m.ctrl.Call(m, "StoreRperfMetric", ctx, gatewayID, metric, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreRperfMetric indicates an expected call of StoreRperfMetric.
-func (mr *MockRperfManagerMockRecorder) StoreRperfMetric(ctx, pollerID, metric, timestamp any) *gomock.Call {
+func (mr *MockRperfManagerMockRecorder) StoreRperfMetric(ctx, gatewayID, metric, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetric", reflect.TypeOf((*MockRperfManager)(nil).StoreRperfMetric), ctx, pollerID, metric, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetric", reflect.TypeOf((*MockRperfManager)(nil).StoreRperfMetric), ctx, gatewayID, metric, timestamp)
 }
 
 // MockSNMPManager is a mock of SNMPManager interface.
@@ -111,15 +111,15 @@ func (mr *MockSNMPManagerMockRecorder) GetSNMPMetrics(ctx, nodeID, startTime, en
 }
 
 // StoreSNMPMetric mocks base method.
-func (m *MockSNMPManager) StoreSNMPMetric(ctx context.Context, pollerID string, metric *models.SNMPMetric, timestamp time.Time) error {
+func (m *MockSNMPManager) StoreSNMPMetric(ctx context.Context, gatewayID string, metric *models.SNMPMetric, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSNMPMetric", ctx, pollerID, metric, timestamp)
+	ret := m.ctrl.Call(m, "StoreSNMPMetric", ctx, gatewayID, metric, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSNMPMetric indicates an expected call of StoreSNMPMetric.
-func (mr *MockSNMPManagerMockRecorder) StoreSNMPMetric(ctx, pollerID, metric, timestamp any) *gomock.Call {
+func (mr *MockSNMPManagerMockRecorder) StoreSNMPMetric(ctx, gatewayID, metric, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSNMPMetric", reflect.TypeOf((*MockSNMPManager)(nil).StoreSNMPMetric), ctx, pollerID, metric, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSNMPMetric", reflect.TypeOf((*MockSNMPManager)(nil).StoreSNMPMetric), ctx, gatewayID, metric, timestamp)
 }

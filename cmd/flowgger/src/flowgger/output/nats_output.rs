@@ -39,6 +39,7 @@ struct NATSConfig {
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
     tls_ca: Option<PathBuf>,
+    creds_file: Option<PathBuf>,
     connect_attempts: u32,
     connect_initial_backoff: Duration,
     connect_max_backoff: Duration,
@@ -82,6 +83,14 @@ impl NATSOutput {
         let tls_ca = cfg
             .lookup("output.nats_tls_ca_file")
             .and_then(|v| Some(PathBuf::from(v.as_str().unwrap())));
+        let creds_file = cfg.lookup("output.nats_creds_file").and_then(|v| {
+            let value = v.as_str().unwrap().trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(value))
+            }
+        });
 
         let workers = cfg
             .lookup("output.nats_threads")
@@ -114,6 +123,7 @@ impl NATSOutput {
                 tls_cert,
                 tls_key,
                 tls_ca,
+                creds_file,
                 connect_attempts,
                 connect_initial_backoff,
                 connect_max_backoff,
@@ -135,6 +145,10 @@ impl NATSWorker {
     async fn connect_once(&self) -> Result<(Client, jetstream::Context), async_nats::Error> {
         // Start with default connect options.
         let mut options = ConnectOptions::new();
+
+        if let Some(creds_file) = &self.cfg.creds_file {
+            options = options.credentials_file(creds_file).await?;
+        }
 
         // Apply CA file if provided, to verify the server's certificate.
         if let Some(ca_file) = &self.cfg.tls_ca {

@@ -95,7 +95,7 @@ func TestPublishDevice(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
@@ -122,7 +122,7 @@ func TestPublishDevice(t *testing.T) {
 	mockRegistry.EXPECT().ProcessDeviceUpdate(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, update *models.DeviceUpdate) error {
 			assert.Equal(t, config.AgentID, update.AgentID)
-			assert.Equal(t, config.PollerID, update.PollerID)
+			assert.Equal(t, config.GatewayID, update.GatewayID)
 			assert.Equal(t, device.IP, update.IP)
 			assert.Equal(t, device.MAC, *update.MAC)
 			assert.Equal(t, device.Hostname, *update.Hostname)
@@ -163,7 +163,7 @@ func TestPublishInterface(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
@@ -193,7 +193,7 @@ func TestPublishInterface(t *testing.T) {
 	mockDB.EXPECT().PublishDiscoveredInterface(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, discoveredInterface *models.DiscoveredInterface) error {
 			assert.Equal(t, config.AgentID, discoveredInterface.AgentID)
-			assert.Equal(t, config.PollerID, discoveredInterface.PollerID)
+			assert.Equal(t, config.GatewayID, discoveredInterface.GatewayID)
 			assert.Equal(t, iface.DeviceIP, discoveredInterface.DeviceIP)
 			assert.Equal(t, iface.DeviceID, discoveredInterface.DeviceID)
 			assert.Equal(t, iface.IfIndex, discoveredInterface.IfIndex)
@@ -237,7 +237,7 @@ func TestPublishTopologyLink(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
@@ -265,7 +265,7 @@ func TestPublishTopologyLink(t *testing.T) {
 	mockDB.EXPECT().PublishTopologyDiscoveryEvent(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, event *models.TopologyDiscoveryEvent) error {
 			assert.Equal(t, config.AgentID, event.AgentID)
-			assert.Equal(t, config.PollerID, event.PollerID)
+			assert.Equal(t, config.GatewayID, event.GatewayID)
 			assert.Equal(t, link.LocalDeviceIP, event.LocalDeviceIP)
 			assert.Equal(t, link.LocalDeviceID, event.LocalDeviceID)
 			assert.Equal(t, link.LocalIfIndex, event.LocalIfIndex)
@@ -307,7 +307,7 @@ func TestPublishBatchDevices(t *testing.T) {
 	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
@@ -350,7 +350,7 @@ func TestPublishBatchDevices(t *testing.T) {
 
 			// Check first device
 			assert.Equal(t, config.AgentID, updates[0].AgentID)
-			assert.Equal(t, config.PollerID, updates[0].PollerID)
+			assert.Equal(t, config.GatewayID, updates[0].GatewayID)
 			assert.Equal(t, devices[0].IP, updates[0].IP)
 			assert.Equal(t, devices[0].MAC, *updates[0].MAC)
 			assert.Equal(t, devices[0].Hostname, *updates[0].Hostname)
@@ -358,7 +358,7 @@ func TestPublishBatchDevices(t *testing.T) {
 
 			// Check second device
 			assert.Equal(t, config.AgentID, updates[1].AgentID)
-			assert.Equal(t, config.PollerID, updates[1].PollerID)
+			assert.Equal(t, config.GatewayID, updates[1].GatewayID)
 			assert.Equal(t, devices[1].IP, updates[1].IP)
 			assert.Equal(t, devices[1].MAC, *updates[1].MAC)
 			assert.Equal(t, devices[1].Hostname, *updates[1].Hostname)
@@ -387,7 +387,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
@@ -423,7 +423,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 
 			// Check first interface
 			assert.Equal(t, config.AgentID, modelInterfaces[0].AgentID)
-			assert.Equal(t, config.PollerID, modelInterfaces[0].PollerID)
+			assert.Equal(t, config.GatewayID, modelInterfaces[0].GatewayID)
 			assert.Equal(t, interfaces[0].DeviceIP, modelInterfaces[0].DeviceIP)
 			assert.Equal(t, interfaces[0].DeviceID, modelInterfaces[0].DeviceID)
 			assert.Equal(t, interfaces[0].IfIndex, modelInterfaces[0].IfIndex)
@@ -431,7 +431,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 
 			// Check second interface
 			assert.Equal(t, config.AgentID, modelInterfaces[1].AgentID)
-			assert.Equal(t, config.PollerID, modelInterfaces[1].PollerID)
+			assert.Equal(t, config.GatewayID, modelInterfaces[1].GatewayID)
 			assert.Equal(t, interfaces[1].DeviceIP, modelInterfaces[1].DeviceIP)
 			assert.Equal(t, interfaces[1].DeviceID, modelInterfaces[1].DeviceID)
 			assert.Equal(t, interfaces[1].IfIndex, modelInterfaces[1].IfIndex)
@@ -459,7 +459,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
-		PollerID: "test-poller",
+		GatewayID: "test-gateway",
 	}
 
 	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
@@ -497,7 +497,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 
 			// Check first link
 			assert.Equal(t, config.AgentID, events[0].AgentID)
-			assert.Equal(t, config.PollerID, events[0].PollerID)
+			assert.Equal(t, config.GatewayID, events[0].GatewayID)
 			assert.Equal(t, links[0].LocalDeviceIP, events[0].LocalDeviceIP)
 			assert.Equal(t, links[0].LocalDeviceID, events[0].LocalDeviceID)
 			assert.Equal(t, links[0].LocalIfIndex, events[0].LocalIfIndex)
@@ -506,7 +506,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 
 			// Check second link
 			assert.Equal(t, config.AgentID, events[1].AgentID)
-			assert.Equal(t, config.PollerID, events[1].PollerID)
+			assert.Equal(t, config.GatewayID, events[1].GatewayID)
 			assert.Equal(t, links[1].LocalDeviceIP, events[1].LocalDeviceIP)
 			assert.Equal(t, links[1].LocalDeviceID, events[1].LocalDeviceID)
 			assert.Equal(t, links[1].LocalIfIndex, events[1].LocalIfIndex)

@@ -55,8 +55,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 	switch cfg.SubCmd {
 	case "update-config":
 		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash, cfg.DBPasswordFile)
-	case "update-poller":
-		return cli.RunUpdatePoller(cfg)
+	case "update-gateway":
+		return cli.RunUpdateGateway(cfg)
 	case "generate-tls":
 		return cli.RunGenerateTLS(cfg)
 	case "generate-jwt-keys":
@@ -71,8 +71,22 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunEdgePackageToken(cfg)
 	case "edge":
 		return cli.RunEdgeCommand(cfg)
+	case "nats-bootstrap":
+		return cli.RunNatsBootstrap(cfg)
+	case "admin":
+		return dispatchAdminCommand(cfg)
 	default:
 		return runBcryptMode(cfg)
+	}
+}
+
+// dispatchAdminCommand routes admin subcommands.
+func dispatchAdminCommand(cfg *cli.CmdConfig) error {
+	switch cfg.AdminCommand {
+	case "nats":
+		return cli.RunAdminNatsCommand(cfg)
+	default:
+		return cli.ErrUnknownAdminResource(cfg.AdminCommand)
 	}
 }
 

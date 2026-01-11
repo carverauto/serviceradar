@@ -9,8 +9,8 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplatesTest do
       assert {:ok, []} = ComponentTemplates.list("checker", "mtls")
     end
 
-    test "returns empty list for poller component type" do
-      assert {:ok, []} = ComponentTemplates.list("poller", "mtls")
+    test "returns empty list for gateway component type" do
+      assert {:ok, []} = ComponentTemplates.list("gateway", "mtls")
     end
 
     test "returns empty list for insecure security mode" do
@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNG.Edge.ComponentTemplatesTest do
       types = ComponentTemplates.available_component_types()
       assert is_list(types)
       assert "checker" in types
-      assert "poller" in types
+      assert "gateway" in types
     end
   end
 

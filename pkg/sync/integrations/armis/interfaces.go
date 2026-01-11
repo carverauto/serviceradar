@@ -24,7 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SRQLQuerier,ArmisUpdater,ResultSubmitter
+//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,SRQLQuerier,ArmisUpdater,ResultSubmitter
 
 // DeviceState represents the consolidated state of a device from the unified view.
 // It's used by integrations to check for retractions.
@@ -79,9 +79,4 @@ type TokenProvider interface {
 // DeviceFetcher defines the interface for fetching devices.
 type DeviceFetcher interface {
 	FetchDevicesPage(ctx context.Context, accessToken, query string, from, length int) (*SearchResponse, error)
-}
-
-// KVWriter defines the interface for writing to KV store.
-type KVWriter interface {
-	WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error
 }

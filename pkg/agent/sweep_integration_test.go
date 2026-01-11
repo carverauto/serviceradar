@@ -79,7 +79,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "integration-test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "", // Initial call
 	}
 
@@ -109,7 +109,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "integration-test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "1", // Same as returned sequence
 	}
 
@@ -153,7 +153,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "integration-test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "1", // Previous sequence
 	}
 
@@ -188,7 +188,7 @@ func TestSweepSequencing_EndToEndIntegration(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "integration-test-agent",
-		PollerId:     "test-poller",
+		GatewayId:     "test-gateway",
 		LastSequence: "2", // Current sequence
 	}
 
@@ -249,7 +249,7 @@ func TestSweepSequencing_PerformanceReduction(t *testing.T) {
 			ServiceName:  "network_sweep",
 			ServiceType:  "sweep",
 			AgentId:      "perf-test-agent",
-			PollerId:     "test-poller",
+			GatewayId:     "test-gateway",
 			LastSequence: "1", // Keep same sequence to simulate no changes
 		}
 

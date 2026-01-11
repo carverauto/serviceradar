@@ -306,6 +306,10 @@ func TestKVManagerOverlayConfigStripsAuthSecrets(t *testing.T) {
 }
 
 func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping watch test in short mode")
+	}
+
 	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
 	store := newWatchKVStore(initialKV)
 	manager := &KVManager{client: store}
@@ -349,6 +353,10 @@ func TestKVManagerStartWatchReloadsOnAnyChange(t *testing.T) {
 }
 
 func TestKVManagerStartWatchReappliesPinnedOverlay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping watch test in short mode")
+	}
+
 	initialKV := []byte(`{"listen_addr":":8080","logging":{"level":"info"}}`)
 	store := newWatchKVStore(initialKV)
 	manager := &KVManager{client: store}

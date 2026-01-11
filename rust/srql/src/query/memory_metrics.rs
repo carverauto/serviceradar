@@ -6,7 +6,7 @@ use crate::{
     schema::memory_metrics::dsl::{
         agent_id as col_agent_id, available_bytes as col_available_bytes,
         device_id as col_device_id, host_id as col_host_id, memory_metrics,
-        partition as col_partition, poller_id as col_poller_id, timestamp as col_timestamp,
+        partition as col_partition, gateway_id as col_gateway_id, timestamp as col_timestamp,
         total_bytes as col_total_bytes, usage_percent as col_usage_percent,
         used_bytes as col_used_bytes,
     },
@@ -95,8 +95,8 @@ fn build_query(plan: &QueryPlan) -> Result<MemoryQuery<'static>> {
 
 fn apply_filter<'a>(mut query: MemoryQuery<'a>, filter: &Filter) -> Result<MemoryQuery<'a>> {
     match filter.field.as_str() {
-        "poller_id" => {
-            query = apply_text_filter!(query, filter, col_poller_id)?;
+        "gateway_id" => {
+            query = apply_text_filter!(query, filter, col_gateway_id)?;
         }
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
@@ -186,7 +186,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "poller_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
+        "gateway_id" | "agent_id" | "host_id" | "device_id" | "partition" => {
             collect_text_params(params, filter)
         }
         "usage_percent" => {
@@ -231,9 +231,9 @@ fn apply_primary_order<'a>(query: MemoryQuery<'a>, clause: &OrderClause) -> Memo
             OrderDirection::Asc => query.order(col_usage_percent.asc()),
             OrderDirection::Desc => query.order(col_usage_percent.desc()),
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => query.order(col_poller_id.asc()),
-            OrderDirection::Desc => query.order(col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => query.order(col_gateway_id.asc()),
+            OrderDirection::Desc => query.order(col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => query.order(col_device_id.asc()),
@@ -259,9 +259,9 @@ fn apply_secondary_order<'a>(query: MemoryQuery<'a>, clause: &OrderClause) -> Me
                 diesel::QueryDsl::then_order_by(query, col_usage_percent.desc())
             }
         },
-        "poller_id" => match clause.direction {
-            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_poller_id.asc()),
-            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_poller_id.desc()),
+        "gateway_id" => match clause.direction {
+            OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_gateway_id.asc()),
+            OrderDirection::Desc => diesel::QueryDsl::then_order_by(query, col_gateway_id.desc()),
         },
         "device_id" => match clause.direction {
             OrderDirection::Asc => diesel::QueryDsl::then_order_by(query, col_device_id.asc()),

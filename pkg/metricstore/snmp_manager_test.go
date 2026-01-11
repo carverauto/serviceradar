@@ -32,22 +32,22 @@ func TestSNMPManager_StoreSNMPMetric(t *testing.T) {
 	// Set up expectation for StoreMetric
 	mockDB.EXPECT().StoreMetric(
 		gomock.Any(),  // Context
-		"test-poller", // PollerID
+		"test-gateway", // GatewayID
 		gomock.Any(),  // TimeseriesMetric (use Any for simplicity, or match specific fields)
 	).Return(nil).Times(1)
 
 	// Test valid metric
-	err := manager.StoreSNMPMetric(context.Background(), "test-poller", metric, time.Now())
+	err := manager.StoreSNMPMetric(context.Background(), "test-gateway", metric, time.Now())
 	require.NoError(t, err)
 
 	// Test invalid metric
-	err = manager.StoreSNMPMetric(context.Background(), "test-poller", nil, time.Now())
+	err = manager.StoreSNMPMetric(context.Background(), "test-gateway", nil, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SNMP metric is nil")
 
 	// Test empty OIDName
 	metric.OIDName = ""
-	err = manager.StoreSNMPMetric(context.Background(), "test-poller", metric, time.Now())
+	err = manager.StoreSNMPMetric(context.Background(), "test-gateway", metric, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OIDName is empty")
 }

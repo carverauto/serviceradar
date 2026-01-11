@@ -39,6 +39,11 @@ faker:
       allowExpansion: false
       poolHeadroomPercent: 0
 
+cnpg:
+  clientCASecret: serviceradar-cnpg-client-ca
+  clientCAFromCerts: true
+  requireClientCert: true
+
 spire:
   enabled: true
   trustDomain: carverauto.dev

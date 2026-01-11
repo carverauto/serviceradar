@@ -8,7 +8,7 @@ import (
 type Device struct {
 	DeviceID         string                 `json:"device_id"`
 	AgentID          string                 `json:"agent_id"`
-	PollerID         string                 `json:"poller_id"`
+	GatewayID         string                 `json:"gateway_id"`
 	DiscoverySources []string               `json:"discovery_sources"`
 	IP               string                 `json:"ip"`
 	MAC              string                 `json:"mac,omitempty"`

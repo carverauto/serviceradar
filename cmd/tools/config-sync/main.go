@@ -75,7 +75,7 @@ func parseFlags() options {
 		templatePath = flag.String("template", "", "Optional template file to seed from when KV is empty")
 		seed         = flag.Bool("seed", true, "Write template contents to KV when the key is missing")
 		watch        = flag.Bool("watch", false, "Stay running and watch the KV key for changes")
-		role         = flag.String("role", string(models.RoleCore), "Service role for KV authentication (core, agent, poller, checker)")
+		role         = flag.String("role", string(models.RoleCore), "Service role for KV authentication (core, agent, gateway, checker)")
 	)
 	flag.Parse()
 

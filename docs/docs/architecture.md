@@ -13,10 +13,15 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 flowchart TB
     subgraph External["External Access"]
         User([User Browser])
-        EdgeAgent([Edge Agents])
     end
 
-    subgraph Cluster["Kubernetes Cluster"]
+    subgraph EdgeZone["Edge Zone (DMZ)"]
+        GA1[Go Agent<br/>Host 1 :50051]
+        GA2[Go Agent<br/>Host 2 :50051]
+        GAN[Go Agent<br/>Host N :50051]
+    end
+
+    subgraph Cluster["Kubernetes Cluster (ERTS Cluster)"]
         subgraph Ingress["Edge Layer"]
             ING[Ingress Controller]
             WEB[Web UI<br/>Phoenix :4000]
@@ -28,7 +33,7 @@ flowchart TB
         end
 
         subgraph Monitoring["Monitoring Layer"]
-            POLLER[Poller<br/>:50053]
+            GATEWAY[Gateway<br/>:50052]
             AGENT[In-Cluster Agent<br/>:50051]
         end
 
@@ -58,12 +63,14 @@ flowchart TB
     WEB -->|SSR API| CORE
     WEB -->|SRQL queries| SRQL
 
-    %% Edge agent flow
-    EdgeAgent <-->|gRPC mTLS| POLLER
+    %% Edge agent flow - gRPC only, no ERTS
+    GA1 -->|gRPC mTLS :50052| GATEWAY
+    GA2 -->|gRPC mTLS :50052| GATEWAY
+    GAN -->|gRPC mTLS :50052| GATEWAY
 
     %% Internal monitoring
-    POLLER --> CORE
-    POLLER <--> AGENT
+    GATEWAY --> CORE
+    GATEWAY <--> AGENT
 
     %% Data flow
     CORE --> CNPG
@@ -80,19 +87,39 @@ flowchart TB
 ```
 
 **Traffic flow summary:**
-- **User requests** → Ingress → Web UI (static/SSR) and Core (API)
+- **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
 - **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
-- **Edge agents** connect via gRPC mTLS to the Poller
+- **Edge agents** (Go binaries) connect via gRPC mTLS to the Gateway on port 50052
 - **NATS JetStream** provides pub/sub messaging and KV storage for all services
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
+
+### Edge Agent Architecture
+
+Edge agents are **Go binaries** that run on monitored hosts outside the Kubernetes cluster. They communicate exclusively via gRPC with mTLS:
+
+| Property | Value |
+|----------|-------|
+| **Runtime** | Go binary (not Erlang/BEAM) |
+| **Protocol** | gRPC with mTLS only |
+| **Port** | 50052 (outbound to Gateway) |
+| **Identity** | Tenant-specific X.509 certificates |
+| **ERTS Access** | None (cannot join ERTS cluster) |
+
+**Security boundaries:**
+- Edge agents **cannot** join the ERTS cluster (they are not Erlang nodes)
+- Edge agents **cannot** execute RPC calls on Core or Gateway nodes
+- Edge agents **cannot** access Horde registries or enumerate other tenants' agents
+- Edge agents **cannot** connect to the database directly
+
+For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For security properties, see [Security Architecture](./security-architecture.md).
 
 ### Cluster requirements
 
 - **Ingress**: Required for the web UI and API. Default host/class/TLS come from `helm/serviceradar/values.yaml` (`ingress.enabled=true`, `host=demo.serviceradar.cloud`, `className=nginx`, `tls.secretName=serviceradar-prod-tls`, `tls.clusterIssuer=carverauto-issuer`). If you use nginx, mirror the demo annotations (`nginx.ingress.kubernetes.io/proxy-body-size: 100m`, `proxy-buffer-size: 128k`, `proxy-buffers-number: 4`, `proxy-busy-buffers-size: 256k`, `proxy-read-timeout: 86400`, `proxy-send-timeout: 86400`, `proxy-connect-timeout: 60`) to keep SRQL streams and large asset uploads stable (`k8s/demo/prod/ingress.yaml`).
 
-- **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3×100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
+- **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3x100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
 
-- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Poller 0.5 CPU / 2Gi (`k8s/demo/base/serviceradar-core.yaml`, `serviceradar-poller.yaml`); Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
+- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Gateway 0.5 CPU / 2Gi (if deployed), Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
 
 - **Identity plane**: SPIRE server (StatefulSet) and daemonset agents must be running; services expect the workload socket at `/run/spire/sockets/agent.sock` and SPIFFE IDs derived from `spire.trustDomain` in `values.yaml`.
 
@@ -105,7 +132,7 @@ flowchart TB
 The Agent runs on each host you want to monitor and is responsible for:
 
 - Collecting service status information (process status, port availability, etc.)
-- Exposing a gRPC service on port 50051 for Pollers to query
+- Exposing a gRPC service on port 50051 for Gateways to query
 - Supporting various checker types (process, port, SNMP, etc.)
 - Running with minimal privileges for security
 
@@ -115,19 +142,19 @@ The Agent runs on each host you want to monitor and is responsible for:
 - Supports dynamic loading of checker plugins
 - Can run on constrained hardware with minimal resource usage
 
-### Poller (Monitoring Coordinator)
+### Gateway (Monitoring Coordinator)
 
-The Poller coordinates monitoring activities and is responsible for:
+The Gateway coordinates monitoring activities and is responsible for:
 
 - Querying multiple Agents at configurable intervals
 - Aggregating status data from Agents
 - Reporting status to the Core Service
-- Performing direct checks (HTTP, ICMP, etc.)
+- Dispatching check work to Agents and Checkers
 - Supporting network sweeps and discovery
 
 **Technical Details:**
-- Runs on port 50053 for gRPC communications
-- Stateless design allows multiple Pollers for high availability
+- Runs on port 50052 for gRPC communications
+- Stateless design allows multiple Gateways for high availability
 - Configurable polling intervals for different check types
 - Supports both pull-based (query) and push-based (events) monitoring
 
@@ -135,14 +162,14 @@ The Poller coordinates monitoring activities and is responsible for:
 
 The Core Service is the central component that:
 
-- Receives and processes reports from Pollers
+- Receives and processes reports from Gateways
 - Provides an internal control-plane API on port 8090
 - Triggers alerts based on configurable thresholds
 - Stores historical monitoring data
 - Manages webhook notifications
 
 **Technical Details:**
-- Exposes a gRPC service on port 50052 for Poller connections
+- Exposes a gRPC service on port 50052 for Gateway connections
 - Provides a RESTful API on port 8090 for internal services
 - Uses role-based security model
 - Implements webhook templating for flexible notifications
@@ -162,7 +189,7 @@ The Web UI provides a modern dashboard interface that:
 - Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
 - Supports responsive design for mobile and desktop
 
-### Edge Proxy (Ingress/Caddy/Nginx)
+### Edge Proxy (Ingress/Caddy)
 
 The edge proxy terminates TLS and routes user traffic:
 
@@ -171,7 +198,7 @@ The edge proxy terminates TLS and routes user traffic:
 
 ### SPIFFE Identity Plane
 
-Core, Poller, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
+Core, Gateway, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
 stack that ships with the demo kustomization and Helm chart. The SPIRE server
 StatefulSet now embeds the upstream controller manager to reconcile
 `ClusterSPIFFEID` resources and keep workload certificates synchronized. For a
@@ -189,12 +216,12 @@ The SRQL microservice executes ServiceRadar Query Language requests:
 
 ## Device Identity Canonicalization
 
-Modern environments discover the same device from multiple angles—Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Pollers learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
+Modern environments discover the same device from multiple angles - Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Gateways learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
 
 To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
 
 - **Canonical selection**: When Armis or NetBox provide a strong identifier, the registry prefers the most recent `_tp_time` entry for that identifier and treats it as the source of truth (the canonical `device_id`).
-- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Poller results land on the device the UI already knows about.
+- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Gateway results land on the device the UI already knows about.
 - **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
 
 **Note:** KV is NOT used for device identity resolution. CNPG (PostgreSQL) is the authoritative source for identity via the `device_identifiers` table. The IdentityEngine in `pkg/registry` uses strong identifiers (Armis ID, MAC, etc.) to generate deterministic `sr:` UUIDs and stores mappings in CNPG with an in-memory cache for performance.
@@ -228,8 +255,8 @@ SweepCheck[Network Sweep]
         AG --> SweepCheck
     end
     
-    subgraph "Poller Service"
-        PL[Poller<br/>Role: Client+Server<br/>:50053]
+    subgraph "Gateway Service"
+        GW[Gateway<br/>Role: Client+Server<br/>:50052]
     end
     
     subgraph "Core Service"
@@ -241,12 +268,12 @@ SweepCheck[Network Sweep]
         CL --> API
     end
     
-    %% Client connections from Poller
-    PL -->|mTLS Client| AG
-    PL -->|mTLS Client| CL
+    %% Client connections from Gateway
+    GW -->|mTLS Client| AG
+    GW -->|mTLS Client| CL
     
-    %% Server connections to Poller
-    HC1[Health Checks] -->|mTLS Client| PL
+    %% Server connections to Gateway
+    HC1[Health Checks] -->|mTLS Client| GW
     
     classDef server fill:#e1f5fe,stroke:#01579b
     classDef client fill:#f3e5f5,stroke:#4a148c
@@ -286,7 +313,29 @@ sequenceDiagram
 
 - Web-NG issues and validates JWTs; expose `https://<web-host>/auth/jwks.json` when external validators need the public keys.
 - JWTs are issued with short expirations; the Web UI rotates them server-side using the refresh token flow.
-- Downstream services (pollers, sync workers) continue to use mTLS and service credentials.
+- Downstream agents (including the embedded sync runtime) continue to use mTLS and service credentials.
+
+## Sync Discovery Flow (Push-First)
+
+Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs in a push-first mode inside the agent:
+
+- Tenant-specific integration sources are configured in the Web UI and stored in Core (Ash).
+- Agents enroll with agent-gateway via mTLS and fetch config via `GetConfig`.
+- Embedded sync updates are streamed back to agent-gateway with ResultsChunk-compatible `StreamStatus` payloads.
+- Core routes updates through DIRE before writing canonical inventory records.
+
+```mermaid
+graph TD
+    UI[Integrations UI] --> Core[(Core / Ash)]
+    Core -->|GetConfig| Gateway[Agent-Gateway]
+
+    AgentSync[Agent + Embedded Sync] -->|Hello + GetConfig| Gateway
+    AgentSync -->|StreamStatus (chunked results)| Gateway
+
+    Gateway --> Core
+    Core --> DIRE[DIRE]
+    DIRE --> Inventory[(Inventory)]
+```
 
 For deployment specifics, pair this section with the [Authentication Configuration](./auth-configuration.md) and [TLS Security](./tls-security.md) guides.
 
@@ -301,10 +350,10 @@ All components installed on separate machines for optimal security and reliabili
 ```mermaid
 graph LR
     Browser[Browser] --> WebServer[Web Server<br/>Web UI + Core]
-    WebServer --> PollerServer[Poller Server]
-    PollerServer --> AgentServer1[Host 1<br/>Agent]
-    PollerServer --> AgentServer2[Host 2<br/>Agent]
-    PollerServer --> AgentServerN[Host N<br/>Agent]
+    WebServer --> GatewayServer[Agent-Gateway]
+    GatewayServer --> AgentServer1[Host 1<br/>Agent]
+    GatewayServer --> AgentServer2[Host 2<br/>Agent]
+    GatewayServer --> AgentServerN[Host N<br/>Agent]
 ```
 
 ### Minimal Deployment
@@ -313,7 +362,7 @@ For smaller environments, components can be co-located:
 
 ```mermaid
 graph LR
-    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Poller]
+    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Gateway]
     CombinedServer --> AgentServer1[Host 1<br/>Agent]
     CombinedServer --> AgentServer2[Host 2<br/>Agent]
 ```
@@ -330,28 +379,53 @@ graph TD
     WebServer2 --> CoreServer1
     WebServer1 --> CoreServer2[Core Server 2]
     WebServer2 --> CoreServer2
-    CoreServer1 --> Poller1[Poller 1]
-    CoreServer2 --> Poller1
-    CoreServer1 --> Poller2[Poller 2]
-    CoreServer2 --> Poller2
-    Poller1 --> Agent1[Agent 1]
-    Poller1 --> Agent2[Agent 2]
-    Poller2 --> Agent1
-    Poller2 --> Agent2
+    CoreServer1 --> Gateway1[Agent-Gateway 1]
+    CoreServer2 --> Gateway1
+    CoreServer1 --> Gateway2[Agent-Gateway 2]
+    CoreServer2 --> Gateway2
+    Gateway1 --> Agent1[Agent 1]
+    Gateway1 --> Agent2[Agent 2]
+    Gateway2 --> Agent1
+    Gateway2 --> Agent2
 ```
 
 ## Network Requirements
 
 ServiceRadar uses the following network ports:
 
+### In-Cluster Ports
+
 | Component | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
 | Agent | 50051 | gRPC/TCP | Service status queries |
-| Poller | 50053 | gRPC/TCP | Health checks |
-| Core | 50052 | gRPC/TCP | Poller connections |
+| Agent-Gateway | 50052 | gRPC/TCP | Agent push ingestion (including sync results) |
+| Core | 50052 | gRPC/TCP | Core gRPC API |
 | Core | 8090 | HTTP/TCP | API (internal) |
 | Web UI | 80/443 | HTTP(S)/TCP | User interface |
 | SNMP Checker | 50054 | gRPC/TCP | SNMP status queries |
 | Dusk Checker | 50052 | gRPC/TCP | Dusk node monitoring |
 
-For more information on deploying ServiceRadar, see the [Installation Guide](./installation.md).
+### Edge Agent Ports
+
+| Direction | Port | Protocol | Purpose |
+|-----------|------|----------|---------|
+| Edge -> Agent-Gateway | 50052 | gRPC/TCP | Status + sync results (mTLS required) |
+
+### Firewall Requirements
+
+**Allow from Edge Networks:**
+
+| From | To | Port | Purpose |
+|------|-----|------|---------|
+| Edge Agent | Agent-Gateway | 50052 | gRPC mTLS |
+
+**Block from Edge Networks (by design):**
+
+| Port | Protocol | Purpose | Why Blocked |
+|------|----------|---------|-------------|
+| 4369 | TCP | EPMD | ERTS cluster discovery |
+| 9100-9155 | TCP | ERTS Distribution | Erlang RPC |
+| 5432 | TCP | PostgreSQL | Database access |
+| 8090 | TCP | Core API | Internal only |
+
+For more information on deploying ServiceRadar, see the [Installation Guide](./installation.md). For edge agent deployment, see the [Edge Agents](./edge-agents.md) documentation.

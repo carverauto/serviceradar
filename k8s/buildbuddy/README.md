@@ -27,13 +27,9 @@ resources:
 
 extraVolumes:
   - name: cache-volume
-    ephemeral:
-      volumeClaimTemplate:
-        spec:
-          storageClassName: local-path
-          resources:
-            requests:
-              storage: 50Gi
+    hostPath:
+      path: /var/lib/buildbuddy/cache
+      type: DirectoryOrCreate
 
 extraVolumeMounts:
   - name: cache-volume
@@ -53,7 +49,7 @@ config:
   - CPU: 8-16 cores (request-limit)
   - Memory: 16-32Gi (request-limit)
   - Ephemeral Storage: 20-25Gi (request-limit)
-- **Cache path**: `/cache` (50Gi generic ephemeral PVC, `local-path` storage class)
+- **Cache path**: `/cache` (hostPath `/var/lib/buildbuddy/cache` on each node)
 - **Remote builds dir**: `/cache/remotebuilds/`
 
 ### Node Affinity
@@ -137,7 +133,7 @@ If pods are being evicted due to resource pressure:
    - **Ephemeral storage exhaustion**: Ensure `resources.requests/limits.ephemeral-storage` reflect 20Gi/25Gi
    - **Memory pressure**: Adjust memory limits
    - **Disk pressure**: Check node disk usage
-3. Confirm the cache PVC is healthy: `kubectl get pvc -n buildbuddy`
+3. Confirm the cache mount is present: `kubectl exec -n buildbuddy <pod> -- ls -la /cache`
 4. Reduce resource requests/limits in `values.yaml` if needed
 5. Add node affinity to avoid problematic nodes
 6. Reduce cache size (`local_cache_size_bytes`)
@@ -145,9 +141,9 @@ If pods are being evicted due to resource pressure:
 
 ### Cache Backing Storage
 
-- Executors mount a per-pod PVC named `cache-volume` at `/cache`.
-- The PVC is defined via `extraVolumes` in `values.yaml` and requests 50Gi in the `local-path` storage class.
-- If a node runs out of disk, resize the underlying `local-path` storage or adjust `local_cache_size_bytes`.
+- Executors mount a hostPath volume named `cache-volume` at `/cache`.
+- The host path (`/var/lib/buildbuddy/cache`) is created per node and is not shared across nodes.
+- If a node runs out of disk, resize the node storage or adjust `local_cache_size_bytes`.
 
 ### Connection Issues
 

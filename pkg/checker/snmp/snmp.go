@@ -41,11 +41,11 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // parseMetadata extracts a map from a JSON string metadata
-func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
+func parseMetadata(metadataStr, metricName, gatewayID string) (map[string]interface{}, bool) {
 	if metadataStr == "" {
 		logger.Warn().
 			Str("metric_name", metricName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Empty metadata for metric")
 
 		return nil, false
@@ -57,7 +57,7 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 		logger.Error().
 			Err(err).
 			Str("metric_name", metricName).
-			Str("poller_id", pollerID).
+			Str("gateway_id", gatewayID).
 			Msg("Failed to unmarshal metadata for metric")
 
 		return nil, false
@@ -66,16 +66,16 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 	return metadata, true
 }
 
-// GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
+// GetSNMPMetrics fetches SNMP metrics from the database for a given gateway.
 func (s *MetricsManager) GetSNMPMetrics(
-	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
+	ctx context.Context, gatewayID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	logger.Info().
-		Str("poller_id", pollerID).
+		Str("gateway_id", gatewayID).
 		Time("start_time", startTime).
 		Time("end_time", endTime).
 		Msg("Fetching SNMP metrics")
 
-	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
+	metrics, err := s.db.GetMetricsByType(ctx, gatewayID, "snmp", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
@@ -93,7 +93,7 @@ func (s *MetricsManager) GetSNMPMetrics(
 		}
 
 		// Extract scale and is_delta from metadata
-		metadata, ok := parseMetadata(metrics[i].Metadata, metrics[i].Name, pollerID)
+		metadata, ok := parseMetadata(metrics[i].Metadata, metrics[i].Name, gatewayID)
 		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale

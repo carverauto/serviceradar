@@ -30,7 +30,7 @@ func TestUpsertAndGetDeviceRecord(t *testing.T) {
 	reg.UpsertDeviceRecord(&DeviceRecord{
 		DeviceID:         testDeviceID1,
 		IP:               "10.0.0.10",
-		PollerID:         "poller-a",
+		GatewayID:         "gateway-a",
 		AgentID:          "agent-a",
 		Hostname:         &hostname,
 		MAC:              &mac,

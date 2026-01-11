@@ -182,7 +182,9 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
                 multiple pattern placeholder readonly required rows size step)
 
   def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
-    errors = if Phoenix.Component.used_input?(field), do: field.errors, else: []
+    # Show errors if the field was used OR if the form has errors (e.g., after submission)
+    errors =
+      if Phoenix.Component.used_input?(field) || field.errors != [], do: field.errors, else: []
 
     assigns
     |> assign(field: nil, id: assigns.id || field.id)
@@ -428,7 +430,7 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   You can customize the size and colors of the icons by setting
   width, height, and background color classes.
 
-  Icons are extracted from the `deps/heroicons` directory and bundled within
+  Icons are extracted from `assets/vendor/heroicons` and bundled within
   your compiled app.css by the plugin in `assets/vendor/heroicons.js`.
 
   ## Examples

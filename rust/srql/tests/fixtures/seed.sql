@@ -20,7 +20,7 @@ INSERT INTO ocsf_devices (
         risk_level_id,
         risk_level,
         os,
-        poller_id,
+        gateway_id,
         agent_id,
         discovery_sources,
         is_available,
@@ -42,7 +42,7 @@ SELECT 'device-alpha',
     0,  -- Info
     'Info',
     '{"name":"IOS-XE","version":"17.9.3"}'::jsonb,
-    'poller-1',
+    'gateway-1',
     'agent-1',
     ARRAY ['sweep','armis'],
     TRUE,
@@ -65,7 +65,7 @@ SELECT 'device-beta',
     2,  -- Medium
     'Medium',
     '{"name":"NX-OS","version":"10.2(4)"}'::jsonb,
-    'poller-1',
+    'gateway-1',
     'agent-2',
     ARRAY ['armis'],
     FALSE,
@@ -88,7 +88,7 @@ SELECT 'device-gamma',
     3,  -- High
     'High',
     '{"name":"PAN-OS","version":"11.1.0"}'::jsonb,
-    'poller-2',
+    'gateway-2',
     'agent-3',
     ARRAY ['sweep'],
     TRUE,
@@ -111,7 +111,7 @@ SELECT 'device-delta',
     0,  -- Info
     'Info',
     '{"name":"IOS","version":"15.2"}'::jsonb,
-    'poller-2',
+    'gateway-2',
     'agent-3',
     ARRAY ['sweep'],
     TRUE,
@@ -120,8 +120,8 @@ FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
-INSERT INTO pollers (
-        poller_id,
+INSERT INTO gateways (
+        gateway_id,
         component_id,
         registration_source,
         status,
@@ -134,13 +134,15 @@ INSERT INTO pollers (
         is_healthy,
         agent_count,
         checker_count,
-        updated_at
+        updated_at,
+        tenant_id,
+        partition_id
     )
-SELECT 'poller-1',
+SELECT 'gateway-1',
     'comp-1',
     'manual',
     'active',
-    'spiffe://example.org/poller/1',
+    'spiffe://example.org/gateway/1',
     base.now_ts - INTERVAL '30 days',
     base.now_ts - INTERVAL '30 days',
     base.now_ts - INTERVAL '1 minute',
@@ -149,14 +151,16 @@ SELECT 'poller-1',
     true,
     10,
     50,
-    base.now_ts
+    base.now_ts,
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000010'
 FROM base
 UNION ALL
-SELECT 'poller-2',
+SELECT 'gateway-2',
     'comp-2',
     'auto',
     'active',
-    'spiffe://example.org/poller/2',
+    'spiffe://example.org/gateway/2',
     base.now_ts - INTERVAL '15 days',
     base.now_ts - INTERVAL '15 days',
     base.now_ts - INTERVAL '2 minutes',
@@ -165,14 +169,16 @@ SELECT 'poller-2',
     true,
     5,
     25,
-    base.now_ts
+    base.now_ts,
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000011'
 FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
 INSERT INTO service_status (
         timestamp,
-        poller_id,
+        gateway_id,
         agent_id,
         service_name,
         service_type,
@@ -183,7 +189,7 @@ INSERT INTO service_status (
         created_at
     )
 SELECT base.now_ts - INTERVAL '5 minutes',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'ssh',
     'ssh',
@@ -195,7 +201,7 @@ SELECT base.now_ts - INTERVAL '5 minutes',
 FROM base
 UNION ALL
 SELECT base.now_ts - INTERVAL '10 minutes',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'http',
     'http',
@@ -210,7 +216,7 @@ WITH base AS (
 )
 INSERT INTO cpu_metrics (
         timestamp,
-        poller_id,
+        gateway_id,
         agent_id,
         host_id,
         core_id,
@@ -223,7 +229,7 @@ INSERT INTO cpu_metrics (
         created_at
     )
 SELECT base.now_ts - INTERVAL '1 minute',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'host-1',
     0,
@@ -237,7 +243,7 @@ SELECT base.now_ts - INTERVAL '1 minute',
 FROM base
 UNION ALL
 SELECT base.now_ts - INTERVAL '2 minutes',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'host-1',
     1,
@@ -255,7 +261,7 @@ WITH base AS (
 )
 INSERT INTO timeseries_metrics (
         timestamp,
-        poller_id,
+        gateway_id,
         agent_id,
         metric_name,
         metric_type,
@@ -272,7 +278,7 @@ INSERT INTO timeseries_metrics (
         created_at
     )
 SELECT base.now_ts - INTERVAL '5 minutes',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'snmp.ifInOctets',
     'snmp',
@@ -290,7 +296,7 @@ SELECT base.now_ts - INTERVAL '5 minutes',
 FROM base
 UNION ALL
 SELECT base.now_ts - INTERVAL '3 minutes',
-    'poller-2',
+    'gateway-2',
     'agent-3',
     'rperf.latency_ms',
     'rperf',
@@ -308,7 +314,7 @@ SELECT base.now_ts - INTERVAL '3 minutes',
 FROM base
 UNION ALL
 SELECT base.now_ts - INTERVAL '1 minute',
-    'poller-1',
+    'gateway-1',
     'agent-1',
     'sysmon.cpu_usage',
     'sysmon',

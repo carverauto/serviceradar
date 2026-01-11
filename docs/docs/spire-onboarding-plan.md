@@ -17,11 +17,11 @@ replace ad-hoc TLS bootstrap with SPIRE-issued SVIDs.
   password before applying).
 - **Registration:** The SPIRE Controller Manager now runs as a sidecar inside
   the server StatefulSet and reconciles the `ClusterSPIFFEID` CRDs
-  (`spire-clusterspiffeid-*.yaml`) so demo workloads (core, poller, datasvc,
+  (`spire-clusterspiffeid-*.yaml`) so demo workloads (core, gateway, datasvc,
   serviceradar-agent) receive SVIDs automatically. Legacy scripts remain under
   `k8s/demo/base/spire/` for reference but are no longer part of the bootstrap
   path.
-- **Workloads:** Core/poller still read mTLS material from static ConfigMaps.
+- **Workloads:** Core/gateway still read mTLS material from static ConfigMaps.
   They do **not** request SVIDs from SPIRE, so switching them requires both an
   identity registration flow and application integration.
 
@@ -30,10 +30,10 @@ replace ad-hoc TLS bootstrap with SPIRE-issued SVIDs.
 1. **Idempotent bootstrap** – Installing SPIRE (demo, Helm, bare metal) should
    generate database credentials, stand up server/agents, and register a
    baseline set of identities without manual `kubectl exec` steps.
-2. **Zero-touch workload onboarding** – ServiceRadar services (core, poller,
+2. **Zero-touch workload onboarding** – ServiceRadar services (core, gateway,
    sync, agent tiers) should be able to request and rotate SPIFFE identities via
    environment variables only (no baked-in certificates).
-3. **Edge reachability** – Remote agents/pollers must reach the SPIRE server
+3. **Edge reachability** – Remote agents/gateways must reach the SPIRE server
    securely. Document ingress/port exposure for Kubernetes, Docker Compose, and
    bare-metal installs.
 4. **Packaging parity** – Deliver the same automation through Helm and the demo
@@ -104,7 +104,7 @@ escape hatch for non-Kubernetes installs.
    controller-manager sidecar plus CRDs/RBAC in both the demo kustomization and
    the Helm chart; declarative `ClusterSPIFFEID` resources replace the old
    bootstrap job.
-2. **SPIFFE-enabled workloads** – Core/poller/datasvc/serviceradar-agent use
+2. **SPIFFE-enabled workloads** – Core/gateway/datasvc/serviceradar-agent use
    SPIRE-issued SVIDs. Finish migrating mapper, sync, and checker deployments
    and prune legacy mTLS cert mounts once complete.
 3. **Helm parity** – ✅ Helm renders the same controller-manager resources and
@@ -127,7 +127,7 @@ escape hatch for non-Kubernetes installs.
 ## 8. Next Actions (tracked in serviceradar-52)
 
 - [x] Ship the controller-manager sidecar, CRDs, and RBAC in demo/Helm so
-      declarative `ClusterSPIFFEID` objects register core/poller/datasvc/
+      declarative `ClusterSPIFFEID` objects register core/gateway/datasvc/
       serviceradar-agent automatically.
 - [ ] Finish SPIFFE migrations for mapper/sync/checker workloads and delete
       their legacy mTLS cert mounts once tests pass.
@@ -136,11 +136,11 @@ escape hatch for non-Kubernetes installs.
 - [ ] Backfill integration coverage for KV overlay stripping and SPIFFE
       handshakes to catch regressions automatically.
 
-## 9. Nested poller SPIRE bootstrap (serviceradar-53)
+## 9. Nested gateway SPIRE bootstrap (serviceradar-53)
 
 ### Requirements recap
 
-- `serviceradar-poller` now embeds a downstream SPIRE server/agent pair. The
+- `serviceradar-gateway` now embeds a downstream SPIRE server/agent pair. The
   upstream agent (the sidecar that connects back to the cluster-level SPIRE
   server) must authenticate with a deterministic parent ID so the downstream
   registration entry is released. The previous `k8s_psat` attestation failed
@@ -150,19 +150,19 @@ escape hatch for non-Kubernetes installs.
 - We need a flow that works for:
   1. **Kubernetes demo/Helm** – fully automated, idempotent, no manual `kubectl
      exec` after deployment.
-  2. **Docker Compose / bare metal** – poller can run outside Kubernetes and
+  2. **Docker Compose / bare metal** – gateway can run outside Kubernetes and
      still obtain downstream credentials with minimal operator steps.
   3. **Edge installs** – admins should be able to issue new tokens safely if a
-     poller is reprovisioned.
+     gateway is reprovisioned.
 
 ### Proposed approach
 
-1. **Use join-token node attestation for the upstream poller agent.**
+1. **Use join-token node attestation for the upstream gateway agent.**
    - SPIRE server: enable the built-in `join_token` node attestor alongside
      `k8s_psat` (`doc/plugin_server_nodeattestor_jointoken.md`). Tokens are
      minted via `CreateJoinToken` (server Agent API) and result in deterministic
      agent SVIDs (`spiffe://<trust_domain>/spire/agent/join_token/<token>`).
-   - Poller upstream agent: switch `upstream-agent.conf` to the `join_token`
+   - Gateway upstream agent: switch `upstream-agent.conf` to the `join_token`
      plugin and load the token from `/run/spire/nested/credentials/join_token`.
      The agent CLI supports `join_token` via either the `-joinToken` flag or the
      `join_token` block in `agent.conf`.
@@ -185,12 +185,12 @@ escape hatch for non-Kubernetes installs.
 
 3. **Kubernetes automation (demo + Helm).**
    - Introduce a `Job` (or `initContainer`) that runs `serviceradar-cli spire
-     join-token --spiffe-id spiffe://carverauto.dev/ns/demo/poller-nested-spire`
-     and writes the token into a Secret (`poller-nested-spire-token`). The job
+     join-token --spiffe-id spiffe://carverauto.dev/ns/demo/gateway-nested-spire`
+     and writes the token into a Secret (`gateway-nested-spire-token`). The job
      checks whether the Secret already exists; if so, it exits successfully to
      stay idempotent. When the job recreates the Secret (e.g., after a manual
      deletion), it should also reconcile the downstream entry.
-   - Update the poller Deployment to mount the Secret into the upstream agent
+   - Update the gateway Deployment to mount the Secret into the upstream agent
      sidecar and to reference `join_token` in the config map.
    - Extend Helm values with `nestedSpire.joinToken.enabled` plus knobs for TTL,
      secret name, and optional regeneration policy. Document how to rotate the
@@ -222,7 +222,7 @@ escape hatch for non-Kubernetes installs.
   existing ServiceRadar admin auth)?
 - Should we enforce per-cluster rate limits or quotas on join-token issuance to
   mitigate abuse?
-- Do we require operators to manually approve poller tokens for federated/
+- Do we require operators to manually approve gateway tokens for federated/
   multi-tenant environments, or can the API auto-approve when scoped to a
   tenant?
 
@@ -234,11 +234,11 @@ To support remote onboarding from the ServiceRadar UI or CLI:
    existing RBAC middleware (`admin` role by default). Request body:
    ```json
    {
-     "client_spiffe_id": "spiffe://carverauto.dev/ns/demo/poller-nested-spire",
+     "client_spiffe_id": "spiffe://carverauto.dev/ns/demo/gateway-nested-spire",
      "ttl_seconds": 900,
      "register_downstream": true,
      "downstream": {
-       "spiffe_id": "spiffe://carverauto.dev/ns/demo/poller-nested-spire",
+       "spiffe_id": "spiffe://carverauto.dev/ns/demo/gateway-nested-spire",
        "selectors": [
          "unix:uid:0",
          "unix:gid:0",
@@ -264,7 +264,7 @@ To support remote onboarding from the ServiceRadar UI or CLI:
      true`, and `admin: true` when requested.
    - Validation: TTL within configurable bounds (default 10 minutes, max 24h),
      `client_spiffe_id` must match trust domain, and only whitelisted templates
-     can be issued (e.g., `/ns/<ns>/poller-nested-spire`).
+     can be issued (e.g., `/ns/<ns>/gateway-nested-spire`).
 
 2. **SPIRE access:** Core obtains a Workload API SVID and uses it to connect to
    the SPIRE server `Agent` and `Entry` gRPC services. A dedicated

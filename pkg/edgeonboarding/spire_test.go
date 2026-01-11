@@ -28,7 +28,7 @@ func TestExtractTrustDomain(t *testing.T) {
 	}{
 		{
 			name:     "valid SPIFFE ID with path",
-			spiffeID: "spiffe://carverauto.dev/ns/edge/poller-1",
+			spiffeID: "spiffe://carverauto.dev/ns/edge/gateway-1",
 			want:     "carverauto.dev",
 		},
 		{
@@ -48,7 +48,7 @@ func TestExtractTrustDomain(t *testing.T) {
 		},
 		{
 			name:     "trust domain without spiffe prefix",
-			spiffeID: "carverauto.dev/ns/edge/poller-1",
+			spiffeID: "carverauto.dev/ns/edge/gateway-1",
 			want:     "carverauto.dev",
 		},
 		{

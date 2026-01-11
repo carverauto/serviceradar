@@ -179,7 +179,7 @@ func (r *DeviceRegistry) ProcessBatchDeviceUpdates(ctx context.Context, updates 
 		scrubArmisCanonical(u)
 		r.normalizeUpdate(u)
 		deviceupdate.SanitizeMetadata(u)
-		// Allow empty IPs for service components (pollers, agents, checkers)
+		// Allow empty IPs for service components (gateways, agents, checkers)
 		// since they're identified by service-aware device IDs
 		if u.IP == "" && u.ServiceType == nil {
 			r.logger.Warn().Str("device_id", u.DeviceID).Msg("Dropping update with empty IP")
@@ -1765,7 +1765,7 @@ func (r *DeviceRegistry) normalizeUpdate(update *models.DeviceUpdate) {
 
 	// If DeviceID is completely empty, generate one
 	if update.DeviceID == "" {
-		// Check if this is a service component (poller/agent/checker)
+		// Check if this is a service component (gateway/agent/checker)
 		if update.ServiceType != nil && update.ServiceID != "" {
 			// Generate service-aware device ID: serviceradar:type:id
 			update.DeviceID = models.GenerateServiceDeviceID(*update.ServiceType, update.ServiceID)

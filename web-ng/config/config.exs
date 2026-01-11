@@ -22,20 +22,88 @@ config :serviceradar_web_ng, :scopes,
 
 config :serviceradar_web_ng,
   namespace: ServiceRadarWebNG,
-  ecto_repos: [ServiceRadarWebNG.Repo],
+  # Use ServiceRadar.Repo from serviceradar_core
+  ecto_repos: [ServiceRadar.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :serviceradar_web_ng, ServiceRadarWebNG.Repo, migration_source: "ng_schema_migrations"
+# Configure the shared repo from serviceradar_core
+# Ash manages all migrations in serviceradar_core/priv/repo/migrations/
+config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
+
+# Ash Framework Configuration
+config :serviceradar_web_ng,
+  ash_domains: [
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs
+  ]
+
+# Also register domains for serviceradar_core OTP app (domains are defined there)
+config :serviceradar_core,
+  ash_domains: [
+    ServiceRadar.Identity,
+    ServiceRadar.Inventory,
+    ServiceRadar.Infrastructure,
+    ServiceRadar.Monitoring,
+    ServiceRadar.Observability,
+    ServiceRadar.Edge,
+    ServiceRadar.Integrations,
+    ServiceRadar.Jobs
+  ]
+
+# Ash configuration
+config :ash,
+  include_embedded_source_by_default?: false,
+  default_page_type: :keyset,
+  policies: [
+    no_filter_static_forbidden_reads?: false,
+    show_policy_breakdowns?: true
+  ]
+
+# AshPostgres configuration
+config :ash_postgres,
+  manage_migrations?: true
+
+# Feature flags for Ash integration
+# Note: All Ash domains are now active by default. The ash_srql_adapter flag
+# controls whether SRQL queries for devices/gateways/agents route through Ash.
+config :serviceradar_web_ng, :feature_flags, ash_srql_adapter: true
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
-config :serviceradar_web_ng, Oban,
-  repo: ServiceRadarWebNG.Repo,
-  queues: [default: 10, maintenance: 2],
+# Oban job processing configuration
+# web-ng only processes jobs, it does NOT schedule them
+# core-elx is the Oban coordinator and handles all scheduled/cron jobs
+config :serviceradar_core, Oban,
+  repo: ServiceRadar.Repo,
+  queues: [
+    default: 10,
+    maintenance: 2,
+    # AshOban queues
+    alerts: 5,
+    service_checks: 10,
+    notifications: 5,
+    onboarding: 3,
+    events: 10,
+    sweeps: 20,
+    edge: 10,
+    integrations: 5
+  ],
   plugins: [
-    {ServiceRadarWebNG.Jobs.Scheduler, poll_interval_ms: 30_000}
+    # Keep jobs for 7 days
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+    # No Cron plugin - core-elx handles all scheduled jobs
   ],
   peer: Oban.Peers.Database
+
+# AshOban configuration
+config :ash_oban,
+  oban_name: Oban
 
 # Configure the endpoint
 config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
@@ -58,11 +126,12 @@ config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,
 config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
+# Note: The JDM editor uses monaco-editor which requires font loaders
 config :esbuild,
   version: "0.25.4",
   serviceradar_web_ng: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=. --loader:.ttf=file --loader:.woff=file --loader:.woff2=file),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -78,10 +147,18 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
+# Phoenix React Server - React rendering for components (GoRules JDM editor)
+# Bun runtime renders React components, LiveView handles the interactivity
+config :phoenix_react_server, Phoenix.React,
+  runtime: Phoenix.React.Runtime.Bun,
+  component_base: Path.expand("../assets/component", __DIR__),
+  render_timeout: 5_000,
+  cache_ttl: 60
+
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [:request_id, :event_type, :severity]
 
 # Pin Rustler temp dir to an explicitly writable path when provided by the build system
 config :rustler, :tmp_dir, System.get_env("RUSTLER_TMPDIR") || System.tmp_dir!()

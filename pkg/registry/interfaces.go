@@ -79,13 +79,13 @@ type Manager interface {
 }
 
 // ServiceManager manages the lifecycle and registration of all services
-// (pollers, agents, checkers) in the ServiceRadar system.
+// (gateways, agents, checkers) in the ServiceRadar system.
 type ServiceManager interface {
-	// RegisterPoller explicitly registers a new poller.
+	// RegisterGateway explicitly registers a new gateway.
 	// Used during edge package creation, K8s ClusterSPIFFEID creation, etc.
-	RegisterPoller(ctx context.Context, reg *PollerRegistration) error
+	RegisterGateway(ctx context.Context, reg *GatewayRegistration) error
 
-	// RegisterAgent explicitly registers a new agent under a poller.
+	// RegisterAgent explicitly registers a new agent under a gateway.
 	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
 
 	// RegisterChecker explicitly registers a new checker under an agent.
@@ -98,8 +98,8 @@ type ServiceManager interface {
 	// RecordBatchHeartbeats handles batch heartbeat updates efficiently.
 	RecordBatchHeartbeats(ctx context.Context, heartbeats []*ServiceHeartbeat) error
 
-	// GetPoller retrieves a poller by ID.
-	GetPoller(ctx context.Context, pollerID string) (*RegisteredPoller, error)
+	// GetGateway retrieves a gateway by ID.
+	GetGateway(ctx context.Context, gatewayID string) (*RegisteredGateway, error)
 
 	// GetAgent retrieves an agent by ID.
 	GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error)
@@ -107,11 +107,11 @@ type ServiceManager interface {
 	// GetChecker retrieves a checker by ID.
 	GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error)
 
-	// ListPollers retrieves all pollers matching filter.
-	ListPollers(ctx context.Context, filter *ServiceFilter) ([]*RegisteredPoller, error)
+	// ListGateways retrieves all gateways matching filter.
+	ListGateways(ctx context.Context, filter *ServiceFilter) ([]*RegisteredGateway, error)
 
-	// ListAgentsByPoller retrieves all agents under a poller.
-	ListAgentsByPoller(ctx context.Context, pollerID string) ([]*RegisteredAgent, error)
+	// ListAgentsByGateway retrieves all agents under a gateway.
+	ListAgentsByGateway(ctx context.Context, gatewayID string) ([]*RegisteredAgent, error)
 
 	// ListCheckersByAgent retrieves all checkers under an agent.
 	ListCheckersByAgent(ctx context.Context, agentID string) ([]*RegisteredChecker, error)
@@ -124,9 +124,9 @@ type ServiceManager interface {
 	// Returns the number of services marked inactive.
 	MarkInactive(ctx context.Context, threshold time.Duration) (int, error)
 
-	// IsKnownPoller checks if a poller is registered and active.
-	// Replaces the logic currently in pkg/core/pollers.go:701
-	IsKnownPoller(ctx context.Context, pollerID string) (bool, error)
+	// IsKnownGateway checks if a gateway is registered and active.
+	// Replaces the logic currently in pkg/core/gateways.go:701
+	IsKnownGateway(ctx context.Context, gatewayID string) (bool, error)
 
 	// DeleteService permanently deletes a service from the registry.
 	// This should only be called for services that are no longer needed (status: revoked, inactive, or deleted).

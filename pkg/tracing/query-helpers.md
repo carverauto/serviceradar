@@ -62,7 +62,7 @@ show otel_trace_summaries where duration_ms > 1000
 show otel_trace_summaries where error_count > 0
 
 # Find traces for specific service
-show otel_trace_summaries where root_service_name = 'serviceradar-poller'
+show otel_trace_summaries where root_service_name = 'serviceradar-agent-gateway'
 
 # Get detailed spans for a trace
 show otel_spans_enriched where trace_id = 'your_trace_id'

@@ -111,7 +111,7 @@ func run() error {
 	}
 
 	// Create and register block service
-	snmpAgentService := snmp.NewSNMPPollerService(&snmp.Poller{Config: cfg}, service, log)
+	snmpAgentService := snmp.NewSNMPGatewayService(&snmp.Gateway{Config: cfg}, service, log)
 
 	bootstrapResult.StartWatch(ctx, log, &cfg, func() {
 		log.Warn().Msg("SNMP checker config updated in KV; restart checker to apply changes")

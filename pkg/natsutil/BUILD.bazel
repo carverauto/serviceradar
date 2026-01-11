@@ -12,6 +12,7 @@ go_library(
         "//pkg/config",
         "//pkg/logger",
         "//pkg/models",
+        "//pkg/tenant",
         "@com_github_google_uuid//:uuid",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_go//jetstream",

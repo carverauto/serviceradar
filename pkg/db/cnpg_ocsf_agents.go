@@ -52,7 +52,7 @@ func (db *DB) UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord
 	const query = `
 	INSERT INTO ocsf_agents (
 		uid, name, type_id, type, version, vendor_name, uid_alt, policies,
-		poller_id, capabilities, ip,
+		gateway_id, capabilities, ip,
 		first_seen_time, last_seen_time, created_time, modified_time,
 		metadata
 	) VALUES (
@@ -69,7 +69,7 @@ func (db *DB) UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord
 		vendor_name = COALESCE(NULLIF(EXCLUDED.vendor_name, ''), ocsf_agents.vendor_name),
 		uid_alt = COALESCE(EXCLUDED.uid_alt, ocsf_agents.uid_alt),
 		policies = COALESCE(EXCLUDED.policies, ocsf_agents.policies),
-		poller_id = COALESCE(NULLIF(EXCLUDED.poller_id, ''), ocsf_agents.poller_id),
+		gateway_id = COALESCE(NULLIF(EXCLUDED.gateway_id, ''), ocsf_agents.gateway_id),
 		capabilities = CASE
 			WHEN EXCLUDED.capabilities IS NOT NULL AND array_length(EXCLUDED.capabilities, 1) > 0
 			THEN (SELECT ARRAY(SELECT DISTINCT unnest(array_cat(ocsf_agents.capabilities, EXCLUDED.capabilities))))
@@ -89,7 +89,7 @@ func (db *DB) UpsertOCSFAgent(ctx context.Context, agent *models.OCSFAgentRecord
 		agent.VendorName,
 		agent.UIDAlt,
 		policiesJSON,
-		agent.PollerID,
+		agent.GatewayID,
 		agent.Capabilities,
 		agent.IP,
 		agent.FirstSeenTime,

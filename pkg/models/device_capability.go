@@ -3,7 +3,7 @@ package models
 import "time"
 
 // DeviceCapabilityEvent captures a single capability check result emitted by a
-// poller/agent for audit purposes. Events land in the ClickHouse Stream
+// gateway/agent for audit purposes. Events land in the ClickHouse Stream
 // `device_capabilities`.
 type DeviceCapabilityEvent struct {
 	EventID       string         `json:"event_id"`

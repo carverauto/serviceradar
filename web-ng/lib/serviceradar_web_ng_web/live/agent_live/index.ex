@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   LiveView for listing OCSF agents.
 
   Displays agents registered in the ocsf_agents table with filtering
-  and pagination via SRQL queries.
+  and pagination via SRQL queries, plus live registry agents.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -26,10 +26,19 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    # Subscribe to agent registration events
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+    end
+
+    # Get tenant_id for scoping live agents
+    tenant_id = get_tenant_id(socket)
+
     {:ok,
      socket
      |> assign(:page_title, "Agents")
      |> assign(:agents, [])
+     |> assign(:live_agents, load_live_agents(tenant_id))
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("agents", default_limit: @default_limit)}
   end
@@ -78,6 +87,57 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "agents")}
   end
 
+  # Handle PubSub events for live agent updates
+  @impl true
+  def handle_info({:agent_registered, _metadata}, socket) do
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+  end
+
+  def handle_info({:agent_disconnected, _agent_id}, socket) do
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+  end
+
+  def handle_info({:agent_status_changed, _agent_id, _status}, socket) do
+    tenant_id = get_tenant_id(socket)
+    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+  end
+
+  # Catch-all for other PubSub messages
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Get tenant_id from socket assigns for scoping
+  defp get_tenant_id(socket) do
+    case socket.assigns[:current_scope] do
+      %{active_tenant: %{id: id}} when not is_nil(id) -> id
+      %{user: %{tenant_id: id}} when not is_nil(id) -> id
+      _ -> nil
+    end
+  end
+
+  defp load_live_agents(tenant_id) do
+    if is_binary(tenant_id) and tenant_id != "" do
+      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+      |> Enum.map(fn agent ->
+        %{
+          agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
+          tenant_id: Map.get(agent, :tenant_id),
+          partition_id: Map.get(agent, :partition_id),
+          gateway_node: Map.get(agent, :gateway_node),
+          capabilities: Map.get(agent, :capabilities, []),
+          status: Map.get(agent, :status, :unknown),
+          connected_at: Map.get(agent, :connected_at),
+          last_heartbeat: Map.get(agent, :last_heartbeat),
+          spiffe_identity: Map.get(agent, :spiffe_identity)
+        }
+      end)
+      |> Enum.sort_by(& &1.agent_id)
+    else
+      []
+    end
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
@@ -85,8 +145,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
-      <div class="mx-auto max-w-7xl p-6">
+      <div class="mx-auto max-w-7xl p-6 space-y-6">
+        <%!-- Live Connected Agents Section --%>
         <.ui_panel>
+          <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold">Live Agents</span>
+              <span class="badge badge-sm badge-success">{length(@live_agents)} connected</span>
+            </div>
+            <span class="text-xs text-base-content/50">Real-time gateway registry</span>
+          </div>
+          <.live_agents_table id="live-agents" agents={@live_agents} />
+        </.ui_panel>
+
+        <%!-- Database Agents Section --%>
+        <.ui_panel>
+          <div class="px-4 py-3 border-b border-base-200">
+            <span class="text-sm font-semibold">Registered Agents</span>
+          </div>
           <.agents_table id="agents" agents={@agents} />
 
           <div class="mt-4 pt-4 border-t border-base-200">
@@ -108,6 +184,122 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   attr :id, :string, required: true
   attr :agents, :list, default: []
 
+  defp live_agents_table(assigns) do
+    ~H"""
+    <div class="overflow-x-auto">
+      <table id={@id} class="table table-sm table-zebra w-full">
+        <thead>
+          <tr>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10">
+              Status
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-48">
+              Agent ID
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-32">
+              Partition
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
+              Gateway Node
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+              Capabilities
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
+              Connected
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
+              Last Heartbeat
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={@agents == []}>
+            <td colspan="7" class="text-sm text-base-content/60 py-8 text-center">
+              No live agents connected. Agents will appear here when they register with the Horde cluster.
+            </td>
+          </tr>
+
+          <%= for {agent, idx} <- Enum.with_index(@agents) do %>
+            <tr
+              id={"#{@id}-row-#{idx}"}
+              class="hover:bg-base-200/40 cursor-pointer transition-colors"
+              phx-click={JS.navigate(~p"/agents/#{agent.agent_id}")}
+            >
+              <td class="whitespace-nowrap">
+                <.status_indicator status={agent.status} />
+              </td>
+              <td
+                class="whitespace-nowrap text-xs font-mono truncate max-w-[12rem]"
+                title={agent.agent_id}
+              >
+                {agent.agent_id}
+              </td>
+              <td class="whitespace-nowrap text-xs">
+                <span :if={agent.partition_id} class="badge badge-sm badge-ghost">
+                  {agent.partition_id}
+                </span>
+                <span :if={!agent.partition_id} class="text-base-content/40">—</span>
+              </td>
+              <td
+                class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
+                title={to_string(agent.gateway_node)}
+              >
+                {format_node(agent.gateway_node)}
+              </td>
+              <td class="text-xs">
+                <.capabilities_list capabilities={agent.capabilities} />
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_datetime(agent.connected_at)}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                {format_datetime(agent.last_heartbeat)}
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  attr :status, :atom, default: :unknown
+
+  defp status_indicator(assigns) do
+    {color, label} =
+      case assigns.status do
+        :connected -> {"success", "Connected"}
+        :disconnected -> {"error", "Disconnected"}
+        :degraded -> {"warning", "Degraded"}
+        :busy -> {"info", "Busy"}
+        :draining -> {"warning", "Draining"}
+        _ -> {"ghost", "Unknown"}
+      end
+
+    assigns = assign(assigns, color: color, label: label)
+
+    ~H"""
+    <div class="flex items-center gap-1.5" title={@label}>
+      <span class={"status status-#{@color}"}></span>
+    </div>
+    """
+  end
+
+  defp format_node(nil), do: "—"
+
+  defp format_node(node) when is_atom(node),
+    do: node |> Atom.to_string() |> String.split("@") |> List.first()
+
+  defp format_node(node), do: to_string(node)
+
+  defp format_datetime(nil), do: "—"
+  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
+  defp format_datetime(_), do: "—"
+
+  attr :id, :string, required: true
+  attr :agents, :list, default: []
+
   defp agents_table(assigns) do
     ~H"""
     <div class="overflow-x-auto">
@@ -124,7 +316,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               Type
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-40">
-              Poller
+              Gateway
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
@@ -164,9 +356,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               </td>
               <td
                 class="whitespace-nowrap text-xs font-mono truncate max-w-[10rem]"
-                title={agent_poller(agent)}
+                title={agent_gateway(agent)}
               >
-                {agent_poller(agent)}
+                {agent_gateway(agent)}
               </td>
               <td class="text-xs">
                 <.capabilities_list capabilities={Map.get(agent, "capabilities", [])} />
@@ -228,8 +420,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     Map.get(agent, "name") || "—"
   end
 
-  defp agent_poller(agent) do
-    Map.get(agent, "poller_id") || "—"
+  defp agent_gateway(agent) do
+    Map.get(agent, "gateway_id") || "—"
   end
 
   defp format_timestamp(agent) do

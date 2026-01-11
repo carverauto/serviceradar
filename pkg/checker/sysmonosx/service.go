@@ -55,7 +55,7 @@ func (s *Service) GetStatus(ctx context.Context, req *proto.StatusRequest) (*pro
 		Str("service_name", req.GetServiceName()).
 		Str("service_type", req.GetServiceType()).
 		Str("agent_id", req.GetAgentId()).
-		Str("poller_id", req.GetPollerId()).
+		Str("gateway_id", req.GetGatewayId()).
 		Msg("Received sysmon-osx GetStatus request")
 
 	freqSnapshot, err := s.freqCollector(ctx)
@@ -176,7 +176,7 @@ func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*p
 		Str("service_name", req.GetServiceName()).
 		Str("service_type", req.GetServiceType()).
 		Str("agent_id", req.GetAgentId()).
-		Str("poller_id", req.GetPollerId()).
+		Str("gateway_id", req.GetGatewayId()).
 		Str("last_sequence", req.GetLastSequence()).
 		Msg("Received sysmon-osx GetResults request")
 
@@ -290,7 +290,7 @@ func (s *Service) GetResults(ctx context.Context, req *proto.ResultsRequest) (*p
 		ServiceType:     req.GetServiceType(),
 		ResponseTime:    respTime,
 		AgentId:         req.GetAgentId(),
-		PollerId:        req.GetPollerId(),
+		GatewayId:        req.GetGatewayId(),
 		Timestamp:       now.UnixNano(),
 		CurrentSequence: currentSeq,
 		HasNewData:      true, // sysmon always has fresh metrics
@@ -318,7 +318,7 @@ func (s *Service) failureResultsResponse(req *proto.ResultsRequest, start time.T
 		ServiceType:     req.GetServiceType(),
 		ResponseTime:    respTime,
 		AgentId:         req.GetAgentId(),
-		PollerId:        req.GetPollerId(),
+		GatewayId:        req.GetGatewayId(),
 		Timestamp:       time.Now().UnixNano(),
 		CurrentSequence: strconv.FormatUint(s.sequence.Add(1), 10),
 		HasNewData:      false,

@@ -1,16 +1,22 @@
 defmodule ServiceRadarWebNG.Accounts.UserNotifier do
-  @moduledoc false
+  @moduledoc """
+  Notification module for user-related emails.
+
+  Sends emails for login, confirmation, and settings updates.
+  """
 
   import Swoosh.Email
 
   alias ServiceRadarWebNG.Mailer
-  alias ServiceRadarWebNG.Accounts.User
 
   # Delivers the email using the application mailer.
   defp deliver(recipient, subject, body) do
+    # Handle both string and ci_string email types
+    recipient_string = if is_binary(recipient), do: recipient, else: to_string(recipient)
+
     email =
       new()
-      |> to(recipient)
+      |> to(recipient_string)
       |> from({"ServiceRadarWebNG", "contact@example.com"})
       |> subject(subject)
       |> text_body(body)
@@ -44,8 +50,9 @@ defmodule ServiceRadarWebNG.Accounts.UserNotifier do
   Deliver instructions to log in with a magic link.
   """
   def deliver_login_instructions(user, url) do
+    # Check if user is confirmed (works with both Ash User and maps)
     case user do
-      %User{confirmed_at: nil} -> deliver_confirmation_instructions(user, url)
+      %{confirmed_at: nil} -> deliver_confirmation_instructions(user, url)
       _ -> deliver_magic_link_instructions(user, url)
     end
   end

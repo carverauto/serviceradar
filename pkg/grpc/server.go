@@ -36,6 +36,7 @@ import (
 	grpcstats "google.golang.org/grpc/stats"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
+	"github.com/carverauto/serviceradar/pkg/tenant"
 )
 
 // ServerOption is a function type that modifies Server configuration.
@@ -94,6 +95,7 @@ func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
+			TenantInterceptor(log), // Extract tenant from mTLS cert first
 			LoggingInterceptor(log),
 			RecoveryInterceptor(log),
 		),
@@ -374,6 +376,35 @@ func RecoveryInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
 		}()
 
 		return handler(ctx, req)
+	}
+}
+
+// TenantInterceptor extracts tenant information from the peer certificate
+// and injects it into the request context for downstream use.
+func TenantInterceptor(log logger.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// Try to extract tenant from gRPC peer certificate
+		tenantInfo, err := tenant.FromGRPCContext(ctx)
+		if err != nil {
+			// No tenant info available - this is okay for non-mTLS connections
+			// or legacy clients without tenant-formatted certificates
+			log.Debug().
+				Str("method", info.FullMethod).
+				Msg("No tenant info in peer certificate, continuing without tenant context")
+			return handler(ctx, req)
+		}
+
+		// Inject tenant info into context
+		newCtx := tenant.WithContext(ctx, tenantInfo)
+
+		log.Debug().
+			Str("method", info.FullMethod).
+			Str("tenant", tenantInfo.TenantSlug).
+			Str("partition", tenantInfo.PartitionID).
+			Str("component", tenantInfo.ComponentID).
+			Msg("Tenant context injected from peer certificate")
+
+		return handler(newCtx, req)
 	}
 }
 

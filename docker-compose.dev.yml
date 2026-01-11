@@ -11,46 +11,37 @@ services:
     networks:
       - serviceradar-net
 
-  # ServiceRadar Core Service
-  core:
-    image: ghcr.io/carverauto/serviceradar-core:v1.0.53
-    container_name: serviceradar-core
-    ports:
-      - "8090:8090"  # HTTP API
-      - "50052:50052"  # gRPC (matching core.json)
-      - "9090:9090"  # Metrics (Prometheus)
-    volumes:
-      # Mount the actual config files from packaging
-      # Using core.docker.json which has the correct CNPG connection details for Docker
-      - ./packaging/core/config/core.docker.json:/etc/serviceradar/core.json:ro
-      - ./packaging/core/config/api.env:/etc/serviceradar/api.env:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - core-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
+  # ServiceRadar Core Service (Elixir)
+  # Note: This service was migrated from golang to Elixir (core-elx)
+  # For full core-elx configuration, use docker-compose.elx.yml overlay
+  core-elx:
+    build:
+      context: .
+      dockerfile: docker/compose/Dockerfile.core-elx
+    container_name: serviceradar-core-elx
+    hostname: core-elx
     environment:
-      # Wait for dependencies
-      - INIT_DB=true
-      
-      # Override api.env values if needed
-      - API_KEY=${API_KEY:-changeme}
-      - JWT_SECRET=${JWT_SECRET:-changeme}
-      - AUTH_ENABLED=${AUTH_ENABLED:-true}
-      
-      # Config source
-      - CONFIG_SOURCE=${CONFIG_SOURCE:-file}
-      - CONFIG_PATH=/etc/serviceradar/core.json
+      - CLUSTER_ENABLED=false
+      # Database configuration
+      - CNPG_HOST=cnpg
+      - CNPG_PORT=5432
+      - CNPG_DATABASE=serviceradar
+      - CNPG_USERNAME=serviceradar
+      - CNPG_PASSWORD=serviceradar
+      - CNPG_SSL_MODE=disable
+      # Feature flags
+      - SERVICERADAR_CORE_REPO_ENABLED=true
+      - SERVICERADAR_CORE_RUN_MIGRATIONS=true
+    volumes:
+      - cert-data:/etc/serviceradar/certs:ro
     depends_on:
       cert-generator:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
     networks:
       serviceradar-net:
         ipv4_address: 172.28.0.3
+        aliases:
+          - core.serviceradar
     restart: unless-stopped
 
   # Optional: Redpanda for Kafka compatibility (if needed for event streaming)
@@ -103,8 +94,6 @@ networks:
 
 volumes:
   cert-data:
-    driver: local
-  core-data:
     driver: local
   redpanda-data:
     driver: local

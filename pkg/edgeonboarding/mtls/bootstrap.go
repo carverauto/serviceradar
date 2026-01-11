@@ -79,7 +79,7 @@ type BootstrapConfig struct {
 	ServerName string
 
 	// ServiceName is the name of the service (used for cert file naming).
-	// Examples: "sysmon-osx", "agent", "poller".
+	// Examples: "sysmon-osx", "agent", "gateway".
 	ServiceName string
 
 	// Role is the security role for the service.

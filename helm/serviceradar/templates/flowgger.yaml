@@ -15,13 +15,16 @@ data:
     framing = "noop"
     partition = "default"
     nats_url = "tls://serviceradar-nats:4222"
-    nats_subject = "events.syslog"
+    nats_subject = "logs.syslog"
     nats_stream = "events"
     nats_timeout = 30000
     nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
     nats_tls_cert = "/etc/serviceradar/certs/flowgger.pem"
     nats_tls_key = "/etc/serviceradar/certs/flowgger-key.pem"
     nats_tls_skip_verify = false
+{{- if .Values.natsCreds.platform }}
+    nats_creds_file = "/etc/serviceradar/creds/platform.creds"
+{{- end }}
 
     [grpc]
     listen_addr = "0.0.0.0:50044"
@@ -112,6 +115,11 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
         - name: flowgger-data
           mountPath: /var/lib/serviceradar
         - name: logs
@@ -126,6 +134,11 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+      - name: nats-creds
+        secret:
+          name: serviceradar-nats-creds
+      {{- end }}
       - name: flowgger-data
         persistentVolumeClaim:
           claimName: serviceradar-flowgger-data
