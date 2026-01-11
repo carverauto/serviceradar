@@ -261,7 +261,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp build_device_upsert_records(resolved_updates, timestamp) do
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
-      source = update.source || "unknown"
+      source = if update.source in [nil, ""], do: "unknown", else: update.source
 
       record = %{
         uid: device_id,
@@ -296,7 +296,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
             discovery_sources:
               fragment(
-                "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL)",
+                "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL AND src <> '')",
                 d.discovery_sources
               ),
             last_seen_time: fragment("EXCLUDED.last_seen_time"),
