@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("create_package", %{"form" => params}, socket) do
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
-    if form.source.valid? do
+    if AshPhoenix.Form.valid?(form) do
       # Show loading state while creating package and generating certificates
       socket = assign(socket, :creating, true)
 
@@ -950,10 +950,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       domain: ServiceRadar.Edge,
       tenant: tenant,
       transform_params: fn _form, params, _action ->
-        # Convert component_type string to atom if needed
+        # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params =
           case params["component_type"] do
-            type when is_binary(type) and type != "" ->
+            type when type in ["gateway", "agent", "checker", "sync"] ->
               Map.put(params, "component_type", String.to_existing_atom(type))
 
             _ ->

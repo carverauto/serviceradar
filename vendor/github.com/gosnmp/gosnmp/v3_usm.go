@@ -432,7 +432,7 @@ func hashPassword(hash hash.Hash, password string) ([]byte, error) {
 	var pi int // password index
 	for i := 0; i < 1048576; i += 64 {
 		var chunk []byte
-		for e := 0; e < 64; e++ {
+		for range 64 {
 			chunk = append(chunk, password[pi%len(password)])
 			pi++
 		}
@@ -600,10 +600,10 @@ func genlocalkey(authProtocol SnmpV3AuthProtocol, passphrase string, engineID st
 
 // http://tools.ietf.org/html/rfc2574#section-8.1.1.1
 // localDESSalt needs to be incremented on every packet.
-func (sp *UsmSecurityParameters) usmAllocateNewSalt() interface{} {
+func (sp *UsmSecurityParameters) usmAllocateNewSalt() any {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	var newSalt interface{}
+	var newSalt any
 
 	switch sp.PrivacyProtocol {
 	case AES, AES192, AES256, AES192C, AES256C:
@@ -614,7 +614,7 @@ func (sp *UsmSecurityParameters) usmAllocateNewSalt() interface{} {
 	return newSalt
 }
 
-func (sp *UsmSecurityParameters) usmSetSalt(newSalt interface{}) error {
+func (sp *UsmSecurityParameters) usmSetSalt(newSalt any) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	switch sp.PrivacyProtocol {
@@ -737,9 +737,9 @@ func digestRFC3414(h SnmpV3AuthProtocol, packet []byte, authKey []byte) ([]byte,
 		h2 = sha1.New() //nolint:gosec
 	}
 
-	for i := 0; i < 64; i++ {
-		k1[i] = extkey[i] ^ 0x36
-		k2[i] = extkey[i] ^ 0x5c
+	for i := range 64 {
+		k1[i] = extkey[i] ^ 0x36 //nolint:gosec
+		k2[i] = extkey[i] ^ 0x5c //nolint:gosec
 	}
 
 	_, err = h1.Write(k1[:])
@@ -824,6 +824,7 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 		if err != nil {
 			return nil, err
 		}
+		//nolint:staticcheck // RFC3826 Section 3.1.1.1 specifies CFB-128 mode for AES
 		stream := cipher.NewCFBEncrypter(block, iv[:])
 		ciphertext := make([]byte, len(scopedPdu))
 		stream.XORKeyStream(ciphertext, scopedPdu)
@@ -836,8 +837,8 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 	case DES:
 		preiv := sp.PrivacyKey[8:]
 		var iv [8]byte
-		for i := 0; i < len(iv); i++ {
-			iv[i] = preiv[i] ^ sp.PrivacyParameters[i]
+		for i := range len(iv) {
+			iv[i] = preiv[i] ^ sp.PrivacyParameters[i] //nolint:gosec
 		}
 		block, err := des.NewCipher(sp.PrivacyKey[:8]) //nolint:gosec
 		if err != nil {
@@ -882,6 +883,7 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 		if err != nil {
 			return nil, err
 		}
+		//nolint:staticcheck // RFC3826 Section 3.1.1.1 specifies CFB-128 mode for AES
 		stream := cipher.NewCFBDecrypter(block, iv[:])
 		plaintext := make([]byte, len(packet[cursorTmp:]))
 		stream.XORKeyStream(plaintext, packet[cursorTmp:])
@@ -893,8 +895,8 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 		}
 		preiv := sp.PrivacyKey[8:]
 		var iv [8]byte
-		for i := 0; i < len(iv); i++ {
-			iv[i] = preiv[i] ^ sp.PrivacyParameters[i]
+		for i := range len(iv) {
+			iv[i] = preiv[i] ^ sp.PrivacyParameters[i] //nolint:gosec
 		}
 		block, err := des.NewCipher(sp.PrivacyKey[:8]) //nolint:gosec
 		if err != nil {

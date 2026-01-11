@@ -221,32 +221,47 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     {:noreply, assign(socket, :form_queries, queries)}
   end
 
-  def handle_event("remove_query", %{"id" => id}, socket) do
-    id = String.to_integer(id)
-    queries = Enum.reject(socket.assigns.form_queries, &(&1["id"] == id))
-    # Ensure at least one query remains
-    queries = if queries == [], do: [default_query()], else: queries
-    {:noreply, assign(socket, :form_queries, queries)}
+  def handle_event("remove_query", %{"id" => id_str}, socket) do
+    case Integer.parse(id_str) do
+      {id, ""} ->
+        queries = Enum.reject(socket.assigns.form_queries, &(&1["id"] == id))
+        # Ensure at least one query remains
+        queries = if queries == [], do: [default_query()], else: queries
+        {:noreply, assign(socket, :form_queries, queries)}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_event("update_query", %{"id" => id, "field" => field, "value" => value}, socket) do
-    id = String.to_integer(id)
+  def handle_event("update_query", %{"id" => id_str, "field" => field, "value" => value}, socket) do
+    case Integer.parse(id_str) do
+      {id, ""} ->
+        queries = update_query_field(socket.assigns.form_queries, id, field, value)
+        {:noreply, assign(socket, :form_queries, queries)}
 
-    queries =
-      Enum.map(socket.assigns.form_queries, fn q ->
-        if q["id"] == id, do: Map.put(q, field, value), else: q
-      end)
-
-    {:noreply, assign(socket, :form_queries, queries)}
+      _ ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_event("toggle_sweep_mode", %{"id" => id, "mode" => mode}, socket) do
-    id = String.to_integer(id)
+  defp update_query_field(queries, id, field, value) do
+    Enum.map(queries, fn q ->
+      if q["id"] == id, do: Map.put(q, field, value), else: q
+    end)
+  end
 
-    queries =
-      Enum.map(socket.assigns.form_queries, &toggle_sweep_mode_for_query(&1, id, mode))
+  def handle_event("toggle_sweep_mode", %{"id" => id_str, "mode" => mode}, socket) do
+    case Integer.parse(id_str) do
+      {id, ""} ->
+        queries =
+          Enum.map(socket.assigns.form_queries, &toggle_sweep_mode_for_query(&1, id, mode))
 
-    {:noreply, assign(socket, :form_queries, queries)}
+        {:noreply, assign(socket, :form_queries, queries)}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("update_network_blacklist", params, socket) do
@@ -1359,10 +1374,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     end
   end
 
+  # Note: queries_json is not parsed here - queries are built from form_queries assign
   defp parse_credentials_json(params) do
-    params
-    |> parse_json_field("credentials_json", "credentials")
-    |> parse_json_field("queries_json", "queries")
+    parse_json_field(params, "credentials_json", "credentials")
   end
 
   defp parse_json_field(params, json_key, target_key) do

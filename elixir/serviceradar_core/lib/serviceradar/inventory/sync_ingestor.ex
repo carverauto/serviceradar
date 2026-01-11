@@ -261,6 +261,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp build_device_upsert_records(resolved_updates, timestamp) do
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
+      source = if update.source in [nil, ""], do: "unknown", else: update.source
+
       record = %{
         uid: device_id,
         ip: update.ip,
@@ -269,6 +271,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         name: update.hostname || update.ip,
         is_available: update.is_available || false,
         metadata: update.metadata || %{},
+        discovery_sources: [source],
         first_seen_time: timestamp,
         last_seen_time: timestamp,
         created_time: timestamp,
@@ -291,6 +294,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
             is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
             metadata: fragment("COALESCE(EXCLUDED.metadata, ?)", d.metadata),
+            discovery_sources:
+              fragment(
+                "(SELECT array_agg(DISTINCT src) FROM unnest(array_cat(COALESCE(?, ARRAY[]::text[]), EXCLUDED.discovery_sources)) AS src WHERE src IS NOT NULL AND src <> '')",
+                d.discovery_sources
+              ),
             last_seen_time: fragment("EXCLUDED.last_seen_time"),
             modified_time: fragment("EXCLUDED.modified_time")
           ]
@@ -377,7 +385,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       partition: get_string(update, ["partition", :partition]) || "default",
       metadata: get_map(update, ["metadata", :metadata]),
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
-      is_available: get_bool(update, ["is_available", :is_available])
+      is_available: get_bool(update, ["is_available", :is_available]),
+      source: get_string(update, ["source", :source]) || "unknown"
     }
   end
 
@@ -390,7 +399,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       partition: "default",
       metadata: %{},
       timestamp: nil,
-      is_available: false
+      is_available: false,
+      source: "unknown"
     }
   end
 

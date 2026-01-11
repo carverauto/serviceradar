@@ -220,8 +220,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 </p>
               </div>
               <.link navigate={~p"/settings/rules/zen/new"} class="btn btn-primary btn-sm">
-                <.icon name="hero-plus" class="w-4 h-4" />
-                New Rule
+                <.icon name="hero-plus" class="w-4 h-4" /> New Rule
               </.link>
             </:header>
 
@@ -321,8 +320,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 </p>
               </div>
               <button type="button" class="btn btn-primary btn-sm" disabled>
-                <.icon name="hero-plus" class="w-4 h-4" />
-                New Rule
+                <.icon name="hero-plus" class="w-4 h-4" /> New Rule
               </button>
             </:header>
 
@@ -387,8 +385,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 </p>
               </div>
               <button type="button" class="btn btn-primary btn-sm" disabled>
-                <.icon name="hero-plus" class="w-4 h-4" />
-                New Rule
+                <.icon name="hero-plus" class="w-4 h-4" /> New Rule
               </button>
             </:header>
 
