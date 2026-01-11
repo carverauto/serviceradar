@@ -3,7 +3,6 @@
     "shared_config": {
       "certificates": {
         "components": [
-          "core",
           "srql",
           "agent",
           "kv",
@@ -25,61 +24,6 @@
         "root_dir": "/etc/serviceradar/certs"
       }
     }
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-core",
-      "source_path": "cmd/core"
-    },
-    "conffiles": [
-      "/etc/serviceradar/core.json",
-      "/etc/serviceradar/api.env"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/core.json",
-        "source": "packaging/core/config/core.json"
-      },
-      {
-        "dest": "/etc/serviceradar/api.env",
-        "optional": true,
-        "source": "packaging/core/config/api.env"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd",
-        "jq"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar Core API service",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "core",
-    "package_name": "serviceradar-core",
-    "postinst": {
-      "source": "packaging/core/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/core/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd",
-        "jq"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-core.service",
-      "source": "packaging/core/systemd/serviceradar-core.service"
-    },
-    "version": "1.0.58"
   },
   {
     "architecture": "amd64",

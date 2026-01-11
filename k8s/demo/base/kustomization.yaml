@@ -7,7 +7,6 @@ resources:
 - serviceradar-nats.yaml
 - serviceradar-nats-creds.yaml
 - serviceradar-datasvc.yaml
-- serviceradar-core.yaml
 - serviceradar-web-ng.yaml
 - serviceradar-agent.yaml
 - serviceradar-snmp-checker.yaml

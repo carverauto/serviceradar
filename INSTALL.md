@@ -21,7 +21,9 @@ Follow the prompts to select your desired components and optional checkers.
 For automated deployments, use the following options:
 
 ### All-in-One Installation
-Installs all components (`serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-web-ng`, plus optional checkers).
+Installs all components (`serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-nats`, `serviceradar-web-ng`, plus optional checkers).
+
+> **Note**: The core service has been migrated from Go to Elixir. For Docker-based deployments, use `serviceradar-core-elx` image. For the latest package releases, see the GitHub releases page.
 
 ```bash
 # Without checkers
@@ -32,7 +34,7 @@ curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/in
 ```
 
 ### Core + Web UI Installation
-Installs core components (`serviceradar-core`, `serviceradar-web-ng`, `serviceradar-nats`, `serviceradar-datasvc`, plus optional checkers).
+Installs core components (`serviceradar-core-elx`, `serviceradar-web-ng`, `serviceradar-nats`, `serviceradar-datasvc`, plus optional checkers).
 
 ```bash
 # Without checkers
@@ -88,14 +90,16 @@ If you prefer to manually install individual components, you can download and in
 Note: The Phoenix `web-ng` UI is the active frontend. The legacy Next.js build is deprecated.
 
 ```bash
-# Download components
+# Download components (Note: core service is now Elixir-based, use Docker for production deployments)
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core_1.0.52.deb \
      -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng_1.0.52.deb
 
-# Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb serviceradar-core_1.0.52.deb serviceradar-web-ng_1.0.52.deb
+# Install agent components
+sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb serviceradar-web-ng_1.0.52.deb
+
+# For the core service, use Docker Compose with core-elx image
+# See docker-compose.elx.yml for full configuration
 ```
 
 ## Architecture Overview
@@ -104,7 +108,7 @@ ServiceRadar uses a distributed architecture with four main components:
 
 1. **Agent**: Runs on monitored hosts, provides service status through gRPC
 2. **Gateway**: Orchestrates monitoring activities, can run anywhere in your network
-3. **Core Service**: Receives reports from gateways, provides API, and sends alerts
+3. **Core Service (Elixir)**: Central service for device registry, alert management, and API. Deployed as `core-elx` container
 4. **Web-NG UI**: Provides the Phoenix LiveView dashboard (optionally fronted by a reverse proxy)
 
 ## Configuration

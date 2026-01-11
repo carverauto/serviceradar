@@ -1,48 +1,6 @@
 """Component packaging metadata."""
 
 PACKAGES = {
-    "core": {
-        "package_name": "serviceradar-core",
-        "description": "ServiceRadar Core API service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "jq"],
-        "rpm_requires": ["systemd", "jq"],
-        "binary": {
-            "target": "//cmd/core:core",
-            "dest": "/usr/local/bin/serviceradar-core",
-        },
-        "files": [
-            {
-                "src": "config/core.json",
-                "dest": "/etc/serviceradar/core.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "config/api.env",
-                "dest": "/etc/serviceradar/api.env",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-                "allow_empty": True,
-            },
-        ],
-        "directories": [
-            {"path": "/var/lib/serviceradar", "mode": "0755"},
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-core.service",
-            "dest": "/lib/systemd/system/serviceradar-core.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/core.json",
-            "/etc/serviceradar/api.env",
-        ],
-    },
     "web-ng": {
         "package_name": "serviceradar-web-ng",
         "description": "ServiceRadar Phoenix web UI (web-ng)",
