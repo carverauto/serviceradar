@@ -17,7 +17,9 @@ config :serviceradar_core,
     ServiceRadar.Observability,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
-    ServiceRadar.Jobs
+    ServiceRadar.Jobs,
+    ServiceRadar.AgentConfig,
+    ServiceRadar.SweepJobs
   ]
 
 # Mailer configuration

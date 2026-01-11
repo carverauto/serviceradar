@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadar.SweepJobs.SweepGroup
 
   @default_limit 20
   @max_limit 100
@@ -27,6 +29,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:limit, @default_limit)
+     # Bulk selection
+     |> assign(:selected_devices, MapSet.new())
+     |> assign(:show_sweep_modal, false)
+     |> assign(:sweep_groups, [])
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -91,14 +97,143 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")}
   end
 
+  # Bulk selection handlers
+  def handle_event("toggle_device_select", %{"uid" => uid}, socket) do
+    selected = socket.assigns.selected_devices
+
+    updated =
+      if MapSet.member?(selected, uid) do
+        MapSet.delete(selected, uid)
+      else
+        MapSet.put(selected, uid)
+      end
+
+    {:noreply, assign(socket, :selected_devices, updated)}
+  end
+
+  def handle_event("toggle_select_all", _params, socket) do
+    devices = socket.assigns.devices
+    selected = socket.assigns.selected_devices
+
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    updated =
+      if MapSet.subset?(device_uids, selected) do
+        # All current page devices selected, deselect them
+        MapSet.difference(selected, device_uids)
+      else
+        # Select all current page devices
+        MapSet.union(selected, device_uids)
+      end
+
+    {:noreply, assign(socket, :selected_devices, updated)}
+  end
+
+  def handle_event("clear_selection", _params, socket) do
+    {:noreply, assign(socket, :selected_devices, MapSet.new())}
+  end
+
+  def handle_event("open_sweep_modal", _params, socket) do
+    scope = socket.assigns.current_scope
+    sweep_groups = load_sweep_groups(scope)
+
+    {:noreply,
+     socket
+     |> assign(:show_sweep_modal, true)
+     |> assign(:sweep_groups, sweep_groups)}
+  end
+
+  def handle_event("close_sweep_modal", _params, socket) do
+    {:noreply, assign(socket, :show_sweep_modal, false)}
+  end
+
+  def handle_event("add_to_sweep_group", %{"group_id" => group_id}, socket) do
+    scope = socket.assigns.current_scope
+    selected = socket.assigns.selected_devices
+    devices = socket.assigns.devices
+
+    # Get IP addresses for selected devices
+    ips =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.filter(fn row ->
+        uid = Map.get(row, "uid") || Map.get(row, "id")
+        is_binary(uid) and MapSet.member?(selected, uid)
+      end)
+      |> Enum.map(fn row -> Map.get(row, "ip") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if ips == [] do
+      {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
+    else
+      case add_devices_to_group(scope, group_id, ips) do
+        {:ok, group} ->
+          {:noreply,
+           socket
+           |> assign(:show_sweep_modal, false)
+           |> assign(:selected_devices, MapSet.new())
+           |> put_flash(:info, "Added #{length(ips)} device(s) to #{group.name}")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to add devices to sweep group")}
+      end
+    end
+  end
+
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-    assigns = assign(assigns, :pagination, pagination)
+    selected_count = MapSet.size(assigns.selected_devices)
+
+    # Check if all visible devices are selected
+    visible_uids =
+      assigns.devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    all_selected = MapSet.size(visible_uids) > 0 and MapSet.subset?(visible_uids, assigns.selected_devices)
+
+    assigns =
+      assigns
+      |> assign(:pagination, pagination)
+      |> assign(:selected_count, selected_count)
+      |> assign(:all_selected, all_selected)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <!-- Bulk Actions Bar -->
+        <div
+          :if={@selected_count > 0}
+          class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-between"
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-medium text-primary">
+              {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
+            </span>
+            <button
+              phx-click="clear_selection"
+              class="text-xs text-base-content/60 hover:text-base-content"
+            >
+              Clear selection
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <.ui_button variant="primary" size="sm" phx-click="open_sweep_modal">
+              <.icon name="hero-signal" class="size-4" /> Add to Sweep Group
+            </.ui_button>
+          </div>
+        </div>
+
         <.ui_panel>
           <:header>
             <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
@@ -110,6 +245,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             <table class="table table-sm table-zebra w-full">
               <thead>
                 <tr>
+                  <th class="w-10 text-center bg-base-200/60">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm checkbox-primary"
+                      checked={@all_selected}
+                      phx-click="toggle_select_all"
+                    />
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">UID</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
@@ -145,20 +288,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="11" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="12" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
 
                 <%= for row <- Enum.filter(@devices, &is_map/1) do %>
                   <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
+                  <% is_selected = is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
+                    <td class="text-center">
+                      <input
+                        :if={is_binary(device_uid)}
+                        type="checkbox"
+                        class="checkbox checkbox-sm checkbox-primary"
+                        checked={is_selected}
+                        phx-click="toggle_device_select"
+                        phx-value-uid={device_uid}
+                      />
+                    </td>
                     <td class="font-mono text-xs">
                       <.link
                         :if={is_binary(device_uid)}
@@ -219,7 +373,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
         </.ui_panel>
       </div>
+
+      <!-- Sweep Group Modal -->
+      <.sweep_group_modal
+        :if={@show_sweep_modal}
+        sweep_groups={@sweep_groups}
+        selected_count={@selected_count}
+      />
     </Layouts.app>
+    """
+  end
+
+  # Sweep Group Modal Component
+  attr :sweep_groups, :list, required: true
+  attr :selected_count, :integer, required: true
+
+  defp sweep_group_modal(assigns) do
+    ~H"""
+    <dialog id="sweep_group_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_sweep_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Add to Sweep Group</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Add {@selected_count} selected device(s) to a network sweep group.
+        </p>
+
+        <div class="mt-4 space-y-2">
+          <%= if @sweep_groups == [] do %>
+            <div class="p-4 bg-base-200 rounded-lg text-center">
+              <p class="text-sm text-base-content/60 mb-3">
+                No sweep groups configured yet.
+              </p>
+              <.link navigate={~p"/settings/networks/groups/new"}>
+                <.ui_button variant="primary" size="sm">
+                  <.icon name="hero-plus" class="size-4" /> Create Sweep Group
+                </.ui_button>
+              </.link>
+            </div>
+          <% else %>
+            <%= for group <- @sweep_groups do %>
+              <button
+                class="w-full p-3 bg-base-200 hover:bg-base-300 rounded-lg text-left transition-colors"
+                phx-click="add_to_sweep_group"
+                phx-value-group_id={group.id}
+              >
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="font-medium">{group.name}</div>
+                    <div class="text-xs text-base-content/60">
+                      {length(group.static_targets || [])} target(s) • Every {group.interval}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    </span>
+                    <.icon name="hero-chevron-right" class="size-4 text-base-content/40" />
+                  </div>
+                </div>
+              </button>
+            <% end %>
+
+            <div class="divider text-xs">or</div>
+
+            <.link navigate={~p"/settings/networks/groups/new"} class="block">
+              <button class="w-full p-3 border border-dashed border-base-300 hover:border-primary rounded-lg text-center transition-colors">
+                <.icon name="hero-plus" class="size-4 mr-1" />
+                <span class="text-sm">Create New Sweep Group</span>
+              </button>
+            </.link>
+          <% end %>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_sweep_modal">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -751,5 +987,54 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  # Sweep group helpers
+
+  defp load_sweep_groups(scope) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    case Ash.read(SweepGroup, actor: actor, tenant: tenant, authorize?: false) do
+      {:ok, groups} -> groups
+      {:error, _} -> []
+    end
+  end
+
+  defp add_devices_to_group(scope, group_id, ips) do
+    actor = build_actor(scope)
+    tenant = get_tenant(scope)
+
+    case Ash.get(SweepGroup, group_id, actor: actor, tenant: tenant, authorize?: false) do
+      {:ok, group} ->
+        group
+        |> Ash.Changeset.for_update(:add_targets, %{targets: ips}, actor: actor, tenant: tenant)
+        |> Ash.update()
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp build_actor(scope) do
+    case scope do
+      %{user: user} when not is_nil(user) ->
+        %{
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          tenant_id: Scope.tenant_id(scope)
+        }
+
+      _ ->
+        %{id: "system", email: "system@serviceradar", role: :admin}
+    end
+  end
+
+  defp get_tenant(scope) do
+    case Scope.tenant_id(scope) do
+      nil -> nil
+      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+    end
   end
 end

@@ -6,6 +6,12 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   the `ocsf_network_activity` hypertable using OCSF v1.3.0 Network Activity
   schema (class_uid: 4001) with activity_id: 99 (Scan).
 
+  Also updates device inventory via SweepResultsIngestor:
+  - Updates device availability status
+  - Adds "sweep" to discovery_sources
+  - Creates new device records for unknown hosts
+  - Stores SweepHostResult records (when execution_id is provided)
+
   ## OCSF Classification
 
   - Category: Network Activity (category_uid: 4)
@@ -27,7 +33,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     "mac": "00:11:22:33:44:55",
     "icmp_available": true,
     "icmp_response_time_ns": 1500000,
-    "last_sweep_time": "2024-01-01T00:00:00Z"
+    "last_sweep_time": "2024-01-01T00:00:00Z",
+    "execution_id": "optional-uuid-for-sweep-jobs-tracking"
   }
   ```
   """
@@ -37,6 +44,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.TenantContext
+  alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   require Logger
 
@@ -46,6 +54,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   @impl true
   def process_batch(messages) do
     schema = TenantContext.current_schema()
+    tenant_id = TenantContext.current_tenant()
 
     if is_nil(schema) do
       Logger.error("Sweep batch missing tenant schema context")
@@ -65,6 +74,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
                returning: false
              ) do
           {count, _} ->
+            # Also update device inventory via SweepResultsIngestor
+            process_inventory_updates(messages, tenant_id)
             {:ok, count}
         end
       end
@@ -73,6 +84,117 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     e ->
       Logger.error("Sweep OCSF batch insert failed: #{inspect(e)}")
       {:error, e}
+  end
+
+  # Process inventory updates for sweep results
+  defp process_inventory_updates(messages, tenant_id) when is_binary(tenant_id) do
+    # Parse messages and group by execution_id
+    parsed_results =
+      messages
+      |> Enum.map(&parse_for_inventory/1)
+      |> Enum.reject(&is_nil/1)
+
+    # Group by execution_id (or nil for messages without execution context)
+    results_by_execution = Enum.group_by(parsed_results, & &1["execution_id"])
+
+    Enum.each(results_by_execution, fn {execution_id, results} ->
+      if execution_id do
+        # Full ingest with SweepHostResult records
+        case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id) do
+          {:ok, _stats} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("SweepResultsIngestor failed: #{inspect(reason)}")
+        end
+      else
+        # Just update device availability (no execution tracking)
+        update_device_availability_only(results, tenant_id)
+      end
+    end)
+  rescue
+    e ->
+      Logger.warning("Inventory update failed (non-fatal): #{inspect(e)}")
+  end
+
+  defp process_inventory_updates(_messages, _tenant_id), do: :ok
+
+  defp parse_for_inventory(%{data: data}) do
+    case Jason.decode(data) do
+      {:ok, json} -> json
+      {:error, _} -> nil
+    end
+  end
+
+  defp update_device_availability_only(results, tenant_id) do
+    alias ServiceRadar.Cluster.TenantSchemas
+    alias ServiceRadar.Identity.DeviceLookup
+    alias ServiceRadar.Inventory.Device
+    alias ServiceRadar.Repo
+
+    import Ecto.Query
+
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+    # Extract IPs
+    ips =
+      results
+      |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if length(ips) > 0 do
+      # Lookup existing devices
+      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: system_actor(tenant_id))
+      timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      # Update available devices
+      available_ips =
+        results
+        |> Enum.filter(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+        |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+        |> Enum.reject(&is_nil/1)
+
+      available_uids =
+        available_ips
+        |> Enum.map(&Map.get(device_map, &1))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(& &1.canonical_device_id)
+
+      if length(available_uids) > 0 do
+        from(d in {tenant_schema <> ".ocsf_devices", Device},
+          where: d.uid in ^available_uids
+        )
+        |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp])
+      end
+
+      # Update unavailable devices
+      unavailable_ips =
+        results
+        |> Enum.reject(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+        |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+        |> Enum.reject(&is_nil/1)
+
+      unavailable_uids =
+        unavailable_ips
+        |> Enum.map(&Map.get(device_map, &1))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(& &1.canonical_device_id)
+
+      if length(unavailable_uids) > 0 do
+        from(d in {tenant_schema <> ".ocsf_devices", Device},
+          where: d.uid in ^unavailable_uids
+        )
+        |> Repo.update_all(set: [is_available: false])
+      end
+    end
+  rescue
+    e ->
+      Logger.warning("Device availability update failed: #{inspect(e)}")
+  end
+
+  defp system_actor(tenant_id) do
+    %{id: "system", role: :super_admin, tenant_id: tenant_id}
   end
 
   @impl true
