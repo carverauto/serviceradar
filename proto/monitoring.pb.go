@@ -765,6 +765,7 @@ type SweepCompletionStatus struct {
 	ErrorMessage     string                       `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`               // Error details if status is FAILED
 	ExecutionId      string                       `protobuf:"bytes,7,opt,name=execution_id,json=executionId,proto3" json:"execution_id,omitempty"`                  // Sweep execution UUID for tracking
 	SweepGroupId     string                       `protobuf:"bytes,8,opt,name=sweep_group_id,json=sweepGroupId,proto3" json:"sweep_group_id,omitempty"`             // Sweep group UUID this execution belongs to
+	ScannerStats     *SweepScannerStats           `protobuf:"bytes,9,opt,name=scanner_stats,json=scannerStats,proto3" json:"scanner_stats,omitempty"`               // Scanner performance metrics
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -855,6 +856,153 @@ func (x *SweepCompletionStatus) GetSweepGroupId() string {
 	return ""
 }
 
+func (x *SweepCompletionStatus) GetScannerStats() *SweepScannerStats {
+	if x != nil {
+		return x.ScannerStats
+	}
+	return nil
+}
+
+// SweepScannerStats contains performance metrics from the network scanner.
+// These metrics help diagnose scan performance and network conditions.
+type SweepScannerStats struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Packet statistics
+	PacketsSent    uint64 `protobuf:"varint,1,opt,name=packets_sent,json=packetsSent,proto3" json:"packets_sent,omitempty"`          // Total SYN packets sent
+	PacketsRecv    uint64 `protobuf:"varint,2,opt,name=packets_recv,json=packetsRecv,proto3" json:"packets_recv,omitempty"`          // Total packets received (SYN-ACK, RST, etc.)
+	PacketsDropped uint64 `protobuf:"varint,3,opt,name=packets_dropped,json=packetsDropped,proto3" json:"packets_dropped,omitempty"` // Packets dropped by kernel (ring buffer full)
+	// Ring buffer statistics (TPACKET_V3)
+	RingBlocksProcessed uint64 `protobuf:"varint,4,opt,name=ring_blocks_processed,json=ringBlocksProcessed,proto3" json:"ring_blocks_processed,omitempty"` // Blocks successfully processed
+	RingBlocksDropped   uint64 `protobuf:"varint,5,opt,name=ring_blocks_dropped,json=ringBlocksDropped,proto3" json:"ring_blocks_dropped,omitempty"`       // Blocks lost due to buffer overruns
+	// Retry statistics
+	RetriesAttempted  uint64 `protobuf:"varint,6,opt,name=retries_attempted,json=retriesAttempted,proto3" json:"retries_attempted,omitempty"`    // Number of retry attempts made
+	RetriesSuccessful uint64 `protobuf:"varint,7,opt,name=retries_successful,json=retriesSuccessful,proto3" json:"retries_successful,omitempty"` // Number of successful retries
+	// Port allocation statistics
+	PortsAllocated      uint64 `protobuf:"varint,8,opt,name=ports_allocated,json=portsAllocated,proto3" json:"ports_allocated,omitempty"`                   // Total source port allocations
+	PortsReleased       uint64 `protobuf:"varint,9,opt,name=ports_released,json=portsReleased,proto3" json:"ports_released,omitempty"`                      // Total source port releases
+	PortExhaustionCount uint64 `protobuf:"varint,10,opt,name=port_exhaustion_count,json=portExhaustionCount,proto3" json:"port_exhaustion_count,omitempty"` // Times port allocator was exhausted
+	// Rate limiting statistics
+	RateLimitDeferrals uint64 `protobuf:"varint,11,opt,name=rate_limit_deferrals,json=rateLimitDeferrals,proto3" json:"rate_limit_deferrals,omitempty"` // Packet sends deferred due to rate limiting
+	// Computed metrics
+	RxDropRatePercent float64 `protobuf:"fixed64,12,opt,name=rx_drop_rate_percent,json=rxDropRatePercent,proto3" json:"rx_drop_rate_percent,omitempty"` // Percentage of received packets dropped
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SweepScannerStats) Reset() {
+	*x = SweepScannerStats{}
+	mi := &file_monitoring_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SweepScannerStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SweepScannerStats) ProtoMessage() {}
+
+func (x *SweepScannerStats) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SweepScannerStats.ProtoReflect.Descriptor instead.
+func (*SweepScannerStats) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SweepScannerStats) GetPacketsSent() uint64 {
+	if x != nil {
+		return x.PacketsSent
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetPacketsRecv() uint64 {
+	if x != nil {
+		return x.PacketsRecv
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetPacketsDropped() uint64 {
+	if x != nil {
+		return x.PacketsDropped
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRingBlocksProcessed() uint64 {
+	if x != nil {
+		return x.RingBlocksProcessed
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRingBlocksDropped() uint64 {
+	if x != nil {
+		return x.RingBlocksDropped
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRetriesAttempted() uint64 {
+	if x != nil {
+		return x.RetriesAttempted
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRetriesSuccessful() uint64 {
+	if x != nil {
+		return x.RetriesSuccessful
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetPortsAllocated() uint64 {
+	if x != nil {
+		return x.PortsAllocated
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetPortsReleased() uint64 {
+	if x != nil {
+		return x.PortsReleased
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetPortExhaustionCount() uint64 {
+	if x != nil {
+		return x.PortExhaustionCount
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRateLimitDeferrals() uint64 {
+	if x != nil {
+		return x.RateLimitDeferrals
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRxDropRatePercent() float64 {
+	if x != nil {
+		return x.RxDropRatePercent
+	}
+	return 0
+}
+
 // GatewayStatusRequest is sent by agents to push their status to the gateway.
 type GatewayStatusRequest struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
@@ -873,7 +1021,7 @@ type GatewayStatusRequest struct {
 
 func (x *GatewayStatusRequest) Reset() {
 	*x = GatewayStatusRequest{}
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -885,7 +1033,7 @@ func (x *GatewayStatusRequest) String() string {
 func (*GatewayStatusRequest) ProtoMessage() {}
 
 func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -898,7 +1046,7 @@ func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusRequest.ProtoReflect.Descriptor instead.
 func (*GatewayStatusRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{9}
+	return file_monitoring_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GatewayStatusRequest) GetServices() []*GatewayServiceStatus {
@@ -974,7 +1122,7 @@ type GatewayStatusResponse struct {
 
 func (x *GatewayStatusResponse) Reset() {
 	*x = GatewayStatusResponse{}
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -986,7 +1134,7 @@ func (x *GatewayStatusResponse) String() string {
 func (*GatewayStatusResponse) ProtoMessage() {}
 
 func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -999,7 +1147,7 @@ func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusResponse.ProtoReflect.Descriptor instead.
 func (*GatewayStatusResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{10}
+	return file_monitoring_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GatewayStatusResponse) GetReceived() bool {
@@ -1030,7 +1178,7 @@ type GatewayStatusChunk struct {
 
 func (x *GatewayStatusChunk) Reset() {
 	*x = GatewayStatusChunk{}
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1042,7 +1190,7 @@ func (x *GatewayStatusChunk) String() string {
 func (*GatewayStatusChunk) ProtoMessage() {}
 
 func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1055,7 +1203,7 @@ func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
 func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{11}
+	return file_monitoring_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
@@ -1163,7 +1311,7 @@ type GatewayServiceStatus struct {
 
 func (x *GatewayServiceStatus) Reset() {
 	*x = GatewayServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1175,7 +1323,7 @@ func (x *GatewayServiceStatus) String() string {
 func (*GatewayServiceStatus) ProtoMessage() {}
 
 func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1188,7 +1336,7 @@ func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
 func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{12}
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GatewayServiceStatus) GetServiceName() string {
@@ -1293,7 +1441,7 @@ type AgentHelloRequest struct {
 
 func (x *AgentHelloRequest) Reset() {
 	*x = AgentHelloRequest{}
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1305,7 +1453,7 @@ func (x *AgentHelloRequest) String() string {
 func (*AgentHelloRequest) ProtoMessage() {}
 
 func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1318,7 +1466,7 @@ func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloRequest.ProtoReflect.Descriptor instead.
 func (*AgentHelloRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{13}
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AgentHelloRequest) GetAgentId() string {
@@ -1402,7 +1550,7 @@ type AgentHelloResponse struct {
 
 func (x *AgentHelloResponse) Reset() {
 	*x = AgentHelloResponse{}
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1562,7 @@ func (x *AgentHelloResponse) String() string {
 func (*AgentHelloResponse) ProtoMessage() {}
 
 func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1575,7 @@ func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloResponse.ProtoReflect.Descriptor instead.
 func (*AgentHelloResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{14}
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AgentHelloResponse) GetAccepted() bool {
@@ -1504,7 +1652,7 @@ type AgentConfigRequest struct {
 
 func (x *AgentConfigRequest) Reset() {
 	*x = AgentConfigRequest{}
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1516,7 +1664,7 @@ func (x *AgentConfigRequest) String() string {
 func (*AgentConfigRequest) ProtoMessage() {}
 
 func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1529,7 +1677,7 @@ func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigRequest.ProtoReflect.Descriptor instead.
 func (*AgentConfigRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{15}
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AgentConfigRequest) GetAgentId() string {
@@ -1565,7 +1713,7 @@ type AgentConfigResponse struct {
 
 func (x *AgentConfigResponse) Reset() {
 	*x = AgentConfigResponse{}
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1577,7 +1725,7 @@ func (x *AgentConfigResponse) String() string {
 func (*AgentConfigResponse) ProtoMessage() {}
 
 func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1590,7 +1738,7 @@ func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigResponse.ProtoReflect.Descriptor instead.
 func (*AgentConfigResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{16}
+	return file_monitoring_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AgentConfigResponse) GetNotModified() bool {
@@ -1664,7 +1812,7 @@ type AgentCheckConfig struct {
 
 func (x *AgentCheckConfig) Reset() {
 	*x = AgentCheckConfig{}
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1676,7 +1824,7 @@ func (x *AgentCheckConfig) String() string {
 func (*AgentCheckConfig) ProtoMessage() {}
 
 func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1689,7 +1837,7 @@ func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
 func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{17}
+	return file_monitoring_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AgentCheckConfig) GetCheckId() string {
@@ -1839,7 +1987,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\x04 \x01(\x05R\vtotalChunks\x12)\n" +
 	"\x10current_sequence\x18\x05 \x01(\tR\x0fcurrentSequence\x12\x1c\n" +
-	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\"\xbf\x03\n" +
+	"\ttimestamp\x18\x06 \x01(\x03R\ttimestamp\"\x83\x04\n" +
 	"\x15SweepCompletionStatus\x12@\n" +
 	"\x06status\x18\x01 \x01(\x0e2(.monitoring.SweepCompletionStatus.StatusR\x06status\x12'\n" +
 	"\x0fcompletion_time\x18\x02 \x01(\x03R\x0ecompletionTime\x12'\n" +
@@ -1848,14 +1996,29 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x11completed_targets\x18\x05 \x01(\x05R\x10completedTargets\x12#\n" +
 	"\rerror_message\x18\x06 \x01(\tR\ferrorMessage\x12!\n" +
 	"\fexecution_id\x18\a \x01(\tR\vexecutionId\x12$\n" +
-	"\x0esweep_group_id\x18\b \x01(\tR\fsweepGroupId\"R\n" +
+	"\x0esweep_group_id\x18\b \x01(\tR\fsweepGroupId\x12B\n" +
+	"\rscanner_stats\x18\t \x01(\v2\x1d.monitoring.SweepScannerStatsR\fscannerStats\"R\n" +
 	"\x06Status\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0f\n" +
 	"\vNOT_STARTED\x10\x01\x12\x0f\n" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xc5\x02\n" +
+	"\x06FAILED\x10\x04\"\xa9\x04\n" +
+	"\x11SweepScannerStats\x12!\n" +
+	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12!\n" +
+	"\fpackets_recv\x18\x02 \x01(\x04R\vpacketsRecv\x12'\n" +
+	"\x0fpackets_dropped\x18\x03 \x01(\x04R\x0epacketsDropped\x122\n" +
+	"\x15ring_blocks_processed\x18\x04 \x01(\x04R\x13ringBlocksProcessed\x12.\n" +
+	"\x13ring_blocks_dropped\x18\x05 \x01(\x04R\x11ringBlocksDropped\x12+\n" +
+	"\x11retries_attempted\x18\x06 \x01(\x04R\x10retriesAttempted\x12-\n" +
+	"\x12retries_successful\x18\a \x01(\x04R\x11retriesSuccessful\x12'\n" +
+	"\x0fports_allocated\x18\b \x01(\x04R\x0eportsAllocated\x12%\n" +
+	"\x0eports_released\x18\t \x01(\x04R\rportsReleased\x122\n" +
+	"\x15port_exhaustion_count\x18\n" +
+	" \x01(\x04R\x13portExhaustionCount\x120\n" +
+	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xc5\x02\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -1984,7 +2147,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_monitoring_proto_goTypes = []any{
 	(SweepCompletionStatus_Status)(0), // 0: monitoring.SweepCompletionStatus.Status
 	(*DeviceStatusRequest)(nil),       // 1: monitoring.DeviceStatusRequest
@@ -1996,47 +2159,49 @@ var file_monitoring_proto_goTypes = []any{
 	(*PortStatus)(nil),                // 7: monitoring.PortStatus
 	(*ResultsChunk)(nil),              // 8: monitoring.ResultsChunk
 	(*SweepCompletionStatus)(nil),     // 9: monitoring.SweepCompletionStatus
-	(*GatewayStatusRequest)(nil),      // 10: monitoring.GatewayStatusRequest
-	(*GatewayStatusResponse)(nil),     // 11: monitoring.GatewayStatusResponse
-	(*GatewayStatusChunk)(nil),        // 12: monitoring.GatewayStatusChunk
-	(*GatewayServiceStatus)(nil),      // 13: monitoring.GatewayServiceStatus
-	(*AgentHelloRequest)(nil),         // 14: monitoring.AgentHelloRequest
-	(*AgentHelloResponse)(nil),        // 15: monitoring.AgentHelloResponse
-	(*AgentConfigRequest)(nil),        // 16: monitoring.AgentConfigRequest
-	(*AgentConfigResponse)(nil),       // 17: monitoring.AgentConfigResponse
-	(*AgentCheckConfig)(nil),          // 18: monitoring.AgentCheckConfig
-	nil,                               // 19: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                               // 20: monitoring.AgentCheckConfig.SettingsEntry
+	(*SweepScannerStats)(nil),         // 10: monitoring.SweepScannerStats
+	(*GatewayStatusRequest)(nil),      // 11: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),     // 12: monitoring.GatewayStatusResponse
+	(*GatewayStatusChunk)(nil),        // 13: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),      // 14: monitoring.GatewayServiceStatus
+	(*AgentHelloRequest)(nil),         // 15: monitoring.AgentHelloRequest
+	(*AgentHelloResponse)(nil),        // 16: monitoring.AgentHelloResponse
+	(*AgentConfigRequest)(nil),        // 17: monitoring.AgentConfigRequest
+	(*AgentConfigResponse)(nil),       // 18: monitoring.AgentConfigResponse
+	(*AgentCheckConfig)(nil),          // 19: monitoring.AgentCheckConfig
+	nil,                               // 20: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                               // 21: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
 	9,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
 	9,  // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
 	7,  // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
 	0,  // 3: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
-	13, // 4: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
-	13, // 5: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
-	19, // 6: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
-	18, // 7: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
-	20, // 8: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	2,  // 9: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	3,  // 10: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	3,  // 11: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	14, // 12: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	16, // 13: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	10, // 14: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	12, // 15: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	4,  // 16: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	5,  // 17: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	8,  // 18: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	15, // 19: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	17, // 20: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	11, // 21: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	11, // 22: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	16, // [16:23] is the sub-list for method output_type
-	9,  // [9:16] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	10, // 4: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
+	14, // 5: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	14, // 6: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	20, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	19, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	21, // 9: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	2,  // 10: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	3,  // 11: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	3,  // 12: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	15, // 13: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	17, // 14: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	11, // 15: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	13, // 16: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	4,  // 17: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	5,  // 18: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	8,  // 19: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	16, // 20: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	18, // 21: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	12, // 22: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	12, // 23: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	17, // [17:24] is the sub-list for method output_type
+	10, // [10:17] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -2050,7 +2215,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

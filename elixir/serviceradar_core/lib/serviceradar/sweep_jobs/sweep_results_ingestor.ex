@@ -51,6 +51,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:sweep_group_id` - The sweep group UUID (required to create execution if missing)
   - `:agent_id` - The agent that performed the sweep
   - `:config_version` - Config version hash for the execution
+  - `:scanner_metrics` - Scanner performance metrics from the agent
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
@@ -62,6 +63,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     sweep_group_id = Keyword.get(opts, :sweep_group_id)
     agent_id = Keyword.get(opts, :agent_id)
     config_version = Keyword.get(opts, :config_version)
+    scanner_metrics = Keyword.get(opts, :scanner_metrics)
 
     results = List.wrap(results)
     total_count = length(results)
@@ -134,8 +136,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     case result do
       {:ok, final_stats} ->
-        # Update execution with final statistics
-        update_execution(execution_id, sweep_group_id, final_stats, broadcast_tenant_id, tenant_schema, actor)
+        # Update execution with final statistics and scanner metrics
+        update_execution(execution_id, sweep_group_id, final_stats, scanner_metrics, broadcast_tenant_id, tenant_schema, actor)
 
         elapsed = System.monotonic_time(:millisecond) - start_time
         rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
@@ -452,7 +454,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Repo.query(sql, [device_uids])
   end
 
-  defp update_execution(execution_id, sweep_group_id, stats, tenant_id, tenant_schema, _actor) do
+  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, tenant_id, tenant_schema, _actor) do
     timestamp = DateTime.utc_now()
 
     # Calculate duration if we can fetch started_at
@@ -469,20 +471,28 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         started_at -> DateTime.diff(timestamp, started_at, :millisecond)
       end
 
+    # Build update fields, including scanner_metrics if present
+    update_fields = [
+      hosts_total: stats.hosts_total,
+      hosts_available: stats.hosts_available,
+      hosts_failed: stats.hosts_failed,
+      status: :completed,
+      completed_at: timestamp,
+      duration_ms: duration_ms,
+      updated_at: timestamp
+    ]
+
+    update_fields =
+      if scanner_metrics do
+        Keyword.put(update_fields, :scanner_metrics, scanner_metrics)
+      else
+        update_fields
+      end
+
     from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
       where: e.id == ^execution_id
     )
-    |> Repo.update_all(
-      set: [
-        hosts_total: stats.hosts_total,
-        hosts_available: stats.hosts_available,
-        hosts_failed: stats.hosts_failed,
-        status: :completed,
-        completed_at: timestamp,
-        duration_ms: duration_ms,
-        updated_at: timestamp
-      ]
-    )
+    |> Repo.update_all(set: update_fields)
 
     # Broadcast execution completion for real-time UI updates
     execution = %{

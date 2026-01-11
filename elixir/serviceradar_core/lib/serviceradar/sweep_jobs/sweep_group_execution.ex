@@ -247,6 +247,18 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       description "The sweep group that was executed"
     end
 
+    attribute :scanner_metrics, :map do
+      allow_nil? true
+      public? true
+      default %{}
+      description """
+      Scanner performance metrics from the agent.
+      Contains: packets_sent, packets_recv, packets_dropped, ring_blocks_processed,
+      ring_blocks_dropped, retries_attempted, retries_successful, ports_allocated,
+      ports_released, port_exhaustion_count, rate_limit_deferrals, rx_drop_rate_percent
+      """
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

@@ -86,14 +86,18 @@ config :serviceradar_core, Oban,
     sweeps: 20,
     edge: 10,
     integrations: 5,
-    nats_accounts: 3
+    nats_accounts: 3,
+    maintenance: 5,
+    monitoring: 5
   ],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
        {"*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
-       {"0 * * * *", ServiceRadar.Observability.StatefulAlertCleanupWorker, queue: :maintenance}
+       {"0 * * * *", ServiceRadar.Observability.StatefulAlertCleanupWorker, queue: :maintenance},
+       {"0 3 * * *", ServiceRadar.SweepJobs.SweepDataCleanupWorker, queue: :maintenance},
+       {"*/5 * * * *", ServiceRadar.SweepJobs.SweepMonitorWorker, queue: :monitoring}
      ]}
   ],
   peer: Oban.Peers.Database

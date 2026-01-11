@@ -236,6 +236,17 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         enabled: true
       },
       %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal sweep logs.",
+        subject: "logs.internal.sweep",
+        template: :passthrough,
+        builder_config: %{},
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
         name: "strip_full_message",
         description: "Remove full_message from syslog payloads.",
         subject: "logs.syslog",

@@ -307,3 +307,31 @@ type SweepHostState struct {
 	FirstSeen        time.Time         `json:"first_seen"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
 }
+
+// ScannerStats contains performance metrics from network scanners.
+// These metrics help diagnose scan performance and network conditions.
+type ScannerStats struct {
+	// Packet statistics
+	PacketsSent    uint64 `json:"packets_sent"`
+	PacketsRecv    uint64 `json:"packets_recv"`
+	PacketsDropped uint64 `json:"packets_dropped"`
+
+	// Ring buffer statistics (TPACKET_V3)
+	RingBlocksProcessed uint64 `json:"ring_blocks_processed"`
+	RingBlocksDropped   uint64 `json:"ring_blocks_dropped"`
+
+	// Retry statistics
+	RetriesAttempted  uint64 `json:"retries_attempted"`
+	RetriesSuccessful uint64 `json:"retries_successful"`
+
+	// Port allocation statistics
+	PortsAllocated     uint64 `json:"ports_allocated"`
+	PortsReleased      uint64 `json:"ports_released"`
+	PortExhaustionCount uint64 `json:"port_exhaustion_count"`
+
+	// Rate limiting statistics
+	RateLimitDeferrals uint64 `json:"rate_limit_deferrals"`
+
+	// Computed metrics
+	RxDropRatePercent float64 `json:"rx_drop_rate_percent"`
+}

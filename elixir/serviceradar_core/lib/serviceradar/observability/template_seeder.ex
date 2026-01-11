@@ -259,6 +259,16 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         enabled: true
       },
       %{
+        name: "passthrough",
+        description: "Default (passthrough) for internal sweep logs.",
+        subject: "logs.internal.sweep",
+        template: :passthrough,
+        order: 100,
+        stream_name: "events",
+        agent_id: "default-agent",
+        enabled: true
+      },
+      %{
         name: "strip_full_message",
         description: "Remove full_message from syslog payloads.",
         subject: "logs.syslog",
@@ -316,6 +326,22 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         event: %{
           "message" => "Promoted warning log"
         }
+      },
+      %{
+        name: "promote_missed_sweeps",
+        description: "Promote missed sweep logs into events for alert processing.",
+        priority: 25,
+        enabled: true,
+        match: %{
+          "event_type" => "sweep.missed"
+        },
+        event: %{
+          "message" => "Network sweep missed expected execution",
+          "category_name" => "System Activity",
+          "class_name" => "Scheduled Job Activity",
+          "severity_id" => 3,
+          "type_id" => 6006
+        }
       }
     ]
   end
@@ -338,6 +364,29 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         },
         event: %{},
         alert: %{}
+      },
+      %{
+        name: "repeated_missed_sweeps",
+        description: "Alert when a sweep group misses 2 or more consecutive sweeps.",
+        priority: 25,
+        enabled: true,
+        signal: :event,
+        threshold: 2,
+        window_seconds: 3600,
+        bucket_seconds: 300,
+        cooldown_seconds: 1800,
+        renotify_seconds: 21_600,
+        group_by: ["sweep_group_id"],
+        match: %{
+          "type_id" => 6006,
+          "class_name" => "Scheduled Job Activity"
+        },
+        event: %{},
+        alert: %{
+          "severity" => "high",
+          "title" => "Network Sweep Repeatedly Missed",
+          "description" => "A network sweep group has missed multiple scheduled executions"
+        }
       }
     ]
   end

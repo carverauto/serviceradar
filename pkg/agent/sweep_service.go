@@ -346,6 +346,34 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		Str("sweepGroupID", s.sweepGroupID).
 		Msg("Returning new sweep data")
 
+	// Build sweep completion status with scanner stats
+	sweepCompletion := &proto.SweepCompletionStatus{
+		Status:        proto.SweepCompletionStatus_COMPLETED,
+		ExecutionId:   s.executionID,
+		SweepGroupId:  s.sweepGroupID,
+		TotalTargets:  int32(len(s.cachedResults.Hosts)),
+		CompletedTargets: int32(len(s.cachedResults.Hosts)),
+		CompletionTime: time.Now().Unix(),
+	}
+
+	// Populate scanner stats if available
+	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
+			PacketsSent:          scannerStats.PacketsSent,
+			PacketsRecv:          scannerStats.PacketsRecv,
+			PacketsDropped:       scannerStats.PacketsDropped,
+			RingBlocksProcessed:  scannerStats.RingBlocksProcessed,
+			RingBlocksDropped:    scannerStats.RingBlocksDropped,
+			RetriesAttempted:     scannerStats.RetriesAttempted,
+			RetriesSuccessful:    scannerStats.RetriesSuccessful,
+			PortsAllocated:       scannerStats.PortsAllocated,
+			PortsReleased:        scannerStats.PortsReleased,
+			PortExhaustionCount:  scannerStats.PortExhaustionCount,
+			RateLimitDeferrals:   scannerStats.RateLimitDeferrals,
+			RxDropRatePercent:    scannerStats.RxDropRatePercent,
+		}
+	}
+
 	return &proto.ResultsResponse{
 		HasNewData:      true,
 		CurrentSequence: currentSeqStr,
@@ -356,6 +384,7 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		Timestamp:       time.Now().Unix(),
 		ExecutionId:     s.executionID,
 		SweepGroupId:    s.sweepGroupID,
+		SweepCompletion: sweepCompletion,
 	}, nil
 }
 

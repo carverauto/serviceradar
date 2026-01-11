@@ -605,6 +605,41 @@ func (s *NetworkSweeper) GetConfig() models.Config {
 	return *s.config
 }
 
+// GetScannerStats returns aggregated scanner statistics from the TCP SYN scanner.
+// Returns nil if the scanner doesn't support statistics.
+func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Check if the TCP scanner supports stats (SYN scanner does)
+	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
+		scanStats := statsProvider.GetStats()
+
+		// Calculate drop rate
+		var rxDropRate float64
+		if scanStats.PacketsRecv > 0 {
+			rxDropRate = float64(scanStats.PacketsDropped) / float64(scanStats.PacketsRecv) * 100.0
+		}
+
+		return &models.ScannerStats{
+			PacketsSent:         scanStats.PacketsSent,
+			PacketsRecv:         scanStats.PacketsRecv,
+			PacketsDropped:      scanStats.PacketsDropped,
+			RingBlocksProcessed: scanStats.RingBlocksProcessed,
+			RingBlocksDropped:   scanStats.RingBlocksDropped,
+			RetriesAttempted:    scanStats.RetriesAttempted,
+			RetriesSuccessful:   scanStats.RetriesSuccessful,
+			PortsAllocated:      scanStats.PortsAllocated,
+			PortsReleased:       scanStats.PortsReleased,
+			PortExhaustionCount: scanStats.PortExhaustion,
+			RateLimitDeferrals:  scanStats.RateLimitDeferrals,
+			RxDropRatePercent:   rxDropRate,
+		}
+	}
+
+	return nil
+}
+
 // preserveIntValue preserves an existing int value if the new value is zero.
 // Returns true if the value was preserved.
 func preserveIntValue(newVal *int, existingVal int) bool {

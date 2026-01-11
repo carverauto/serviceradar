@@ -122,6 +122,9 @@ defmodule ServiceRadar.Application do
         # Zen rule defaults for tenant onboarding
         zen_rule_seeder_child(),
 
+        # Log promotion and stateful alert rule defaults
+        rule_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -293,6 +296,14 @@ defmodule ServiceRadar.Application do
   defp zen_rule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
+    else
+      nil
+    end
+  end
+
+  defp rule_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.RuleSeeder
     else
       nil
     end
