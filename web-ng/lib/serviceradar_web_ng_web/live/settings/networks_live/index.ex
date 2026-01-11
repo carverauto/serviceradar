@@ -12,17 +12,77 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepProfile}
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepProfile, SweepPubSub}
 
   @refresh_interval :timer.seconds(15)
+
+  # Target criteria field definitions
+  @criteria_fields [
+    {"hostname", "Hostname", :text},
+    {"ip", "IP Address", :ip},
+    {"discovery_sources", "Discovery Source", :array},
+    {"type_id", "Device Type", :select},
+    {"is_available", "Availability", :boolean},
+    {"gateway_id", "Gateway", :text},
+    {"agent_id", "Agent", :text},
+    {"vendor_name", "Vendor", :text}
+  ]
+
+  @criteria_operators %{
+    text: [
+      {"eq", "equals"},
+      {"neq", "not equals"},
+      {"contains", "contains"},
+      {"not_contains", "does not contain"},
+      {"starts_with", "starts with"},
+      {"ends_with", "ends with"}
+    ],
+    ip: [
+      {"eq", "equals"},
+      {"neq", "not equals"},
+      {"in_cidr", "in CIDR range"},
+      {"not_in_cidr", "not in CIDR range"}
+    ],
+    array: [
+      {"contains", "contains"},
+      {"not_contains", "does not contain"}
+    ],
+    select: [
+      {"eq", "equals"},
+      {"neq", "not equals"},
+      {"in", "in list"}
+    ],
+    boolean: [
+      {"eq", "equals"}
+    ]
+  }
+
+  @device_types [
+    {0, "Unknown"},
+    {1, "Server"},
+    {2, "Desktop"},
+    {3, "Laptop"},
+    {6, "Virtual"},
+    {7, "IoT"},
+    {9, "Firewall"},
+    {10, "Switch"},
+    {12, "Router"},
+    {15, "Load Balancer"},
+    {99, "Other"}
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
+    tenant_id = Scope.tenant_id(scope)
 
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "sweep:executions")
-      # Refresh active scans periodically
+      # Subscribe to tenant-specific sweep updates
+      if tenant_id do
+        SweepPubSub.subscribe(tenant_id)
+      end
+
+      # Refresh active scans periodically (fallback for any missed events)
       :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
     end
 
@@ -34,10 +94,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:sweep_profiles, load_sweep_profiles(scope))
       |> assign(:running_executions, load_running_executions(scope))
       |> assign(:recent_executions, load_recent_executions(scope))
+      # Track real-time progress for running executions (execution_id -> progress_data)
+      |> assign(:execution_progress, %{})
       |> assign(:selected_group, nil)
       |> assign(:selected_profile, nil)
       |> assign(:show_form, nil)
       |> assign(:form, nil)
+      # Criteria builder state
+      |> assign(:criteria_rules, [])
+      |> assign(:target_count, nil)
+      |> assign(:target_count_loading, false)
 
     {:ok, socket}
   end
@@ -62,6 +128,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:page_title, "New Sweep Group")
     |> assign(:show_form, :new_group)
     |> assign(:form, to_form(changeset))
+    |> assign(:criteria_rules, [])
+    |> assign(:target_count, nil)
   end
 
   defp apply_action(socket, :edit_group, %{"id" => id}) do
@@ -73,12 +141,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       group ->
         changeset = group |> Ash.Changeset.for_update(:update, %{})
+        rules = criteria_to_rules(group.target_criteria || %{})
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
         |> assign(:show_form, :edit_group)
         |> assign(:selected_group, group)
         |> assign(:form, to_form(changeset))
+        |> assign(:criteria_rules, rules)
+        |> assign(:target_count, nil)
     end
   end
 
@@ -199,6 +270,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     actor = build_actor(scope)
     tenant = get_tenant(scope)
 
+    # Convert criteria rules to target_criteria map
+    target_criteria = rules_to_criteria(socket.assigns.criteria_rules)
+    params = Map.put(params, "target_criteria", target_criteria)
+
     result =
       case socket.assigns.show_form do
         :new_group ->
@@ -217,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply,
          socket
          |> assign(:sweep_groups, load_sweep_groups(scope))
+         |> assign(:criteria_rules, [])
          |> put_flash(:info, "Sweep group saved")
          |> push_navigate(to: ~p"/settings/networks")}
 
@@ -294,6 +370,98 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     {:noreply, assign(socket, :form, to_form(changeset))}
   end
 
+  # Criteria builder handlers
+  def handle_event("add_criteria_rule", _params, socket) do
+    new_rule = %{
+      id: System.unique_integer([:positive]),
+      field: "hostname",
+      operator: "contains",
+      value: ""
+    }
+
+    rules = socket.assigns.criteria_rules ++ [new_rule]
+    {:noreply, assign(socket, :criteria_rules, rules)}
+  end
+
+  def handle_event("remove_criteria_rule", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+    rules = Enum.reject(socket.assigns.criteria_rules, &(&1.id == id))
+
+    socket =
+      socket
+      |> assign(:criteria_rules, rules)
+      |> maybe_update_target_count()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("update_criteria_rule", params, socket) do
+    id = String.to_integer(params["id"])
+    field = params["field"]
+    value = params["value"]
+
+    rules =
+      Enum.map(socket.assigns.criteria_rules, fn rule ->
+        if rule.id == id do
+          update_rule_field(rule, field, value)
+        else
+          rule
+        end
+      end)
+
+    socket =
+      socket
+      |> assign(:criteria_rules, rules)
+      |> maybe_update_target_count()
+
+    {:noreply, socket}
+  end
+
+  def handle_event("preview_targets", _params, socket) do
+    {:noreply, update_target_count(socket)}
+  end
+
+  defp update_rule_field(rule, "field", value) do
+    # When field changes, reset operator to first valid one and clear value
+    field_type = get_field_type(value)
+    operators = Map.get(@criteria_operators, field_type, [])
+    first_op = if operators != [], do: elem(hd(operators), 0), else: "eq"
+    %{rule | field: value, operator: first_op, value: ""}
+  end
+
+  defp update_rule_field(rule, "operator", value), do: %{rule | operator: value}
+  defp update_rule_field(rule, "value", value), do: %{rule | value: value}
+
+  defp get_field_type(field_name) do
+    case Enum.find(@criteria_fields, fn {name, _, _} -> name == field_name end) do
+      {_, _, type} -> type
+      nil -> :text
+    end
+  end
+
+  defp maybe_update_target_count(socket) do
+    # Auto-update count when rules change and have values
+    rules = socket.assigns.criteria_rules
+
+    if Enum.any?(rules, fn r -> r.value != "" end) do
+      update_target_count(socket)
+    else
+      assign(socket, :target_count, nil)
+    end
+  end
+
+  defp update_target_count(socket) do
+    criteria = rules_to_criteria(socket.assigns.criteria_rules)
+
+    if criteria == %{} do
+      assign(socket, :target_count, nil)
+    else
+      scope = socket.assigns.current_scope
+      count = get_matching_device_count(scope, criteria)
+      assign(socket, :target_count, count)
+    end
+  end
+
   @impl true
   def handle_info(:refresh_active_scans, socket) do
     scope = socket.assigns.current_scope
@@ -304,12 +472,71 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
 
-  def handle_info({:sweep_execution_update, _execution}, socket) do
-    # Real-time update from PubSub
+  # Handle sweep execution started event
+  def handle_info({:sweep_execution_started, execution_data}, socket) do
     scope = socket.assigns.current_scope
+
+    # Initialize progress tracking for this execution
+    progress = Map.put(socket.assigns.execution_progress, execution_data.execution_id, %{
+      batch_num: 0,
+      total_batches: nil,
+      hosts_processed: 0,
+      hosts_available: 0,
+      hosts_failed: 0,
+      started_at: execution_data.started_at
+    })
 
     {:noreply,
      socket
+     |> assign(:execution_progress, progress)
+     |> assign(:running_executions, load_running_executions(scope))}
+  end
+
+  # Handle sweep execution progress event (real-time batch updates)
+  def handle_info({:sweep_execution_progress, progress_data}, socket) do
+    execution_id = progress_data.execution_id
+
+    # Update progress tracking for this execution
+    progress = Map.put(socket.assigns.execution_progress, execution_id, %{
+      batch_num: progress_data.batch_num,
+      total_batches: progress_data.total_batches,
+      hosts_processed: progress_data.hosts_processed,
+      hosts_available: progress_data.hosts_available,
+      hosts_failed: progress_data.hosts_failed,
+      devices_created: progress_data[:devices_created] || 0,
+      devices_updated: progress_data[:devices_updated] || 0,
+      updated_at: progress_data.updated_at
+    })
+
+    {:noreply, assign(socket, :execution_progress, progress)}
+  end
+
+  # Handle sweep execution completed event
+  def handle_info({:sweep_execution_completed, execution_data}, socket) do
+    scope = socket.assigns.current_scope
+    execution_id = execution_data.execution_id
+
+    # Remove from progress tracking
+    progress = Map.delete(socket.assigns.execution_progress, execution_id)
+
+    {:noreply,
+     socket
+     |> assign(:execution_progress, progress)
+     |> assign(:running_executions, load_running_executions(scope))
+     |> assign(:recent_executions, load_recent_executions(scope))}
+  end
+
+  # Handle sweep execution failed event
+  def handle_info({:sweep_execution_failed, execution_data}, socket) do
+    scope = socket.assigns.current_scope
+    execution_id = execution_data.execution_id
+
+    # Remove from progress tracking
+    progress = Map.delete(socket.assigns.execution_progress, execution_id)
+
+    {:noreply,
+     socket
+     |> assign(:execution_progress, progress)
      |> assign(:running_executions, load_running_executions(scope))
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
@@ -333,7 +560,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
 
         <%= if @show_form in [:new_group, :edit_group] do %>
-          <.group_form form={@form} show_form={@show_form} profiles={@sweep_profiles} />
+          <.group_form
+            form={@form}
+            show_form={@show_form}
+            profiles={@sweep_profiles}
+            criteria_rules={@criteria_rules}
+            target_count={@target_count}
+          />
         <% else %>
           <%= if @show_form in [:new_profile, :edit_profile] do %>
             <.profile_form form={@form} show_form={@show_form} />
@@ -353,6 +586,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
                     running={@running_executions}
                     recent={@recent_executions}
                     groups={@sweep_groups}
+                    execution_progress={@execution_progress}
                   />
               <% end %>
             <% end %>
@@ -596,6 +830,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :running, :list, required: true
   attr :recent, :list, required: true
   attr :groups, :list, required: true
+  attr :execution_progress, :map, default: %{}
 
   defp active_scans_panel(assigns) do
     # Build a map of group_id -> group for quick lookup
@@ -629,7 +864,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         <div :if={@running != []} class="space-y-3">
           <%= for execution <- @running do %>
-            <.running_scan_card execution={execution} group={Map.get(@groups_map, execution.sweep_group_id)} />
+            <.running_scan_card
+              execution={execution}
+              group={Map.get(@groups_map, execution.sweep_group_id)}
+              progress={Map.get(@execution_progress, execution.id)}
+            />
           <% end %>
         </div>
       </.ui_panel>
@@ -742,6 +981,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Running Scan Card Component
   attr :execution, :map, required: true
   attr :group, :map, default: nil
+  attr :progress, :map, default: nil
 
   defp running_scan_card(assigns) do
     # Calculate elapsed time
@@ -752,7 +992,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         0
       end
 
-    assigns = assign(assigns, :elapsed_ms, elapsed_ms)
+    # Use real-time progress if available, otherwise fall back to execution data
+    progress = assigns.progress
+    hosts_processed = if progress, do: progress.hosts_processed, else: (assigns.execution.hosts_total || 0)
+    hosts_available = if progress, do: progress.hosts_available, else: (assigns.execution.hosts_available || 0)
+    hosts_failed = if progress, do: progress.hosts_failed, else: (assigns.execution.hosts_failed || 0)
+    batch_info = if progress && progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}", else: nil
+
+    assigns =
+      assigns
+      |> assign(:elapsed_ms, elapsed_ms)
+      |> assign(:hosts_processed, hosts_processed)
+      |> assign(:hosts_available, hosts_available)
+      |> assign(:hosts_failed, hosts_failed)
+      |> assign(:batch_info, batch_info)
+      |> assign(:has_progress, progress != nil)
 
     ~H"""
     <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
@@ -776,20 +1030,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
         <div class="text-right">
           <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
-          <div :if={@execution.hosts_total && @execution.hosts_total > 0} class="text-xs text-base-content/60">
-            {@execution.hosts_available || 0} / {@execution.hosts_total} hosts
+          <div class="text-xs text-base-content/60">
+            <span class="text-success">{@hosts_available}</span>
+            <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
+            <span> of {@hosts_processed} hosts</span>
+          </div>
+          <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
+            {@batch_info}
           </div>
         </div>
       </div>
 
-      <!-- Progress bar -->
-      <div :if={@execution.hosts_total && @execution.hosts_total > 0} class="mt-3">
+      <!-- Progress bar with real-time updates -->
+      <div class="mt-3">
         <div class="h-1.5 bg-base-300 rounded-full overflow-hidden">
           <div
             class="h-full bg-success transition-all duration-300"
-            style={"width: #{progress_percent(@execution)}%"}
+            style={"width: #{batch_progress_percent(@progress)}%"}
           >
           </div>
+        </div>
+        <div :if={@has_progress && @progress.total_batches} class="flex justify-between text-xs text-base-content/40 mt-1">
+          <span>Processing...</span>
+          <span>{batch_progress_percent(@progress)}%</span>
         </div>
       </div>
     </div>
@@ -892,13 +1155,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp success_rate_color(rate) when rate >= 70, do: "text-warning"
   defp success_rate_color(_rate), do: "text-error"
 
-  defp progress_percent(%{hosts_total: total, hosts_available: available, hosts_failed: failed})
-       when is_integer(total) and total > 0 do
-    scanned = (available || 0) + (failed || 0)
-    Float.round(scanned / total * 100, 1)
+  # Calculate progress percentage from batch info
+  defp batch_progress_percent(%{batch_num: batch_num, total_batches: total_batches})
+       when is_integer(batch_num) and is_integer(total_batches) and total_batches > 0 do
+    Float.round(batch_num / total_batches * 100, 1)
   end
 
-  defp progress_percent(_), do: 0
+  defp batch_progress_percent(_), do: 0
 
   defp format_relative_time(nil), do: "—"
 
@@ -931,6 +1194,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
   attr :profiles, :list, required: true
+  attr :criteria_rules, :list, default: []
+  attr :target_count, :integer, default: nil
 
   defp group_form(assigns) do
     ~H"""
@@ -946,92 +1211,141 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </:header>
 
-      <.form for={@form} phx-submit="save_group" phx-change="validate_group" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="label">
-              <span class="label-text">Name</span>
-            </label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+      <.form for={@form} phx-submit="save_group" phx-change="validate_group" class="space-y-6">
+        <!-- Basic Info Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">Basic Information</h3>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label">
+                <span class="label-text">Name</span>
+              </label>
+              <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
+            </div>
+            <div>
+              <label class="label">
+                <span class="label-text">Partition</span>
+              </label>
+              <.input
+                type="text"
+                field={@form[:partition]}
+                class="input input-bordered w-full"
+                placeholder="default"
+              />
+            </div>
           </div>
+
           <div>
             <label class="label">
-              <span class="label-text">Partition</span>
+              <span class="label-text">Description</span>
             </label>
             <.input
-              type="text"
-              field={@form[:partition]}
-              class="input input-bordered w-full"
-              placeholder="default"
+              type="textarea"
+              field={@form[:description]}
+              class="textarea textarea-bordered w-full"
+              rows="2"
             />
           </div>
         </div>
 
-        <div>
-          <label class="label">
-            <span class="label-text">Description</span>
-          </label>
-          <.input
-            type="textarea"
-            field={@form[:description]}
-            class="textarea textarea-bordered w-full"
-            rows="2"
-          />
-        </div>
+        <!-- Schedule Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">Schedule</h3>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="label">
-              <span class="label-text">Schedule Interval</span>
-            </label>
-            <.input
-              type="select"
-              field={@form[:interval]}
-              class="select select-bordered w-full"
-              options={[
-                {"5 minutes", "5m"},
-                {"15 minutes", "15m"},
-                {"30 minutes", "30m"},
-                {"1 hour", "1h"},
-                {"2 hours", "2h"},
-                {"6 hours", "6h"},
-                {"12 hours", "12h"},
-                {"24 hours", "24h"}
-              ]}
-            />
-          </div>
-          <div>
-            <label class="label">
-              <span class="label-text">Scanner Profile (optional)</span>
-            </label>
-            <.input
-              type="select"
-              field={@form[:profile_id]}
-              class="select select-bordered w-full"
-              options={[{"None", ""} | Enum.map(@profiles, &{&1.name, &1.id})]}
-            />
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="label">
+                <span class="label-text">Scan Interval</span>
+              </label>
+              <.input
+                type="select"
+                field={@form[:interval]}
+                class="select select-bordered w-full"
+                options={[
+                  {"5 minutes", "5m"},
+                  {"15 minutes", "15m"},
+                  {"30 minutes", "30m"},
+                  {"1 hour", "1h"},
+                  {"2 hours", "2h"},
+                  {"6 hours", "6h"},
+                  {"12 hours", "12h"},
+                  {"24 hours", "24h"}
+                ]}
+              />
+            </div>
+            <div>
+              <label class="label">
+                <span class="label-text">Scanner Profile</span>
+              </label>
+              <.input
+                type="select"
+                field={@form[:profile_id]}
+                class="select select-bordered w-full"
+                options={[{"Default settings", ""} | Enum.map(@profiles, &{&1.name, &1.id})]}
+              />
+            </div>
           </div>
         </div>
 
-        <div>
-          <label class="label">
-            <span class="label-text">Static Targets (CIDRs or IPs, one per line)</span>
-          </label>
+        <!-- Target Criteria Section -->
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
+              Device Targeting Rules
+            </h3>
+            <div :if={@target_count != nil} class="flex items-center gap-2">
+              <span class="text-sm text-base-content/60">
+                <span class="font-semibold text-primary">{@target_count}</span> device(s) match
+              </span>
+            </div>
+          </div>
+
+          <p class="text-xs text-base-content/60">
+            Define rules to automatically target devices. All rules must match (AND logic).
+          </p>
+
+          <div class="space-y-2">
+            <%= for rule <- @criteria_rules do %>
+              <.criteria_rule_row rule={rule} />
+            <% end %>
+
+            <button
+              type="button"
+              phx-click="add_criteria_rule"
+              class="btn btn-ghost btn-sm gap-1 text-primary"
+            >
+              <.icon name="hero-plus" class="size-4" />
+              Add Rule
+            </button>
+          </div>
+        </div>
+
+        <!-- Static Targets Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
+            Static Targets
+          </h3>
+          <p class="text-xs text-base-content/60">
+            Additional IP addresses or CIDR ranges to always include, regardless of rules.
+          </p>
           <.input
             type="textarea"
             field={@form[:static_targets]}
             class="textarea textarea-bordered w-full font-mono text-sm"
-            rows="4"
+            rows="3"
             placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;172.16.0.1"
           />
         </div>
 
-        <div class="flex items-center gap-2">
+        <!-- Enable Toggle -->
+        <div class="flex items-center gap-2 pt-2">
           <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
-          <label class="label-text">Enabled</label>
+          <label class="label-text">Enable this sweep group</label>
         </div>
 
-        <div class="flex justify-end gap-2 pt-4">
+        <!-- Actions -->
+        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/networks"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
           </.link>
@@ -1041,6 +1355,111 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     </.ui_panel>
     """
   end
+
+  # Criteria Rule Row Component
+  attr :rule, :map, required: true
+
+  defp criteria_rule_row(assigns) do
+    field_type = get_field_type(assigns.rule.field)
+    operators = Map.get(@criteria_operators, field_type, [])
+
+    assigns =
+      assigns
+      |> assign(:field_type, field_type)
+      |> assign(:operators, operators)
+      |> assign(:fields, @criteria_fields)
+      |> assign(:device_types, @device_types)
+
+    ~H"""
+    <div class="flex items-center gap-2 p-2 bg-base-200/50 rounded-lg">
+      <!-- Field Select -->
+      <select
+        class="select select-bordered select-sm w-40"
+        phx-change="update_criteria_rule"
+        phx-value-id={@rule.id}
+        phx-value-field="field"
+        name="value"
+      >
+        <%= for {field_name, field_label, _type} <- @fields do %>
+          <option value={field_name} selected={@rule.field == field_name}>{field_label}</option>
+        <% end %>
+      </select>
+
+      <!-- Operator Select -->
+      <select
+        class="select select-bordered select-sm w-36"
+        phx-change="update_criteria_rule"
+        phx-value-id={@rule.id}
+        phx-value-field="operator"
+        name="value"
+      >
+        <%= for {op_value, op_label} <- @operators do %>
+          <option value={op_value} selected={@rule.operator == op_value}>{op_label}</option>
+        <% end %>
+      </select>
+
+      <!-- Value Input (varies by field type) -->
+      <%= if @field_type == :boolean do %>
+        <select
+          class="select select-bordered select-sm flex-1"
+          phx-change="update_criteria_rule"
+          phx-value-id={@rule.id}
+          phx-value-field="value"
+          name="value"
+        >
+          <option value="true" selected={@rule.value == "true"}>Yes / Available</option>
+          <option value="false" selected={@rule.value == "false"}>No / Unavailable</option>
+        </select>
+      <% else %>
+        <%= if @field_type == :select and @rule.field == "type_id" do %>
+          <select
+            class="select select-bordered select-sm flex-1"
+            phx-change="update_criteria_rule"
+            phx-value-id={@rule.id}
+            phx-value-field="value"
+            name="value"
+          >
+            <option value="">Select type...</option>
+            <%= for {type_id, type_name} <- @device_types do %>
+              <option value={type_id} selected={@rule.value == to_string(type_id)}>{type_name}</option>
+            <% end %>
+          </select>
+        <% else %>
+          <input
+            type="text"
+            class="input input-bordered input-sm flex-1"
+            placeholder={value_placeholder(@field_type, @rule.operator)}
+            value={@rule.value}
+            phx-blur="update_criteria_rule"
+            phx-value-id={@rule.id}
+            phx-value-field="value"
+            name="value"
+          />
+        <% end %>
+      <% end %>
+
+      <!-- Remove Button -->
+      <button
+        type="button"
+        phx-click="remove_criteria_rule"
+        phx-value-id={@rule.id}
+        class="btn btn-ghost btn-sm btn-square text-error/70 hover:text-error"
+      >
+        <.icon name="hero-x-mark" class="size-4" />
+      </button>
+    </div>
+    """
+  end
+
+  defp value_placeholder(:ip, "in_cidr"), do: "e.g., 10.0.0.0/8"
+  defp value_placeholder(:ip, "not_in_cidr"), do: "e.g., 192.168.0.0/16"
+  defp value_placeholder(:ip, _), do: "e.g., 10.0.1.5"
+  defp value_placeholder(:array, _), do: "e.g., armis, netbox"
+  defp value_placeholder(:text, "contains"), do: "search text"
+  defp value_placeholder(:text, "starts_with"), do: "prefix"
+  defp value_placeholder(:text, "ends_with"), do: "suffix"
+  defp value_placeholder(:text, _), do: "value"
+  defp value_placeholder(_, _), do: "value"
 
   # Profile Form
   attr :form, :any, required: true
@@ -1231,9 +1650,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               <% end %>
             </div>
           </div>
-          <div :if={@group.target_criteria != %{}} class="space-y-1">
-            <div class="text-xs text-base-content/60 uppercase">Target Criteria</div>
-            <pre class="bg-base-200 p-2 rounded text-xs font-mono overflow-x-auto">{Jason.encode!(@group.target_criteria, pretty: true)}</pre>
+          <div :if={@group.target_criteria != %{} and @group.target_criteria != nil} class="space-y-2">
+            <div class="text-xs text-base-content/60 uppercase">Targeting Rules</div>
+            <div class="space-y-1">
+              <%= for {field, spec} <- @group.target_criteria || %{} do %>
+                <.criteria_display_row field={field} spec={spec} />
+              <% end %>
+            </div>
           </div>
           <div :if={@group.static_targets == [] and @group.target_criteria == %{}}>
             <p class="text-base-content/60">No targets configured.</p>
@@ -1355,4 +1778,162 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp format_ports([]), do: "—"
   defp format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")
   defp format_ports(ports), do: "#{length(ports)} ports"
+
+  # Criteria Display Component (for group detail view)
+  attr :field, :string, required: true
+  attr :spec, :map, required: true
+
+  defp criteria_display_row(assigns) do
+    {operator, value} =
+      case Map.to_list(assigns.spec) do
+        [{op, val}] -> {op, val}
+        _ -> {"unknown", ""}
+      end
+
+    field_label = get_field_label(assigns.field)
+    operator_label = get_operator_label(operator)
+
+    assigns =
+      assigns
+      |> assign(:field_label, field_label)
+      |> assign(:operator_label, operator_label)
+      |> assign(:display_value, format_criteria_value(value))
+
+    ~H"""
+    <div class="flex items-center gap-2 p-2 bg-base-200/50 rounded text-sm">
+      <span class="font-medium">{@field_label}</span>
+      <span class="text-base-content/60">{@operator_label}</span>
+      <span class="font-mono text-primary">{@display_value}</span>
+    </div>
+    """
+  end
+
+  defp get_field_label(field) do
+    case Enum.find(@criteria_fields, fn {name, _, _} -> name == field end) do
+      {_, label, _} -> label
+      nil -> String.capitalize(field)
+    end
+  end
+
+  defp get_operator_label("eq"), do: "equals"
+  defp get_operator_label("neq"), do: "not equals"
+  defp get_operator_label("in"), do: "in"
+  defp get_operator_label("not_in"), do: "not in"
+  defp get_operator_label("contains"), do: "contains"
+  defp get_operator_label("not_contains"), do: "does not contain"
+  defp get_operator_label("starts_with"), do: "starts with"
+  defp get_operator_label("ends_with"), do: "ends with"
+  defp get_operator_label("in_cidr"), do: "in range"
+  defp get_operator_label("not_in_cidr"), do: "not in range"
+  defp get_operator_label("gt"), do: ">"
+  defp get_operator_label("gte"), do: ">="
+  defp get_operator_label("lt"), do: "<"
+  defp get_operator_label("lte"), do: "<="
+  defp get_operator_label("is_null"), do: "is empty"
+  defp get_operator_label("is_not_null"), do: "is not empty"
+  defp get_operator_label(op), do: op
+
+  defp format_criteria_value(value) when is_list(value), do: Enum.join(value, ", ")
+  defp format_criteria_value(true), do: "yes"
+  defp format_criteria_value(false), do: "no"
+  defp format_criteria_value(value), do: to_string(value)
+
+  # Rules <-> Criteria conversion helpers
+
+  defp rules_to_criteria(rules) when is_list(rules) do
+    rules
+    |> Enum.reject(fn rule -> rule.value == "" or rule.value == nil end)
+    |> Enum.reduce(%{}, fn rule, acc ->
+      value = normalize_rule_value(rule)
+      Map.put(acc, rule.field, %{rule.operator => value})
+    end)
+  end
+
+  defp normalize_rule_value(%{field: "type_id", value: value}) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> value
+    end
+  end
+
+  defp normalize_rule_value(%{field: "is_available", value: value}) do
+    value == "true"
+  end
+
+  defp normalize_rule_value(%{value: value}), do: value
+
+  defp criteria_to_rules(criteria) when criteria == %{} or criteria == nil, do: []
+
+  defp criteria_to_rules(criteria) when is_map(criteria) do
+    criteria
+    |> Enum.map(fn {field, spec} ->
+      {operator, value} =
+        case Map.to_list(spec) do
+          [{op, val}] -> {op, val}
+          _ -> {"eq", ""}
+        end
+
+      %{
+        id: System.unique_integer([:positive]),
+        field: field,
+        operator: operator,
+        value: to_string(value)
+      }
+    end)
+  end
+
+  # Device count query using SRQL
+  defp get_matching_device_count(scope, criteria) do
+    srql_query = criteria_to_srql_query(criteria)
+
+    if srql_query == "" do
+      nil
+    else
+      srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+      full_query = "in:devices #{srql_query} limit:10000"
+
+      case srql_module.query(full_query, %{scope: scope}) do
+        {:ok, %{"results" => results}} when is_list(results) -> length(results)
+        _ -> nil
+      end
+    end
+  end
+
+  defp criteria_to_srql_query(criteria) when criteria == %{}, do: ""
+
+  defp criteria_to_srql_query(criteria) when is_map(criteria) do
+    criteria
+    |> Enum.map(fn {field, spec} -> criteria_field_to_srql(field, spec) end)
+    |> Enum.reject(&(&1 == nil or &1 == ""))
+    |> Enum.join(" ")
+  end
+
+  defp criteria_field_to_srql(field, %{"eq" => value}) do
+    "#{field}:#{escape_srql_value(value)}"
+  end
+
+  defp criteria_field_to_srql(field, %{"neq" => value}) do
+    "-#{field}:#{escape_srql_value(value)}"
+  end
+
+  defp criteria_field_to_srql(field, %{"contains" => value}) do
+    "#{field}:*#{escape_srql_value(value)}*"
+  end
+
+  defp criteria_field_to_srql(field, %{"in_cidr" => value}) do
+    # For CIDR, we'll use the value directly - SRQL should support this
+    "#{field}:#{escape_srql_value(value)}"
+  end
+
+  defp criteria_field_to_srql(_field, _spec), do: nil
+
+  defp escape_srql_value(value) when is_binary(value) do
+    if String.contains?(value, " ") do
+      "\"#{value}\""
+    else
+      value
+    end
+  end
+
+  defp escape_srql_value(value), do: to_string(value)
 end

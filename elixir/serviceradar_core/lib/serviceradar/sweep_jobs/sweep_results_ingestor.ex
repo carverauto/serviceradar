@@ -36,7 +36,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult}
+  alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult, SweepPubSub}
 
   import Ecto.Query
 
@@ -97,6 +97,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       devices_created: 0
     }
 
+    # Extract tenant_id for PubSub broadcasts
+    broadcast_tenant_id = extract_tenant_id_from_schema(tenant_schema)
+
     result =
       Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
         batch_start = System.monotonic_time(:millisecond)
@@ -110,6 +113,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             )
 
             merged_stats = merge_stats(acc_stats, batch_stats)
+
+            # Broadcast progress after each batch for real-time UI updates
+            SweepPubSub.broadcast_progress(broadcast_tenant_id, execution_id, %{
+              batch_num: batch_num,
+              total_batches: total_batches,
+              hosts_processed: merged_stats.hosts_total,
+              hosts_available: merged_stats.hosts_available,
+              hosts_failed: merged_stats.hosts_failed,
+              devices_created: merged_stats.devices_created,
+              devices_updated: merged_stats.devices_updated
+            })
+
             {:cont, {:ok, merged_stats}}
 
           {:error, reason} ->
@@ -120,7 +135,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case result do
       {:ok, final_stats} ->
         # Update execution with final statistics
-        update_execution(execution_id, final_stats, tenant_schema, actor)
+        update_execution(execution_id, sweep_group_id, final_stats, broadcast_tenant_id, tenant_schema, actor)
 
         elapsed = System.monotonic_time(:millisecond) - start_time
         rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
@@ -437,8 +452,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Repo.query(sql, [device_uids])
   end
 
-  defp update_execution(execution_id, stats, tenant_schema, _actor) do
+  defp update_execution(execution_id, sweep_group_id, stats, tenant_id, tenant_schema, _actor) do
     timestamp = DateTime.utc_now()
+
+    # Calculate duration if we can fetch started_at
+    started_at_result =
+      from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+        where: e.id == ^execution_id,
+        select: e.started_at
+      )
+      |> Repo.one()
+
+    duration_ms =
+      case started_at_result do
+        nil -> nil
+        started_at -> DateTime.diff(timestamp, started_at, :millisecond)
+      end
 
     from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
       where: e.id == ^execution_id
@@ -450,31 +479,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         hosts_failed: stats.hosts_failed,
         status: :completed,
         completed_at: timestamp,
+        duration_ms: duration_ms,
         updated_at: timestamp
       ]
     )
 
     # Broadcast execution completion for real-time UI updates
-    broadcast_execution_update(%{
+    execution = %{
       id: execution_id,
-      status: :completed,
+      sweep_group_id: sweep_group_id,
+      started_at: started_at_result,
+      completed_at: timestamp,
+      duration_ms: duration_ms,
       hosts_total: stats.hosts_total,
       hosts_available: stats.hosts_available,
-      hosts_failed: stats.hosts_failed,
-      completed_at: timestamp
-    })
-  end
+      hosts_failed: stats.hosts_failed
+    }
 
-  defp broadcast_execution_update(execution) do
-    Phoenix.PubSub.broadcast(
-      ServiceRadar.PubSub,
-      "sweep:executions",
-      {:sweep_execution_update, execution}
-    )
-  rescue
-    _ ->
-      # PubSub not available (e.g., in tests), ignore
-      :ok
+    SweepPubSub.broadcast_completed(tenant_id, execution, stats)
   end
 
   defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, _actor) do
@@ -504,11 +526,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     # Extract tenant_id from schema name (format: "tenant_<uuid>")
-    tenant_id =
-      case String.split(tenant_schema, "tenant_") do
-        [_, uuid] -> uuid
-        _ -> nil
-      end
+    tenant_id = extract_tenant_id_from_schema(tenant_schema)
 
     record = %{
       id: execution_id,
@@ -535,13 +553,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         Logger.info("SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}")
 
         # Broadcast new execution for real-time UI updates
-        broadcast_execution_update(%{
+        execution = %{
           id: execution_id,
           sweep_group_id: sweep_group_id,
-          status: :running,
           agent_id: agent_id,
-          started_at: timestamp
-        })
+          started_at: timestamp,
+          config_version: config_version
+        }
+
+        SweepPubSub.broadcast_started(tenant_id, execution)
 
         :ok
 
@@ -572,5 +592,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       role: :super_admin,
       tenant_id: tenant_id
     }
+  end
+
+  defp extract_tenant_id_from_schema(tenant_schema) do
+    case String.split(tenant_schema, "tenant_") do
+      [_, uuid] -> uuid
+      _ -> nil
+    end
   end
 end
