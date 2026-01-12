@@ -201,6 +201,7 @@ config :serviceradar_core, Oban, false
 # Configure Ash domains (needed for validation)
 config :serviceradar_core,
   ash_domains: [
+    ServiceRadar.AgentConfig,
     ServiceRadar.Edge,
     ServiceRadar.Identity,
     ServiceRadar.Infrastructure,
@@ -208,7 +209,8 @@ config :serviceradar_core,
     ServiceRadar.Inventory,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
-    ServiceRadar.Observability
+    ServiceRadar.Observability,
+    ServiceRadar.SweepJobs
   ]
 
 # Reduce log noise in tests

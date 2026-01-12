@@ -270,6 +270,8 @@ impl AgentService for TrapdAgentService {
             current_sequence: "1".to_string(),
             has_new_data: false,
             sweep_completion: None,
+            execution_id: String::new(),
+            sweep_group_id: String::new(),
         }))
     }
 

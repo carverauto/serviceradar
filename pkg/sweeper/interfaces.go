@@ -83,6 +83,8 @@ type SweepService interface {
 	GetStatus(context.Context) (*models.SweepSummary, error)
 	// UpdateConfig updates service configuration
 	UpdateConfig(*models.Config) error
+	// GetScannerStats returns aggregated scanner statistics (optional, may return nil)
+	GetScannerStats() *models.ScannerStats
 }
 
 type KVStore interface {

@@ -115,7 +115,7 @@ func (p *PushLoop) setEnrolled(v bool) {
 // Default intervals
 const (
 	defaultPushInterval       = 30 * time.Second
-	defaultConfigPollInterval = 5 * time.Minute
+	defaultConfigPollInterval = 60 * time.Second
 )
 
 // Check type constants for goconst compliance
@@ -213,7 +213,7 @@ func (p *PushLoop) buildSyncConfig() *syncsvc.Config {
 	syncCfg := &syncsvc.Config{
 		Sources:         map[string]*models.SourceConfig{},
 		AgentID:         cfg.AgentID,
-		GatewayID:        "",
+		GatewayID:       "",
 		Security:        cfg.Security,
 		Logging:         cfg.Logging,
 		GatewayAddr:     cfg.GatewayAddr,
@@ -696,6 +696,7 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 
 	// Apply the new checks
 	p.applyChecks(configResp.Checks)
+	p.applySweepConfig(configResp.ConfigJson)
 
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
@@ -770,6 +771,48 @@ func (p *PushLoop) applyChecks(checks []*proto.AgentCheckConfig) {
 			p.logger.Info().Str("name", name).Msg("Removed stale check")
 		}
 	}
+}
+
+func (p *PushLoop) applySweepConfig(configJSON []byte) {
+	sweepSvc := p.server.findSweepService()
+	if sweepSvc == nil {
+		return
+	}
+
+	sweepConfig, err := parseGatewaySweepConfig(configJSON, p.logger)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to parse sweep config from gateway")
+		return
+	}
+
+	if sweepConfig == nil {
+		return
+	}
+
+	if sweepConfig.ConfigHash != "" && sweepSvc.GetConfigHash() == sweepConfig.ConfigHash {
+		p.logger.Debug().Str("config_hash", sweepConfig.ConfigHash).Msg("Sweep config unchanged")
+		return
+	}
+
+	p.server.mu.RLock()
+	cfg := p.server.config
+	p.server.mu.RUnlock()
+
+	sweepModelConfig, err := buildSweepModelConfig(cfg, sweepConfig, p.logger)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to build sweep config from gateway payload")
+		return
+	}
+
+	if err := sweepSvc.UpdateConfig(sweepModelConfig); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to apply sweep config from gateway")
+		return
+	}
+
+	p.logger.Info().
+		Str("config_hash", sweepConfig.ConfigHash).
+		Int("targets", len(sweepConfig.Networks)).
+		Msg("Applied sweep config from gateway")
 }
 
 // Default timeout for checks when not specified or invalid

@@ -18,11 +18,7 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -36,7 +32,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	cconfig "github.com/carverauto/serviceradar/pkg/config"
-	kvpkg "github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -104,6 +99,7 @@ func setupTempDir(t *testing.T) (tmpDir string, cleanup func()) {
 
 func setupServerConfig() *ServerConfig {
 	return &ServerConfig{
+		AgentID:  "test-agent",
 		Security: &models.SecurityConfig{},
 	}
 }
@@ -167,14 +163,14 @@ func TestNewServerBasic(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, ObjectStore, error) {
+	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
 
-		return kvStore, nil, nil
+		return kvStore, nil
 	}
 
-	s.createSweepService = func(_ context.Context, _ *SweepConfig, _ KVStore, _ ObjectStore) (Service, error) {
-		return nil, errSweepConfigNil // Default behavior for this test
+	s.createSweepService = func(_ context.Context, _ *SweepConfig) (Service, error) {
+		return &mockService{}, nil
 	}
 
 	cfgLoader := cconfig.NewConfig(nil)
@@ -228,7 +224,7 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -290,7 +286,7 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "1", // Current sequence
 	}
 
@@ -323,7 +319,7 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -375,7 +371,7 @@ func TestServer_GetResults_SweepService(t *testing.T) {
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -406,7 +402,7 @@ func TestServer_GetResults_UnsupportedServiceType(t *testing.T) {
 		ServiceName:  "some_service",
 		ServiceType:  "unsupported",
 		AgentId:      "test-agent",
-		GatewayId:     "test-gateway",
+		GatewayId:    "test-gateway",
 		LastSequence: "",
 	}
 
@@ -442,6 +438,10 @@ func (*mockSweeper) UpdateConfig(_ *models.Config) error {
 
 func (m *mockSweeper) GetStatus(_ context.Context) (*models.SweepSummary, error) {
 	return m.summary, nil
+}
+
+func (*mockSweeper) GetScannerStats() *models.ScannerStats {
+	return nil
 }
 
 func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {
@@ -492,13 +492,13 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, ObjectStore, error) {
+	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
 
-		return kvStore, nil, nil
+		return kvStore, nil
 	}
 
-	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig, _ KVStore, _ ObjectStore) (Service, error) {
+	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
 		return &mockService{}, nil
@@ -521,7 +521,7 @@ func TestServerGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, setupServerConfig(), createTestLogger())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -534,19 +534,20 @@ func TestServerGetStatus(t *testing.T) {
 			name: "sweep status request",
 			req: &proto.StatusRequest{
 				ServiceType: "sweep",
-				GatewayId:    "test-gateway",
+				GatewayId:   "test-gateway",
 			},
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
 				t.Helper()
 				assert.True(t, resp.Available)
 				assert.Equal(t, "network_sweep", resp.ServiceName)
+				assert.Equal(t, "sweep", resp.ServiceType)
 
-				// Unmarshal the JSON message and verify it
-				var message map[string]string
+				var message map[string]interface{}
 				err := json.Unmarshal(resp.Message, &message)
 				require.NoError(t, err, "Failed to unmarshal response message")
-				assert.Equal(t, map[string]string{"error": "No sweep service configured"}, message)
+				_, hasTotal := message["total_hosts"]
+				assert.True(t, hasTotal)
 			},
 		},
 		{
@@ -586,7 +587,7 @@ func TestServerLifecycle(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, setupServerConfig(), createTestLogger())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -612,7 +613,7 @@ func TestServerListServices(t *testing.T) {
 	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
-	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{}, createTestLogger())
+	server, err := NewServer(context.Background(), tmpDir, setupServerConfig(), createTestLogger())
 	require.NoError(t, err)
 
 	services := server.ListServices()
@@ -678,7 +679,7 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "ping",
 				ServiceType: "icmp",
 				AgentId:     "test-agent",
-				GatewayId:    "test-gateway",
+				GatewayId:   "test-gateway",
 				Details:     "1.1.1.1",
 			},
 			wantErr: true,
@@ -694,16 +695,20 @@ func TestServerGetResults(t *testing.T) {
 				ServiceName: "network_sweep",
 				ServiceType: "sweep",
 				AgentId:     "test-agent",
-				GatewayId:    "test-gateway",
+				GatewayId:   "test-gateway",
 				Details:     "",
 			},
 			wantErr: false,
 			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
 				t.Helper()
-				// Should return response indicating no sweep service configured
 				assert.NotNil(t, resp)
-				assert.False(t, resp.Available)
-				assert.Contains(t, string(resp.Data), "No sweep service configured")
+				assert.True(t, resp.Available)
+
+				var summary map[string]interface{}
+				err := json.Unmarshal(resp.Data, &summary)
+				require.NoError(t, err)
+				_, hasHosts := summary["hosts"]
+				assert.True(t, hasHosts)
 			},
 		},
 	}
@@ -755,7 +760,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		ServiceName: "ping",
 		ServiceType: "icmp",
 		AgentId:     "test-agent",
-		GatewayId:    "test-gateway",
+		GatewayId:   "test-gateway",
 		Details:     "1.1.1.1",
 	}
 
@@ -770,12 +775,12 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	require.Equal(t, codes.Unimplemented, status.Code(err))
 	assert.Contains(t, err.Error(), "GetResults not supported for service type 'icmp'")
 
-	// Test that sweep service returns proper response (but no sweep service configured in this test)
+	// Test that sweep service returns a summary response
 	sweepResultsReq := &proto.ResultsRequest{
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
 		AgentId:     "test-agent",
-		GatewayId:    "test-gateway",
+		GatewayId:   "test-gateway",
 		Details:     "",
 	}
 
@@ -783,464 +788,11 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	require.NoError(t, err) // Should not error since sweep services are supported
 	require.NotNil(t, sweepResp)
 
-	// Should return response indicating no sweep service configured
-	assert.False(t, sweepResp.Available)
-	assert.Contains(t, string(sweepResp.Data), "No sweep service configured")
-}
+	assert.True(t, sweepResp.Available)
 
-func TestServer_mergeKVUpdates_DeviceTargets(t *testing.T) {
-	tests := []struct {
-		name                  string
-		fileConfig            *SweepConfig
-		kvConfig              *SweepConfig
-		kvStoreFound          bool
-		expectedDeviceTargets []models.DeviceTarget
-		expectError           bool
-	}{
-		{
-			name: "merge device targets from KV into empty file config",
-			fileConfig: &SweepConfig{
-				Networks:      []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{},
-			},
-			kvConfig: &SweepConfig{
-				Networks: []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{
-					{
-						Network:    "192.168.1.10/32",
-						SweepModes: []models.SweepMode{models.ModeTCP},
-						QueryLabel: "tcp_devices",
-						Source:     "armis",
-						Metadata: map[string]string{
-							"armis_device_id": "123",
-						},
-					},
-					{
-						Network:    "192.168.1.20/32",
-						SweepModes: []models.SweepMode{models.ModeICMP},
-						QueryLabel: "icmp_devices",
-						Source:     "armis",
-						Metadata: map[string]string{
-							"armis_device_id": "456",
-						},
-					},
-				},
-			},
-			kvStoreFound: true,
-			expectedDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.10/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "tcp_devices",
-					Source:     "armis",
-					Metadata: map[string]string{
-						"armis_device_id": "123",
-					},
-				},
-				{
-					Network:    "192.168.1.20/32",
-					SweepModes: []models.SweepMode{models.ModeICMP},
-					QueryLabel: "icmp_devices",
-					Source:     "armis",
-					Metadata: map[string]string{
-						"armis_device_id": "456",
-					},
-				},
-			},
-		},
-		{
-			name: "KV device targets override file device targets",
-			fileConfig: &SweepConfig{
-				Networks: []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{
-					{
-						Network:    "10.0.0.10/32",
-						SweepModes: []models.SweepMode{models.ModeTCP},
-						QueryLabel: "old_devices",
-						Source:     "netbox",
-					},
-				},
-			},
-			kvConfig: &SweepConfig{
-				Networks: []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{
-					{
-						Network:    "192.168.1.10/32",
-						SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
-						QueryLabel: "new_devices",
-						Source:     "armis",
-						Metadata: map[string]string{
-							"armis_device_id": "789",
-						},
-					},
-				},
-			},
-			kvStoreFound: true,
-			expectedDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.10/32",
-					SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
-					QueryLabel: "new_devices",
-					Source:     "armis",
-					Metadata: map[string]string{
-						"armis_device_id": "789",
-					},
-				},
-			},
-		},
-		{
-			name: "no KV config found, use file config only",
-			fileConfig: &SweepConfig{
-				Networks: []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{
-					{
-						Network:    "192.168.1.30/32",
-						SweepModes: []models.SweepMode{models.ModeTCP},
-						QueryLabel: "file_devices",
-						Source:     "static",
-					},
-				},
-			},
-			kvStoreFound: false,
-			expectedDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.30/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "file_devices",
-					Source:     "static",
-				},
-			},
-		},
-		{
-			name: "empty KV device targets, keep file device targets",
-			fileConfig: &SweepConfig{
-				Networks: []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{
-					{
-						Network:    "192.168.1.40/32",
-						SweepModes: []models.SweepMode{models.ModeICMP},
-						QueryLabel: "file_devices",
-						Source:     "static",
-					},
-				},
-			},
-			kvConfig: &SweepConfig{
-				Networks:      []string{"192.168.1.0/24"},
-				DeviceTargets: []models.DeviceTarget{}, // Empty
-			},
-			kvStoreFound: true,
-			expectedDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.40/32",
-					SweepModes: []models.SweepMode{models.ModeICMP},
-					QueryLabel: "file_devices",
-					Source:     "static",
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create mock KV store that implements the agent's KVStore interface
-			mockKVStore := &testKVStore{data: make(map[string][]byte)}
-
-			if tt.kvStoreFound {
-				kvData, err := json.Marshal(tt.kvConfig)
-				require.NoError(t, err)
-
-				mockKVStore.data["test/sweep.json"] = kvData
-			}
-
-			// Create server with mock KV store
-			server := &Server{
-				configStore: mockKVStore,
-				objectStore: mockKVStore,
-				config:      &ServerConfig{},
-				logger:      createTestLogger(),
-			}
-
-			// Execute merge
-			result, err := server.mergeKVUpdates(context.Background(), "test/sweep.json", tt.fileConfig)
-
-			if tt.expectError {
-				require.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-
-			if !tt.kvStoreFound {
-				// No KV config found, should return nil
-				assert.Nil(t, result)
-				return
-			}
-
-			// Verify merged config
-			require.NotNil(t, result)
-			assert.Equal(t, tt.expectedDeviceTargets, result.DeviceTargets)
-
-			// Verify other fields from file config are preserved
-			assert.Equal(t, tt.fileConfig.Networks, result.Networks)
-		})
-	}
-}
-
-func TestServer_mergeKVUpdates_DataServiceObject(t *testing.T) {
-	objectKey := "agents/test/checkers/sweep/sweep.json"
-
-	objectConfig := SweepConfig{
-		Networks: []string{"10.255.0.0/16"},
-		DeviceTargets: []models.DeviceTarget{
-			{
-				Network:    "10.255.1.10/32",
-				SweepModes: []models.SweepMode{models.ModeICMP},
-				QueryLabel: "armis_sweep",
-				Source:     "armis",
-			},
-		},
-	}
-
-	objectBytes, err := json.Marshal(objectConfig)
+	var summary map[string]interface{}
+	err = json.Unmarshal(sweepResp.Data, &summary)
 	require.NoError(t, err)
-
-	sha := sha256.Sum256(objectBytes)
-
-	metadata := map[string]any{
-		"storage":    "data_service",
-		"object_key": objectKey,
-		"sha256":     base64.StdEncoding.EncodeToString(sha[:]),
-		"overrides": map[string]any{
-			"interval": "2m0s",
-		},
-	}
-
-	metaBytes, err := json.Marshal(metadata)
-	require.NoError(t, err)
-
-	store := &testKVStore{
-		data:       map[string][]byte{objectKey: metaBytes},
-		objectData: map[string][]byte{objectKey: objectBytes},
-	}
-
-	server := &Server{
-		configStore: store,
-		objectStore: store,
-		config:      &ServerConfig{},
-		logger:      createTestLogger(),
-	}
-
-	fileConfig := &SweepConfig{
-		Networks: []string{"172.16.0.0/16"},
-		Interval: 0,
-		Timeout:  0,
-	}
-
-	result, err := server.mergeKVUpdates(context.Background(), objectKey, fileConfig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	assert.Equal(t, []string{"10.255.0.0/16"}, result.Networks)
-	require.Len(t, result.DeviceTargets, 1)
-	assert.Equal(t, "armis", result.DeviceTargets[0].Source)
-	assert.Equal(t, Duration(2*time.Minute), result.Interval)
+	_, hasHosts := summary["hosts"]
+	assert.True(t, hasHosts)
 }
-
-func TestServer_mergeKVUpdates_DataServiceUnavailable(t *testing.T) {
-	objectKey := "agents/test/checkers/sweep/sweep.json"
-
-	metadata := map[string]any{
-		"storage":    "data_service",
-		"object_key": objectKey,
-	}
-
-	metaBytes, err := json.Marshal(metadata)
-	require.NoError(t, err)
-
-	store := &testKVStore{
-		data:        map[string][]byte{objectKey: metaBytes},
-		downloadErr: errDataServiceUnavailable,
-	}
-
-	server := &Server{
-		configStore: store,
-		objectStore: store,
-		config:      &ServerConfig{},
-		logger:      createTestLogger(),
-	}
-
-	fileConfig := &SweepConfig{
-		Networks: []string{"192.168.0.0/24"},
-	}
-
-	result, err := server.mergeKVUpdates(context.Background(), objectKey, fileConfig)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	assert.Equal(t, fileConfig.Networks, result.Networks)
-	assert.Empty(t, result.DeviceTargets)
-}
-
-func TestServer_mergeDeviceTargets(t *testing.T) {
-	server := &Server{
-		config: &ServerConfig{},
-		logger: createTestLogger(),
-	}
-
-	tests := []struct {
-		name              string
-		fileDeviceTargets []models.DeviceTarget
-		kvDeviceTargets   []models.DeviceTarget
-		expectedTargets   []models.DeviceTarget
-	}{
-		{
-			name:              "empty file, non-empty KV",
-			fileDeviceTargets: []models.DeviceTarget{},
-			kvDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.10/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "kv_devices",
-					Source:     "armis",
-				},
-			},
-			expectedTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.10/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "kv_devices",
-					Source:     "armis",
-				},
-			},
-		},
-		{
-			name: "non-empty file, non-empty KV - KV overrides",
-			fileDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "10.0.0.10/32",
-					SweepModes: []models.SweepMode{models.ModeICMP},
-					QueryLabel: "file_devices",
-					Source:     "static",
-				},
-			},
-			kvDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.20/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "kv_devices",
-					Source:     "armis",
-				},
-			},
-			expectedTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.20/32",
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					QueryLabel: "kv_devices",
-					Source:     "armis",
-				},
-			},
-		},
-		{
-			name: "non-empty file, empty KV - file preserved",
-			fileDeviceTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.30/32",
-					SweepModes: []models.SweepMode{models.ModeICMP},
-					QueryLabel: "file_devices",
-					Source:     "static",
-				},
-			},
-			kvDeviceTargets: []models.DeviceTarget{},
-			expectedTargets: []models.DeviceTarget{
-				{
-					Network:    "192.168.1.30/32",
-					SweepModes: []models.SweepMode{models.ModeICMP},
-					QueryLabel: "file_devices",
-					Source:     "static",
-				},
-			},
-		},
-		{
-			name:              "empty file, empty KV",
-			fileDeviceTargets: []models.DeviceTarget{},
-			kvDeviceTargets:   []models.DeviceTarget{},
-			expectedTargets:   []models.DeviceTarget{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mergedConfig := &SweepConfig{
-				DeviceTargets: tt.fileDeviceTargets,
-			}
-
-			server.mergeDeviceTargets(tt.fileDeviceTargets, tt.kvDeviceTargets, mergedConfig)
-
-			assert.Equal(t, tt.expectedTargets, mergedConfig.DeviceTargets)
-		})
-	}
-}
-
-// testKVStore implements KVStore interface for testing
-type testKVStore struct {
-	data        map[string][]byte
-	objectData  map[string][]byte
-	downloadErr error
-}
-
-func (t *testKVStore) Get(_ context.Context, key string) ([]byte, bool, error) {
-	value, found := t.data[key]
-	return value, found, nil
-}
-
-func (t *testKVStore) Put(_ context.Context, key string, value []byte, _ time.Duration) error {
-	t.data[key] = value
-	return nil
-}
-
-func (t *testKVStore) Create(_ context.Context, key string, value []byte, _ time.Duration) error {
-	if _, exists := t.data[key]; exists {
-		return kvpkg.ErrKeyExists
-	}
-	t.data[key] = value
-	return nil
-}
-
-func (t *testKVStore) Delete(_ context.Context, key string) error {
-	delete(t.data, key)
-	return nil
-}
-
-func (*testKVStore) Watch(context.Context, string) (<-chan []byte, error) {
-	ch := make(chan []byte)
-	close(ch)
-
-	return ch, nil
-}
-
-func (t *testKVStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
-	if t.downloadErr != nil {
-		return nil, t.downloadErr
-	}
-
-	if t.objectData != nil {
-		if value, found := t.objectData[key]; found {
-			return value, nil
-		}
-	}
-
-	if value, found := t.data[key]; found {
-		return value, nil
-	}
-
-	return nil, fmt.Errorf("%w: %s", errTestObjectNotFound, key)
-}
-
-func (*testKVStore) Close() error {
-	return nil
-}
-
-var _ KVStore = (*testKVStore)(nil)
-var _ ObjectStore = (*testKVStore)(nil)
-
-var errTestObjectNotFound = errors.New("object not found")

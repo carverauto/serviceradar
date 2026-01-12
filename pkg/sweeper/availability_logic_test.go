@@ -34,7 +34,7 @@ import (
 func TestDeviceAvailabilityLogic(t *testing.T) {
 	config := &models.Config{
 		AgentID:   "test-agent",
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		Partition: "test-partition",
 	}
 
@@ -42,7 +42,6 @@ func TestDeviceAvailabilityLogic(t *testing.T) {
 		config:        config,
 		logger:        logger.NewTestLogger(),
 		deviceResults: make(map[string]*DeviceResultAggregator),
-		kvBackoff:     defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("single IP available - device should be available", func(t *testing.T) {
@@ -311,7 +310,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 					"all_ips":         "192.168.1.1,192.168.1.2,10.0.0.1",
 					"primary_ip":      "192.168.1.1",
 					"agent_id":        "test-agent",
-					"gateway_id":       "test-gateway",
+					"gateway_id":      "test-gateway",
 					"partition":       "default",
 				},
 			},
@@ -319,7 +318,7 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		Ports:     []int{80, 443},
 		Interval:  time.Minute,
 		AgentID:   "test-agent",
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		Partition: "default",
 	}
 
@@ -330,7 +329,6 @@ func TestEndToEndAvailabilityFlow(t *testing.T) {
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
-		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("end-to-end: only last IP responds - device available", func(t *testing.T) {
@@ -540,7 +538,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 					"all_ips":         "192.168.1.100,10.1.1.100", // Multiple IPs for this device
 					"primary_ip":      "192.168.1.100",
 					"agent_id":        "tcp-test-agent",
-					"gateway_id":       "tcp-test-gateway",
+					"gateway_id":      "tcp-test-gateway",
 					"partition":       "tcp-test-partition",
 				},
 			},
@@ -548,7 +546,7 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		Ports:     []int{22, 80, 443}, // Common ports for TCP scanning
 		Interval:  time.Minute,
 		AgentID:   "tcp-test-agent",
-		GatewayID:  "tcp-test-gateway",
+		GatewayID: "tcp-test-gateway",
 		Partition: "tcp-test-partition",
 	}
 
@@ -559,7 +557,6 @@ func TestTCPOnlyArmisScenarios(t *testing.T) {
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
-		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("TCP-only: single port success marks device available", func(t *testing.T) {

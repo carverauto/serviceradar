@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Cluster.TenantSchemas
@@ -77,7 +78,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     case load_agent_checks(agent_id, tenant_id) do
       {:ok, checks} ->
         sync_payload = load_sync_payload(agent_id, tenant_id)
-        config = build_config(checks, sync_payload)
+        sweep_config = load_sweep_config(agent_id, tenant_id)
+        config = build_config(checks, sync_payload, sweep_config)
         {:ok, config}
 
       {:error, reason} ->
@@ -184,12 +186,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks, sync_payload) do
+  defp build_config(checks, sync_payload, sweep_config) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
-    # Compute version hash from checks and sync payload
-    config_version = compute_version_hash(check_configs, sync_payload)
-    config_json = Jason.encode!(sync_payload)
+    # Merge sweep config into the payload
+    full_payload = Map.put(sync_payload, "sweep", sweep_config)
+
+    # Compute version hash from checks, sync payload, and sweep config
+    config_version = compute_version_hash(check_configs, full_payload)
+    config_json = Jason.encode!(full_payload)
 
     %{
       config_version: config_version,
@@ -277,6 +282,31 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         )
 
         %{"agent_id" => agent_id, "tenant_id" => tenant_id, "sources" => %{}}
+    end
+  end
+
+  # Load sweep configuration from the AgentConfig system
+  # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
+  defp load_sweep_config(agent_id, tenant_id) do
+    # Use "default" partition for now - can be extended to support partitions later
+    partition = "default"
+
+    case ConfigServer.get_config(tenant_id, :sweep, partition, agent_id) do
+      {:ok, entry} ->
+        # Return the compiled config from the cache entry
+        entry.config
+
+      {:error, :no_config_found} ->
+        # No sweep config defined for this agent - return empty config
+        Logger.debug("No sweep config found for agent #{agent_id}")
+        %{}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        %{}
     end
   end
 end

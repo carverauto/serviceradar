@@ -29,7 +29,7 @@ func TestRunSweep_ClearsPreviousResults(t *testing.T) {
 		Timeout:       2 * time.Second,
 		Concurrency:   10,
 		AgentID:       "test-agent",
-		GatewayID:      "test-agent",
+		GatewayID:     "test-agent",
 		Partition:     "default",
 	}
 
@@ -39,7 +39,7 @@ func TestRunSweep_ClearsPreviousResults(t *testing.T) {
 	// Expect PruneResults to be called once at the start of the sweep with age=0
 	mockStore.EXPECT().PruneResults(gomock.Any(), time.Duration(0)).Return(nil).Times(1)
 
-	sweeper, err := NewNetworkSweeper(cfg, mockStore, processor, nil, nil, nil, "agents/test/checkers/sweep/sweep.json", log)
+	sweeper, err := NewNetworkSweeper(cfg, mockStore, processor, nil, log)
 	if err != nil {
 		t.Fatalf("failed to create sweeper: %v", err)
 	}

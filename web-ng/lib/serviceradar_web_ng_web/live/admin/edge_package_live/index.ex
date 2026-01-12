@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("create_package", %{"form" => params}, socket) do
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
-    if AshPhoenix.Form.valid?(form) do
+    if form.valid? do
       # Show loading state while creating package and generating certificates
       socket = assign(socket, :creating, true)
 

@@ -27,6 +27,23 @@ The ServiceRadar web interface:
 - Issues and refreshes JSON Web Tokens (JWTs) that the Core validates
 - Executes SRQL queries through a dedicated microservice reachable at `/api/query`
 
+## Settings > Networks
+
+The Settings > Networks screen is the admin control plane for network sweep jobs.
+It includes two main building blocks:
+
+- **Scanner Profiles**: reusable scan settings (ports, sweep modes, timeouts).
+- **Sweep Groups**: schedules + target rules that define what to scan and when.
+
+Use sweep groups to:
+- Target devices by tags or other device fields
+- Add explicit targets (IP, CIDR, or IP ranges)
+- Choose a schedule (interval or cron)
+- Override profile settings for a specific group
+
+For detailed configuration options and targeting syntax, see
+[Network Sweeps](./network-sweeps.md).
+
 ## Architecture
 
 ```mermaid

@@ -305,6 +305,8 @@ impl AgentService for SysmonService {
             current_sequence: current_sequence.to_string(),
             has_new_data: true,
             sweep_completion: None,
+            execution_id: String::new(),
+            sweep_group_id: String::new(),
         }))
     }
 

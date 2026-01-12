@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.UIComponents
+  import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -629,7 +630,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         <div class="min-w-[880px]">
           <div class="flex items-start gap-10">
             <div class="flex flex-col items-start gap-5">
-              <.srql_builder_pill label="In" root>
+              <.query_builder_pill label="In" root>
                 <.ui_inline_select name="builder[entity]" disabled={not @supported}>
                   <%= for e <- @entities do %>
                     <option value={e.id} selected={@builder["entity"] == e.id}>
@@ -637,10 +638,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     </option>
                   <% end %>
                 </.ui_inline_select>
-              </.srql_builder_pill>
+              </.query_builder_pill>
 
               <div class="pl-10 border-l-2 border-primary/30 flex flex-col gap-5">
-                <.srql_builder_pill label="Time">
+                <.query_builder_pill label="Time">
                   <.ui_inline_select name="builder[time]" disabled={not @supported}>
                     <option value="" selected={(@builder["time"] || "") == ""}>Any</option>
                     <option value="last_1h" selected={@builder["time"] == "last_1h"}>
@@ -656,12 +657,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       Last 30d
                     </option>
                   </.ui_inline_select>
-                </.srql_builder_pill>
+                </.query_builder_pill>
 
                 <div :if={@supports_downsample} class="flex flex-wrap items-center gap-4">
                   <div class="text-xs text-base-content/60 font-medium">Downsample</div>
 
-                  <.srql_builder_pill label="Bucket">
+                  <.query_builder_pill label="Bucket">
                     <.ui_inline_select name="builder[bucket]" disabled={not @supported}>
                       <option value="" selected={(@builder["bucket"] || "") == ""}>
                         (none)
@@ -674,9 +675,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       <option value="6h" selected={@builder["bucket"] == "6h"}>6h</option>
                       <option value="1d" selected={@builder["bucket"] == "1d"}>1d</option>
                     </.ui_inline_select>
-                  </.srql_builder_pill>
+                  </.query_builder_pill>
 
-                  <.srql_builder_pill label="Agg">
+                  <.query_builder_pill label="Agg">
                     <.ui_inline_select name="builder[agg]" disabled={not @supported}>
                       <option value="avg" selected={(@builder["agg"] || "avg") == "avg"}>avg</option>
                       <option value="min" selected={@builder["agg"] == "min"}>min</option>
@@ -684,9 +685,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       <option value="sum" selected={@builder["agg"] == "sum"}>sum</option>
                       <option value="count" selected={@builder["agg"] == "count"}>count</option>
                     </.ui_inline_select>
-                  </.srql_builder_pill>
+                  </.query_builder_pill>
 
-                  <.srql_builder_pill label="Series">
+                  <.query_builder_pill label="Series">
                     <%= if @series_fields == [] do %>
                       <.ui_inline_input
                         type="text"
@@ -708,7 +709,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                         <% end %>
                       </.ui_inline_select>
                     <% end %>
-                  </.srql_builder_pill>
+                  </.query_builder_pill>
                 </div>
 
                 <div class="flex flex-col gap-3">
@@ -717,7 +718,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                   <div class="flex flex-col gap-3">
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                       <div class="flex items-center gap-3">
-                        <.srql_builder_pill label="Filter">
+                        <.query_builder_pill label="Filter">
                           <%= if @config.filter_fields == [] do %>
                             <.ui_inline_input
                               type="text"
@@ -770,7 +771,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                             class="placeholder:text-base-content/40 w-56"
                             disabled={not @supported}
                           />
-                        </.srql_builder_pill>
+                        </.query_builder_pill>
 
                         <.ui_icon_button
                           size="xs"
@@ -798,7 +799,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
                 <div class="flex items-center gap-4 pt-2">
                   <div class="text-xs text-base-content/60 font-medium">Sort</div>
-                  <.srql_builder_pill label="Sort">
+                  <.query_builder_pill label="Sort">
                     <.ui_inline_input
                       type="text"
                       name="builder[sort_field]"
@@ -812,10 +813,10 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       </option>
                       <option value="asc" selected={@builder["sort_dir"] == "asc"}>asc</option>
                     </.ui_inline_select>
-                  </.srql_builder_pill>
+                  </.query_builder_pill>
 
                   <div class="text-xs text-base-content/60 font-medium">Limit</div>
-                  <.srql_builder_pill label="Limit">
+                  <.query_builder_pill label="Limit">
                     <.ui_inline_input
                       type="number"
                       name="builder[limit]"
@@ -825,7 +826,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                       class="w-24"
                       disabled={not @supported}
                     />
-                  </.srql_builder_pill>
+                  </.query_builder_pill>
                 </div>
 
                 <div class="flex items-center gap-3 pt-4 mt-4 border-t border-base-200">
@@ -839,23 +840,6 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         </div>
       </form>
     </.ui_panel>
-    """
-  end
-
-  slot :inner_block, required: true
-  attr :label, :string, required: true
-  attr :root, :boolean, default: false
-
-  def srql_builder_pill(assigns) do
-    ~H"""
-    <div class="relative">
-      <div :if={not @root} class="absolute -left-10 top-1/2 h-0.5 w-10 bg-primary/30" />
-      <div class="inline-flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-3 py-2 shadow-sm">
-        <.icon name="hero-check-mini" class="size-4 text-success opacity-80" />
-        <span class="text-xs text-base-content/60">{@label}</span>
-        {render_slot(@inner_block)}
-      </div>
-    </div>
     """
   end
 end

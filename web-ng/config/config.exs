@@ -33,6 +33,7 @@ config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migr
 # Ash Framework Configuration
 config :serviceradar_web_ng,
   ash_domains: [
+    ServiceRadar.AgentConfig,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
@@ -40,12 +41,14 @@ config :serviceradar_web_ng,
     ServiceRadar.Observability,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
-    ServiceRadar.Jobs
+    ServiceRadar.Jobs,
+    ServiceRadar.SweepJobs
   ]
 
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
   ash_domains: [
+    ServiceRadar.AgentConfig,
     ServiceRadar.Identity,
     ServiceRadar.Inventory,
     ServiceRadar.Infrastructure,
@@ -53,7 +56,8 @@ config :serviceradar_core,
     ServiceRadar.Observability,
     ServiceRadar.Edge,
     ServiceRadar.Integrations,
-    ServiceRadar.Jobs
+    ServiceRadar.Jobs,
+    ServiceRadar.SweepJobs
   ]
 
 # Ash configuration

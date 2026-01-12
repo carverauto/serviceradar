@@ -322,6 +322,9 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 "risk_level filter only supports equality"
             )?;
         }
+        "tags" => {
+            query = apply_tags_filter(query, filter)?;
+        }
         "discovery_sources" => {
             let values = match &filter.value {
                 FilterValue::Scalar(v) => vec![v.to_string()],
@@ -367,6 +370,16 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 )));
             }
             query = apply_jsonb_text_filter(query, filter, "metadata", key)?;
+        }
+        // JSONB path queries for tags (arbitrary keys)
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tags key '{key}'"
+                )));
+            }
+            query = apply_jsonb_text_filter(query, filter, "tags", key)?;
         }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
@@ -415,6 +428,23 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())
         }
+        "tags" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq => {
+                params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+                Ok(())
+            }
+            FilterOp::In | FilterOp::NotIn => {
+                let values = filter.value.as_list()?.to_vec();
+                if values.is_empty() {
+                    return Ok(());
+                }
+                params.push(BindParam::TextArray(values));
+                Ok(())
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "tags filter only supports equality and list filters".into(),
+            )),
+        },
         "type_id" => {
             let type_id: i64 =
                 filter.value.as_scalar()?.parse().map_err(|_| {
@@ -454,6 +484,17 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             if !is_valid_jsonb_key(key) {
                 return Err(ServiceError::InvalidRequest(format!(
                     "invalid metadata key '{key}'"
+                )));
+            }
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        // Dynamic tags.* fields
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tags key '{key}'"
                 )));
             }
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
@@ -574,5 +615,35 @@ fn apply_jsonb_text_filter<'a>(
         _ => Err(ServiceError::InvalidRequest(format!(
             "JSONB field '{column}.{key}' only supports equality and LIKE filters"
         ))),
+    }
+}
+
+fn apply_tags_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq => {
+            let tag = filter.value.as_scalar()?.to_string();
+            let expr = sql::<Bool>("coalesce(tags, '{}'::jsonb) ? ").bind::<Text, _>(tag);
+            if matches!(filter.op, FilterOp::NotEq) {
+                Ok(query.filter(not(expr)))
+            } else {
+                Ok(query.filter(expr))
+            }
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let tags = filter.value.as_list()?.to_vec();
+            if tags.is_empty() {
+                return Ok(query);
+            }
+            let expr = sql::<Bool>("coalesce(tags, '{}'::jsonb) ?| ")
+                .bind::<Array<Text>, _>(tags);
+            if matches!(filter.op, FilterOp::NotIn) {
+                Ok(query.filter(not(expr)))
+            } else {
+                Ok(query.filter(expr))
+            }
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "tags filter only supports equality and list filters".into(),
+        )),
     }
 }

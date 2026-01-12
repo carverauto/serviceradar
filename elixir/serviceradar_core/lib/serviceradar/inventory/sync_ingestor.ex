@@ -271,6 +271,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         name: update.hostname || update.ip,
         is_available: update.is_available || false,
         metadata: update.metadata || %{},
+        tags: update.tags || %{},
         discovery_sources: [source],
         first_seen_time: timestamp,
         last_seen_time: timestamp,
@@ -384,6 +385,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       hostname: get_string(update, ["hostname", :hostname]),
       partition: get_string(update, ["partition", :partition]) || "default",
       metadata: get_map(update, ["metadata", :metadata]),
+      tags: get_map(update, ["tags", :tags]),
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
       is_available: get_bool(update, ["is_available", :is_available]),
       source: get_string(update, ["source", :source]) || "unknown"
@@ -398,6 +400,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       hostname: nil,
       partition: "default",
       metadata: %{},
+      tags: %{},
       timestamp: nil,
       is_available: false,
       source: "unknown"

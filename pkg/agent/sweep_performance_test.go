@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -50,12 +49,6 @@ func skipIfNotLinuxRoot(t *testing.T) {
 	}
 }
 
-func expectSweepConfigBootstrap(mockKV *MockKVStore, key string) {
-	mockKV.EXPECT().Get(gomock.Any(), key).Return(nil, false, nil).AnyTimes()
-	mockKV.EXPECT().Put(gomock.Any(), key, gomock.Any(), time.Duration(0)).Return(nil).AnyTimes()
-	mockKV.EXPECT().Close().Return(nil).AnyTimes()
-}
-
 func TestSweepService_Creation(t *testing.T) {
 	skipIfNotLinuxRoot(t)
 
@@ -67,14 +60,9 @@ func TestSweepService_Creation(t *testing.T) {
 		SweepModes:  []models.SweepMode{models.ModeTCP, models.ModeICMP},
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore, "test")
 
-	service, err := NewSweepService(context.Background(), config, mockKVStore, nil, "test", log)
+	service, err := NewSweepService(context.Background(), config, log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 	assert.Equal(t, "network_sweep", service.Name())
@@ -99,14 +87,9 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 		Interval:      10 * time.Minute,
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore, "test")
 
-	service, err := NewSweepService(context.Background(), config, mockKVStore, nil, "test", log)
+	service, err := NewSweepService(context.Background(), config, log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 
@@ -145,23 +128,15 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 		Timeout:     2 * time.Second, // Optimized default
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore1 := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore1, "test_old")
-
-	mockKVStore2 := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore2, "test_new")
 
 	// Test old configuration
-	oldService, err := NewSweepService(context.Background(), oldConfig, mockKVStore1, nil, "test_old", log)
+	oldService, err := NewSweepService(context.Background(), oldConfig, log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", oldService.Name())
 
 	// Test new configuration (with optimized defaults)
-	newService, err := NewSweepService(context.Background(), newConfig, mockKVStore2, nil, "test_new", log)
+	newService, err := NewSweepService(context.Background(), newConfig, log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", newService.Name())
 
@@ -189,14 +164,9 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 		Timeout:    500 * time.Millisecond, // Fast timeouts for quick test
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore, "test")
 
-	service, err := NewSweepService(context.Background(), config, mockKVStore, nil, "test", log)
+	service, err := NewSweepService(context.Background(), config, log)
 	require.NoError(t, err)
 
 	// The service should initialize without errors
@@ -221,14 +191,9 @@ func TestSweepService_TimeoutHandling(t *testing.T) {
 		SweepModes: []models.SweepMode{models.ModeTCP},
 	}
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore := NewMockKVStore(ctrl)
-	expectSweepConfigBootstrap(mockKVStore, "test")
 
-	service, err := NewSweepService(context.Background(), config, mockKVStore, nil, "test", log)
+	service, err := NewSweepService(context.Background(), config, log)
 	require.NoError(t, err)
 
 	// Should not timeout immediately - the 20-minute scan timeout should allow completion
@@ -293,14 +258,9 @@ func BenchmarkSweepService_OptimizedPerformance(b *testing.B) {
 		Timeout:     2 * time.Second,
 	}
 
-	ctrl := gomock.NewController(b)
-	defer ctrl.Finish()
-
 	log := logger.NewTestLogger()
-	mockKVStore := NewMockKVStore(ctrl)
-	mockKVStore.EXPECT().Close().Return(nil).AnyTimes()
 
-	service, err := NewSweepService(context.Background(), config, mockKVStore, nil, "benchmark", log)
+	service, err := NewSweepService(context.Background(), config, log)
 	require.NoError(b, err)
 
 	b.ResetTimer()
