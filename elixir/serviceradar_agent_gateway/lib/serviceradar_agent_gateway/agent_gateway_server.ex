@@ -857,11 +857,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     nodes = core_nodes()
 
     if nodes == [] do
+      Logger.warning(
+        "Core call failed: no core nodes available. Connected nodes: #{inspect(Node.list())}. " <>
+          "Calling #{inspect(module)}.#{function}"
+      )
+
       {:error, :core_unavailable}
     else
       Enum.reduce_while(nodes, {:error, :core_unavailable}, fn node, _acc ->
         case :rpc.call(node, module, function, args, timeout) do
-          {:badrpc, _} ->
+          {:badrpc, reason} ->
+            Logger.warning(
+              "Core RPC call to #{node} failed: #{inspect(reason)}. " <>
+                "Calling #{inspect(module)}.#{function}"
+            )
+
             {:cont, {:error, :core_unavailable}}
 
           result ->
@@ -872,26 +882,43 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp core_nodes do
-    nodes = [Node.self() | Node.list()] |> Enum.uniq()
+    all_nodes = [Node.self() | Node.list()] |> Enum.uniq()
 
-    coordinators =
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
+    # First try to find nodes with ClusterHealth (preferred)
+    coordinators = find_nodes_with_process(all_nodes, ServiceRadar.ClusterHealth)
 
     if coordinators != [] do
       coordinators
     else
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.Repo], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
+      # Fall back to nodes with Repo
+      repo_nodes = find_nodes_with_process(all_nodes, ServiceRadar.Repo)
+
+      if repo_nodes == [] and length(all_nodes) > 1 do
+        Logger.warning("No core nodes found",
+          connected_nodes: Node.list(),
+          checked_nodes: all_nodes
+        )
+      end
+
+      repo_nodes
     end
+  end
+
+  defp find_nodes_with_process(nodes, process_name) do
+    Enum.filter(nodes, fn node ->
+      case :rpc.call(node, Process, :whereis, [process_name], 5_000) do
+        pid when is_pid(pid) ->
+          true
+
+        {:badrpc, reason} ->
+          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
+          false
+
+        other ->
+          Logger.debug("Process #{inspect(process_name)} not found on #{node}: #{inspect(other)}")
+          false
+      end
+    end)
   end
 
   # Extract tenant info from the gRPC stream's mTLS certificate
