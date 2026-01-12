@@ -456,11 +456,12 @@ func (s *NetworkSweeper) Stop() error {
 	s.tcpConnectScanner = nil
 	s.mu.Unlock()
 
-	if done == nil {
+	switch {
+	case done == nil:
 		s.logger.Debug().Msg("Sweep service already stopped")
-	} else if alreadyStopped {
+	case alreadyStopped:
 		s.logger.Debug().Msg("Sweep service already stopped")
-	} else {
+	default:
 		close(done)
 	}
 
