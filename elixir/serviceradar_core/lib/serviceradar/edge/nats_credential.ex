@@ -123,6 +123,11 @@ defmodule ServiceRadar.Edge.NatsCredential do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Tenant admins can manage their tenant's credentials
     policy action_type(:read) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))

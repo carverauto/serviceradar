@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestor
@@ -281,13 +282,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       case IntegrationSource.get_by_id(sync_service_id,
              tenant: tenant_schema,
-             actor: actor,
-             authorize?: false
+             actor: actor
            ) do
         {:ok, source} ->
           source
           |> Ash.Changeset.for_update(action, action_attrs)
-          |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
+          |> Ash.update(tenant: tenant_schema, actor: actor)
           |> case do
             {:ok, _} ->
               Logger.debug("Recorded sync status for IntegrationSource #{sync_service_id}")
@@ -317,13 +317,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       case IntegrationSource.get_by_id(sync_service_id,
              tenant: tenant_schema,
-             actor: actor,
-             authorize?: false
+             actor: actor
            ) do
         {:ok, source} ->
           source
           |> Ash.Changeset.for_update(:sync_start, %{device_count: length(updates)})
-          |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
+          |> Ash.update(tenant: tenant_schema, actor: actor)
           |> case do
             {:ok, _} ->
               Logger.debug("Recorded sync start for IntegrationSource #{sync_service_id}")
@@ -394,12 +393,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp decode_results(_message), do: {:error, :unsupported_payload}
 
   defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
+    SystemActor.for_tenant(tenant_id, :sync_ingestor)
   end
 
   defp sync_ingestor do

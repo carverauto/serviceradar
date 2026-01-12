@@ -98,6 +98,11 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Admins can manage profiles
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)

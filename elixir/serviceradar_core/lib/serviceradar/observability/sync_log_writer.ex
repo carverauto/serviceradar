@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
   Writes integration sync lifecycle updates into the tenant OTEL logs table.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Observability.{Log, LogPromotion}
@@ -28,11 +29,13 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
 
     with {:ok, schema} <- resolve_schema(tenant_id_str) do
       attrs = build_log_attrs(source, stage, opts)
+      # Tenant-scoped actor for log creation
+      actor = SystemActor.for_tenant(tenant_id_str, :sync_log_writer)
 
       Log
       |> Ash.Changeset.for_create(:create, attrs, tenant: schema)
       |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id_str)
-      |> Ash.create(authorize?: false)
+      |> Ash.create(actor: actor)
       |> case do
         {:ok, log} ->
           LogPromotion.promote([log], tenant_id_str, schema)

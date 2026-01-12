@@ -137,6 +137,11 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # System can create results (from sweep execution)
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)

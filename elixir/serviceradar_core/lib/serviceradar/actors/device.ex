@@ -56,6 +56,7 @@ defmodule ServiceRadar.Actors.Device do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device, as: DeviceResource
@@ -474,8 +475,9 @@ defmodule ServiceRadar.Actors.Device do
 
   defp load_identity_from_db(state) do
     tenant_schema = TenantSchemas.schema_for_tenant(state.tenant_id)
+    actor = SystemActor.for_tenant(state.tenant_id, :device_actor)
 
-    case DeviceResource.get_by_uid(state.device_id, tenant: tenant_schema, authorize?: false) do
+    case DeviceResource.get_by_uid(state.device_id, tenant: tenant_schema, actor: actor) do
       {:ok, device} ->
         identity = %{
           uid: device.uid,
@@ -505,15 +507,16 @@ defmodule ServiceRadar.Actors.Device do
 
   defp persist_identity(tenant_id, device_id, identity) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :device_actor)
 
-    case DeviceResource.get_by_uid(device_id, tenant: tenant_schema, authorize?: false) do
+    case DeviceResource.get_by_uid(device_id, tenant: tenant_schema, actor: actor) do
       {:ok, device} ->
         updates =
           identity
           |> Map.take([:name, :hostname, :ip, :mac, :vendor_name, :model, :os])
           |> Map.put(:last_seen_time, DateTime.utc_now())
 
-        case Ash.update(device, updates, authorize?: false) do
+        case Ash.update(device, updates, actor: actor) do
           {:ok, _} -> :ok
           {:error, error} -> {:error, error}
         end

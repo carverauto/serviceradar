@@ -151,6 +151,11 @@ defmodule ServiceRadar.Identity.ApiToken do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Users can read their own tokens
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))

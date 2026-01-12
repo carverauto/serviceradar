@@ -3,6 +3,7 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   Publishes edge onboarding lifecycle logs to NATS for downstream promotion.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.EventWriter.OCSF
@@ -26,11 +27,18 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   end
 
   defp load_package(event, tenant_schema) do
-    case Ash.get(OnboardingPackage, event.package_id, tenant: tenant_schema, authorize?: false) do
+    # Extract tenant_id from the schema name (format: "tenant_<uuid>")
+    tenant_id = extract_tenant_id_from_schema(tenant_schema)
+    actor = SystemActor.for_tenant(tenant_id, :onboarding_writer)
+
+    case Ash.get(OnboardingPackage, event.package_id, tenant: tenant_schema, actor: actor) do
       {:ok, package} -> {:ok, package}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp extract_tenant_id_from_schema("tenant_" <> uuid), do: uuid
+  defp extract_tenant_id_from_schema(_), do: nil
 
   defp fetch_tenant_id(%OnboardingPackage{tenant_id: tenant_id}) when is_binary(tenant_id) do
     {:ok, tenant_id}

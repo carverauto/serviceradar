@@ -5,6 +5,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
@@ -53,17 +54,18 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
 
   defp load_sources(agent_id, tenant_id) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :sync_config_generator)
 
     # Include sources assigned to this specific agent OR sources with no agent (auto-assign)
     # Load credentials_encrypted first (so AshCloak can decrypt it), then the credentials calculation
     query =
       IntegrationSource
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, actor: actor)
       |> Ash.Query.filter(enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
       |> Ash.Query.load([:credentials_encrypted, :credentials])
       |> Ash.Query.sort(name: :asc)
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, sources} -> {:ok, sources}
       {:error, reason} -> {:error, reason}
     end
@@ -186,10 +188,13 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   defp lookup_tenant_slug_from_db(nil), do: nil
 
   defp lookup_tenant_slug_from_db(tenant_id) do
+    # Tenant resource is cross-tenant, use platform actor
+    actor = SystemActor.platform(:sync_config_generator)
+
     case Tenant
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.Query.limit(1)
-         |> Ash.read(authorize?: false) do
+         |> Ash.read(actor: actor) do
       {:ok, [tenant | _]} -> to_string(tenant.slug)
       _ -> nil
     end

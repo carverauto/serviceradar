@@ -228,6 +228,11 @@ defmodule ServiceRadar.Infrastructure.Checker do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # TENANT ISOLATION: All operations require tenant match
     # Checkers belong to a tenant and must not be accessible cross-tenant
 

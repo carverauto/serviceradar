@@ -26,6 +26,8 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
+
   @type pem :: String.t()
   @type ca_data :: %{
           certificate_pem: pem(),
@@ -275,7 +277,9 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   # Private functions
 
   defp load_tenant(tenant_id) do
-    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, authorize?: false) do
+    # Tenant is cross-tenant, use platform actor
+    actor = SystemActor.platform(:tenant_ca_generator)
+    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
       {:ok, tenant} -> {:ok, tenant}
       {:error, _} -> {:error, :tenant_not_found}
     end
