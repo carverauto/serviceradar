@@ -1854,7 +1854,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
       |> Ash.Query.limit(10)
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, authorize?: true) do
       {:ok, results} when results != [] ->
         %{results: results, total: length(results)}
 

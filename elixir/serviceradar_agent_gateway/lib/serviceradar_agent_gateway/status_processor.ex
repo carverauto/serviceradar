@@ -249,11 +249,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp should_buffer?(status) do
-    Map.get(status, :source) == "results"
+    status[:source] == "results"
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do
-    if Map.get(status, :source) == "results" do
+    if status[:source] == "results" do
       duration_ms =
         System.monotonic_time()
         |> Kernel.-(started_at)

@@ -114,7 +114,7 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   Compiles config without using cache (force recompile).
   """
   @spec compile(String.t(), atom(), String.t(), String.t() | nil, keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, map() | ConfigInstance.t()} | {:error, term()}
   def compile(tenant_id, config_type, partition, agent_id, opts \\ []) do
     case Compiler.compiler_for(config_type) do
       {:ok, compiler} ->
@@ -137,14 +137,23 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   defp compile_and_cache(tenant_id, config_type, partition, agent_id, opts) do
     case compile(tenant_id, config_type, partition, agent_id, opts) do
-      {:ok, compiled_config} ->
-        entry = build_cache_entry(compiled_config)
+      {:ok, compiled_result} ->
+        entry = build_cache_entry(compiled_result)
         ConfigCache.put(tenant_id, config_type, partition, agent_id, entry)
         {:ok, entry}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp build_cache_entry(%ConfigInstance{compiled_config: compiled_config} = instance) do
+    %{
+      config: compiled_config,
+      hash: instance.content_hash || Compiler.content_hash(compiled_config),
+      version: instance.version || 1,
+      cached_at: DateTime.utc_now()
+    }
   end
 
   defp build_cache_entry(compiled_config) do
@@ -168,9 +177,9 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
              partition: partition,
              agent_id: agent_id
            }
-         ) do
+        ) do
       {:ok, [instance | _]} ->
-        {:ok, instance.compiled_config}
+        {:ok, instance}
 
       {:ok, []} ->
         {:error, :no_config_found}

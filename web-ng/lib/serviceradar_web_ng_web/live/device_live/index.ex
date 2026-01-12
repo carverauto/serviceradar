@@ -236,12 +236,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp apply_tags_to_devices(scope, socket, tags) do
-    case get_selected_uids(socket) do
-      [] ->
-        {:error, "No devices selected"}
+    if socket.assigns.select_all_matching and
+         is_integer(socket.assigns.total_matching_count) and
+         socket.assigns.total_matching_count > 10_000 do
+      {:error, "Too many devices selected. Narrow your filters and try again."}
+    else
+      case get_selected_uids(socket) do
+        [] ->
+          {:error, "No devices selected"}
 
-      uids ->
-        update_tags_for_uids(scope, uids, tags)
+        uids ->
+          update_tags_for_uids(scope, uids, tags)
+      end
     end
   end
 
@@ -1152,21 +1158,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp get_total_matching_count(scope, query) do
     srql_module = srql_module()
-    # Get count by querying with limit 0 - SRQL should return total_count
-    full_query = "in:devices #{query} limit:0"
+    query = to_string(query || "") |> String.trim()
+
+    full_query =
+      if query == "" do
+        ~s|in:devices stats:"count() as total"|
+      else
+        ~s|in:devices #{query} stats:"count() as total"|
+      end
 
     case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"pagination" => %{"total_count" => count}}} when is_integer(count) ->
+      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
         count
-
-      {:ok, %{"results" => results}} when is_list(results) ->
-        # Fall back to fetching actual count with larger limit
-        count_query = "in:devices #{query} limit:10000"
-
-        case srql_module.query(count_query, %{scope: scope}) do
-          {:ok, %{"results" => results}} -> length(results)
-          _ -> 0
-        end
 
       _ ->
         0

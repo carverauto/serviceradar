@@ -384,6 +384,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Enum.map(&extract_ip/1)
       |> Enum.reject(&is_nil/1)
 
+    # Update unavailable devices
+    unavailable_ips =
+      updates_by_status
+      |> Map.get(false, [])
+      |> Enum.map(&extract_ip/1)
+      |> Enum.reject(&is_nil/1)
+
+    all_device_uids =
+      (available_ips ++ unavailable_ips)
+      |> Enum.map(&Map.get(device_map, &1))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.canonical_device_id)
+      |> Enum.uniq()
+
     if length(available_ips) > 0 do
       device_uids =
         available_ips
@@ -402,18 +416,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             modified_time: timestamp
           ]
         )
-
-        # Also add "sweep" to discovery_sources if not present
-        add_sweep_to_discovery_sources(device_uids, tenant_schema)
       end
     end
-
-    # Update unavailable devices
-    unavailable_ips =
-      updates_by_status
-      |> Map.get(false, [])
-      |> Enum.map(&extract_ip/1)
-      |> Enum.reject(&is_nil/1)
 
     if length(unavailable_ips) > 0 do
       device_uids =
@@ -435,23 +439,34 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       end
     end
 
+    if length(all_device_uids) > 0 do
+      add_sweep_to_discovery_sources(all_device_uids, tenant_schema)
+    end
+
     :ok
   end
 
   defp add_sweep_to_discovery_sources(device_uids, tenant_schema) do
-    # Use raw SQL to add "sweep" to array if not present
-    # PostgreSQL: array_append with check for existence
-    sql = """
-    UPDATE #{tenant_schema}.ocsf_devices
-    SET discovery_sources = array_append(
-      COALESCE(discovery_sources, ARRAY[]::text[]),
-      'sweep'
-    )
-    WHERE uid = ANY($1)
-    AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
-    """
+    if is_binary(tenant_schema) and String.match?(tenant_schema, ~r/^tenant_[a-z0-9_]+$/) do
+      sql = """
+      UPDATE #{tenant_schema}.ocsf_devices
+      SET discovery_sources = array_append(
+        COALESCE(discovery_sources, ARRAY[]::text[]),
+        'sweep'
+      )
+      WHERE uid = ANY($1)
+      AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+      """
 
-    Repo.query(sql, [device_uids])
+      _ = Repo.query(sql, [device_uids])
+      :ok
+    else
+      Logger.error("SweepResultsIngestor: invalid tenant schema for SQL update",
+        tenant_schema: inspect(tenant_schema)
+      )
+
+      :ok
+    end
   end
 
   defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, tenant_id, tenant_schema, _actor) do
