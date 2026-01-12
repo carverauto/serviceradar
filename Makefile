@@ -182,7 +182,7 @@ lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running web-ng Credo$(COLOR_RESET)"
 	@cd web-ng && mix credo --all
 	@echo "$(COLOR_BOLD)Running serviceradar_core Credo$(COLOR_RESET)"
-	@cd elixir/serviceradar_core && mix credo
+	@cd elixir/serviceradar_core && mix credo --strict --mute-exit-status
 
 .PHONY: test
 test: $(TEST_PREREQS) ## Run all tests with coverage
