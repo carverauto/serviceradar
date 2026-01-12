@@ -1189,7 +1189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of    {@hosts_processed} hosts</span>
+            <span> of     {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -1898,35 +1898,35 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Helpers
 
   defp load_sweep_groups(scope) do
-    case Ash.read(SweepGroup, scope: scope, authorize?: false) do
+    case Ash.read(SweepGroup, scope: scope) do
       {:ok, groups} -> groups
       {:error, _} -> []
     end
   end
 
   defp load_sweep_group(scope, id) do
-    case Ash.get(SweepGroup, id, scope: scope, authorize?: false) do
+    case Ash.get(SweepGroup, id, scope: scope) do
       {:ok, group} -> group
       {:error, _} -> nil
     end
   end
 
   defp load_sweep_profiles(scope) do
-    case Ash.read(SweepProfile, scope: scope, authorize?: false) do
+    case Ash.read(SweepProfile, scope: scope) do
       {:ok, profiles} -> profiles
       {:error, _} -> []
     end
   end
 
   defp load_sweep_profile(scope, id) do
-    case Ash.get(SweepProfile, id, scope: scope, authorize?: false) do
+    case Ash.get(SweepProfile, id, scope: scope) do
       {:ok, profile} -> profile
       {:error, _} -> nil
     end
   end
 
   defp load_running_executions(scope) do
-    case Ash.read(SweepGroupExecution, action: :running, scope: scope, authorize?: false) do
+    case Ash.read(SweepGroupExecution, action: :running, scope: scope) do
       {:ok, executions} -> executions
       {:error, _} -> []
     end
@@ -1935,8 +1935,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp load_recent_executions(scope) do
     case Ash.read(SweepGroupExecution,
            action: :recent,
-           scope: scope,
-           authorize?: false
+           scope: scope
          ) do
       {:ok, executions} ->
         # Filter out running ones (they appear in the running section)
