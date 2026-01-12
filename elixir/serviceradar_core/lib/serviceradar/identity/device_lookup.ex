@@ -113,53 +113,58 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     if Enum.empty?(unique_ips) do
       %{}
     else
-      {cache_hits, cache_misses} =
-        if use_cache do
-          IdentityCache.get_batch(unique_ips)
-        else
-          {%{}, unique_ips}
-        end
-
+      {cache_hits, cache_misses} = fetch_cache_hits(unique_ips, use_cache)
       db_results = lookup_devices_by_ips(cache_misses, actor)
-
-      # Cache the DB results
-      if use_cache do
-        Enum.each(db_results, fn {ip, record} ->
-          IdentityCache.put(ip, record)
-        end)
-      end
-
+      cache_db_results(db_results, use_cache)
       Map.merge(cache_hits, db_results)
     end
   end
 
+  defp fetch_cache_hits(unique_ips, true), do: IdentityCache.get_batch(unique_ips)
+  defp fetch_cache_hits(unique_ips, false), do: {%{}, unique_ips}
+
+  defp cache_db_results(db_results, true) do
+    Enum.each(db_results, fn {ip, record} ->
+      IdentityCache.put(ip, record)
+    end)
+  end
+
+  defp cache_db_results(_db_results, false), do: :ok
+
   # Private functions
 
   defp normalize_identity_keys(keys, opts) do
-    seen = MapSet.new()
-
-    normalized =
-      keys
-      |> Enum.reduce({[], seen}, fn key, {acc, seen_set} ->
-        kind = normalize_kind(key[:kind] || key["kind"])
-        value = String.trim(to_string(key[:value] || key["value"] || ""))
-
-        if kind == :unspecified or value == "" do
-          {acc, seen_set}
-        else
-          signature = "#{kind}|#{value}"
-
-          if MapSet.member?(seen_set, signature) do
-            {acc, seen_set}
-          else
-            {[%{kind: kind, value: value} | acc], MapSet.put(seen_set, signature)}
-          end
+    {normalized, _seen_set} =
+      Enum.reduce(keys, {[], MapSet.new()}, fn key, {acc, seen_set} ->
+        case normalize_key_entry(key, seen_set) do
+          {:skip, seen_set} -> {acc, seen_set}
+          {:ok, normalized_key, seen_set} -> {[normalized_key | acc], seen_set}
         end
       end)
-      |> elem(0)
-      |> Enum.reverse()
 
-    # Add IP hint if provided
+    normalized
+    |> Enum.reverse()
+    |> maybe_add_ip_hint(opts)
+  end
+
+  defp normalize_key_entry(key, seen_set) do
+    kind = normalize_kind(key[:kind] || key["kind"])
+    value = String.trim(to_string(key[:value] || key["value"] || ""))
+
+    cond do
+      kind == :unspecified or value == "" ->
+        {:skip, seen_set}
+
+      MapSet.member?(seen_set, "#{kind}|#{value}") ->
+        {:skip, seen_set}
+
+      true ->
+        normalized_key = %{kind: kind, value: value}
+        {:ok, normalized_key, MapSet.put(seen_set, "#{kind}|#{value}")}
+    end
+  end
+
+  defp maybe_add_ip_hint(normalized, opts) do
     case Keyword.get(opts, :ip_hint) do
       nil ->
         normalized
@@ -201,42 +206,50 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       keys,
       %{found: false, record: nil, matched_key: nil, resolved_via: "miss"},
       fn key, _acc ->
-        # Try cache first for IP-based lookups
-        cached_record =
-          if use_cache and key.kind == :ip do
-            IdentityCache.get(key.value)
-          else
-            nil
-          end
+        case cached_record_for_key(key, use_cache) do
+          {:ok, record} ->
+            {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
-        if cached_record do
-          {:halt, %{found: true, record: cached_record, matched_key: key, resolved_via: "cache"}}
-        else
-          case lookup_by_key(key, actor) do
-            {:ok, nil} ->
-              {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
-
-            {:ok, device} ->
-              record = build_record_from_device(device)
-
-              # Cache the result
-              if use_cache and key.kind == :ip do
-                IdentityCache.put(key.value, record)
-              end
-
-              {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
-
-            {:error, reason} ->
-              Logger.debug(
-                "Identity lookup failed for #{key.kind}:#{key.value}: #{inspect(reason)}"
-              )
-
-              {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "error"}}
-          end
+          :miss ->
+            handle_lookup_miss(key, actor, use_cache)
         end
       end
     )
   end
+
+  defp cached_record_for_key(%{kind: :ip, value: value}, true) do
+    case IdentityCache.get(value) do
+      nil -> :miss
+      record -> {:ok, record}
+    end
+  end
+
+  defp cached_record_for_key(_key, _use_cache), do: :miss
+
+  defp handle_lookup_miss(key, actor, use_cache) do
+    case lookup_by_key(key, actor) do
+      {:ok, nil} ->
+        {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
+
+      {:ok, device} ->
+        record = build_record_from_device(device)
+        cache_lookup_result(key, record, use_cache)
+        {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
+
+      {:error, reason} ->
+        Logger.debug(
+          "Identity lookup failed for #{key.kind}:#{key.value}: #{inspect(reason)}"
+        )
+
+        {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "error"}}
+    end
+  end
+
+  defp cache_lookup_result(%{kind: :ip, value: value}, record, true) do
+    IdentityCache.put(value, record)
+  end
+
+  defp cache_lookup_result(_key, _record, _use_cache), do: :ok
 
   defp lookup_by_key(%{kind: :device_id, value: device_id}, actor) do
     query_opts = if actor, do: [actor: actor], else: []
@@ -254,10 +267,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         {:ok, nil}
 
       {:ok, device} ->
-        # Check partition match
-        device_partition = partition_from_device_id(device.uid)
-
-        if partition == "" or device_partition == partition do
+        if partition_matches?(partition, device) do
           {:ok, device}
         else
           {:ok, nil}
@@ -327,6 +337,11 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp lookup_by_key(_key, _actor), do: {:ok, nil}
 
+  defp partition_matches?(partition, device) do
+    device_partition = partition_from_device_id(device.uid)
+    partition == "" or device_partition == partition
+  end
+
   defp lookup_devices_by_ips([], _actor), do: %{}
 
   defp lookup_devices_by_ips(ips, actor) do
@@ -340,16 +355,11 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       {:ok, devices} ->
         devices
         |> Enum.group_by(& &1.ip)
-        |> Enum.map(fn {ip, grouped_devices} ->
-          device = select_canonical_device(grouped_devices)
-
-          if device do
-            {ip, build_record_from_device(device)}
-          else
-            nil
-          end
+        |> Enum.flat_map(fn {ip, grouped_devices} ->
+          grouped_devices
+          |> select_canonical_device()
+          |> maybe_record_for_ip(ip)
         end)
-        |> Enum.reject(&is_nil/1)
         |> Map.new()
 
       {:error, _} ->
@@ -371,6 +381,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
     List.first(valid_devices) || List.first(devices)
   end
+
+  defp maybe_record_for_ip(nil, _ip), do: []
+  defp maybe_record_for_ip(device, ip), do: [{ip, build_record_from_device(device)}]
 
   defp build_record_from_device(nil), do: nil
 

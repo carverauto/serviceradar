@@ -308,52 +308,64 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
     {last_count, last_time} = get_last_stats_alert()
     now = DateTime.utc_now()
 
-    if skipped <= last_count and
-         DateTime.diff(now, last_time, :millisecond) < @stats_alert_cooldown do
+    if skip_stats_alert?(skipped, last_count, last_time, now) do
       :ok
     else
       set_last_stats_alert(skipped, now)
-
-      delta = skipped - last_count
-
-      if delta > 0 do
-        message =
-          "Stats aggregator filtered #{delta} newly detected non-canonical devices (total filtered: #{skipped})."
-
-        details =
-          %{
-            "raw_records" => meta[:raw_records] || meta["raw_records"],
-            "processed_records" => meta[:processed_records] || meta["processed_records"],
-            "skipped_non_canonical" => skipped,
-            "delta_non_canonical" => delta,
-            "inferred_canonical_fallback" =>
-              meta[:inferred_canonical_fallback] || meta["inferred_canonical_fallback"],
-            "skipped_service_components" =>
-              meta[:skipped_service_components] || meta["skipped_service_components"],
-            "skipped_tombstoned" =>
-              meta[:skipped_tombstoned_records] || meta["skipped_tombstoned_records"]
-          }
-          |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-          |> Map.new()
-
-        alert = %WebhookNotifier.Alert{
-          level: :warning,
-          title: "Non-canonical devices filtered from stats",
-          message: message,
-          timestamp: DateTime.to_iso8601(now),
-          gateway_id: "core",
-          details: details
-        }
-
-        case WebhookNotifier.send_alert(alert) do
-          :ok -> :ok
-          {:error, :not_running} -> :ok
-          error -> error
-        end
-      else
-        :ok
-      end
+      maybe_send_stats_alert(meta, skipped, last_count, now)
     end
+  end
+
+  defp skip_stats_alert?(skipped, last_count, last_time, now) do
+    skipped <= last_count and
+      DateTime.diff(now, last_time, :millisecond) < @stats_alert_cooldown
+  end
+
+  defp maybe_send_stats_alert(meta, skipped, last_count, now) do
+    delta = skipped - last_count
+
+    if delta > 0 do
+      alert = build_stats_alert(meta, skipped, delta, now)
+
+      case WebhookNotifier.send_alert(alert) do
+        :ok -> :ok
+        {:error, :not_running} -> :ok
+        error -> error
+      end
+    else
+      :ok
+    end
+  end
+
+  defp build_stats_alert(meta, skipped, delta, now) do
+    message =
+      "Stats aggregator filtered #{delta} newly detected non-canonical devices (total filtered: #{skipped})."
+
+    %WebhookNotifier.Alert{
+      level: :warning,
+      title: "Non-canonical devices filtered from stats",
+      message: message,
+      timestamp: DateTime.to_iso8601(now),
+      gateway_id: "core",
+      details: build_stats_alert_details(meta, skipped, delta)
+    }
+  end
+
+  defp build_stats_alert_details(meta, skipped, delta) do
+    %{
+      "raw_records" => meta[:raw_records] || meta["raw_records"],
+      "processed_records" => meta[:processed_records] || meta["processed_records"],
+      "skipped_non_canonical" => skipped,
+      "delta_non_canonical" => delta,
+      "inferred_canonical_fallback" =>
+        meta[:inferred_canonical_fallback] || meta["inferred_canonical_fallback"],
+      "skipped_service_components" =>
+        meta[:skipped_service_components] || meta["skipped_service_components"],
+      "skipped_tombstoned" =>
+        meta[:skipped_tombstoned_records] || meta["skipped_tombstoned_records"]
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   @doc """
@@ -502,14 +514,17 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   defp severity_from_event(event) do
     case Map.get(event, :severity_id) do
-      id when is_number(id) and id >= 6 -> :emergency
-      id when is_number(id) and id >= 5 -> :critical
-      id when is_number(id) and id >= 4 -> :critical
-      id when is_number(id) and id >= 3 -> :warning
-      id when is_number(id) and id >= 1 -> :info
+      id when is_number(id) -> severity_for_id(id)
       _ -> :warning
     end
   end
+
+  defp severity_for_id(id) when id >= 6, do: :emergency
+  defp severity_for_id(id) when id >= 5, do: :critical
+  defp severity_for_id(id) when id >= 4, do: :critical
+  defp severity_for_id(id) when id >= 3, do: :warning
+  defp severity_for_id(id) when id >= 1, do: :info
+  defp severity_for_id(_), do: :warning
 
   defp normalize_severity(value) when is_atom(value), do: value
 

@@ -307,8 +307,8 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
                   is_nil(duration_seconds) -> nil
                   duration_seconds < 60 -> "#{duration_seconds}s"
                   duration_seconds < 3600 -> "#{div(duration_seconds, 60)}m"
-                  duration_seconds < 86400 -> "#{div(duration_seconds, 3600)}h"
-                  true -> "#{div(duration_seconds, 86400)}d"
+                  duration_seconds < 86_400 -> "#{div(duration_seconds, 3600)}h"
+                  true -> "#{div(duration_seconds, 86_400)}d"
                 end
               )
   end

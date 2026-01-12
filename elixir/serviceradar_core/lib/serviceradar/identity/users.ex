@@ -313,12 +313,10 @@ defmodule ServiceRadar.Identity.Users do
 
     platform_tenant_id = Application.get_env(:serviceradar_core, :platform_tenant_id)
 
-    cond do
-      is_nil(configured) or configured == "00000000-0000-0000-0000-000000000000" ->
-        platform_tenant_id || configured
-
-      true ->
-        configured
+    if is_nil(configured) or configured == "00000000-0000-0000-0000-000000000000" do
+      platform_tenant_id || configured
+    else
+      configured
     end
   end
 

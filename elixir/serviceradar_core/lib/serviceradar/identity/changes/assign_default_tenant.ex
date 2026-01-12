@@ -24,12 +24,10 @@ defmodule ServiceRadar.Identity.Changes.AssignDefaultTenant do
     configured = Application.get_env(:serviceradar_core, :default_tenant_id, @default_tenant_id)
     platform_tenant_id = Application.get_env(:serviceradar_core, :platform_tenant_id)
 
-    cond do
-      is_nil(configured) or configured == @default_tenant_id ->
-        platform_tenant_id || configured
-
-      true ->
-        configured
+    if is_nil(configured) or configured == @default_tenant_id do
+      platform_tenant_id || configured
+    else
+      configured
     end
   end
 end

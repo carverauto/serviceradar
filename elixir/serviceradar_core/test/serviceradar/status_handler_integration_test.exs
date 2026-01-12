@@ -7,9 +7,9 @@ defmodule ServiceRadar.StatusHandlerIntegrationTest do
 
   @moduletag :integration
 
-  alias ServiceRadar.StatusHandler
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
+  alias ServiceRadar.StatusHandler
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()

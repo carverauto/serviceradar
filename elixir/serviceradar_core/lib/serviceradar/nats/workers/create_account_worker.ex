@@ -31,8 +31,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Events.JobWriter
+  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.NATS.AccountClient
 
   # Only select fields needed for NATS account creation.
@@ -233,12 +233,10 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp oban_running? do
-    try do
-      _ = Oban.Registry.config(Oban)
-      true
-    rescue
-      _ -> false
-    end
+    _ = Oban.Registry.config(Oban)
+    true
+  rescue
+    _ -> false
   end
 
   defp record_final_failure(%Oban.Job{} = job, tenant_id, reason) do

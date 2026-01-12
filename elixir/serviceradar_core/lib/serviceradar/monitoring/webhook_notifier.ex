@@ -359,14 +359,12 @@ defmodule ServiceRadar.Monitoring.WebhookNotifier do
 
   defp prepare_payload(alert, template) when is_binary(template) do
     # Apply EEx template
-    try do
-      result = EEx.eval_string(template, alert: alert)
-      Jason.decode!(result)
-    rescue
-      e ->
-        Logger.error("Template evaluation failed: #{inspect(e)}")
-        prepare_payload(alert, nil)
-    end
+    result = EEx.eval_string(template, alert: alert)
+    Jason.decode!(result)
+  rescue
+    e ->
+      Logger.error("Template evaluation failed: #{inspect(e)}")
+      prepare_payload(alert, nil)
   end
 
   defp do_http_post(url, payload, headers, http_client) do

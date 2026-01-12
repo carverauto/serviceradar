@@ -54,9 +54,9 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
   use GenServer
 
-  alias ServiceRadar.Infrastructure.HealthTracker
-  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.Edge.GatewayProcess
+  alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Infrastructure.HealthTracker
 
   require Logger
 
@@ -486,27 +486,23 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   defp call_gateway_health_check(gateway_id, service) do
     # Call the gateway process to perform health check
     # The gateway will forward to the agent via gRPC
-    try do
-      GatewayProcess.health_check(gateway_id, service)
-    catch
-      :exit, {:timeout, _} ->
-        {:error, :timeout}
+    GatewayProcess.health_check(gateway_id, service)
+  catch
+    :exit, {:timeout, _} ->
+      {:error, :timeout}
 
-      :exit, reason ->
-        {:error, reason}
-    end
+    :exit, reason ->
+      {:error, reason}
   end
 
   defp call_gateway_get_results(gateway_id, service) do
-    try do
-      GatewayProcess.get_results(gateway_id, service)
-    catch
-      :exit, {:timeout, _} ->
-        {:error, :timeout}
+    GatewayProcess.get_results(gateway_id, service)
+  catch
+    :exit, {:timeout, _} ->
+      {:error, :timeout}
 
-      :exit, reason ->
-        {:error, reason}
-    end
+    :exit, reason ->
+      {:error, reason}
   end
 
   defp process_check_results(_tenant_id, _service, _results) do

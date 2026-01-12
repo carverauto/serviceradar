@@ -176,14 +176,12 @@ defmodule ServiceRadar.Cluster.TenantGuard do
   """
   @spec resolve_caller_tenant(pid()) :: String.t() | atom() | nil
   def resolve_caller_tenant(pid) do
-    cond do
+    if node(pid) == node() do
       # Local process - check process dictionary
-      node(pid) == node() ->
-        get_tenant_from_process(pid)
-
+      get_tenant_from_process(pid)
+    else
       # Remote process - extract from node name
-      true ->
-        get_tenant_from_node(node(pid))
+      get_tenant_from_node(node(pid))
     end
   end
 

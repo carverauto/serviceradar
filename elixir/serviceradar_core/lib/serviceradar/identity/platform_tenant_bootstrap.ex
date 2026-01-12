@@ -9,8 +9,8 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+  alias ServiceRadar.Identity.Tenant
 
   @zero_uuid "00000000-0000-0000-0000-000000000000"
 

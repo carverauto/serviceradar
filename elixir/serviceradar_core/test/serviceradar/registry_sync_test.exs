@@ -116,15 +116,13 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   defp stop_peer(peer) do
-    try do
-      if Process.alive?(peer) do
-        :peer.stop(peer)
-      else
-        :ok
-      end
-    catch
-      :exit, _ -> :ok
+    if Process.alive?(peer) do
+      :peer.stop(peer)
+    else
+      :ok
     end
+  catch
+    :exit, _ -> :ok
   end
 
   defp sync_code_paths(node) do

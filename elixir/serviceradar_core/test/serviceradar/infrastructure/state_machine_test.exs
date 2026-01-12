@@ -11,7 +11,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
+  alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
 
   @moduletag :database
 

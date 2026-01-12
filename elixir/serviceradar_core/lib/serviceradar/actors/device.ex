@@ -419,7 +419,7 @@ defmodule ServiceRadar.Actors.Device do
   @impl true
   def terminate(reason, state) do
     # Flush pending events before terminating
-    if length(state.events) > 0 do
+    unless Enum.empty?(state.events) do
       do_flush_events(state)
     end
 

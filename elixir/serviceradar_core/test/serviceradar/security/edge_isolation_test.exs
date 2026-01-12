@@ -119,7 +119,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       # Register a Go agent with gRPC details
       {:ok, _pid} = AgentRegistry.register_agent(tenant_id, agent_id, %{
         grpc_host: "192.168.1.100",
-        grpc_port: 50051,
+        grpc_port: 50_051,
         capabilities: [:icmp, :tcp]
       })
 
@@ -128,7 +128,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
       assert is_binary(host), "gRPC host should be a string (IP address)"
       assert is_integer(port), "gRPC port should be an integer"
-      assert port > 0 and port < 65536, "gRPC port should be valid"
+      assert port > 0 and port < 65_536, "gRPC port should be valid"
 
       # The registry entry represents a gRPC endpoint, not an ERTS process
       # Verify we cannot call Erlang functions on this "agent"
@@ -182,13 +182,13 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
           uid: "security-test-agent-#{unique_id}",
           name: "Security Test Agent",
           host: "192.168.1.50",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
       # Verify agent has gRPC connection details
       assert agent.host == "192.168.1.50"
-      assert agent.port == 50051
+      assert agent.port == 50_051
 
       # Agent should NOT have ERTS node reference
       refute Map.has_key?(agent, :node) or Map.get(agent, :node),

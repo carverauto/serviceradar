@@ -37,9 +37,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
-  alias ServiceRadar.Cluster.TenantSchemas
 
   @impl true
   def config_type, do: :sweep
@@ -51,44 +51,42 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   @impl true
   def compile(tenant_id, partition, agent_id, opts \\ []) do
-    try do
-      actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :sweep_compiler)
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :sweep_compiler)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-      # Load sweep groups for this partition/agent
-      groups = load_sweep_groups(tenant_schema, partition, agent_id, actor)
+    # Load sweep groups for this partition/agent
+    groups = load_sweep_groups(tenant_schema, partition, agent_id, actor)
 
-      # Load profiles that might be referenced
-      profile_ids =
-        groups
-        |> Enum.map(& &1.profile_id)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
+    # Load profiles that might be referenced
+    profile_ids =
+      groups
+      |> Enum.map(& &1.profile_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
-      profiles = load_profiles(tenant_schema, profile_ids, actor)
-      profile_map = Map.new(profiles, &{&1.id, &1})
+    profiles = load_profiles(tenant_schema, profile_ids, actor)
+    profile_map = Map.new(profiles, &{&1.id, &1})
 
-      # Compile each group
-      compiled_groups =
-        groups
-        |> Enum.map(&compile_group(&1, profile_map, tenant_schema, actor))
-        |> Enum.reject(&is_nil/1)
+    # Compile each group
+    compiled_groups =
+      groups
+      |> Enum.map(&compile_group(&1, profile_map, tenant_schema, actor))
+      |> Enum.reject(&is_nil/1)
 
-      # Compute config hash for change detection
-      config_hash = config_hash(compiled_groups)
+    # Compute config hash for change detection
+    config_hash = config_hash(compiled_groups)
 
-      config = %{
-        "groups" => compiled_groups,
-        "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-        "config_hash" => config_hash
-      }
+    config = %{
+      "groups" => compiled_groups,
+      "compiled_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "config_hash" => config_hash
+    }
 
-      {:ok, config}
-    rescue
-      e ->
-        Logger.error("SweepCompiler: error compiling config - #{inspect(e)}")
-        {:error, {:compilation_error, e}}
-    end
+    {:ok, config}
+  rescue
+    e ->
+      Logger.error("SweepCompiler: error compiling config - #{inspect(e)}")
+      {:error, {:compilation_error, e}}
   end
 
   @impl true

@@ -47,6 +47,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.TenantCA.Generator, as: TenantCAGenerator
 
   @type tenant_info :: %{
           tenant_slug: String.t(),
@@ -208,26 +209,30 @@ defmodule ServiceRadar.Edge.TenantResolver do
     # Try to get client cert from Cowboy/Bandit adapter
     case conn.adapter do
       {Plug.Cowboy.Conn, req} ->
-        case :cowboy_req.cert(req) do
-          :undefined -> nil
-          cert -> cert
-        end
+        cowboy_cert(req)
 
       {Bandit.Adapter, _} ->
         # Bandit stores peer cert differently
-        case Plug.Conn.get_req_header(conn, "x-client-cert") do
-          [pem] ->
-            case :public_key.pem_decode(pem) do
-              [{:Certificate, der, _}] -> der
-              _ -> nil
-            end
-
-          _ ->
-            nil
-        end
+        bandit_cert(conn)
 
       _ ->
         nil
+    end
+  end
+
+  defp cowboy_cert(req) do
+    case :cowboy_req.cert(req) do
+      :undefined -> nil
+      cert -> cert
+    end
+  end
+
+  defp bandit_cert(conn) do
+    with [pem] <- Plug.Conn.get_req_header(conn, "x-client-cert"),
+         [{:Certificate, der, _}] <- :public_key.pem_decode(pem) do
+      der
+    else
+      _ -> nil
     end
   end
 
@@ -269,10 +274,10 @@ defmodule ServiceRadar.Edge.TenantResolver do
   defp issuer_spki_sha256(opts) do
     cond do
       is_binary(opts[:issuer_cert_der]) ->
-        ServiceRadar.Edge.TenantCA.Generator.spki_sha256_from_cert_der(opts[:issuer_cert_der])
+        TenantCAGenerator.spki_sha256_from_cert_der(opts[:issuer_cert_der])
 
       is_binary(opts[:issuer_cert_pem]) ->
-        ServiceRadar.Edge.TenantCA.Generator.spki_sha256_from_cert_pem(opts[:issuer_cert_pem])
+        TenantCAGenerator.spki_sha256_from_cert_pem(opts[:issuer_cert_pem])
 
       true ->
         {:error, :issuer_cert_missing}

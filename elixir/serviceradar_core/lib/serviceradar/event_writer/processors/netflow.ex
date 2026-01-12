@@ -42,6 +42,16 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   require Logger
 
+  @direction_map %{
+    "ingress" => {"Inbound", 1},
+    "inbound" => {"Inbound", 1},
+    "in" => {"Inbound", 1},
+    "egress" => {"Outbound", 2},
+    "outbound" => {"Outbound", 2},
+    "out" => {"Outbound", 2},
+    "lateral" => {"Lateral", 3}
+  }
+
   @impl true
   def table_name, do: "ocsf_network_activity"
 
@@ -53,22 +63,12 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       Logger.error("NetFlow batch missing tenant schema context")
       {:error, :missing_tenant_schema}
     else
-      rows =
-        messages
-        |> Enum.map(&parse_message/1)
-        |> Enum.reject(&is_nil/1)
+      rows = build_rows(messages)
 
       if Enum.empty?(rows) do
         {:ok, 0}
       else
-        case ServiceRadar.Repo.insert_all(table_name(), rows,
-               prefix: schema,
-               on_conflict: :nothing,
-               returning: false
-             ) do
-          {count, _} ->
-            {:ok, count}
-        end
+        insert_netflow_rows(schema, rows)
       end
     end
   rescue
@@ -81,22 +81,38 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   def parse_message(%{data: data, metadata: metadata} = message) do
     tenant_id = TenantContext.resolve_tenant_id(message)
 
-    if is_nil(tenant_id) do
-      Logger.error("NetFlow message missing tenant_id", subject: metadata[:subject])
-      nil
+    with tenant_id when not is_nil(tenant_id) <- tenant_id,
+         {:ok, json} <- Jason.decode(data) do
+      parse_netflow(json, metadata, tenant_id)
     else
-      case Jason.decode(data) do
-        {:ok, json} ->
-          parse_netflow(json, metadata, tenant_id)
+      nil ->
+        Logger.error("NetFlow message missing tenant_id", subject: metadata[:subject])
+        nil
 
-        {:error, _} ->
-          Logger.debug("Failed to parse netflow message as JSON")
-          nil
-      end
+      {:error, _} ->
+        Logger.debug("Failed to parse netflow message as JSON")
+        nil
     end
   end
 
   # Private functions
+
+  defp build_rows(messages) do
+    messages
+    |> Enum.map(&parse_message/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp insert_netflow_rows(schema, rows) do
+    case ServiceRadar.Repo.insert_all(table_name(), rows,
+           prefix: schema,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} ->
+        {:ok, count}
+    end
+  end
 
   defp parse_netflow(json, nats_metadata, tenant_id) do
     time = FieldParser.parse_timestamp(json["timestamp"])
@@ -236,10 +252,10 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   end
 
   defp build_flow_observables(json) do
-    src_ip = FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"]
-    dst_ip = FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"]
-    src_port = FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-    dst_port = FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
+    src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
+    dst_ip = flow_value(json, "dst_addr", "dstAddr", "destinationAddress")
+    src_port = flow_value(json, "src_port", "srcPort", "sourcePort")
+    dst_port = flow_value(json, "dst_port", "dstPort", "destinationPort")
 
     []
     |> maybe_add(src_ip, &OCSF.ip_observable/1)
@@ -251,23 +267,14 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   defp parse_direction(json) do
     direction = FieldParser.get_field(json, "flow_direction", "flowDirection")
 
-    case direction do
-      "ingress" -> {"Inbound", 1}
-      "inbound" -> {"Inbound", 1}
-      "in" -> {"Inbound", 1}
-      "egress" -> {"Outbound", 2}
-      "outbound" -> {"Outbound", 2}
-      "out" -> {"Outbound", 2}
-      "lateral" -> {"Lateral", 3}
-      _ -> {nil, 0}
-    end
+    Map.get(@direction_map, direction, {nil, 0})
   end
 
   defp build_traffic_message(json, protocol_name) do
-    src_ip = FieldParser.get_field(json, "src_addr", "srcAddr") || json["sourceAddress"]
-    dst_ip = FieldParser.get_field(json, "dst_addr", "dstAddr") || json["destinationAddress"]
-    src_port = FieldParser.get_field(json, "src_port", "srcPort") || json["sourcePort"]
-    dst_port = FieldParser.get_field(json, "dst_port", "dstPort") || json["destinationPort"]
+    src_ip = flow_value(json, "src_addr", "srcAddr", "sourceAddress")
+    dst_ip = flow_value(json, "dst_addr", "dstAddr", "destinationAddress")
+    src_port = flow_value(json, "src_port", "srcPort", "sourcePort")
+    dst_port = flow_value(json, "dst_port", "dstPort", "destinationPort")
     octets = json["octets"] || json["bytes"] || 0
     packets = json["packets"] || 0
 
@@ -305,6 +312,10 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       map when map == %{} -> %{}
       map -> map
     end
+  end
+
+  defp flow_value(json, snake_key, camel_key, fallback_key, default \\ nil) do
+    json[snake_key] || json[camel_key] || json[fallback_key] || default
   end
 
   defp maybe_add(list, nil, _builder), do: list

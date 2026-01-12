@@ -315,11 +315,11 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
     end
 
     test "ports list contains valid port numbers" do
-      ports = [22, 80, 443, 3389, 8080, 65535]
+      ports = [22, 80, 443, 3389, 8080, 65_535]
 
       for port <- ports do
         assert is_integer(port)
-        assert port >= 1 and port <= 65535
+        assert port >= 1 and port <= 65_535
       end
     end
 

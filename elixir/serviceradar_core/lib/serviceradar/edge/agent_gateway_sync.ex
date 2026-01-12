@@ -12,9 +12,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Infrastructure.Agent
 
   @doc """
   Returns the platform tenant ID and slug.

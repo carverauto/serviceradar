@@ -45,8 +45,8 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
 
   require Logger
 
@@ -361,32 +361,34 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   defp status_for_event(_event_type, _data), do: OCSF.status_success()
 
-  defp message_for_event(event_type, entity_type, entity_id, data) do
+  defp message_for_event(:state_change, entity_type, entity_id, data) do
     entity_label = "#{entity_type} #{entity_id}"
+    old_state = data[:old_state] || data["old_state"] || "unknown"
+    new_state = data[:new_state] || data["new_state"] || "unknown"
+    "#{entity_label} changed from #{old_state} to #{new_state}"
+  end
 
-    case event_type do
-      :state_change ->
-        old_state = data[:old_state] || data["old_state"] || "unknown"
-        new_state = data[:new_state] || data["new_state"] || "unknown"
-        "#{entity_label} changed from #{old_state} to #{new_state}"
+  defp message_for_event(:health_change, entity_type, entity_id, data) do
+    entity_label = "#{entity_type} #{entity_id}"
+    health = data[:is_healthy] || data["is_healthy"]
+    state = if health, do: "healthy", else: "unhealthy"
+    "#{entity_label} health changed to #{state}"
+  end
 
-      :health_change ->
-        health = data[:is_healthy] || data["is_healthy"]
-        state = if health, do: "healthy", else: "unhealthy"
-        "#{entity_label} health changed to #{state}"
+  defp message_for_event(:heartbeat_timeout, entity_type, entity_id, _data) do
+    "#{entity_type} #{entity_id} missed heartbeat deadline"
+  end
 
-      :heartbeat_timeout ->
-        "#{entity_label} missed heartbeat deadline"
+  defp message_for_event(:registered, entity_type, entity_id, _data) do
+    "#{entity_type} #{entity_id} registered"
+  end
 
-      :registered ->
-        "#{entity_label} registered"
+  defp message_for_event(:deregistered, entity_type, entity_id, _data) do
+    "#{entity_type} #{entity_id} deregistered"
+  end
 
-      :deregistered ->
-        "#{entity_label} deregistered"
-
-      _ ->
-        "#{entity_label} event #{event_type}"
-    end
+  defp message_for_event(event_type, entity_type, entity_id, _data) do
+    "#{entity_type} #{entity_id} event #{event_type}"
   end
 
   defp build_observables(nil), do: []

@@ -18,8 +18,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         "parent_span_id" => "span-parent",
         "name" => "HTTP GET /api/users",
         "kind" => 2,
-        "start_time_unix_nano" => 1705315800000000000,
-        "end_time_unix_nano" => 1705315800100000000,
+        "start_time_unix_nano" => 1_705_315_800_000_000_000,
+        "end_time_unix_nano" => 1_705_315_800_100_000_000,
         "service_name" => "api-gateway",
         "service_version" => "1.5.0",
         "service_instance" => "pod-123",
@@ -29,7 +29,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         "status_message" => "OK",
         "attributes" => %{"http.method" => "GET", "http.url" => "/api/users"},
         "resource_attributes" => %{"service.name" => "api-gateway"},
-        "events" => [%{"name" => "request_start", "timestamp" => 1705315800000000000}],
+        "events" => [%{"name" => "request_start", "timestamp" => 1_705_315_800_000_000_000}],
         "links" => []
       })
 
@@ -41,8 +41,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.parent_span_id == "span-parent"
       assert result.name == "HTTP GET /api/users"
       assert result.kind == 2
-      assert result.start_time_unix_nano == 1705315800000000000
-      assert result.end_time_unix_nano == 1705315800100000000
+      assert result.start_time_unix_nano == 1_705_315_800_000_000_000
+      assert result.end_time_unix_nano == 1_705_315_800_100_000_000
       assert result.service_name == "api-gateway"
       assert result.service_version == "1.5.0"
       assert result.status_code == 1
@@ -59,8 +59,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         "traceId" => "trace-camel",
         "spanId" => "span-camel",
         "parentSpanId" => "parent-camel",
-        "startTimeUnixNano" => 1705315800000000000,
-        "endTimeUnixNano" => 1705315800100000000,
+        "startTimeUnixNano" => 1_705_315_800_000_000_000,
+        "endTimeUnixNano" => 1_705_315_800_100_000_000,
         "serviceName" => "camel-service",
         "serviceVersion" => "2.0.0",
         "serviceInstance" => "camel-instance",
@@ -77,8 +77,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.trace_id == "trace-camel"
       assert result.span_id == "span-camel"
       assert result.parent_span_id == "parent-camel"
-      assert result.start_time_unix_nano == 1705315800000000000
-      assert result.end_time_unix_nano == 1705315800100000000
+      assert result.start_time_unix_nano == 1_705_315_800_000_000_000
+      assert result.end_time_unix_nano == 1_705_315_800_100_000_000
       assert result.service_name == "camel-service"
       assert result.service_version == "2.0.0"
       assert result.service_instance == "camel-instance"
@@ -156,15 +156,15 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       json_data = Jason.encode!(%{
         "trace_id" => "trace-string",
         "span_id" => "span-string",
-        "start_time_unix_nano" => "1705315800000000000",
-        "end_time_unix_nano" => "1705315800100000000"
+        "start_time_unix_nano" => "1_705_315_800_000_000_000",
+        "end_time_unix_nano" => "1_705_315_800_100_000_000"
       })
 
       message = %{data: json_data, metadata: %{}}
       result = OtelTraces.parse_message(message)
 
-      assert result.start_time_unix_nano == 1705315800000000000
-      assert result.end_time_unix_nano == 1705315800100000000
+      assert result.start_time_unix_nano == 1_705_315_800_000_000_000
+      assert result.end_time_unix_nano == 1_705_315_800_100_000_000
     end
   end
 end

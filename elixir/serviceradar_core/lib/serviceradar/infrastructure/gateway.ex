@@ -517,10 +517,10 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     calculate :display_name,
               :string,
               expr(
-                if not is_nil(component_id) do
-                  component_id
-                else
+                if is_nil(component_id) do
                   id
+                else
+                  component_id
                 end
               )
   end

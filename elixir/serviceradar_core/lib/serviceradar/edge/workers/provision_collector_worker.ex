@@ -328,48 +328,49 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp generate_tls_certificates(tenant_ca, package) do
-    # Decrypt the tenant CA's private key
-    case tenant_ca.private_key_pem do
-      nil ->
-        {:error, :tenant_ca_key_decrypt_failed}
+    # Decrypt the tenant CA's private key and generate component cert
+    with {:ok, private_key_pem} <- decrypt_private_key(tenant_ca),
+         ca_data <- build_ca_data(tenant_ca, private_key_pem),
+         {:ok, cert_data} <- generate_component_cert(ca_data, package) do
+      {:ok, cert_data}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-      encrypted_value when is_binary(encrypted_value) ->
-        case ServiceRadar.Vault.decrypt(encrypted_value) do
-          {:ok, private_key_pem} when is_binary(private_key_pem) and private_key_pem != "" ->
-            # Build CA data map for the generator
-            ca_data = %{
-              tenant_id: tenant_ca.tenant_id,
-              certificate_pem: tenant_ca.certificate_pem,
-              private_key_pem: private_key_pem
-            }
-
-            # Generate component certificate
-            component_id = "#{package.collector_type}-#{short_id(package.id)}"
-            partition_id = package.site || "default"
-
-            case TenantCA.Generator.generate_component_cert(
-                   ca_data,
-                   component_id,
-                   :collector,
-                   partition_id,
-                   validity_days: 365
-                 ) do
-              {:ok, cert_data} ->
-                {:ok, cert_data}
-
-              {:error, reason} ->
-                {:error, {:tls_cert_generation_failed, reason}}
-            end
-
-          {:ok, _} ->
-            {:error, :tenant_ca_key_decrypt_failed}
-
-          {:error, _reason} ->
-            {:error, :tenant_ca_key_decrypt_failed}
-        end
+  defp decrypt_private_key(%{private_key_pem: encrypted_value}) when is_binary(encrypted_value) do
+    case ServiceRadar.Vault.decrypt(encrypted_value) do
+      {:ok, private_key_pem} when is_binary(private_key_pem) and private_key_pem != "" ->
+        {:ok, private_key_pem}
 
       _ ->
         {:error, :tenant_ca_key_decrypt_failed}
+    end
+  end
+
+  defp decrypt_private_key(_tenant_ca), do: {:error, :tenant_ca_key_decrypt_failed}
+
+  defp build_ca_data(tenant_ca, private_key_pem) do
+    %{
+      tenant_id: tenant_ca.tenant_id,
+      certificate_pem: tenant_ca.certificate_pem,
+      private_key_pem: private_key_pem
+    }
+  end
+
+  defp generate_component_cert(ca_data, package) do
+    component_id = "#{package.collector_type}-#{short_id(package.id)}"
+    partition_id = package.site || "default"
+
+    case TenantCA.Generator.generate_component_cert(
+           ca_data,
+           component_id,
+           :collector,
+           partition_id,
+           validity_days: 365
+         ) do
+      {:ok, cert_data} -> {:ok, cert_data}
+      {:error, reason} -> {:error, {:tls_cert_generation_failed, reason}}
     end
   end
 

@@ -208,7 +208,7 @@ defmodule ServiceRadar.Core.ResultProcessor do
   defp add_port_metadata(metadata, host) do
     port_results = host[:port_results] || host["port_results"] || []
 
-    if is_list(port_results) and length(port_results) > 0 do
+    if is_list(port_results) and not Enum.empty?(port_results) do
       encode_port_results(metadata, port_results)
     else
       metadata
@@ -250,10 +250,10 @@ defmodule ServiceRadar.Core.ResultProcessor do
       end)
       |> Enum.filter(&is_integer/1)
 
-    if length(open_ports) > 0 do
-      encode_open_ports(metadata, open_ports)
-    else
+    if Enum.empty?(open_ports) do
       metadata
+    else
+      encode_open_ports(metadata, open_ports)
     end
   end
 
@@ -301,61 +301,69 @@ defmodule ServiceRadar.Core.ResultProcessor do
   end
 
   defp apply_canonical_snapshot(update, snapshot) do
-    update =
-      if is_binary(snapshot.canonical_device_id) and snapshot.canonical_device_id != "" do
-        metadata =
-          update.metadata
-          |> Map.put("canonical_device_id", snapshot.canonical_device_id)
-
-        %{update | device_id: snapshot.canonical_device_id, metadata: metadata}
-      else
-        update
-      end
-
-    # Apply MAC if available in attributes
-    update =
-      case get_in(snapshot, [:attributes, "mac"]) do
-        mac when is_binary(mac) and mac != "" ->
-          mac = String.upcase(mac)
-          metadata = Map.put(update.metadata, "mac", mac)
-          %{update | mac: mac, metadata: metadata}
-
-        _ ->
-          update
-      end
-
-    # Apply hostname if available
-    update =
-      case get_in(snapshot, [:attributes, "hostname"]) do
-        hostname when is_binary(hostname) and hostname != "" ->
-          %{update | hostname: hostname}
-
-        _ ->
-          update
-      end
-
-    # Copy integration identifiers
-    copy_if_empty = fn update, key ->
-      case get_in(snapshot, [:attributes, key]) do
-        value when is_binary(value) and value != "" ->
-          if Map.get(update.metadata, key, "") == "" do
-            %{update | metadata: Map.put(update.metadata, key, value)}
-          else
-            update
-          end
-
-        _ ->
-          update
-      end
-    end
-
     update
-    |> copy_if_empty.("armis_device_id")
-    |> copy_if_empty.("integration_id")
-    |> copy_if_empty.("integration_type")
-    |> copy_if_empty.("netbox_device_id")
-    |> copy_if_empty.("canonical_partition")
-    |> copy_if_empty.("canonical_hostname")
+    |> apply_canonical_device_id(snapshot)
+    |> apply_snapshot_mac(snapshot)
+    |> apply_snapshot_hostname(snapshot)
+    |> apply_snapshot_attributes(snapshot)
+  end
+
+  defp apply_canonical_device_id(update, snapshot) do
+    if is_binary(snapshot.canonical_device_id) and snapshot.canonical_device_id != "" do
+      metadata =
+        update.metadata
+        |> Map.put("canonical_device_id", snapshot.canonical_device_id)
+
+      %{update | device_id: snapshot.canonical_device_id, metadata: metadata}
+    else
+      update
+    end
+  end
+
+  defp apply_snapshot_mac(update, snapshot) do
+    case get_in(snapshot, [:attributes, "mac"]) do
+      mac when is_binary(mac) and mac != "" ->
+        mac = String.upcase(mac)
+        metadata = Map.put(update.metadata, "mac", mac)
+        %{update | mac: mac, metadata: metadata}
+
+      _ ->
+        update
+    end
+  end
+
+  defp apply_snapshot_hostname(update, snapshot) do
+    case get_in(snapshot, [:attributes, "hostname"]) do
+      hostname when is_binary(hostname) and hostname != "" ->
+        %{update | hostname: hostname}
+
+      _ ->
+        update
+    end
+  end
+
+  defp apply_snapshot_attributes(update, snapshot) do
+    update
+    |> copy_attribute_if_empty(snapshot, "armis_device_id")
+    |> copy_attribute_if_empty(snapshot, "integration_id")
+    |> copy_attribute_if_empty(snapshot, "integration_type")
+    |> copy_attribute_if_empty(snapshot, "netbox_device_id")
+    |> copy_attribute_if_empty(snapshot, "canonical_partition")
+    |> copy_attribute_if_empty(snapshot, "canonical_hostname")
+  end
+
+  defp copy_attribute_if_empty(update, snapshot, key) do
+    case get_in(snapshot, [:attributes, key]) do
+      value when is_binary(value) and value != "" ->
+        if Map.get(update.metadata, key, "") == "" do
+          %{update | metadata: Map.put(update.metadata, key, value)}
+        else
+          update
+        end
+
+      _ ->
+        update
+    end
   end
 
   @doc """
@@ -371,29 +379,21 @@ defmodule ServiceRadar.Core.ResultProcessor do
 
     attributes = Map.get(snapshot, :attributes) || Map.get(snapshot, "attributes") || %{}
 
-    cond do
-      is_binary(device_id) and String.trim(device_id) != "" ->
-        true
-
-      is_binary(Map.get(attributes, "mac")) and String.trim(Map.get(attributes, "mac", "")) != "" ->
-        true
-
-      is_binary(Map.get(attributes, "armis_device_id")) and
-          String.trim(Map.get(attributes, "armis_device_id", "")) != "" ->
-        true
-
-      is_binary(Map.get(attributes, "integration_id")) and
-          String.trim(Map.get(attributes, "integration_id", "")) != "" ->
-        true
-
-      is_binary(Map.get(attributes, "netbox_device_id")) and
-          String.trim(Map.get(attributes, "netbox_device_id", "")) != "" ->
-        true
-
-      true ->
-        false
-    end
+    has_value?(device_id) or
+      has_attribute?(attributes, "mac") or
+      has_attribute?(attributes, "armis_device_id") or
+      has_attribute?(attributes, "integration_id") or
+      has_attribute?(attributes, "netbox_device_id")
   end
 
   def has_strong_identity?(_), do: false
+
+  defp has_attribute?(attributes, key) do
+    attributes
+    |> Map.get(key)
+    |> has_value?()
+  end
+
+  defp has_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp has_value?(_value), do: false
 end

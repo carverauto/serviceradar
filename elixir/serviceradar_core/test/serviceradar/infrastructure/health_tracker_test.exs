@@ -12,7 +12,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Infrastructure.{HealthEvent, HealthTracker, HealthPubSub}
+  alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub, HealthTracker}
 
   @moduletag :database
 

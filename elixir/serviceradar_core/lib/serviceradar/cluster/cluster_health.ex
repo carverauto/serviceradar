@@ -205,14 +205,12 @@ defmodule ServiceRadar.ClusterHealth do
     # Check EventWriter health if enabled
     event_writer_healthy = not event_writer.enabled or event_writer.healthy
 
-    cond do
-      not event_writer_healthy ->
-        :degraded
-
-      true ->
-        # For now, always healthy if we can check
-        # Future: detect partitions by comparing expected vs actual nodes
-        :healthy
+    if event_writer_healthy do
+      # For now, always healthy if we can check
+      # Future: detect partitions by comparing expected vs actual nodes
+      :healthy
+    else
+      :degraded
     end
   end
 

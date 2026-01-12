@@ -92,7 +92,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
 
     test "handles integer timestamps" do
       # Unix timestamp in milliseconds
-      timestamp_ms = 1705315800000
+      timestamp_ms = 1_705_315_800_000
 
       json_data = Jason.encode!(%{
         "timestamp" => timestamp_ms,

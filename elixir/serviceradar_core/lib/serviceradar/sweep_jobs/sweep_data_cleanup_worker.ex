@@ -143,7 +143,16 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
   defp cleanup_in_batches(tenant_id, resource, timestamp_field, cutoff, batch_size, extra_filter \\ nil) do
     table = get_table_name(resource)
-    do_cleanup_batch(tenant_id, table, resource, timestamp_field, cutoff, batch_size, extra_filter, %{deleted: 0, errors: 0})
+    do_cleanup_batch(
+      tenant_id,
+      table,
+      resource,
+      timestamp_field,
+      cutoff,
+      batch_size,
+      extra_filter,
+      %{deleted: 0, errors: 0}
+    )
   end
 
   defp do_cleanup_batch(tenant_id, table, resource, timestamp_field, cutoff, batch_size, extra_filter, acc) do

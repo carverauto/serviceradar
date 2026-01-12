@@ -25,23 +25,12 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
       Logger.error("OCSF events batch missing tenant schema context")
       {:error, :missing_tenant_schema}
     else
-      rows =
-        messages
-        |> Enum.map(&parse_message/1)
-        |> Enum.reject(&is_nil/1)
+      rows = build_rows(messages)
 
       if Enum.empty?(rows) do
         {:ok, 0}
       else
-        case ServiceRadar.Repo.insert_all(table_name(), rows,
-               prefix: schema,
-               on_conflict: :nothing,
-               returning: false
-             ) do
-          {count, _} ->
-            maybe_evaluate_stateful_rules(rows, schema)
-            {:ok, count}
-        end
+        insert_event_rows(schema, rows)
       end
     end
   rescue
@@ -54,65 +43,86 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   def parse_message(%{data: data, metadata: metadata} = message) do
     tenant_id = TenantContext.resolve_tenant_id(message)
 
-    if is_nil(tenant_id) do
-      Logger.error("OCSF event missing tenant_id", subject: metadata[:subject])
-      nil
+    with tenant_id when not is_nil(tenant_id) <- tenant_id,
+         {:ok, json} <- Jason.decode(data) do
+      parse_event(json, metadata, data, tenant_id)
     else
-      case Jason.decode(data) do
-        {:ok, json} ->
-          parse_event(json, metadata, data, tenant_id)
+      nil ->
+        Logger.error("OCSF event missing tenant_id", subject: metadata[:subject])
+        nil
 
-        {:error, _} ->
-          Logger.debug("Failed to parse events message as JSON")
-          nil
-      end
+      {:error, _} ->
+        Logger.debug("Failed to parse events message as JSON")
+        nil
     end
   end
 
   # Private functions
 
-  defp parse_event(json, metadata, raw_data, tenant_id) when is_map(json) do
-    with {:ok, id} <- fetch_required_string(json, "id"),
-         {:ok, class_uid} <- fetch_required_int(json, "class_uid"),
-         {:ok, category_uid} <- fetch_required_int(json, "category_uid"),
-         {:ok, type_uid} <- fetch_required_int(json, "type_uid"),
-         {:ok, activity_id} <- fetch_required_int(json, "activity_id") do
-      severity_id = parse_int(json["severity_id"]) || 1
-      severity = parse_string(json["severity"]) || severity_name(severity_id)
+  defp build_rows(messages) do
+    messages
+    |> Enum.map(&parse_message/1)
+    |> Enum.reject(&is_nil/1)
+  end
 
-      %{
-        id: id,
-        time: FieldParser.parse_timestamp(json["time"]),
-        class_uid: class_uid,
-        category_uid: category_uid,
-        type_uid: type_uid,
-        activity_id: activity_id,
-        activity_name: parse_string(json["activity_name"]),
-        severity_id: severity_id,
-        severity: severity,
-        message: parse_string(json["message"]),
-        status_id: parse_int(json["status_id"]),
-        status: parse_string(json["status"]),
-        status_code: parse_string(json["status_code"]),
-        status_detail: parse_string(json["status_detail"]),
-        metadata: FieldParser.encode_jsonb(json["metadata"]) || %{},
-        observables: FieldParser.encode_jsonb(json["observables"]) || [],
-        trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
-        span_id: FieldParser.get_field(json, "span_id", "spanId"),
-        actor: FieldParser.encode_jsonb(json["actor"]) || %{},
-        device: FieldParser.encode_jsonb(json["device"]) || %{},
-        src_endpoint: FieldParser.encode_jsonb(json["src_endpoint"]) || %{},
-        dst_endpoint: FieldParser.encode_jsonb(json["dst_endpoint"]) || %{},
-        log_name: parse_string(json["log_name"]) || metadata[:subject],
-        log_provider: parse_string(json["log_provider"]),
-        log_level: parse_string(json["log_level"]),
-        log_version: parse_string(json["log_version"]),
-        unmapped: FieldParser.encode_jsonb(json["unmapped"]) || %{},
-        raw_data: parse_string(json["raw_data"]) || raw_data,
-        tenant_id: tenant_id,
-        created_at: DateTime.utc_now()
-      }
-    else
+  defp insert_event_rows(schema, rows) do
+    case ServiceRadar.Repo.insert_all(table_name(), rows,
+           prefix: schema,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} ->
+        maybe_evaluate_stateful_rules(rows, schema)
+        {:ok, count}
+    end
+  end
+
+  defp parse_event(json, metadata, raw_data, tenant_id) when is_map(json) do
+    case required_event_fields(json) do
+      {:ok,
+       %{
+         id: id,
+         class_uid: class_uid,
+         category_uid: category_uid,
+         type_uid: type_uid,
+         activity_id: activity_id
+       }} ->
+        severity_id = parse_int(json["severity_id"]) || 1
+        severity = parse_string(json["severity"]) || severity_name(severity_id)
+
+        %{
+          id: id,
+          time: FieldParser.parse_timestamp(json["time"]),
+          class_uid: class_uid,
+          category_uid: category_uid,
+          type_uid: type_uid,
+          activity_id: activity_id,
+          activity_name: parse_string(json["activity_name"]),
+          severity_id: severity_id,
+          severity: severity,
+          message: parse_string(json["message"]),
+          status_id: parse_int(json["status_id"]),
+          status: parse_string(json["status"]),
+          status_code: parse_string(json["status_code"]),
+          status_detail: parse_string(json["status_detail"]),
+          metadata: jsonb_or_empty_map(json["metadata"]),
+          observables: jsonb_or_empty_list(json["observables"]),
+          trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
+          span_id: FieldParser.get_field(json, "span_id", "spanId"),
+          actor: jsonb_or_empty_map(json["actor"]),
+          device: jsonb_or_empty_map(json["device"]),
+          src_endpoint: jsonb_or_empty_map(json["src_endpoint"]),
+          dst_endpoint: jsonb_or_empty_map(json["dst_endpoint"]),
+          log_name: parse_string_or(json["log_name"], metadata[:subject]),
+          log_provider: parse_string(json["log_provider"]),
+          log_level: parse_string(json["log_level"]),
+          log_version: parse_string(json["log_version"]),
+          unmapped: jsonb_or_empty_map(json["unmapped"]),
+          raw_data: parse_string_or(json["raw_data"], raw_data),
+          tenant_id: tenant_id,
+          created_at: DateTime.utc_now()
+        }
+
       {:error, reason} ->
         Logger.debug("Invalid OCSF event payload: #{inspect(reason)}",
           subject: metadata[:subject]
@@ -123,6 +133,28 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   end
 
   defp parse_event(_json, _metadata, _raw_data, _tenant_id), do: nil
+
+  defp required_event_fields(json) do
+    with {:ok, id} <- fetch_required_string(json, "id"),
+         {:ok, class_uid} <- fetch_required_int(json, "class_uid"),
+         {:ok, category_uid} <- fetch_required_int(json, "category_uid"),
+         {:ok, type_uid} <- fetch_required_int(json, "type_uid"),
+         {:ok, activity_id} <- fetch_required_int(json, "activity_id") do
+      {:ok,
+       %{
+         id: id,
+         class_uid: class_uid,
+         category_uid: category_uid,
+         type_uid: type_uid,
+         activity_id: activity_id
+       }}
+    end
+  end
+
+  defp jsonb_or_empty_map(value), do: FieldParser.encode_jsonb(value) || %{}
+  defp jsonb_or_empty_list(value), do: FieldParser.encode_jsonb(value) || []
+  defp parse_string_or(value, fallback), do: parse_string(value) || fallback
+
   defp fetch_required_string(json, key) do
     case parse_string(json[key]) do
       nil -> {:error, {:missing, key}}

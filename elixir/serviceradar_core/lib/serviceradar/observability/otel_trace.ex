@@ -226,10 +226,11 @@ defmodule ServiceRadar.Observability.OtelTrace do
     calculate :duration_ms,
               :float,
               expr(
-                cond do
-                  is_nil(start_time_unix_nano) or is_nil(end_time_unix_nano) -> nil
-                  true -> (end_time_unix_nano - start_time_unix_nano) / 1_000_000.0
-                end
+                if(
+                  is_nil(start_time_unix_nano) or is_nil(end_time_unix_nano),
+                  do: nil,
+                  else: (end_time_unix_nano - start_time_unix_nano) / 1_000_000.0
+                )
               )
 
     calculate :is_root, :boolean, expr(is_nil(parent_span_id) or parent_span_id == "")

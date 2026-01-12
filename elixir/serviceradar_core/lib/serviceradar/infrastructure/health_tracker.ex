@@ -350,32 +350,28 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
              |> Ash.Query.sort(recorded_at: :desc)
              |> Ash.read(actor: actor, tenant: schema) do
           {:ok, events} ->
-            # Dedupe by entity_type + entity_id (keep most recent)
-            latest_by_entity =
-              events
-              |> Enum.uniq_by(fn e -> {e.entity_type, e.entity_id} end)
-
-            # Group by entity_type, then by state
-            summary =
-              latest_by_entity
-              |> Enum.group_by(& &1.entity_type)
-              |> Enum.map(fn {entity_type, type_events} ->
-                by_state =
-                  type_events
-                  |> Enum.group_by(& &1.new_state)
-                  |> Enum.map(fn {state, state_events} -> {state, length(state_events)} end)
-                  |> Map.new()
-
-                {entity_type, %{total: length(type_events), by_state: by_state}}
-              end)
-              |> Map.new()
-
-            {:ok, summary}
+            {:ok, build_summary(events)}
 
           {:error, reason} ->
             {:error, reason}
         end
     end
+  end
+
+  defp build_summary(events) do
+    events
+    |> Enum.uniq_by(fn e -> {e.entity_type, e.entity_id} end)
+    |> Enum.group_by(& &1.entity_type)
+    |> Enum.map(fn {entity_type, type_events} ->
+      by_state =
+        type_events
+        |> Enum.group_by(& &1.new_state)
+        |> Enum.map(fn {state, state_events} -> {state, length(state_events)} end)
+        |> Map.new()
+
+      {entity_type, %{total: length(type_events), by_state: by_state}}
+    end)
+    |> Map.new()
   end
 
   @doc """

@@ -102,10 +102,10 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
     tenant_id = rule.tenant_id
     tenant_schema = Keyword.get(opts, :tenant_schema) || tenant_id
 
-    if not datasvc_available?() do
-      {:error, :datasvc_unavailable}
-    else
+    if datasvc_available?() do
       sync_rule_impl(rule, tenant_schema)
+    else
+      {:error, :datasvc_unavailable}
     end
   end
 
@@ -200,21 +200,23 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
     case Ash.read(query, actor: state.actor) do
       {:ok, rules} ->
-        Enum.each(rules, fn rule ->
-          case sync_rule_with_actor(rule, state) do
-            {:ok, _} -> :ok
-            {:error, reason} ->
-              Logger.warning("Zen rule reconcile failed",
-                tenant_id: state.tenant_id,
-                rule_id: rule.id,
-                reason: inspect(reason)
-              )
-          end
-        end)
+        Enum.each(rules, &sync_rule_with_logging(&1, state))
 
       {:error, reason} ->
         Logger.warning("Failed to load zen rules",
           tenant_id: state.tenant_id,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp sync_rule_with_logging(rule, state) do
+    case sync_rule_with_actor(rule, state) do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning("Zen rule reconcile failed",
+          tenant_id: state.tenant_id,
+          rule_id: rule.id,
           reason: inspect(reason)
         )
     end

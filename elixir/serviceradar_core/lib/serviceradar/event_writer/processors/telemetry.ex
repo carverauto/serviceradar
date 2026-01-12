@@ -65,22 +65,12 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       Logger.error("Telemetry batch missing tenant schema context")
       {:error, :missing_tenant_schema}
     else
-      rows =
-        messages
-        |> Enum.map(&parse_message/1)
-        |> Enum.reject(&is_nil/1)
+      rows = build_rows(messages)
 
       if Enum.empty?(rows) do
         {:ok, 0}
       else
-        case ServiceRadar.Repo.insert_all(table_name(), rows,
-               prefix: schema,
-               on_conflict: :nothing,
-               returning: false
-             ) do
-          {count, _} ->
-            {:ok, count}
-        end
+        insert_telemetry_rows(schema, rows)
       end
     end
   rescue
@@ -102,6 +92,23 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   end
 
   # Private functions
+
+  defp build_rows(messages) do
+    messages
+    |> Enum.map(&parse_message/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp insert_telemetry_rows(schema, rows) do
+    case ServiceRadar.Repo.insert_all(table_name(), rows,
+           prefix: schema,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} ->
+        {:ok, count}
+    end
+  end
 
   defp parse_telemetry(json) do
     timestamp = FieldParser.parse_timestamp(json["timestamp"])

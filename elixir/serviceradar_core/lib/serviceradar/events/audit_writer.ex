@@ -63,8 +63,8 @@ defmodule ServiceRadar.Events.AuditWriter do
 
   require Logger
 
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
 
   @type action :: :create | :read | :update | :delete | atom()
   @type severity :: :informational | :low | :medium | :high | :critical
@@ -235,8 +235,7 @@ defmodule ServiceRadar.Events.AuditWriter do
     string
     |> String.replace("_", " ")
     |> String.split(" ")
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join(" ")
+    |> Enum.map_join(" ", &String.capitalize/1)
   end
 
   defp build_observables(resource_type, resource_id, resource_name) do

@@ -21,7 +21,6 @@ defmodule Proto.SubjectMapping do
   field :to, 2, type: :string
 end
 
-
 defmodule Proto.StreamExport do
   @moduledoc false
 

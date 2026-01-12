@@ -411,20 +411,16 @@ defmodule ServiceRadar.Telemetry do
   end
 
   defp count_registry_processes(registry) do
-    try do
-      registry
-      |> Horde.Registry.select([{{:"$1", :"$2", :"$3"}, [], [true]}])
-      |> length()
-    rescue
-      _ -> 0
-    end
+    registry
+    |> Horde.Registry.select([{{:"$1", :"$2", :"$3"}, [], [true]}])
+    |> length()
+  rescue
+    _ -> 0
   end
 
   defp list_registry_processes(registry) do
-    try do
-      Horde.Registry.select(registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2"}}]}])
-    rescue
-      _ -> []
-    end
+    Horde.Registry.select(registry, [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2"}}]}])
+  rescue
+    _ -> []
   end
 end

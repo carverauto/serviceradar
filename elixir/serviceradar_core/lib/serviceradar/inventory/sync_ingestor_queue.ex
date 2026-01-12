@@ -138,31 +138,33 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp maybe_start_ready_tenants(state) do
     max_inflight = max_inflight_chunks()
 
-    available =
-      if is_integer(max_inflight) and max_inflight > 0 do
-        max_inflight - state.inflight_count
-      else
-        0
-      end
+    available = available_slots(max_inflight, state.inflight_count)
 
     if available <= 0 do
       state
     else
-      ready =
-        state.tenants
-        |> Enum.filter(fn {_tenant_id, tenant} ->
-          tenant.ready and not tenant.inflight and tenant.chunk_count > 0
-        end)
-        |> Enum.take(available)
-
-      Enum.reduce(ready, state, fn {tenant_id, tenant}, acc ->
-        case start_ingestion_task(acc, tenant_id, tenant) do
-          {:ok, updated} -> updated
-          {:error, updated} -> updated
-        end
+      state.tenants
+      |> Enum.filter(fn {_tenant_id, tenant} ->
+        tenant.ready and not tenant.inflight and tenant.chunk_count > 0
+      end)
+      |> Enum.take(available)
+      |> Enum.reduce(state, fn {tenant_id, tenant}, acc ->
+        acc
+        |> start_ingestion_task(tenant_id, tenant)
+        |> apply_ingestion_result()
       end)
     end
   end
+
+  defp available_slots(max_inflight, inflight_count)
+       when is_integer(max_inflight) and max_inflight > 0 do
+    max_inflight - inflight_count
+  end
+
+  defp available_slots(_max_inflight, _inflight_count), do: 0
+
+  defp apply_ingestion_result({:ok, updated}), do: updated
+  defp apply_ingestion_result({:error, updated}), do: updated
 
   defp start_ingestion_task(state, tenant_id, tenant) do
     updates = tenant.batches |> Enum.reverse() |> List.flatten()
@@ -275,35 +277,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_status(updates, tenant_id, actor, ingest_result) do
     sync_service_id = extract_sync_service_id(updates)
 
-    if sync_service_id do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-
+    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
       {action, action_attrs} = build_sync_finish(ingest_result, length(updates))
-
-      case IntegrationSource.get_by_id(sync_service_id,
-             tenant: tenant_schema,
-             actor: actor
-           ) do
-        {:ok, source} ->
-          source
-          |> Ash.Changeset.for_update(action, action_attrs)
-          |> Ash.update(tenant: tenant_schema, actor: actor)
-          |> case do
-            {:ok, _} ->
-              Logger.debug("Recorded sync status for IntegrationSource #{sync_service_id}")
-
-            {:error, reason} ->
-              Logger.warning(
-                "Failed to record sync status for #{sync_service_id}: #{inspect(reason)}"
-              )
-          end
-
-        {:error, reason} ->
-          Logger.debug(
-            "Could not find IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
-          )
-      end
-    end
+      update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, "status")
+    end)
   rescue
     error ->
       Logger.warning("Error recording sync status: #{inspect(error)}")
@@ -312,36 +289,47 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_start(updates, tenant_id, actor) do
     sync_service_id = extract_sync_service_id(updates)
 
-    if sync_service_id do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-
-      case IntegrationSource.get_by_id(sync_service_id,
-             tenant: tenant_schema,
-             actor: actor
-           ) do
-        {:ok, source} ->
-          source
-          |> Ash.Changeset.for_update(:sync_start, %{device_count: length(updates)})
-          |> Ash.update(tenant: tenant_schema, actor: actor)
-          |> case do
-            {:ok, _} ->
-              Logger.debug("Recorded sync start for IntegrationSource #{sync_service_id}")
-
-            {:error, reason} ->
-              Logger.warning(
-                "Failed to record sync start for #{sync_service_id}: #{inspect(reason)}"
-              )
-          end
-
-        {:error, reason} ->
-          Logger.debug(
-            "Could not find IntegrationSource #{sync_service_id} to record sync start: #{inspect(reason)}"
-          )
-      end
-    end
+    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
+      action_attrs = %{device_count: length(updates)}
+      update_sync_source(source, tenant_schema, actor, :sync_start, action_attrs, sync_service_id, "start")
+    end)
   rescue
     error ->
       Logger.warning("Error recording sync start: #{inspect(error)}")
+  end
+
+  defp with_sync_service(nil, _tenant_id, _actor, _fun), do: :ok
+
+  defp with_sync_service(sync_service_id, tenant_id, actor, fun) do
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+    case IntegrationSource.get_by_id(sync_service_id,
+           tenant: tenant_schema,
+           actor: actor
+         ) do
+      {:ok, source} ->
+        fun.(source, tenant_schema)
+
+      {:error, reason} ->
+        Logger.debug(
+          "Could not find IntegrationSource #{sync_service_id} to record sync: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, label) do
+    source
+    |> Ash.Changeset.for_update(action, action_attrs)
+    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> case do
+      {:ok, _} ->
+        Logger.debug("Recorded sync #{label} for IntegrationSource #{sync_service_id}")
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to record sync #{label} for #{sync_service_id}: #{inspect(reason)}"
+        )
+    end
   end
 
   defp build_sync_finish(ingest_result, device_count) do

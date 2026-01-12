@@ -41,6 +41,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.EdgeSite
+  alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
 
   postgres do
     table "nats_leaf_servers"
@@ -93,7 +94,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
               {:error, :tenant_schema_not_found}
 
             tenant_schema ->
-              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+              case ProvisionLeafWorker.enqueue(leaf_server.id,
                      tenant_schema: tenant_schema
                    ) do
                 {:ok, _job} -> {:ok, leaf_server}
@@ -181,7 +182,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
               {:error, :tenant_schema_not_found}
 
             tenant_schema ->
-              case ServiceRadar.Edge.Workers.ProvisionLeafWorker.enqueue(leaf_server.id,
+              case ProvisionLeafWorker.enqueue(leaf_server.id,
                      tenant_schema: tenant_schema
                    ) do
                 {:ok, _job} -> {:ok, leaf_server}
@@ -379,23 +380,21 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   defp parse_cert_expiry(cert_pem) do
-    try do
-      [pem_entry | _] = :public_key.pem_decode(cert_pem)
-      cert = :public_key.pem_entry_decode(pem_entry)
+    [pem_entry | _] = :public_key.pem_decode(cert_pem)
+    cert = :public_key.pem_entry_decode(pem_entry)
 
-      # Extract notAfter from certificate
-      {:Certificate, {:TBSCertificate, _, _, _, _, {:Validity, _not_before, not_after}, _, _, _, _, _}, _, _} = cert
+    # Extract notAfter from certificate
+    {:Certificate, {:TBSCertificate, _, _, _, _, {:Validity, _not_before, not_after}, _, _, _, _, _}, _, _} = cert
 
-      case not_after do
-        {:utcTime, time_str} ->
-          parse_utc_time(time_str)
+    case not_after do
+      {:utcTime, time_str} ->
+        parse_utc_time(time_str)
 
-        {:generalTime, time_str} ->
-          parse_general_time(time_str)
-      end
-    rescue
-      _ -> {:error, :parse_failed}
+      {:generalTime, time_str} ->
+        parse_general_time(time_str)
     end
+  rescue
+    _ -> {:error, :parse_failed}
   end
 
   defp parse_utc_time(time_str) do

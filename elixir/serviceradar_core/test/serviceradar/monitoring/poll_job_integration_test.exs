@@ -11,8 +11,8 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Monitoring.PollJob
   alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Monitoring.PollJob
 
   @moduletag :database
 

@@ -56,13 +56,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   def handle_call({:evaluate_logs, rows}, _from, state) do
     {state, rules} = load_rules_if_needed(state)
 
-    Enum.each(rows, fn log ->
-      Enum.each(rules, fn rule ->
-        if rule.signal == :log and rule_matches_log?(log, rule) do
-          process_log(rule, log, state)
-        end
-      end)
-    end)
+    Enum.each(rows, &process_log_rules(&1, rules, state))
 
     {:reply, :ok, state}
   rescue
@@ -75,17 +69,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   def handle_call({:evaluate_events, events}, _from, state) do
     {state, rules} = load_rules_if_needed(state)
 
-    Enum.each(events, fn event ->
-      if skip_engine_event?(event) do
-        :ok
-      else
-        Enum.each(rules, fn rule ->
-          if rule.signal == :event and rule_matches_event?(event, rule) do
-            process_event(rule, event, state)
-          end
-        end)
-      end
-    end)
+    Enum.each(events, &process_event_rules(&1, rules, state))
 
     {:reply, :ok, state}
   rescue
@@ -213,6 +197,30 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp process_log(rule, log, state), do: process_record(rule, log, state)
   defp process_event(rule, event, state), do: process_record(rule, event, state)
+
+  defp process_log_rules(log, rules, state) do
+    Enum.each(rules, &maybe_process_log_rule(log, &1, state))
+  end
+
+  defp maybe_process_log_rule(log, %{signal: :log} = rule, state) do
+    if rule_matches_log?(log, rule), do: process_log(rule, log, state)
+  end
+
+  defp maybe_process_log_rule(_log, _rule, _state), do: :ok
+
+  defp process_event_rules(event, rules, state) do
+    if skip_engine_event?(event) do
+      :ok
+    else
+      Enum.each(rules, &maybe_process_event_rule(event, &1, state))
+    end
+  end
+
+  defp maybe_process_event_rule(event, %{signal: :event} = rule, state) do
+    if rule_matches_event?(event, rule), do: process_event(rule, event, state)
+  end
+
+  defp maybe_process_event_rule(_event, _rule, _state), do: :ok
 
   defp process_record(rule, record, state) do
     tenant_id = record[:tenant_id] || record["tenant_id"]
@@ -439,35 +447,39 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     tenant_id = snapshot.tenant_id
     schema = tenant_schema(rule, tenant_id)
 
-    if is_nil(schema) do
-      :ok
-    else
-      actor = SystemActor.for_tenant(tenant_id, :alert_engine)
-
-      case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
-        {:ok, alert} ->
-          case alert
-               |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"},
-                 tenant: schema,
-                 actor: actor
-               )
-               |> Ash.update() do
-            {:ok, _} ->
-              record_history(rule, snapshot, :recovered, now, alert_id, %{})
-              :ok
-
-            {:error, reason} ->
-              Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
-              :error
-          end
-
-        {:error, _} ->
-          :ok
-      end
+    case schema do
+      nil -> :ok
+      _ -> resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now)
     end
   end
 
   defp resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
+
+  defp resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now) do
+    actor = SystemActor.for_tenant(tenant_id, :alert_engine)
+
+    case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
+      {:ok, alert} ->
+        alert
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"},
+          tenant: schema,
+          actor: actor
+        )
+        |> Ash.update()
+        |> case do
+          {:ok, _} ->
+            record_history(rule, snapshot, :recovered, now, alert_id, %{})
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to resolve alert #{alert_id}: #{inspect(reason)}")
+            :error
+        end
+
+      {:error, _} ->
+        :ok
+    end
+  end
 
   defp send_renotify(alert_id, _rule, snapshot, now) when is_binary(alert_id) do
     tenant_id = snapshot.tenant_id
@@ -638,16 +650,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     if match["always"] == true do
       true
     else
-      subject = ingest_subject(log)
-      attributes = Map.get(log, :attributes) || %{}
-      resource_attributes = Map.get(log, :resource_attributes) || %{}
-
-      match_subject_prefix(subject, match) and
-        match_service_name_value(Map.get(log, :service_name), match) and
-        match_severity_values(Map.get(log, :severity_number), Map.get(log, :severity_text), match) and
-        match_body_value(Map.get(log, :body), match) and
-        match_map(attributes, match["attribute_equals"]) and
-        match_map(resource_attributes, match["resource_attribute_equals"])
+      log_matches?(log, match)
     end
   end
 
@@ -657,20 +660,38 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     if match["always"] == true do
       true
     else
-      log_name = Map.get(event, :log_name) || Map.get(event, "log_name")
-      log_provider = Map.get(event, :log_provider) || Map.get(event, "log_provider")
-      severity_id = Map.get(event, :severity_id) || Map.get(event, "severity_id")
-      severity = Map.get(event, :severity) || Map.get(event, "severity")
-      message = Map.get(event, :message) || Map.get(event, "message")
-      {attributes, resource_attributes} = event_match_sources(event)
-
-      match_subject_prefix(log_name, match) and
-        match_service_name_value(log_provider, match) and
-        match_severity_values(severity_id, severity, match) and
-        match_body_value(message, match) and
-        match_map(attributes, match["attribute_equals"]) and
-        match_map(resource_attributes, match["resource_attribute_equals"])
+      event_matches?(event, match)
     end
+  end
+
+  defp log_matches?(log, match) do
+    subject = ingest_subject(log)
+    attributes = Map.get(log, :attributes) || %{}
+    resource_attributes = Map.get(log, :resource_attributes) || %{}
+
+    [
+      match_subject_prefix(subject, match),
+      match_service_name_value(fetch_attr(log, :service_name), match),
+      match_severity_values(fetch_attr(log, :severity_number), fetch_attr(log, :severity_text), match),
+      match_body_value(fetch_attr(log, :body), match),
+      match_map(attributes, match["attribute_equals"]),
+      match_map(resource_attributes, match["resource_attribute_equals"])
+    ]
+    |> Enum.all?()
+  end
+
+  defp event_matches?(event, match) do
+    {attributes, resource_attributes} = event_match_sources(event)
+
+    [
+      match_subject_prefix(fetch_attr(event, :log_name), match),
+      match_service_name_value(fetch_attr(event, :log_provider), match),
+      match_severity_values(fetch_attr(event, :severity_id), fetch_attr(event, :severity), match),
+      match_body_value(fetch_attr(event, :message), match),
+      match_map(attributes, match["attribute_equals"]),
+      match_map(resource_attributes, match["resource_attribute_equals"])
+    ]
+    |> Enum.all?()
   end
 
   defp match_subject_prefix(_subject, match) when map_size(match) == 0, do: false
@@ -771,32 +792,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp build_group([], _log), do: {:ok, "global", %{}}
 
   defp build_group(keys, record) when is_list(keys) do
-    attributes = Map.get(record, :attributes) || %{}
-    resource_attributes = Map.get(record, :resource_attributes) || %{}
-    unmapped = Map.get(record, :unmapped) || %{}
-    metadata = Map.get(record, :metadata) || %{}
-    log_attributes = event_log_attributes(record)
-    log_resource_attributes = event_log_resource_attributes(record)
+    sources = group_sources(record)
 
     values =
       Enum.reduce(keys, %{}, fn key, acc ->
-        value =
-          get_nested_value(attributes, key) ||
-            get_nested_value(resource_attributes, key) ||
-            get_nested_value(log_attributes, key) ||
-            get_nested_value(log_resource_attributes, key) ||
-            get_nested_value(unmapped, key) ||
-            get_nested_value(metadata, key) ||
-            record_field_value(record, key)
+        value = group_value_for_key(key, record, sources)
 
         if is_nil(value), do: acc, else: Map.put(acc, key, to_string(value))
       end)
 
     if map_size(values) == length(keys) do
       group_key =
-        keys
-        |> Enum.map(fn key -> "#{key}=#{Map.get(values, key)}" end)
-        |> Enum.join("|")
+        Enum.map_join(keys, "|", fn key -> "#{key}=#{Map.get(values, key)}" end)
 
       {:ok, group_key, values}
     else
@@ -804,30 +811,72 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp record_timestamp(record) do
-    case Map.get(record, :time) || Map.get(record, "time") do
-      %DateTime{} = dt ->
-        dt
+  defp group_sources(record) do
+    %{
+      attributes: Map.get(record, :attributes) || %{},
+      resource_attributes: Map.get(record, :resource_attributes) || %{},
+      log_attributes: event_log_attributes(record),
+      log_resource_attributes: event_log_resource_attributes(record),
+      unmapped: Map.get(record, :unmapped) || %{},
+      metadata: Map.get(record, :metadata) || %{}
+    }
+  end
 
-      _ ->
-        case Map.get(record, :timestamp) || Map.get(record, "timestamp") do
-          %DateTime{} = dt -> dt
-          _ -> DateTime.utc_now()
-        end
+  defp group_value_for_key(key, record, sources) do
+    sources
+    |> group_source_list()
+    |> Enum.find_value(fn source -> get_nested_value(source, key) end)
+    |> case do
+      nil -> record_field_value(record, key)
+      value -> value
     end
   end
 
-  defp record_field_value(record, key) when is_binary(key) do
-    case key do
-      "service_name" -> Map.get(record, :service_name) || Map.get(record, :log_provider)
-      "severity_text" -> Map.get(record, :severity_text) || Map.get(record, :severity)
-      "severity_number" -> Map.get(record, :severity_number) || Map.get(record, :severity_id)
-      "body" -> Map.get(record, :body) || Map.get(record, :message)
-      "log_name" -> Map.get(record, :log_name)
-      "log_provider" -> Map.get(record, :log_provider)
+  defp group_source_list(sources) do
+    [
+      sources.attributes,
+      sources.resource_attributes,
+      sources.log_attributes,
+      sources.log_resource_attributes,
+      sources.unmapped,
+      sources.metadata
+    ]
+  end
+
+  defp record_timestamp(record) do
+    record_datetime(record, :time) || record_datetime(record, :timestamp) || DateTime.utc_now()
+  end
+
+  defp record_datetime(record, key) do
+    case fetch_attr(record, key) do
+      %DateTime{} = dt -> dt
       _ -> nil
     end
   end
+
+  defp record_field_value(record, "service_name"),
+    do: fetch_attr(record, :service_name) || fetch_attr(record, :log_provider)
+
+  defp record_field_value(record, "severity_text"),
+    do: fetch_attr(record, :severity_text) || fetch_attr(record, :severity)
+
+  defp record_field_value(record, "severity_number"),
+    do: fetch_attr(record, :severity_number) || fetch_attr(record, :severity_id)
+
+  defp record_field_value(record, "body"), do: fetch_attr(record, :body) || fetch_attr(record, :message)
+  defp record_field_value(record, "log_name"), do: fetch_attr(record, :log_name)
+  defp record_field_value(record, "log_provider"), do: fetch_attr(record, :log_provider)
+  defp record_field_value(_record, _key), do: nil
+
+  defp fetch_attr(map, key) when is_map(map) and is_atom(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp fetch_attr(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
+  defp fetch_attr(_map, _key), do: nil
 
   defp record_bucket_start(record, bucket_seconds) do
     record
@@ -900,38 +949,49 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp skip_engine_event?(event) do
-    metadata = Map.get(event, :metadata) || Map.get(event, "metadata") || %{}
-    serviceradar = Map.get(metadata, :serviceradar) || Map.get(metadata, "serviceradar") || %{}
-    stateful = Map.get(serviceradar, :stateful_rule) || Map.get(serviceradar, "stateful_rule")
-
-    if stateful == true do
-      true
-    else
-      log_name = Map.get(event, :log_name) || Map.get(event, "log_name")
-      log_provider = Map.get(event, :log_provider) || Map.get(event, "log_provider")
-      log_name == "alert.rule.threshold" and log_provider == "serviceradar.core"
-    end
+    stateful_rule_event?(event) or engine_generated_event?(event)
   end
 
   defp source_record_details(record) do
-    has_time = Map.has_key?(record, :time) || Map.has_key?(record, "time")
-
-    if has_time do
-      %{
-        "source_signal" => "event",
-        "source_event_id" => Map.get(record, :id) || Map.get(record, "id"),
-        "source_event_time" => Map.get(record, :time) || Map.get(record, "time"),
-        "source_log_name" => Map.get(record, :log_name) || Map.get(record, "log_name"),
-        "source_log_provider" => Map.get(record, :log_provider) || Map.get(record, "log_provider")
-      }
+    if record_has_time?(record) do
+      event_source_details(record)
     else
-      %{
-        "source_signal" => "log",
-        "source_log_id" => Map.get(record, :id) || Map.get(record, "id"),
-        "source_log_time" => Map.get(record, :timestamp) || Map.get(record, "timestamp"),
-        "source_service" => Map.get(record, :service_name) || Map.get(record, "service_name")
-      }
+      log_source_details(record)
     end
+  end
+
+  defp stateful_rule_event?(event) do
+    metadata = fetch_attr(event, :metadata) || %{}
+    serviceradar = fetch_attr(metadata, :serviceradar) || %{}
+    fetch_attr(serviceradar, :stateful_rule) == true
+  end
+
+  defp engine_generated_event?(event) do
+    fetch_attr(event, :log_name) == "alert.rule.threshold" and
+      fetch_attr(event, :log_provider) == "serviceradar.core"
+  end
+
+  defp record_has_time?(record) do
+    Map.has_key?(record, :time) || Map.has_key?(record, "time")
+  end
+
+  defp event_source_details(record) do
+    %{
+      "source_signal" => "event",
+      "source_event_id" => fetch_attr(record, :id),
+      "source_event_time" => fetch_attr(record, :time),
+      "source_log_name" => fetch_attr(record, :log_name),
+      "source_log_provider" => fetch_attr(record, :log_provider)
+    }
+  end
+
+  defp log_source_details(record) do
+    %{
+      "source_signal" => "log",
+      "source_log_id" => fetch_attr(record, :id),
+      "source_log_time" => fetch_attr(record, :timestamp),
+      "source_service" => fetch_attr(record, :service_name)
+    }
   end
 
   defp event_match_sources(event) do

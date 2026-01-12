@@ -154,24 +154,22 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
 
   # Private functions
 
+  defp get_field_value(device, _field_atom, "tags") when is_map(device), do: get_tags(device)
+
   defp get_field_value(device, field_atom, field_string) when is_map(device) do
-    case field_string do
-      "tags" ->
-        get_tags(device)
+    case String.split(field_string, ".", parts: 2) do
+      ["tags", key] ->
+        Map.get(get_tags(device), key)
 
       _ ->
-        case String.split(field_string, ".", parts: 2) do
-          ["tags", key] ->
-            get_tags(device)
-            |> Map.get(key)
+        fetch_field_value(device, field_atom, field_string)
+    end
+  end
 
-          _ ->
-            # Try atom key first, then string key
-            case Map.get(device, field_atom) do
-              nil -> Map.get(device, field_string)
-              value -> value
-            end
-        end
+  defp fetch_field_value(device, field_atom, field_string) do
+    case Map.fetch(device, field_atom) do
+      {:ok, value} -> value
+      :error -> Map.get(device, field_string)
     end
   end
 
@@ -186,11 +184,9 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   defp to_atom_key(key) when is_atom(key), do: key
 
   defp to_atom_key(key) when is_binary(key) do
-    try do
-      String.to_existing_atom(key)
-    rescue
-      ArgumentError -> nil
-    end
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   # Operator evaluation
