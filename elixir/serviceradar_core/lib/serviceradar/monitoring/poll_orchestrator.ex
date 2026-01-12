@@ -65,9 +65,9 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   require Logger
 
   alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Monitoring.PollJob
-  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.Edge.GatewayProcess
+  alias ServiceRadar.GatewayRegistry
+  alias ServiceRadar.Monitoring.PollJob
 
   @doc """
   Execute a polling schedule.
@@ -241,57 +241,61 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Find an available gateway based on schedule assignment mode
-  defp find_gateway(schedule) do
-    tenant_id = schedule.tenant_id
+  defp find_gateway(%{assignment_mode: :any, tenant_id: tenant_id}) do
+    # Find any available gateway for this tenant
+    case GatewayRegistry.find_available_gateways(tenant_id) do
+      [] -> {:error, :no_available_gateway}
+      gateways -> {:ok, Enum.random(gateways)}
+    end
+  end
 
-    case schedule.assignment_mode do
-      :any ->
-        # Find any available gateway for this tenant
-        case GatewayRegistry.find_available_gateways(tenant_id) do
-          [] -> {:error, :no_available_gateway}
-          gateways -> {:ok, Enum.random(gateways)}
-        end
+  defp find_gateway(%{
+         assignment_mode: :partition,
+         tenant_id: tenant_id,
+         assigned_partition_id: partition_id
+       }) do
+    # Find gateway in specific partition
+    if is_nil(partition_id) do
+      {:error, :no_partition_assigned}
+    else
+      GatewayRegistry.find_available_gateway_for_partition(tenant_id, partition_id)
+    end
+  end
 
-      :partition ->
-        # Find gateway in specific partition
-        partition_id = schedule.assigned_partition_id
+  defp find_gateway(%{assignment_mode: :domain, tenant_id: tenant_id, assigned_domain: domain}) do
+    # Find gateway in specific domain (e.g., site-a, datacenter-east)
+    if is_nil(domain) do
+      {:error, :no_domain_assigned}
+    else
+      GatewayRegistry.find_available_gateway_for_domain(tenant_id, domain)
+    end
+  end
 
-        if is_nil(partition_id) do
-          {:error, :no_partition_assigned}
+  defp find_gateway(%{
+         assignment_mode: :specific,
+         tenant_id: tenant_id,
+         assigned_gateway_id: gateway_id
+       }) do
+    # Use specifically assigned gateway
+    if is_nil(gateway_id) do
+      {:error, :no_gateway_assigned}
+    else
+      lookup_specific_gateway(tenant_id, gateway_id)
+    end
+  end
+
+  defp lookup_specific_gateway(tenant_id, gateway_id) do
+    case GatewayRegistry.lookup(tenant_id, gateway_id) do
+      [{pid, metadata}] ->
+        if metadata[:status] == :available do
+          # Include the PID in the returned metadata for cross-node dispatch
+          {:ok, Map.put(metadata, :pid, pid)}
         else
-          GatewayRegistry.find_available_gateway_for_partition(tenant_id, partition_id)
+          {:error, :gateway_not_available}
         end
 
-      :domain ->
-        # Find gateway in specific domain (e.g., site-a, datacenter-east)
-        domain = schedule.assigned_domain
-
-        if is_nil(domain) do
-          {:error, :no_domain_assigned}
-        else
-          GatewayRegistry.find_available_gateway_for_domain(tenant_id, domain)
-        end
-
-      :specific ->
-        # Use specifically assigned gateway
-        gateway_id = schedule.assigned_gateway_id
-
-        if is_nil(gateway_id) do
-          {:error, :no_gateway_assigned}
-        else
-          case GatewayRegistry.lookup(tenant_id, gateway_id) do
-            [{pid, metadata}] ->
-              if metadata[:status] == :available do
-                # Include the PID in the returned metadata for cross-node dispatch
-                {:ok, Map.put(metadata, :pid, pid)}
-              else
-                {:error, :gateway_not_available}
-              end
-
-            [] ->
-              {:error, :gateway_not_found}
-          end
-        end
+      [] ->
+        {:error, :gateway_not_found}
     end
   end
 
@@ -301,31 +305,8 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
     # Use the PID from Horde registry directly - this enables cross-node dispatch
     # The PID is location-transparent across the ERTS cluster
-    gateway_pid =
-      case gateway[:pid] do
-        pid when is_pid(pid) ->
-          pid
-
-        _ ->
-          tenant_id = schedule.tenant_id
-          gid = gateway[:gateway_id] || gateway[:id]
-
-          case {tenant_id, gid} do
-            {t, g} when not is_nil(t) and not is_nil(g) ->
-              case GatewayRegistry.lookup(t, g) do
-                [{pid, _meta}] when is_pid(pid) -> pid
-                _ -> nil
-              end
-
-            _ ->
-              nil
-          end
-      end
-
-    gateway_id =
-      gateway[:gateway_id] ||
-        gateway[:id] ||
-        (if is_pid(gateway_pid), do: to_string(node(gateway_pid)), else: inspect(gateway[:key]))
+    gateway_pid = resolve_gateway_pid(gateway, schedule)
+    gateway_id = resolve_gateway_id(gateway, gateway_pid)
 
     if is_nil(gateway_pid) do
       Logger.warning("Gateway #{gateway_id} has no PID in registry metadata")
@@ -353,6 +334,37 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
           error
       end
     end
+  end
+
+  defp resolve_gateway_pid(gateway, schedule) do
+    case gateway[:pid] do
+      pid when is_pid(pid) ->
+        pid
+
+      _ ->
+        resolve_gateway_pid_from_registry(gateway, schedule.tenant_id)
+    end
+  end
+
+  defp resolve_gateway_pid_from_registry(gateway, tenant_id) do
+    gid = gateway[:gateway_id] || gateway[:id]
+
+    case {tenant_id, gid} do
+      {t, g} when not is_nil(t) and not is_nil(g) ->
+        case GatewayRegistry.lookup(t, g) do
+          [{pid, _meta}] when is_pid(pid) -> pid
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resolve_gateway_id(gateway, gateway_pid) do
+    gateway[:gateway_id] ||
+      gateway[:id] ||
+      if is_pid(gateway_pid), do: to_string(node(gateway_pid)), else: inspect(gateway[:key])
   end
 
   # Load service checks for the schedule
@@ -399,7 +411,6 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       port: check.target_port || 0
     }
   end
-
 
   # Build job payload for gateway
   defp build_job(checks, schedule, poll_job) do

@@ -240,25 +240,7 @@ defmodule ServiceRadar.Oban.TenantQueues do
   def get_tenant_stats(tenant_id) when is_binary(tenant_id) do
     queue_names = get_all_queue_names(tenant_id)
 
-    case with_tenant_oban(tenant_id, fn oban_name ->
-           queue_names
-           |> Enum.map(fn queue ->
-             queue_str = Atom.to_string(queue)
-
-             counts =
-               Oban.check_queue(oban_name, queue: queue)
-               |> case do
-                 %{paused: paused, running: running, available: available} ->
-                   %{paused: paused, running: running, available: available}
-
-                 _ ->
-                   %{paused: false, running: 0, available: 0}
-               end
-
-             {queue_str, counts}
-           end)
-           |> Map.new()
-         end) do
+    case fetch_queue_stats(tenant_id, queue_names) do
       {:ok, stats} ->
         %{
           tenant_id: tenant_id,
@@ -268,13 +250,43 @@ defmodule ServiceRadar.Oban.TenantQueues do
         }
 
       {:error, _reason} ->
-        %{
-          tenant_id: tenant_id,
-          provisioned: false,
-          queues: %{},
-          collected_at: DateTime.utc_now()
-        }
+        empty_tenant_stats(tenant_id)
     end
+  end
+
+  defp fetch_queue_stats(tenant_id, queue_names) do
+    with_tenant_oban(tenant_id, fn oban_name ->
+      queue_names
+      |> Enum.map(&queue_stats(oban_name, &1))
+      |> Map.new()
+    end)
+  end
+
+  defp queue_stats(oban_name, queue) do
+    queue_str = Atom.to_string(queue)
+    counts = queue_counts(oban_name, queue)
+    {queue_str, counts}
+  end
+
+  defp queue_counts(oban_name, queue) do
+    oban_name
+    |> Oban.check_queue(queue: queue)
+    |> normalize_queue_counts()
+  end
+
+  defp normalize_queue_counts(%{paused: paused, running: running, available: available}) do
+    %{paused: paused, running: running, available: available}
+  end
+
+  defp normalize_queue_counts(_), do: %{paused: false, running: 0, available: 0}
+
+  defp empty_tenant_stats(tenant_id) do
+    %{
+      tenant_id: tenant_id,
+      provisioned: false,
+      queues: %{},
+      collected_at: DateTime.utc_now()
+    }
   end
 
   @doc """

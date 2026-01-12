@@ -278,38 +278,38 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     # Service can be a map or a simple atom/string
     case service do
       %{} = svc ->
-        %{
-          service_id: svc[:service_id] || svc[:id] || generate_service_id(svc),
-          service_type: svc[:service_type] || svc[:type] || :custom,
-          agent_uid: agent_id,
-          target: svc[:target] || svc[:address],
-          health_interval: svc[:health_interval] || state.health_interval,
-          results_interval: svc[:results_interval] || state.results_interval,
-          config: Map.drop(svc, [:service_id, :id, :service_type, :type, :target, :address])
-        }
+        map_service_config(svc, agent_id, state)
 
       type when is_atom(type) ->
-        %{
-          service_id: "#{type}-#{agent_id}",
-          service_type: type,
-          agent_uid: agent_id,
-          target: nil,
-          health_interval: state.health_interval,
-          results_interval: state.results_interval,
-          config: %{}
-        }
+        basic_service_config("#{type}-#{agent_id}", type, agent_id, state)
 
       name when is_binary(name) ->
-        %{
-          service_id: "#{name}-#{agent_id}",
-          service_type: :custom,
-          agent_uid: agent_id,
-          target: nil,
-          health_interval: state.health_interval,
-          results_interval: state.results_interval,
-          config: %{}
-        }
+        basic_service_config("#{name}-#{agent_id}", :custom, agent_id, state)
     end
+  end
+
+  defp map_service_config(svc, agent_id, state) do
+    %{
+      service_id: svc[:service_id] || svc[:id] || generate_service_id(svc),
+      service_type: svc[:service_type] || svc[:type] || :custom,
+      agent_uid: agent_id,
+      target: svc[:target] || svc[:address],
+      health_interval: svc[:health_interval] || state.health_interval,
+      results_interval: svc[:results_interval] || state.results_interval,
+      config: Map.drop(svc, [:service_id, :id, :service_type, :type, :target, :address])
+    }
+  end
+
+  defp basic_service_config(service_id, service_type, agent_id, state) do
+    %{
+      service_id: service_id,
+      service_type: service_type,
+      agent_uid: agent_id,
+      target: nil,
+      health_interval: state.health_interval,
+      results_interval: state.results_interval,
+      config: %{}
+    }
   end
 
   defp generate_service_id(service) do

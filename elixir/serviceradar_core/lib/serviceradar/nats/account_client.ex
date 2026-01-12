@@ -151,7 +151,7 @@ defmodule ServiceRadar.NATS.AccountClient do
         account_seed,
         "event-writer",
         :service,
-        expiration_seconds: 86400  # 24 hours
+        expiration_seconds: 86_400  # 24 hours
       )
   """
   @spec generate_user_credentials(String.t(), String.t(), String.t(), credential_type(), keyword()) ::
@@ -173,23 +173,7 @@ defmodule ServiceRadar.NATS.AccountClient do
              timeout: timeout
            ) do
         {:ok, response} ->
-          expires_at =
-            case response.expires_at_unix do
-              0 -> nil
-              unix ->
-                case DateTime.from_unix(unix) do
-                  {:ok, dt} -> dt
-                  {:error, _} -> nil
-                end
-            end
-
-          {:ok,
-           %{
-             user_public_key: response.user_public_key,
-             user_jwt: response.user_jwt,
-             creds_file_content: response.creds_file_content,
-             expires_at: expires_at
-           }}
+          build_user_credentials(response)
 
         {:error, %GRPC.RPCError{} = error} ->
           Logger.error(
@@ -205,6 +189,25 @@ defmodule ServiceRadar.NATS.AccountClient do
 
           {:error, reason}
       end
+    end
+  end
+
+  defp build_user_credentials(response) do
+    {:ok,
+     %{
+       user_public_key: response.user_public_key,
+       user_jwt: response.user_jwt,
+       creds_file_content: response.creds_file_content,
+       expires_at: decode_expires_at(response.expires_at_unix)
+     }}
+  end
+
+  defp decode_expires_at(0), do: nil
+
+  defp decode_expires_at(unix) do
+    case DateTime.from_unix(unix) do
+      {:ok, dt} -> dt
+      {:error, _} -> nil
     end
   end
 

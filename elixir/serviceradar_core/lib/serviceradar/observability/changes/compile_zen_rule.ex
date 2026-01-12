@@ -20,12 +20,7 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
         changeset = Ash.Changeset.force_change_attribute(changeset, :format, format)
 
         # If jdm_definition is provided, use it directly
-        if jdm_definition && map_size(jdm_definition) > 0 do
-          Ash.Changeset.force_change_attribute(changeset, :compiled_jdm, jdm_definition)
-        else
-          # Fall back to template compilation
-          compile_from_template(changeset)
-        end
+        apply_compiled_jdm(changeset, jdm_definition)
 
       {:error, message} ->
         Ash.Changeset.add_error(changeset, field: :subject, message: message)
@@ -37,24 +32,39 @@ defmodule ServiceRadar.Observability.Changes.CompileZenRule do
     jdm_definition = attribute_or_existing(changeset, :jdm_definition)
     subject = attribute_or_existing(changeset, :subject)
 
-    case resolve_format(subject) do
-      {:ok, format} ->
-        # If jdm_definition is provided, use it directly
-        if jdm_definition && map_size(jdm_definition) > 0 do
-          {:atomic, %{format: format, compiled_jdm: jdm_definition}}
-        else
-          # Fall back to template compilation
-          template = attribute_or_existing(changeset, :template)
-          builder_config = attribute_or_existing(changeset, :builder_config) || %{}
+    with {:ok, format} <- resolve_format(subject),
+         {:ok, payload} <- atomic_payload(format, jdm_definition, changeset) do
+      {:atomic, payload}
+    else
+      _ -> :ok
+    end
+  end
 
-          case ZenRuleTemplates.compile(template, builder_config) do
-            {:ok, compiled} -> {:atomic, %{format: format, compiled_jdm: compiled}}
-            {:error, _message} -> :ok
-          end
-        end
+  defp apply_compiled_jdm(changeset, jdm_definition) do
+    if jdm_definition_present?(jdm_definition) do
+      Ash.Changeset.force_change_attribute(changeset, :compiled_jdm, jdm_definition)
+    else
+      # Fall back to template compilation
+      compile_from_template(changeset)
+    end
+  end
 
-      {:error, _message} ->
-        :ok
+  defp jdm_definition_present?(jdm_definition) do
+    is_map(jdm_definition) and map_size(jdm_definition) > 0
+  end
+
+  defp atomic_payload(format, jdm_definition, _changeset)
+       when is_map(jdm_definition) and map_size(jdm_definition) > 0 do
+    {:ok, %{format: format, compiled_jdm: jdm_definition}}
+  end
+
+  defp atomic_payload(format, _jdm_definition, changeset) do
+    template = attribute_or_existing(changeset, :template)
+    builder_config = attribute_or_existing(changeset, :builder_config) || %{}
+
+    case ZenRuleTemplates.compile(template, builder_config) do
+      {:ok, compiled} -> {:ok, %{format: format, compiled_jdm: compiled}}
+      {:error, _message} -> :error
     end
   end
 

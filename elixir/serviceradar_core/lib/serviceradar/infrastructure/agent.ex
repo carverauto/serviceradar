@@ -68,11 +68,9 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   def capability_info(capability) when is_binary(capability) do
-    try do
-      capability_info(String.to_existing_atom(capability))
-    rescue
-      ArgumentError -> %{icon: "hero-cube", color: "ghost", description: capability}
-    end
+    capability_info(String.to_existing_atom(capability))
+  rescue
+    ArgumentError -> %{icon: "hero-cube", color: "ghost", description: capability}
   end
 
   @doc "Returns OCSF type names map"

@@ -33,7 +33,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
+  alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
 
   require Logger
 

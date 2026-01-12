@@ -73,25 +73,25 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     ids = extract_strong_identifiers(update)
 
     # Step 1: Lookup by strong identifiers
-    case lookup_by_strong_identifiers(ids, actor) do
-      {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-        {:ok, device_id}
+    with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+           lookup_by_strong_identifiers(ids, actor) do
+      {:ok, device_id}
+    else
+      _ -> resolve_fallback_device_id(update, ids, actor)
+    end
+  end
 
-      _ ->
-        # Step 2: Preserve existing ServiceRadar UUID
-        if serviceradar_uuid?(update.device_id) do
-          {:ok, update.device_id}
-        else
-          # Step 3: Try IP-based lookup for IP-only devices
-          case lookup_by_ip(ids, actor) do
-            {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-              {:ok, device_id}
+  defp resolve_fallback_device_id(update, ids, actor) do
+    if serviceradar_uuid?(update.device_id) do
+      {:ok, update.device_id}
+    else
+      case lookup_by_ip(ids, actor) do
+        {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+          {:ok, device_id}
 
-            _ ->
-              # Step 4: Generate new deterministic UUID
-              {:ok, generate_deterministic_device_id(ids)}
-          end
-        end
+        _ ->
+          {:ok, generate_deterministic_device_id(ids)}
+      end
     end
   end
 
@@ -170,30 +170,34 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   @spec lookup_by_strong_identifiers(strong_identifiers(), term()) ::
           {:ok, String.t() | nil} | {:error, term()}
   def lookup_by_strong_identifiers(ids, actor) do
-    if not has_strong_identifier?(ids) do
-      {:ok, nil}
-    else
+    if has_strong_identifier?(ids) do
       do_lookup_by_strong_identifiers(ids, actor)
+    else
+      {:ok, nil}
     end
   end
 
   defp do_lookup_by_strong_identifiers(ids, actor) do
     # Try each identifier type in priority order
     Enum.reduce_while(@identifier_priority, {:ok, nil}, fn id_type, _acc ->
-      id_value = get_identifier_value(ids, id_type)
-
-      if id_value do
-        case lookup_device_identifier(id_type, id_value, ids.partition, actor) do
-          {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-            {:halt, {:ok, device_id}}
-
-          _ ->
-            {:cont, {:ok, nil}}
-        end
-      else
-        {:cont, {:ok, nil}}
+      case lookup_identifier(ids, id_type, actor) do
+        {:ok, device_id} -> {:halt, {:ok, device_id}}
+        :cont -> {:cont, {:ok, nil}}
       end
     end)
+  end
+
+  defp lookup_identifier(ids, id_type, actor) do
+    case get_identifier_value(ids, id_type) do
+      nil ->
+        :cont
+
+      id_value ->
+        case lookup_device_identifier(id_type, id_value, ids.partition, actor) do
+          {:ok, device_id} when is_binary(device_id) and device_id != "" -> {:ok, device_id}
+          _ -> :cont
+        end
+    end
   end
 
   defp get_identifier_value(ids, :armis_device_id), do: ids.armis_id
@@ -227,10 +231,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   """
   @spec lookup_by_ip(strong_identifiers(), term()) :: {:ok, String.t() | nil} | {:error, term()}
   def lookup_by_ip(ids, actor) do
-    if not has_strong_identifier?(ids) and ids.ip != "" do
-      do_lookup_by_ip(ids.ip, actor)
-    else
+    if has_strong_identifier?(ids) or ids.ip == "" do
       {:ok, nil}
+    else
+      do_lookup_by_ip(ids.ip, actor)
     end
   end
 
@@ -281,7 +285,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
     hash_input =
       cond do
-        length(seeds) > 0 ->
+        not Enum.empty?(seeds) ->
           # Strong identifiers present - deterministic hash
           "serviceradar-device-v3:partition:#{partition}:" <> Enum.join(seeds, "")
 

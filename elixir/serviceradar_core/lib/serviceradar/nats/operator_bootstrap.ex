@@ -253,43 +253,47 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
         Logger.info("[NATS Bootstrap] All existing tenants have NATS accounts")
 
       {:ok, tenants} ->
-        Logger.info("[NATS Bootstrap] Found #{length(tenants)} tenant(s) needing NATS accounts")
-
-        if oban_running?() do
-          for tenant <- tenants do
-            Logger.info("[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})")
-
-            case CreateAccountWorker.enqueue(tenant.id) do
-              {:ok, _job} ->
-                Logger.info("[NATS Bootstrap] Enqueued NATS account creation for #{tenant.slug}")
-
-              {:error, reason} ->
-                Logger.error(
-                  "[NATS Bootstrap] Failed to enqueue NATS account for #{tenant.slug}: #{inspect(reason)}"
-                )
-            end
-          end
-        else
-          Logger.warning(
-            "[NATS Bootstrap] Oban not running; retrying NATS account provisioning shortly"
-          )
-
-          # Oban can start after this GenServer; retry once it's up.
-          Process.send_after(self(), :check_and_bootstrap, 15_000)
-        end
+        handle_tenants_needing_accounts(tenants)
 
       {:error, reason} ->
         Logger.error("[NATS Bootstrap] Error checking tenants: #{inspect(reason)}")
     end
   end
 
-  defp oban_running? do
-    try do
-      _ = Oban.Registry.config(Oban)
-      true
-    rescue
-      _ -> false
+  defp handle_tenants_needing_accounts(tenants) do
+    Logger.info("[NATS Bootstrap] Found #{length(tenants)} tenant(s) needing NATS accounts")
+
+    if oban_running?() do
+      Enum.each(tenants, &enqueue_tenant_account/1)
+    else
+      Logger.warning(
+        "[NATS Bootstrap] Oban not running; retrying NATS account provisioning shortly"
+      )
+
+      # Oban can start after this GenServer; retry once it's up.
+      Process.send_after(self(), :check_and_bootstrap, 15_000)
     end
+  end
+
+  defp enqueue_tenant_account(tenant) do
+    Logger.info("[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})")
+
+    case CreateAccountWorker.enqueue(tenant.id) do
+      {:ok, _job} ->
+        Logger.info("[NATS Bootstrap] Enqueued NATS account creation for #{tenant.slug}")
+
+      {:error, reason} ->
+        Logger.error(
+          "[NATS Bootstrap] Failed to enqueue NATS account for #{tenant.slug}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp oban_running? do
+    _ = Oban.Registry.config(Oban)
+    true
+  rescue
+    _ -> false
   end
 
   defp get_tenants_needing_nats_accounts do

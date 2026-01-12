@@ -63,83 +63,11 @@ defmodule ServiceRadar.Identity.AliasEvents do
     def from_metadata(metadata) when map_size(metadata) == 0, do: nil
 
     def from_metadata(metadata) when is_map(metadata) do
-      record = %__MODULE__{
-        last_seen_at: get_trimmed(metadata, "_alias_last_seen_at"),
-        collector_ip: get_trimmed(metadata, "_alias_collector_ip"),
-        current_service_id: get_trimmed(metadata, "_alias_last_seen_service_id"),
-        current_ip: get_trimmed(metadata, "_alias_last_seen_ip"),
-        services: %{},
-        ips: %{}
-      }
-
-      # Initialize services from current_service_id
-      services =
-        if record.current_service_id && record.current_service_id != "" do
-          timestamp =
-            get_trimmed(metadata, "service_alias:#{record.current_service_id}") ||
-              record.last_seen_at
-
-          %{record.current_service_id => timestamp}
-        else
-          %{}
-        end
-
-      # Initialize IPs from current_ip
-      ips =
-        if record.current_ip && record.current_ip != "" do
-          timestamp =
-            get_trimmed(metadata, "ip_alias:#{record.current_ip}") ||
-              record.last_seen_at
-
-          %{record.current_ip => timestamp}
-        else
-          %{}
-        end
-
-      # Parse all service_alias: and ip_alias: prefixed keys
-      {services, ips} =
-        Enum.reduce(metadata, {services, ips}, fn {key, value}, {svc_acc, ip_acc} ->
-          cond do
-            String.starts_with?(key, "service_alias:") ->
-              id = key |> String.replace_prefix("service_alias:", "") |> String.trim()
-
-              if id != "" do
-                timestamp =
-                  if String.trim(to_string(value)) != "",
-                    do: String.trim(to_string(value)),
-                    else: record.last_seen_at
-
-                {Map.put(svc_acc, id, timestamp), ip_acc}
-              else
-                {svc_acc, ip_acc}
-              end
-
-            String.starts_with?(key, "ip_alias:") ->
-              ip = key |> String.replace_prefix("ip_alias:", "") |> String.trim()
-
-              if ip != "" do
-                timestamp =
-                  if String.trim(to_string(value)) != "",
-                    do: String.trim(to_string(value)),
-                    else: record.last_seen_at
-
-                {svc_acc, Map.put(ip_acc, ip, timestamp)}
-              else
-                {svc_acc, ip_acc}
-              end
-
-            true ->
-              {svc_acc, ip_acc}
-          end
-        end)
-
+      record = build_alias_record(metadata)
+      {services, ips} = build_alias_maps(metadata, record)
       record = %{record | services: services, ips: ips}
 
-      if empty?(record) do
-        nil
-      else
-        record
-      end
+      if empty?(record), do: nil, else: record
     end
 
     @doc """
@@ -168,11 +96,10 @@ defmodule ServiceRadar.Identity.AliasEvents do
     def format_map(values) do
       values
       |> Enum.sort_by(fn {k, _} -> k end)
-      |> Enum.map(fn {k, v} ->
+      |> Enum.map_join(",", fn {k, v} ->
         trimmed = String.trim(to_string(v))
         if trimmed != "", do: "#{k}=#{trimmed}", else: k
       end)
-      |> Enum.join(",")
     end
 
     # Private helpers
@@ -184,20 +111,107 @@ defmodule ServiceRadar.Identity.AliasEvents do
       end
     end
 
+    defp build_alias_record(metadata) do
+      %__MODULE__{
+        last_seen_at: get_trimmed(metadata, "_alias_last_seen_at"),
+        collector_ip: get_trimmed(metadata, "_alias_collector_ip"),
+        current_service_id: get_trimmed(metadata, "_alias_last_seen_service_id"),
+        current_ip: get_trimmed(metadata, "_alias_last_seen_ip"),
+        services: %{},
+        ips: %{}
+      }
+    end
+
+    defp build_alias_maps(metadata, record) do
+      services = seed_service_aliases(record, metadata)
+      ips = seed_ip_aliases(record, metadata)
+
+      Enum.reduce(metadata, {services, ips}, fn {key, value}, acc ->
+        update_alias_maps(key, value, acc, record)
+      end)
+    end
+
+    defp seed_service_aliases(record, metadata) do
+      if record.current_service_id && record.current_service_id != "" do
+        timestamp =
+          get_trimmed(metadata, "service_alias:#{record.current_service_id}") ||
+            record.last_seen_at
+
+        %{record.current_service_id => timestamp}
+      else
+        %{}
+      end
+    end
+
+    defp seed_ip_aliases(record, metadata) do
+      if record.current_ip && record.current_ip != "" do
+        timestamp =
+          get_trimmed(metadata, "ip_alias:#{record.current_ip}") ||
+            record.last_seen_at
+
+        %{record.current_ip => timestamp}
+      else
+        %{}
+      end
+    end
+
+    defp update_alias_maps(key, value, {svc_acc, ip_acc}, record) do
+      cond do
+        String.starts_with?(key, "service_alias:") ->
+          update_service_alias(key, value, svc_acc, ip_acc, record)
+
+        String.starts_with?(key, "ip_alias:") ->
+          update_ip_alias(key, value, svc_acc, ip_acc, record)
+
+        true ->
+          {svc_acc, ip_acc}
+      end
+    end
+
+    defp update_service_alias(key, value, svc_acc, ip_acc, record) do
+      id = key |> String.replace_prefix("service_alias:", "") |> String.trim()
+
+      if id != "" do
+        timestamp =
+          if String.trim(to_string(value)) != "",
+            do: String.trim(to_string(value)),
+            else: record.last_seen_at
+
+        {Map.put(svc_acc, id, timestamp), ip_acc}
+      else
+        {svc_acc, ip_acc}
+      end
+    end
+
+    defp update_ip_alias(key, value, svc_acc, ip_acc, record) do
+      ip = key |> String.replace_prefix("ip_alias:", "") |> String.trim()
+
+      if ip != "" do
+        timestamp =
+          if String.trim(to_string(value)) != "",
+            do: String.trim(to_string(value)),
+            else: record.last_seen_at
+
+        {svc_acc, Map.put(ip_acc, ip, timestamp)}
+      else
+        {svc_acc, ip_acc}
+      end
+    end
+
     defp trim_or_nil(nil), do: nil
     defp trim_or_nil(s), do: String.trim(to_string(s))
 
     defp empty?(record) do
-      is_empty?(record.last_seen_at) and
-        is_empty?(record.collector_ip) and
-        is_empty?(record.current_service_id) and
-        is_empty?(record.current_ip) and
+      blank?(record.last_seen_at) and
+        blank?(record.collector_ip) and
+        blank?(record.current_service_id) and
+        blank?(record.current_ip) and
         map_size(record.services) == 0 and
         map_size(record.ips) == 0
     end
 
-    defp is_empty?(nil), do: true
-    defp is_empty?(s), do: String.trim(to_string(s)) == ""
+    defp blank?(nil), do: true
+    defp blank?(s), do: String.trim(to_string(s)) == ""
 
     defp maps_equal?(a, b) when map_size(a) != map_size(b), do: false
 
@@ -251,30 +265,32 @@ defmodule ServiceRadar.Identity.AliasEvents do
       |> Enum.filter(&has_alias_metadata?(&1.metadata))
       |> deduplicate_by_device_id()
 
-    if Enum.empty?(alias_updates) do
-      {:ok, []}
-    else
-      # Get device IDs for lookup
-      device_ids = Enum.map(alias_updates, & &1.device_id) |> Enum.sort()
+    case alias_updates do
+      [] ->
+        {:ok, []}
 
-      # Lookup existing devices (for comparing previous alias state)
-      existing_records = lookup_existing_alias_records(device_ids, opts)
-
-      # Build events for changes
-      events =
-        Enum.flat_map(alias_updates, fn update ->
-          current = AliasRecord.from_metadata(update.metadata)
-          previous = Map.get(existing_records, update.device_id)
-
-          if alias_change_detected?(previous, current) do
-            [build_alias_event(update, current, previous)]
-          else
-            []
-          end
-        end)
-
-      {:ok, events}
+      _ ->
+        build_alias_events(alias_updates, opts)
     end
+  end
+
+  defp build_alias_events(alias_updates, opts) do
+    device_ids = Enum.map(alias_updates, & &1.device_id) |> Enum.sort()
+    existing_records = lookup_existing_alias_records(device_ids, opts)
+
+    events =
+      Enum.flat_map(alias_updates, fn update ->
+        current = AliasRecord.from_metadata(update.metadata)
+        previous = Map.get(existing_records, update.device_id)
+
+        if alias_change_detected?(previous, current) do
+          [build_alias_event(update, current, previous)]
+        else
+          []
+        end
+      end)
+
+    {:ok, events}
   end
 
   @doc """
@@ -340,20 +356,10 @@ defmodule ServiceRadar.Identity.AliasEvents do
     actor = Keyword.get(opts, :actor)
     confirm_threshold = Keyword.get(opts, :confirm_threshold, 3)
 
-    unless tenant_id do
+    if is_nil(tenant_id) do
       {:error, :tenant_id_required}
     else
-      # Filter updates with alias metadata
-      alias_updates =
-        updates
-        |> Enum.filter(&has_alias_metadata?(&1.metadata))
-        |> deduplicate_by_device_id()
-
-      events =
-        Enum.flat_map(alias_updates, fn update ->
-          process_device_aliases(update, tenant_id, actor, confirm_threshold)
-        end)
-
+      events = build_device_alias_events(updates, tenant_id, actor, confirm_threshold)
       {:ok, events}
     end
   end
@@ -361,60 +367,34 @@ defmodule ServiceRadar.Identity.AliasEvents do
   defp process_device_aliases(update, tenant_id, actor, confirm_threshold) do
     record = AliasRecord.from_metadata(update.metadata)
 
-    unless record do
-      []
-    else
-      events = []
+    record
+    |> alias_values()
+    |> Enum.flat_map(fn {type, value} ->
+      case process_alias(update, type, value, tenant_id, actor, confirm_threshold) do
+        nil -> []
+        event -> [event]
+      end
+    end)
+  end
 
-      # Process current IP alias
-      events =
-        if record.current_ip && record.current_ip != "" do
-          event =
-            process_alias(update, :ip, record.current_ip, tenant_id, actor, confirm_threshold)
+  defp build_device_alias_events(updates, tenant_id, actor, confirm_threshold) do
+    updates
+    |> Enum.filter(&has_alias_metadata?(&1.metadata))
+    |> deduplicate_by_device_id()
+    |> Enum.flat_map(fn update ->
+      process_device_aliases(update, tenant_id, actor, confirm_threshold)
+    end)
+  end
 
-          if event, do: [event | events], else: events
-        else
-          events
-        end
+  defp alias_values(nil), do: []
 
-      # Process current service ID alias
-      events =
-        if record.current_service_id && record.current_service_id != "" do
-          event =
-            process_alias(
-              update,
-              :service_id,
-              record.current_service_id,
-              tenant_id,
-              actor,
-              confirm_threshold
-            )
-
-          if event, do: [event | events], else: events
-        else
-          events
-        end
-
-      # Process collector IP alias
-      events =
-        if record.collector_ip && record.collector_ip != "" do
-          event =
-            process_alias(
-              update,
-              :collector_ip,
-              record.collector_ip,
-              tenant_id,
-              actor,
-              confirm_threshold
-            )
-
-          if event, do: [event | events], else: events
-        else
-          events
-        end
-
-      events
-    end
+  defp alias_values(record) do
+    [
+      {:ip, record.current_ip},
+      {:service_id, record.current_service_id},
+      {:collector_ip, record.collector_ip}
+    ]
+    |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
   end
 
   defp process_alias(update, alias_type, alias_value, tenant_id, actor, confirm_threshold) do
@@ -559,58 +539,41 @@ defmodule ServiceRadar.Identity.AliasEvents do
   end
 
   defp build_alias_event_metadata(current, previous) do
-    metadata = %{}
-
     metadata =
-      if current.last_seen_at && current.last_seen_at != "",
-        do: Map.put(metadata, "alias_last_seen_at", current.last_seen_at),
-        else: metadata
+      %{}
+      |> maybe_put("alias_last_seen_at", current.last_seen_at)
+      |> maybe_put("alias_current_service_id", current.current_service_id)
+      |> maybe_put("alias_current_ip", current.current_ip)
+      |> maybe_put("alias_collector_ip", current.collector_ip)
+      |> maybe_put_map("alias_services", current.services, &AliasRecord.format_map/1)
+      |> maybe_put_map("alias_ips", current.ips, &AliasRecord.format_map/1)
 
-    metadata =
-      if current.current_service_id && current.current_service_id != "",
-        do: Map.put(metadata, "alias_current_service_id", current.current_service_id),
-        else: metadata
+    if previous do
+      metadata
+      |> maybe_add_previous(
+        "previous_service_id",
+        previous.current_service_id,
+        current.current_service_id
+      )
+      |> maybe_add_previous("previous_ip", previous.current_ip, current.current_ip)
+      |> maybe_add_previous(
+        "previous_collector_ip",
+        previous.collector_ip,
+        current.collector_ip
+      )
+    else
+      metadata
+    end
+  end
 
-    metadata =
-      if current.current_ip && current.current_ip != "",
-        do: Map.put(metadata, "alias_current_ip", current.current_ip),
-        else: metadata
+  defp maybe_put(metadata, _key, nil), do: metadata
+  defp maybe_put(metadata, _key, ""), do: metadata
+  defp maybe_put(metadata, key, value), do: Map.put(metadata, key, value)
 
-    metadata =
-      if current.collector_ip && current.collector_ip != "",
-        do: Map.put(metadata, "alias_collector_ip", current.collector_ip),
-        else: metadata
+  defp maybe_put_map(metadata, _key, values, _formatter) when map_size(values) == 0, do: metadata
 
-    metadata =
-      if map_size(current.services) > 0,
-        do: Map.put(metadata, "alias_services", AliasRecord.format_map(current.services)),
-        else: metadata
-
-    metadata =
-      if map_size(current.ips) > 0,
-        do: Map.put(metadata, "alias_ips", AliasRecord.format_map(current.ips)),
-        else: metadata
-
-    # Add previous values if changed
-    metadata =
-      if previous do
-        metadata
-        |> maybe_add_previous(
-          "previous_service_id",
-          previous.current_service_id,
-          current.current_service_id
-        )
-        |> maybe_add_previous("previous_ip", previous.current_ip, current.current_ip)
-        |> maybe_add_previous(
-          "previous_collector_ip",
-          previous.collector_ip,
-          current.collector_ip
-        )
-      else
-        metadata
-      end
-
-    metadata
+  defp maybe_put_map(metadata, key, values, formatter) do
+    Map.put(metadata, key, formatter.(values))
   end
 
   defp maybe_add_previous(metadata, key, prev, curr) do

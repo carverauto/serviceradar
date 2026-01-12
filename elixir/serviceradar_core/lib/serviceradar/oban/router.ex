@@ -24,16 +24,17 @@ defmodule ServiceRadar.Oban.Router do
         []
 
       [first | _] ->
-        case tenant_schema_from_changeset(first) do
-          nil ->
-            Oban.insert_all(changesets, opts)
+        tenant_schema_from_changeset(first)
+        |> insert_all_for_schema(changesets, opts)
+    end
+  end
 
-          schema ->
-            case TenantOban.ensure_schema(schema) do
-              {:ok, name} -> Oban.insert_all(name, changesets, opts)
-              {:error, _} -> Oban.insert_all(changesets, opts)
-            end
-        end
+  defp insert_all_for_schema(nil, changesets, opts), do: Oban.insert_all(changesets, opts)
+
+  defp insert_all_for_schema(schema, changesets, opts) do
+    case TenantOban.ensure_schema(schema) do
+      {:ok, name} -> Oban.insert_all(name, changesets, opts)
+      {:error, _} -> Oban.insert_all(changesets, opts)
     end
   end
 

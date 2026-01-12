@@ -231,26 +231,31 @@ defmodule ServiceRadar.Core.StatsAggregator do
     # Query devices from database
     case query_devices() do
       {:ok, devices} ->
-        meta = %{meta | raw_records: length(devices)}
-
-        if Enum.empty?(devices) do
-          {snapshot, meta}
-        else
-          # Filter and select canonical records
-          {selected, meta} = select_canonical_records(devices, meta)
-          meta = %{meta | processed_records: length(selected)}
-
-          if Enum.empty?(selected) do
-            {snapshot, meta}
-          else
-            # Compute statistics
-            compute_device_stats(selected, snapshot, meta, state)
-          end
-        end
+        build_snapshot_from_devices(devices, snapshot, meta, state)
 
       {:error, reason} ->
         Logger.warning("Failed to query devices for stats: #{inspect(reason)}")
         {snapshot, meta}
+    end
+  end
+
+  defp build_snapshot_from_devices([], snapshot, meta, _state) do
+    meta = %{meta | raw_records: 0}
+    {snapshot, meta}
+  end
+
+  defp build_snapshot_from_devices(devices, snapshot, meta, state) do
+    meta = %{meta | raw_records: length(devices)}
+
+    # Filter and select canonical records
+    {selected, meta} = select_canonical_records(devices, meta)
+    meta = %{meta | processed_records: length(selected)}
+
+    if Enum.empty?(selected) do
+      {snapshot, meta}
+    else
+      # Compute statistics
+      compute_device_stats(selected, snapshot, meta, state)
     end
   end
 
@@ -295,67 +300,73 @@ defmodule ServiceRadar.Core.StatsAggregator do
     device_id = String.trim(device.uid || "")
     canonical_id = get_canonical_device_id(device)
 
-    key =
-      cond do
-        device_id == "" ->
-          nil
+    case record_key(device_id, canonical_id) do
+      nil ->
+        {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
 
-        is_service_device?(device_id) ->
-          device_id
+      key ->
+        normalized_key = String.downcase(key)
 
-        canonical_id != "" ->
-          canonical_id
-
-        true ->
-          device_id
-      end
-
-    if key == nil or key == "" do
-      {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
-    else
-      normalized_key = String.downcase(key)
-
-      # Check if this is a canonical record (canonical_id matches device_id)
-      is_canonical =
-        canonical_id != "" and String.downcase(canonical_id) == String.downcase(device_id)
-
-      if is_canonical do
-        # Prefer canonical records
-        case Map.get(canonical, normalized_key) do
-          nil ->
-            {Map.put(canonical, normalized_key, device), fallback, meta}
-
-          existing ->
-            if should_replace_record?(existing, device) do
-              {Map.put(canonical, normalized_key, device), fallback, meta}
-            else
-              {canonical, fallback,
-               %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
-            end
+        if canonical_record?(canonical_id, device_id) do
+          upsert_canonical_record(canonical, fallback, meta, normalized_key, device)
+        else
+          upsert_fallback_record(canonical, fallback, meta, normalized_key, device)
         end
-      else
-        # Non-canonical record - add to fallback
-        case Map.get(canonical, normalized_key) do
-          nil ->
-            # No canonical record, add to fallback
-            case Map.get(fallback, normalized_key) do
-              nil ->
-                {canonical, Map.put(fallback, normalized_key, device), meta}
+    end
+  end
 
-              existing ->
-                if should_replace_record?(existing, device) do
-                  {canonical, Map.put(fallback, normalized_key, device), meta}
-                else
-                  {canonical, fallback,
-                   %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
-                end
-            end
+  defp record_key("", _canonical_id), do: nil
 
-          _existing ->
-            # Canonical record exists, skip this one
-            {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
+  defp record_key(device_id, canonical_id) do
+    cond do
+      service_device?(device_id) -> device_id
+      canonical_id != "" -> canonical_id
+      true -> device_id
+    end
+  end
+
+  defp canonical_record?(canonical_id, device_id) do
+    canonical_id != "" and String.downcase(canonical_id) == String.downcase(device_id)
+  end
+
+  defp upsert_canonical_record(canonical, fallback, meta, normalized_key, device) do
+    case Map.get(canonical, normalized_key) do
+      nil ->
+        {Map.put(canonical, normalized_key, device), fallback, meta}
+
+      existing ->
+        if should_replace_record?(existing, device) do
+          {Map.put(canonical, normalized_key, device), fallback, meta}
+        else
+          {canonical, fallback,
+           %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
         end
-      end
+    end
+  end
+
+  defp upsert_fallback_record(canonical, fallback, meta, normalized_key, device) do
+    case Map.get(canonical, normalized_key) do
+      nil ->
+        update_fallback_record(canonical, fallback, meta, normalized_key, device)
+
+      _existing ->
+        # Canonical record exists, skip this one
+        {canonical, fallback, %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
+    end
+  end
+
+  defp update_fallback_record(canonical, fallback, meta, normalized_key, device) do
+    case Map.get(fallback, normalized_key) do
+      nil ->
+        {canonical, Map.put(fallback, normalized_key, device), meta}
+
+      existing ->
+        if should_replace_record?(existing, device) do
+          {canonical, Map.put(fallback, normalized_key, device), meta}
+        else
+          {canonical, fallback,
+           %{meta | skipped_non_canonical: meta.skipped_non_canonical + 1}}
+        end
     end
   end
 
@@ -364,7 +375,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
     String.trim(metadata["canonical_device_id"] || "")
   end
 
-  defp is_service_device?(device_id) do
+  defp service_device?(device_id) do
     # Service devices have specific prefixes
     String.starts_with?(device_id, "gateway:") or
       String.starts_with?(device_id, "agent:") or
@@ -375,26 +386,29 @@ defmodule ServiceRadar.Core.StatsAggregator do
     existing_last_seen = existing.last_seen_at
     candidate_last_seen = candidate.last_seen_at
 
-    cond do
-      # Prefer records with last_seen
-      is_nil(existing_last_seen) and not is_nil(candidate_last_seen) ->
+    case {existing_last_seen, candidate_last_seen} do
+      {nil, %DateTime{}} ->
         true
 
-      not is_nil(existing_last_seen) and is_nil(candidate_last_seen) ->
+      {%DateTime{}, nil} ->
         false
 
-      # Prefer more recent records
-      not is_nil(candidate_last_seen) and not is_nil(existing_last_seen) ->
-        DateTime.compare(candidate_last_seen, existing_last_seen) == :gt
+      {%DateTime{} = existing_seen, %DateTime{} = candidate_seen} ->
+        DateTime.compare(candidate_seen, existing_seen) == :gt
 
-      # Prefer available records
+      _ ->
+        availability_preference(existing, candidate)
+    end
+  end
+
+  defp availability_preference(existing, candidate) do
+    cond do
       candidate.is_available and not existing.is_available ->
         true
 
       not candidate.is_available and existing.is_available ->
         false
 
-      # Tie-breaker: lexicographic order
       true ->
         String.trim(candidate.uid || "") < String.trim(existing.uid || "")
     end
@@ -405,42 +419,9 @@ defmodule ServiceRadar.Core.StatsAggregator do
       DateTime.utc_now()
       |> DateTime.add(-state.active_window, :millisecond)
 
-    partitions = %{}
-
     {snapshot, partitions} =
-      Enum.reduce(devices, {snapshot, partitions}, fn device, {snap, parts} ->
-        # Count total
-        snap = %{snap | total_devices: snap.total_devices + 1}
-
-        # Get partition
-        partition_id = partition_from_device_id(device.uid)
-        parts = update_partition_stats(parts, partition_id, :device_count, 1)
-
-        # Count available
-        {snap, parts} =
-          if device.is_available do
-            snap = %{snap | available_devices: snap.available_devices + 1}
-            parts = update_partition_stats(parts, partition_id, :available_count, 1)
-            {snap, parts}
-          else
-            {snap, parts}
-          end
-
-        # Count active
-        {snap, parts} =
-          if not is_nil(device.last_seen_at) and
-               DateTime.compare(device.last_seen_at, active_threshold) == :gt do
-            snap = %{snap | active_devices: snap.active_devices + 1}
-            parts = update_partition_stats(parts, partition_id, :active_count, 1)
-            {snap, parts}
-          else
-            {snap, parts}
-          end
-
-        # Count capabilities
-        snap = count_capabilities(snap, device)
-
-        {snap, parts}
+      Enum.reduce(devices, {snapshot, %{}}, fn device, acc ->
+        update_device_stats(device, acc, active_threshold)
       end)
 
     snapshot = %{
@@ -450,6 +431,40 @@ defmodule ServiceRadar.Core.StatsAggregator do
     }
 
     {snapshot, meta}
+  end
+
+  defp update_device_stats(device, {snapshot, partitions}, active_threshold) do
+    snapshot = %{snapshot | total_devices: snapshot.total_devices + 1}
+
+    partition_id = partition_from_device_id(device.uid)
+    partitions = update_partition_stats(partitions, partition_id, :device_count, 1)
+
+    {snapshot, partitions} =
+      if device.is_available do
+        snapshot = %{snapshot | available_devices: snapshot.available_devices + 1}
+        partitions = update_partition_stats(partitions, partition_id, :available_count, 1)
+        {snapshot, partitions}
+      else
+        {snapshot, partitions}
+      end
+
+    {snapshot, partitions} =
+      if device_active?(device, active_threshold) do
+        snapshot = %{snapshot | active_devices: snapshot.active_devices + 1}
+        partitions = update_partition_stats(partitions, partition_id, :active_count, 1)
+        {snapshot, partitions}
+      else
+        {snapshot, partitions}
+      end
+
+    snapshot = count_capabilities(snapshot, device)
+
+    {snapshot, partitions}
+  end
+
+  defp device_active?(device, active_threshold) do
+    not is_nil(device.last_seen_at) and
+      DateTime.compare(device.last_seen_at, active_threshold) == :gt
   end
 
   defp partition_from_device_id(device_id) when is_binary(device_id) do
@@ -474,50 +489,41 @@ defmodule ServiceRadar.Core.StatsAggregator do
   end
 
   defp count_capabilities(snapshot, device) do
-    # Check for collector
-    collector_id =
-      case device.metadata do
-        %{"collector_agent_id" => id} when is_binary(id) and id != "" -> id
-        _ -> nil
-      end
+    snapshot
+    |> maybe_increment_collectors(device)
+    |> increment_capability(device, "icmp", :devices_with_icmp)
+    |> increment_capability(device, "snmp", :devices_with_snmp)
+    |> increment_capability(device, "sysmon", :devices_with_sysmon)
+  end
 
-    snapshot =
-      if collector_id != nil or has_any_capability?(device) do
-        %{snapshot | devices_with_collectors: snapshot.devices_with_collectors + 1}
-      else
-        snapshot
-      end
+  defp maybe_increment_collectors(snapshot, device) do
+    if has_collector?(device) or has_any_capability?(device) do
+      %{snapshot | devices_with_collectors: snapshot.devices_with_collectors + 1}
+    else
+      snapshot
+    end
+  end
 
-    # Count specific capabilities
+  defp increment_capability(snapshot, device, capability, field) do
     capabilities = device.capabilities || []
 
-    snapshot =
-      if has_capability?(capabilities, "icmp") do
-        %{snapshot | devices_with_icmp: snapshot.devices_with_icmp + 1}
-      else
-        snapshot
-      end
+    if has_capability?(capabilities, capability) do
+      Map.update!(snapshot, field, &(&1 + 1))
+    else
+      snapshot
+    end
+  end
 
-    snapshot =
-      if has_capability?(capabilities, "snmp") do
-        %{snapshot | devices_with_snmp: snapshot.devices_with_snmp + 1}
-      else
-        snapshot
-      end
-
-    snapshot =
-      if has_capability?(capabilities, "sysmon") do
-        %{snapshot | devices_with_sysmon: snapshot.devices_with_sysmon + 1}
-      else
-        snapshot
-      end
-
-    snapshot
+  defp has_collector?(device) do
+    case device.metadata do
+      %{"collector_agent_id" => id} when is_binary(id) and id != "" -> true
+      _ -> false
+    end
   end
 
   defp has_any_capability?(device) do
     capabilities = device.capabilities || []
-    length(capabilities) > 0
+    not Enum.empty?(capabilities)
   end
 
   defp has_capability?(capabilities, name) do
@@ -542,18 +548,7 @@ defmodule ServiceRadar.Core.StatsAggregator do
   end
 
   defp log_snapshot_refresh(previous, previous_meta, current, meta) do
-    # Check if anything changed
-    meta_changed =
-      meta.raw_records != previous_meta.raw_records or
-        meta.processed_records != previous_meta.processed_records or
-        meta.skipped_non_canonical != previous_meta.skipped_non_canonical
-
-    stats_changed =
-      is_nil(previous) or
-        previous.total_devices != current.total_devices or
-        previous.available_devices != current.available_devices
-
-    if stats_changed or meta_changed or current.total_devices == 0 do
+    if should_log_snapshot?(previous, previous_meta, current, meta) do
       Logger.info(
         "Device stats snapshot refreshed: " <>
           "total=#{current.total_devices}, " <>
@@ -566,6 +561,27 @@ defmodule ServiceRadar.Core.StatsAggregator do
     end
 
     # Warn about non-canonical skips
+    maybe_log_non_canonical(previous_meta, meta)
+  end
+
+  defp should_log_snapshot?(previous, previous_meta, current, meta) do
+    stats_changed?(previous, current) or meta_changed?(previous_meta, meta) or current.total_devices == 0
+  end
+
+  defp stats_changed?(nil, _current), do: true
+
+  defp stats_changed?(previous, current) do
+    previous.total_devices != current.total_devices or
+      previous.available_devices != current.available_devices
+  end
+
+  defp meta_changed?(previous_meta, meta) do
+    meta.raw_records != previous_meta.raw_records or
+      meta.processed_records != previous_meta.processed_records or
+      meta.skipped_non_canonical != previous_meta.skipped_non_canonical
+  end
+
+  defp maybe_log_non_canonical(previous_meta, meta) do
     if meta.skipped_non_canonical > 0 and
          meta.skipped_non_canonical != previous_meta.skipped_non_canonical do
       Logger.warning(
@@ -603,12 +619,10 @@ defmodule ServiceRadar.Core.StatsAggregator do
 
   defp invoke_alert_handler(handler, previous, previous_meta, current, meta)
        when is_function(handler, 4) do
-    try do
-      handler.(previous, previous_meta, current, meta)
-    rescue
-      e ->
-        Logger.error("Stats alert handler raised: #{inspect(e)}")
-    end
+    handler.(previous, previous_meta, current, meta)
+  rescue
+    e ->
+      Logger.error("Stats alert handler raised: #{inspect(e)}")
   end
 
   defp invoke_alert_handler(_handler, previous, _previous_meta, current, meta) do

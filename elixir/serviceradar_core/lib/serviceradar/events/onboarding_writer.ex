@@ -6,8 +6,8 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
 
   require Logger
 

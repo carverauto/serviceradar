@@ -11,43 +11,36 @@ defmodule ServiceRadar.Observability.LogPromotion do
   alias ServiceRadar.Observability.{LogPromotionRule, StatefulAlertEngine}
   alias UUID
 
+  @severity_text_map %{
+    "fatal" => OCSF.severity_fatal(),
+    "critical" => OCSF.severity_critical(),
+    "high" => OCSF.severity_high(),
+    "error" => OCSF.severity_high(),
+    "warn" => OCSF.severity_medium(),
+    "warning" => OCSF.severity_medium(),
+    "info" => OCSF.severity_informational(),
+    "debug" => OCSF.severity_low(),
+    "trace" => OCSF.severity_low()
+  }
+
   @spec promote([map()], String.t() | nil, String.t() | nil) :: {:ok, non_neg_integer()}
   def promote(_rows, nil, _schema), do: {:ok, 0}
   def promote(_rows, _tenant_id, nil), do: {:ok, 0}
 
   def promote(rows, tenant_id, schema) when is_list(rows) do
     rules = load_rules(tenant_id, schema)
+    promotions = build_promotions(rows, rules)
+    events = Enum.map(promotions, & &1.event)
 
-    if rules == [] do
-      {:ok, 0}
-    else
-      promotions =
-        rows
-        |> Enum.flat_map(&match_rules(&1, rules))
-
-      events = Enum.map(promotions, & &1.event)
-
-      if events == [] do
+    case insert_events(events, tenant_id, schema) do
+      {:ok, 0} ->
         {:ok, 0}
-      else
-        {count, _} =
-          ServiceRadar.Repo.insert_all("ocsf_events", events,
-            prefix: schema,
-            on_conflict: :nothing,
-            returning: false
-          )
 
-        :telemetry.execute(
-          [:serviceradar, :log_promotion, :events_created],
-          %{count: count},
-          %{tenant_id: tenant_id}
-        )
-
+      {:ok, count} ->
         _ = maybe_evaluate_stateful_rules(events, tenant_id, schema)
         maybe_create_alerts(promotions, schema)
         Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
         {:ok, count}
-      end
     end
   rescue
     error ->
@@ -71,6 +64,31 @@ defmodule ServiceRadar.Observability.LogPromotion do
   defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
+
+  defp build_promotions(_rows, []), do: []
+
+  defp build_promotions(rows, rules) do
+    Enum.flat_map(rows, &match_rules(&1, rules))
+  end
+
+  defp insert_events([], _tenant_id, _schema), do: {:ok, 0}
+
+  defp insert_events(events, tenant_id, schema) do
+    {count, _} =
+      ServiceRadar.Repo.insert_all("ocsf_events", events,
+        prefix: schema,
+        on_conflict: :nothing,
+        returning: false
+      )
+
+    :telemetry.execute(
+      [:serviceradar, :log_promotion, :events_created],
+      %{count: count},
+      %{tenant_id: tenant_id}
+    )
+
+    {:ok, count}
+  end
 
   defp match_rules(log, rules) do
     case Enum.find(rules, &rule_matches?(log, &1)) do
@@ -198,14 +216,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp build_event(log, %LogPromotionRule{} = rule) do
     event_overrides = rule.event || %{}
-    log_time = Map.get(log, :timestamp) || DateTime.utc_now()
+    log_time = event_log_time(log)
     subject = ingest_subject(log)
 
     {severity_id, severity_name} = resolve_severity(log, event_overrides)
-    activity_id = override_int(event_overrides["activity_id"]) || OCSF.activity_log_create()
-    class_uid = override_int(event_overrides["class_uid"]) || OCSF.class_event_log_activity()
-    category_uid = override_int(event_overrides["category_uid"]) || OCSF.category_system_activity()
-    type_uid = override_int(event_overrides["type_uid"]) || OCSF.type_uid(class_uid, activity_id)
+    {activity_id, class_uid, category_uid, type_uid} = event_uids(event_overrides)
+    status_id = event_status_id(event_overrides)
 
     %{
       id: UUID.uuid4(),
@@ -217,22 +233,22 @@ defmodule ServiceRadar.Observability.LogPromotion do
       activity_name: OCSF.log_activity_name(activity_id),
       severity_id: severity_id,
       severity: severity_name,
-      message: event_overrides["message"] || Map.get(log, :body) || "Log promotion event",
-      status_id: override_int(event_overrides["status_id"]) || OCSF.status_success(),
-      status: event_overrides["status"] || OCSF.status_name(override_int(event_overrides["status_id"]) || 1),
+      message: event_message(event_overrides, log),
+      status_id: status_id,
+      status: event_status(event_overrides, status_id),
       status_code: event_overrides["status_code"],
       status_detail: event_overrides["status_detail"],
       metadata: build_metadata(log, rule, subject),
       observables: event_overrides["observables"] || [],
       trace_id: Map.get(log, :trace_id),
       span_id: Map.get(log, :span_id),
-      actor: event_overrides["actor"] || OCSF.build_actor(app_name: Map.get(log, :service_name)),
+      actor: event_actor(event_overrides, log),
       device: event_overrides["device"] || %{},
       src_endpoint: event_overrides["src_endpoint"] || %{},
       dst_endpoint: event_overrides["dst_endpoint"] || %{},
-      log_name: event_overrides["log_name"] || subject || Map.get(log, :service_name) || "logs",
-      log_provider: event_overrides["log_provider"] || Map.get(log, :service_name) || "unknown",
-      log_level: event_overrides["log_level"] || Map.get(log, :severity_text),
+      log_name: event_log_name(event_overrides, subject, log),
+      log_provider: event_log_provider(event_overrides, log),
+      log_level: event_log_level(event_overrides, log),
       log_version: event_overrides["log_version"],
       unmapped: build_unmapped(log, rule),
       raw_data: nil,
@@ -243,29 +259,11 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp maybe_create_alerts(promotions, schema) do
     {created, attempted} =
-      Enum.reduce(promotions, {0, 0}, fn %{event: event, alert: alert_config}, {created, attempted} ->
-        if alert_config do
-          result = AlertGenerator.from_event(event, alert: alert_config, tenant: schema)
-
-          created =
-            case result do
-              {:ok, %{} = _alert} -> created + 1
-              _ -> created
-            end
-
-          {created, attempted + 1}
-        else
-          {created, attempted}
-        end
+      Enum.reduce(promotions, {0, 0}, fn promotion, acc ->
+        update_alert_counts(promotion, schema, acc)
       end)
 
-    if attempted > 0 do
-      :telemetry.execute(
-        [:serviceradar, :log_promotion, :alerts_created],
-        %{count: created, attempted: attempted},
-        %{}
-      )
-    end
+    maybe_emit_alert_metrics(created, attempted)
   end
 
   defp alert_config(event, %LogPromotionRule{} = rule) do
@@ -336,18 +334,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp severity_from_text(text) when is_binary(text) do
-    case String.downcase(text) do
-      "fatal" -> OCSF.severity_fatal()
-      "critical" -> OCSF.severity_critical()
-      "high" -> OCSF.severity_high()
-      "error" -> OCSF.severity_high()
-      "warn" -> OCSF.severity_medium()
-      "warning" -> OCSF.severity_medium()
-      "info" -> OCSF.severity_informational()
-      "debug" -> OCSF.severity_low()
-      "trace" -> OCSF.severity_low()
-      _ -> OCSF.severity_unknown()
-    end
+    Map.get(@severity_text_map, String.downcase(text), OCSF.severity_unknown())
   end
 
   defp severity_from_text(_), do: OCSF.severity_unknown()
@@ -376,4 +363,64 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp override_int(_), do: nil
+
+  defp event_message(overrides, log) do
+    overrides["message"] || Map.get(log, :body) || "Log promotion event"
+  end
+
+  defp event_status_id(overrides) do
+    override_int(overrides["status_id"]) || OCSF.status_success()
+  end
+
+  defp event_status(overrides, status_id) do
+    overrides["status"] || OCSF.status_name(status_id)
+  end
+
+  defp event_actor(overrides, log) do
+    overrides["actor"] || OCSF.build_actor(app_name: Map.get(log, :service_name))
+  end
+
+  defp event_log_name(overrides, subject, log) do
+    overrides["log_name"] || subject || Map.get(log, :service_name) || "logs"
+  end
+
+  defp event_log_provider(overrides, log) do
+    overrides["log_provider"] || Map.get(log, :service_name) || "unknown"
+  end
+
+  defp event_log_level(overrides, log) do
+    overrides["log_level"] || Map.get(log, :severity_text)
+  end
+
+  defp event_log_time(log) do
+    Map.get(log, :timestamp) || DateTime.utc_now()
+  end
+
+  defp event_uids(overrides) do
+    activity_id = override_int(overrides["activity_id"]) || OCSF.activity_log_create()
+    class_uid = override_int(overrides["class_uid"]) || OCSF.class_event_log_activity()
+    category_uid = override_int(overrides["category_uid"]) || OCSF.category_system_activity()
+    type_uid = override_int(overrides["type_uid"]) || OCSF.type_uid(class_uid, activity_id)
+
+    {activity_id, class_uid, category_uid, type_uid}
+  end
+
+  defp update_alert_counts(%{event: _event, alert: nil}, _schema, counts), do: counts
+
+  defp update_alert_counts(%{event: event, alert: alert_config}, schema, {created, attempted}) do
+    case AlertGenerator.from_event(event, alert: alert_config, tenant: schema) do
+      {:ok, %{} = _alert} -> {created + 1, attempted + 1}
+      _ -> {created, attempted + 1}
+    end
+  end
+
+  defp maybe_emit_alert_metrics(_created, 0), do: :ok
+
+  defp maybe_emit_alert_metrics(created, attempted) do
+    :telemetry.execute(
+      [:serviceradar, :log_promotion, :alerts_created],
+      %{count: created, attempted: attempted},
+      %{}
+    )
+  end
 end

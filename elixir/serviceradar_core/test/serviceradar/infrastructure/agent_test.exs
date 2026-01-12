@@ -47,7 +47,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Test Agent",
           host: "192.168.1.100",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp", "tcp", "http"]
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.uid == agent_uid
       assert agent.status == :connecting
       assert agent.host == "192.168.1.100"
-      assert agent.port == 50051
+      assert agent.port == 50_051
       assert agent.is_healthy == true
       assert "icmp" in agent.capabilities
       assert agent.tenant_id == tenant_id
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "SPIFFE Agent",
           host: "10.0.0.50",
-          port: 50051,
+          port: 50_051,
           spiffe_identity: spiffe_id
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
@@ -92,7 +92,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Pre-connected Agent",
           host: "192.168.1.101",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -113,7 +113,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Initial Agent",
           host: "192.168.1.101",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -123,7 +123,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Updated Agent",
           host: "192.168.1.200",
-          port: 50052
+          port: 50_052
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -131,7 +131,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert updated.first_seen_time == agent.first_seen_time
       assert DateTime.compare(updated.last_seen_time, agent.last_seen_time) != :lt
       assert updated.host == "192.168.1.200"
-      assert updated.port == 50052
+      assert updated.port == 50_052
       assert updated.status == :connected
       assert updated.is_healthy == true
     end
@@ -147,7 +147,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "State Machine Test Agent",
           host: "192.168.1.102",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -264,7 +264,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Heartbeat Test Agent",
           host: "192.168.1.103",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -292,7 +292,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: agent_uid,
           name: "Capability Update Agent",
           host: "192.168.1.104",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp"]
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
@@ -316,7 +316,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: "agent-q-connected-#{unique_id}",
           name: "Connected Query Agent",
           host: "192.168.1.110",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp", "tcp"]
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
@@ -327,7 +327,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           uid: "agent-q-connecting-#{unique_id}",
           name: "Connecting Query Agent",
           host: "192.168.1.111",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 

@@ -85,29 +85,37 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           |> MapSet.new()
 
         Enum.each(defaults, fn attrs ->
-          if MapSet.member?(existing, attrs[:name]) do
-            :ok
-          else
-            changeset =
-              Ash.Changeset.for_create(resource, :create, attrs,
-                tenant: schema,
-                actor: actor
-              )
-
-            case Ash.create(changeset, actor: actor) do
-              {:ok, _} ->
-                Logger.info("Seeded rule: #{attrs[:name]} for #{schema}")
-
-              {:error, reason} ->
-                Logger.warning(
-                  "Failed to seed #{resource} rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
-                )
-            end
-          end
+          seed_rule_if_missing(existing, attrs, resource, schema, actor)
         end)
 
       {:error, reason} ->
         Logger.warning("Failed to check rule defaults for #{resource} in #{schema}: #{inspect(reason)}")
+    end
+  end
+
+  defp seed_rule_if_missing(existing, attrs, resource, schema, actor) do
+    if MapSet.member?(existing, attrs[:name]) do
+      :ok
+    else
+      create_rule(resource, attrs, schema, actor)
+    end
+  end
+
+  defp create_rule(resource, attrs, schema, actor) do
+    changeset =
+      Ash.Changeset.for_create(resource, :create, attrs,
+        tenant: schema,
+        actor: actor
+      )
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, _} ->
+        Logger.info("Seeded rule: #{attrs[:name]} for #{schema}")
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to seed #{resource} rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
+        )
     end
   end
 

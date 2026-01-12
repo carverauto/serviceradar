@@ -105,7 +105,10 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
         changeset
         |> Ash.Changeset.change_attribute(:public_key, Ash.Changeset.get_argument(changeset, :public_key))
         |> Ash.Changeset.change_attribute(:operator_jwt, Ash.Changeset.get_argument(changeset, :operator_jwt))
-        |> Ash.Changeset.change_attribute(:system_account_public_key, Ash.Changeset.get_argument(changeset, :system_account_public_key))
+        |> Ash.Changeset.change_attribute(
+          :system_account_public_key,
+          Ash.Changeset.get_argument(changeset, :system_account_public_key)
+        )
         |> Ash.Changeset.change_attribute(:status, :ready)
         |> Ash.Changeset.change_attribute(:bootstrapped_at, DateTime.utc_now())
       end

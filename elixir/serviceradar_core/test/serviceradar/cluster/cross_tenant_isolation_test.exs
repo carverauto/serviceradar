@@ -13,8 +13,8 @@ defmodule ServiceRadar.Cluster.CrossTenantIsolationTest do
 
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantGuard
+  alias ServiceRadar.Cluster.TenantRegistry
 
   # Use unique tenant IDs per test run to avoid cross-test pollution
   setup do

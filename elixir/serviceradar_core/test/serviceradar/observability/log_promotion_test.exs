@@ -3,6 +3,8 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   @moduletag :integration
 
+  alias Ecto.Adapters.SQL, as: SQL
+  alias Postgrex.Result
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Observability.{LogPromotion, LogPromotionRule}
   alias ServiceRadar.Repo
@@ -56,15 +58,15 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
     assert {:ok, 1} = LogPromotion.promote([log], tenant.tenant_id, schema)
 
-    assert %Postgrex.Result{rows: [[1]]} =
-             Ecto.Adapters.SQL.query!(
+    assert %Result{rows: [[1]]} =
+             SQL.query!(
                Repo,
                "SELECT COUNT(*) FROM #{schema}.ocsf_events WHERE log_name = $1",
                ["syslog.promoted"]
              )
 
-    assert %Postgrex.Result{rows: [[alert_count]]} =
-             Ecto.Adapters.SQL.query!(
+    assert %Result{rows: [[alert_count]]} =
+             SQL.query!(
                Repo,
                "SELECT COUNT(*) FROM #{schema}.alerts WHERE event_id IS NOT NULL",
                []

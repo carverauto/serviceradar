@@ -155,14 +155,14 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         user_name: "collector-1",
         credential_type: :USER_CREDENTIAL_TYPE_COLLECTOR,
         permissions: nil,
-        expiration_seconds: 86400
+        expiration_seconds: 86_400
       }
 
       assert request.tenant_slug == "acme-corp"
       assert request.account_seed == "SATEST123"
       assert request.user_name == "collector-1"
       assert request.credential_type == :USER_CREDENTIAL_TYPE_COLLECTOR
-      assert request.expiration_seconds == 86400
+      assert request.expiration_seconds == 86_400
     end
   end
 
@@ -201,13 +201,13 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         user_public_key: "UTEST123",
         user_jwt: "eyJhbGciOiJlZDI1NTE5...",
         creds_file_content: "-----BEGIN NATS USER JWT-----\n...",
-        expires_at_unix: 1735689600
+        expires_at_unix: 1_735_689_600
       }
 
       assert response.user_public_key == "UTEST123"
       assert String.starts_with?(response.user_jwt, "eyJ")
       assert String.contains?(response.creds_file_content, "NATS USER JWT")
-      assert response.expires_at_unix == 1735689600
+      assert response.expires_at_unix == 1_735_689_600
     end
 
     test "expires_at_unix of 0 means no expiration" do

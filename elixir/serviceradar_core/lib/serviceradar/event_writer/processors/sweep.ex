@@ -46,7 +46,11 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.EventWriter.TenantContext
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
+
+  import Ecto.Query
 
   require Logger
 
@@ -62,30 +66,37 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       Logger.error("Sweep batch missing tenant schema context")
       {:error, :missing_tenant_schema}
     else
-      rows =
-        messages
-        |> Enum.map(&parse_message/1)
-        |> Enum.reject(&is_nil/1)
+      rows = build_rows(messages)
 
       if Enum.empty?(rows) do
         {:ok, 0}
       else
-        case ServiceRadar.Repo.insert_all(table_name(), rows,
-               prefix: schema,
-               on_conflict: :nothing,
-               returning: false
-             ) do
-          {count, _} ->
-            # Also update device inventory via SweepResultsIngestor
-            process_inventory_updates(messages, tenant_id)
-            {:ok, count}
-        end
+        insert_sweep_rows(schema, rows, messages, tenant_id)
       end
     end
   rescue
     e ->
       Logger.error("Sweep OCSF batch insert failed: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp build_rows(messages) do
+    messages
+    |> Enum.map(&parse_message/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp insert_sweep_rows(schema, rows, messages, tenant_id) do
+    case ServiceRadar.Repo.insert_all(table_name(), rows,
+           prefix: schema,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} ->
+        # Also update device inventory via SweepResultsIngestor
+        process_inventory_updates(messages, tenant_id)
+        {:ok, count}
+    end
   end
 
   # Process inventory updates for sweep results
@@ -99,39 +110,41 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     # Group by execution_id (or nil for messages without execution context)
     results_by_execution = Enum.group_by(parsed_results, & &1["execution_id"])
 
-    Enum.each(results_by_execution, fn {execution_id, results} ->
-      if execution_id do
-        # Extract additional context from first result
-        first_result = List.first(results) || %{}
-        sweep_group_id = first_result["sweep_group_id"] || first_result["sweepGroupId"]
-        agent_id = first_result["agent_id"] || first_result["agentId"]
-        config_version = first_result["config_hash"] || first_result["configHash"]
-
-        # Full ingest with SweepHostResult records
-        opts = [
-          sweep_group_id: sweep_group_id,
-          agent_id: agent_id,
-          config_version: config_version
-        ]
-
-        case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id, opts) do
-          {:ok, _stats} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.warning("SweepResultsIngestor failed: #{inspect(reason)}")
-        end
-      else
-        # Just update device availability (no execution tracking)
-        update_device_availability_only(results, tenant_id)
-      end
-    end)
+    Enum.each(results_by_execution, &process_execution_results(&1, tenant_id))
   rescue
     e ->
       Logger.warning("Inventory update failed (non-fatal): #{inspect(e)}")
   end
 
   defp process_inventory_updates(_messages, _tenant_id), do: :ok
+
+  defp process_execution_results({nil, results}, tenant_id) do
+    # Just update device availability (no execution tracking)
+    update_device_availability_only(results, tenant_id)
+  end
+
+  defp process_execution_results({execution_id, results}, tenant_id) do
+    # Extract additional context from first result
+    first_result = List.first(results) || %{}
+    sweep_group_id = first_result["sweep_group_id"] || first_result["sweepGroupId"]
+    agent_id = first_result["agent_id"] || first_result["agentId"]
+    config_version = first_result["config_hash"] || first_result["configHash"]
+
+    # Full ingest with SweepHostResult records
+    opts = [
+      sweep_group_id: sweep_group_id,
+      agent_id: agent_id,
+      config_version: config_version
+    ]
+
+    case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id, opts) do
+      {:ok, _stats} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("SweepResultsIngestor failed: #{inspect(reason)}")
+    end
+  end
 
   defp parse_for_inventory(%{data: data}) do
     case Jason.decode(data) do
@@ -143,10 +156,6 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   defp update_device_availability_only(results, tenant_id) do
     alias ServiceRadar.Cluster.TenantSchemas
     alias ServiceRadar.Identity.DeviceLookup
-    alias ServiceRadar.Inventory.Device
-    alias ServiceRadar.Repo
-
-    import Ecto.Query
 
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
@@ -157,54 +166,64 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    if length(ips) > 0 do
+    if Enum.empty?(ips) do
+      :ok
+    else
       # Lookup existing devices
       device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: system_actor(tenant_id))
       timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      # Update available devices
-      available_ips =
-        results
-        |> Enum.filter(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
-        |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
-        |> Enum.reject(&is_nil/1)
-
-      available_uids =
-        available_ips
-        |> Enum.map(&Map.get(device_map, &1))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(& &1.canonical_device_id)
-
-      if length(available_uids) > 0 do
-        from(d in {tenant_schema <> ".ocsf_devices", Device},
-          where: d.uid in ^available_uids
-        )
-        |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp])
-      end
-
-      # Update unavailable devices
-      unavailable_ips =
-        results
-        |> Enum.reject(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
-        |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
-        |> Enum.reject(&is_nil/1)
-
-      unavailable_uids =
-        unavailable_ips
-        |> Enum.map(&Map.get(device_map, &1))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(& &1.canonical_device_id)
-
-      if length(unavailable_uids) > 0 do
-        from(d in {tenant_schema <> ".ocsf_devices", Device},
-          where: d.uid in ^unavailable_uids
-        )
-        |> Repo.update_all(set: [is_available: false, modified_time: timestamp])
-      end
+      update_availability(
+        results,
+        device_map,
+        tenant_schema,
+        timestamp
+      )
     end
   rescue
     e ->
       Logger.warning("Device availability update failed: #{inspect(e)}")
+  end
+
+  defp update_availability(results, device_map, tenant_schema, timestamp) do
+    update_available_devices(results, device_map, tenant_schema, timestamp)
+    update_unavailable_devices(results, device_map, tenant_schema, timestamp)
+  end
+
+  defp update_available_devices(results, device_map, tenant_schema, timestamp) do
+    available_uids =
+      results
+      |> Enum.filter(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+      |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Map.get(device_map, &1))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.canonical_device_id)
+
+    unless Enum.empty?(available_uids) do
+      from(d in {tenant_schema <> ".ocsf_devices", Device},
+        where: d.uid in ^available_uids
+      )
+      |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp])
+    end
+  end
+
+  defp update_unavailable_devices(results, device_map, tenant_schema, timestamp) do
+    unavailable_uids =
+      results
+      |> Enum.reject(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
+      |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&Map.get(device_map, &1))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.canonical_device_id)
+
+    unless Enum.empty?(unavailable_uids) do
+      from(d in {tenant_schema <> ".ocsf_devices", Device},
+        where: d.uid in ^unavailable_uids
+      )
+      |> Repo.update_all(set: [is_available: false, modified_time: timestamp])
+    end
   end
 
   defp system_actor(tenant_id) do
@@ -235,6 +254,10 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   defp parse_sweep_result(json, nats_metadata, tenant_id) do
     time = FieldParser.parse_timestamp(FieldParser.get_field(json, "last_sweep_time", "lastSweepTime"))
     activity_id = OCSF.activity_network_scan()
+    icmp_available = FieldParser.get_field(json, "icmp_available", "icmpAvailable") || false
+    response_time_ns = FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs")
+    {status_id, status} = status_from_icmp(icmp_available)
+    {protocol_name, protocol_num} = protocol_from_icmp(icmp_available)
 
     # Determine severity based on scan results
     severity_id = determine_severity(json)
@@ -270,8 +293,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       activity_name: OCSF.network_activity_name(activity_id),
 
       # Status based on ICMP availability
-      status_id: if(json["icmp_available"] || json["icmpAvailable"], do: OCSF.status_success(), else: OCSF.status_failure()),
-      status: if(json["icmp_available"] || json["icmpAvailable"], do: "Success", else: "Failure"),
+      status_id: status_id,
+      status: status,
       status_code: nil,
       status_detail: nil,
 
@@ -297,8 +320,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       traffic: %{},
 
       # Protocol (ICMP for ping sweep)
-      protocol_name: if(json["icmp_available"] || json["icmpAvailable"], do: "ICMP", else: nil),
-      protocol_num: if(json["icmp_available"] || json["icmpAvailable"], do: 1, else: nil),
+      protocol_name: protocol_name,
+      protocol_num: protocol_num,
 
       # Direction (not applicable for sweep)
       direction: nil,
@@ -322,8 +345,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       scan_type: "network_discovery",
       ports_scanned: ports_scanned,
       ports_open: ports_open,
-      icmp_available: FieldParser.get_field(json, "icmp_available", "icmpAvailable"),
-      response_time_ns: FieldParser.get_field(json, "icmp_response_time_ns", "icmpResponseTimeNs"),
+      icmp_available: icmp_available,
+      response_time_ns: response_time_ns,
 
       # Unmapped data
       unmapped: extract_unmapped(json),
@@ -342,6 +365,12 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       created_at: DateTime.utc_now()
     }
   end
+
+  defp status_from_icmp(true), do: {OCSF.status_success(), "Success"}
+  defp status_from_icmp(_), do: {OCSF.status_failure(), "Failure"}
+
+  defp protocol_from_icmp(true), do: {"ICMP", 1}
+  defp protocol_from_icmp(_), do: {nil, nil}
 
   defp determine_severity(json) do
     icmp = json["icmp_available"] || json["icmpAvailable"]

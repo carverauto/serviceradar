@@ -11,7 +11,7 @@ defmodule ServiceRadar.Sync.Client do
 
       config :serviceradar_core, ServiceRadar.Sync.Client,
         host: "localhost",
-        port: 50051,
+        port: 50_051,
         ssl: false
 
   ## Usage

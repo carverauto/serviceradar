@@ -32,6 +32,8 @@ defmodule ServiceRadar.Edge.NatsCredential do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Edge.PubSub
+
   postgres do
     table "nats_credentials"
     repo ServiceRadar.Repo
@@ -80,8 +82,14 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
       change fn changeset, _context ->
         changeset
-        |> Ash.Changeset.change_attribute(:user_public_key, Ash.Changeset.get_argument(changeset, :user_public_key))
-        |> Ash.Changeset.change_attribute(:onboarding_package_id, Ash.Changeset.get_argument(changeset, :onboarding_package_id))
+        |> Ash.Changeset.change_attribute(
+          :user_public_key,
+          Ash.Changeset.get_argument(changeset, :user_public_key)
+        )
+        |> Ash.Changeset.change_attribute(
+          :onboarding_package_id,
+          Ash.Changeset.get_argument(changeset, :onboarding_package_id)
+        )
         |> Ash.Changeset.change_attribute(:status, :active)
         |> Ash.Changeset.change_attribute(:issued_at, DateTime.utc_now())
         |> Ash.Changeset.after_action(fn _changeset, credential ->
@@ -260,11 +268,11 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
   @doc false
   def broadcast_created(credential) do
-    ServiceRadar.Edge.PubSub.broadcast_credential_created(credential)
+    PubSub.broadcast_credential_created(credential)
   end
 
   @doc false
   def broadcast_revoked(credential) do
-    ServiceRadar.Edge.PubSub.broadcast_credential_revoked(credential)
+    PubSub.broadcast_credential_revoked(credential)
   end
 end
