@@ -30,6 +30,16 @@ defmodule ServiceRadar.Monitoring.Alert do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
+  alias ServiceRadar.Monitoring.Alert.{
+    AutoEscalateScheduler,
+    AutoEscalateWorker,
+    SendNotificationsScheduler,
+    SendNotificationsWorker
+  }
+
+  alias ServiceRadar.Oban.AshObanQueueResolver
+  alias ServiceRadar.Oban.TenantList
+
   postgres do
     table "alerts"
     repo ServiceRadar.Repo
@@ -68,19 +78,19 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
+    list_tenants TenantList
 
     triggers do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do
         queue :alerts
-        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        extra_args &AshObanQueueResolver.job_meta/1
         read_action :pending
         scheduler_cron "*/5 * * * *"
         action :escalate
 
-        scheduler_module_name ServiceRadar.Monitoring.Alert.AutoEscalateScheduler
-        worker_module_name ServiceRadar.Monitoring.Alert.AutoEscalateWorker
+        scheduler_module_name AutoEscalateScheduler
+        worker_module_name AutoEscalateWorker
 
         # Only escalate alerts that have been pending for 30+ minutes
         where expr(
@@ -93,13 +103,13 @@ defmodule ServiceRadar.Monitoring.Alert do
       # Scheduled trigger for sending notifications on new/escalated alerts
       trigger :send_notifications do
         queue :notifications
-        extra_args &ServiceRadar.Oban.AshObanQueueResolver.job_meta/1
+        extra_args &AshObanQueueResolver.job_meta/1
         read_action :needs_notification
         scheduler_cron "* * * * *"
         action :send_notification
 
-        scheduler_module_name ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
-        worker_module_name ServiceRadar.Monitoring.Alert.SendNotificationsWorker
+        scheduler_module_name SendNotificationsScheduler
+        worker_module_name SendNotificationsWorker
       end
     end
   end
@@ -588,10 +598,10 @@ defmodule ServiceRadar.Monitoring.Alert do
     calculate :duration_seconds,
               :integer,
               expr(
-                if not is_nil(resolved_at) do
-                  fragment("EXTRACT(EPOCH FROM ? - ?)", resolved_at, triggered_at)
-                else
+                if is_nil(resolved_at) do
                   fragment("EXTRACT(EPOCH FROM now() - ?)", triggered_at)
+                else
+                  fragment("EXTRACT(EPOCH FROM ? - ?)", resolved_at, triggered_at)
                 end
               )
 

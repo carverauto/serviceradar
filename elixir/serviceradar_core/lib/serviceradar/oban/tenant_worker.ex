@@ -153,51 +153,57 @@ defmodule ServiceRadar.Oban.TenantWorker do
       end
 
       defp execute_with_tenant(args, tenant_id, job) do
-        try do
-          case apply(__MODULE__, :perform_for_tenant, [args, tenant_id, job]) do
-            :ok ->
-              if function_exported?(__MODULE__, :on_success, 3) do
-                __MODULE__.on_success(args, tenant_id, :ok)
-              end
+        perform_for_tenant(args, tenant_id, job)
+        |> handle_perform_result(args, tenant_id, job)
+      rescue
+        e ->
+          Logger.error(
+            "#{__MODULE__}: Exception for tenant #{tenant_id}: #{Exception.message(e)}"
+          )
 
-              :ok
-
-            {:ok, result} = success ->
-              if function_exported?(__MODULE__, :on_success, 3) do
-                __MODULE__.on_success(args, tenant_id, result)
-              end
-
-              success
-
-            {:error, _reason} = error ->
-              if function_exported?(__MODULE__, :on_failure, 4) do
-                __MODULE__.on_failure(args, tenant_id, error, job)
-              end
-
-              error
-
-            {:cancel, reason} ->
-              Logger.info("#{__MODULE__}: Job cancelled for tenant #{tenant_id}: #{inspect(reason)}")
-              {:cancel, reason}
-
-            {:snooze, seconds} ->
-              {:snooze, seconds}
-
-            other ->
-              Logger.warning("#{__MODULE__}: Unexpected return value: #{inspect(other)}")
-              :ok
+          if function_exported?(__MODULE__, :on_failure, 4) do
+            __MODULE__.on_failure(args, tenant_id, e, job)
           end
-        rescue
-          e ->
-            Logger.error(
-              "#{__MODULE__}: Exception for tenant #{tenant_id}: #{Exception.message(e)}"
-            )
 
-            if function_exported?(__MODULE__, :on_failure, 4) do
-              __MODULE__.on_failure(args, tenant_id, e, job)
-            end
+          reraise e, __STACKTRACE__
+      end
 
-            reraise e, __STACKTRACE__
+      defp handle_perform_result(result, args, tenant_id, job) do
+        case result do
+          :ok ->
+            maybe_on_success(args, tenant_id, :ok)
+            :ok
+
+          {:ok, payload} ->
+            maybe_on_success(args, tenant_id, payload)
+            {:ok, payload}
+
+          {:error, _reason} = error ->
+            maybe_on_failure(args, tenant_id, error, job)
+            error
+
+          {:cancel, reason} ->
+            Logger.info("#{__MODULE__}: Job cancelled for tenant #{tenant_id}: #{inspect(reason)}")
+            {:cancel, reason}
+
+          {:snooze, seconds} ->
+            {:snooze, seconds}
+
+          other ->
+            Logger.warning("#{__MODULE__}: Unexpected return value: #{inspect(other)}")
+            :ok
+        end
+      end
+
+      defp maybe_on_success(args, tenant_id, result) do
+        if function_exported?(__MODULE__, :on_success, 3) do
+          __MODULE__.on_success(args, tenant_id, result)
+        end
+      end
+
+      defp maybe_on_failure(args, tenant_id, error, job) do
+        if function_exported?(__MODULE__, :on_failure, 4) do
+          __MODULE__.on_failure(args, tenant_id, error, job)
         end
       end
 

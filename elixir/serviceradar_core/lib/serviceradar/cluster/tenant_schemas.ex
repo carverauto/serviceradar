@@ -71,9 +71,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   cannot be applied.
   """
 
-  alias ServiceRadar.Repo
+  alias Ecto.Adapters.SQL
+  alias Postgrex.Error, as: PostgrexError
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Identity.Tenant
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -108,7 +110,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
       end
 
       # Create schema (safe against injection via sanitized name)
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         "CREATE SCHEMA IF NOT EXISTS #{schema_name}"
       )
@@ -124,7 +126,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
       {:ok, schema_name}
     rescue
-      e in Postgrex.Error ->
+      e in PostgrexError ->
         Logger.error("Failed to create schema #{schema_name}: #{inspect(e)}")
         {:error, {:postgres_error, e.postgres.message}}
 
@@ -151,7 +153,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     if_exists = if Keyword.get(opts, :if_exists, true), do: "IF EXISTS", else: ""
 
     try do
-      Ecto.Adapters.SQL.query!(
+      SQL.query!(
         Repo,
         "DROP SCHEMA #{if_exists} #{schema_name} #{cascade}"
       )
@@ -159,7 +161,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
       Logger.warning("Dropped PostgreSQL schema: #{schema_name}")
       :ok
     rescue
-      e in Postgrex.Error ->
+      e in PostgrexError ->
         Logger.error("Failed to drop schema #{schema_name}: #{inspect(e)}")
         {:error, {:postgres_error, e.postgres.message}}
     end
@@ -253,7 +255,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     )
     """
 
-    case Ecto.Adapters.SQL.query(Repo, query, [schema_name]) do
+    case SQL.query(Repo, query, [schema_name]) do
       {:ok, %{rows: [[true]]}} -> true
       _ -> false
     end
@@ -270,7 +272,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     ORDER BY schema_name
     """
 
-    case Ecto.Adapters.SQL.query(Repo, query, ["#{@tenant_prefix}%"]) do
+    case SQL.query(Repo, query, ["#{@tenant_prefix}%"]) do
       {:ok, %{rows: rows}} -> Enum.map(rows, fn [name] -> name end)
       _ -> []
     end
@@ -438,7 +440,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     )
     """
 
-    Ecto.Adapters.SQL.query!(Repo, query)
+    SQL.query!(Repo, query)
   end
 
   defp reset_tenant_schemas? do
@@ -450,7 +452,7 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
       raise ArgumentError, "Refusing to drop unexpected schema #{inspect(schema_name)}"
     end
 
-    Ecto.Adapters.SQL.query!(Repo, "DROP SCHEMA IF EXISTS #{schema_name} CASCADE")
+    SQL.query!(Repo, "DROP SCHEMA IF EXISTS #{schema_name} CASCADE")
   end
 
   defp uuid_string?(value) do

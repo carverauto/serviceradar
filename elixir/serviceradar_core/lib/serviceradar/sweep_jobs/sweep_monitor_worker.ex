@@ -139,28 +139,29 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
         group_name: group.name
       )
     else
-      case group.schedule_type do
-        :cron ->
-          Logger.debug("Skipping missed sweep check for cron schedule",
-            group_id: group.id,
-            group_name: group.name
-          )
+      check_group_schedule(group, tenant_id, now, grace_period_seconds)
+    end
+  end
 
-        _ ->
-          interval_seconds = parse_interval_to_seconds(group.interval)
-          expected_by = calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
+  defp check_group_schedule(%{schedule_type: :cron} = group, _tenant_id, _now, _grace_period_seconds) do
+    Logger.debug("Skipping missed sweep check for cron schedule",
+      group_id: group.id,
+      group_name: group.name
+    )
+  end
 
-          if DateTime.compare(now, expected_by) == :gt do
-            # Sweep is overdue
-            emit_missed_sweep_log(group, tenant_id, now, expected_by)
-          else
-            Logger.debug("Sweep group is on schedule",
-              group_id: group.id,
-              group_name: group.name,
-              expected_by: expected_by
-            )
-          end
-      end
+  defp check_group_schedule(group, tenant_id, now, grace_period_seconds) do
+    interval_seconds = parse_interval_to_seconds(group.interval)
+    expected_by = calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
+
+    if DateTime.compare(now, expected_by) == :gt do
+      emit_missed_sweep_log(group, tenant_id, now, expected_by)
+    else
+      Logger.debug("Sweep group is on schedule",
+        group_id: group.id,
+        group_name: group.name,
+        expected_by: expected_by
+      )
     end
   end
 
@@ -229,45 +230,25 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       3600
 
       iex> parse_interval_to_seconds("1d")
-      86400
+      86_400
 
       iex> parse_interval_to_seconds("30s")
       30
   """
   @spec parse_interval_to_seconds(term()) :: integer()
   def parse_interval_to_seconds(interval) when is_binary(interval) do
-    case Regex.run(~r/^(\d+)([smhd])$/i, interval) do
-      [_, value, unit] ->
-        value = String.to_integer(value)
+    interval
+    |> parse_interval_string()
+    |> case do
+      {:ok, seconds} ->
+        seconds
 
-        seconds =
-          case String.downcase(unit) do
-            "s" -> value
-            "m" -> value * 60
-            "h" -> value * 3600
-            "d" -> value * 86400
-          end
+      :error ->
+        parse_interval_fallback(interval)
 
-        if seconds > 0 do
-          seconds
-        else
-          Logger.warning("Interval must be positive, defaulting to 1 hour", interval: interval)
-          3600
-        end
-
-      nil ->
-        # Try parsing as just a number (assume seconds)
-        case Integer.parse(interval) do
-          {value, ""} when value > 0 ->
-            value
-
-          _ ->
-            Logger.warning("Unable to parse interval string, defaulting to 1 hour",
-              interval: interval
-            )
-
-            3600
-        end
+      {:error, :non_positive} ->
+        Logger.warning("Interval must be positive, defaulting to 1 hour", interval: interval)
+        3600
     end
   end
 
@@ -277,5 +258,40 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     )
 
     3600
+  end
+
+  defp parse_interval_string(interval) do
+    case Regex.run(~r/^(\d+)([smhd])$/i, interval) do
+      [_, value, unit] ->
+        seconds = String.to_integer(value) * unit_seconds(String.downcase(unit))
+
+        if seconds > 0 do
+          {:ok, seconds}
+        else
+          {:error, :non_positive}
+        end
+
+      nil ->
+        :error
+    end
+  end
+
+  defp unit_seconds("s"), do: 1
+  defp unit_seconds("m"), do: 60
+  defp unit_seconds("h"), do: 3_600
+  defp unit_seconds("d"), do: 86_400
+
+  defp parse_interval_fallback(interval) do
+    case Integer.parse(interval) do
+      {value, ""} when value > 0 ->
+        value
+
+      _ ->
+        Logger.warning("Unable to parse interval string, defaulting to 1 hour",
+          interval: interval
+        )
+
+        3_600
+    end
   end
 end

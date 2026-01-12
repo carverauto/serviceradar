@@ -164,18 +164,16 @@ defmodule ServiceRadar.Identity.IdentityCache do
   """
   @spec stats() :: map()
   def stats do
-    try do
-      info = :ets.info(@table_name)
+    info = :ets.info(@table_name)
 
-      %{
-        size: info[:size] || 0,
-        memory_bytes: (info[:memory] || 0) * :erlang.system_info(:wordsize),
-        table_name: @table_name
-      }
-    rescue
-      ArgumentError ->
-        %{size: 0, memory_bytes: 0, table_name: @table_name, error: :table_not_found}
-    end
+    %{
+      size: info[:size] || 0,
+      memory_bytes: (info[:memory] || 0) * :erlang.system_info(:wordsize),
+      table_name: @table_name
+    }
+  rescue
+    ArgumentError ->
+      %{size: 0, memory_bytes: 0, table_name: @table_name, error: :table_not_found}
   end
 
   # Server Callbacks
@@ -231,7 +229,7 @@ defmodule ServiceRadar.Identity.IdentityCache do
       :ets.delete(@table_name, key)
     end)
 
-    if length(expired_keys) > 0 do
+    unless Enum.empty?(expired_keys) do
       Logger.debug("Identity cache: evicted #{length(expired_keys)} expired entries")
     end
   rescue

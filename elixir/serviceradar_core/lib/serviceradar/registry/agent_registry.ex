@@ -27,7 +27,7 @@ defmodule ServiceRadar.AgentRegistry do
       ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, %{
         partition_id: "partition-1",
         grpc_host: "192.168.1.100",
-        grpc_port: 50051,
+        grpc_port: 50_051,
         capabilities: [:icmp_sweep, :tcp_sweep, :snmp],
         status: :connected
       })
@@ -245,7 +245,8 @@ defmodule ServiceRadar.AgentRegistry do
   Returns `{:ok, {host, port}}` if agent is registered with gRPC details,
   or `{:error, :not_found}` if agent is not registered or has no gRPC address.
   """
-  @spec get_grpc_address(String.t(), String.t()) :: {:ok, {String.t(), pos_integer()}} | {:error, :not_found | :no_grpc_address}
+  @spec get_grpc_address(String.t(), String.t()) ::
+          {:ok, {String.t(), pos_integer()}} | {:error, :not_found | :no_grpc_address}
   def get_grpc_address(tenant_id, agent_id) when is_binary(tenant_id) do
     case lookup(tenant_id, agent_id) do
       [{_pid, metadata}] ->

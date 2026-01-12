@@ -3,8 +3,8 @@ defmodule ServiceRadar.Events.HealthWriter do
   Publishes internal health state logs to NATS for downstream promotion.
   """
 
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Infrastructure.HealthEvent
 
   require Logger

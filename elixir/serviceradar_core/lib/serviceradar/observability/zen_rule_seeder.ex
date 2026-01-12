@@ -83,25 +83,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         existing = rename_legacy_rules(rules, existing, schema, actor)
 
         Enum.each(defaults, fn attrs ->
-          key = {attrs[:name], attrs[:subject]}
-
-          if MapSet.member?(existing, key) do
-            :ok
-          else
-            changeset =
-              Ash.Changeset.for_create(ZenRule, :create, attrs,
-                tenant: schema,
-                actor: actor
-              )
-
-            case Ash.create(changeset, actor: actor) do
-              {:ok, _} -> :ok
-              {:error, reason} ->
-                Logger.warning(
-                  "Failed to seed Zen rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
-                )
-            end
-          end
+          seed_rule_if_missing(existing, attrs, schema, actor)
         end)
 
       {:error, reason} ->
@@ -111,36 +93,71 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   defp rename_legacy_rules(rules, existing, schema, actor) do
     Enum.reduce(rules, existing, fn rule, acc ->
-      case legacy_rule_name(rule.name) do
-        nil ->
-          acc
-
-        new_name ->
-          key = {new_name, rule.subject}
-
-          if MapSet.member?(acc, key) do
-            acc
-          else
-            changeset =
-              Ash.Changeset.for_update(rule, :update, %{name: new_name},
-                tenant: schema,
-                actor: actor
-              )
-
-            case Ash.update(changeset, actor: actor) do
-              {:ok, _} ->
-                MapSet.put(acc, key)
-
-              {:error, reason} ->
-                Logger.warning(
-                  "Failed to rename Zen rule #{rule.name} for #{schema}: #{inspect(reason)}"
-                )
-
-                acc
-            end
-          end
-      end
+      rename_legacy_rule(rule, acc, schema, actor)
     end)
+  end
+
+  defp seed_rule_if_missing(existing, attrs, schema, actor) do
+    key = {attrs[:name], attrs[:subject]}
+
+    if MapSet.member?(existing, key) do
+      :ok
+    else
+      create_rule(attrs, schema, actor)
+    end
+  end
+
+  defp create_rule(attrs, schema, actor) do
+    changeset =
+      Ash.Changeset.for_create(ZenRule, :create, attrs,
+        tenant: schema,
+        actor: actor
+      )
+
+    case Ash.create(changeset, actor: actor) do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to seed Zen rule #{attrs[:name]} for #{schema}: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp rename_legacy_rule(rule, acc, schema, actor) do
+    case legacy_rule_name(rule.name) do
+      nil -> acc
+      new_name -> rename_rule_if_missing(rule, new_name, acc, schema, actor)
+    end
+  end
+
+  defp rename_rule_if_missing(rule, new_name, existing, schema, actor) do
+    key = {new_name, rule.subject}
+
+    if MapSet.member?(existing, key) do
+      existing
+    else
+      do_rename_rule(rule, new_name, key, existing, schema, actor)
+    end
+  end
+
+  defp do_rename_rule(rule, new_name, key, existing, schema, actor) do
+    changeset =
+      Ash.Changeset.for_update(rule, :update, %{name: new_name},
+        tenant: schema,
+        actor: actor
+      )
+
+    case Ash.update(changeset, actor: actor) do
+      {:ok, _} ->
+        MapSet.put(existing, key)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to rename Zen rule #{rule.name} for #{schema}: #{inspect(reason)}"
+        )
+
+        existing
+    end
   end
 
   defp legacy_rule_name("syslog_passthrough"), do: "passthrough"

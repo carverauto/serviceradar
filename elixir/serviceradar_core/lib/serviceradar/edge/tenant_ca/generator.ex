@@ -303,7 +303,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   defp generate_key do
     # Generate RSA 2048-bit key
-    key = :public_key.generate_key({:rsa, 2048, 65537})
+    key = :public_key.generate_key({:rsa, 2048, 65_537})
     {:ok, key}
   rescue
     e -> {:error, {:key_generation_failed, e}}
@@ -441,7 +441,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   end
 
   defp signature_algorithm do
-    {:SignatureAlgorithm, {1, 2, 840, 113549, 1, 1, 11}, :NULL}
+    {:SignatureAlgorithm, {1, 2, 840, 113_549, 1, 1, 11}, :NULL}
   end
 
   defp validity(not_before, not_after) do
@@ -466,7 +466,7 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
     public_key_der = :public_key.der_encode(:RSAPublicKey, public_key)
 
     {:OTPSubjectPublicKeyInfo,
-     {:PublicKeyAlgorithm, {1, 2, 840, 113549, 1, 1, 1}, :NULL},
+     {:PublicKeyAlgorithm, {1, 2, 840, 113_549, 1, 1, 1}, :NULL},
      public_key_der}
   end
 

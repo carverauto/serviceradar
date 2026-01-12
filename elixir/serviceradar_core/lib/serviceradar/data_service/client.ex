@@ -282,32 +282,50 @@ defmodule ServiceRadar.DataService.Client do
     app_config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     %{
-      host: opts[:host] || get_env("DATASVC_HOST") || app_config[:host] || @default_host,
-      port: opts[:port] || get_env_int("DATASVC_PORT") || app_config[:port] || @default_port,
-      ssl: opts[:ssl] || get_env_bool("DATASVC_SSL") || app_config[:ssl] || false,
-      cert_dir: opts[:cert_dir] || get_env("DATASVC_CERT_DIR") || app_config[:cert_dir],
-      cert_name: opts[:cert_name] || get_env("DATASVC_CERT_NAME") || app_config[:cert_name] || "core",
+      host: config_value(opts, app_config, :host, "DATASVC_HOST", @default_host),
+      port: config_value_int(opts, app_config, :port, "DATASVC_PORT", @default_port),
+      ssl: config_value_bool(opts, app_config, :ssl, "DATASVC_SSL", false),
+      cert_dir: config_value(opts, app_config, :cert_dir, "DATASVC_CERT_DIR"),
+      cert_name: config_value(opts, app_config, :cert_name, "DATASVC_CERT_NAME", "core"),
       connect_timeout_ms:
-        opts[:connect_timeout_ms] ||
-          get_env_int("DATASVC_CONNECT_TIMEOUT_MS") ||
-          app_config[:connect_timeout_ms] ||
-          @default_connect_timeout,
+        config_value_int(
+          opts,
+          app_config,
+          :connect_timeout_ms,
+          "DATASVC_CONNECT_TIMEOUT_MS",
+          @default_connect_timeout
+        ),
       reconnect_base_ms:
-        opts[:reconnect_base_ms] ||
-          get_env_int("DATASVC_RECONNECT_BASE_MS") ||
-          app_config[:reconnect_base_ms] ||
-          @default_reconnect_base,
+        config_value_int(
+          opts,
+          app_config,
+          :reconnect_base_ms,
+          "DATASVC_RECONNECT_BASE_MS",
+          @default_reconnect_base
+        ),
       reconnect_max_ms:
-        opts[:reconnect_max_ms] ||
-          get_env_int("DATASVC_RECONNECT_MAX_MS") ||
-          app_config[:reconnect_max_ms] ||
-          @default_reconnect_max,
+        config_value_int(
+          opts,
+          app_config,
+          :reconnect_max_ms,
+          "DATASVC_RECONNECT_MAX_MS",
+          @default_reconnect_max
+        ),
       server_name:
-        opts[:server_name] ||
-          get_env("DATASVC_SERVER_NAME") ||
-          app_config[:server_name] ||
-          "datasvc.serviceradar"
+        config_value(opts, app_config, :server_name, "DATASVC_SERVER_NAME", "datasvc.serviceradar")
     }
+  end
+
+  defp config_value(opts, app_config, key, env_key, default \\ nil) do
+    opts[key] || get_env(env_key) || app_config[key] || default
+  end
+
+  defp config_value_int(opts, app_config, key, env_key, default) do
+    opts[key] || get_env_int(env_key) || app_config[key] || default
+  end
+
+  defp config_value_bool(opts, app_config, key, env_key, default) do
+    opts[key] || get_env_bool(env_key) || app_config[key] || default
   end
 
   defp get_env(key) do

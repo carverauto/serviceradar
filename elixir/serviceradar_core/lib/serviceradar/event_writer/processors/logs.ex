@@ -14,12 +14,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
-  alias ServiceRadar.Observability.LogPromotion
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
   alias Opentelemetry.Proto.Common.V1.{AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
+  alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.TenantContext
+  alias ServiceRadar.Observability.LogPromotion
 
   require Logger
 
@@ -34,23 +34,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       Logger.error("Logs batch missing tenant schema context")
       {:error, :missing_tenant_schema}
     else
-      rows =
-        messages
-        |> Enum.flat_map(&List.wrap(parse_message(&1)))
-        |> Enum.reject(&is_nil/1)
+      rows = build_rows(messages)
 
       if Enum.empty?(rows) do
         {:ok, 0}
       else
-        case ServiceRadar.Repo.insert_all(table_name(), rows,
-               prefix: schema,
-               on_conflict: :nothing,
-               returning: false
-             ) do
-          {count, _} ->
-            maybe_promote_logs(rows, schema)
-            {:ok, count}
-        end
+        insert_log_rows(schema, rows)
       end
     end
   rescue
@@ -63,21 +52,43 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   def parse_message(%{data: data, metadata: metadata} = message) do
     tenant_id = TenantContext.resolve_tenant_id(message)
 
-    if is_nil(tenant_id) do
-      Logger.error("OTEL log missing tenant_id", subject: metadata[:subject])
-      nil
+    with tenant_id when not is_nil(tenant_id) <- tenant_id,
+         decoded <- Jason.decode(data) do
+      parse_log_payload(decoded, data, metadata, tenant_id)
     else
-      case Jason.decode(data) do
-        {:ok, json} ->
-          parse_json_log(json, metadata, tenant_id)
-
-        {:error, _} ->
-          parse_protobuf_log(data, metadata, tenant_id)
-      end
+      nil ->
+        Logger.error("OTEL log missing tenant_id", subject: metadata[:subject])
+        nil
     end
   end
 
   # Private functions
+
+  defp build_rows(messages) do
+    messages
+    |> Enum.flat_map(&List.wrap(parse_message(&1)))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp insert_log_rows(schema, rows) do
+    case ServiceRadar.Repo.insert_all(table_name(), rows,
+           prefix: schema,
+           on_conflict: :nothing,
+           returning: false
+         ) do
+      {count, _} ->
+        maybe_promote_logs(rows, schema)
+        {:ok, count}
+    end
+  end
+
+  defp parse_log_payload({:ok, json}, _data, metadata, tenant_id) do
+    parse_json_log(json, metadata, tenant_id)
+  end
+
+  defp parse_log_payload({:error, _}, data, metadata, tenant_id) do
+    parse_protobuf_log(data, metadata, tenant_id)
+  end
 
   defp parse_json_log(json, metadata, tenant_id) when is_map(json) do
     log_id = Ash.UUID.generate()
@@ -253,27 +264,31 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp attach_ingest_metadata(attributes, metadata) when is_map(attributes) do
-    ingest =
-      %{}
-      |> maybe_put_ingest(:subject, metadata[:subject])
-      |> maybe_put_ingest(:reply_to, metadata[:reply_to])
-      |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
-      |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
+    ingest = build_ingest_metadata(metadata)
 
     if map_size(ingest) == 0 do
       attributes
     else
-      Map.update(attributes, "serviceradar.ingest", ingest, fn existing ->
-        if is_map(existing) do
-          Map.merge(existing, ingest)
-        else
-          ingest
-        end
-      end)
+      merge_ingest_metadata(attributes, ingest)
     end
   end
 
   defp attach_ingest_metadata(attributes, _metadata), do: attributes || %{}
+
+  defp build_ingest_metadata(metadata) do
+    %{}
+    |> maybe_put_ingest(:subject, metadata[:subject])
+    |> maybe_put_ingest(:reply_to, metadata[:reply_to])
+    |> maybe_put_ingest(:received_at, iso8601(metadata[:received_at]))
+    |> maybe_put_ingest(:source_kind, source_kind(metadata[:subject]))
+  end
+
+  defp merge_ingest_metadata(attributes, ingest) do
+    Map.update(attributes, "serviceradar.ingest", ingest, &merge_ingest_value(&1, ingest))
+  end
+
+  defp merge_ingest_value(existing, ingest) when is_map(existing), do: Map.merge(existing, ingest)
+  defp merge_ingest_value(_existing, ingest), do: ingest
 
   defp maybe_put_ingest(map, _key, nil), do: map
   defp maybe_put_ingest(map, key, value), do: Map.put(map, to_string(key), value)

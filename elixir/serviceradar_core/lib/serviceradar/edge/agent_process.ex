@@ -35,13 +35,14 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
       config :serviceradar_core, ServiceRadar.Sync.Client,
         host: "sync.serviceradar.local",
-        port: 50051
+        port: 50_051
   """
 
   use GenServer
 
   require Logger
 
+  alias Monitoring.AgentService.Stub, as: AgentServiceStub
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Sync.Client, as: SyncClient
 
@@ -409,7 +410,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
     }
 
     # Call the sync service
-    case Monitoring.AgentService.Stub.get_status(channel, status_request, timeout: 30_000) do
+    case AgentServiceStub.get_status(channel, status_request, timeout: 30_000) do
       {:ok, response} ->
         {:ok,
          %{
@@ -459,7 +460,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
       port: 0
     }
 
-    case Monitoring.AgentService.Stub.get_status(channel, request, timeout: 15_000) do
+    case AgentServiceStub.get_status(channel, request, timeout: 15_000) do
       {:ok, response} ->
         # Convert response to health status atom
         status =

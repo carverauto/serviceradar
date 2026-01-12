@@ -25,8 +25,8 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Monitoring.PollJob
   alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Monitoring.PollJob
 
   @moduletag :database
 
@@ -91,7 +91,7 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
 
       {:ok, _} = AgentRegistry.register_agent(victim_tenant_id, victim_agent_id, %{
         grpc_host: "192.168.100.50",
-        grpc_port: 50051,
+        grpc_port: 50_051,
         capabilities: [:icmp, :tcp, :http]
       })
 
@@ -145,7 +145,7 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
           uid: "victim-infra-agent-#{unique_id}",
           name: "Victim's Production Agent",
           host: "192.168.100.60",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp", "tcp", "http", "snmp"]
         }, actor: super_admin, tenant: victim_tenant_id, authorize?: false)
         |> Ash.create()
@@ -308,7 +308,7 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
 
       {:ok, _} = AgentRegistry.register_agent(victim_tenant_id, victim_snmp_agent, %{
         grpc_host: "192.168.100.70",
-        grpc_port: 50051,
+        grpc_port: 50_051,
         capabilities: [:snmp, :icmp]
       })
 
@@ -349,7 +349,7 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
           uid: "spoofed-agent-#{unique_id}",
           name: "Spoofed Agent",
           host: "192.168.1.1",
-          port: 50051
+          port: 50_051
         }, actor: attacker_actor, tenant: attacker_tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -398,7 +398,7 @@ defmodule ServiceRadar.Security.CrossTenantAccessTest do
           uid: "super-admin-test-#{unique_id}",
           name: "Test Agent",
           host: "192.168.1.1",
-          port: 50051
+          port: 50_051
         }, actor: super_admin, tenant: victim_tenant_id, authorize?: false)
         |> Ash.create()
 

@@ -47,16 +47,16 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
       :miss
     else
       key = cache_key(tenant_id, config_type, partition, agent_id)
+      now = System.monotonic_time(:millisecond)
 
       case :ets.lookup(@table_name, key) do
-        [{^key, entry, expires_at}] ->
-          if System.monotonic_time(:millisecond) < expires_at do
-            {:ok, entry}
-          else
-            # Expired - delete and return miss
-            :ets.delete(@table_name, key)
-            :miss
-          end
+        [{^key, entry, expires_at}] when now < expires_at ->
+          {:ok, entry}
+
+        [{^key, _entry, _expires_at}] ->
+          # Expired - delete and return miss
+          :ets.delete(@table_name, key)
+          :miss
 
         [] ->
           :miss

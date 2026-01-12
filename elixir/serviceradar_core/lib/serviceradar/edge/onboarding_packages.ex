@@ -14,12 +14,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Edge.OnboardingEvents
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.Crypto
+  alias ServiceRadar.Edge.OnboardingEvents
+  alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.TenantCA
   alias ServiceRadar.Edge.TenantCA.Generator, as: CertGenerator
-  alias ServiceRadar.Cluster.TenantSchemas
 
   @default_limit 100
   @default_join_token_ttl_seconds 86_400
@@ -113,8 +113,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   ## Options
 
-    * `:join_token_ttl_seconds` - TTL for join token (default: 86400)
-    * `:download_token_ttl_seconds` - TTL for download token (default: 86400)
+    * `:join_token_ttl_seconds` - TTL for join token (default: 86_400)
+    * `:download_token_ttl_seconds` - TTL for download token (default: 86_400)
     * `:actor` - User/system creating the package (required for authorization)
     * `:source_ip` - IP address of the creator
 

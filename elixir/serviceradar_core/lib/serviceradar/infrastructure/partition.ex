@@ -276,10 +276,10 @@ defmodule ServiceRadar.Infrastructure.Partition do
     calculate :display_name,
               :string,
               expr(
-                if not is_nil(name) do
-                  name
-                else
+                if is_nil(name) do
                   slug
+                else
+                  name
                 end
               )
 
@@ -302,10 +302,7 @@ defmodule ServiceRadar.Infrastructure.Partition do
     calculate :status_color,
               :string,
               expr(
-                cond do
-                  enabled == true -> "green"
-                  true -> "gray"
-                end
+                if(enabled == true, do: "green", else: "gray")
               )
   end
 

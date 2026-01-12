@@ -165,7 +165,7 @@ defmodule ServiceRadar.TelemetryTest do
       metrics = Telemetry.metrics()
 
       assert is_list(metrics)
-      assert length(metrics) > 0
+      refute Enum.empty?(metrics)
 
       # Check for expected metrics - names are stored as atom lists
       metric_names = Enum.map(metrics, & &1.name)
@@ -182,7 +182,7 @@ defmodule ServiceRadar.TelemetryTest do
       measurements = Telemetry.periodic_measurements()
 
       assert is_list(measurements)
-      assert length(measurements) > 0
+      refute Enum.empty?(measurements)
 
       # Each should be a tuple of {module, function, args}
       Enum.each(measurements, fn {module, function, args} ->

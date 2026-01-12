@@ -32,6 +32,8 @@ defmodule ServiceRadar.Inventory.Device do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
+  alias ServiceRadar.Inventory.IdentityReconciler
+
   postgres do
     table "ocsf_devices"
     repo ServiceRadar.Repo
@@ -201,7 +203,7 @@ defmodule ServiceRadar.Inventory.Device do
 
       run fn input, _context ->
         update = input.arguments.device_update
-        ServiceRadar.Inventory.IdentityReconciler.resolve_device_id(update)
+        IdentityReconciler.resolve_device_id(update)
       end
     end
 
@@ -215,7 +217,7 @@ defmodule ServiceRadar.Inventory.Device do
         ids = input.arguments.identifiers
         actor = context[:actor]
 
-        ServiceRadar.Inventory.IdentityReconciler.register_identifiers(device_id, ids,
+        IdentityReconciler.register_identifiers(device_id, ids,
           actor: actor
         )
       end
@@ -252,7 +254,6 @@ defmodule ServiceRadar.Inventory.Device do
       authorize_if actor_attribute_equals(:role, :admin)
     end
   end
-
 
   attributes do
     # OCSF Core Identity - uid is the primary key

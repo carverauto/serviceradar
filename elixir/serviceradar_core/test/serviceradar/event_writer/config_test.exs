@@ -45,7 +45,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       streams = Config.default_streams()
 
       assert is_list(streams)
-      assert length(streams) > 0
+      refute Enum.empty?(streams)
 
       # Check that expected streams are present
       stream_names = Enum.map(streams, & &1.name)

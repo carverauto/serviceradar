@@ -418,38 +418,34 @@ defmodule ServiceRadar.SPIFFE do
     end
   end
 
-  defp verify_peer_callback(cert, event, state) do
-    case event do
-      {:bad_cert, _reason} = error ->
-        {:fail, error}
+  defp verify_peer_callback(_cert, {:bad_cert, _reason} = error, _state), do: {:fail, error}
+  defp verify_peer_callback(_cert, {:extension, _}, state), do: {:unknown, state}
+  defp verify_peer_callback(_cert, :valid, state), do: {:valid, state}
 
-      {:extension, _} ->
-        {:unknown, state}
+  defp verify_peer_callback(cert, :valid_peer, state) do
+    # Verify the SPIFFE ID in the peer certificate
+    case verify_peer_id(cert) do
+      {:ok, spiffe_id} ->
+        verify_spiffe_id(spiffe_id, state)
 
-      :valid ->
+      {:error, reason} ->
+        Logger.warning("Failed to verify peer SPIFFE ID: #{inspect(reason)}")
+        {:fail, reason}
+    end
+  end
+
+  defp verify_spiffe_id(spiffe_id, state) do
+    case parse_spiffe_id(spiffe_id) do
+      {:ok, %{trust_domain: domain}} when domain == state.trust_domain ->
+        Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
         {:valid, state}
 
-      :valid_peer ->
-        # Verify the SPIFFE ID in the peer certificate
-        case verify_peer_id(cert) do
-          {:ok, spiffe_id} ->
-            case parse_spiffe_id(spiffe_id) do
-              {:ok, %{trust_domain: domain}} when domain == state.trust_domain ->
-                Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
-                {:valid, state}
+      {:ok, %{trust_domain: domain}} ->
+        Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
+        {:fail, :trust_domain_mismatch}
 
-              {:ok, %{trust_domain: domain}} ->
-                Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
-                {:fail, :trust_domain_mismatch}
-
-              {:error, reason} ->
-                {:fail, reason}
-            end
-
-          {:error, reason} ->
-            Logger.warning("Failed to verify peer SPIFFE ID: #{inspect(reason)}")
-            {:fail, reason}
-        end
+      {:error, reason} ->
+        {:fail, reason}
     end
   end
 

@@ -3,8 +3,8 @@ defmodule ServiceRadar.Events.JobWriter do
   Publishes internal job lifecycle logs to NATS for downstream promotion.
   """
 
-  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.EventWriter.OCSF
 
   require Logger
 

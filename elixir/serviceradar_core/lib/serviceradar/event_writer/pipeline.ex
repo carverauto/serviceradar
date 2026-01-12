@@ -25,8 +25,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   require Logger
 
   alias Broadway.Message
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.NATS.Channels
 
   @doc """
@@ -224,22 +224,27 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   defp determine_batcher(subject) when is_binary(subject) do
-    cond do
-      ignore_logs_subject?(subject) -> :default
-      log_subject?(subject) -> :logs
-      ignore_events_subject?(subject) -> :default
-      String.starts_with?(subject, "otel.metrics") -> :otel_metrics
-      String.starts_with?(subject, "otel.traces") -> :otel_traces
-      String.starts_with?(subject, "logs.") -> :logs
-      String.starts_with?(subject, "events.") -> :events
-      String.starts_with?(subject, "telemetry.") -> :telemetry
-      String.starts_with?(subject, "sweep.") -> :sweep
-      String.starts_with?(subject, "netflow.") -> :netflow
-      true -> :default
-    end
+    Enum.find_value(batcher_rules(), :default, fn {batcher, matcher} ->
+      if matcher.(subject), do: batcher, else: nil
+    end)
   end
 
   defp determine_batcher(_), do: :default
+
+  defp batcher_rules do
+    [
+      {:default, &ignore_logs_subject?/1},
+      {:logs, &log_subject?/1},
+      {:default, &ignore_events_subject?/1},
+      {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
+      {:otel_traces, &String.starts_with?(&1, "otel.traces")},
+      {:logs, &String.starts_with?(&1, "logs.")},
+      {:events, &String.starts_with?(&1, "events.")},
+      {:telemetry, &String.starts_with?(&1, "telemetry.")},
+      {:sweep, &String.starts_with?(&1, "sweep.")},
+      {:netflow, &String.starts_with?(&1, "netflow.")}
+    ]
+  end
 
   defp ignore_logs_subject?(subject) do
     subject == "logs.syslog" or subject == "logs.snmp" or subject == "logs.otel"

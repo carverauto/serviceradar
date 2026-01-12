@@ -137,7 +137,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case result do
       {:ok, final_stats} ->
         # Update execution with final statistics and scanner metrics
-        update_execution(execution_id, sweep_group_id, final_stats, scanner_metrics, broadcast_tenant_id, tenant_schema, actor)
+        update_execution(
+          execution_id,
+          sweep_group_id,
+          final_stats,
+          scanner_metrics,
+          broadcast_tenant_id,
+          tenant_schema,
+          actor
+        )
 
         elapsed = System.monotonic_time(:millisecond) - start_time
         rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
@@ -220,61 +228,63 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    device_records =
-      unknown_ips
-      |> Enum.map(fn ip ->
-        result = Map.get(result_by_ip, ip, %{})
-        hostname = result["hostname"]
-        is_available = result["icmp_available"] || result["icmpAvailable"] || false
-
-        %{
-          uid: generate_device_uid(ip),
-          type_id: 0,
-          type: "Unknown",
-          name: hostname || ip,
-          hostname: hostname,
-          ip: ip,
-          discovery_sources: ["sweep"],
-          is_available: is_available,
-          first_seen_time: timestamp,
-          last_seen_time: timestamp,
-          created_time: timestamp,
-          modified_time: timestamp,
-          metadata: %{}
-        }
-      end)
-
-    if length(device_records) > 0 do
-      # Bulk upsert devices
-      case Repo.insert_all(
-             {tenant_schema <> ".ocsf_devices", Device},
-             device_records,
-             on_conflict: {:replace, [:last_seen_time, :is_available, :modified_time]},
-             conflict_target: :uid,
-             returning: [:uid, :ip]
-           ) do
-        {_count, created} ->
-          # Build map of IP -> canonical record
-          created
-          |> Enum.map(fn device ->
-            {device.ip,
-             %{
-               canonical_device_id: device.uid,
-               partition: "default",
-               metadata_hash: nil,
-               attributes: %{},
-               updated_at: timestamp
-             }}
-          end)
-          |> Map.new()
-      end
-    else
-      %{}
-    end
+    device_records = build_unknown_device_records(unknown_ips, result_by_ip, timestamp)
+    insert_unknown_device_records(device_records, tenant_schema, timestamp)
   end
 
   defp generate_device_uid(ip) do
     "sweep-#{ip}-#{:erlang.phash2(ip)}"
+  end
+
+  defp build_unknown_device_records(unknown_ips, result_by_ip, timestamp) do
+    Enum.map(unknown_ips, fn ip ->
+      result = Map.get(result_by_ip, ip, %{})
+      hostname = result["hostname"]
+
+      %{
+        uid: generate_device_uid(ip),
+        type_id: 0,
+        type: "Unknown",
+        name: hostname || ip,
+        hostname: hostname,
+        ip: ip,
+        discovery_sources: ["sweep"],
+        is_available: result_available?(result),
+        first_seen_time: timestamp,
+        last_seen_time: timestamp,
+        created_time: timestamp,
+        modified_time: timestamp,
+        metadata: %{}
+      }
+    end)
+  end
+
+  defp insert_unknown_device_records([], _tenant_schema, _timestamp), do: %{}
+
+  defp insert_unknown_device_records(device_records, tenant_schema, timestamp) do
+    case Repo.insert_all(
+           {tenant_schema <> ".ocsf_devices", Device},
+           device_records,
+           on_conflict: {:replace, [:last_seen_time, :is_available, :modified_time]},
+           conflict_target: :uid,
+           returning: [:uid, :ip]
+         ) do
+      {_count, created} ->
+        created
+        |> Enum.map(&device_map_entry(&1, timestamp))
+        |> Map.new()
+    end
+  end
+
+  defp device_map_entry(device, timestamp) do
+    {device.ip,
+     %{
+       canonical_device_id: device.uid,
+       partition: "default",
+       metadata_hash: nil,
+       attributes: %{},
+       updated_at: timestamp
+     }}
   end
 
   defp build_host_results(results, execution_id, tenant_id, device_map) do
@@ -287,87 +297,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {records, stats} =
       Enum.reduce(results, {[], initial_stats}, fn result, {acc, stats} ->
         ip = extract_ip(result)
-        is_available = result["icmp_available"] || result["icmpAvailable"] || false
+        is_available = result_available?(result)
+        status = host_status(result, is_available)
+        device_id = device_id_for_ip(device_map, ip)
 
-        status =
-          cond do
-            is_available -> :available
-            result["error"] -> :error
-            true -> :unavailable
-          end
+        record =
+          build_host_record(result, execution_id, tenant_id, ip, status, device_id)
 
-        # Get device ID from lookup
-        device_record = Map.get(device_map, ip)
-        device_id = if device_record, do: device_record.canonical_device_id
-
-        # Parse response time (convert ns to ms)
-        response_time_ns_raw = result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]
-
-        response_time_ns =
-          cond do
-            is_integer(response_time_ns_raw) ->
-              response_time_ns_raw
-
-            is_binary(response_time_ns_raw) ->
-              case Integer.parse(response_time_ns_raw) do
-                {parsed, ""} -> parsed
-                _ -> nil
-              end
-
-            true ->
-              nil
-          end
-
-        response_time_ms =
-          if is_integer(response_time_ns),
-            do: div(response_time_ns, 1_000_000),
-            else: nil
-
-        # Parse open ports
-        open_ports_raw = result["tcp_ports_open"] || result["tcpPortsOpen"] || []
-
-        open_ports =
-          open_ports_raw
-          |> List.wrap()
-          |> Enum.map(fn
-            port when is_integer(port) ->
-              port
-
-            port when is_binary(port) ->
-              case Integer.parse(port) do
-                {parsed, ""} -> parsed
-                _ -> nil
-              end
-
-            _ ->
-              nil
-          end)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.filter(&(&1 >= 1 and &1 <= 65_535))
-          |> Enum.uniq()
-          |> Enum.sort()
-
-        record = %{
-          id: Ash.UUID.generate(),
-          tenant_id: tenant_id,
-          execution_id: execution_id,
-          ip: ip,
-          hostname: result["hostname"],
-          status: status,
-          response_time_ms: response_time_ms,
-          open_ports: open_ports,
-          sweep_modes_results: build_modes_results(result),
-          device_id: device_id,
-          error_message: result["error"],
-          inserted_at: DateTime.utc_now()
-        }
-
-        updated_stats = %{
-          stats
-          | hosts_total: stats.hosts_total + 1,
-            hosts_available: stats.hosts_available + if(is_available, do: 1, else: 0),
-            hosts_failed: stats.hosts_failed + if(is_available, do: 0, else: 1)
-        }
+        updated_stats = update_host_stats(stats, is_available)
 
         {[record | acc], updated_stats}
       end)
@@ -375,14 +312,79 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {Enum.reverse(records), stats}
   end
 
-  defp build_modes_results(result) do
-    icmp =
-      if result["icmp_available"] || result["icmpAvailable"],
-        do: "success",
-        else: "failed"
+  defp result_available?(result) do
+    result["icmp_available"] || result["icmpAvailable"] || false
+  end
 
-    tcp_ports = result["tcp_ports_open"] || result["tcpPortsOpen"] || []
-    tcp = if length(tcp_ports) > 0, do: "success", else: "no_response"
+  defp host_status(_result, true), do: :available
+  defp host_status(result, false), do: if(result["error"], do: :error, else: :unavailable)
+
+  defp device_id_for_ip(device_map, ip) do
+    case Map.get(device_map, ip) do
+      nil -> nil
+      device_record -> device_record.canonical_device_id
+    end
+  end
+
+  defp build_host_record(result, execution_id, tenant_id, ip, status, device_id) do
+    %{
+      id: Ash.UUID.generate(),
+      tenant_id: tenant_id,
+      execution_id: execution_id,
+      ip: ip,
+      hostname: result["hostname"],
+      status: status,
+      response_time_ms: response_time_ms(result),
+      open_ports: open_ports(result),
+      sweep_modes_results: build_modes_results(result),
+      device_id: device_id,
+      error_message: result["error"],
+      inserted_at: DateTime.utc_now()
+    }
+  end
+
+  defp response_time_ms(result) do
+    case parse_integer(result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]) do
+      nil -> nil
+      value -> div(value, 1_000_000)
+    end
+  end
+
+  defp open_ports(result) do
+    result["tcp_ports_open"] || result["tcpPortsOpen"] || []
+    |> List.wrap()
+    |> Enum.map(&parse_integer/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&valid_port?/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_), do: nil
+
+  defp valid_port?(port) when is_integer(port), do: port >= 1 and port <= 65_535
+
+  defp update_host_stats(stats, is_available) do
+    %{
+      stats
+      | hosts_total: stats.hosts_total + 1,
+        hosts_available: stats.hosts_available + if(is_available, do: 1, else: 0),
+        hosts_failed: stats.hosts_failed + if(is_available, do: 0, else: 1)
+    }
+  end
+
+  defp build_modes_results(result) do
+    icmp = if result_available?(result), do: "success", else: "failed"
+    tcp = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
 
     %{"icmp" => icmp, "tcp" => tcp}
   end
@@ -408,83 +410,67 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp update_device_availability(results, device_map, tenant_schema) do
-    # Group results by availability
-    updates_by_status =
-      results
-      |> Enum.group_by(fn result ->
-        result["icmp_available"] || result["icmpAvailable"] || false
-      end)
-
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    # Update available devices
-    available_ips =
-      updates_by_status
-      |> Map.get(true, [])
-      |> Enum.map(&extract_ip/1)
-      |> Enum.reject(&is_nil/1)
+    available_ips = result_ips_for_status(results, true)
+    unavailable_ips = result_ips_for_status(results, false)
 
-    # Update unavailable devices
-    unavailable_ips =
-      updates_by_status
-      |> Map.get(false, [])
-      |> Enum.map(&extract_ip/1)
-      |> Enum.reject(&is_nil/1)
+    available_uids = device_uids_for_ips(available_ips, device_map)
+    unavailable_uids = device_uids_for_ips(unavailable_ips, device_map)
 
-    all_device_uids =
-      (available_ips ++ unavailable_ips)
-      |> Enum.map(&Map.get(device_map, &1))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&Map.get(&1, :canonical_device_id))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
+    update_device_statuses(available_uids, true, tenant_schema, timestamp)
+    update_device_statuses(unavailable_uids, false, tenant_schema, timestamp)
 
-    if length(available_ips) > 0 do
-      device_uids =
-        available_ips
-        |> Enum.map(&Map.get(device_map, &1))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(& &1.canonical_device_id)
-
-      if length(device_uids) > 0 do
-        from(d in {tenant_schema <> ".ocsf_devices", Device},
-          where: d.uid in ^device_uids
-        )
-        |> Repo.update_all(
-          set: [
-            is_available: true,
-            last_seen_time: timestamp,
-            modified_time: timestamp
-          ]
-        )
-      end
-    end
-
-    if length(unavailable_ips) > 0 do
-      device_uids =
-        unavailable_ips
-        |> Enum.map(&Map.get(device_map, &1))
-        |> Enum.reject(&is_nil/1)
-        |> Enum.map(& &1.canonical_device_id)
-
-      if length(device_uids) > 0 do
-        from(d in {tenant_schema <> ".ocsf_devices", Device},
-          where: d.uid in ^device_uids
-        )
-        |> Repo.update_all(
-          set: [
-            is_available: false,
-            modified_time: timestamp
-          ]
-        )
-      end
-    end
-
-    if length(all_device_uids) > 0 do
-      add_sweep_to_discovery_sources(all_device_uids, tenant_schema)
-    end
+    maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids), tenant_schema)
 
     :ok
+  end
+
+  defp result_ips_for_status(results, desired) do
+    results
+    |> Enum.filter(fn result -> result_available?(result) == desired end)
+    |> Enum.map(&extract_ip/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp device_uids_for_ips(ips, device_map) do
+    ips
+    |> Enum.map(&Map.get(device_map, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.canonical_device_id)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp update_device_statuses([], _available, _tenant_schema, _timestamp), do: :ok
+
+  defp update_device_statuses(device_uids, true, tenant_schema, timestamp) do
+    from(d in {tenant_schema <> ".ocsf_devices", Device},
+      where: d.uid in ^device_uids
+    )
+    |> Repo.update_all(
+      set: [
+        is_available: true,
+        last_seen_time: timestamp,
+        modified_time: timestamp
+      ]
+    )
+  end
+
+  defp update_device_statuses(device_uids, false, tenant_schema, timestamp) do
+    from(d in {tenant_schema <> ".ocsf_devices", Device},
+      where: d.uid in ^device_uids
+    )
+    |> Repo.update_all(
+      set: [
+        is_available: false,
+        modified_time: timestamp
+      ]
+    )
+  end
+
+  defp maybe_add_sweep_source([], _tenant_schema), do: :ok
+  defp maybe_add_sweep_source(device_uids, tenant_schema) do
+    add_sweep_to_discovery_sources(device_uids, tenant_schema)
   end
 
   defp add_sweep_to_discovery_sources(device_uids, tenant_schema) do

@@ -281,24 +281,30 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
     # Get ancestors of the registry process and find which one is our child
     case Process.info(pid, :dictionary) do
       {:dictionary, dict} ->
-        ancestors = Keyword.get(dict, :"$ancestors", [])
-
-        # Find the ancestor that is a direct child of our DynamicSupervisor
-        Enum.find_value(ancestors, fn
-          ancestor when is_pid(ancestor) ->
-            if MapSet.member?(child_pids, ancestor), do: ancestor, else: nil
-
-          ancestor when is_atom(ancestor) ->
-            ancestor_pid = Process.whereis(ancestor)
-            if ancestor_pid && MapSet.member?(child_pids, ancestor_pid), do: ancestor_pid, else: nil
-
-          _ ->
-            nil
-        end)
+        dict
+        |> Keyword.get(:"$ancestors", [])
+        |> find_parent_supervisor(child_pids)
 
       _ ->
         nil
     end
+  end
+
+  defp find_parent_supervisor(ancestors, child_pids) do
+    Enum.find_value(ancestors, fn ancestor ->
+      ancestor
+      |> resolve_ancestor_pid()
+      |> maybe_child_pid(child_pids)
+    end)
+  end
+
+  defp resolve_ancestor_pid(ancestor) when is_pid(ancestor), do: ancestor
+  defp resolve_ancestor_pid(ancestor) when is_atom(ancestor), do: Process.whereis(ancestor)
+  defp resolve_ancestor_pid(_ancestor), do: nil
+
+  defp maybe_child_pid(nil, _child_pids), do: nil
+  defp maybe_child_pid(pid, child_pids) do
+    if MapSet.member?(child_pids, pid), do: pid, else: nil
   end
 
   # Legacy compatibility
@@ -322,21 +328,23 @@ defmodule ServiceRadar.Cluster.TenantRegistry do
   @spec list_registries() :: [{atom(), pid()}]
   def list_registries do
     DynamicSupervisor.which_children(__MODULE__)
-    |> Enum.flat_map(fn {_, pid, _, _} ->
-      # Get the children of each tenant supervisor
-      case Supervisor.which_children(pid) do
-        children when is_list(children) ->
-          Enum.filter(children, fn {id, _, _, _} ->
-            String.ends_with?(to_string(id), ".Registry")
-          end)
-          |> Enum.map(fn {id, child_pid, _, _} -> {id, child_pid} end)
-
-        _ ->
-          []
-      end
-    end)
+    |> Enum.flat_map(&tenant_registries/1)
   rescue
     _ -> []
+  end
+
+  defp tenant_registries({_, pid, _, _}) do
+    # Get the children of each tenant supervisor
+    case Supervisor.which_children(pid) do
+      children when is_list(children) ->
+        Enum.filter(children, fn {id, _, _, _} ->
+          String.ends_with?(to_string(id), ".Registry")
+        end)
+        |> Enum.map(fn {id, child_pid, _, _} -> {id, child_pid} end)
+
+      _ ->
+        []
+    end
   end
 
   # ============================================================================

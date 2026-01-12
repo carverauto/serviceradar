@@ -26,9 +26,9 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   require Logger
 
-  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentProcess
+  alias ServiceRadar.GatewayRegistry
 
   @type state :: %{
           gateway_id: String.t(),

@@ -46,7 +46,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-new-#{unique_id}",
           name: "New Agent",
           host: "192.168.1.10",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -60,7 +60,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-connected-#{unique_id}",
           name: "Connected Agent",
           host: "192.168.1.11",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -76,7 +76,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-degrade-#{unique_id}",
           name: "Degrade Test Agent",
           host: "192.168.1.12",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-restore-#{unique_id}",
           name: "Restore Test Agent",
           host: "192.168.1.13",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-unavailable-#{unique_id}",
           name: "Unavailable Test Agent",
           host: "192.168.1.14",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -150,7 +150,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-health-connect-#{unique_id}",
           name: "Connect Health Test",
           host: "192.168.1.15",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -174,7 +174,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-query-healthy-#{unique_id}",
           name: "Healthy Agent",
           host: "192.168.1.20",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-query-degraded-#{unique_id}",
           name: "Degraded Agent",
           host: "192.168.1.21",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -239,7 +239,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-heartbeat-time-#{unique_id}",
           name: "Heartbeat Agent",
           host: "192.168.1.30",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -265,7 +265,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-heartbeat-health-#{unique_id}",
           name: "Heartbeat Health Agent",
           host: "192.168.1.31",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -295,7 +295,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-first-seen-#{unique_id}",
           name: "First Seen Agent",
           host: "192.168.1.32",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -319,7 +319,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-modified-time-#{unique_id}",
           name: "Modified Time Agent",
           host: "192.168.1.33",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -350,7 +350,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-cycle-#{unique_id}",
           name: "Cycle Test Agent",
           host: "192.168.1.40",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 
@@ -419,7 +419,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           uid: "agent-disconnect-#{unique_id}",
           name: "Disconnect Test Agent",
           host: "192.168.1.41",
-          port: 50051
+          port: 50_051
         }, actor: actor, tenant: tenant_id, authorize?: false)
         |> Ash.create()
 

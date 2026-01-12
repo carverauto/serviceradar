@@ -99,8 +99,8 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
       ServiceRadar.Cluster.ClusterStatus.find_coordinator()
   """
 
-  alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.GatewayRegistry
 
   @doc """
   Get comprehensive cluster status.
@@ -168,14 +168,12 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   """
   @spec coordinator_health() :: map()
   def coordinator_health do
-    cond do
+    if cluster_health_local?() do
       # Check if ClusterHealth is running locally
-      cluster_health_local?() ->
-        get_local_health()
-
+      get_local_health()
+    else
       # Try RPC to core-elx nodes
-      true ->
-        get_remote_health()
+      get_remote_health()
     end
   end
 
@@ -199,13 +197,19 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
     if coordinator?() do
       Node.self()
     else
-      # Check connected nodes for coordinator
-      Enum.find(Node.list(), fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
+      find_remote_coordinator()
+    end
+  end
+
+  defp find_remote_coordinator do
+    # Check connected nodes for coordinator
+    Enum.find(Node.list(), &coordinator_node?/1)
+  end
+
+  defp coordinator_node?(node) do
+    case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5000) do
+      pid when is_pid(pid) -> true
+      _ -> false
     end
   end
 
@@ -216,19 +220,17 @@ defmodule ServiceRadar.Cluster.ClusterStatus do
   end
 
   defp get_local_health do
-    try do
-      health = ServiceRadar.ClusterHealth.get_health()
+    health = ServiceRadar.ClusterHealth.get_health()
 
-      %{
-        status: health.status || :healthy,
-        last_check: health.last_check,
-        gateway_count: health.gateway_count || 0,
-        agent_count: health.agent_count || 0
-      }
-    rescue
-      _ ->
-        %{status: :unknown, last_check: nil, gateway_count: 0, agent_count: 0}
-    end
+    %{
+      status: health.status || :healthy,
+      last_check: health.last_check,
+      gateway_count: health.gateway_count || 0,
+      agent_count: health.agent_count || 0
+    }
+  rescue
+    _ ->
+      %{status: :unknown, last_check: nil, gateway_count: 0, agent_count: 0}
   end
 
   defp get_remote_health do

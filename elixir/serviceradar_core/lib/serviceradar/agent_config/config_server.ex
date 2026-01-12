@@ -75,17 +75,20 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
       :miss ->
         # Cache miss - compile and check
-        case compile_and_cache(tenant_id, config_type, partition, agent_id, opts) do
-          {:ok, entry} ->
-            if entry.hash == current_hash do
-              :unchanged
-            else
-              {:ok, entry}
-            end
+        compile_cache_miss(tenant_id, config_type, partition, agent_id, current_hash, opts)
+    end
+  end
 
-          error ->
-            error
-        end
+  defp compile_cache_miss(tenant_id, config_type, partition, agent_id, current_hash, opts) do
+    case compile_and_cache(tenant_id, config_type, partition, agent_id, opts) do
+      {:ok, entry} when entry.hash == current_hash ->
+        :unchanged
+
+      {:ok, entry} ->
+        {:ok, entry}
+
+      error ->
+        error
     end
   end
 

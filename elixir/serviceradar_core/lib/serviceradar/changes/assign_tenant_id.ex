@@ -5,14 +5,17 @@ defmodule ServiceRadar.Changes.AssignTenantId do
 
   use Ash.Resource.Change
 
+  alias Ash.Changeset
+  alias Ash.Resource.Info, as: ResourceInfo
+
   @impl true
   def change(changeset, _opts, _context) do
     if changeset.action_type == :create &&
-         Ash.Resource.Info.attribute(changeset.resource, :tenant_id) do
+         ResourceInfo.attribute(changeset.resource, :tenant_id) do
       tenant_id = resolve_tenant_id(changeset)
 
-      if tenant_id && is_nil(Ash.Changeset.get_attribute(changeset, :tenant_id)) do
-        Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
+      if tenant_id && is_nil(Changeset.get_attribute(changeset, :tenant_id)) do
+        Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
       else
         changeset
       end
@@ -24,10 +27,10 @@ defmodule ServiceRadar.Changes.AssignTenantId do
   @impl true
   def atomic(changeset, _opts, _context) do
     if changeset.action_type == :create &&
-         Ash.Resource.Info.attribute(changeset.resource, :tenant_id) do
+         ResourceInfo.attribute(changeset.resource, :tenant_id) do
       tenant_id = resolve_tenant_id(changeset)
 
-      if tenant_id && is_nil(Ash.Changeset.get_attribute(changeset, :tenant_id)) do
+      if tenant_id && is_nil(Changeset.get_attribute(changeset, :tenant_id)) do
         {:atomic, %{tenant_id: tenant_id}}
       else
         :ok
@@ -38,22 +41,21 @@ defmodule ServiceRadar.Changes.AssignTenantId do
   end
 
   defp resolve_tenant_id(changeset) do
-    actor = get_in(changeset.context, [:private, :actor])
+    actor_tenant_id(changeset) || changeset_tenant_id(changeset)
+  end
 
-    case actor do
-      %{tenant_id: tenant_id} when is_binary(tenant_id) ->
-        tenant_id
-
-      _ ->
-        case changeset.tenant do
-          tenant_id when is_binary(tenant_id) ->
-            if uuid_string?(tenant_id), do: tenant_id, else: nil
-
-          _ ->
-            nil
-        end
+  defp actor_tenant_id(changeset) do
+    case get_in(changeset.context, [:private, :actor]) do
+      %{tenant_id: tenant_id} when is_binary(tenant_id) -> tenant_id
+      _ -> nil
     end
   end
+
+  defp changeset_tenant_id(%{tenant: tenant_id}) when is_binary(tenant_id) do
+    if uuid_string?(tenant_id), do: tenant_id, else: nil
+  end
+
+  defp changeset_tenant_id(_changeset), do: nil
 
   defp uuid_string?(value) do
     Regex.match?(

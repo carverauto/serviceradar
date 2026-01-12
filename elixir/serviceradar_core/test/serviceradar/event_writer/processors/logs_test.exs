@@ -1,12 +1,12 @@
 defmodule ServiceRadar.EventWriter.Processors.LogsTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Cluster.TenantGuard
-  alias ServiceRadar.EventWriter.Processors.Logs
   alias Opentelemetry.Proto.Collector.Logs.V1.ExportLogsServiceRequest
   alias Opentelemetry.Proto.Common.V1.{AnyValue, InstrumentationScope, KeyValue}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias ServiceRadar.Cluster.TenantGuard
+  alias ServiceRadar.EventWriter.Processors.Logs
 
   describe "table_name/0" do
     test "returns correct table name" do

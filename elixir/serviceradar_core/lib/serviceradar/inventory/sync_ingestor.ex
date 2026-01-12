@@ -102,19 +102,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     # Step 7: Bulk upsert devices
     device_result =
-      if length(device_records) > 0 do
-        bulk_upsert_devices(device_records, tenant_schema)
-      else
+      if Enum.empty?(device_records) do
         :ok
+      else
+        bulk_upsert_devices(device_records, tenant_schema)
       end
 
     # Step 8: Bulk upsert device identifiers
     identifier_records = build_identifier_records(resolved_updates)
     identifier_result =
-      if length(identifier_records) > 0 do
-        bulk_upsert_identifiers(identifier_records, tenant_schema)
-      else
+      if Enum.empty?(identifier_records) do
         :ok
+      else
+        bulk_upsert_identifiers(identifier_records, tenant_schema)
       end
 
     case {device_result, identifier_result} do
@@ -145,9 +145,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
 
   # Bulk lookup device identifiers - single query for all identifiers
-  defp bulk_lookup_identifiers(identifiers, _tenant_schema) when length(identifiers) == 0 do
-    %{}
-  end
+  defp bulk_lookup_identifiers([], _tenant_schema), do: %{}
 
   defp bulk_lookup_identifiers(identifiers, tenant_schema) do
     # Build OR conditions for all identifiers
@@ -193,9 +191,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   # Bulk lookup devices by IP
-  defp bulk_lookup_by_ip(updates, _tenant_schema) when length(updates) == 0 do
-    %{}
-  end
+  defp bulk_lookup_by_ip([], _tenant_schema), do: %{}
 
   defp bulk_lookup_by_ip(updates, tenant_schema) do
     ips = updates
@@ -203,7 +199,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
           |> Enum.filter(&(&1 != nil and &1 != ""))
           |> Enum.uniq()
 
-    if length(ips) == 0 do
+    if Enum.empty?(ips) do
       %{}
     else
       query =
@@ -230,26 +226,29 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     else
       ids = IdentityReconciler.extract_strong_identifiers(update)
 
-      # Try cached lookups in priority order
-      cached_device_id =
-        lookup_cached(:armis_device_id, ids.armis_id, ids.partition, existing_mappings) ||
-        lookup_cached(:integration_id, ids.integration_id, ids.partition, existing_mappings) ||
-        lookup_cached(:netbox_device_id, ids.netbox_id, ids.partition, existing_mappings) ||
-        lookup_cached(:mac, ids.mac, ids.partition, existing_mappings)
+      cached_device_id(ids, existing_mappings) ||
+        existing_device_id(update, ids, ip_to_device) ||
+        IdentityReconciler.generate_deterministic_device_id(ids)
+    end
+  end
 
-      cond do
-        cached_device_id != nil ->
-          cached_device_id
+  defp cached_device_id(ids, existing_mappings) do
+    lookup_cached(:armis_device_id, ids.armis_id, ids.partition, existing_mappings) ||
+      lookup_cached(:integration_id, ids.integration_id, ids.partition, existing_mappings) ||
+      lookup_cached(:netbox_device_id, ids.netbox_id, ids.partition, existing_mappings) ||
+      lookup_cached(:mac, ids.mac, ids.partition, existing_mappings)
+  end
 
-        IdentityReconciler.serviceradar_uuid?(update.device_id) ->
-          update.device_id
+  defp existing_device_id(update, ids, ip_to_device) do
+    cond do
+      IdentityReconciler.serviceradar_uuid?(update.device_id) ->
+        update.device_id
 
-        ids.ip != "" and Map.has_key?(ip_to_device, ids.ip) ->
-          Map.get(ip_to_device, ids.ip)
+      ids.ip != "" and Map.has_key?(ip_to_device, ids.ip) ->
+        Map.get(ip_to_device, ids.ip)
 
-        true ->
-          IdentityReconciler.generate_deterministic_device_id(ids)
-      end
+      true ->
+        nil
     end
   end
 
@@ -360,7 +359,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         })
       end)
 
-    if length(insert_records) > 0 do
+    unless Enum.empty?(insert_records) do
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,

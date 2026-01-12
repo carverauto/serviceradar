@@ -36,6 +36,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Edge.PubSub
 
   postgres do
     table "collector_packages"
@@ -515,11 +516,11 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   @doc false
   def broadcast_created(package) do
-    ServiceRadar.Edge.PubSub.broadcast_package_created(package)
+    PubSub.broadcast_package_created(package)
   end
 
   @doc false
   def broadcast_status_changed(package, old_status, new_status) do
-    ServiceRadar.Edge.PubSub.broadcast_package_status_changed(package, old_status, new_status)
+    PubSub.broadcast_package_status_changed(package, old_status, new_status)
   end
 end

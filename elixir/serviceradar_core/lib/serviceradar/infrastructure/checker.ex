@@ -396,10 +396,10 @@ defmodule ServiceRadar.Infrastructure.Checker do
     calculate :display_name,
               :string,
               expr(
-                if not is_nil(name) do
-                  name
-                else
+                if is_nil(name) do
                   type
+                else
+                  name
                 end
               )
 

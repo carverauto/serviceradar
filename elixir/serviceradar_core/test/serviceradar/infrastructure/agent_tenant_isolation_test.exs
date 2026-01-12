@@ -71,7 +71,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-tenant-a-#{unique_id}",
           name: "Tenant A Agent",
           host: "192.168.1.10",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp", "tcp"]
         }, actor: super_admin, tenant: tenant_a_id, authorize?: false)
         |> Ash.create()
@@ -82,7 +82,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-tenant-b-#{unique_id}",
           name: "Tenant B Agent",
           host: "192.168.2.10",
-          port: 50051,
+          port: 50_051,
           capabilities: ["http", "grpc"]
         }, actor: super_admin, tenant: tenant_b_id, authorize?: false)
         |> Ash.create()
@@ -180,7 +180,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-a-icmp-#{unique_id}",
           name: "Tenant A ICMP Agent",
           host: "192.168.1.20",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp"]
         }, actor: super_admin, tenant: tenant_a_id, authorize?: false)
         |> Ash.create()
@@ -191,7 +191,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-b-icmp-#{unique_id}",
           name: "Tenant B ICMP Agent",
           host: "192.168.2.20",
-          port: 50051,
+          port: 50_051,
           capabilities: ["icmp"]
         }, actor: super_admin, tenant: tenant_b_id, authorize?: false)
         |> Ash.create()
@@ -253,7 +253,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-update-a-#{unique_id}",
           name: "Tenant A Update Test",
           host: "192.168.1.30",
-          port: 50051
+          port: 50_051
         }, actor: super_admin, tenant: tenant_a_id, authorize?: false)
         |> Ash.create()
 
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-update-b-#{unique_id}",
           name: "Tenant B Update Test",
           host: "192.168.2.30",
-          port: 50051
+          port: 50_051
         }, actor: super_admin, tenant: tenant_b_id, authorize?: false)
         |> Ash.create()
 
@@ -314,7 +314,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-no-tenant-#{unique_id}",
           name: "No Tenant Agent",
           host: "192.168.1.40",
-          port: 50051
+          port: 50_051
         }, actor: actor_a, authorize?: false)
         |> Ash.create()
 
@@ -329,7 +329,7 @@ defmodule ServiceRadar.Infrastructure.AgentTenantIsolationTest do
           uid: "agent-tenant-match-#{unique_id}",
           name: "Tenant Match Agent",
           host: "192.168.1.50",
-          port: 50051
+          port: 50_051
         }, actor: actor_a, tenant: tenant_a_id, authorize?: false)
         |> Ash.create()
 
