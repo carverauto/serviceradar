@@ -1189,7 +1189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of     {@hosts_processed} hosts</span>
+            <span> of      {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -2222,10 +2222,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       srql_module =
         Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
-      full_query = "in:devices #{srql_query} limit:10000"
+      full_query = ~s|in:devices #{srql_query} stats:"count() as total"|
 
       case srql_module.query(full_query, %{scope: scope}) do
-        {:ok, %{"results" => results}} when is_list(results) -> length(results)
+        {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
         _ -> nil
       end
     end
