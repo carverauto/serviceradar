@@ -1,12 +1,21 @@
 defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   @moduledoc """
-  Oban worker that monitors sweep groups for missed executions.
+  Tenant-scoped Oban worker that monitors sweep groups for missed executions.
 
-  Runs periodically to check if any enabled sweep groups haven't received
-  results within their expected interval plus a grace period. When a missed
-  sweep is detected, it publishes an internal log to `logs.internal.sweep`
+  Runs periodically for a specific tenant to check if any enabled sweep groups
+  haven't received results within their expected interval plus a grace period.
+  When a missed sweep is detected, it publishes an internal log to `logs.internal.sweep`
   which can be promoted to an event and potentially trigger alerts via
   the StatefulAlertRule system.
+
+  ## Scheduling
+
+  This worker is automatically scheduled when:
+  - A sweep group is created with `enabled: true`
+  - A sweep group is enabled via the `:enable` action
+
+  The worker reschedules itself after each run if there are still enabled
+  sweep groups for the tenant.
 
   ## Detection Logic
 
@@ -21,10 +30,10 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   to account for network latency, processing time, and clock drift.
   """
 
-  use Oban.Worker,
-    queue: :monitoring,
+  use ServiceRadar.Oban.TenantWorker,
+    queue_type: :monitoring,
     max_attempts: 3,
-    unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 60, keys: [:tenant_id], states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -35,47 +44,80 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   # Grace period added to expected sweep time before considering it missed
   @default_grace_period_seconds 300
 
-  @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  # How often to run the monitor (5 minutes)
+  @monitor_interval_seconds 300
+
+  @doc """
+  Schedules sweep monitoring for a tenant if not already scheduled.
+
+  Called automatically when sweep groups are created or enabled.
+  """
+  @spec ensure_scheduled(String.t()) :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  def ensure_scheduled(tenant_id) when is_binary(tenant_id) do
+    # Check if there's already a scheduled or executing job for this tenant
+    case check_existing_job(tenant_id) do
+      true ->
+        {:ok, :already_scheduled}
+
+      false ->
+        enqueue(tenant_id, %{})
+    end
+  end
+
+  defp check_existing_job(tenant_id) do
+    import Ecto.Query
+
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: fragment("? ->> 'tenant_id' = ?", j.meta, ^tenant_id),
+        limit: 1
+      )
+
+    ServiceRadar.Repo.exists?(query)
+  end
+
+  @impl ServiceRadar.Oban.TenantWorker
+  def perform_for_tenant(args, tenant_id, _job) do
     grace_period_seconds = Map.get(args, "grace_period_seconds", @default_grace_period_seconds)
 
-    Logger.info("Running sweep monitor check", grace_period_seconds: grace_period_seconds)
+    Logger.info("Running sweep monitor check for tenant",
+      tenant_id: tenant_id,
+      grace_period_seconds: grace_period_seconds
+    )
 
-    # Get all tenants
-    case get_all_tenants() do
-      {:ok, tenants} ->
-        Enum.each(tenants, fn tenant ->
-          check_tenant_sweep_groups(tenant, grace_period_seconds)
+    case get_enabled_sweep_groups(tenant_id) do
+      {:ok, groups} when groups != [] ->
+        now = DateTime.utc_now()
+
+        Enum.each(groups, fn group ->
+          check_sweep_group(group, tenant_id, now, grace_period_seconds)
         end)
+
+        # Reschedule for next check since there are still enabled groups
+        schedule_next_check(tenant_id, args)
+        :ok
+
+      {:ok, []} ->
+        Logger.info("No enabled sweep groups for tenant, not rescheduling monitor",
+          tenant_id: tenant_id
+        )
 
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to get tenants for sweep monitoring", reason: inspect(reason))
+        Logger.error("Failed to get sweep groups for tenant",
+          tenant_id: tenant_id,
+          reason: inspect(reason)
+        )
+
         {:error, reason}
     end
   end
 
-  defp get_all_tenants do
-    ServiceRadar.Identity.Tenant
-    |> Ash.read(authorize?: false)
-  end
-
-  defp check_tenant_sweep_groups(tenant, grace_period_seconds) do
-    case get_enabled_sweep_groups(tenant.id) do
-      {:ok, groups} ->
-        now = DateTime.utc_now()
-
-        Enum.each(groups, fn group ->
-          check_sweep_group(group, tenant, now, grace_period_seconds)
-        end)
-
-      {:error, reason} ->
-        Logger.warning("Failed to get sweep groups for tenant",
-          tenant_id: tenant.id,
-          reason: inspect(reason)
-        )
-    end
+  defp schedule_next_check(tenant_id, args) do
+    enqueue_in(tenant_id, args, @monitor_interval_seconds)
   end
 
   defp get_enabled_sweep_groups(tenant_id) do
@@ -84,7 +126,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     |> Ash.read(tenant: tenant_id, authorize?: false)
   end
 
-  defp check_sweep_group(group, tenant, now, grace_period_seconds) do
+  defp check_sweep_group(group, tenant_id, now, grace_period_seconds) do
     # Skip if never run - first run hasn't happened yet
     if is_nil(group.last_run_at) do
       Logger.debug("Skipping sweep group with no previous runs",
@@ -105,7 +147,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
           if DateTime.compare(now, expected_by) == :gt do
             # Sweep is overdue
-            emit_missed_sweep_log(group, tenant, now, expected_by)
+            emit_missed_sweep_log(group, tenant_id, now, expected_by)
           else
             Logger.debug("Sweep group is on schedule",
               group_id: group.id,
@@ -121,7 +163,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     DateTime.add(last_run_at, interval_seconds + grace_period_seconds, :second)
   end
 
-  defp emit_missed_sweep_log(group, tenant, now, expected_by) do
+  defp emit_missed_sweep_log(group, tenant_id, now, expected_by) do
     overdue_seconds = DateTime.diff(now, expected_by, :second)
 
     payload = %{
@@ -137,8 +179,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       "overdue_seconds" => overdue_seconds,
       "message" => "Sweep group '#{group.name}' missed expected execution",
       "details" => %{
-        "tenant_id" => tenant.id,
-        "tenant_slug" => tenant.slug,
+        "tenant_id" => tenant_id,
         "schedule_type" => to_string(group.schedule_type),
         "cron_expression" => group.cron_expression
       }
@@ -150,10 +191,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       overdue_seconds: overdue_seconds
     )
 
-    case InternalLogPublisher.publish("sweep", payload,
-           tenant_id: tenant.id,
-           tenant_slug: to_string(tenant.slug)
-         ) do
+    case InternalLogPublisher.publish("sweep", payload, tenant_id: tenant_id) do
       :ok ->
         Logger.info("Published missed sweep log",
           sweep_group_id: group.id,

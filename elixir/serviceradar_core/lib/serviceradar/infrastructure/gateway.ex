@@ -209,6 +209,8 @@ defmodule ServiceRadar.Infrastructure.Gateway do
           |> Ash.Changeset.change_attribute(:is_healthy, true)
         end
       end
+
+      change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
     end
 
     update :update do

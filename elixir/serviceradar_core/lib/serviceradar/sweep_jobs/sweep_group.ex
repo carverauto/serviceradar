@@ -78,6 +78,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       ]
 
       change ServiceRadar.Changes.AssignTenantId
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
 
       validate fn changeset, _context ->
         validate_target_criteria(changeset)
@@ -104,6 +105,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :profile_id
       ]
 
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
+
       validate fn changeset, _context ->
         validate_target_criteria(changeset)
       end
@@ -111,6 +114,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     update :enable do
       change set_attribute(:enabled, true)
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
     end
 
     update :disable do
@@ -120,22 +124,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     update :record_execution do
       description "Record the start of an execution"
       change set_attribute(:last_run_at, &DateTime.utc_now/0)
-    end
-
-    update :update_target_hash do
-      description "Update the target hash for change detection"
-      require_atomic? false
-
-      argument :hash, :string do
-        allow_nil? false
-        description "New target hash value"
-      end
-
-      change fn changeset, _context ->
-        changeset
-        |> Ash.Changeset.change_attribute(:target_hash, Ash.Changeset.get_argument(changeset, :hash))
-        |> Ash.Changeset.change_attribute(:target_hash_updated_at, DateTime.utc_now())
-      end
     end
 
     update :add_targets do
@@ -354,18 +342,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? true
       public? true
       description "When this group was last executed"
-    end
-
-    attribute :target_hash, :string do
-      allow_nil? true
-      public? false
-      description "Hash of compiled target IPs for change detection"
-    end
-
-    attribute :target_hash_updated_at, :utc_datetime do
-      allow_nil? true
-      public? false
-      description "When the target hash was last updated"
     end
 
     attribute :profile_id, :uuid do

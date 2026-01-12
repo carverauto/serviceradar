@@ -76,33 +76,26 @@ The network sweep targeting UI needs a visual query builder for selecting device
 - **Shared criteria module**: `ServiceRadar.SweepJobs.CriteriaQuery` provides shared SRQL conversion used by both UI and SweepCompiler documentation.
 - **Field/operator catalog**: 20 device fields exposed in targeting UI with field-appropriate operators (eq, neq, contains, in_cidr, in_range, has_any, has_all, gt/gte/lt/lte).
 
-## Target List Change Tracking
+## Target List Updates
 
 The target result set can change even when SweepGroup config stays the same:
 - New devices discovered that match criteria
 - Device attributes change (discovery_sources, tags)
 - Devices deleted
 
-**How agents get updated targets:** The SweepCompiler computes targets fresh from current device inventory on each config poll. No cache invalidation is needed.
-
-**Tracking changes for visibility:** `SweepConfigRefreshWorker` Oban job:
-1. Runs every 5 minutes via cron (`*/5 * * * *` in `config_refresh` queue)
-2. For each tenant's enabled sweep groups:
-   - Execute Ash query to get current target IPs
-   - Compute SHA256 hash of sorted IP list
-   - Compare with stored `target_hash` on SweepGroup
-   - If changed, update hash and log the change
-3. Provides audit trail and debugging visibility
-
-**Implementation details:**
-- `SweepGroup` has `target_hash` (text) and `target_hash_updated_at` (utc_datetime) attributes
-- Hash computed via `:crypto.hash(:sha256, Enum.sort(ips) |> Enum.join(","))`
-- Database migration: `20260111210000_add_sweep_group_target_hash.exs`
+**How agents get updated targets:** The SweepCompiler computes targets fresh from current device inventory on each config poll. No additional refresh mechanism or cache invalidation is needed - agents receive the current target list on every poll.
 
 ## Risks / Trade-offs
 - Stacked AND-only filters cannot express OR logic. However, for the primary use case (e.g., "devices from Armis in partition X"), this is sufficient.
 - If OR support becomes necessary later, it can be added to the grammar without breaking existing queries.
-- Config refresh has up to N minute delay (configurable). For most sweep use cases, this is acceptable.
+
+## Tenant Isolation
+All Oban workers have been converted to use the TenantWorker pattern for proper tenant isolation:
+- **SweepMonitorWorker** - Scheduled per-tenant when sweep groups are enabled, reschedules every 5 minutes
+- **SweepDataCleanupWorker** - Scheduled per-tenant when sweep groups are enabled, reschedules daily
+- **StatefulAlertCleanupWorker** - Scheduled per-tenant when alert rules are created, reschedules daily
+
+Workers are triggered by Ash changes on resource create/enable actions, ensuring they're only scheduled when a tenant actively uses the feature.
 
 ## Migration Plan
 1. Update SweepCompiler to use SRQL for target extraction instead of in-memory filtering.

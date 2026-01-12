@@ -1,21 +1,20 @@
 defmodule ServiceRadar.Infrastructure.StateMonitor do
   @moduledoc """
-  Monitors infrastructure components and triggers state transitions.
+  Tenant-scoped GenServer that monitors infrastructure components and triggers state transitions.
 
-  Periodically checks:
+  Each tenant has their own StateMonitor that periodically checks:
   - Gateways for heartbeat timeouts (last_seen)
   - Agents for reachability (last_seen_time)
   - Checkers for consecutive failures
-  - Cross-references Horde registry state with database state
 
   Uses Ash actions with PublishStateChange to record health events.
 
-  ## Horde Integration
+  ## Starting
 
-  The StateMonitor integrates with Horde registries to:
-  - Use leader election to run checks on only one node
-  - Cross-reference Horde-registered entities with database records
-  - Detect orphaned processes (in Horde but not DB) and stale records (in DB but not Horde)
+  StateMonitor is automatically started when:
+  - A gateway is created for a tenant
+  - An agent is created for a tenant
+  - Manually via `ensure_started/1`
 
   ## Configuration
 
@@ -27,23 +26,12 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
         # Agent heartbeat timeout (default: 5 minutes)
         agent_timeout: 300_000,
         # Consecutive failures before marking checker as failing
-        checker_failure_threshold: 3,
-        # Enable distributed mode with leader election (default: true)
-        distributed: true
-
-  ## Supervision
-
-  Add to your supervision tree:
-
-      children = [
-        ServiceRadar.Infrastructure.StateMonitor
-      ]
+        checker_failure_threshold: 3
   """
 
   use GenServer
 
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
 
   require Logger
@@ -54,76 +42,129 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   @default_checker_failure_threshold 3
 
   defstruct [
+    :tenant_id,
+    :tenant_schema,
     :check_interval,
     :gateway_timeout,
     :agent_timeout,
     :checker_failure_threshold,
     :last_check,
-    :check_timer,
-    :distributed,
-    :is_leader
+    :check_timer
   ]
 
-  # Client API
+  # ============================================================================
+  # Public API
+  # ============================================================================
 
   @doc """
-  Starts the state monitor.
+  Ensures StateMonitor is running for a tenant, starting it if necessary.
   """
-  def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, opts, name: name)
+  @spec ensure_started(String.t()) :: {:ok, pid()} | {:error, term()}
+  def ensure_started(tenant_id) when is_binary(tenant_id) do
+    case whereis(tenant_id) do
+      nil ->
+        start_for_tenant(tenant_id)
+
+      pid ->
+        {:ok, pid}
+    end
   end
 
   @doc """
-  Triggers an immediate health check.
+  Returns the PID of the StateMonitor for a tenant, or nil if not running.
   """
-  @spec check_now(GenServer.server()) :: :ok
-  def check_now(server \\ __MODULE__) do
-    GenServer.cast(server, :check_now)
+  @spec whereis(String.t()) :: pid() | nil
+  def whereis(tenant_id) when is_binary(tenant_id) do
+    case TenantRegistry.lookup(tenant_id, {:state_monitor, tenant_id}) do
+      [{pid, _meta}] -> pid
+      [] -> nil
+    end
   end
 
   @doc """
-  Returns current monitoring status.
+  Starts StateMonitor for a tenant under the tenant's supervisor.
   """
-  @spec status(GenServer.server()) :: map()
-  def status(server \\ __MODULE__) do
-    GenServer.call(server, :status)
+  @spec start_for_tenant(String.t()) :: {:ok, pid()} | {:error, term()}
+  def start_for_tenant(tenant_id) when is_binary(tenant_id) do
+    child_spec = %{
+      id: {:state_monitor, tenant_id},
+      start: {__MODULE__, :start_link, [[tenant_id: tenant_id]]},
+      type: :worker,
+      restart: :transient
+    }
+
+    case TenantRegistry.start_child(tenant_id, child_spec) do
+      {:ok, pid} ->
+        Logger.info("Started StateMonitor for tenant", tenant_id: tenant_id)
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
+        {:ok, pid}
+
+      {:error, reason} = error ->
+        Logger.error("Failed to start StateMonitor",
+          tenant_id: tenant_id,
+          reason: inspect(reason)
+        )
+
+        error
+    end
   end
 
   @doc """
-  Returns whether this node is the current leader.
+  Triggers an immediate health check for a tenant.
   """
-  @spec is_leader?(GenServer.server()) :: boolean()
-  def is_leader?(server \\ __MODULE__) do
-    GenServer.call(server, :is_leader?)
+  @spec check_now(String.t()) :: :ok
+  def check_now(tenant_id) when is_binary(tenant_id) do
+    case whereis(tenant_id) do
+      nil -> :ok
+      pid -> GenServer.cast(pid, :check_now)
+    end
   end
 
-  # GenServer callbacks
+  @doc """
+  Returns current monitoring status for a tenant.
+  """
+  @spec status(String.t()) :: map() | nil
+  def status(tenant_id) when is_binary(tenant_id) do
+    case whereis(tenant_id) do
+      nil -> nil
+      pid -> GenServer.call(pid, :status)
+    end
+  end
+
+  # ============================================================================
+  # GenServer Implementation
+  # ============================================================================
+
+  def start_link(opts) do
+    tenant_id = Keyword.fetch!(opts, :tenant_id)
+    GenServer.start_link(__MODULE__, opts, name: via_tuple(tenant_id))
+  end
+
+  defp via_tuple(tenant_id) do
+    {:via, Horde.Registry, {TenantRegistry.registry_name(tenant_id), {:state_monitor, tenant_id}}}
+  end
 
   @impl true
   def init(opts) do
+    tenant_id = Keyword.fetch!(opts, :tenant_id)
+    tenant_schema = Keyword.get(opts, :tenant_schema, tenant_id)
+
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     merged_opts = Keyword.merge(config, opts)
 
-    distributed = Keyword.get(merged_opts, :distributed, true)
-
     state = %__MODULE__{
+      tenant_id: tenant_id,
+      tenant_schema: tenant_schema,
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
       checker_failure_threshold: Keyword.get(merged_opts, :checker_failure_threshold, @default_checker_failure_threshold),
-      distributed: distributed,
-      is_leader: false,
       last_check: nil
     }
 
-    # Try to become leader if in distributed mode
-    state = if distributed, do: try_become_leader(state), else: %{state | is_leader: true}
-
-    # Monitor cluster changes
-    if distributed do
-      :net_kernel.monitor_nodes(true)
-    end
+    Logger.info("StateMonitor starting", tenant_id: tenant_id)
 
     # Schedule first check
     timer = schedule_check(state.check_interval)
@@ -134,37 +175,27 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   @impl true
   def handle_call(:status, _from, state) do
     status = %{
+      tenant_id: state.tenant_id,
       check_interval: state.check_interval,
       gateway_timeout: state.gateway_timeout,
       agent_timeout: state.agent_timeout,
       checker_failure_threshold: state.checker_failure_threshold,
       last_check: state.last_check,
-      is_leader: state.is_leader,
-      distributed: state.distributed,
       node: node()
     }
 
     {:reply, status, state}
   end
 
-  def handle_call(:is_leader?, _from, state) do
-    {:reply, state.is_leader, state}
-  end
-
   @impl true
   def handle_cast(:check_now, state) do
-    if state.is_leader do
-      run_health_checks(state)
-    end
+    run_health_checks(state)
     {:noreply, %{state | last_check: DateTime.utc_now()}}
   end
 
   @impl true
   def handle_info(:run_checks, state) do
-    # Only run checks if we're the leader
-    if state.is_leader do
-      run_health_checks(state)
-    end
+    run_health_checks(state)
 
     # Schedule next check
     timer = schedule_check(state.check_interval)
@@ -172,56 +203,20 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     {:noreply, %{state | last_check: DateTime.utc_now(), check_timer: timer}}
   end
 
-  # Node up/down events for re-election
-  def handle_info({:nodeup, _node}, state) do
-    Logger.debug("Node joined cluster, re-checking leadership")
-    state = if state.distributed, do: try_become_leader(state), else: state
-    {:noreply, state}
-  end
-
-  def handle_info({:nodedown, _node}, state) do
-    Logger.debug("Node left cluster, re-checking leadership")
-    state = if state.distributed, do: try_become_leader(state), else: state
-    {:noreply, state}
-  end
-
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
-  # Leader election using :global registration
-  defp try_become_leader(state) do
-    case :global.register_name(__MODULE__, self(), &resolve_leader/3) do
-      :yes ->
-        Logger.info("StateMonitor became leader on #{node()}")
-        %{state | is_leader: true}
-
-      :no ->
-        Logger.debug("StateMonitor is follower on #{node()}")
-        %{state | is_leader: false}
-    end
-  end
-
-  # Conflict resolution - keep the process on the node with lowest name
-  defp resolve_leader(_name, pid1, pid2) do
-    node1 = node(pid1)
-    node2 = node(pid2)
-
-    if node1 < node2 do
-      pid1
-    else
-      pid2
-    end
-  end
-
-  # Private functions
+  # ============================================================================
+  # Private Functions
+  # ============================================================================
 
   defp schedule_check(interval) do
     Process.send_after(self(), :run_checks, interval)
   end
 
   defp run_health_checks(state) do
-    Logger.debug("Running infrastructure health checks (leader: #{state.is_leader})")
+    Logger.debug("Running infrastructure health checks", tenant_id: state.tenant_id)
 
     start_time = System.monotonic_time(:millisecond)
 
@@ -229,8 +224,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     tasks = [
       Task.async(fn -> check_gateways(state) end),
       Task.async(fn -> check_agents(state) end),
-      Task.async(fn -> check_checkers(state) end),
-      Task.async(fn -> reconcile_horde_state() end)
+      Task.async(fn -> check_checkers(state) end)
     ]
 
     results = Task.await_many(tasks, :timer.seconds(30))
@@ -241,56 +235,41 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       [:serviceradar, :infrastructure, :state_monitor, :check_completed],
       %{duration: duration},
       %{
+        tenant_id: state.tenant_id,
         gateways_checked: Enum.at(results, 0),
         agents_checked: Enum.at(results, 1),
-        checkers_checked: Enum.at(results, 2),
-        horde_reconciled: Enum.at(results, 3)
+        checkers_checked: Enum.at(results, 2)
       }
     )
 
-    Logger.debug("Health checks completed in #{duration}ms")
-  end
-
-  # Reconcile Horde registry state with database state
-  defp reconcile_horde_state do
-    tenant_registries = TenantRegistry.list_registries()
-    reconciled = 0
-
-    # For each tenant registry, check registered entities against DB
-    Enum.reduce(tenant_registries, reconciled, fn {_name, _pid}, acc ->
-      # The registry name contains the tenant hash, we can't easily map back to tenant_id
-      # For now, we skip detailed reconciliation and rely on heartbeat checks
-      acc
-    end)
-  rescue
-    e ->
-      Logger.warning("Horde reconciliation failed: #{inspect(e)}")
-      0
+    Logger.debug("Health checks completed",
+      tenant_id: state.tenant_id,
+      duration_ms: duration
+    )
   end
 
   defp check_gateways(state) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.gateway_timeout, :millisecond)
 
-    # Check gateways across all tenants
-    TenantSchemas.list_schemas()
-    |> Enum.reduce(0, fn tenant_schema, acc ->
-      case list_stale_gateways(timeout_threshold, tenant_schema) do
-        {:ok, gateways} ->
-          Enum.each(gateways, fn gateway ->
-            handle_stale_gateway(gateway, state, tenant_schema)
-          end)
+    case list_stale_gateways(timeout_threshold, state.tenant_schema) do
+      {:ok, gateways} ->
+        Enum.each(gateways, fn gateway ->
+          handle_stale_gateway(gateway, state)
+        end)
 
-          acc + length(gateways)
+        length(gateways)
 
-        {:error, reason} ->
-          Logger.error("Failed to check gateways for #{tenant_schema}: #{inspect(reason)}")
-          acc
-      end
-    end)
+      {:error, reason} ->
+        Logger.error("Failed to check gateways",
+          tenant_id: state.tenant_id,
+          reason: inspect(reason)
+        )
+
+        0
+    end
   end
 
   defp list_stale_gateways(timeout_threshold, tenant_schema) do
-    # Query gateways that are healthy/degraded but last_seen is before threshold
     require Ash.Query
 
     Gateway
@@ -301,47 +280,52 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_stale_gateway(gateway, _state, tenant_schema) do
-    Logger.info("Gateway #{gateway.id} heartbeat timeout, transitioning to degraded/offline")
+  defp handle_stale_gateway(gateway, state) do
+    Logger.info("Gateway heartbeat timeout, transitioning to degraded/offline",
+      tenant_id: state.tenant_id,
+      gateway_id: gateway.id
+    )
 
     old_state = gateway.status
     action = if old_state == :healthy, do: :degrade, else: :go_offline
 
-    # The actions have PublishStateChange attached which handles
-    # health event recording - no need to call publish_gateway_event manually
     result =
       gateway
       |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"})
-      |> Ash.update(authorize?: false, tenant: tenant_schema)
+      |> Ash.update(authorize?: false, tenant: state.tenant_schema)
 
     case result do
       {:ok, _updated_gateway} ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition gateway #{gateway.id}: #{inspect(reason)}")
+        Logger.error("Failed to transition gateway",
+          tenant_id: state.tenant_id,
+          gateway_id: gateway.id,
+          reason: inspect(reason)
+        )
     end
   end
 
   defp check_agents(state) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
 
-    # Check agents across all tenants
-    TenantSchemas.list_schemas()
-    |> Enum.reduce(0, fn tenant_schema, acc ->
-      case list_stale_agents(timeout_threshold, tenant_schema) do
-        {:ok, agents} ->
-          Enum.each(agents, fn agent ->
-            handle_stale_agent(agent, state, tenant_schema)
-          end)
+    case list_stale_agents(timeout_threshold, state.tenant_schema) do
+      {:ok, agents} ->
+        Enum.each(agents, fn agent ->
+          handle_stale_agent(agent, state)
+        end)
 
-          acc + length(agents)
+        length(agents)
 
-        {:error, reason} ->
-          Logger.error("Failed to check agents for #{tenant_schema}: #{inspect(reason)}")
-          acc
-      end
-    end)
+      {:error, reason} ->
+        Logger.error("Failed to check agents",
+          tenant_id: state.tenant_id,
+          reason: inspect(reason)
+        )
+
+        0
+    end
   end
 
   defp list_stale_agents(timeout_threshold, tenant_schema) do
@@ -355,42 +339,47 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_stale_agent(agent, _state, tenant_schema) do
-    Logger.info("Agent #{agent.uid} heartbeat timeout, transitioning to disconnected")
+  defp handle_stale_agent(agent, state) do
+    Logger.info("Agent heartbeat timeout, transitioning to disconnected",
+      tenant_id: state.tenant_id,
+      agent_uid: agent.uid
+    )
 
-    # The :lose_connection action has PublishStateChange attached which handles
-    # health event recording - no need to call publish_agent_event manually
     result =
       agent
       |> Ash.Changeset.for_update(:lose_connection, %{})
-      |> Ash.update(authorize?: false, tenant: tenant_schema)
+      |> Ash.update(authorize?: false, tenant: state.tenant_schema)
 
     case result do
       {:ok, _updated_agent} ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition agent #{agent.uid}: #{inspect(reason)}")
+        Logger.error("Failed to transition agent",
+          tenant_id: state.tenant_id,
+          agent_uid: agent.uid,
+          reason: inspect(reason)
+        )
     end
   end
 
   defp check_checkers(state) do
-    # Check checkers across all tenants
-    TenantSchemas.list_schemas()
-    |> Enum.reduce(0, fn tenant_schema, acc ->
-      case list_failing_checkers(state.checker_failure_threshold, tenant_schema) do
-        {:ok, checkers} ->
-          Enum.each(checkers, fn checker ->
-            handle_failing_checker(checker, state, tenant_schema)
-          end)
+    case list_failing_checkers(state.checker_failure_threshold, state.tenant_schema) do
+      {:ok, checkers} ->
+        Enum.each(checkers, fn checker ->
+          handle_failing_checker(checker, state)
+        end)
 
-          acc + length(checkers)
+        length(checkers)
 
-        {:error, reason} ->
-          Logger.error("Failed to check checkers for #{tenant_schema}: #{inspect(reason)}")
-          acc
-      end
-    end)
+      {:error, reason} ->
+        Logger.error("Failed to check checkers",
+          tenant_id: state.tenant_id,
+          reason: inspect(reason)
+        )
+
+        0
+    end
   end
 
   defp list_failing_checkers(threshold, tenant_schema) do
@@ -404,23 +393,28 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     |> Ash.read(authorize?: false, tenant: tenant_schema)
   end
 
-  defp handle_failing_checker(checker, _state, tenant_schema) do
-    Logger.info("Checker #{checker.id} has #{checker.consecutive_failures} consecutive failures, marking as failing")
+  defp handle_failing_checker(checker, state) do
+    Logger.info("Checker has consecutive failures, marking as failing",
+      tenant_id: state.tenant_id,
+      checker_id: checker.id,
+      consecutive_failures: checker.consecutive_failures
+    )
 
-    # The :mark_failing action has PublishStateChange attached which handles
-    # health event recording - no need to call publish_checker_event manually
     result =
       checker
       |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"})
-      |> Ash.update(authorize?: false, tenant: tenant_schema)
+      |> Ash.update(authorize?: false, tenant: state.tenant_schema)
 
     case result do
       {:ok, _updated_checker} ->
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to transition checker #{checker.id}: #{inspect(reason)}")
+        Logger.error("Failed to transition checker",
+          tenant_id: state.tenant_id,
+          checker_id: checker.id,
+          reason: inspect(reason)
+        )
     end
   end
-
 end
