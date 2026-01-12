@@ -226,6 +226,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # TENANT ISOLATION: Service checks define what to monitor for a tenant
     # Must be strictly isolated
 

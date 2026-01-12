@@ -301,6 +301,11 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # All authenticated users can read schedules
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :viewer)

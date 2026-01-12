@@ -71,6 +71,11 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Tenant admins can manage templates
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)

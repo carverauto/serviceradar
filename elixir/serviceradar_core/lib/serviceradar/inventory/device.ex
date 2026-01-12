@@ -228,6 +228,11 @@ defmodule ServiceRadar.Inventory.Device do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Read access: authenticated users (tenant isolation via context multitenancy)
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :viewer)

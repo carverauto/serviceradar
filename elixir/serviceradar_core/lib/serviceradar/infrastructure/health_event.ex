@@ -185,6 +185,11 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Read access: Must be in same tenant
     policy action_type(:read) do
       authorize_if expr(tenant_id == ^actor(:tenant_id))
@@ -315,6 +320,10 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   # Helper function for duration calculation
   defp get_last_event(entity_type, entity_id, tenant_id) do
     require Ash.Query
+    alias ServiceRadar.Actors.SystemActor
+
+    # Tenant-scoped actor since we're querying within a specific tenant
+    actor = SystemActor.for_tenant(tenant_id, :health_event)
 
     __MODULE__
     |> Ash.Query.filter(
@@ -324,6 +333,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     )
     |> Ash.Query.sort(recorded_at: :desc)
     |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
   end
 end

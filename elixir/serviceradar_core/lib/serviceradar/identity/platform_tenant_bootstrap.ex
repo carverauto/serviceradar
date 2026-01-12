@@ -8,6 +8,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
 
@@ -34,6 +35,8 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   defp ensure_platform_tenant! do
     platform_slug = platform_tenant_slug()
+    # Platform bootstrap needs platform actor
+    actor = SystemActor.platform(:platform_tenant_bootstrap)
 
     query =
       Tenant
@@ -41,7 +44,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
       |> Ash.Query.filter(is_platform_tenant == true)
       |> Ash.Query.select([:id, :slug, :is_platform_tenant])
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, []} ->
         tenant = create_platform_tenant!(platform_slug)
         set_platform_tenant_id!(tenant.id, platform_slug)
@@ -65,6 +68,8 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   defp load_platform_tenant do
     platform_slug = platform_tenant_slug()
+    # Platform bootstrap needs platform actor
+    actor = SystemActor.platform(:platform_tenant_bootstrap)
 
     query =
       Tenant
@@ -72,7 +77,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
       |> Ash.Query.filter(is_platform_tenant == true)
       |> Ash.Query.select([:id, :slug, :is_platform_tenant])
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, []} ->
         Logger.warning(
           "[PlatformTenantBootstrap] Platform tenant missing; bootstrap disabled, skipping"
@@ -99,13 +104,15 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   end
 
   defp create_platform_tenant!(platform_slug) do
+    # Platform bootstrap needs platform actor
+    actor = SystemActor.platform(:platform_tenant_bootstrap)
     changeset =
       Tenant
       |> Ash.Changeset.for_create(:create_platform, %{name: "Platform", slug: platform_slug},
-        authorize?: false
+        actor: actor
       )
 
-    case Ash.create(changeset, authorize?: false) do
+    case Ash.create(changeset, actor: actor) do
       {:ok, tenant} ->
         validate_platform_tenant!(tenant, platform_slug)
         tenant

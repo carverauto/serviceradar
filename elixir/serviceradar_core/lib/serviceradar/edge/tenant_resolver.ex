@@ -45,6 +45,7 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
 
   @type tenant_info :: %{
@@ -168,9 +169,11 @@ defmodule ServiceRadar.Edge.TenantResolver do
   """
   @spec lookup_tenant(String.t()) :: {:ok, map()} | {:error, :tenant_not_found}
   def lookup_tenant(tenant_slug) do
+    # Tenant lookup is cross-tenant, use platform actor
+    actor = SystemActor.platform(:tenant_resolver)
     case Ash.get(ServiceRadar.Identity.Tenant, %{slug: tenant_slug},
            action: :by_slug,
-           authorize?: false
+           actor: actor
          ) do
       {:ok, tenant} -> {:ok, tenant}
       {:error, _} -> {:error, :tenant_not_found}
@@ -278,11 +281,13 @@ defmodule ServiceRadar.Edge.TenantResolver do
 
   defp lookup_tenant_ca_by_spki(spki_sha256, tenant_slug) do
     tenant_schema = TenantSchemas.schema_for(tenant_slug)
+    # Use platform actor for TenantCA lookup during authentication
+    actor = SystemActor.platform(:tenant_resolver)
 
     ServiceRadar.Edge.TenantCA
     |> Ash.Query.for_read(:by_spki, %{spki_sha256: spki_sha256})
     |> Ash.Query.set_tenant(tenant_schema)
-    |> Ash.read_one(authorize?: false, load: [:tenant])
+    |> Ash.read_one(actor: actor, load: [:tenant])
     |> case do
       {:ok, %ServiceRadar.Edge.TenantCA{} = tenant_ca} -> {:ok, tenant_ca}
       {:ok, nil} -> {:error, :tenant_ca_not_found}

@@ -13,6 +13,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   import Ash.Expr
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.Crypto
@@ -548,12 +549,13 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       # Create the package with the encrypted bundle
       case create(attrs_with_cert, opts) do
         {:ok, result} ->
-          # Update with the certificate bundle
+          # Update with the certificate bundle using system actor
+          actor = SystemActor.for_tenant(tenant_id, :onboarding_packages)
           updated = result.package
             |> Ash.Changeset.for_update(:update_tokens, %{
               bundle_ciphertext: bundle_ciphertext,
               downstream_spiffe_id: cert_data.spiffe_id
-            }, authorize?: false, tenant: tenant_schema)
+            }, actor: actor, tenant: tenant_schema)
             |> Ash.update!()
 
           {:ok, Map.put(result, :package, updated)
@@ -567,19 +569,22 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   # Gets the active tenant CA, generating one if it doesn't exist
   defp get_tenant_ca(tenant_id) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    tenant_actor = SystemActor.for_tenant(tenant_id, :onboarding_packages)
+    # Tenant resource is cross-tenant, use platform actor
+    platform_actor = SystemActor.platform(:onboarding_packages)
 
     case TenantCA
          |> Ash.Query.set_tenant(tenant_schema)
          |> Ash.Query.filter(tenant_id == ^tenant_id and status == :active)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: tenant_actor) do
       {:ok, nil} ->
         # No active CA, need to generate one
-        case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, authorize?: false) do
+        case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: platform_actor) do
           {:ok, tenant} ->
             # Use the action on Tenant to generate a CA
             ServiceRadar.Identity.Tenant
             |> Ash.ActionInput.for_action(:generate_ca, %{tenant: tenant})
-            |> Ash.run_action(authorize?: false)
+            |> Ash.run_action(actor: platform_actor)
 
           error -> error
         end
@@ -593,10 +598,11 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   defp decrypt_ca_private_key(tenant_ca) do
     # Load with decryption - AshCloak will decrypt the private key
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_ca.tenant_id)
+    actor = SystemActor.for_tenant(tenant_ca.tenant_id, :onboarding_packages)
 
     case Ash.get(TenantCA, tenant_ca.id,
            tenant: tenant_schema,
-           authorize?: false,
+           actor: actor,
            load: [:tenant]
          ) do
       {:ok, ca} -> {:ok, ca}

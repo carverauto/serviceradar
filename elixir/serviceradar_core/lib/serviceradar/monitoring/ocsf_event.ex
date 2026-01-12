@@ -74,6 +74,11 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     policy action_type(:read) do
       authorize_if expr(
                      ^actor(:role) in [:viewer, :operator, :admin] and

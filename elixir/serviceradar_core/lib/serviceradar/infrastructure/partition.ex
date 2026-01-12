@@ -130,6 +130,11 @@ defmodule ServiceRadar.Infrastructure.Partition do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # TENANT ISOLATION: Partitions define network boundaries for a tenant
     # Must never be accessible cross-tenant
 

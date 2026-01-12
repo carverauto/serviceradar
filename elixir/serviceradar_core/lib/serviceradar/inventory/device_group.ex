@@ -99,6 +99,11 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # TENANT ISOLATION: Groups are organizational structures within a tenant
 
     # Read access: Authenticated users in same tenant

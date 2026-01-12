@@ -8,6 +8,7 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   use AshAuthentication.Sender
   import Swoosh.Email
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
 
@@ -105,11 +106,14 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   end
 
   defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
+    # Platform actor for authentication routing (before tenant is confirmed)
+    actor = SystemActor.platform(:magic_link_sender)
+
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^tenant_id)
     |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
     |> case do
       {:ok, %Tenant{} = tenant} -> tenant
       _ -> nil
@@ -119,10 +123,13 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   defp fetch_tenant_by_id(_), do: nil
 
   defp fetch_tenant_by_schema(schema) when is_binary(schema) do
+    # Platform actor for authentication routing (before tenant is confirmed)
+    actor = SystemActor.platform(:magic_link_sender)
+
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read(authorize?: false)
+    |> Ash.read(actor: actor)
     |> case do
       {:ok, tenants} when is_list(tenants) ->
         Enum.find(tenants, fn tenant ->

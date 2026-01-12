@@ -174,6 +174,11 @@ defmodule ServiceRadar.Edge.TenantCA do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Tenant admins can read their tenant's CA (cert only, not private key)
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)

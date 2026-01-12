@@ -30,6 +30,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Events.JobWriter
   alias ServiceRadar.NATS.AccountClient
@@ -141,6 +142,9 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   # Private helpers
 
   defp get_tenant(tenant_id) do
+    # Tenant resource is cross-tenant, use platform actor
+    actor = SystemActor.platform(:nats_account_worker)
+
     # Use Ash.Query.select to only load fields we need.
     # This prevents AshCloak from attempting to decrypt encrypted fields
     # (contact_email, contact_name) which may be NULL.
@@ -148,7 +152,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^tenant_id)
     |> Ash.Query.select(@tenant_select_fields)
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
@@ -170,9 +174,11 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp mark_pending(tenant) do
+    actor = SystemActor.platform(:nats_account_worker)
+
     tenant
-    |> Ash.Changeset.for_update(:set_nats_account_pending, %{})
-    |> Ash.update(authorize?: false)
+    |> Ash.Changeset.for_update(:set_nats_account_pending, %{}, actor: actor)
+    |> Ash.update()
   end
 
   defp create_nats_account(tenant) do
@@ -199,21 +205,25 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
       "Storing credentials: public_key=#{inspect(result.account_public_key)}, seed=present, jwt=present"
     )
 
+    actor = SystemActor.platform(:nats_account_worker)
+
     tenant
     |> Ash.Changeset.for_update(:set_nats_account, %{
       account_public_key: result.account_public_key,
       account_seed: result.account_seed,
       account_jwt: result.account_jwt
-    })
-    |> Ash.update(authorize?: false)
+    }, actor: actor)
+    |> Ash.update()
   end
 
   defp mark_error(tenant_id, message) do
     case get_tenant(tenant_id) do
       {:ok, tenant} ->
+        actor = SystemActor.platform(:nats_account_worker)
+
         tenant
-        |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message})
-        |> Ash.update(authorize?: false)
+        |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message}, actor: actor)
+        |> Ash.update()
 
         :ok
 
@@ -373,6 +383,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp get_platform_tenant do
+    actor = SystemActor.platform(:nats_account_worker)
+
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(is_platform_tenant == true)
@@ -384,7 +396,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
       :nats_account_status,
       :nats_account_jwt
     ])
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :platform_missing}
       {:ok, tenant} -> {:ok, tenant}
@@ -423,6 +435,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp load_import_tenants do
+    actor = SystemActor.platform(:nats_account_worker)
+
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(
@@ -430,7 +444,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
         not is_nil(nats_account_public_key)
     )
     |> Ash.Query.select([:slug, :nats_account_public_key])
-    |> Ash.read(authorize?: false)
+    |> Ash.read(actor: actor)
   end
 
   defp build_stream_imports(tenants) when is_list(tenants) do
@@ -447,9 +461,11 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp update_platform_jwt(platform_tenant, account_jwt) do
+    actor = SystemActor.platform(:nats_account_worker)
+
     platform_tenant
-    |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt})
-    |> Ash.update(authorize?: false)
+    |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt}, actor: actor)
+    |> Ash.update()
   end
 
   defp push_platform_jwt(platform_tenant, account_jwt) do

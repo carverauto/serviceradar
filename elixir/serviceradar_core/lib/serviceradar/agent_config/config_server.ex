@@ -24,6 +24,7 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.{Compiler, ConfigCache, ConfigInstance}
 
   # Client API
@@ -166,18 +167,20 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   end
 
   defp load_from_database(tenant_id, config_type, partition, agent_id) do
+    actor = SystemActor.for_tenant(tenant_id, :config_server)
+
     # Try to load pre-compiled config from database using the :for_agent read action
     case Ash.read(
            ConfigInstance,
            action: :for_agent,
            tenant: tenant_id,
-           authorize?: false,
+           actor: actor,
            args: %{
              config_type: config_type,
              partition: partition,
              agent_id: agent_id
            }
-        ) do
+         ) do
       {:ok, [instance | _]} ->
         {:ok, instance}
 

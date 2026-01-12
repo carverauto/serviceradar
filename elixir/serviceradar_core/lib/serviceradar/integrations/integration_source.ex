@@ -274,6 +274,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Read: admins, operators, and viewers in same tenant
     policy action_type(:read) do
       authorize_if expr(
@@ -518,6 +523,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     identity :unique_name_per_tenant, [:tenant_id, :name]
   end
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
 
@@ -531,11 +537,13 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       )
     else
       tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      # Tenant-scoped actor for validation within the tenant
+      actor = SystemActor.for_tenant(tenant_id, :integration_source)
 
       Agent
       |> Ash.Query.for_read(:connected)
       |> Ash.Query.limit(1)
-      |> Ash.read(tenant: tenant_schema, authorize?: false)
+      |> Ash.read(tenant: tenant_schema, actor: actor)
       |> case do
         {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
         {:ok, results} when is_list(results) and results != [] -> changeset

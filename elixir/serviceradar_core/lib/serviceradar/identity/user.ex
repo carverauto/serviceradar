@@ -300,6 +300,11 @@ defmodule ServiceRadar.Identity.User do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # Users can read themselves OR other users in the same tenant
     # Combined into one policy to ensure proper OR behavior
     policy action_type(:read) do

@@ -31,6 +31,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   use GenServer
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker}
 
@@ -158,7 +159,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     state = %__MODULE__{
       tenant_id: tenant_id,
       tenant_schema: tenant_schema,
-      actor: build_system_actor(tenant_id),
+      actor: SystemActor.for_tenant(tenant_id, :state_monitor),
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
@@ -418,14 +419,5 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
           reason: inspect(reason)
         )
     end
-  end
-
-  defp build_system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "state-monitor@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
   end
 end

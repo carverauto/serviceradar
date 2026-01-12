@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.{LogPromotionRule, StatefulAlertEngine}
@@ -15,7 +16,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   def promote(_rows, _tenant_id, nil), do: {:ok, 0}
 
   def promote(rows, tenant_id, schema) when is_list(rows) do
-    rules = load_rules(schema)
+    rules = load_rules(tenant_id, schema)
 
     if rules == [] do
       {:ok, 0}
@@ -54,10 +55,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
       {:ok, 0}
   end
 
-  defp load_rules(schema) do
+  defp load_rules(tenant_id, schema) do
+    actor = SystemActor.for_tenant(tenant_id, :log_promotion)
+
     LogPromotionRule
     |> Ash.Query.for_read(:active, %{}, tenant: schema)
-    |> Ash.read(authorize?: false)
+    |> Ash.read(actor: actor)
     |> unwrap_page()
   rescue
     error ->

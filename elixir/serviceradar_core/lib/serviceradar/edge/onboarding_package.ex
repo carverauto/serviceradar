@@ -191,6 +191,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations (tenant isolation via schema)
+    bypass always() do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
     # TENANT ISOLATION is enforced by schema-based multitenancy (:context)
     # The tenant context passed to actions automatically filters records
     # Policies here only check role-based access
