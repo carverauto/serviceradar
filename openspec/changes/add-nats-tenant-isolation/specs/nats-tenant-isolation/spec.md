@@ -93,6 +93,13 @@ streams directly without cross-account stream mirroring.
 - **THEN** the tenant zen consumer SHALL process the message
 - **AND** write processed output back to the tenant account
 
+#### Scenario: Tenant zen HA
+
+- **GIVEN** tenant "acme-corp" has multiple zen consumer instances
+- **WHEN** one instance becomes unavailable
+- **THEN** remaining instances SHALL continue processing tenant messages
+- **AND** no cross-tenant consumers are used as fallbacks
+
 ### Requirement: Per-tenant db-event-writer ingestion
 
 The db-event-writer SHALL run per tenant using tenant credentials and write
