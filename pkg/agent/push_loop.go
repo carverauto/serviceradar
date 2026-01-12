@@ -32,6 +32,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	syncsvc "github.com/carverauto/serviceradar/pkg/sync"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Version is set at build time via -ldflags
@@ -55,6 +57,8 @@ type PushLoop struct {
 	started            bool          // Whether Start has been invoked
 	syncer             *syncsvc.SimpleSyncService
 	syncStarted        bool
+	enrollMu           sync.Mutex
+	enrollInFlight     bool
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -116,6 +120,8 @@ func (p *PushLoop) setEnrolled(v bool) {
 const (
 	defaultPushInterval       = 30 * time.Second
 	defaultConfigPollInterval = 60 * time.Second
+	defaultEnrollRetryDelay   = 2 * time.Second
+	maxEnrollRetryDelay       = 30 * time.Second
 )
 
 // Check type constants for goconst compliance
@@ -542,10 +548,76 @@ func (p *PushLoop) getSourceIP() string {
 	return ""
 }
 
-// enroll sends Hello to the gateway and fetches initial config.
+// enroll starts the enrollment loop (single in-flight attempt with retries).
 func (p *PushLoop) enroll(ctx context.Context) {
+	p.enrollMu.Lock()
+	if p.enrollInFlight {
+		p.enrollMu.Unlock()
+		return
+	}
+	p.enrollInFlight = true
+	p.enrollMu.Unlock()
+
+	go p.enrollLoop(ctx)
+}
+
+func (p *PushLoop) enrollLoop(ctx context.Context) {
+	defer func() {
+		p.enrollMu.Lock()
+		p.enrollInFlight = false
+		p.enrollMu.Unlock()
+	}()
+
 	p.logger.Info().Msg("Enrolling with gateway...")
 	p.initSync(ctx)
+
+	delay := defaultEnrollRetryDelay
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		if err := p.enrollOnce(ctx); err == nil {
+			return
+		} else if isRetryableEnrollError(err) {
+			p.logger.Warn().
+				Err(err).
+				Dur("retry_in", delay).
+				Msg("Enrollment failed, retrying")
+		} else {
+			p.logger.Error().Err(err).Msg("Failed to enroll with gateway")
+			return
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-p.stopCh:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		delay *= 2
+		if delay > maxEnrollRetryDelay {
+			delay = maxEnrollRetryDelay
+		}
+	}
+}
+
+// enrollOnce sends Hello to the gateway and fetches initial config.
+func (p *PushLoop) enrollOnce(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	if !p.gateway.IsConnected() {
+		if err := p.gateway.ReconnectWithBackoff(ctx); err != nil {
+			return err
+		}
+	}
 
 	// Build Hello request
 	p.server.mu.RLock()
@@ -561,8 +633,7 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	// Send Hello
 	helloResp, err := p.gateway.Hello(ctx, helloReq)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to enroll with gateway")
-		return
+		return err
 	}
 
 	// Update server config with tenant info from gateway
@@ -599,6 +670,29 @@ func (p *PushLoop) enroll(ctx context.Context) {
 	// Fetch initial config if outdated or not yet fetched
 	if helloResp.ConfigOutdated || p.getConfigVersion() == "" {
 		p.fetchAndApplyConfig(ctx)
+	}
+
+	return nil
+}
+
+func isRetryableEnrollError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, agentgateway.ErrGatewayNotConnected) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	default:
+		return false
 	}
 }
 

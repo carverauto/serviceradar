@@ -943,6 +943,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         )
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
 
+      {:error, {:core_unavailable, tenant_slug}} ->
+        Logger.warning(
+          "Tenant resolution failed: core unavailable for tenant_slug=#{tenant_slug}"
+        )
+        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
+
       {:error, reason} ->
         Logger.warning("Tenant resolution failed: #{inspect(reason)}")
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
@@ -970,19 +976,30 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp resolve_tenant_id(_resolved), do: {:error, :tenant_slug_missing}
 
   defp resolve_tenant_id_from_cluster(tenant_slug) do
-    nodes = Node.list()
+    nodes = core_nodes()
 
     if nodes == [] do
-      {:error, {:tenant_id_not_found, tenant_slug}}
+      {:error, {:core_unavailable, tenant_slug}}
     else
       {results, _bad_nodes} =
         :rpc.multicall(nodes, TenantRegistry, :tenant_id_for_slug, [tenant_slug], 5_000)
 
       case Enum.find(results, &match?({:ok, _}, &1)) do
         {:ok, tenant_id} -> {:ok, tenant_id}
-        _ -> {:error, {:tenant_id_not_found, tenant_slug}}
+        _ ->
+          if core_unavailable_results?(results) do
+            {:error, {:core_unavailable, tenant_slug}}
+          else
+            {:error, {:tenant_id_not_found, tenant_slug}}
+          end
       end
     end
+  end
+
+  defp core_unavailable_results?([]), do: true
+
+  defp core_unavailable_results?(results) do
+    Enum.all?(results, &match?({:badrpc, _}, &1))
   end
 
   # Get the peer certificate from the gRPC stream
