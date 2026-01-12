@@ -124,6 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:criteria_rules, [])
       |> assign(:target_count, nil)
       |> assign(:target_count_loading, false)
+      |> assign(:target_count_timer_ref, nil)
 
     {:ok, socket}
   end
@@ -153,6 +154,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:form, to_form(ash_form))
     |> assign(:criteria_rules, [])
     |> assign(:target_count, nil)
+    |> assign(:target_count_loading, false)
+    |> assign(:target_count_timer_ref, nil)
   end
 
   defp apply_action(socket, :edit_group, %{"id" => id}) do
@@ -175,6 +178,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:form, to_form(ash_form))
         |> assign(:criteria_rules, rules)
         |> assign(:target_count, nil)
+        |> assign(:target_count_loading, false)
+        |> assign(:target_count_timer_ref, nil)
     end
   end
 
@@ -454,13 +459,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp maybe_update_target_count(socket) do
-    # Auto-update count when rules change and have values
     rules = socket.assigns.criteria_rules
 
     if Enum.any?(rules, &rule_active?/1) do
-      update_target_count(socket)
+      schedule_target_count_update(socket)
     else
-      assign(socket, :target_count, nil)
+      if timer_ref = socket.assigns[:target_count_timer_ref] do
+        Process.cancel_timer(timer_ref)
+      end
+
+      socket
+      |> assign(:target_count, nil)
+      |> assign(:target_count_loading, false)
+      |> assign(:target_count_timer_ref, nil)
     end
   end
 
@@ -506,6 +517,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       count = get_matching_device_count(scope, criteria)
       assign(socket, :target_count, count)
     end
+  end
+
+  defp schedule_target_count_update(socket) do
+    if timer_ref = socket.assigns[:target_count_timer_ref] do
+      Process.cancel_timer(timer_ref)
+    end
+
+    timer_ref = Process.send_after(self(), :update_target_count, 400)
+
+    socket
+    |> assign(:target_count_loading, true)
+    |> assign(:target_count_timer_ref, timer_ref)
+  end
+
+  @impl true
+  def handle_info(:update_target_count, socket) do
+    socket =
+      socket
+      |> assign(:target_count_timer_ref, nil)
+      |> update_target_count()
+      |> assign(:target_count_loading, false)
+
+    {:noreply, socket}
   end
 
   @impl true

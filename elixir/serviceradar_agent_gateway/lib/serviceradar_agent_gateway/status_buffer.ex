@@ -74,8 +74,14 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @impl true
   def handle_info(:flush, state) do
-    {state, _more?} = flush_all_batches(state, @default_flush_batch_size)
-    schedule_flush(state.flush_interval_ms)
+    {state, more?} = flush_queue(state, @default_flush_batch_size)
+
+    if more? do
+      Process.send_after(self(), :flush, 0)
+    else
+      schedule_flush(state.flush_interval_ms)
+    end
+
     {:noreply, state}
   end
 
@@ -106,16 +112,6 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
             Logger.debug("Results buffer flush paused: #{inspect(reason)}")
             {%{state | queue: :queue.in_r(status, rest)}, false}
         end
-    end
-  end
-
-  defp flush_all_batches(state, batch_size) do
-    {state, more?} = flush_queue(state, batch_size)
-
-    if more? do
-      flush_all_batches(state, batch_size)
-    else
-      {state, false}
     end
   end
 

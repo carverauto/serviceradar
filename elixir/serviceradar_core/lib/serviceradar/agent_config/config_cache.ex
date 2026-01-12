@@ -92,11 +92,15 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec put(String.t(), atom(), String.t(), String.t() | nil, map()) :: :ok
   def put(tenant_id, config_type, partition, agent_id, entry, ttl_ms \\ @default_ttl_ms) do
-    key = cache_key(tenant_id, config_type, partition, agent_id)
-    expires_at = System.monotonic_time(:millisecond) + ttl_ms
+    if :ets.whereis(@table_name) == :undefined do
+      :ok
+    else
+      key = cache_key(tenant_id, config_type, partition, agent_id)
+      expires_at = System.monotonic_time(:millisecond) + ttl_ms
 
-    :ets.insert(@table_name, {key, entry, expires_at})
-    :ok
+      :ets.insert(@table_name, {key, entry, expires_at})
+      :ok
+    end
   end
 
   @doc """
@@ -104,13 +108,17 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec invalidate(String.t(), atom()) :: :ok
   def invalidate(tenant_id, config_type) do
-    # Match all keys for this tenant and config type
-    match_spec = [
-      {{{tenant_id, config_type, :_, :_}, :_, :_}, [], [true]}
-    ]
+    if :ets.whereis(@table_name) == :undefined do
+      :ok
+    else
+      # Match all keys for this tenant and config type
+      match_spec = [
+        {{{tenant_id, config_type, :_, :_}, :_, :_}, [], [true]}
+      ]
 
-    :ets.select_delete(@table_name, match_spec)
-    :ok
+      :ets.select_delete(@table_name, match_spec)
+      :ok
+    end
   end
 
   @doc """
@@ -118,12 +126,16 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec invalidate_tenant(String.t()) :: :ok
   def invalidate_tenant(tenant_id) do
-    match_spec = [
-      {{{tenant_id, :_, :_, :_}, :_, :_}, [], [true]}
-    ]
+    if :ets.whereis(@table_name) == :undefined do
+      :ok
+    else
+      match_spec = [
+        {{{tenant_id, :_, :_, :_}, :_, :_}, [], [true]}
+      ]
 
-    :ets.select_delete(@table_name, match_spec)
-    :ok
+      :ets.select_delete(@table_name, match_spec)
+      :ok
+    end
   end
 
   @doc """
@@ -131,9 +143,13 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec invalidate_key(String.t(), atom(), String.t(), String.t() | nil) :: :ok
   def invalidate_key(tenant_id, config_type, partition, agent_id) do
-    key = cache_key(tenant_id, config_type, partition, agent_id)
-    :ets.delete(@table_name, key)
-    :ok
+    if :ets.whereis(@table_name) == :undefined do
+      :ok
+    else
+      key = cache_key(tenant_id, config_type, partition, agent_id)
+      :ets.delete(@table_name, key)
+      :ok
+    end
   end
 
   @doc """
@@ -141,8 +157,12 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec clear_all() :: :ok
   def clear_all do
-    :ets.delete_all_objects(@table_name)
-    :ok
+    if :ets.whereis(@table_name) == :undefined do
+      :ok
+    else
+      :ets.delete_all_objects(@table_name)
+      :ok
+    end
   end
 
   @doc """
@@ -150,10 +170,14 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   """
   @spec stats() :: map()
   def stats do
-    %{
-      size: :ets.info(@table_name, :size),
-      memory_bytes: :ets.info(@table_name, :memory) * :erlang.system_info(:wordsize)
-    }
+    if :ets.whereis(@table_name) == :undefined do
+      %{size: 0, memory_bytes: 0}
+    else
+      %{
+        size: :ets.info(@table_name, :size),
+        memory_bytes: :ets.info(@table_name, :memory) * :erlang.system_info(:wordsize)
+      }
+    end
   end
 
   # GenServer callbacks

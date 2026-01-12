@@ -236,14 +236,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp apply_tags_to_devices(scope, socket, tags) do
-    if socket.assigns.select_all_matching and
-         not is_integer(socket.assigns.total_matching_count) do
-      {:error, "Unable to determine selection size. Please try again."}
-    else
-      if socket.assigns.select_all_matching and
-           socket.assigns.total_matching_count > 10_000 do
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and
+          socket.assigns.total_matching_count > 10_000 ->
         {:error, "Too many devices selected. Narrow your filters and try again."}
-      else
+
+      true ->
         case get_selected_uids(socket) do
           [] ->
             {:error, "No devices selected"}
@@ -251,7 +253,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           uids ->
             update_tags_for_uids(scope, uids, tags)
         end
-      end
     end
   end
 
@@ -263,36 +264,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     case Ash.count(query, scope: scope) do
       {:ok, existing_count} ->
-        result =
-          Ash.bulk_update(query, :update, %{},
-            scope: scope,
-            return_records?: false,
-            return_errors?: true,
-            atomic_update: %{
-              tags:
-                expr(
-                  fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ref(:tags), ^new_tags)
-                )
-            }
-          )
-
-        case result do
-          %Ash.BulkResult{status: :success} ->
-            if existing_count < length(uids) do
-              {:error, "One or more devices were not found"}
-            else
-              {:ok, existing_count}
-            end
-
-          %Ash.BulkResult{status: :partial_success, errors: errors} ->
-            {:error, format_changeset_errors(List.first(errors || []))}
-
-          %Ash.BulkResult{status: :error, errors: errors} ->
-            {:error, format_changeset_errors(List.first(errors || []))}
-        end
+        requested_count = length(uids)
+        result = bulk_update_tags(query, new_tags, scope)
+        handle_bulk_update_result(result, existing_count, requested_count)
 
       {:error, error} ->
         {:error, format_changeset_errors(error)}
+    end
+  end
+
+  defp bulk_update_tags(query, new_tags, scope) do
+    Ash.bulk_update(query, :update, %{},
+      scope: scope,
+      return_records?: false,
+      return_errors?: true,
+      atomic_update: %{
+        tags:
+          expr(
+            fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ref(:tags), ^new_tags)
+          )
+      }
+    )
+  end
+
+  defp handle_bulk_update_result(result, existing_count, requested_count) do
+    case result do
+      %Ash.BulkResult{status: :success} ->
+        if existing_count < requested_count do
+          {:error, "One or more devices were not found"}
+        else
+          {:ok, existing_count}
+        end
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
     end
   end
 

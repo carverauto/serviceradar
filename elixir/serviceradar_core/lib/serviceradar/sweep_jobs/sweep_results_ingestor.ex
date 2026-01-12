@@ -301,11 +301,51 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         device_id = if device_record, do: device_record.canonical_device_id
 
         # Parse response time (convert ns to ms)
-        response_time_ns = result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]
-        response_time_ms = if response_time_ns, do: div(response_time_ns, 1_000_000)
+        response_time_ns_raw = result["icmp_response_time_ns"] || result["icmpResponseTimeNs"]
+
+        response_time_ns =
+          cond do
+            is_integer(response_time_ns_raw) ->
+              response_time_ns_raw
+
+            is_binary(response_time_ns_raw) ->
+              case Integer.parse(response_time_ns_raw) do
+                {parsed, ""} -> parsed
+                _ -> nil
+              end
+
+            true ->
+              nil
+          end
+
+        response_time_ms =
+          if is_integer(response_time_ns),
+            do: div(response_time_ns, 1_000_000),
+            else: nil
 
         # Parse open ports
-        open_ports = result["tcp_ports_open"] || result["tcpPortsOpen"] || []
+        open_ports_raw = result["tcp_ports_open"] || result["tcpPortsOpen"] || []
+
+        open_ports =
+          open_ports_raw
+          |> List.wrap()
+          |> Enum.map(fn
+            port when is_integer(port) ->
+              port
+
+            port when is_binary(port) ->
+              case Integer.parse(port) do
+                {parsed, ""} -> parsed
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.filter(&(&1 >= 1 and &1 <= 65_535))
+          |> Enum.uniq()
+          |> Enum.sort()
 
         record = %{
           id: Ash.UUID.generate(),
