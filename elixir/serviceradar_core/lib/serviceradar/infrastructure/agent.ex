@@ -219,6 +219,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:created_time, now)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
+
+      change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
     end
 
     create :register_connected do
@@ -278,6 +280,8 @@ defmodule ServiceRadar.Infrastructure.Agent do
         |> Ash.Changeset.change_attribute(:status, :connected)
         |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
+
+      change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
     end
 
     update :update do

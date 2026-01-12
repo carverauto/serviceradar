@@ -1,29 +1,50 @@
 ## ADDED Requirements
-### Requirement: SRQL grouped boolean expressions
-The SRQL service SHALL support grouped boolean expressions using parentheses and the `OR` keyword, while whitespace between clauses continues to imply AND.
 
-#### Scenario: OR group inside an AND query
-- **GIVEN** a devices query with a hostname filter
-- **WHEN** a client sends `in:devices (tags.env:prod OR tags.env:stage) hostname:%db%`
-- **THEN** SRQL returns devices that match either tag clause and the hostname filter.
+### Requirement: SweepCompiler uses SRQL for target extraction
+The SweepCompiler SHALL use SRQL queries to extract target IP addresses from device criteria, ensuring consistency between preview counts and compiled target lists.
 
-#### Scenario: Nested group parsing
-- **GIVEN** a query with nested parentheses
-- **WHEN** a client sends `in:devices (ip:10.0.0.0/24 OR (vendor_name:Cisco OR vendor_name:Juniper))`
-- **THEN** SRQL parses the grouping without changing the meaning of the query.
+#### Scenario: Criteria compiled to SRQL for target extraction
+- **GIVEN** a SweepGroup with `target_criteria = %{"discovery_sources" => %{"contains" => "armis"}}`
+- **WHEN** the SweepCompiler compiles the group
+- **THEN** it executes `in:devices discovery_sources:armis select:ip` and returns matching IPs as targets.
 
-### Requirement: Sweep criteria builder emits grouped SRQL
-The web-ng sweep target criteria builder SHALL allow users to group rules with match-any/all semantics and SHALL emit SRQL that matches the selected grouping.
+#### Scenario: Multiple criteria combined with AND
+- **GIVEN** a SweepGroup with `target_criteria` containing discovery_sources and partition rules
+- **WHEN** the SweepCompiler compiles the group
+- **THEN** it executes `in:devices discovery_sources:armis partition:datacenter-1 select:ip` (space-separated = AND).
 
-#### Scenario: Match-any group generates OR
-- **GIVEN** a criteria group configured with match-any and two tag rules
-- **WHEN** the builder generates SRQL for preview
-- **THEN** it produces a parenthesized OR group, for example `(tags.env:prod OR tags.env:stage)`.
-
-### Requirement: Device criteria operators are exposed in the builder
-The sweep criteria builder SHALL expose device operators that map to SRQL list membership, numeric comparisons, and IP CIDR/range matching.
+### Requirement: Device criteria operators are exposed in the targeting rules UI
+The sweep targeting rules UI SHALL expose device operators that map to TargetCriteria operators including list membership, numeric comparisons, IP CIDR/range matching, and tag matching.
 
 #### Scenario: IP CIDR operator
 - **GIVEN** a rule with field `ip` and operator `in_cidr`
 - **WHEN** the builder generates SRQL
 - **THEN** it emits `ip:<cidr>` with proper SRQL escaping.
+
+#### Scenario: Discovery sources operator
+- **GIVEN** a rule with field `discovery_sources` and operator `contains`
+- **WHEN** the builder generates SRQL with value `armis`
+- **THEN** it emits `discovery_sources:armis`.
+
+### Requirement: Preview counts use SRQL queries
+The sweep targeting rules UI SHALL show accurate device preview counts by executing SRQL queries against the device inventory.
+
+#### Scenario: Preview count matches compiled targets
+- **GIVEN** a targeting rule for `discovery_sources contains armis`
+- **WHEN** the UI shows a preview count of 47 devices
+- **THEN** the compiled target list from SweepCompiler contains exactly 47 IPs.
+
+### Requirement: Config refresh on device inventory changes
+The system SHALL periodically refresh sweep configs when the SRQL result set changes due to device inventory updates.
+
+#### Scenario: New device matches criteria
+- **GIVEN** a SweepGroup with criteria `discovery_sources contains armis`
+- **AND** a new device is discovered with `discovery_sources = ["armis"]`
+- **WHEN** the `SweepConfigRefreshWorker` runs
+- **THEN** it detects the target hash changed and invalidates the config cache.
+
+#### Scenario: Device attribute changes to match criteria
+- **GIVEN** a SweepGroup with criteria `partition eq datacenter-1`
+- **AND** a device's partition is updated from `datacenter-2` to `datacenter-1`
+- **WHEN** the `SweepConfigRefreshWorker` runs
+- **THEN** the device is now included in the compiled target list.

@@ -154,7 +154,7 @@ defmodule ServiceRadar.Oban.TenantWorker do
 
       defp execute_with_tenant(args, tenant_id, job) do
         try do
-          case perform_for_tenant(args, tenant_id, job) do
+          case apply(__MODULE__, :perform_for_tenant, [args, tenant_id, job]) do
             :ok ->
               if function_exported?(__MODULE__, :on_success, 3) do
                 __MODULE__.on_success(args, tenant_id, :ok)
@@ -202,7 +202,13 @@ defmodule ServiceRadar.Oban.TenantWorker do
       end
 
       # Allow workers to override these defaults
-      defoverridable enqueue: 3, queue_type: 0
+      @impl ServiceRadar.Oban.TenantWorker
+      def on_success(_args, _tenant_id, _result), do: :ok
+
+      @impl ServiceRadar.Oban.TenantWorker
+      def on_failure(_args, _tenant_id, _error, _job), do: :ok
+
+      defoverridable enqueue: 3, queue_type: 0, on_success: 3, on_failure: 4
     end
   end
 end

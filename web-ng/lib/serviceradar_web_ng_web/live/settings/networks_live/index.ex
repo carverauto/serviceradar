@@ -13,7 +13,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias AshPhoenix.Form
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepGroupExecution, SweepProfile, SweepPubSub}
+
+  alias ServiceRadar.SweepJobs.{
+    CriteriaQuery,
+    SweepGroup,
+    SweepGroupExecution,
+    SweepProfile,
+    SweepPubSub
+  }
 
   @refresh_interval :timer.seconds(15)
 
@@ -949,9 +956,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <.running_scan_card
               execution={execution}
               group={Map.get(@groups_map, execution.sweep_group_id)}
-              progress={
-                Map.get(@execution_progress, execution.execution_id || execution.id)
-              }
+              progress={Map.get(@execution_progress, execution.execution_id || execution.id)}
             />
           <% end %>
         </div>
@@ -1248,7 +1253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of {@hosts_processed} hosts</span>
+            <span> of  {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -2292,150 +2297,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Device count query using SRQL
   defp get_matching_device_count(scope, criteria) do
-    srql_query = criteria_to_srql_query(criteria)
+    full_query = CriteriaQuery.count_query(criteria)
+    srql_module = Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
 
-    if srql_query == "" do
-      nil
-    else
-      srql_module =
-        Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
-
-      full_query = ~s|in:devices #{srql_query} stats:"count() as total"|
-
-      case srql_module.query(full_query, %{scope: scope}) do
-        {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
-        _ -> nil
-      end
+    case srql_module.query(full_query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) -> count
+      _ -> nil
     end
   end
-
-  defp criteria_to_srql_query(criteria) when criteria == %{}, do: ""
-
-  defp criteria_to_srql_query(criteria) when is_map(criteria) do
-    clauses =
-      criteria
-      |> Enum.map(fn {field, spec} -> criteria_clause(field, spec) end)
-      |> Enum.reject(fn clause -> is_nil(clause) or clause == "" end)
-
-    Enum.join(clauses, " ")
-  end
-
-  defp criteria_clause(field, spec) when is_map(spec) do
-    case Map.to_list(spec) do
-      [{operator, value}] -> clause_for_operator(field, operator, value)
-      _ -> ""
-    end
-  end
-
-  defp criteria_clause(_field, _spec), do: ""
-
-  defp clause_for_operator("tags", operator, tags) when operator in ["has_any", "has_all"] do
-    tags_to_srql(tags, operator)
-  end
-
-  defp clause_for_operator("discovery_sources", "contains", value) do
-    "discovery_sources:#{escape_srql_value(value)}"
-  end
-
-  defp clause_for_operator("discovery_sources", "not_contains", value) do
-    "!discovery_sources:#{escape_srql_value(value)}"
-  end
-
-  defp clause_for_operator("ip", "in_cidr", cidr),
-    do: "ip:#{escape_srql_value(to_string(cidr))}"
-
-  defp clause_for_operator("ip", "not_in_cidr", cidr),
-    do: "!ip:#{escape_srql_value(to_string(cidr))}"
-
-  defp clause_for_operator("ip", "in_range", range),
-    do: "ip:#{escape_srql_value(to_string(range))}"
-
-  defp clause_for_operator(_field, operator, _value)
-       when operator in ["is_null", "is_not_null"] do
-    nil
-  end
-
-  defp clause_for_operator(field, "eq", value), do: "#{field}:#{escape_srql_value(value)}"
-  defp clause_for_operator(field, "neq", value), do: "!#{field}:#{escape_srql_value(value)}"
-
-  defp clause_for_operator(field, "contains", value),
-    do: "#{field}:#{escape_srql_value("%#{value}%")}"
-
-  defp clause_for_operator(field, "not_contains", value),
-    do: "!#{field}:#{escape_srql_value("%#{value}%")}"
-
-  defp clause_for_operator(field, "starts_with", value),
-    do: "#{field}:#{escape_srql_value("#{value}%")}"
-
-  defp clause_for_operator(field, "ends_with", value),
-    do: "#{field}:#{escape_srql_value("%#{value}")}"
-
-  defp clause_for_operator(field, "gt", value), do: "#{field}:>#{escape_srql_value(value)}"
-  defp clause_for_operator(field, "gte", value), do: "#{field}:>=#{escape_srql_value(value)}"
-  defp clause_for_operator(field, "lt", value), do: "#{field}:<#{escape_srql_value(value)}"
-  defp clause_for_operator(field, "lte", value), do: "#{field}:<=#{escape_srql_value(value)}"
-  defp clause_for_operator(field, "in", value), do: build_list_clause(field, value, false)
-  defp clause_for_operator(field, "not_in", value), do: build_list_clause(field, value, true)
-  defp clause_for_operator(_field, _operator, _value), do: ""
-
-  defp tags_to_srql(tags, operator) when is_list(tags) do
-    clauses =
-      tags
-      |> Enum.map(&tag_to_srql/1)
-      |> Enum.reject(&(&1 == ""))
-
-    case clauses do
-      [] ->
-        ""
-
-      _ ->
-        separator = if operator == "has_any", do: " OR ", else: " "
-        "(" <> Enum.join(clauses, separator) <> ")"
-    end
-  end
-
-  defp tags_to_srql(_tags, _operator), do: ""
-
-  defp tag_to_srql(tag) do
-    value = to_string(tag) |> String.trim()
-
-    case String.split(value, "=", parts: 2) do
-      [key, val] when key != "" and val != "" ->
-        "tags.#{key}:#{escape_srql_value(val)}"
-
-      [key] when key != "" ->
-        "tags:#{escape_srql_value(key)}"
-
-      _ ->
-        ""
-    end
-  end
-
-  defp build_list_clause(field, values, negated) when is_list(values) do
-    escaped = Enum.map_join(values, ",", &escape_srql_value/1)
-
-    prefix = if negated, do: "!", else: ""
-    "#{prefix}#{field}:(#{escaped})"
-  end
-
-  defp build_list_clause(field, value, negated) do
-    build_list_clause(field, parse_list(to_string(value)), negated)
-  end
-
-  defp escape_srql_value(value) when is_binary(value) do
-    escaped =
-      value
-      |> String.replace("\\", "\\\\")
-      |> String.replace("\"", "\\\"")
-
-    if String.match?(value, ~r/[\s":()]/) do
-      "\"#{escaped}\""
-    else
-      escaped
-    end
-  end
-
-  defp escape_srql_value(value), do: to_string(value)
 
   defp normalize_static_targets(params) when is_map(params) do
     case Map.get(params, "static_targets") do

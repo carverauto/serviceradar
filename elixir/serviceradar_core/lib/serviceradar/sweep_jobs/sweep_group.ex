@@ -78,6 +78,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       ]
 
       change ServiceRadar.Changes.AssignTenantId
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
 
       validate fn changeset, _context ->
         validate_target_criteria(changeset)
@@ -104,6 +105,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :profile_id
       ]
 
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
+
       validate fn changeset, _context ->
         validate_target_criteria(changeset)
       end
@@ -111,6 +114,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
     update :enable do
       change set_attribute(:enabled, true)
+      change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
     end
 
     update :disable do

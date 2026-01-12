@@ -144,7 +144,11 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   def to_ash_filter(criteria) when is_map(criteria) do
     Enum.flat_map(criteria, fn {field, operator_spec} ->
       field_atom = to_atom_key(field)
-      build_ash_condition(field_atom, operator_spec)
+
+      case build_ash_condition(field_atom, field, operator_spec) do
+        {:ok, conditions} -> conditions
+        {:unsupported, _} -> []
+      end
     end)
   end
 
@@ -362,30 +366,139 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   defp tag_entry_match?(_tags, _entry), do: false
 
   # Ash filter building
+  #
+  # Returns a tuple of {ash_filters, unsupported_criteria}
+  # where unsupported_criteria need to be handled via in-memory filtering
 
-  defp build_ash_condition(nil, _operator_spec), do: []
-  defp build_ash_condition(field, %{"eq" => value}), do: [{field, value}]
-  defp build_ash_condition(field, %{"neq" => value}), do: [{:not, [{field, value}]}]
+  @doc """
+  Converts criteria to Ash filter expression and returns unsupported criteria separately.
 
-  defp build_ash_condition(field, %{"in" => values}) do
-    [{field, [in: values]}]
+  Returns `{ash_filters, unsupported_criteria}` tuple where:
+  - `ash_filters` can be applied directly to Ash.Query
+  - `unsupported_criteria` must be handled via in-memory filtering (e.g., CIDR matching)
+  """
+  @spec to_ash_filter_with_fallback(criteria()) :: {Keyword.t(), criteria()}
+  def to_ash_filter_with_fallback(criteria) when criteria == %{}, do: {[], %{}}
+
+  def to_ash_filter_with_fallback(criteria) when is_map(criteria) do
+    {ash_filters, unsupported} =
+      Enum.reduce(criteria, {[], %{}}, fn {field, operator_spec}, {filters_acc, unsupported_acc} ->
+        field_atom = to_atom_key(field)
+
+        case build_ash_condition(field_atom, field, operator_spec) do
+          {:ok, conditions} when conditions != [] ->
+            {filters_acc ++ conditions, unsupported_acc}
+
+          {:unsupported, _reason} ->
+            {filters_acc, Map.put(unsupported_acc, field, operator_spec)}
+
+          _ ->
+            {filters_acc, unsupported_acc}
+        end
+      end)
+
+    {ash_filters, unsupported}
   end
 
-  defp build_ash_condition(field, %{"not_in" => values}) do
-    [{:not, [{field, [in: values]}]}]
+  defp build_ash_condition(nil, _field_string, _operator_spec), do: {:ok, []}
+
+  # Equality operators
+  defp build_ash_condition(field, _field_string, %{"eq" => value}) when is_atom(field) do
+    {:ok, [{field, value}]}
   end
 
-  defp build_ash_condition(field, %{"gt" => value}), do: [{field, [gt: value]}]
-  defp build_ash_condition(field, %{"gte" => value}), do: [{field, [gte: value]}]
-  defp build_ash_condition(field, %{"lt" => value}), do: [{field, [lt: value]}]
-  defp build_ash_condition(field, %{"lte" => value}), do: [{field, [lte: value]}]
+  defp build_ash_condition(field, _field_string, %{"neq" => value}) when is_atom(field) do
+    {:ok, [{:not, [{field, value}]}]}
+  end
 
-  defp build_ash_condition(field, %{"is_null" => true}), do: [{field, [is_nil: true]}]
-  defp build_ash_condition(field, %{"is_null" => false}), do: [{:not, [{field, [is_nil: true]}]}]
+  # List membership
+  defp build_ash_condition(field, _field_string, %{"in" => values}) when is_atom(field) do
+    {:ok, [{field, [in: values]}]}
+  end
 
-  # For operators that need custom handling (contains, cidr, etc.)
-  # these will need to be handled specially in the query layer
-  defp build_ash_condition(_field, _operator_spec), do: []
+  defp build_ash_condition(field, _field_string, %{"not_in" => values}) when is_atom(field) do
+    {:ok, [{:not, [{field, [in: values]}]}]}
+  end
+
+  # Numeric comparisons
+  defp build_ash_condition(field, _field_string, %{"gt" => value}) when is_atom(field) do
+    {:ok, [{field, [gt: value]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"gte" => value}) when is_atom(field) do
+    {:ok, [{field, [gte: value]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"lt" => value}) when is_atom(field) do
+    {:ok, [{field, [lt: value]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"lte" => value}) when is_atom(field) do
+    {:ok, [{field, [lte: value]}]}
+  end
+
+  # Null checks
+  defp build_ash_condition(field, _field_string, %{"is_null" => true}) when is_atom(field) do
+    {:ok, [{field, [is_nil: true]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"is_null" => false}) when is_atom(field) do
+    {:ok, [{:not, [{field, [is_nil: true]}]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"is_not_null" => true}) when is_atom(field) do
+    {:ok, [{:not, [{field, [is_nil: true]}]}]}
+  end
+
+  # String contains (using ilike for case-insensitive matching)
+  defp build_ash_condition(field, _field_string, %{"contains" => value}) when is_atom(field) do
+    {:ok, [{field, [ilike: "%#{value}%"]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"starts_with" => value}) when is_atom(field) do
+    {:ok, [{field, [ilike: "#{value}%"]}]}
+  end
+
+  defp build_ash_condition(field, _field_string, %{"ends_with" => value}) when is_atom(field) do
+    {:ok, [{field, [ilike: "%#{value}"]}]}
+  end
+
+  # Array contains for discovery_sources (PostgreSQL array @> operator)
+  # This uses Ash's `contains` operator which maps to @> for arrays
+  defp build_ash_condition(:discovery_sources, _field_string, %{"contains" => value}) do
+    {:ok, [{:discovery_sources, [contains: value]}]}
+  end
+
+  defp build_ash_condition(:discovery_sources, _field_string, %{"not_contains" => value}) do
+    {:ok, [{:not, [{:discovery_sources, [contains: value]}]}]}
+  end
+
+  # CIDR and range matching - not directly supported in Ash, needs in-memory filtering
+  defp build_ash_condition(_field, "ip", %{"in_cidr" => _cidr}) do
+    {:unsupported, :in_cidr}
+  end
+
+  defp build_ash_condition(_field, "ip", %{"not_in_cidr" => _cidr}) do
+    {:unsupported, :not_in_cidr}
+  end
+
+  defp build_ash_condition(_field, "ip", %{"in_range" => _range}) do
+    {:unsupported, :in_range}
+  end
+
+  # Tags operators - need in-memory filtering due to JSONB complexity
+  defp build_ash_condition(_field, "tags", %{"has_any" => _tags}) do
+    {:unsupported, :has_any}
+  end
+
+  defp build_ash_condition(_field, "tags", %{"has_all" => _tags}) do
+    {:unsupported, :has_all}
+  end
+
+  # Fallback for unsupported operators
+  defp build_ash_condition(_field, _field_string, _operator_spec) do
+    {:unsupported, :unknown_operator}
+  end
 
   # Validation
 
