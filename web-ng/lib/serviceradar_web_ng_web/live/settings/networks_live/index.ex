@@ -415,39 +415,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     rules =
       Enum.map(socket.assigns.criteria_rules, fn rule ->
-        if rule.id == id do
-          rule =
-            if field && field != rule.field do
-              new_value = if boolean_field?(field), do: "true", else: ""
-
-              %{
-                rule
-                | field: field,
-                  operator: default_operator_for(field),
-                  value: new_value
-              }
-            else
-              rule
-            end
-
-          rule =
-            if operator do
-              %{
-                rule
-                | operator: ensure_operator_for_field(rule.field, operator)
-              }
-            else
-              rule
-            end
-
-          if value != nil do
-            %{rule | value: value}
-          else
-            rule
-          end
-        else
-          rule
-        end
+        apply_rule_update(rule, id, field, operator, value)
       end)
 
     socket =
@@ -472,6 +440,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       assign(socket, :target_count, nil)
     end
   end
+
+  defp apply_rule_update(rule, id, _field, _operator, _value) when rule.id != id, do: rule
+
+  defp apply_rule_update(rule, _id, field, operator, value) do
+    rule
+    |> maybe_update_rule_field(field)
+    |> maybe_update_rule_operator(operator)
+    |> maybe_update_rule_value(value)
+  end
+
+  defp maybe_update_rule_field(rule, nil), do: rule
+  defp maybe_update_rule_field(rule, field) when field == rule.field, do: rule
+
+  defp maybe_update_rule_field(rule, field) do
+    new_value = if boolean_field?(field), do: "true", else: ""
+
+    %{
+      rule
+      | field: field,
+        operator: default_operator_for(field),
+        value: new_value
+    }
+  end
+
+  defp maybe_update_rule_operator(rule, nil), do: rule
+
+  defp maybe_update_rule_operator(rule, operator) do
+    %{rule | operator: ensure_operator_for_field(rule.field, operator)}
+  end
+
+  defp maybe_update_rule_value(rule, nil), do: rule
+  defp maybe_update_rule_value(rule, value), do: %{rule | value: value}
 
   defp update_target_count(socket) do
     criteria = rules_to_criteria(socket.assigns.criteria_rules)
@@ -953,22 +953,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     available_hosts =
       Enum.reduce(completed_recent, 0, fn e, acc -> acc + (e.hosts_available || 0) end)
 
-    avg_success_rate =
-      if length(completed_recent) > 0 do
-        completed_recent
-        |> Enum.map(fn e ->
-          if e.hosts_total && e.hosts_total > 0 do
-            (e.hosts_available || 0) / e.hosts_total * 100
-          else
-            0
-          end
-        end)
-        |> Enum.sum()
-        |> Kernel./(length(completed_recent))
-        |> Float.round(1)
-      else
-        0.0
-      end
+    avg_success_rate = average_success_rate(completed_recent)
 
     failed_count = Enum.count(assigns.recent, &(&1.status == :failed))
 
@@ -1059,6 +1044,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       </div>
     </div>
     """
+  end
+
+  defp average_success_rate([]), do: 0.0
+
+  defp average_success_rate(executions) do
+    executions
+    |> Enum.map(&execution_success_rate/1)
+    |> Enum.sum()
+    |> Kernel./(length(executions))
+    |> Float.round(1)
+  end
+
+  defp execution_success_rate(execution) do
+    case execution.hosts_total do
+      total when is_integer(total) and total > 0 ->
+        (execution.hosts_available || 0) / total * 100
+
+      _ ->
+        0
+    end
   end
 
   defp aggregate_scanner_metrics(executions) do
@@ -1184,7 +1189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of  {@hosts_processed} hosts</span>
+            <span> of   {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -1418,7 +1423,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     cond do
       diff_seconds < 60 -> "#{diff_seconds}s ago"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
-      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)}h ago"
+      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
       true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
     end
   end
@@ -2083,7 +2088,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp format_rule_value(operator, value) when operator in @list_operators and is_list(value) do
-    Enum.map(value, &to_string/1) |> Enum.join(", ")
+    Enum.map_join(value, ", ", &to_string/1)
   end
 
   defp format_rule_value(_operator, value), do: to_string(value)
@@ -2167,20 +2172,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       operator = rule.operator || default_operator_for(field)
 
       case normalize_rule_value(field, operator, rule.value) do
-        :skip ->
-          acc
-
-        {:ok, value} ->
-          case Map.get(acc, field) do
-            %{^operator => existing}
-            when field == "tags" and is_list(existing) and is_list(value) ->
-              Map.put(acc, field, %{operator => Enum.uniq(existing ++ value)})
-
-            _ ->
-              Map.put(acc, field, %{operator => value})
-          end
+        :skip -> acc
+        {:ok, value} -> merge_rule_criteria(acc, field, operator, value)
       end
     end)
+  end
+
+  defp merge_rule_criteria(acc, "tags" = field, operator, value) when is_list(value) do
+    case Map.get(acc, field) do
+      %{^operator => existing} when is_list(existing) ->
+        Map.put(acc, field, %{operator => Enum.uniq(existing ++ value)})
+
+      _ ->
+        Map.put(acc, field, %{operator => value})
+    end
+  end
+
+  defp merge_rule_criteria(acc, field, operator, value) do
+    Map.put(acc, field, %{operator => value})
   end
 
   defp criteria_to_rules(criteria) when criteria == %{} or criteria == nil, do: []
@@ -2265,23 +2274,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     nil
   end
 
-  defp clause_for_operator(field, operator, value) do
-    case operator do
-      "eq" -> "#{field}:#{escape_srql_value(value)}"
-      "neq" -> "!#{field}:#{escape_srql_value(value)}"
-      "contains" -> "#{field}:#{escape_srql_value("%#{value}%")}"
-      "not_contains" -> "!#{field}:#{escape_srql_value("%#{value}%")}"
-      "starts_with" -> "#{field}:#{escape_srql_value("#{value}%")}"
-      "ends_with" -> "#{field}:#{escape_srql_value("%#{value}")}"
-      "gt" -> "#{field}:>#{escape_srql_value(value)}"
-      "gte" -> "#{field}:>=#{escape_srql_value(value)}"
-      "lt" -> "#{field}:<#{escape_srql_value(value)}"
-      "lte" -> "#{field}:<=#{escape_srql_value(value)}"
-      "in" -> build_list_clause(field, value, false)
-      "not_in" -> build_list_clause(field, value, true)
-      _ -> ""
-    end
-  end
+  defp clause_for_operator(field, "eq", value), do: "#{field}:#{escape_srql_value(value)}"
+  defp clause_for_operator(field, "neq", value), do: "!#{field}:#{escape_srql_value(value)}"
+
+  defp clause_for_operator(field, "contains", value),
+    do: "#{field}:#{escape_srql_value("%#{value}%")}"
+
+  defp clause_for_operator(field, "not_contains", value),
+    do: "!#{field}:#{escape_srql_value("%#{value}%")}"
+
+  defp clause_for_operator(field, "starts_with", value),
+    do: "#{field}:#{escape_srql_value("#{value}%")}"
+
+  defp clause_for_operator(field, "ends_with", value),
+    do: "#{field}:#{escape_srql_value("%#{value}")}"
+
+  defp clause_for_operator(field, "gt", value), do: "#{field}:>#{escape_srql_value(value)}"
+  defp clause_for_operator(field, "gte", value), do: "#{field}:>=#{escape_srql_value(value)}"
+  defp clause_for_operator(field, "lt", value), do: "#{field}:<#{escape_srql_value(value)}"
+  defp clause_for_operator(field, "lte", value), do: "#{field}:<=#{escape_srql_value(value)}"
+  defp clause_for_operator(field, "in", value), do: build_list_clause(field, value, false)
+  defp clause_for_operator(field, "not_in", value), do: build_list_clause(field, value, true)
+  defp clause_for_operator(_field, _operator, _value), do: ""
 
   defp tags_to_srql(tags, operator) when is_list(tags) do
     clauses =
@@ -2317,10 +2331,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp build_list_clause(field, values, negated) when is_list(values) do
-    escaped =
-      values
-      |> Enum.map(&escape_srql_value/1)
-      |> Enum.join(",")
+    escaped = Enum.map_join(values, ",", &escape_srql_value/1)
 
     prefix = if negated, do: "!", else: ""
     "#{prefix}#{field}:(#{escaped})"

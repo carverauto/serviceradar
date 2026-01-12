@@ -219,18 +219,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp apply_tags_to_devices(scope, socket, tags) do
-    uids = get_selected_uids(socket)
+    case get_selected_uids(socket) do
+      [] ->
+        {:error, "No devices selected"}
 
-    if uids == [] do
-      {:error, "No devices selected"}
-    else
-      Enum.reduce_while(uids, {:ok, 0}, fn uid, {:ok, count} ->
-        case update_device_tags(scope, uid, tags) do
-          :ok -> {:cont, {:ok, count + 1}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      uids ->
+        update_tags_for_uids(scope, uids, tags)
     end
+  end
+
+  defp update_tags_for_uids(scope, uids, tags) do
+    Enum.reduce_while(uids, {:ok, 0}, fn uid, {:ok, count} ->
+      case update_device_tags(scope, uid, tags) do
+        :ok -> {:cont, {:ok, count + 1}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp update_device_tags(scope, uid, tags) do
@@ -258,29 +262,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.reduce(%{}, fn entry, acc ->
-      case String.split(entry, "=", parts: 2) do
-        [key, value] ->
-          key = String.trim(key)
-
-          if key == "" do
-            acc
-          else
-            Map.put(acc, key, String.trim(value))
-          end
-
-        [key] ->
-          key = String.trim(key)
-
-          if key == "" do
-            acc
-          else
-            Map.put(acc, key, "")
-          end
+      case parse_tag_entry(entry) do
+        {:ok, key, value} -> Map.put(acc, key, value)
+        :skip -> acc
       end
     end)
   end
 
   defp parse_bulk_tags(_), do: %{}
+
+  defp parse_tag_entry(entry) do
+    case String.split(entry, "=", parts: 2) do
+      [key, value] -> normalize_tag_entry(key, value)
+      [key] -> normalize_tag_entry(key, "")
+    end
+  end
+
+  defp normalize_tag_entry(key, value) do
+    key = String.trim(key)
+
+    if key == "" do
+      :skip
+    else
+      {:ok, key, String.trim(value)}
+    end
+  end
 
   @impl true
   def render(assigns) do
@@ -1162,14 +1168,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_changeset_errors(changeset) do
     case changeset do
       %Ash.Changeset{errors: errors} when is_list(errors) and errors != [] ->
-        errors
-        |> Enum.map(&format_single_error/1)
-        |> Enum.join(", ")
+        Enum.map_join(errors, ", ", &format_single_error/1)
 
       %Ecto.Changeset{errors: errors} when is_list(errors) and errors != [] ->
-        errors
-        |> Enum.map(fn {field, {msg, _opts}} -> "#{field}: #{msg}" end)
-        |> Enum.join(", ")
+        Enum.map_join(errors, ", ", fn {field, {msg, _opts}} -> "#{field}: #{msg}" end)
 
       _ ->
         "Unknown error"
