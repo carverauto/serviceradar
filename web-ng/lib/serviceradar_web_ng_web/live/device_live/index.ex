@@ -285,7 +285,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       atomic_update: %{
         tags:
           expr(
-            fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ref(:tags), ^new_tags)
+            fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ^ref(:tags), ^new_tags)
           )
       }
     )
