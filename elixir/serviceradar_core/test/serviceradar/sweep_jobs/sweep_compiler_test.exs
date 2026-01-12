@@ -67,6 +67,26 @@ defmodule ServiceRadar.SweepJobs.SweepCompilerTest do
     end
   end
 
+  describe "config hash" do
+    test "config_hash is deterministic regardless of group ordering" do
+      group_a = %{"id" => "a", "name" => "Group A"}
+      group_b = %{"id" => "b", "name" => "Group B"}
+
+      hash_one = SweepCompiler.config_hash([group_a, group_b])
+      hash_two = SweepCompiler.config_hash([group_b, group_a])
+
+      assert is_binary(hash_one)
+      assert hash_one == hash_two
+    end
+
+    test "config_hash changes when group content changes" do
+      group = %{"id" => "a", "name" => "Group A"}
+      updated = %{"id" => "a", "name" => "Group A+", "ports" => [22]}
+
+      refute SweepCompiler.config_hash([group]) == SweepCompiler.config_hash([updated])
+    end
+  end
+
   describe "target_criteria DSL" do
     test "empty criteria matches all devices" do
       device = %{hostname: "server1", ip: "10.0.1.5"}

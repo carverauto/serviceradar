@@ -74,7 +74,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         |> Enum.reject(&is_nil/1)
 
       # Compute config hash for change detection
-      config_hash = compute_config_hash(compiled_groups)
+      config_hash = config_hash(compiled_groups)
 
       config = %{
         "groups" => compiled_groups,
@@ -102,6 +102,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       true ->
         :ok
     end
+  end
+
+  @doc """
+  Computes a deterministic config hash for compiled sweep groups.
+  """
+  @spec config_hash([map()]) :: String.t()
+  def config_hash(compiled_groups) when is_list(compiled_groups) do
+    compute_config_hash(compiled_groups)
   end
 
   # Private helpers
@@ -244,6 +252,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp merge_ports(nil, group), do: group.ports || []
+
   defp merge_ports(profile, group) do
     # Group ports override profile ports if set
     case group.ports do
@@ -253,6 +262,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp merge_modes(nil, group), do: group.sweep_modes || ["icmp", "tcp"]
+
   defp merge_modes(profile, group) do
     case group.sweep_modes do
       nil -> profile.sweep_modes || ["icmp", "tcp"]

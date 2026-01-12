@@ -95,6 +95,14 @@ For detailed edge agent documentation, see [Edge Agents](./edge-agents.md).
 - **Duplicate devices**: Enable canonical matching in the embedded sync runtime so NetBox and Armis merges succeed.
 - **Sweep failures**: Check gateway network reachability and throttling limits.
 
+## Network Sweeps
+
+- **No devices match**: Confirm target criteria in Settings > Networks and verify tags exist on devices.
+- **Sweep never runs**: Ensure the group is enabled and has a valid schedule (interval or cron).
+- **No results arriving**: Check agent logs for sweep execution, and gateway logs for streaming/forwarding errors.
+- **Unexpected targets**: Review static targets and criteria operators (especially `has_any` vs `has_all`).
+- **Stale availability**: Confirm agents are polling for new configs and that the gateway is reachable.
+
 ## Integrations
 
 ### Armis

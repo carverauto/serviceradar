@@ -161,14 +161,14 @@
 ## Phase 7: Testing & Documentation
 
 ### 7.1 Tests
-- [ ] 7.1.1 Unit tests for TargetCriteria DSL parser
-- [ ] 7.1.2 Unit tests for SweepCompiler
-- [ ] 7.1.3 Integration tests for config distribution flow
-- [ ] 7.1.4 LiveView tests for Settings > Networks
-- [ ] 7.1.5 E2E test for sweep group → agent config → results
+- [x] 7.1.1 Unit tests for TargetCriteria DSL parser
+- [x] 7.1.2 Unit tests for SweepCompiler
+- [x] 7.1.3 Integration tests for config distribution flow
+- [x] 7.1.4 LiveView tests for Settings > Networks
+- [x] 7.1.5 E2E test for sweep group → agent config → results
 
 ### 7.2 Documentation
-- [ ] 7.2.1 Update admin guide with Networks settings
-- [ ] 7.2.2 Document sweep group configuration options
-- [ ] 7.2.3 Document device targeting criteria syntax
-- [ ] 7.2.4 Add troubleshooting guide for sweep issues
+- [x] 7.2.1 Update admin guide with Networks settings
+- [x] 7.2.2 Document sweep group configuration options
+- [x] 7.2.3 Document device targeting criteria syntax
+- [x] 7.2.4 Add troubleshooting guide for sweep issues
