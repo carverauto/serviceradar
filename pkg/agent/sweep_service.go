@@ -59,7 +59,8 @@ func NewSweepService(
 ) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
-	store := sweeper.NewInMemoryStore(processor, log)
+	storeOptions := sweeper.StoreOptionsForConfig(config)
+	store := sweeper.NewInMemoryStore(processor, log, storeOptions...)
 
 	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log)
 	if err != nil {

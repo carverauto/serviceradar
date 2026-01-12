@@ -58,6 +58,7 @@ type NetworkSweeper struct {
 	logger            logger.Logger
 	mu                sync.RWMutex
 	done              chan struct{}
+	stopped           bool
 	lastSweep         time.Time
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
@@ -373,7 +374,15 @@ func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
 
-	s.ensureControlChannels()
+	done := s.ensureControlChannels()
+
+	select {
+	case <-done:
+		s.logger.Info().Msg("Sweep already stopped, skipping start")
+		return nil
+	default:
+	}
+
 	s.ensureScannersInitialized()
 
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
@@ -402,7 +411,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.logger.Info().Msg("Context canceled, stopping sweeper")
 
 			return ctx.Err()
-		case <-s.done:
+		case <-done:
 			s.logger.Info().Msg("Received done signal, stopping sweeper")
 
 			return nil
@@ -429,46 +438,71 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 func (s *NetworkSweeper) Stop() error {
 	s.logger.Info().Msg("Stopping network sweeper")
 
-	if s.done == nil {
+	var done chan struct{}
+	alreadyStopped := false
+	var icmpScanner scan.Scanner
+	var tcpScanner scan.Scanner
+	var tcpConnectScanner scan.Scanner
+
+	s.mu.Lock()
+	alreadyStopped = s.stopped
+	s.stopped = true
+	done = s.done
+	icmpScanner = s.icmpScanner
+	s.icmpScanner = nil
+	tcpScanner = s.tcpScanner
+	s.tcpScanner = nil
+	tcpConnectScanner = s.tcpConnectScanner
+	s.tcpConnectScanner = nil
+	s.mu.Unlock()
+
+	if done == nil {
 		s.logger.Debug().Msg("Sweep service already stopped")
-		return nil
+	} else if alreadyStopped {
+		s.logger.Debug().Msg("Sweep service already stopped")
+	} else {
+		close(done)
 	}
 
-	close(s.done)
-
-	s.done = nil
-
-	if s.icmpScanner != nil {
-		if err := s.icmpScanner.Stop(); err != nil {
+	if icmpScanner != nil {
+		if err := icmpScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop ICMP scanner")
 		}
-		s.icmpScanner = nil
 	}
 
-	if s.tcpScanner != nil {
-		if err := s.tcpScanner.Stop(); err != nil {
+	if tcpScanner != nil {
+		if err := tcpScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop TCP scanner")
 		}
-		s.tcpScanner = nil
 	}
 
-	if s.tcpConnectScanner != nil {
-		if err := s.tcpConnectScanner.Stop(); err != nil {
+	if tcpConnectScanner != nil {
+		if err := tcpConnectScanner.Stop(); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop TCP connect scanner")
 		}
-		s.tcpConnectScanner = nil
 	}
 
 	return nil
 }
 
-func (s *NetworkSweeper) ensureControlChannels() {
+func (s *NetworkSweeper) ensureControlChannels() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.done == nil {
 		s.done = make(chan struct{})
+		if s.stopped {
+			close(s.done)
+		}
 	}
+
+	return s.done
 }
 
 func (s *NetworkSweeper) ensureScannersInitialized() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.icmpScanner == nil {
 		s.icmpScanner = initializeICMPScanner(s.config, s.logger)
 	}
@@ -758,6 +792,25 @@ func estimateTargetCount(config *models.Config) int {
 	return total
 }
 
+// StoreOptionsForConfig returns memory store options tuned to the sweep config.
+// It avoids large preallocations when there are few or zero targets.
+func StoreOptionsForConfig(config *models.Config) []InMemoryStoreOption {
+	if config == nil {
+		return nil
+	}
+
+	targets := estimateTargetCount(config)
+	if targets == 0 {
+		return []InMemoryStoreOption{WithoutPreallocation()}
+	}
+
+	if targets < defaultMaxResults {
+		return []InMemoryStoreOption{WithMaxResults(targets)}
+	}
+
+	return nil
+}
+
 // scanAndProcess runs a scan and processes its results.
 func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	scanner scan.Scanner, targets []models.Target, scanType string) error {
@@ -902,24 +955,30 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		}
 	}
 
+	s.mu.RLock()
+	icmpScanner := s.icmpScanner
+	tcpScanner := s.tcpScanner
+	tcpConnectScanner := s.tcpConnectScanner
+	s.mu.RUnlock()
+
 	s.logger.Info().
 		Int("icmpTargets", len(icmpTargets)).
 		Int("tcpTargets", len(tcpTargets)).
 		Int("tcpConnectTargets", len(tcpConnectTargets)).
-		Bool("icmpScannerAvailable", s.icmpScanner != nil).
-		Bool("tcpScannerAvailable", s.tcpScanner != nil).
-		Bool("tcpConnectScannerAvailable", s.tcpConnectScanner != nil).
+		Bool("icmpScannerAvailable", icmpScanner != nil).
+		Bool("tcpScannerAvailable", tcpScanner != nil).
+		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
 		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
 
-	if len(icmpTargets) > 0 && s.icmpScanner != nil {
+	if len(icmpTargets) > 0 && icmpScanner != nil {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "icmp"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, icmpScanner, icmpTargets, "icmp"); err != nil {
 				errChan <- err
 			}
 		}()
@@ -927,11 +986,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		s.logger.Warn().Int("icmpTargets", len(icmpTargets)).Msg("ICMP targets found but ICMP scanner is not available, skipping ICMP scan")
 	}
 
-	if len(tcpTargets) > 0 && s.tcpScanner != nil {
+	if len(tcpTargets) > 0 && tcpScanner != nil {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "tcp"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, "tcp"); err != nil {
 				errChan <- err
 			}
 		}()
@@ -939,11 +998,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		s.logger.Warn().Int("tcpTargets", len(tcpTargets)).Msg("TCP targets found but TCP scanner is not available, skipping TCP scan")
 	}
 
-	if len(tcpConnectTargets) > 0 && s.tcpConnectScanner != nil {
+	if len(tcpConnectTargets) > 0 && tcpConnectScanner != nil {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, s.tcpConnectScanner, tcpConnectTargets, "tcp_connect"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, tcpConnectScanner, tcpConnectTargets, "tcp_connect"); err != nil {
 				errChan <- err
 			}
 		}()
