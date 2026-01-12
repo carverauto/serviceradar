@@ -1,6 +1,6 @@
 ## 1. Create SystemActor Module
 - [x] 1.1 Create `lib/serviceradar/actors/system_actor.ex` with `for_tenant/2` and `platform/1` functions.
-- [ ] 1.2 Add unit tests for SystemActor module in `test/serviceradar/actors/system_actor_test.exs`.
+- [x] 1.2 Add unit tests for SystemActor module in `test/serviceradar/actors/system_actor_test.exs`.
 - [x] 1.3 Document SystemActor usage pattern in module docs.
 
 ## 2. Update Authorization Policies
@@ -84,9 +84,9 @@
 - [x] 9.15 Convert `unique_platform_tenant.ex` validation to use SystemActor.platform.
 
 ## 10. Regression Prevention
-- [ ] 10.1 Create custom Credo check for `authorize?: false` usage.
-- [ ] 10.2 Add Credo check to CI pipeline.
-- [ ] 10.3 Document SystemActor pattern in developer guide / CLAUDE.md.
+- [x] 10.1 Create custom Credo check for `authorize?: false` usage.
+- [x] 10.2 Add Credo check to CI pipeline.
+- [x] 10.3 Document SystemActor pattern in developer guide / CLAUDE.md.
 
 ## 11. Verification
 - [ ] 11.1 Run full test suite to verify no regressions.
