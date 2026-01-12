@@ -632,7 +632,7 @@ func TestNewKVManagerFromEnvWithRetryTimesOut(t *testing.T) {
 	t.Setenv("KV_SEC_MODE", "spiffe")
 	t.Setenv("KV_TRUST_DOMAIN", "carverauto.dev")
 	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc")
-	t.Setenv("KV_CONNECT_TIMEOUT", "25ms")
+	t.Setenv("KV_CONNECT_TIMEOUT", "100ms")
 	t.Setenv("KV_CONNECT_RETRY_BASE", "5ms")
 	t.Setenv("KV_CONNECT_RETRY_MAX", "5ms")
 

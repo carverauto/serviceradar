@@ -371,6 +371,9 @@ certificates. It consumes tenant streams directly and writes processed output
 back into the same tenant account. This avoids cross-account JetStream mirroring
 and duplicate storage.
 
+Zen remains a standalone Rust consumer deployed per tenant; re-hosting in Elixir
+with Rustler/NIFs is deferred to a future change.
+
 No separate per-tenant datasvc/KV service is required. KV remains a shared NATS
 deployment with per-account buckets enforced by NATS account boundaries.
 

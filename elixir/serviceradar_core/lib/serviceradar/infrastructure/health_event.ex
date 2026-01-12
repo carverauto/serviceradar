@@ -322,17 +322,21 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     require Ash.Query
     alias ServiceRadar.Actors.SystemActor
 
-    # Tenant-scoped actor since we're querying within a specific tenant
-    actor = SystemActor.for_tenant(tenant_id, :health_event)
+    if is_nil(tenant_id) or tenant_id == "" do
+      {:error, :tenant_id_missing}
+    else
+      # Tenant-scoped actor since we're querying within a specific tenant
+      actor = SystemActor.for_tenant(tenant_id, :health_event)
 
-    __MODULE__
-    |> Ash.Query.filter(
-      entity_type == ^entity_type and
-        entity_id == ^entity_id and
-        tenant_id == ^tenant_id
-    )
-    |> Ash.Query.sort(recorded_at: :desc)
-    |> Ash.Query.limit(1)
-    |> Ash.read_one(actor: actor)
+      __MODULE__
+      |> Ash.Query.filter(
+        entity_type == ^entity_type and
+          entity_id == ^entity_id and
+          tenant_id == ^tenant_id
+      )
+      |> Ash.Query.sort(recorded_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one(actor: actor)
+    end
   end
 end
