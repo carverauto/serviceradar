@@ -23,7 +23,7 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
 
   defp create_history_record(changeset, context) do
     # Get current values before they're updated
-    config_instance_id = Ash.Changeset.get_attribute(changeset, :id)
+    config_instance_id = Ash.Changeset.get_data(changeset, :id)
     current_version = Ash.Changeset.get_data(changeset, :version) || 0
     current_config = Ash.Changeset.get_data(changeset, :compiled_config) || %{}
     current_hash = Ash.Changeset.get_data(changeset, :content_hash) || ""

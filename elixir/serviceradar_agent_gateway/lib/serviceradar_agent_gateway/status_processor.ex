@@ -249,7 +249,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp should_buffer?(status) do
-    status[:source] == "results"
+    status[:source] in ["results", :results]
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do

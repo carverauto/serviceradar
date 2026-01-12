@@ -92,18 +92,27 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
         group_name: group.name
       )
     else
-      interval_seconds = parse_interval_to_seconds(group.interval)
-      expected_by = calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
+      case group.schedule_type do
+        :cron ->
+          Logger.debug("Skipping missed sweep check for cron schedule",
+            group_id: group.id,
+            group_name: group.name
+          )
 
-      if DateTime.compare(now, expected_by) == :gt do
-        # Sweep is overdue
-        emit_missed_sweep_log(group, tenant, now, expected_by)
-      else
-        Logger.debug("Sweep group is on schedule",
-          group_id: group.id,
-          group_name: group.name,
-          expected_by: expected_by
-        )
+        _ ->
+          interval_seconds = parse_interval_to_seconds(group.interval)
+          expected_by = calculate_expected_time(group.last_run_at, interval_seconds, grace_period_seconds)
+
+          if DateTime.compare(now, expected_by) == :gt do
+            # Sweep is overdue
+            emit_missed_sweep_log(group, tenant, now, expected_by)
+          else
+            Logger.debug("Sweep group is on schedule",
+              group_id: group.id,
+              group_name: group.name,
+              expected_by: expected_by
+            )
+          end
       end
     end
   end

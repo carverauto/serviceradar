@@ -179,7 +179,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
         from(d in {tenant_schema <> ".ocsf_devices", Device},
           where: d.uid in ^available_uids
         )
-        |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp])
+        |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp])
       end
 
       # Update unavailable devices

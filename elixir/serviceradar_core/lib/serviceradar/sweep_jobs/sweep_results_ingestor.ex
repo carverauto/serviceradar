@@ -396,6 +396,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Enum.map(&Map.get(device_map, &1))
       |> Enum.reject(&is_nil/1)
       |> Enum.map(& &1.canonical_device_id)
+      |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
     if length(available_ips) > 0 do

@@ -237,16 +237,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp apply_tags_to_devices(scope, socket, tags) do
     if socket.assigns.select_all_matching and
-         is_integer(socket.assigns.total_matching_count) and
-         socket.assigns.total_matching_count > 10_000 do
-      {:error, "Too many devices selected. Narrow your filters and try again."}
+         not is_integer(socket.assigns.total_matching_count) do
+      {:error, "Unable to determine selection size. Please try again."}
     else
-      case get_selected_uids(socket) do
-        [] ->
-          {:error, "No devices selected"}
+      if socket.assigns.select_all_matching and
+           socket.assigns.total_matching_count > 10_000 do
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+      else
+        case get_selected_uids(socket) do
+          [] ->
+            {:error, "No devices selected"}
 
-        uids ->
-          update_tags_for_uids(scope, uids, tags)
+          uids ->
+            update_tags_for_uids(scope, uids, tags)
+        end
       end
     end
   end
@@ -264,7 +268,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             scope: scope,
             return_records?: false,
             return_errors?: true,
-            atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
+            atomic_update: %{
+              tags:
+                expr(
+                  fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ref(:tags), ^new_tags)
+                )
+            }
           )
 
         case result do
@@ -1172,7 +1181,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         count
 
       _ ->
-        0
+        nil
     end
   end
 

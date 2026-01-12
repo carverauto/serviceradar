@@ -915,7 +915,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <.running_scan_card
               execution={execution}
               group={Map.get(@groups_map, execution.sweep_group_id)}
-              progress={Map.get(@execution_progress, execution.id)}
+              progress={
+                Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)
+              }
             />
           <% end %>
         </div>
@@ -2305,8 +2307,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     "!discovery_sources:#{escape_srql_value(value)}"
   end
 
+  defp clause_for_operator("ip", "in_cidr", cidr),
+    do: "ip:#{escape_srql_value(to_string(cidr))}"
+
+  defp clause_for_operator("ip", "not_in_cidr", cidr),
+    do: "!ip:#{escape_srql_value(to_string(cidr))}"
+
+  defp clause_for_operator("ip", "in_range", range),
+    do: "ip:#{escape_srql_value(to_string(range))}"
+
   defp clause_for_operator(_field, operator, _value)
-       when operator in ["in_cidr", "not_in_cidr", "in_range", "is_null", "is_not_null"] do
+       when operator in ["is_null", "is_not_null"] do
     nil
   end
 

@@ -1852,6 +1852,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     query =
       SweepHostResult
       |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
+      |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(10)
 
     case Ash.read(query, authorize?: true) do

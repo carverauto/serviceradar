@@ -43,20 +43,24 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
   @spec get(String.t(), atom(), String.t(), String.t() | nil) ::
           {:ok, map()} | :miss
   def get(tenant_id, config_type, partition, agent_id \\ nil) do
-    key = cache_key(tenant_id, config_type, partition, agent_id)
+    if :ets.whereis(@table_name) == :undefined do
+      :miss
+    else
+      key = cache_key(tenant_id, config_type, partition, agent_id)
 
-    case :ets.lookup(@table_name, key) do
-      [{^key, entry, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at do
-          {:ok, entry}
-        else
-          # Expired - delete and return miss
-          :ets.delete(@table_name, key)
+      case :ets.lookup(@table_name, key) do
+        [{^key, entry, expires_at}] ->
+          if System.monotonic_time(:millisecond) < expires_at do
+            {:ok, entry}
+          else
+            # Expired - delete and return miss
+            :ets.delete(@table_name, key)
+            :miss
+          end
+
+        [] ->
           :miss
-        end
-
-      [] ->
-        :miss
+      end
     end
   end
 
