@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
 
   postgres do
@@ -251,6 +252,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
         {:error, :tenant_schema_not_found}
 
       _ ->
+        actor = SystemActor.for_tenant(site.tenant_id, :edge_site)
         ServiceRadar.Edge.NatsLeafServer
         |> Ash.Changeset.for_create(:create, %{
           edge_site_id: site.id,
@@ -258,7 +260,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
           upstream_url: upstream_url,
           local_listen: "0.0.0.0:4222"
         }, tenant: tenant_schema)
-        |> Ash.create(authorize?: false)
+        |> Ash.create(actor: actor)
     end
   end
 end

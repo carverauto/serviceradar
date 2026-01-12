@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
 
   postgres do
@@ -283,16 +284,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
           if package.nats_credential_id do
+            tenant_schema = TenantSchemas.schema_for_tenant(package.tenant_id)
+            actor = SystemActor.for_tenant(package.tenant_id, :collector_package)
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
-                   tenant: TenantSchemas.schema_for_tenant(package.tenant_id),
-                   authorize?: false
+                   tenant: tenant_schema,
+                   actor: actor
                  ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
                 |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
-                  tenant: TenantSchemas.schema_for_tenant(package.tenant_id)
+                  tenant: tenant_schema
                 )
-                |> Ash.update(authorize?: false)
+                |> Ash.update(actor: actor)
 
               _ ->
                 :ok

@@ -44,6 +44,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       EventPublisher.on_state_transition(gateway, :healthy, :degraded, %{})
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Events.InternalLogPublisher
 
@@ -442,10 +443,13 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     # This is a fallback - prefer passing tenant_slug in context
     require Ash.Query
 
+    # Platform actor since we need to lookup tenant metadata
+    actor = SystemActor.platform(:event_publisher)
+
     case ServiceRadar.Identity.Tenant
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.Query.limit(1)
-         |> Ash.read(authorize?: false) do
+         |> Ash.read(actor: actor) do
       {:ok, [tenant | _]} -> to_string(tenant.slug)
       _ -> nil
     end

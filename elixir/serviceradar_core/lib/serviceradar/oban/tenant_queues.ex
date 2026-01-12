@@ -46,6 +46,7 @@ defmodule ServiceRadar.Oban.TenantQueues do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Oban.TenantOban
 
@@ -368,8 +369,11 @@ defmodule ServiceRadar.Oban.TenantQueues do
   # ===========================================================================
 
   defp provision_existing_tenants do
+    # Platform actor since we need to read all tenants
+    actor = SystemActor.platform(:tenant_queues)
+
     # Query all tenants from the database and provision their queues
-    case Ash.read(ServiceRadar.Identity.Tenant, authorize?: false) do
+    case Ash.read(ServiceRadar.Identity.Tenant, actor: actor) do
       {:ok, tenants} ->
         Enum.each(tenants, fn tenant ->
           do_provision_tenant(tenant.id, tenant_slug: tenant.slug)

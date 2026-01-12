@@ -11,6 +11,7 @@ defmodule ServiceRadar.Cluster.TenantRegistryLoader do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Identity.Tenant
 
@@ -48,12 +49,15 @@ defmodule ServiceRadar.Cluster.TenantRegistryLoader do
   end
 
   defp load_slugs do
+    # Platform actor since we need to read all tenant metadata
+    actor = SystemActor.platform(:tenant_registry_loader)
+
     query =
       Tenant
       |> Ash.Query.for_read(:read)
       |> Ash.Query.select([:id, :slug])
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, tenants} ->
         Enum.each(tenants, fn tenant ->
           TenantRegistry.register_slug(to_string(tenant.slug), tenant.id)

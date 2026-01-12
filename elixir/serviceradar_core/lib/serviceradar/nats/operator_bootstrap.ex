@@ -27,6 +27,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
 
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.NatsOperator
   alias ServiceRadar.NATS.AccountClient
@@ -193,10 +194,12 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp get_current_operator do
+    # Operator bootstrap is a platform operation
+    actor = SystemActor.platform(:operator_bootstrap)
     case NatsOperator
          |> Ash.Query.for_read(:get_current)
          |> Ash.Query.limit(1)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, operator} -> {:ok, operator}
       {:error, error} -> {:error, error}
@@ -204,6 +207,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp create_operator_record(name, result) do
+    actor = SystemActor.platform(:operator_bootstrap)
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
@@ -211,13 +215,14 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
       operator_jwt: result.operator_jwt,
       system_account_public_key: result.system_account_public_key
     })
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
   end
 
   defp create_operator_record_from_info(name, info) do
     # Note: GetOperatorInfoResponse includes operator_public_key, operator_name,
     # is_initialized, and system_account_public_key. The operator_jwt is not
     # available from this endpoint (only from BootstrapOperator).
+    actor = SystemActor.platform(:operator_bootstrap)
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
@@ -225,7 +230,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
       operator_jwt: nil,
       system_account_public_key: info.system_account_public_key
     })
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
   end
 
   defp broadcast_operator_ready(operator) do
@@ -293,11 +298,12 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
     # Find all active tenants that don't have a ready NATS account
     # Use :for_nats_provisioning action to avoid AshCloak decryption issues
     # when encrypted columns are NULL
+    actor = SystemActor.platform(:operator_bootstrap)
     Tenant
     |> Ash.Query.for_read(:for_nats_provisioning)
     |> Ash.Query.filter(
       status == :active and (is_nil(nats_account_status) or nats_account_status != :ready)
     )
-    |> Ash.read(authorize?: false)
+    |> Ash.read(actor: actor)
   end
 end

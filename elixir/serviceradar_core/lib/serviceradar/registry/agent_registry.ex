@@ -47,6 +47,7 @@ defmodule ServiceRadar.AgentRegistry do
   is retained for admin purposes but iterates across all tenant registries.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantRegistry
 
   require Logger
@@ -284,7 +285,10 @@ defmodule ServiceRadar.AgentRegistry do
   def all_agents do
     # For admin, query Ash for all agents in database
     # Registry state is for runtime/clustering, DB is source of truth
-    case Ash.read(ServiceRadar.Infrastructure.Agent, authorize?: false) do
+    # Uses platform actor since this crosses tenant boundaries (admin only)
+    actor = SystemActor.platform(:agent_registry)
+
+    case Ash.read(ServiceRadar.Infrastructure.Agent, actor: actor) do
       {:ok, agents} -> agents
       _ -> []
     end

@@ -27,6 +27,8 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Actors.SystemActor
+
   require Ash.Query
 
   postgres do
@@ -194,11 +196,14 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
     # Hash the token to match against stored hash
     token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
 
+    # Platform actor for bootstrap token operations
+    actor = SystemActor.platform(:nats_platform_token)
+
     # Find the token by hash
     case __MODULE__
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(token_hash == ^token_hash)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} ->
         {:error, :token_not_found}
 
@@ -215,7 +220,7 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
             token
             |> Ash.Changeset.for_update(:mark_used)
             |> Ash.Changeset.set_argument(:used_by_ip, source_ip)
-            |> Ash.update(authorize?: false)
+            |> Ash.update(actor: actor)
         end
 
       {:error, error} ->

@@ -36,6 +36,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
   alias ServiceRadar.Cluster.TenantSchemas
@@ -51,7 +52,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @impl true
   def compile(tenant_id, partition, agent_id, opts \\ []) do
     try do
-      actor = opts[:actor] || build_system_actor(tenant_id)
+      actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :sweep_compiler)
       tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
       # Load sweep groups for this partition/agent
@@ -126,15 +127,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> String.slice(0, 16)
   end
 
-  defp build_system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "sweep-compiler@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-  end
-
   defp load_sweep_groups(tenant_schema, partition, agent_id, actor) do
     query =
       SweepGroup
@@ -143,7 +135,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         tenant: tenant_schema
       )
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, groups} ->
         groups
 
@@ -161,7 +153,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
       |> Ash.Query.filter(id in ^profile_ids)
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, profiles} ->
         profiles
 
@@ -246,7 +238,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
       |> apply_ash_filters(ash_filters)
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, devices} ->
         # Apply in-memory filtering for unsupported operators (CIDR, tags, etc.)
         filtered_devices =

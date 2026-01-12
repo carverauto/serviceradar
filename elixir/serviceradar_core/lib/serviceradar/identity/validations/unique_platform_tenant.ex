@@ -5,6 +5,8 @@ defmodule ServiceRadar.Identity.Validations.UniquePlatformTenant do
 
   use Ash.Resource.Validation
 
+  alias ServiceRadar.Actors.SystemActor
+
   require Ash.Query
 
   @impl true
@@ -32,6 +34,9 @@ defmodule ServiceRadar.Identity.Validations.UniquePlatformTenant do
   defp check_for_existing_platform_tenant(changeset) do
     current_id = Ash.Changeset.get_attribute(changeset, :id)
 
+    # Platform actor since this validation checks across all tenants
+    actor = SystemActor.platform(:unique_platform_tenant)
+
     query =
       ServiceRadar.Identity.Tenant
       |> Ash.Query.filter(is_platform_tenant == true)
@@ -43,7 +48,7 @@ defmodule ServiceRadar.Identity.Validations.UniquePlatformTenant do
         query
       end
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, []} ->
         :ok
 

@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.LogPromotionRule
@@ -36,10 +37,12 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   def seed_all do
     if repo_enabled?() do
+      # Tenant listing is cross-tenant, use platform actor
+      actor = SystemActor.platform(:rule_seeder)
       Tenant
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:id, :slug])
-      |> Ash.read(authorize?: false)
+      |> Ash.read(actor: actor)
       |> case do
         {:ok, tenants} ->
           Enum.each(tenants, &seed_for_tenant/1)
@@ -52,7 +55,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   def seed_for_tenant(%Tenant{} = tenant) do
     schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = %{tenant_id: to_string(tenant.id), role: :admin}
+    actor = SystemActor.for_tenant(tenant.id, :rule_seeder)
 
     ensure_promotion_rules(schema, actor)
     ensure_stateful_rules(schema, actor)
@@ -74,7 +77,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:name])
 
-    case Ash.read(query, authorize?: false, tenant: schema) do
+    case Ash.read(query, actor: actor, tenant: schema) do
       {:ok, rules} ->
         existing =
           rules
@@ -91,7 +94,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
                 actor: actor
               )
 
-            case Ash.create(changeset, authorize?: false) do
+            case Ash.create(changeset, actor: actor) do
               {:ok, _} ->
                 Logger.info("Seeded rule: #{attrs[:name]} for #{schema}")
 

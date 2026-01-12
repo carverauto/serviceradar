@@ -3,6 +3,7 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   Publishes internal OCSF log activity payloads to NATS as `logs.internal.*`.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.NATS.{Channels, Connection}
 
   require Logger
@@ -75,10 +76,13 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   defp lookup_tenant_slug(nil), do: nil
 
   defp lookup_tenant_slug(tenant_id) do
+    # Platform actor since we need to lookup tenant metadata
+    actor = SystemActor.platform(:internal_log_publisher)
+
     case ServiceRadar.Identity.Tenant
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.Query.limit(1)
-         |> Ash.read(authorize?: false) do
+         |> Ash.read(actor: actor) do
       {:ok, [tenant | _]} -> to_string(tenant.slug)
       _ -> nil
     end

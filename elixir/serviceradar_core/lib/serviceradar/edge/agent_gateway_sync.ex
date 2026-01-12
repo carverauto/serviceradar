@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   require Ash.Query
   import Ash.Expr
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Cluster.TenantSchemas
@@ -47,12 +48,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}
   def component_type_for_component_id(component_id, tenant_id) do
-    actor = system_actor(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
       |> Ash.Query.filter(
         expr(component_id == ^component_id and status in [:issued, :delivered, :activated])
       )
@@ -60,7 +61,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> Ash.Query.limit(1)
       |> Ash.Query.select([:component_type])
 
-    case Ash.read(query, authorize?: false) do
+    case Ash.read(query, actor: actor) do
       {:ok, [%OnboardingPackage{component_type: type}]} when is_atom(type) ->
         {:ok, type}
 
@@ -74,10 +75,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @spec upsert_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def upsert_agent(agent_id, tenant_id, attrs) do
-    actor = system_actor(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor, authorize?: false) do
+    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
       {:ok, %Agent{} = agent} ->
         update_agent(agent, tenant_schema, attrs, actor)
 
@@ -93,10 +94,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   @spec heartbeat_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
   def heartbeat_agent(agent_id, tenant_id, attrs) do
-    actor = system_actor(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor, authorize?: false) do
+    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
       {:ok, %Agent{} = agent} ->
         heartbeat_agent_record(agent, tenant_schema, attrs, actor)
 
@@ -129,7 +130,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       if map_size(update_attrs) > 0 do
         agent
         |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
-        |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
+        |> Ash.update(tenant: tenant_schema, actor: actor)
       else
         {:ok, agent}
       end
@@ -168,7 +169,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     Agent
     |> Ash.Changeset.for_create(:register_connected, create_attrs)
-    |> Ash.create(tenant: tenant_schema, actor: actor, authorize?: false)
+    |> Ash.create(tenant: tenant_schema, actor: actor)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
@@ -183,7 +184,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     agent
     |> Ash.Changeset.for_update(:heartbeat, heartbeat_attrs)
-    |> Ash.update(tenant: tenant_schema, actor: actor, authorize?: false)
+    |> Ash.update(tenant: tenant_schema, actor: actor)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
@@ -209,13 +210,4 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp not_found_error?(_error), do: false
-
-  defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-  end
 end

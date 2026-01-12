@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages
@@ -77,6 +78,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   end
 
   defp create_platform_package(tenant_id, component_type, component_id, label, partition_id, metadata) do
+    actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
     attrs = %{
       label: label,
       component_id: component_id,
@@ -90,8 +92,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
            tenant: tenant_id,
            partition_id: partition_id,
            cert_validity_days: 365,
-           actor: "system",
-           authorize?: false
+           actor: actor
          ) do
       {:ok, %{package: package}} ->
         Logger.info(
@@ -107,10 +108,11 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
 
   defp find_existing_package(tenant_id, component_type, component_id) do
     tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
 
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, authorize?: false)
+      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, actor: actor)
       |> Ash.Query.filter(
         component_type == ^component_type and
           component_id == ^component_id and
@@ -119,7 +121,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(1)
 
-    case Ash.read_one(query, authorize?: false) do
+    case Ash.read_one(query, actor: actor) do
       {:ok, nil} -> :not_found
       {:ok, package} -> {:ok, package}
       {:error, reason} -> {:error, reason}
@@ -134,11 +136,12 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       {:ok, package}
     else
       tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
 
       package
       |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged},
         tenant: tenant_schema,
-        authorize?: false
+        actor: actor
       )
       |> Ash.update()
     end

@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.{
@@ -36,10 +37,12 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
 
   def seed_all do
     if repo_enabled?() do
+      # Tenant listing is cross-tenant, use platform actor
+      actor = SystemActor.platform(:template_seeder)
       Tenant
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:id, :slug])
-      |> Ash.read(authorize?: false)
+      |> Ash.read(actor: actor)
       |> case do
         {:ok, tenants} ->
           Enum.each(tenants, &seed_for_tenant/1)
@@ -52,7 +55,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
 
   def seed_for_tenant(%Tenant{} = tenant) do
     schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = %{tenant_id: to_string(tenant.id), role: :admin}
+    actor = SystemActor.for_tenant(tenant.id, :template_seeder)
 
     ensure_zen_defaults(schema, actor)
     ensure_defaults(LogPromotionRuleTemplate, default_promotion_templates(), schema, actor)
@@ -67,7 +70,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:name])
 
-    case Ash.read(query, authorize?: false, tenant: schema) do
+    case Ash.read(query, actor: actor, tenant: schema) do
       {:ok, templates} ->
         existing =
           templates
@@ -84,7 +87,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
                 actor: actor
               )
 
-            case Ash.create(changeset, authorize?: false) do
+            case Ash.create(changeset, actor: actor) do
               {:ok, _} -> :ok
               {:error, reason} ->
                 Logger.warning("Failed to seed #{resource}: #{inspect(reason)}")
@@ -103,7 +106,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:id, :name, :subject])
 
-    case Ash.read(query, authorize?: false, tenant: schema) do
+    case Ash.read(query, actor: actor, tenant: schema) do
       {:ok, templates} ->
         existing =
           templates
@@ -124,7 +127,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
                 actor: actor
               )
 
-            case Ash.create(changeset, authorize?: false) do
+            case Ash.create(changeset, actor: actor) do
               {:ok, _} -> :ok
               {:error, reason} ->
                 Logger.warning("Failed to seed #{ZenRuleTemplate}: #{inspect(reason)}")
@@ -155,7 +158,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
                 actor: actor
               )
 
-            case Ash.update(changeset, authorize?: false) do
+            case Ash.update(changeset, actor: actor) do
               {:ok, _} ->
                 MapSet.put(acc, key)
 

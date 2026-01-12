@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshCloak]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.EdgeSite
 
@@ -454,11 +455,12 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         :ok
 
       tenant_schema ->
-        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, authorize?: false) do
+        actor = SystemActor.for_tenant(leaf_server.tenant_id, :nats_leaf_server)
+        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, actor: actor) do
           {:ok, site} when site.status != new_status ->
             site
             |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
-            |> Ash.update(authorize?: false)
+            |> Ash.update(actor: actor)
 
           _ ->
             :ok

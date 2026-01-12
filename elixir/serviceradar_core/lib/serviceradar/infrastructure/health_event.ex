@@ -315,6 +315,10 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   # Helper function for duration calculation
   defp get_last_event(entity_type, entity_id, tenant_id) do
     require Ash.Query
+    alias ServiceRadar.Actors.SystemActor
+
+    # Tenant-scoped actor since we're querying within a specific tenant
+    actor = SystemActor.for_tenant(tenant_id, :health_event)
 
     __MODULE__
     |> Ash.Query.filter(
@@ -324,6 +328,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     )
     |> Ash.Query.sort(recorded_at: :desc)
     |> Ash.Query.limit(1)
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
   end
 end
