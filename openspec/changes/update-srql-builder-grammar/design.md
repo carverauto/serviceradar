@@ -34,7 +34,7 @@ The network sweep targeting UI needs a visual query builder for selecting device
 │    {                                                                    │
 │      "groups": [{                                                       │
 │        "id": "uuid",                                                    │
-│        "targets": ["10.0.1.5", "10.0.2.10", ...],  ← IPs from SRQL     │
+│        "targets": ["10.0.1.5", "10.0.2.10", ...],  ← IPs from query    │
 │        "ports": [22, 80, 443],                                          │
 │        "modes": ["icmp", "tcp"],                                        │
 │        "schedule": {"type": "interval", "interval": "15m"}              │

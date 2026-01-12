@@ -38,7 +38,7 @@
   - Updated step 3 to reflect Ash filters (not SRQL) for target extraction
 - [x] 5.3 Document the config refresh mechanism and its interval.
   - Detailed implementation in "Config Invalidation on Device Changes" section
-  - Covers: 5-minute cron interval, hash computation, NATS invalidation
+  - Covers: 5-minute cron interval, hash computation, change logging
 
 ## 6. Code cleanup
 - [x] 6.1 Update networks_live to use shared `CriteriaQuery` module.
