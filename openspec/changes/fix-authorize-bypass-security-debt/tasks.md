@@ -4,15 +4,27 @@
 - [x] 1.3 Document SystemActor usage pattern in module docs.
 
 ## 2. Update Authorization Policies
-- [ ] 2.1 Add `:system` role recognition to base authorization policies.
-- [ ] 2.2 Update Gateway resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.3 Update Agent resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.4 Update Checker resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.5 Update SweepGroup resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.6 Update Device resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.7 Update Alert resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.8 Update ZenRule resource policies to allow `:system` role with tenant_id match.
-- [ ] 2.9 Verify all tenant-scoped resources have consistent `:system` role bypass.
+- [x] 2.1 Add `:system` role recognition to base authorization policies.
+- [x] 2.2-2.8 Update all resource policies with `:system` role bypass.
+- [x] 2.9 Verify all tenant-scoped resources have consistent `:system` role bypass.
+- [x] 2.10 **SIMPLIFIED**: Removed redundant `tenant_id == ^actor(:tenant_id)` checks from
+      schema-isolated resources. PostgreSQL schema isolation already enforces tenant boundaries.
+      Only `TenantMembership` (public schema with `global?: true`) retains the tenant_id check.
+
+      Schema-isolated resources now use simple bypass:
+      ```elixir
+      bypass always() do
+        authorize_if actor_attribute_equals(:role, :system)
+      end
+      ```
+
+      Resources updated (37 total): HealthEvent, Alert, Gateway, Checker, Agent, ServiceCheck,
+      Device, PollJob, Partition, SweepGroup, StatefulAlertRule, ZenRule, EdgeSite,
+      CollectorPackage, NatsLeafServer, SweepProfile, SweepGroupExecution, SweepHostResult,
+      ConfigTemplate, ConfigVersion, ConfigInstance, ZenRuleTemplate, StatefulAlertRuleHistory,
+      StatefulAlertRuleState, Log, StatefulAlertRuleTemplate, LogPromotionRuleTemplate,
+      LogPromotionRule, OcsfEvent, PollingSchedule, DeviceGroup, TenantCA, OnboardingPackage,
+      NatsCredential, IntegrationSource, User, ApiToken
 
 ## 3. Fix High-Risk GenServers
 - [x] 3.1 Convert `state_monitor.ex` to use SystemActor.

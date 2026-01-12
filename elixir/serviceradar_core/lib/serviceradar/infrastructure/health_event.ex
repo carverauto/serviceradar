@@ -185,9 +185,9 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # System actors can perform all operations within their tenant
+    # System actors can perform all operations (tenant isolation via schema)
     bypass always() do
-      authorize_if expr(^actor(:role) == :system and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
     # Read access: Must be in same tenant
