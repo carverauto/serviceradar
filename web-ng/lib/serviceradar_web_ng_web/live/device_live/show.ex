@@ -1881,15 +1881,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           tenant_id: Scope.tenant_id(scope)
         }
 
-    _ ->
-      %{
-        id: "system",
-        email: "system@serviceradar",
-        role: :admin,
-        tenant_id: Scope.tenant_id(scope)
-      }
+      _ ->
+        %{
+          id: "system",
+          email: "system@serviceradar",
+          role: :admin,
+          tenant_id: Scope.tenant_id(scope)
+        }
+    end
   end
-end
 
   defp get_sweep_tenant(scope) do
     case Scope.tenant_id(scope) do
