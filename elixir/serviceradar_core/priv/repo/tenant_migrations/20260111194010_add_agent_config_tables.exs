@@ -116,7 +116,15 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddAgentConfigTables do
 
     create unique_index(
              :agent_config_instances,
+             [:tenant_id, :config_type, :partition],
+             where: "agent_id IS NULL",
+             name: "agent_config_instances_unique_partition_config_index"
+           )
+
+    create unique_index(
+             :agent_config_instances,
              [:tenant_id, :config_type, :partition, :agent_id],
+             where: "agent_id IS NOT NULL",
              name: "agent_config_instances_unique_config_per_agent_index"
            )
   end
@@ -126,6 +134,12 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddAgentConfigTables do
                      :agent_config_instances,
                      [:tenant_id, :config_type, :partition, :agent_id],
                      name: "agent_config_instances_unique_config_per_agent_index"
+                   )
+
+    drop_if_exists unique_index(
+                     :agent_config_instances,
+                     [:tenant_id, :config_type, :partition],
+                     name: "agent_config_instances_unique_partition_config_index"
                    )
 
     drop constraint(:agent_config_instances, "agent_config_instances_template_id_fkey")

@@ -396,34 +396,44 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("remove_criteria_rule", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    rules = Enum.reject(socket.assigns.criteria_rules, &(&1.id == id))
+    case Integer.parse(id_str) do
+      {id, ""} ->
+        rules = Enum.reject(socket.assigns.criteria_rules, &(&1.id == id))
 
-    socket =
-      socket
-      |> assign(:criteria_rules, rules)
-      |> maybe_update_target_count()
+        socket =
+          socket
+          |> assign(:criteria_rules, rules)
+          |> maybe_update_target_count()
 
-    {:noreply, socket}
+        {:noreply, socket}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("update_criteria_rule", params, socket) do
-    id = String.to_integer(params["id"])
-    field = params["field"]
-    operator = params["operator"]
-    value = Map.get(params, "value")
+    case Integer.parse(params["id"]) do
+      {id, ""} ->
+        field = params["field"]
+        operator = params["operator"]
+        value = Map.get(params, "value")
 
-    rules =
-      Enum.map(socket.assigns.criteria_rules, fn rule ->
-        apply_rule_update(rule, id, field, operator, value)
-      end)
+        rules =
+          Enum.map(socket.assigns.criteria_rules, fn rule ->
+            apply_rule_update(rule, id, field, operator, value)
+          end)
 
-    socket =
-      socket
-      |> assign(:criteria_rules, rules)
-      |> maybe_update_target_count()
+        socket =
+          socket
+          |> assign(:criteria_rules, rules)
+          |> maybe_update_target_count()
 
-    {:noreply, socket}
+        {:noreply, socket}
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("preview_targets", _params, socket) do
@@ -1189,7 +1199,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of      {@hosts_processed} hosts</span>
+            <span> of        {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -1776,17 +1786,36 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <label class="label">
             <span class="label-text">Sweep Modes</span>
           </label>
+          <% selected_modes = Enum.map(@form[:sweep_modes].value || [], &to_string/1) %>
           <div class="flex flex-wrap gap-4">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" name="form[sweep_modes][]" value="icmp" class="checkbox" checked />
+              <input
+                type="checkbox"
+                name="form[sweep_modes][]"
+                value="icmp"
+                class="checkbox"
+                checked={Enum.member?(selected_modes, "icmp")}
+              />
               <span>ICMP (Ping)</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" name="form[sweep_modes][]" value="tcp" class="checkbox" checked />
+              <input
+                type="checkbox"
+                name="form[sweep_modes][]"
+                value="tcp"
+                class="checkbox"
+                checked={Enum.member?(selected_modes, "tcp")}
+              />
               <span>TCP</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" name="form[sweep_modes][]" value="arp" class="checkbox" />
+              <input
+                type="checkbox"
+                name="form[sweep_modes][]"
+                value="arp"
+                class="checkbox"
+                checked={Enum.member?(selected_modes, "arp")}
+              />
               <span>ARP</span>
             </label>
           </div>

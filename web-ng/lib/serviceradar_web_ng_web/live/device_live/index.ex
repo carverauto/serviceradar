@@ -2,6 +2,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  import Ash.Expr
+
+  require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadar.Inventory.Device
@@ -89,13 +92,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")}
+    socket =
+      SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")
+      |> assign(:selected_devices, MapSet.new())
+      |> assign(:select_all_matching, false)
+      |> assign(:total_matching_count, nil)
+
+    {:noreply, socket}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")}
+    socket =
+      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")
+      |> assign(:selected_devices, MapSet.new())
+      |> assign(:select_all_matching, false)
+      |> assign(:total_matching_count, nil)
+
+    {:noreply, socket}
   end
 
   # Bulk selection handlers
@@ -109,7 +122,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         MapSet.put(selected, uid)
       end
 
-    {:noreply, assign(socket, :selected_devices, updated)}
+    {:noreply,
+     socket
+     |> assign(:selected_devices, updated)
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)}
   end
 
   def handle_event("toggle_select_all", _params, socket) do
@@ -228,31 +245,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp update_tags_for_uids(scope, uids, tags) do
-    Enum.reduce_while(uids, {:ok, 0}, fn uid, {:ok, count} ->
-      case update_device_tags(scope, uid, tags) do
-        :ok -> {:cont, {:ok, count + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
+  defp update_tags_for_uids(scope, uids, new_tags) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(uid in ^uids)
 
-  defp update_device_tags(scope, uid, tags) do
-    case Ash.get(Device, uid, scope: scope) do
-      {:ok, device} ->
-        existing = Map.get(device, :tags) || %{}
-        merged = Map.merge(existing, tags)
+    result =
+      Ash.bulk_update(query, :update, %{},
+        scope: scope,
+        return_records?: true,
+        return_errors?: true,
+        select: [:uid],
+        atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
+      )
 
-        device
-        |> Ash.Changeset.for_update(:update, %{tags: merged}, scope: scope)
-        |> Ash.update()
-        |> case do
-          {:ok, _} -> :ok
-          {:error, error} -> {:error, format_changeset_errors(error)}
+    case result do
+      %Ash.BulkResult{status: :success, records: records} ->
+        updated_count = length(records || [])
+
+        if updated_count < length(uids) do
+          {:error, "One or more devices were not found"}
+        else
+          {:ok, updated_count}
         end
 
-      {:error, _} ->
-        {:error, "Device #{uid} not found"}
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
     end
   end
 
@@ -1150,18 +1172,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp get_all_matching_uids(scope, query) do
     srql_module = srql_module()
-    full_query = "in:devices #{query} limit:10000"
+    fetch_all_uids_paginated(srql_module, scope, query, nil, [])
+  end
 
-    case srql_module.query(full_query, %{scope: scope}) do
+  defp fetch_all_uids_paginated(srql_module, scope, query, cursor, acc) do
+    full_query = "in:devices #{query} limit:1000"
+    opts = if cursor, do: %{scope: scope, cursor: cursor}, else: %{scope: scope}
+
+    case srql_module.query(full_query, opts) do
+      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
+        uids =
+          results
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+          |> Enum.filter(&is_binary/1)
+
+        next_cursor = Map.get(pagination, "next_cursor")
+        new_acc = acc ++ uids
+
+        if is_binary(next_cursor) do
+          fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc)
+        else
+          Enum.uniq(new_acc)
+        end
+
       {:ok, %{"results" => results}} when is_list(results) ->
         results
         |> Enum.filter(&is_map/1)
         |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
         |> Enum.filter(&is_binary/1)
-        |> Enum.uniq()
+        |> then(&Enum.uniq(acc ++ &1))
 
       _ ->
-        []
+        Enum.uniq(acc)
     end
   end
 

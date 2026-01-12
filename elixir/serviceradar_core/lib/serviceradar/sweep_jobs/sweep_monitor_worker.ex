@@ -182,7 +182,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       iex> parse_interval_to_seconds("30s")
       30
   """
-  @spec parse_interval_to_seconds(String.t()) :: integer()
+  @spec parse_interval_to_seconds(term()) :: integer()
   def parse_interval_to_seconds(interval) when is_binary(interval) do
     case Regex.run(~r/^(\d+)([smhd])$/i, interval) do
       [_, value, unit] ->
@@ -200,7 +200,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
         case Integer.parse(interval) do
           {value, ""} -> value
           _ ->
-            Logger.warning("Unable to parse interval, defaulting to 1 hour",
+            Logger.warning("Unable to parse interval string, defaulting to 1 hour",
               interval: interval
             )
 
@@ -209,5 +209,11 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     end
   end
 
-  def parse_interval_to_seconds(_), do: 3600
+  def parse_interval_to_seconds(interval) do
+    Logger.warning("Interval is not a string, defaulting to 1 hour",
+      interval: inspect(interval)
+    )
+
+    3600
+  end
 end

@@ -14,6 +14,7 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @default_max_entries 100
   @default_flush_interval_ms 5_000
+  @default_flush_batch_size 100
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -67,8 +68,9 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @impl true
   def handle_info(:flush, state) do
-    state = flush_queue(state)
+    {state, more?} = flush_queue(state, @default_flush_batch_size)
     schedule_flush(state.flush_interval_ms)
+    if more?, do: send(self(), :flush)
     {:noreply, state}
   end
 
@@ -81,19 +83,23 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
     end
   end
 
-  defp flush_queue(state) do
+  defp flush_queue(state, remaining) when remaining <= 0 do
+    {state, not :queue.is_empty(state.queue)}
+  end
+
+  defp flush_queue(state, remaining) do
     case :queue.out(state.queue) do
       {:empty, _} ->
-        state
+        {state, false}
 
       {{:value, status}, rest} ->
         case StatusProcessor.forward(status, buffer_on_failure: false, from_buffer: true) do
           :ok ->
-            flush_queue(%{state | queue: rest})
+            flush_queue(%{state | queue: rest}, remaining - 1)
 
           {:error, reason} ->
             Logger.debug("Results buffer flush paused: #{inspect(reason)}")
-            %{state | queue: :queue.in_r(status, rest)}
+            {%{state | queue: :queue.in_r(status, rest)}, false}
         end
     end
   end
