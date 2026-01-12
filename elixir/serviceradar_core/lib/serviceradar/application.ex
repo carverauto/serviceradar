@@ -101,9 +101,6 @@ defmodule ServiceRadar.Application do
         # Status handler for agent-gateway push results
         status_handler_child(),
 
-        # Infrastructure state monitor (heartbeat timeouts, health checks)
-        state_monitor_child(),
-
         # Health check runner supervisor (high-frequency gRPC checks)
         health_check_runner_supervisor_child(),
 
@@ -245,8 +242,7 @@ defmodule ServiceRadar.Application do
         # Preload tenant slug mappings for edge resolution
         ServiceRadar.Cluster.TenantRegistryLoader,
         # DataService client for KV operations (used to push config to Go/Rust services)
-        datasvc_client_child(),
-        zen_rule_sync_child()
+        datasvc_client_child()
       ]
     else
       []
@@ -272,14 +268,6 @@ defmodule ServiceRadar.Application do
   defp datasvc_client_child do
     if datasvc_enabled?() do
       ServiceRadar.DataService.Client
-    else
-      nil
-    end
-  end
-
-  defp zen_rule_sync_child do
-    if datasvc_enabled?() and Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.Observability.ZenRuleSync
     else
       nil
     end
@@ -366,22 +354,6 @@ defmodule ServiceRadar.Application do
       ServiceRadar.NATS.OperatorBootstrap
     else
       nil
-    end
-  end
-
-  defp state_monitor_child do
-    if state_monitor_enabled?() do
-      ServiceRadar.Infrastructure.StateMonitor
-    else
-      nil
-    end
-  end
-
-  defp state_monitor_enabled? do
-    case System.get_env("STATE_MONITOR_ENABLED") do
-      nil -> Application.get_env(:serviceradar_core, :state_monitor_enabled, true)
-      value when value in ["true", "1", "yes"] -> true
-      _ -> false
     end
   end
 

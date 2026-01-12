@@ -1,0 +1,78 @@
+defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
+  @moduledoc """
+  Ash change that schedules sweep-related workers when a sweep group is created or enabled.
+
+  When a sweep group is created with `enabled: true` or is enabled via an update,
+  this change ensures that:
+  - SweepMonitorWorker is scheduled to monitor for missed sweeps
+  - SweepDataCleanupWorker is scheduled to clean up old sweep data
+  """
+
+  use Ash.Resource.Change
+
+  alias ServiceRadar.SweepJobs.{SweepDataCleanupWorker, SweepMonitorWorker}
+
+  require Logger
+
+  @impl true
+  def change(changeset, _opts, _context) do
+    Ash.Changeset.after_action(changeset, fn _changeset, record ->
+      schedule_if_enabled(record)
+      {:ok, record}
+    end)
+  end
+
+  @impl true
+  def atomic(_changeset, _opts, _context), do: :ok
+
+  defp schedule_if_enabled(record) do
+    if record.enabled do
+      schedule_monitor(record)
+      schedule_cleanup(record)
+    end
+  end
+
+  defp schedule_monitor(record) do
+    case SweepMonitorWorker.ensure_scheduled(record.tenant_id) do
+      {:ok, :already_scheduled} ->
+        Logger.debug("Sweep monitor already scheduled for tenant",
+          tenant_id: record.tenant_id
+        )
+
+      {:ok, _job} ->
+        Logger.info("Scheduled sweep monitor for tenant",
+          tenant_id: record.tenant_id,
+          sweep_group_id: record.id
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to schedule sweep monitor",
+          tenant_id: record.tenant_id,
+          sweep_group_id: record.id,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp schedule_cleanup(record) do
+    case SweepDataCleanupWorker.ensure_scheduled(record.tenant_id) do
+      {:ok, :already_scheduled} ->
+        Logger.debug("Sweep data cleanup already scheduled for tenant",
+          tenant_id: record.tenant_id
+        )
+
+      {:ok, _job} ->
+        Logger.info("Scheduled sweep data cleanup for tenant",
+          tenant_id: record.tenant_id,
+          sweep_group_id: record.id
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to schedule sweep data cleanup",
+          tenant_id: record.tenant_id,
+          sweep_group_id: record.id,
+          reason: inspect(reason)
+        )
+    end
+  end
+end

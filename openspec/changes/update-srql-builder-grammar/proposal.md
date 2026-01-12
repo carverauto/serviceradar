@@ -1,14 +1,20 @@
-# Change: Expand SRQL builder grammar for OR groups and operator coverage
+# Change: Integrate SRQL builder for network sweep targeting rules
+
+**Status: Implementation Complete, Pending Manual Testing** (2026-01-11)
 
 ## Why
-The sweep target criteria builder can only express flat AND filters and a limited operator set, which forces users into raw SRQL and prevents accurate preview counts for common cases (for example tags has-any and IP ranges). Adding OR group support and expanding the builder operators keeps the UI aligned with SRQL capabilities without making the query language harder to use.
+The network sweep UI needs a complete visual query builder for device targeting. The existing SRQL builder already supports stacking multiple filter conditions (implicit AND semantics), which covers production use cases like "devices with discovery_sources containing 'armis' in partition 'datacenter-1'". Rather than adding OR group syntax to the SRQL grammar, we can leverage the existing builder capabilities directly in the sweep targeting UI.
 
 ## What Changes
-- Add SRQL grammar support for grouped boolean expressions using parentheses and the `OR` keyword, while preserving implicit AND semantics for whitespace.
-- Update the sweep target criteria builder to model groups (match any/all) and generate SRQL with OR groups.
-- Expand the builder's device field/operator catalog to cover existing SRQL operators such as list membership, IP CIDR/range, and numeric comparisons.
-- Keep existing single-group criteria payloads valid and migratable without breaking stored configs.
+- Integrate the existing SRQL query builder component into the network sweep group targeting UI.
+- Ensure the targeting rules UI supports the full set of device fields and operators already available in TargetCriteria (discovery_sources, partition, tags, IP CIDR/range, etc.).
+- Update the criteria-to-SRQL conversion to handle all operators consistently.
+- Add preview device counts using the generated SRQL query.
 
 ## Impact
-- Affected specs: srql
-- Affected code: rust/srql parser + AST + planner, web-ng sweep criteria UI, SRQL query builder helpers, SRQL-to-Ash adapter parsing
+- Affected specs: srql (documentation only - no grammar changes)
+- Affected code:
+  - `serviceradar_core/lib/serviceradar/sweep_jobs/criteria_query.ex` (new shared module)
+  - `serviceradar_core/lib/serviceradar/sweep_jobs/target_criteria.ex` (enhanced Ash filtering)
+  - `serviceradar_core/lib/serviceradar/agent_config/compilers/sweep_compiler.ex` (use Ash filters)
+  - `web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` (use shared module)

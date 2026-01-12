@@ -1,7 +1,30 @@
 # srql Specification
 
 ## Purpose
-TBD - created by archiving change fix-observability-logs-stats-cards. Update Purpose after archive.
+ServiceRadar Query Language (SRQL) provides a unified text-based query interface for searching across devices, logs, traces, metrics, and services. Queries use space-separated filter clauses with implicit AND semantics.
+
+## Core Semantics
+
+### Filter Stacking (Implicit AND)
+When multiple filter clauses are specified in a query, they are combined using AND logic. This enables building complex queries by stacking conditions:
+
+```
+in:devices discovery_sources:armis hostname:server
+```
+
+This query returns devices where:
+- discovery_sources contains "armis" **AND**
+- hostname contains "server"
+
+### Query Builder Integration
+The SRQL query builder UI allows users to add multiple filter rows. Each row becomes one clause in the final query. All rows are joined with whitespace (implicit AND).
+
+Example UI configuration:
+- Field: discovery_sources, Operator: contains, Value: armis
+- Field: hostname, Operator: starts_with, Value: srv-
+
+Produces: `in:devices discovery_sources:armis hostname:srv-%`
+
 ## Requirements
 ### Requirement: rollup_stats keyword pattern
 The SRQL service SHALL support a `rollup_stats:<type>` keyword pattern that queries pre-computed continuous aggregates instead of raw hypertables, returning standardized aggregate statistics for dashboard KPIs.

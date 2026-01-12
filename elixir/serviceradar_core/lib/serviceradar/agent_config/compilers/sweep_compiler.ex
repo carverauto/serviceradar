@@ -237,18 +237,47 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   defp get_targets_from_criteria(criteria, tenant_schema, actor) do
+    # Split criteria into Ash-supported filters and those needing in-memory filtering
+    {ash_filters, unsupported_criteria} = TargetCriteria.to_ash_filter_with_fallback(criteria)
+
+    # Build query with Ash filters applied at database level
     query =
       Device
       |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
+      |> apply_ash_filters(ash_filters)
 
     case Ash.read(query, authorize?: false) do
       {:ok, devices} ->
-        TargetCriteria.extract_targets(devices, criteria, [])
+        # Apply in-memory filtering for unsupported operators (CIDR, tags, etc.)
+        filtered_devices =
+          if map_size(unsupported_criteria) > 0 do
+            TargetCriteria.filter_devices(devices, unsupported_criteria)
+          else
+            devices
+          end
+
+        # Extract IPs from filtered devices
+        filtered_devices
+        |> Enum.map(&get_device_ip/1)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
 
       {:error, reason} ->
         Logger.warning("SweepCompiler: failed to load devices - #{inspect(reason)}")
         []
     end
+  end
+
+  # Apply Ash filter conditions to query
+  # Filters are keyword lists like [{:partition, "default"}, {:discovery_sources, [contains: "armis"]}]
+  defp apply_ash_filters(query, []), do: query
+
+  defp apply_ash_filters(query, filters) when is_list(filters) do
+    Ash.Query.filter(query, ^filters)
+  end
+
+  defp get_device_ip(device) do
+    Map.get(device, :ip) || Map.get(device, "ip")
   end
 
   defp merge_ports(nil, group), do: group.ports || []

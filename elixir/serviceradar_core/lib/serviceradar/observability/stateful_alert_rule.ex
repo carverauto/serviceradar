@@ -51,6 +51,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
         :alert
       ]
       validate ServiceRadar.Observability.Validations.WindowBucket
+      change ServiceRadar.Observability.Changes.ScheduleAlertCleanup
     end
 
     update :update do
