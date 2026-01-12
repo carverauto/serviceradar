@@ -98,6 +98,11 @@ defmodule ServiceRadar.Observability.Log do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations within their tenant
+    bypass always() do
+      authorize_if expr(^actor(:role) == :system and tenant_id == ^actor(:tenant_id))
+    end
+
     # Read access: Must be authenticated AND in same tenant
     policy action_type(:read) do
       authorize_if expr(

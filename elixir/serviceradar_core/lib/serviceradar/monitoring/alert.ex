@@ -302,6 +302,11 @@ defmodule ServiceRadar.Monitoring.Alert do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
+    # System actors can perform all operations within their tenant
+    bypass always() do
+      authorize_if expr(^actor(:role) == :system and tenant_id == ^actor(:tenant_id))
+    end
+
     # TENANT ISOLATION: Alerts contain sensitive operational data
     # Must NEVER leak to other tenants
 
