@@ -106,7 +106,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
         batch_start = System.monotonic_time(:millisecond)
 
-        case process_batch(batch, execution_id, tenant_schema, actor) do
+        case process_batch(batch, execution_id, tenant_id, tenant_schema, actor) do
           {:ok, batch_stats} ->
             batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -166,7 +166,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Private functions
 
-  defp process_batch(results, execution_id, tenant_schema, actor) do
+  defp process_batch(results, execution_id, tenant_id, tenant_schema, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -184,7 +184,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     all_devices = Map.merge(device_map, created_devices)
 
     # Step 6: Build host result records
-    {host_results, stats} = build_host_results(results, execution_id, all_devices)
+    {host_results, stats} = build_host_results(results, execution_id, tenant_id, all_devices)
 
     # Step 7: Bulk insert host results
     case bulk_insert_host_results(host_results, tenant_schema) do
@@ -277,7 +277,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     "sweep-#{ip}-#{:erlang.phash2(ip)}"
   end
 
-  defp build_host_results(results, execution_id, device_map) do
+  defp build_host_results(results, execution_id, tenant_id, device_map) do
     initial_stats = %{
       hosts_total: 0,
       hosts_available: 0,
@@ -309,7 +309,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
         record = %{
           id: Ash.UUID.generate(),
-          tenant_id: nil,
+          tenant_id: tenant_id,
           execution_id: execution_id,
           ip: ip,
           hostname: result["hostname"],

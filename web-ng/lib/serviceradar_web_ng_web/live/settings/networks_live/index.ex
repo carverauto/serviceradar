@@ -228,7 +228,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :active_tab, String.to_atom(tab))}
+    active_tab =
+      case tab do
+        "groups" -> :groups
+        "profiles" -> :profiles
+        "active_scans" -> :active_scans
+        _ -> socket.assigns.active_tab
+      end
+
+    {:noreply, assign(socket, :active_tab, active_tab)}
   end
 
   def handle_event("toggle_group", %{"id" => id}, socket) do
@@ -412,8 +420,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  def handle_event("update_criteria_rule", params, socket) do
-    case Integer.parse(params["id"]) do
+  def handle_event("update_criteria_rule", %{"id" => id_str} = params, socket)
+      when is_binary(id_str) do
+    case Integer.parse(id_str) do
       {id, ""} ->
         field = params["field"]
         operator = params["operator"]
@@ -434,6 +443,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       _ ->
         {:noreply, socket}
     end
+  end
+
+  def handle_event("update_criteria_rule", _params, socket) do
+    {:noreply, socket}
   end
 
   def handle_event("preview_targets", _params, socket) do
@@ -2266,14 +2279,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     clauses =
       criteria
       |> Enum.map(fn {field, spec} -> criteria_clause(field, spec) end)
-
-    if Enum.any?(clauses, &is_nil/1) do
-      ""
-    else
-      clauses
+      |> Enum.reject(&is_nil/1)
       |> Enum.reject(&(&1 == ""))
-      |> Enum.join(" ")
-    end
+
+    Enum.join(clauses, " ")
   end
 
   defp criteria_clause(field, spec) when is_map(spec) do
@@ -2370,10 +2379,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp escape_srql_value(value) when is_binary(value) do
-    if String.contains?(value, " ") do
-      "\"#{value}\""
-    else
+    escaped =
       value
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\"", "\\\"")
+
+    if String.match?(value, ~r/[\s":()]/) do
+      "\"#{escaped}\""
+    else
+      escaped
     end
   end
 

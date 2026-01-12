@@ -251,30 +251,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(uid in ^uids)
 
-    result =
-      Ash.bulk_update(query, :update, %{},
-        scope: scope,
-        return_records?: true,
-        return_errors?: true,
-        select: [:uid],
-        atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
-      )
+    with {:ok, existing_count} <- Ash.count(query, scope: scope) do
+      result =
+        Ash.bulk_update(query, :update, %{},
+          scope: scope,
+          return_records?: false,
+          return_errors?: true,
+          atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
+        )
 
-    case result do
-      %Ash.BulkResult{status: :success, records: records} ->
-        updated_count = length(records || [])
+      case result do
+        %Ash.BulkResult{status: :success} ->
+          if existing_count < length(uids) do
+            {:error, "One or more devices were not found"}
+          else
+            {:ok, existing_count}
+          end
 
-        if updated_count < length(uids) do
-          {:error, "One or more devices were not found"}
-        else
-          {:ok, updated_count}
-        end
+        %Ash.BulkResult{status: :partial_success, errors: errors} ->
+          {:error, format_changeset_errors(List.first(errors || []))}
 
-      %Ash.BulkResult{status: :partial_success, errors: errors} ->
-        {:error, format_changeset_errors(List.first(errors || []))}
-
-      %Ash.BulkResult{status: :error, errors: errors} ->
-        {:error, format_changeset_errors(List.first(errors || []))}
+        %Ash.BulkResult{status: :error, errors: errors} ->
+          {:error, format_changeset_errors(List.first(errors || []))}
+      end
+    else
+      {:error, error} ->
+        {:error, format_changeset_errors(error)}
     end
   end
 
@@ -1188,24 +1190,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           |> Enum.filter(&is_binary/1)
 
         next_cursor = Map.get(pagination, "next_cursor")
-        new_acc = acc ++ uids
+        new_acc = uids ++ acc
 
         if is_binary(next_cursor) do
           fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc)
         else
-          Enum.uniq(new_acc)
+          finalize_uid_acc(new_acc)
         end
 
       {:ok, %{"results" => results}} when is_list(results) ->
-        results
-        |> Enum.filter(&is_map/1)
-        |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
-        |> Enum.filter(&is_binary/1)
-        |> then(&Enum.uniq(acc ++ &1))
+        uids =
+          results
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+          |> Enum.filter(&is_binary/1)
+
+        finalize_uid_acc(uids ++ acc)
 
       _ ->
-        Enum.uniq(acc)
+        finalize_uid_acc(acc)
     end
+  end
+
+  defp finalize_uid_acc(acc) do
+    acc
+    |> Enum.reverse()
+    |> Enum.uniq()
   end
 
   defp format_changeset_errors(changeset) do

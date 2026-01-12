@@ -22,7 +22,13 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @spec enqueue(map()) :: :ok
   def enqueue(status) when is_map(status) do
-    GenServer.call(__MODULE__, {:enqueue, status})
+    GenServer.call(__MODULE__, {:enqueue, status}, 1_000)
+  catch
+    :exit, {:noproc, _} ->
+      :ok
+
+    :exit, {:timeout, _} ->
+      :ok
   end
 
   @spec size() :: non_neg_integer()
@@ -68,9 +74,8 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   @impl true
   def handle_info(:flush, state) do
-    {state, more?} = flush_queue(state, @default_flush_batch_size)
+    {state, _more?} = flush_all_batches(state, @default_flush_batch_size)
     schedule_flush(state.flush_interval_ms)
-    if more?, do: send(self(), :flush)
     {:noreply, state}
   end
 
@@ -101,6 +106,16 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
             Logger.debug("Results buffer flush paused: #{inspect(reason)}")
             {%{state | queue: :queue.in_r(status, rest)}, false}
         end
+    end
+  end
+
+  defp flush_all_batches(state, batch_size) do
+    {state, more?} = flush_queue(state, batch_size)
+
+    if more? do
+      flush_all_batches(state, batch_size)
+    else
+      {state, false}
     end
   end
 

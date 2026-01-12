@@ -118,6 +118,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     base_query =
       from(r in {schema <> "." <> table, resource},
         where: field(r, ^timestamp_field) < ^cutoff,
+        order_by: [asc: field(r, ^timestamp_field)],
         select: r.id,
         limit: ^batch_size
       )

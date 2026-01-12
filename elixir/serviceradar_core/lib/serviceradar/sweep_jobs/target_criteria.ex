@@ -185,7 +185,7 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
     try do
       String.to_existing_atom(key)
     rescue
-      ArgumentError -> key
+      ArgumentError -> nil
     end
   end
 
@@ -288,7 +288,8 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
     case String.split(cidr_string, "/") do
       [ip_part, mask_part] ->
         with {:ok, network} <- parse_ip(ip_part),
-             {mask, ""} <- Integer.parse(mask_part) do
+             {mask, ""} <- Integer.parse(mask_part),
+             true <- valid_mask_for_ip?(network, mask) do
           {:ok, {network, mask}}
         else
           _ -> :error
@@ -306,7 +307,18 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
     end
   end
 
-  defp ip_matches_cidr?(ip, network, mask) when tuple_size(ip) == 4 and tuple_size(network) == 4 do
+  defp valid_mask_for_ip?(ip, mask) when tuple_size(ip) == 4 do
+    mask >= 0 and mask <= 32
+  end
+
+  defp valid_mask_for_ip?(ip, mask) when tuple_size(ip) == 8 do
+    mask >= 0 and mask <= 128
+  end
+
+  defp valid_mask_for_ip?(_ip, _mask), do: false
+
+  defp ip_matches_cidr?(ip, network, mask)
+       when tuple_size(ip) == 4 and tuple_size(network) == 4 and mask >= 0 and mask <= 32 do
     # IPv4
     ip_int = ipv4_to_int(ip)
     network_int = ipv4_to_int(network)
@@ -351,6 +363,7 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
 
   # Ash filter building
 
+  defp build_ash_condition(nil, _operator_spec), do: []
   defp build_ash_condition(field, %{"eq" => value}), do: [{field, value}]
   defp build_ash_condition(field, %{"neq" => value}), do: [{:not, [{field, value}]}]
 

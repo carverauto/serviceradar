@@ -188,17 +188,27 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       [_, value, unit] ->
         value = String.to_integer(value)
 
-        case String.downcase(unit) do
-          "s" -> value
-          "m" -> value * 60
-          "h" -> value * 3600
-          "d" -> value * 86400
+        seconds =
+          case String.downcase(unit) do
+            "s" -> value
+            "m" -> value * 60
+            "h" -> value * 3600
+            "d" -> value * 86400
+          end
+
+        if seconds > 0 do
+          seconds
+        else
+          Logger.warning("Interval must be positive, defaulting to 1 hour", interval: interval)
+          3600
         end
 
       nil ->
         # Try parsing as just a number (assume seconds)
         case Integer.parse(interval) do
-          {value, ""} -> value
+          {value, ""} when value > 0 ->
+            value
+
           _ ->
             Logger.warning("Unable to parse interval string, defaulting to 1 hour",
               interval: interval

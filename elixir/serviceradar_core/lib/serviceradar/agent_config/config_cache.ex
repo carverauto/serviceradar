@@ -156,7 +156,14 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   @impl true
   def init(_opts) do
-    table = :ets.new(@table_name, [:named_table, :set, :public, read_concurrency: true])
+    table =
+      :ets.new(@table_name, [
+        :named_table,
+        :set,
+        :protected,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
 
     # Schedule periodic cleanup of expired entries
     schedule_cleanup()
