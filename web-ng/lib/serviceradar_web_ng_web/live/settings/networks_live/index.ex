@@ -950,7 +950,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
               execution={execution}
               group={Map.get(@groups_map, execution.sweep_group_id)}
               progress={
-                Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)
+                Map.get(@execution_progress, execution.execution_id || execution.id)
               }
             />
           <% end %>

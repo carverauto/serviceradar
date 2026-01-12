@@ -1845,22 +1845,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(scope, ip) when is_binary(ip) do
     actor = build_sweep_actor(scope)
-    tenant = get_sweep_tenant(scope)
 
-    require Ash.Query
-
-    query =
-      SweepHostResult
-      |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
-      |> Ash.Query.sort(inserted_at: :desc)
-      |> Ash.Query.limit(10)
-
-    case Ash.read(query, authorize?: true) do
-      {:ok, results} when results != [] ->
-        %{results: results, total: length(results)}
-
-      _ ->
+    case get_sweep_tenant(scope) do
+      nil ->
         nil
+
+      tenant ->
+        require Ash.Query
+
+        query =
+          SweepHostResult
+          |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
+          |> Ash.Query.sort(inserted_at: :desc)
+          |> Ash.Query.limit(10)
+
+        case Ash.read(query, authorize?: true) do
+          {:ok, results} when results != [] ->
+            %{results: results, total: length(results)}
+
+          _ ->
+            nil
+        end
     end
   end
 
@@ -1876,10 +1881,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           tenant_id: Scope.tenant_id(scope)
         }
 
-      _ ->
-        %{id: "system", email: "system@serviceradar", role: :admin}
-    end
+    _ ->
+      %{
+        id: "system",
+        email: "system@serviceradar",
+        role: :admin,
+        tenant_id: Scope.tenant_id(scope)
+      }
   end
+end
 
   defp get_sweep_tenant(scope) do
     case Scope.tenant_id(scope) do

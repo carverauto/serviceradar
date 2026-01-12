@@ -253,7 +253,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do
-    if status[:source] == "results" do
+    if should_buffer?(status) do
       duration_ms =
         System.monotonic_time()
         |> Kernel.-(started_at)

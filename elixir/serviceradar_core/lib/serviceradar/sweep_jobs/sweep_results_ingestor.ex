@@ -435,7 +435,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       (available_ips ++ unavailable_ips)
       |> Enum.map(&Map.get(device_map, &1))
       |> Enum.reject(&is_nil/1)
-      |> Enum.map(& &1.canonical_device_id)
+      |> Enum.map(&Map.get(&1, :canonical_device_id))
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 

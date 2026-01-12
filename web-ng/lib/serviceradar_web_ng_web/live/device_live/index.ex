@@ -149,7 +149,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         MapSet.union(selected, device_uids)
       end
 
-    {:noreply, assign(socket, :selected_devices, updated)}
+    {:noreply,
+     socket
+     |> assign(:selected_devices, updated)
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)}
   end
 
   def handle_event("clear_selection", _params, socket) do
@@ -1211,7 +1215,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           |> Enum.filter(&is_binary/1)
 
         next_cursor = Map.get(pagination, "next_cursor")
-        new_acc = uids ++ acc
+        new_acc = [uids | acc]
 
         if is_binary(next_cursor) do
           fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc)
@@ -1226,7 +1230,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
           |> Enum.filter(&is_binary/1)
 
-        finalize_uid_acc(uids ++ acc)
+        finalize_uid_acc([uids | acc])
 
       _ ->
         finalize_uid_acc(acc)
@@ -1236,6 +1240,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp finalize_uid_acc(acc) do
     acc
     |> Enum.reverse()
+    |> List.flatten()
     |> Enum.uniq()
   end
 

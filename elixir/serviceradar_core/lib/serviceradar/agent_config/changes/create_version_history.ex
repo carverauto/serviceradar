@@ -28,31 +28,38 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
     current_config = Ash.Changeset.get_data(changeset, :compiled_config) || %{}
     current_hash = Ash.Changeset.get_data(changeset, :content_hash) || ""
     current_source_ids = Ash.Changeset.get_data(changeset, :source_ids) || []
-    tenant_id = Ash.Changeset.get_attribute(changeset, :tenant_id)
+    tenant = changeset.tenant
 
     # Extract actor info if available
     {actor_id, actor_email} = extract_actor_info(context)
 
-    # Create the version record
-    version_attrs = %{
-      config_instance_id: config_instance_id,
-      version: current_version,
-      compiled_config: current_config,
-      content_hash: current_hash,
-      source_ids: current_source_ids,
-      actor_id: actor_id,
-      actor_email: actor_email,
-      change_reason: "Config updated"
-    }
+    if is_nil(tenant) do
+      Ash.Changeset.add_error(changeset,
+        field: :tenant_id,
+        message: "tenant context is required to record config history"
+      )
+    else
+      # Create the version record
+      version_attrs = %{
+        config_instance_id: config_instance_id,
+        version: current_version,
+        compiled_config: current_config,
+        content_hash: current_hash,
+        source_ids: current_source_ids,
+        actor_id: actor_id,
+        actor_email: actor_email,
+        change_reason: "Config updated"
+      }
 
-    case create_version(version_attrs, tenant_id) do
-      {:ok, _version} ->
-        changeset
+      case create_version(version_attrs, tenant, context) do
+        {:ok, _version} ->
+          changeset
 
-      {:error, error} ->
-        Logger.warning("Failed to create config version history: #{inspect(error)}")
-        # Don't fail the main operation if history creation fails
-        changeset
+        {:error, error} ->
+          Logger.warning("Failed to create config version history: #{inspect(error)}")
+          # Don't fail the main operation if history creation fails
+          changeset
+      end
     end
   end
 
@@ -64,9 +71,11 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
     end
   end
 
-  defp create_version(attrs, tenant_id) do
+  defp create_version(attrs, tenant, context) do
+    actor = Map.get(context, :actor)
+
     ServiceRadar.AgentConfig.ConfigVersion
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(authorize?: false, tenant: tenant_id)
+    |> Ash.create(authorize?: false, tenant: tenant, actor: actor)
   end
 end
