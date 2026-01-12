@@ -76,34 +76,28 @@ The network sweep targeting UI needs a visual query builder for selecting device
 - **Shared criteria module**: `ServiceRadar.SweepJobs.CriteriaQuery` provides shared SRQL conversion used by both UI and SweepCompiler documentation.
 - **Field/operator catalog**: 20 device fields exposed in targeting UI with field-appropriate operators (eq, neq, contains, in_cidr, in_range, has_any, has_all, gt/gte/lt/lte).
 
-## Config Invalidation on Device Changes
+## Target List Change Tracking
 
 The target result set can change even when SweepGroup config stays the same:
 - New devices discovered that match criteria
 - Device attributes change (discovery_sources, tags)
 - Devices deleted
 
-**Current state:** Only SweepGroup/SweepProfile changes trigger cache invalidation.
+**How agents get updated targets:** The SweepCompiler computes targets fresh from current device inventory on each config poll. No cache invalidation is needed.
 
-**Solution (Implemented):** `SweepConfigRefreshWorker` Oban job:
+**Tracking changes for visibility:** `SweepConfigRefreshWorker` Oban job:
 1. Runs every 5 minutes via cron (`*/5 * * * *` in `config_refresh` queue)
 2. For each tenant's enabled sweep groups:
    - Execute Ash query to get current target IPs
    - Compute SHA256 hash of sorted IP list
    - Compare with stored `target_hash` on SweepGroup
-   - If changed, update hash and publish config invalidation via NATS
-3. Agents receive updated configs within the refresh interval
+   - If changed, update hash and log the change
+3. Provides audit trail and debugging visibility
 
 **Implementation details:**
 - `SweepGroup` has `target_hash` (text) and `target_hash_updated_at` (utc_datetime) attributes
 - Hash computed via `:crypto.hash(:sha256, Enum.sort(ips) |> Enum.join(","))`
-- Config invalidation via `ConfigPublisher.publish_resource_change/5`
 - Database migration: `20260111210000_add_sweep_group_target_hash.exs`
-
-**Alternative considered:** Adding a notifier to Device resource. Rejected because:
-- High volume of device changes could cause excessive invalidations
-- Bulk device imports would hammer the system
-- Periodic refresh is more predictable and batches changes
 
 ## Risks / Trade-offs
 - Stacked AND-only filters cannot express OR logic. However, for the primary use case (e.g., "devices from Armis in partition X"), this is sufficient.

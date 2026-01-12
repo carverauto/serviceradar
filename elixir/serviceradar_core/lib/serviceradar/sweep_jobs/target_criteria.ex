@@ -144,7 +144,11 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   def to_ash_filter(criteria) when is_map(criteria) do
     Enum.flat_map(criteria, fn {field, operator_spec} ->
       field_atom = to_atom_key(field)
-      build_ash_condition(field_atom, operator_spec)
+
+      case build_ash_condition(field_atom, field, operator_spec) do
+        {:ok, conditions} -> conditions
+        {:unsupported, _} -> []
+      end
     end)
   end
 

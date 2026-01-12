@@ -1,16 +1,23 @@
 defmodule ServiceRadar.SweepJobs.SweepConfigRefreshWorker do
   @moduledoc """
-  Oban worker that periodically checks if sweep target lists have changed.
+  Oban worker that periodically tracks changes to sweep target lists.
 
   When device inventory changes (new devices discovered, attributes updated, devices deleted),
   the target list for a sweep group may change even though the group's criteria hasn't.
-  This worker detects such changes by:
+  This worker detects and logs such changes by:
 
   1. Computing the current target list hash for each enabled sweep group
   2. Comparing with the stored `target_hash` on the group
-  3. If changed, updating the hash and invalidating the config cache
+  3. If changed, updating the hash and logging the change
 
-  This ensures agents receive updated configs within the refresh interval.
+  The hash tracking provides:
+  - Audit trail of when target lists changed
+  - Visibility into target list stability
+  - Debugging information for sweep configuration issues
+
+  Note: Agents receive fresh target lists on each config poll since the SweepCompiler
+  computes targets from current device inventory. This worker is for monitoring, not
+  for triggering config updates.
 
   ## Configuration
 
@@ -29,8 +36,6 @@ defmodule ServiceRadar.SweepJobs.SweepConfigRefreshWorker do
     max_attempts: 3,
     unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
 
-  alias ServiceRadar.AgentConfig.ConfigPublisher
-  alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -99,7 +104,7 @@ defmodule ServiceRadar.SweepJobs.SweepConfigRefreshWorker do
     |> Ash.read(authorize?: false)
   end
 
-  defp check_and_update_group(group, tenant, tenant_schema, actor) do
+  defp check_and_update_group(group, _tenant, tenant_schema, actor) do
     # Compute current target list
     targets = compile_target_list(group, tenant_schema, actor)
 
@@ -118,9 +123,6 @@ defmodule ServiceRadar.SweepJobs.SweepConfigRefreshWorker do
 
       # Update the hash on the group
       update_group_hash(group, current_hash, tenant_schema, actor)
-
-      # Invalidate the config cache
-      invalidate_config_cache(tenant.id, group)
 
       true
     else
@@ -213,17 +215,6 @@ defmodule ServiceRadar.SweepJobs.SweepConfigRefreshWorker do
 
         :error
     end
-  end
-
-  defp invalidate_config_cache(tenant_id, group) do
-    # Publish config invalidation event
-    ConfigPublisher.publish_resource_change(
-      tenant_id,
-      :sweep,
-      SweepGroup,
-      group.id,
-      :target_hash_changed
-    )
   end
 
   defp build_system_actor(tenant_id) do
