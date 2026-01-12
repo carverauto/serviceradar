@@ -691,9 +691,24 @@ func isRetryableEnrollError(err error) bool {
 	switch status.Code(err) {
 	case codes.Unavailable, codes.DeadlineExceeded:
 		return true
-	default:
+	case codes.OK,
+		codes.Canceled,
+		codes.Unknown,
+		codes.InvalidArgument,
+		codes.NotFound,
+		codes.AlreadyExists,
+		codes.PermissionDenied,
+		codes.ResourceExhausted,
+		codes.FailedPrecondition,
+		codes.Aborted,
+		codes.OutOfRange,
+		codes.Unimplemented,
+		codes.Internal,
+		codes.DataLoss,
+		codes.Unauthenticated:
 		return false
 	}
+	return false
 }
 
 // configPollLoop periodically polls for config updates.
