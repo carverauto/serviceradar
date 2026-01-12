@@ -251,30 +251,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(uid in ^uids)
 
-    with {:ok, existing_count} <- Ash.count(query, scope: scope) do
-      result =
-        Ash.bulk_update(query, :update, %{},
-          scope: scope,
-          return_records?: false,
-          return_errors?: true,
-          atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
-        )
+    case Ash.count(query, scope: scope) do
+      {:ok, existing_count} ->
+        result =
+          Ash.bulk_update(query, :update, %{},
+            scope: scope,
+            return_records?: false,
+            return_errors?: true,
+            atomic_update: %{tags: expr(fragment("coalesce(?, '{}'::jsonb) || ?", tags, ^new_tags))}
+          )
 
-      case result do
-        %Ash.BulkResult{status: :success} ->
-          if existing_count < length(uids) do
-            {:error, "One or more devices were not found"}
-          else
-            {:ok, existing_count}
-          end
+        case result do
+          %Ash.BulkResult{status: :success} ->
+            if existing_count < length(uids) do
+              {:error, "One or more devices were not found"}
+            else
+              {:ok, existing_count}
+            end
 
-        %Ash.BulkResult{status: :partial_success, errors: errors} ->
-          {:error, format_changeset_errors(List.first(errors || []))}
+          %Ash.BulkResult{status: :partial_success, errors: errors} ->
+            {:error, format_changeset_errors(List.first(errors || []))}
 
-        %Ash.BulkResult{status: :error, errors: errors} ->
-          {:error, format_changeset_errors(List.first(errors || []))}
-      end
-    else
+          %Ash.BulkResult{status: :error, errors: errors} ->
+            {:error, format_changeset_errors(List.first(errors || []))}
+        end
+
       {:error, error} ->
         {:error, format_changeset_errors(error)}
     end

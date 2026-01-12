@@ -2279,8 +2279,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     clauses =
       criteria
       |> Enum.map(fn {field, spec} -> criteria_clause(field, spec) end)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.reject(fn clause -> is_nil(clause) or clause == "" end)
 
     Enum.join(clauses, " ")
   end
