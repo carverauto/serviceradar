@@ -2,8 +2,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.UIComponents
+  import Ash.Expr
+
+  require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadar.Inventory.Device
 
   @default_limit 20
   @max_limit 100
@@ -27,6 +31,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:limit, @default_limit)
+     # Bulk selection
+     |> assign(:selected_devices, MapSet.new())
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)
+     |> assign(:show_bulk_edit_modal, false)
+     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -82,23 +92,356 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")}
+    socket =
+      SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "devices")
+      |> assign(:selected_devices, MapSet.new())
+      |> assign(:select_all_matching, false)
+      |> assign(:total_matching_count, nil)
+
+    {:noreply, socket}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
+    socket =
+      SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")
+      |> assign(:selected_devices, MapSet.new())
+      |> assign(:select_all_matching, false)
+      |> assign(:total_matching_count, nil)
+
+    {:noreply, socket}
+  end
+
+  # Bulk selection handlers
+  def handle_event("toggle_device_select", %{"uid" => uid}, socket) do
+    selected = socket.assigns.selected_devices
+
+    updated =
+      if MapSet.member?(selected, uid) do
+        MapSet.delete(selected, uid)
+      else
+        MapSet.put(selected, uid)
+      end
+
     {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "devices")}
+     socket
+     |> assign(:selected_devices, updated)
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)}
+  end
+
+  def handle_event("toggle_select_all", _params, socket) do
+    devices = socket.assigns.devices
+    selected = socket.assigns.selected_devices
+
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    updated =
+      if MapSet.subset?(device_uids, selected) do
+        # All current page devices selected, deselect them
+        MapSet.difference(selected, device_uids)
+      else
+        # Select all current page devices
+        MapSet.union(selected, device_uids)
+      end
+
+    {:noreply,
+     socket
+     |> assign(:selected_devices, updated)
+     |> assign(:select_all_matching, false)
+     |> assign(:total_matching_count, nil)}
+  end
+
+  def handle_event("clear_selection", _params, socket) do
+    {:noreply, assign(socket, :selected_devices, MapSet.new())}
+  end
+
+  def handle_event("open_bulk_edit_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+  end
+
+  def handle_event("close_bulk_edit_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_bulk_edit_modal, false)
+     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))}
+  end
+
+  def handle_event("toggle_select_all_matching", _params, socket) do
+    current = socket.assigns.select_all_matching
+
+    socket =
+      if current do
+        # Turning off - clear selection
+        socket
+        |> assign(:select_all_matching, false)
+        |> assign(:selected_devices, MapSet.new())
+        |> assign(:total_matching_count, nil)
+      else
+        # Turning on - get total count
+        scope = socket.assigns.current_scope
+        query = Map.get(socket.assigns.srql || %{}, :query, "")
+        total = get_total_matching_count(scope, query)
+
+        socket
+        |> assign(:select_all_matching, true)
+        |> assign(:total_matching_count, total)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("apply_bulk_tags", %{"bulk" => params}, socket) do
+    scope = socket.assigns.current_scope
+    tags_input = Map.get(params, "tags", "")
+    tags = parse_bulk_tags(tags_input)
+
+    if tags == %{} do
+      {:noreply,
+       socket
+       |> assign(:bulk_edit_form, to_form(params, as: :bulk))
+       |> put_flash(:error, "Enter at least one tag to apply")}
+    else
+      case apply_tags_to_devices(scope, socket, tags) do
+        {:ok, count} ->
+          {:noreply,
+           socket
+           |> assign(:show_bulk_edit_modal, false)
+           |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+           |> assign(:selected_devices, MapSet.new())
+           |> assign(:select_all_matching, false)
+           |> assign(:total_matching_count, nil)
+           |> put_flash(:info, "Applied tags to #{count} device(s)")}
+
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(:bulk_edit_form, to_form(params, as: :bulk))
+           |> put_flash(:error, "Failed to apply tags: #{reason}")}
+      end
+    end
+  end
+
+  # Get device UIDs from selected devices or all matching devices
+  defp get_selected_uids(socket) do
+    if socket.assigns.select_all_matching do
+      scope = socket.assigns.current_scope
+      query = Map.get(socket.assigns.srql || %{}, :query, "")
+      get_all_matching_uids(scope, query)
+    else
+      socket.assigns.selected_devices
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+    end
+  end
+
+  defp apply_tags_to_devices(scope, socket, tags) do
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and
+          socket.assigns.total_matching_count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        case get_selected_uids(socket) do
+          [] ->
+            {:error, "No devices selected"}
+
+          uids ->
+            update_tags_for_uids(scope, uids, tags)
+        end
+    end
+  end
+
+  defp update_tags_for_uids(scope, uids, new_tags) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(uid in ^uids)
+
+    case Ash.count(query, scope: scope) do
+      {:ok, existing_count} ->
+        requested_count = length(uids)
+        result = bulk_update_tags(query, new_tags, scope)
+        handle_bulk_update_result(result, existing_count, requested_count)
+
+      {:error, error} ->
+        {:error, format_changeset_errors(error)}
+    end
+  end
+
+  defp bulk_update_tags(query, new_tags, scope) do
+    Ash.bulk_update(query, :update, %{},
+      scope: scope,
+      return_records?: false,
+      return_errors?: true,
+      atomic_update: %{
+        tags:
+          expr(
+            fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ^ref(:tags), ^new_tags)
+          )
+      }
+    )
+  end
+
+  defp handle_bulk_update_result(result, existing_count, requested_count) do
+    case result do
+      %Ash.BulkResult{status: :success} ->
+        if existing_count < requested_count do
+          {:error, "One or more devices were not found"}
+        else
+          {:ok, existing_count}
+        end
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, format_changeset_errors(List.first(errors || []))}
+    end
+  end
+
+  defp parse_bulk_tags(input) when is_binary(input) do
+    input
+    |> String.split(~r/[\n,]/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reduce(%{}, fn entry, acc ->
+      case parse_tag_entry(entry) do
+        {:ok, key, value} -> Map.put(acc, key, value)
+        :skip -> acc
+      end
+    end)
+  end
+
+  defp parse_bulk_tags(_), do: %{}
+
+  defp parse_tag_entry(entry) do
+    case String.split(entry, "=", parts: 2) do
+      [key, value] -> normalize_tag_entry(key, value)
+      [key] -> normalize_tag_entry(key, "")
+    end
+  end
+
+  defp normalize_tag_entry(key, value) do
+    key = String.trim(key)
+
+    if key == "" do
+      :skip
+    else
+      {:ok, key, String.trim(value)}
+    end
   end
 
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-    assigns = assign(assigns, :pagination, pagination)
+    selected_count = MapSet.size(assigns.selected_devices)
+
+    # Check if all visible devices are selected
+    visible_uids =
+      assigns.devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    all_selected =
+      MapSet.size(visible_uids) > 0 and MapSet.subset?(visible_uids, assigns.selected_devices)
+
+    # Compute effective count (either selected or all matching)
+    effective_count =
+      if assigns.select_all_matching do
+        assigns.total_matching_count || 0
+      else
+        selected_count
+      end
+
+    assigns =
+      assigns
+      |> assign(:pagination, pagination)
+      |> assign(:selected_count, selected_count)
+      |> assign(:effective_count, effective_count)
+      |> assign(:all_selected, all_selected)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <!-- Quick Filters -->
+        <div class="mb-4 flex flex-wrap items-center gap-2">
+          <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
+          <.link
+            navigate={~p"/devices?q=is_available:true"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_available", "true"), do: "btn-primary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-check-circle" class="size-3" /> Available
+          </.link>
+          <.link
+            navigate={~p"/devices?q=is_available:false"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-x-circle" class="size-3" /> Unavailable
+          </.link>
+          <.link
+            navigate={~p"/devices?q=discovery_sources:sweep"}
+            class={"btn btn-xs #{if has_filter?(@srql, "discovery_sources", "sweep"), do: "btn-info", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-signal" class="size-3" /> Swept
+          </.link>
+          <.link
+            :if={has_any_filter?(@srql)}
+            navigate={~p"/devices"}
+            class="btn btn-xs btn-ghost"
+          >
+            <.icon name="hero-x-mark" class="size-3" /> Clear
+          </.link>
+        </div>
+        
+    <!-- Bulk Actions Bar -->
+        <div
+          :if={@selected_count > 0 or @select_all_matching}
+          class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3"
+        >
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm font-medium text-primary">
+              <%= if @select_all_matching do %>
+                <.icon name="hero-check-badge" class="size-4 inline" />
+                All {@total_matching_count} matching device(s) selected
+              <% else %>
+                {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
+              <% end %>
+            </span>
+            
+    <!-- Select All Matching Toggle -->
+            <button
+              :if={!@select_all_matching and has_any_filter?(@srql)}
+              phx-click="toggle_select_all_matching"
+              class="text-xs text-primary hover:text-primary-focus underline"
+            >
+              Select all matching filter
+            </button>
+
+            <button
+              phx-click="clear_selection"
+              class="text-xs text-base-content/60 hover:text-base-content"
+            >
+              Clear selection
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
+              <.icon name="hero-tag" class="size-4" /> Bulk Edit
+            </.ui_button>
+          </div>
+        </div>
+
         <.ui_panel>
           <:header>
             <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
@@ -110,6 +453,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             <table class="table table-sm table-zebra w-full">
               <thead>
                 <tr>
+                  <th class="w-10 text-center bg-base-200/60">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm checkbox-primary"
+                      checked={@all_selected}
+                      phx-click="toggle_select_all"
+                    />
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">UID</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
@@ -145,20 +496,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="11" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="12" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
 
                 <%= for row <- Enum.filter(@devices, &is_map/1) do %>
                   <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
+                  <% is_selected =
+                    is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <tr class="hover:bg-base-200/40">
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
+                    <td class="text-center">
+                      <input
+                        :if={is_binary(device_uid)}
+                        type="checkbox"
+                        class="checkbox checkbox-sm checkbox-primary"
+                        checked={is_selected}
+                        phx-click="toggle_device_select"
+                        phx-value-uid={device_uid}
+                      />
+                    </td>
                     <td class="font-mono text-xs">
                       <.link
                         :if={is_binary(device_uid)}
@@ -219,7 +582,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
         </.ui_panel>
       </div>
+      
+    <!-- Bulk Edit Modal -->
+      <.bulk_edit_modal
+        :if={@show_bulk_edit_modal}
+        form={@bulk_edit_form}
+        selected_count={@effective_count}
+      />
     </Layouts.app>
+    """
+  end
+
+  # Bulk Edit Modal Component
+  attr :form, :any, required: true
+  attr :selected_count, :integer, required: true
+
+  defp bulk_edit_modal(assigns) do
+    ~H"""
+    <dialog id="bulk_edit_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_bulk_edit_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Bulk Edit Devices</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Apply tags to {@selected_count} selected device(s).
+        </p>
+
+        <.form for={@form} id="bulk-tags-form" phx-submit="apply_bulk_tags" class="space-y-4">
+          <div>
+            <label class="label">
+              <span class="label-text font-medium">Tags</span>
+              <span class="label-text-alt text-base-content/50">key or key=value</span>
+            </label>
+            <.input
+              type="textarea"
+              field={@form[:tags]}
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="4"
+              placeholder="env=prod\ncritical\nregion=us-east"
+            />
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" phx-click="close_bulk_edit_modal" class="btn btn-ghost">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              Apply Tags
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_bulk_edit_modal">close</button>
+      </form>
+    </dialog>
     """
   end
 
@@ -751,5 +1175,108 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  defp get_total_matching_count(scope, query) do
+    srql_module = srql_module()
+    query = to_string(query || "") |> String.trim()
+
+    full_query =
+      if query == "" do
+        ~s|in:devices stats:"count() as total"|
+      else
+        ~s|in:devices #{query} stats:"count() as total"|
+      end
+
+    case srql_module.query(full_query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
+        count
+
+      _ ->
+        nil
+    end
+  end
+
+  defp get_all_matching_uids(scope, query) do
+    srql_module = srql_module()
+    fetch_all_uids_paginated(srql_module, scope, query, nil, [])
+  end
+
+  defp fetch_all_uids_paginated(srql_module, scope, query, cursor, acc) do
+    full_query = "in:devices #{query} limit:1000"
+    opts = if cursor, do: %{scope: scope, cursor: cursor}, else: %{scope: scope}
+
+    case srql_module.query(full_query, opts) do
+      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
+        uids =
+          results
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+          |> Enum.filter(&is_binary/1)
+
+        next_cursor = Map.get(pagination, "next_cursor")
+        new_acc = [uids | acc]
+
+        if is_binary(next_cursor) do
+          fetch_all_uids_paginated(srql_module, scope, query, next_cursor, new_acc)
+        else
+          finalize_uid_acc(new_acc)
+        end
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        uids =
+          results
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+          |> Enum.filter(&is_binary/1)
+
+        finalize_uid_acc([uids | acc])
+
+      _ ->
+        finalize_uid_acc(acc)
+    end
+  end
+
+  defp finalize_uid_acc(acc) do
+    acc
+    |> Enum.reverse()
+    |> List.flatten()
+    |> Enum.uniq()
+  end
+
+  defp format_changeset_errors(changeset) do
+    case changeset do
+      %Ash.Changeset{errors: errors} when is_list(errors) and errors != [] ->
+        Enum.map_join(errors, ", ", &format_single_error/1)
+
+      %Ecto.Changeset{errors: errors} when is_list(errors) and errors != [] ->
+        Enum.map_join(errors, ", ", fn {field, {msg, _opts}} -> "#{field}: #{msg}" end)
+
+      _ ->
+        "Unknown error"
+    end
+  end
+
+  defp format_single_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
+    do: "#{field}: #{msg}"
+
+  defp format_single_error(%Ash.Error.Changes.Required{field: field}),
+    do: "#{field} is required"
+
+  defp format_single_error(%{message: msg}) when is_binary(msg),
+    do: msg
+
+  defp format_single_error(err),
+    do: inspect(err)
+
+  # Filter helpers for quick filter buttons
+  defp has_filter?(srql, field, value) do
+    query = Map.get(srql || %{}, :query, "") || ""
+    String.contains?(query, "#{field}:#{value}")
+  end
+
+  defp has_any_filter?(srql) do
+    query = Map.get(srql || %{}, :query, "") || ""
+    String.trim(query) != ""
   end
 end

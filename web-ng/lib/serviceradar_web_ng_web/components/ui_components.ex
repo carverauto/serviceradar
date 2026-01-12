@@ -99,7 +99,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :class, :any, default: nil
-  attr :rest, :global, include: ~w(name value disabled)
+
+  attr :rest, :global,
+    include: ~w(name value disabled phx-change phx-target phx-debounce phx-throttle phx-value-id
+                phx-value-field)
 
   slot :inner_block, required: true
 
@@ -115,7 +118,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   attr :class, :any, default: nil
-  attr :rest, :global, include: ~w(name value type placeholder disabled min max step)
+
+  attr :rest, :global,
+    include: ~w(name value type placeholder disabled min max step phx-change phx-target
+                phx-debounce phx-throttle phx-value-id phx-value-field)
 
   def ui_inline_input(assigns) do
     ~H"""

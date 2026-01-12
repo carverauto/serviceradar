@@ -47,7 +47,7 @@ func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultPr
 		Concurrency: 10,
 		Timeout:     time.Second * 30,
 		AgentID:     "test-agent",
-		GatewayID:    "test-gateway",
+		GatewayID:   "test-gateway",
 		Partition:   "test-partition",
 	}
 
@@ -58,7 +58,6 @@ func createTestSweeper(t *testing.T) (*NetworkSweeper, *MockStore, *MockResultPr
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
-		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	return sweeper, mockStore, mockProcessor, mockDeviceRegistry, ctrl
@@ -133,7 +132,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"gateway_id":       "test-gateway",
+				"gateway_id":      "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -144,7 +143,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"gateway_id":       "test-gateway",
+				"gateway_id":      "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -156,7 +155,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "123",
 				"all_ips":         "192.168.1.1,192.168.1.2,192.168.1.3",
 				"agent_id":        "test-agent",
-				"gateway_id":       "test-gateway",
+				"gateway_id":      "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -168,7 +167,7 @@ func TestPrepareDeviceAggregators(t *testing.T) {
 				"armis_device_id": "456",
 				"all_ips":         "192.168.1.10",
 				"agent_id":        "test-agent",
-				"gateway_id":       "test-gateway",
+				"gateway_id":      "test-gateway",
 				"partition":       "test-partition",
 			},
 		},
@@ -344,7 +343,7 @@ func TestProcessAggregatedResults(t *testing.T) {
 	aggregator := &DeviceResultAggregator{
 		DeviceID:  "armis:123",
 		AgentID:   "test-agent",
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		Partition: "test-partition",
 		Metadata: map[string]interface{}{
 			"armis_device_id": "123",
@@ -417,7 +416,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 					"all_ips":         "192.168.1.1,192.168.1.2,10.0.0.1",
 					"primary_ip":      "192.168.1.1",
 					"agent_id":        "test-agent",
-					"gateway_id":       "test-gateway",
+					"gateway_id":      "test-gateway",
 					"partition":       "default",
 				},
 			},
@@ -428,7 +427,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 		Concurrency: 10,
 		Timeout:     time.Second * 30,
 		AgentID:     "test-agent",
-		GatewayID:    "test-gateway",
+		GatewayID:   "test-gateway",
 		Partition:   "default",
 	}
 
@@ -439,7 +438,6 @@ func TestMultiIPScanFlow(t *testing.T) {
 		deviceRegistry: mockDeviceRegistry,
 		logger:         logger.NewTestLogger(),
 		deviceResults:  make(map[string]*DeviceResultAggregator),
-		kvBackoff:      defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("generateTargetsForDeviceTarget uses only primary IP", func(t *testing.T) {
@@ -592,7 +590,7 @@ func TestMultiIPScanFlow(t *testing.T) {
 func TestEdgeCases(t *testing.T) {
 	config := &models.Config{
 		AgentID:   "test-agent",
-		GatewayID:  "test-gateway",
+		GatewayID: "test-gateway",
 		Partition: "test-partition",
 	}
 
@@ -600,7 +598,6 @@ func TestEdgeCases(t *testing.T) {
 		config:        config,
 		logger:        logger.NewTestLogger(),
 		deviceResults: make(map[string]*DeviceResultAggregator),
-		kvBackoff:     defaultKVWatchBackoffSettings(),
 	}
 
 	t.Run("aggregator with no results", func(_ *testing.T) {

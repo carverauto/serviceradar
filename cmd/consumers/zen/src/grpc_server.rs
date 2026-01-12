@@ -71,6 +71,8 @@ impl AgentService for ZenAgentService {
             current_sequence: String::new(),
             has_new_data: false,
             sweep_completion: None,
+            execution_id: String::new(),
+            sweep_group_id: String::new(),
         }))
     }
 

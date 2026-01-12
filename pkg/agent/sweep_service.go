@@ -29,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/google/uuid"
 )
 
 // SweepService implements Service for network scanning.
@@ -43,46 +44,27 @@ type SweepService struct {
 	cachedResults      *models.SweepSummary
 	lastSweepTimestamp int64
 	currentSequence    uint64
+
+	// Execution context for result tracking
+	sweepGroupID string // Current sweep group UUID from config
+	executionID  string // Current execution UUID (generated per sweep cycle)
+	configHash   string // Config hash for change detection
 }
 
 // NewSweepService creates a new SweepService.
 func NewSweepService(
 	ctx context.Context,
 	config *models.Config,
-	configStore KVStore,
-	objectStore ObjectStore,
-	configKey string,
 	log logger.Logger,
 ) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
-	store := sweeper.NewInMemoryStore(processor, log)
+	storeOptions := sweeper.StoreOptionsForConfig(config)
+	store := sweeper.NewInMemoryStore(processor, log, storeOptions...)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, configStore, objectStore, nil, configKey, log)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
-	}
-
-	// Bootstrap: ensure a default config exists in KV at the expected key, if KV is configured.
-	if configStore != nil && configKey != "" {
-		if data, mErr := json.Marshal(config); mErr == nil {
-			// Prefer atomic PutIfAbsent if supported by KV implementation.
-			type putIfAbsent interface {
-				PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
-			}
-			if pfa, ok := any(configStore).(putIfAbsent); ok {
-				if err := pfa.PutIfAbsent(ctx, configKey, data, 0); err == nil {
-					log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (created)")
-				}
-			} else {
-				if _, found, err := configStore.Get(ctx, configKey); err == nil && !found {
-					_ = configStore.Put(ctx, configKey, data, 0)
-					log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (absent before)")
-				}
-			}
-		} else {
-			log.Warn().Err(mErr).Msg("Failed to marshal default sweep config for KV initialization")
-		}
 	}
 
 	return &SweepService{
@@ -100,7 +82,7 @@ func NewSweepService(
 func (s *SweepService) Start(ctx context.Context) error {
 	s.logger.Info().Msgf("Starting sweep service with interval %v", s.config.Interval)
 
-	return s.sweeper.Start(ctx) // KV watching is handled by NetworkSweeper
+	return s.sweeper.Start(ctx)
 }
 
 // Stop gracefully stops the sweep service.
@@ -122,13 +104,17 @@ func (*SweepService) Name() string {
 
 // UpdateConfig updates the service configuration.
 func (s *SweepService) UpdateConfig(config *models.Config) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	newConfig := applyDefaultConfig(config)
 
+	// Update execution context for result tracking (takes its own lock)
+	if newConfig.SweepGroupID != "" || newConfig.ConfigHash != "" {
+		s.SetExecutionContext(newConfig.SweepGroupID, newConfig.ConfigHash)
+	}
+
+	s.mu.Lock()
 	s.config = newConfig
 	s.logger.Info().Msgf("Updated sweep config: %+v", newConfig)
+	s.mu.Unlock()
 
 	return s.sweeper.UpdateConfig(newConfig)
 }
@@ -291,9 +277,19 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		s.lastSweepTimestamp = summary.LastSweep
 		s.currentSequence++
 
-		// Sequence updated
+		// Generate a new execution ID for this sweep cycle
+		s.executionID = uuid.New().String()
 
-		s.logger.Info().Uint64("newSequence", s.currentSequence).Msg("Sweep data changed, updated sequence")
+		s.logger.Info().
+			Uint64("newSequence", s.currentSequence).
+			Str("executionID", s.executionID).
+			Msg("Sweep data changed, updated sequence and execution ID")
+	}
+
+	// Populate execution context in cached results
+	if s.cachedResults != nil {
+		s.cachedResults.ExecutionID = s.executionID
+		s.cachedResults.SweepGroupID = s.sweepGroupID
 	}
 
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
@@ -307,6 +303,8 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			CurrentSequence: currentSeqStr,
 			ServiceName:     "network_sweep",
 			ServiceType:     "sweep",
+			ExecutionId:     s.executionID,
+			SweepGroupId:    s.sweepGroupID,
 		}, nil
 	}
 
@@ -317,7 +315,40 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		return nil, fmt.Errorf("failed to marshal sweep results: %w", err)
 	}
 
-	s.logger.Info().Str("sequence", currentSeqStr).Int("hostCount", len(s.cachedResults.Hosts)).Msg("Returning new sweep data")
+	s.logger.Info().
+		Str("sequence", currentSeqStr).
+		Int("hostCount", len(s.cachedResults.Hosts)).
+		Str("executionID", s.executionID).
+		Str("sweepGroupID", s.sweepGroupID).
+		Msg("Returning new sweep data")
+
+	// Build sweep completion status with scanner stats
+	sweepCompletion := &proto.SweepCompletionStatus{
+		Status:           proto.SweepCompletionStatus_COMPLETED,
+		ExecutionId:      s.executionID,
+		SweepGroupId:     s.sweepGroupID,
+		TotalTargets:     int32(len(s.cachedResults.Hosts)),
+		CompletedTargets: int32(len(s.cachedResults.Hosts)),
+		CompletionTime:   time.Now().Unix(),
+	}
+
+	// Populate scanner stats if available
+	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
+			PacketsSent:         scannerStats.PacketsSent,
+			PacketsRecv:         scannerStats.PacketsRecv,
+			PacketsDropped:      scannerStats.PacketsDropped,
+			RingBlocksProcessed: scannerStats.RingBlocksProcessed,
+			RingBlocksDropped:   scannerStats.RingBlocksDropped,
+			RetriesAttempted:    scannerStats.RetriesAttempted,
+			RetriesSuccessful:   scannerStats.RetriesSuccessful,
+			PortsAllocated:      scannerStats.PortsAllocated,
+			PortsReleased:       scannerStats.PortsReleased,
+			PortExhaustionCount: scannerStats.PortExhaustionCount,
+			RateLimitDeferrals:  scannerStats.RateLimitDeferrals,
+			RxDropRatePercent:   scannerStats.RxDropRatePercent,
+		}
+	}
 
 	return &proto.ResultsResponse{
 		HasNewData:      true,
@@ -327,5 +358,34 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		ServiceType:     "sweep",
 		Available:       true,
 		Timestamp:       time.Now().Unix(),
+		ExecutionId:     s.executionID,
+		SweepGroupId:    s.sweepGroupID,
+		SweepCompletion: sweepCompletion,
 	}, nil
+}
+
+// SetExecutionContext updates the sweep group ID and config hash from config.
+// This should be called when the sweep config is updated from the gateway.
+func (s *SweepService) SetExecutionContext(sweepGroupID, configHash string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sweepGroupID != sweepGroupID || s.configHash != configHash {
+		s.logger.Info().
+			Str("oldGroupID", s.sweepGroupID).
+			Str("newGroupID", sweepGroupID).
+			Str("oldHash", s.configHash).
+			Str("newHash", configHash).
+			Msg("Updating sweep execution context")
+
+		s.sweepGroupID = sweepGroupID
+		s.configHash = configHash
+	}
+}
+
+// GetConfigHash returns the current config hash for change detection.
+func (s *SweepService) GetConfigHash() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.configHash
 }

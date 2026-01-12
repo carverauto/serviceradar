@@ -32,6 +32,12 @@ type Scanner interface {
 	Stop() error
 }
 
+// StatsProvider is an optional interface for scanners that can provide statistics.
+type StatsProvider interface {
+	// GetStats returns a snapshot of scanner performance statistics
+	GetStats() ScannerStats
+}
+
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {
 	// Process takes a Result and updates internal state

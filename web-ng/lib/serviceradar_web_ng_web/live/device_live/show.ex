@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadar.SweepJobs.SweepHostResult
 
   @default_limit 50
   @max_limit 200
@@ -40,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_summary, nil)
      |> assign(:availability, nil)
      |> assign(:healthcheck_summary, nil)
+     |> assign(:sweep_results, nil)
      |> assign(:limit, @default_limit)
      |> assign(:srql, srql)}
   end
@@ -103,6 +106,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
+    # Load sweep results for this device's IP
+    device_ip = get_device_ip(results)
+    sweep_results = load_sweep_results(socket.assigns.current_scope, device_ip)
+
     {:noreply,
      socket
      |> assign(:device_uid, uid)
@@ -113,6 +120,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_summary, sysmon_summary)
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
+     |> assign(:sweep_results, sweep_results)
      |> assign(:srql, srql)}
   end
 
@@ -195,6 +203,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <.availability_section :if={is_map(@availability)} availability={@availability} />
 
           <.healthcheck_section :if={is_map(@healthcheck_summary)} summary={@healthcheck_summary} />
+
+          <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
 
           <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
 
@@ -1676,5 +1686,215 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Sweep Status Section
+  # ---------------------------------------------------------------------------
+
+  attr :sweep_results, :map, required: true
+
+  def sweep_status_section(assigns) do
+    results = Map.get(assigns.sweep_results, :results, [])
+    latest = List.first(results)
+
+    assigns =
+      assigns
+      |> assign(:results, results)
+      |> assign(:latest, latest)
+      |> assign(:total, length(results))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-signal" class="size-4 text-info" />
+            <span class="text-sm font-semibold">Network Sweep Status</span>
+          </div>
+          <.link navigate={~p"/settings/networks"} class="text-xs text-primary hover:underline">
+            Manage Sweeps
+          </.link>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <%= if @latest do %>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div class="p-3 bg-base-200/50 rounded-lg">
+              <div class="text-xs text-base-content/60 uppercase">Status</div>
+              <div class="mt-1 flex items-center gap-2">
+                <span class={[
+                  "size-2 rounded-full",
+                  @latest.status == :available && "bg-success",
+                  @latest.status == :unavailable && "bg-error",
+                  @latest.status not in [:available, :unavailable] && "bg-warning"
+                ]}>
+                </span>
+                <span class="font-medium">{status_label(@latest.status)}</span>
+              </div>
+            </div>
+            <div class="p-3 bg-base-200/50 rounded-lg">
+              <div class="text-xs text-base-content/60 uppercase">Response Time</div>
+              <div class="mt-1 font-mono">
+                {format_response_time(@latest.response_time_ms)}
+              </div>
+            </div>
+            <div class="p-3 bg-base-200/50 rounded-lg">
+              <div class="text-xs text-base-content/60 uppercase">Last Sweep</div>
+              <div class="mt-1 text-sm">
+                {format_sweep_time(@latest.inserted_at)}
+              </div>
+            </div>
+          </div>
+
+          <%= if @latest.open_ports != [] do %>
+            <div class="mt-4">
+              <div class="text-xs text-base-content/60 uppercase mb-2">Open Ports</div>
+              <div class="flex flex-wrap gap-2">
+                <%= for port <- @latest.open_ports do %>
+                  <.ui_badge variant="ghost" size="sm" class="font-mono">{port}</.ui_badge>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <%= if @total > 1 do %>
+            <div class="mt-4 pt-4 border-t border-base-200">
+              <div class="text-xs text-base-content/60 mb-2">
+                Recent Sweep History ({@total} results)
+              </div>
+              <div class="overflow-x-auto">
+                <table class="table table-xs">
+                  <thead>
+                    <tr class="text-xs text-base-content/60">
+                      <th>Time</th>
+                      <th>Status</th>
+                      <th>Response</th>
+                      <th>Ports</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for result <- Enum.take(@results, 5) do %>
+                      <tr class="hover:bg-base-200/40">
+                        <td class="font-mono text-xs">{format_sweep_time(result.inserted_at)}</td>
+                        <td>
+                          <span class={[
+                            "inline-flex items-center gap-1",
+                            result.status == :available && "text-success",
+                            result.status == :unavailable && "text-error",
+                            result.status not in [:available, :unavailable] && "text-warning"
+                          ]}>
+                            <span class="size-1.5 rounded-full bg-current"></span>
+                            {status_label(result.status)}
+                          </span>
+                        </td>
+                        <td class="font-mono text-xs">
+                          {format_response_time(result.response_time_ms)}
+                        </td>
+                        <td class="font-mono text-xs">{format_ports_compact(result.open_ports)}</td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          <% end %>
+        <% else %>
+          <div class="text-center py-4 text-base-content/60">
+            <.icon name="hero-signal-slash" class="size-8 mx-auto mb-2 opacity-50" />
+            <p class="text-sm">No sweep results for this device yet.</p>
+            <p class="text-xs mt-1">Add this device to a sweep group to start monitoring.</p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp status_label(:available), do: "Available"
+  defp status_label(:unavailable), do: "Unavailable"
+  defp status_label(:timeout), do: "Timeout"
+  defp status_label(:error), do: "Error"
+  defp status_label(other), do: to_string(other)
+
+  defp format_response_time(nil), do: "—"
+  defp format_response_time(ms) when is_number(ms), do: "#{ms}ms"
+  defp format_response_time(_), do: "—"
+
+  defp format_sweep_time(nil), do: "—"
+
+  defp format_sweep_time(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  end
+
+  defp format_sweep_time(_), do: "—"
+
+  defp format_ports_compact([]), do: "—"
+  defp format_ports_compact(ports) when length(ports) <= 3, do: Enum.join(ports, ", ")
+  defp format_ports_compact(ports), do: "#{length(ports)} ports"
+
+  defp get_device_ip(results) do
+    case List.first(Enum.filter(results, &is_map/1)) do
+      nil -> nil
+      row -> Map.get(row, "ip")
+    end
+  end
+
+  defp load_sweep_results(_scope, nil), do: nil
+
+  defp load_sweep_results(scope, ip) when is_binary(ip) do
+    actor = build_sweep_actor(scope)
+
+    case get_sweep_tenant(scope) do
+      nil ->
+        nil
+
+      tenant ->
+        require Ash.Query
+
+        query =
+          SweepHostResult
+          |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
+          |> Ash.Query.sort(inserted_at: :desc)
+          |> Ash.Query.limit(10)
+
+        case Ash.read(query, authorize?: true) do
+          {:ok, results} when results != [] ->
+            %{results: results, total: length(results)}
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  defp load_sweep_results(_scope, _), do: nil
+
+  defp build_sweep_actor(scope) do
+    case scope do
+      %{user: user} when not is_nil(user) ->
+        %{
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          tenant_id: Scope.tenant_id(scope)
+        }
+
+    _ ->
+      %{
+        id: "system",
+        email: "system@serviceradar",
+        role: :admin,
+        tenant_id: Scope.tenant_id(scope)
+      }
+  end
+end
+
+  defp get_sweep_tenant(scope) do
+    case Scope.tenant_id(scope) do
+      nil -> nil
+      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+    end
   end
 end

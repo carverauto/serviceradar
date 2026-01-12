@@ -19,6 +19,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   require Logger
 
+  alias ServiceRadarAgentGateway.StatusBuffer
+
   @doc """
   Process a service status update.
 
@@ -51,10 +53,38 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   def process(status) do
     with :ok <- validate_status(status),
          status <- normalize_status(status),
-         :ok <- forward_to_core(status) do
+         :ok <- forward(status) do
       # Track this agent for UI visibility
       track_agent(status)
       :ok
+    end
+  end
+
+  @spec forward(map(), keyword()) :: :ok | {:error, term()}
+  def forward(status, opts \\ []) do
+    buffer_on_failure = Keyword.get(opts, :buffer_on_failure, true)
+    from_buffer = Keyword.get(opts, :from_buffer, false)
+    started_at = System.monotonic_time()
+
+    case forward_to_core(status) do
+      :ok ->
+        emit_forward_metrics(:ok, status, from_buffer, started_at)
+        :ok
+
+      {:error, reason} ->
+        if buffer_on_failure and should_buffer?(status) do
+          if Process.whereis(StatusBuffer) do
+            StatusBuffer.enqueue(status)
+          else
+            Logger.debug("Results buffer unavailable; dropping status")
+          end
+
+          emit_forward_metrics(:buffered, status, from_buffer, started_at)
+          :ok
+        else
+          emit_forward_metrics(:failed, status, from_buffer, started_at)
+          {:error, reason}
+        end
     end
   end
 
@@ -174,7 +204,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           GenServer.cast({ServiceRadar.StatusHandler, node}, {:status_update, status})
 
           if is_sync_results do
-            Logger.info("Forwarded sync results to StatusHandler on #{node} for tenant=#{tenant_slug}")
+            Logger.info(
+              "Forwarded sync results to StatusHandler on #{node} for tenant=#{tenant_slug}"
+            )
           else
             Logger.debug("Forwarded status to StatusHandler on #{node} for tenant=#{tenant_slug}")
           end
@@ -188,12 +220,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, :not_found} ->
         if is_sync_results do
-          Logger.warning("No StatusHandler found on any node for sync results, queuing for retry")
+          Logger.warning("No StatusHandler found on any node for sync results")
         else
-          Logger.debug("No StatusHandler found on any node, queuing for retry")
+          Logger.debug("No StatusHandler found on any node")
         end
 
-        queue_for_retry(status)
+        {:error, :not_available}
     end
   end
 
@@ -216,11 +248,31 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  # Queue status for retry when core is not available
-  defp queue_for_retry(_status) do
-    # For now, just log and return ok
-    # In a full implementation, this would use a persistent queue
-    # or retry with backoff
-    :ok
+  defp should_buffer?(status) do
+    status[:source] in ["results", :results]
+  end
+
+  defp emit_forward_metrics(result, status, from_buffer, started_at) do
+    if should_buffer?(status) do
+      duration_ms =
+        System.monotonic_time()
+        |> Kernel.-(started_at)
+        |> System.convert_time_unit(:native, :millisecond)
+
+      :telemetry.execute(
+        [:serviceradar, :agent_gateway, :results, :forward],
+        %{count: 1, duration_ms: duration_ms},
+        %{
+          result: result,
+          from_buffer: from_buffer,
+          service_type: status[:service_type],
+          service_name: status[:service_name],
+          agent_id: status[:agent_id],
+          gateway_id: status[:gateway_id],
+          tenant_slug: status[:tenant_slug],
+          partition: status[:partition]
+        }
+      )
+    end
   end
 end

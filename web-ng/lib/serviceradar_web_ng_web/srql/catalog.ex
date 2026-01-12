@@ -10,7 +10,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
       default_filter_field: "hostname",
-      filter_fields: ["hostname", "ip", "uid", "gateway_id", "agent_id"],
+      filter_fields: [
+        "hostname",
+        "ip",
+        "uid",
+        "gateway_id",
+        "agent_id",
+        "is_available",
+        "type_id",
+        "discovery_sources",
+        "tags"
+      ],
       downsample: false
     },
     %{

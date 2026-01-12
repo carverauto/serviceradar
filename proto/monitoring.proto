@@ -86,6 +86,8 @@ message ResultsResponse {
   string current_sequence = 9; // Current sequence of this response
   bool has_new_data = 10;     // Whether data changed since last_sequence
   SweepCompletionStatus sweep_completion = 11; // Sweep completion status for coordination
+  string execution_id = 12;   // Sweep execution UUID for result tracking
+  string sweep_group_id = 13; // Sweep group UUID this execution belongs to
 }
 
 message SweepServiceStatus {
@@ -124,6 +126,37 @@ message SweepCompletionStatus {
   int32 total_targets = 4;    // Total number of targets to sweep
   int32 completed_targets = 5; // Number of targets completed so far
   string error_message = 6;   // Error details if status is FAILED
+  string execution_id = 7;    // Sweep execution UUID for tracking
+  string sweep_group_id = 8;  // Sweep group UUID this execution belongs to
+  SweepScannerStats scanner_stats = 9;  // Scanner performance metrics
+}
+
+// SweepScannerStats contains performance metrics from the network scanner.
+// These metrics help diagnose scan performance and network conditions.
+message SweepScannerStats {
+  // Packet statistics
+  uint64 packets_sent = 1;      // Total SYN packets sent
+  uint64 packets_recv = 2;      // Total packets received (SYN-ACK, RST, etc.)
+  uint64 packets_dropped = 3;   // Packets dropped by kernel (ring buffer full)
+
+  // Ring buffer statistics (TPACKET_V3)
+  uint64 ring_blocks_processed = 4;  // Blocks successfully processed
+  uint64 ring_blocks_dropped = 5;    // Blocks lost due to buffer overruns
+
+  // Retry statistics
+  uint64 retries_attempted = 6;    // Number of retry attempts made
+  uint64 retries_successful = 7;   // Number of successful retries
+
+  // Port allocation statistics
+  uint64 ports_allocated = 8;      // Total source port allocations
+  uint64 ports_released = 9;       // Total source port releases
+  uint64 port_exhaustion_count = 10; // Times port allocator was exhausted
+
+  // Rate limiting statistics
+  uint64 rate_limit_deferrals = 11;  // Packet sends deferred due to rate limiting
+
+  // Computed metrics
+  double rx_drop_rate_percent = 12;  // Percentage of received packets dropped
 }
 
 

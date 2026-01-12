@@ -122,6 +122,9 @@ defmodule ServiceRadar.Application do
         # Zen rule defaults for tenant onboarding
         zen_rule_seeder_child(),
 
+        # Log promotion and stateful alert rule defaults
+        rule_seeder_child(),
+
         # Service heartbeat (self-reporting for Elixir services)
         service_heartbeat_child(),
 
@@ -235,6 +238,10 @@ defmodule ServiceRadar.Application do
         ServiceRadar.AgentTracker,
         # Identity cache for device lookups (ETS-based with TTL)
         ServiceRadar.Identity.IdentityCache,
+        # Agent config cache (ETS-based)
+        ServiceRadar.AgentConfig.ConfigCache,
+        # Agent config server (compilation orchestration)
+        ServiceRadar.AgentConfig.ConfigServer,
         # Preload tenant slug mappings for edge resolution
         ServiceRadar.Cluster.TenantRegistryLoader,
         # DataService client for KV operations (used to push config to Go/Rust services)
@@ -289,6 +296,14 @@ defmodule ServiceRadar.Application do
   defp zen_rule_seeder_child do
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
       ServiceRadar.Observability.ZenRuleSeeder
+    else
+      nil
+    end
+  end
+
+  defp rule_seeder_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.Observability.RuleSeeder
     else
       nil
     end

@@ -380,10 +380,6 @@ go_deps.gazelle_override(
 )
 go_deps.gazelle_override(
     build_file_generation = "on",
-    path = "github.com/markbates/goth",
-)
-go_deps.gazelle_override(
-    build_file_generation = "on",
     directives = [
         "gazelle:proto disable",
     ],
@@ -396,17 +392,14 @@ go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
     "com_github_atotto_clipboard",
-    "com_github_cenkalti_backoff_v5",
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
-    "com_github_golang_jwt_jwt_v4",
+    "com_github_cenkalti_backoff_v5",
     "com_github_google_uuid",
-    "com_github_gorilla_mux",
     "com_github_gorilla_websocket",
     "com_github_gosnmp_gosnmp",
     "com_github_jackc_pgx_v5",
-    "com_github_markbates_goth",
     "com_github_nats_io_jwt_v2",
     "com_github_nats_io_nats_go",
     "com_github_nats_io_nats_server_v2",
@@ -416,9 +409,7 @@ use_repo(
     "com_github_spiffe_go_spiffe_v2",
     "com_github_spiffe_spire_api_sdk",
     "com_github_stretchr_testify",
-    "com_github_swaggo_http_swagger",
     "com_github_swaggo_swag",
-    "io_opentelemetry_go_contrib_instrumentation_github_com_gorilla_mux_otelmux",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
     "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",

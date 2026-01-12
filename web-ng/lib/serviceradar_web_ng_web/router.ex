@@ -279,6 +279,14 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/cluster/nodes/:node_name", NodeLive.Show, :show
       live "/settings/rules", Settings.RulesLive.Index, :index
 
+      # Network sweep configuration
+      live "/settings/networks", Settings.NetworksLive.Index, :index
+      live "/settings/networks/groups/new", Settings.NetworksLive.Index, :new_group
+      live "/settings/networks/groups/:id", Settings.NetworksLive.Index, :show_group
+      live "/settings/networks/groups/:id/edit", Settings.NetworksLive.Index, :edit_group
+      live "/settings/networks/profiles/new", Settings.NetworksLive.Index, :new_profile
+      live "/settings/networks/profiles/:id/edit", Settings.NetworksLive.Index, :edit_profile
+
       # Zen Rule Editor - visual JDM editor for rule logic
       live "/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new
       live "/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit

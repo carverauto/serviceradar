@@ -128,6 +128,28 @@ defmodule Monitoring.SweepCompletionStatus do
   field :total_targets, 4, type: :int32, json_name: "totalTargets"
   field :completed_targets, 5, type: :int32, json_name: "completedTargets"
   field :error_message, 6, type: :string, json_name: "errorMessage"
+  field :execution_id, 7, type: :string, json_name: "executionId"
+  field :sweep_group_id, 8, type: :string, json_name: "sweepGroupId"
+  field :scanner_stats, 9, type: Monitoring.SweepScannerStats, json_name: "scannerStats"
+end
+
+defmodule Monitoring.SweepScannerStats do
+  @moduledoc false
+
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :packets_sent, 1, type: :uint64, json_name: "packetsSent"
+  field :packets_recv, 2, type: :uint64, json_name: "packetsRecv"
+  field :packets_dropped, 3, type: :uint64, json_name: "packetsDropped"
+  field :ring_blocks_processed, 4, type: :uint64, json_name: "ringBlocksProcessed"
+  field :ring_blocks_dropped, 5, type: :uint64, json_name: "ringBlocksDropped"
+  field :retries_attempted, 6, type: :uint64, json_name: "retriesAttempted"
+  field :retries_successful, 7, type: :uint64, json_name: "retriesSuccessful"
+  field :ports_allocated, 8, type: :uint64, json_name: "portsAllocated"
+  field :ports_released, 9, type: :uint64, json_name: "portsReleased"
+  field :port_exhaustion_count, 10, type: :uint64, json_name: "portExhaustionCount"
+  field :rate_limit_deferrals, 11, type: :uint64, json_name: "rateLimitDeferrals"
+  field :rx_drop_rate_percent, 12, type: :double, json_name: "rxDropRatePercent"
 end
 
 defmodule Monitoring.GatewayStatusRequest do

@@ -49,8 +49,11 @@ type Config struct {
 	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
 	AgentID      string `json:"agent_id,omitempty"`
-	GatewayID     string `json:"gateway_id,omitempty"`
+	GatewayID    string `json:"gateway_id,omitempty"`
 	Partition    string `json:"partition,omitempty"`
+	// Execution tracking for sweep results
+	SweepGroupID string `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash   string `json:"config_hash,omitempty"`    // Hash of config for change detection
 	ICMPSettings struct {
 		RateLimit int // Packets per second
 		Timeout   time.Duration
@@ -256,6 +259,8 @@ type SweepSummary struct {
 	LastSweep      int64        `json:"last_sweep"` // Unix timestamp
 	Ports          []PortCount  `json:"ports"`
 	Hosts          []HostResult `json:"hosts"`
+	ExecutionID    string       `json:"execution_id,omitempty"`    // Sweep execution UUID for result tracking
+	SweepGroupID   string       `json:"sweep_group_id,omitempty"`  // Sweep group UUID this execution belongs to
 }
 
 // SweepConfig defines the network sweep tool configuration.
@@ -270,6 +275,8 @@ type SweepConfig struct {
 	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	SweepGroupID  string         `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
+	ConfigHash    string         `json:"config_hash,omitempty"`    // Hash of config for change detection
 }
 
 // DeviceTarget represents a single device/network with its specific sweep configuration
@@ -299,4 +306,32 @@ type SweepHostState struct {
 	LastSweepTime    time.Time         `json:"last_sweep_time"`
 	FirstSeen        time.Time         `json:"first_seen"`
 	Metadata         map[string]string `json:"metadata,omitempty"`
+}
+
+// ScannerStats contains performance metrics from network scanners.
+// These metrics help diagnose scan performance and network conditions.
+type ScannerStats struct {
+	// Packet statistics
+	PacketsSent    uint64 `json:"packets_sent"`
+	PacketsRecv    uint64 `json:"packets_recv"`
+	PacketsDropped uint64 `json:"packets_dropped"`
+
+	// Ring buffer statistics (TPACKET_V3)
+	RingBlocksProcessed uint64 `json:"ring_blocks_processed"`
+	RingBlocksDropped   uint64 `json:"ring_blocks_dropped"`
+
+	// Retry statistics
+	RetriesAttempted  uint64 `json:"retries_attempted"`
+	RetriesSuccessful uint64 `json:"retries_successful"`
+
+	// Port allocation statistics
+	PortsAllocated     uint64 `json:"ports_allocated"`
+	PortsReleased      uint64 `json:"ports_released"`
+	PortExhaustionCount uint64 `json:"port_exhaustion_count"`
+
+	// Rate limiting statistics
+	RateLimitDeferrals uint64 `json:"rate_limit_deferrals"`
+
+	// Computed metrics
+	RxDropRatePercent float64 `json:"rx_drop_rate_percent"`
 }
