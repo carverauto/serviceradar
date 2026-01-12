@@ -1,5 +1,7 @@
 # Change: Add Network Sweeper Configuration UI and Config Distribution
 
+**Status: Completed** (2026-01-11)
+
 ## Why
 
 The serviceradar-agent has high-performance network sweeper capabilities (TCP SYN half-open scanner, ICMP scanner) but no UI exists to configure sweep jobs. Users must manually edit configuration files. Additionally, there's no reusable pattern for distributing tenant-specific configurations to agents via the agent-gateway.
