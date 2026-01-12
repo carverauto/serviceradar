@@ -212,14 +212,36 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp sync_rule_with_logging(rule, state) do
     case sync_rule_with_actor(rule, state) do
-      {:ok, _} -> :ok
+      {:ok, _} ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Zen rule reconcile failed",
           tenant_id: state.tenant_id,
           rule_id: rule.id,
           reason: inspect(reason)
         )
+
+        :ok
+
+      unexpected ->
+        Logger.warning("Zen rule reconcile returned unexpected result",
+          tenant_id: state.tenant_id,
+          rule_id: rule.id,
+          result: inspect(unexpected)
+        )
+
+        :ok
     end
+  rescue
+    error ->
+      Logger.error("Zen rule reconcile crashed",
+        tenant_id: state.tenant_id,
+        rule_id: rule.id,
+        error: Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      :ok
   end
 
   # Internal sync with actor from GenServer state
@@ -236,12 +258,18 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   defp sync_rule_impl(%ZenRule{} = rule, tenant_schema, actor) do
     if rule.enabled do
       key = kv_key(rule)
-      payload = Jason.encode!(rule.compiled_jdm)
 
-      with :ok <- Client.put(key, payload),
+      with {:ok, payload} <- Jason.encode(rule.compiled_jdm),
+           :ok <- Client.put(key, payload),
            {:ok, _value, revision} <- Client.get_with_revision(key),
            :ok <- update_kv_revision(rule, revision, tenant_schema, actor) do
         {:ok, revision}
+      else
+        {:error, %Jason.EncodeError{} = error} ->
+          {:error, {:json_encode_failed, Exception.message(error)}}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       case delete_rule(rule) do
