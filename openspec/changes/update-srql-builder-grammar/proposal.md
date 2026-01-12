@@ -1,6 +1,6 @@
 # Change: Integrate SRQL builder for network sweep targeting rules
 
-**Status: In Progress** (2026-01-11)
+**Status: Implementation Complete, Pending Manual Testing** (2026-01-11)
 
 ## Why
 The network sweep UI needs a complete visual query builder for device targeting. The existing SRQL builder already supports stacking multiple filter conditions (implicit AND semantics), which covers production use cases like "devices with discovery_sources containing 'armis' in partition 'datacenter-1'". Rather than adding OR group syntax to the SRQL grammar, we can leverage the existing builder capabilities directly in the sweep targeting UI.

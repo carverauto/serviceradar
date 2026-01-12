@@ -20,9 +20,10 @@ The network sweep targeting UI needs a visual query builder for selecting device
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ 3. SRQL QUERY EXECUTED TO BUILD TARGET LIST                            │
-│    - compile_targets() converts target_criteria to SRQL                 │
-│    - Executes: in:devices {criteria_query} select:ip                    │
+│ 3. TARGET LIST BUILT VIA ASH FILTERS                                   │
+│    - get_targets_from_criteria() uses TargetCriteria.to_ash_filter     │
+│    - Ash filters applied at database level for eq, in, contains, etc.  │
+│    - Fallback to in-memory for complex ops (in_cidr, in_range, tags)   │
 │    - Returns list of IP addresses matching criteria                     │
 │    - Combines with static_targets                                       │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -70,27 +71,34 @@ The network sweep targeting UI needs a visual query builder for selecting device
 
 ## Decisions
 - **Reuse existing builder**: The SRQL query builder component already supports stacking filters. Each filter row represents one condition, and all conditions are combined with AND (SRQL's whitespace semantics).
-- **SRQL for target extraction**: The SweepCompiler should use SRQL (not in-memory filtering) to extract target IPs. This ensures the preview count and actual target list are always consistent.
-- **Field/operator catalog**: Expose device-relevant fields (partition, discovery_sources, tags, ip, hostname, etc.) and operators (eq, neq, contains, in_cidr, in_range, has_any, has_all) in the targeting rules UI.
-- **Criteria-to-SRQL conversion**: The existing `criteria_to_srql_query/1` function in networks_live handles conversion. Ensure all TargetCriteria operators are covered.
+- **Ash filters for target extraction**: The SweepCompiler uses `TargetCriteria.to_ash_filter_with_fallback/1` to apply filters at the database level. Complex operators (in_cidr, in_range, has_any/has_all on tags) fall back to in-memory filtering. This avoids cross-app SRQL calls (SRQL uses Rust NIFs in web-ng, not available in serviceradar_core).
+- **SRQL for preview counts**: The UI uses `CriteriaQuery.to_srql/1` to build queries for preview counts, ensuring the UI shows expected target numbers.
+- **Shared criteria module**: `ServiceRadar.SweepJobs.CriteriaQuery` provides shared SRQL conversion used by both UI and SweepCompiler documentation.
+- **Field/operator catalog**: 20 device fields exposed in targeting UI with field-appropriate operators (eq, neq, contains, in_cidr, in_range, has_any, has_all, gt/gte/lt/lte).
 
 ## Config Invalidation on Device Changes
 
-The SRQL result set can change even when SweepGroup config stays the same:
+The target result set can change even when SweepGroup config stays the same:
 - New devices discovered that match criteria
-- Device attributes change (discovery_sources, partition, tags)
+- Device attributes change (discovery_sources, tags)
 - Devices deleted
 
 **Current state:** Only SweepGroup/SweepProfile changes trigger cache invalidation.
 
-**Solution:** Add a periodic Oban job `SweepConfigRefreshWorker` that:
-1. Runs every N minutes (configurable, default 5 minutes)
+**Solution (Implemented):** `SweepConfigRefreshWorker` Oban job:
+1. Runs every 5 minutes via cron (`*/5 * * * *` in `config_refresh` queue)
 2. For each tenant's enabled sweep groups:
-   - Execute the SRQL query to get current target list
-   - Compute hash of the result set
-   - Compare with stored hash on the SweepGroup or ConfigInstance
-   - If changed, invalidate the config cache and publish NATS event
-3. This ensures agents receive updated configs within the refresh interval
+   - Execute Ash query to get current target IPs
+   - Compute SHA256 hash of sorted IP list
+   - Compare with stored `target_hash` on SweepGroup
+   - If changed, update hash and publish config invalidation via NATS
+3. Agents receive updated configs within the refresh interval
+
+**Implementation details:**
+- `SweepGroup` has `target_hash` (text) and `target_hash_updated_at` (utc_datetime) attributes
+- Hash computed via `:crypto.hash(:sha256, Enum.sort(ips) |> Enum.join(","))`
+- Config invalidation via `ConfigPublisher.publish_resource_change/5`
+- Database migration: `20260111210000_add_sweep_group_target_hash.exs`
 
 **Alternative considered:** Adding a notifier to Device resource. Rejected because:
 - High volume of device changes could cause excessive invalidations
