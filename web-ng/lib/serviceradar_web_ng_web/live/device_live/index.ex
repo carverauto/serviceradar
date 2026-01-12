@@ -283,10 +283,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       return_records?: false,
       return_errors?: true,
       atomic_update: %{
-        tags:
-          expr(
-            fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ^ref(:tags), ^new_tags)
-          )
+        tags: expr(fragment("coalesce(?, '{}'::jsonb) || (?::jsonb)", ^ref(:tags), ^new_tags))
       }
     )
   end
