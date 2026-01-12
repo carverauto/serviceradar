@@ -23,9 +23,10 @@ pub async fn process_message(
         MessageFormat::OtelMetrics => otel_metrics::otel_metrics_to_json(&msg.payload)?,
     };
 
+    let rule_subject = cfg.subject_for_rule_lookup(&msg.subject);
     let rules = cfg.ordered_rules_for_subject(&msg.subject);
     for key in &rules {
-        let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
+        let dkey = format!("{}/{}/{}", cfg.stream_name, rule_subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
             Err(e) => {
@@ -84,6 +85,7 @@ mod tests {
                 "events.protobuf".to_string(),
                 "events.metrics".to_string(),
             ],
+            subject_prefix: None,
             result_subject: None,
             result_subject_suffix: Some(".processed".to_string()),
             decision_keys: vec![],

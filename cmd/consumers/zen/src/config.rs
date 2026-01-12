@@ -156,6 +156,8 @@ pub struct Config {
     pub consumer_name: String,
     #[serde(default)]
     pub subjects: Vec<String>,
+    #[serde(default)]
+    pub subject_prefix: Option<String>,
     pub result_subject: Option<String>,
     pub result_subject_suffix: Option<String>,
     #[serde(default)]
@@ -206,6 +208,9 @@ impl Config {
             !self.subjects.is_empty(),
             "at least one subject is required"
         );
+        if let Some(prefix) = &self.subject_prefix {
+            ensure!(!prefix.trim().is_empty(), "subject_prefix cannot be empty");
+        }
         if let Some(creds_file) = &self.nats_creds_file {
             ensure!(
                 !creds_file.trim().is_empty(),
@@ -258,12 +263,7 @@ impl Config {
 
     pub fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
-            if let Some(group) = self.decision_groups.iter().find(|g| {
-                g.subjects.is_empty()
-                    || g.subjects
-                        .iter()
-                        .any(|pattern| subject_matches(pattern, subject))
-            }) {
+            if let Some(group) = self.match_decision_group(subject) {
                 let mut rules = group.rules.clone();
                 rules.sort_by_key(|r| r.order);
                 return rules.into_iter().map(|r| r.key).collect();
@@ -274,16 +274,51 @@ impl Config {
 
     pub fn message_format_for_subject(&self, subject: &str) -> MessageFormat {
         if !self.decision_groups.is_empty() {
-            if let Some(group) = self.decision_groups.iter().find(|g| {
-                g.subjects.is_empty()
-                    || g.subjects
-                        .iter()
-                        .any(|pattern| subject_matches(pattern, subject))
-            }) {
+            if let Some(group) = self.match_decision_group(subject) {
                 return group.format.clone();
             }
         }
         MessageFormat::default()
+    }
+
+    pub fn subject_for_rule_lookup<'a>(&'a self, subject: &'a str) -> &'a str {
+        self.strip_subject_prefix(subject).unwrap_or(subject)
+    }
+
+    fn match_decision_group(&self, subject: &str) -> Option<&DecisionGroupConfig> {
+        if let Some(stripped) = self.strip_subject_prefix(subject) {
+            if let Some(group) = self.match_decision_group_for_subject(stripped) {
+                return Some(group);
+            }
+        }
+        self.match_decision_group_for_subject(subject)
+    }
+
+    fn match_decision_group_for_subject(&self, subject: &str) -> Option<&DecisionGroupConfig> {
+        self.decision_groups.iter().find(|g| {
+            g.subjects.is_empty()
+                || g.subjects
+                    .iter()
+                    .any(|pattern| subject_matches(pattern, subject))
+        })
+    }
+
+    fn strip_subject_prefix<'a>(&'a self, subject: &'a str) -> Option<&'a str> {
+        let prefix = self.subject_prefix.as_deref()?.trim();
+        let trimmed = prefix.trim_end_matches('.');
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let prefix_len = trimmed.len();
+        if subject.len() <= prefix_len {
+            return None;
+        }
+        if subject.starts_with(trimmed) && subject.as_bytes().get(prefix_len) == Some(&b'.') {
+            return Some(&subject[prefix_len + 1..]);
+        }
+
+        None
     }
 }
 
@@ -389,6 +424,7 @@ mod tests {
             stream_name: String::new(),
             consumer_name: String::new(),
             subjects: Vec::new(),
+            subject_prefix: None,
             result_subject: None,
             result_subject_suffix: None,
             decision_keys: Vec::new(),
@@ -429,6 +465,49 @@ mod tests {
         );
         assert_eq!(
             cfg.message_format_for_subject("events.unknown"),
+            MessageFormat::Json
+        );
+    }
+
+    #[test]
+    fn test_subject_prefix_matching() {
+        let cfg = Config {
+            nats_url: "nats://localhost:4222".to_string(),
+            domain: None,
+            stream_name: "test-stream".to_string(),
+            consumer_name: "test-consumer".to_string(),
+            subjects: vec!["platform.logs.syslog".to_string()],
+            subject_prefix: Some("platform".to_string()),
+            result_subject: None,
+            result_subject_suffix: None,
+            decision_keys: vec![],
+            decision_groups: vec![DecisionGroupConfig {
+                name: "syslog".to_string(),
+                subjects: vec!["logs.syslog".to_string()],
+                rules: vec![RuleEntry {
+                    order: 1,
+                    key: "rule1".to_string(),
+                }],
+                format: MessageFormat::Json,
+            }],
+            nats_creds_file: None,
+            kv_bucket: "test-kv".to_string(),
+            agent_id: "test-agent".to_string(),
+            listen_addr: "0.0.0.0:50055".to_string(),
+            security: None,
+            grpc_security: None,
+        };
+
+        assert_eq!(
+            cfg.subject_for_rule_lookup("platform.logs.syslog"),
+            "logs.syslog"
+        );
+        assert_eq!(
+            cfg.ordered_rules_for_subject("platform.logs.syslog"),
+            vec!["rule1"]
+        );
+        assert_eq!(
+            cfg.message_format_for_subject("platform.logs.syslog"),
             MessageFormat::Json
         );
     }
