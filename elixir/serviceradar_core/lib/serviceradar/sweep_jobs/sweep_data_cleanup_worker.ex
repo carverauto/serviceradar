@@ -75,6 +75,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   end
 
   @impl ServiceRadar.Oban.TenantWorker
+  @spec perform_for_tenant(map(), String.t(), Oban.Job.t()) ::
+          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
   def perform_for_tenant(_args, tenant_id, _job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 

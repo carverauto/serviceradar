@@ -79,6 +79,8 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   @impl ServiceRadar.Oban.TenantWorker
+  @spec perform_for_tenant(map(), String.t(), Oban.Job.t()) ::
+          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
   def perform_for_tenant(args, tenant_id, _job) do
     grace_period_seconds = Map.get(args, "grace_period_seconds", @default_grace_period_seconds)
 
