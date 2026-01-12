@@ -35,6 +35,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     max_attempts: 3,
     unique: [period: 60, keys: [:tenant_id], states: [:available, :scheduled, :executing, :retryable]]
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -123,9 +124,11 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp get_enabled_sweep_groups(tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :sweep_monitor)
+
     SweepGroup
     |> Ash.Query.for_read(:enabled_groups)
-    |> Ash.read(tenant: tenant_id, authorize?: false)
+    |> Ash.read(tenant: tenant_id, actor: actor)
   end
 
   defp check_sweep_group(group, tenant_id, now, grace_period_seconds) do
