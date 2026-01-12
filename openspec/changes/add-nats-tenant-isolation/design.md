@@ -157,10 +157,28 @@ processed output back into the same tenant account.
 - Keeps tenant isolation enforced by NATS accounts and mTLS.
 - Lets zen watch KV rules within the tenant account.
 
+### Decision 6.1: Keep Zen as standalone Rust per tenant (defer Elixir/NIF)
+
+**What**: Continue using the standalone Rust `serviceradar-zen` consumer, deployed
+per tenant, rather than re-hosting the engine in Elixir with Rustler/NIFs.
+
+**Why**:
+- Hard isolation boundary at the process/pod level aligns with SaaS multi-tenancy.
+- Per-tenant NATS credentials map cleanly to per-tenant consumer instances.
+- Avoids NIF failure blast radius across tenants and keeps Zen upgrades isolated.
+
+**Alternatives considered**:
+- Elixir + Rustler (per-tenant GenServer): lower orchestration overhead but weaker
+  isolation and higher blast radius if a NIF misbehaves; defer to a future change
+  if operational simplicity outweighs isolation needs.
+
 ### Decision 7: Rule Source of Truth in CNPG, Push to KV
 
 **What**: Log promotion rules live in tenant schemas (CNPG) and are pushed to
 tenant KV when updated so each tenant zen can hot-reload.
+
+**Note**: If Zen is re-hosted in Elixir in a future change, evaluate replacing
+KV rule distribution with ETS + PubSub. That is out of scope for this change.
 
 ### Decision 8: Per-Tenant DB Event Writer
 

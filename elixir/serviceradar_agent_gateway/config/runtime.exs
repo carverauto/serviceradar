@@ -172,10 +172,12 @@ config :serviceradar_core,
   cluster_coordinator: false,
   platform_tenant_id:
     System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-      System.get_env("PLATFORM_TENANT_ID"),
+      System.get_env("PLATFORM_TENANT_ID") ||
+      System.get_env("GATEWAY_TENANT_ID"),
   platform_tenant_slug:
     System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
       System.get_env("PLATFORM_TENANT_SLUG") ||
+      System.get_env("GATEWAY_TENANT_SLUG") ||
       "platform"
 
 config :serviceradar_core, Oban, false

@@ -188,7 +188,7 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
       :ets.new(@table_name, [
         :named_table,
         :set,
-        :protected,
+        :public,
         read_concurrency: true,
         write_concurrency: true
       ])

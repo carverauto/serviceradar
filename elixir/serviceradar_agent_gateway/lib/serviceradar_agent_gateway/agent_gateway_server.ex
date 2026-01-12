@@ -857,11 +857,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     nodes = core_nodes()
 
     if nodes == [] do
+      Logger.warning(
+        "Core call failed: no core nodes available. Connected nodes: #{inspect(Node.list())}. " <>
+          "Calling #{inspect(module)}.#{function}"
+      )
+
       {:error, :core_unavailable}
     else
       Enum.reduce_while(nodes, {:error, :core_unavailable}, fn node, _acc ->
         case :rpc.call(node, module, function, args, timeout) do
-          {:badrpc, _} ->
+          {:badrpc, reason} ->
+            Logger.warning(
+              "Core RPC call to #{node} failed: #{inspect(reason)}. " <>
+                "Calling #{inspect(module)}.#{function}"
+            )
+
             {:cont, {:error, :core_unavailable}}
 
           result ->
@@ -872,26 +882,43 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp core_nodes do
-    nodes = [Node.self() | Node.list()] |> Enum.uniq()
+    all_nodes = [Node.self() | Node.list()] |> Enum.uniq()
 
-    coordinators =
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
+    # First try to find nodes with ClusterHealth (preferred)
+    coordinators = find_nodes_with_process(all_nodes, ServiceRadar.ClusterHealth)
 
     if coordinators != [] do
       coordinators
     else
-      Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.Repo], 5_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      end)
+      # Fall back to nodes with Repo
+      repo_nodes = find_nodes_with_process(all_nodes, ServiceRadar.Repo)
+
+      if repo_nodes == [] and length(all_nodes) > 1 do
+        Logger.warning("No core nodes found",
+          connected_nodes: Node.list(),
+          checked_nodes: all_nodes
+        )
+      end
+
+      repo_nodes
     end
+  end
+
+  defp find_nodes_with_process(nodes, process_name) do
+    Enum.filter(nodes, fn node ->
+      case :rpc.call(node, Process, :whereis, [process_name], 5_000) do
+        pid when is_pid(pid) ->
+          true
+
+        {:badrpc, reason} ->
+          Logger.debug("RPC call to #{node} for #{inspect(process_name)} failed: #{inspect(reason)}")
+          false
+
+        other ->
+          Logger.debug("Process #{inspect(process_name)} not found on #{node}: #{inspect(other)}")
+          false
+      end
+    end)
   end
 
   # Extract tenant info from the gRPC stream's mTLS certificate
@@ -915,6 +942,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           "Tenant resolution failed: tenant_id not found for tenant_slug=#{tenant_slug}"
         )
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+
+      {:error, {:core_unavailable, tenant_slug}} ->
+        Logger.warning(
+          "Tenant resolution failed: core unavailable for tenant_slug=#{tenant_slug}"
+        )
+        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
       {:error, reason} ->
         Logger.warning("Tenant resolution failed: #{inspect(reason)}")
@@ -943,19 +976,30 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp resolve_tenant_id(_resolved), do: {:error, :tenant_slug_missing}
 
   defp resolve_tenant_id_from_cluster(tenant_slug) do
-    nodes = Node.list()
+    nodes = core_nodes()
 
     if nodes == [] do
-      {:error, {:tenant_id_not_found, tenant_slug}}
+      {:error, {:core_unavailable, tenant_slug}}
     else
       {results, _bad_nodes} =
         :rpc.multicall(nodes, TenantRegistry, :tenant_id_for_slug, [tenant_slug], 5_000)
 
       case Enum.find(results, &match?({:ok, _}, &1)) do
         {:ok, tenant_id} -> {:ok, tenant_id}
-        _ -> {:error, {:tenant_id_not_found, tenant_slug}}
+        _ ->
+          if core_unavailable_results?(results) do
+            {:error, {:core_unavailable, tenant_slug}}
+          else
+            {:error, {:tenant_id_not_found, tenant_slug}}
+          end
       end
     end
+  end
+
+  defp core_unavailable_results?([]), do: true
+
+  defp core_unavailable_results?(results) do
+    Enum.all?(results, &match?({:badrpc, _}, &1))
   end
 
   # Get the peer certificate from the gRPC stream
