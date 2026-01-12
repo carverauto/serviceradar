@@ -16,9 +16,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   Use `target_criteria` to define which devices to sweep using a DSL:
 
       %{
-        "discovery_sources" => %{"contains" => "armis"},
-        "device_class" => %{"eq" => "network"},
-        "type_id" => %{"in" => [9, 10, 12]},
+        "tags" => %{"has_any" => ["critical", "env=prod"]},
         "ip" => %{"in_cidr" => "10.0.0.0/8"},
         "partition" => %{"eq" => "datacenter-1"}
       }
@@ -80,6 +78,10 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       ]
 
       change ServiceRadar.Changes.AssignTenantId
+
+      validate fn changeset, _context ->
+        validate_target_criteria(changeset)
+      end
     end
 
     update :update do
@@ -101,6 +103,10 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :overrides,
         :profile_id
       ]
+
+      validate fn changeset, _context ->
+        validate_target_criteria(changeset)
+      end
     end
 
     update :enable do
@@ -186,6 +192,19 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
                  partition == ^arg(:partition) and
                  (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
              )
+    end
+  end
+
+  defp validate_target_criteria(changeset) do
+    if Ash.Changeset.changing_attribute?(changeset, :target_criteria) do
+      criteria = Ash.Changeset.get_attribute(changeset, :target_criteria) || %{}
+
+      case ServiceRadar.SweepJobs.TargetCriteria.validate(criteria) do
+        :ok -> :ok
+        {:error, reason} -> {:error, field: :target_criteria, message: reason}
+      end
+    else
+      :ok
     end
   end
 

@@ -46,49 +46,24 @@ type SweepService struct {
 	currentSequence    uint64
 
 	// Execution context for result tracking
-	sweepGroupID   string // Current sweep group UUID from config
-	executionID    string // Current execution UUID (generated per sweep cycle)
-	configHash     string // Config hash for change detection
+	sweepGroupID string // Current sweep group UUID from config
+	executionID  string // Current execution UUID (generated per sweep cycle)
+	configHash   string // Config hash for change detection
 }
 
 // NewSweepService creates a new SweepService.
 func NewSweepService(
 	ctx context.Context,
 	config *models.Config,
-	configStore KVStore,
-	objectStore ObjectStore,
-	configKey string,
 	log logger.Logger,
 ) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
 	store := sweeper.NewInMemoryStore(processor, log)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, configStore, objectStore, nil, configKey, log)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
-	}
-
-	// Bootstrap: ensure a default config exists in KV at the expected key, if KV is configured.
-	if configStore != nil && configKey != "" {
-		if data, mErr := json.Marshal(config); mErr == nil {
-			// Prefer atomic PutIfAbsent if supported by KV implementation.
-			type putIfAbsent interface {
-				PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
-			}
-			if pfa, ok := any(configStore).(putIfAbsent); ok {
-				if err := pfa.PutIfAbsent(ctx, configKey, data, 0); err == nil {
-					log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (created)")
-				}
-			} else {
-				if _, found, err := configStore.Get(ctx, configKey); err == nil && !found {
-					_ = configStore.Put(ctx, configKey, data, 0)
-					log.Info().Str("key", configKey).Msg("Initialized default sweep config in KV (absent before)")
-				}
-			}
-		} else {
-			log.Warn().Err(mErr).Msg("Failed to marshal default sweep config for KV initialization")
-		}
 	}
 
 	return &SweepService{
@@ -106,7 +81,7 @@ func NewSweepService(
 func (s *SweepService) Start(ctx context.Context) error {
 	s.logger.Info().Msgf("Starting sweep service with interval %v", s.config.Interval)
 
-	return s.sweeper.Start(ctx) // KV watching is handled by NetworkSweeper
+	return s.sweeper.Start(ctx)
 }
 
 // Stop gracefully stops the sweep service.
@@ -348,29 +323,29 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	// Build sweep completion status with scanner stats
 	sweepCompletion := &proto.SweepCompletionStatus{
-		Status:        proto.SweepCompletionStatus_COMPLETED,
-		ExecutionId:   s.executionID,
-		SweepGroupId:  s.sweepGroupID,
-		TotalTargets:  int32(len(s.cachedResults.Hosts)),
+		Status:           proto.SweepCompletionStatus_COMPLETED,
+		ExecutionId:      s.executionID,
+		SweepGroupId:     s.sweepGroupID,
+		TotalTargets:     int32(len(s.cachedResults.Hosts)),
 		CompletedTargets: int32(len(s.cachedResults.Hosts)),
-		CompletionTime: time.Now().Unix(),
+		CompletionTime:   time.Now().Unix(),
 	}
 
 	// Populate scanner stats if available
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
 		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
-			PacketsSent:          scannerStats.PacketsSent,
-			PacketsRecv:          scannerStats.PacketsRecv,
-			PacketsDropped:       scannerStats.PacketsDropped,
-			RingBlocksProcessed:  scannerStats.RingBlocksProcessed,
-			RingBlocksDropped:    scannerStats.RingBlocksDropped,
-			RetriesAttempted:     scannerStats.RetriesAttempted,
-			RetriesSuccessful:    scannerStats.RetriesSuccessful,
-			PortsAllocated:       scannerStats.PortsAllocated,
-			PortsReleased:        scannerStats.PortsReleased,
-			PortExhaustionCount:  scannerStats.PortExhaustionCount,
-			RateLimitDeferrals:   scannerStats.RateLimitDeferrals,
-			RxDropRatePercent:    scannerStats.RxDropRatePercent,
+			PacketsSent:         scannerStats.PacketsSent,
+			PacketsRecv:         scannerStats.PacketsRecv,
+			PacketsDropped:      scannerStats.PacketsDropped,
+			RingBlocksProcessed: scannerStats.RingBlocksProcessed,
+			RingBlocksDropped:   scannerStats.RingBlocksDropped,
+			RetriesAttempted:    scannerStats.RetriesAttempted,
+			RetriesSuccessful:   scannerStats.RetriesSuccessful,
+			PortsAllocated:      scannerStats.PortsAllocated,
+			PortsReleased:       scannerStats.PortsReleased,
+			PortExhaustionCount: scannerStats.PortExhaustionCount,
+			RateLimitDeferrals:  scannerStats.RateLimitDeferrals,
+			RxDropRatePercent:   scannerStats.RxDropRatePercent,
 		}
 	}
 

@@ -4,8 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.Inventory.Device
 
   @default_limit 20
   @max_limit 100
@@ -17,17 +16,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @presence_window "last_24h"
   @presence_bucket "24h"
   @presence_device_cap 200
-
-  @interval_options [
-    {"5 minutes", "5m"},
-    {"15 minutes", "15m"},
-    {"30 minutes", "30m"},
-    {"1 hour", "1h"},
-    {"2 hours", "2h"},
-    {"6 hours", "6h"},
-    {"12 hours", "12h"},
-    {"24 hours", "24h"}
-  ]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -44,16 +32,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
-     |> assign(:show_sweep_modal, false)
-     |> assign(:sweep_modal_mode, :select)
-     |> assign(:sweep_groups, [])
-     |> assign(:sweep_profiles, [])
-     |> assign(:new_group_form, %{
-       "name" => "",
-       "interval" => "1h",
-       "profile_id" => "",
-       "enabled" => true
-     })
+     |> assign(:show_bulk_edit_modal, false)
+     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -159,44 +139,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :selected_devices, MapSet.new())}
   end
 
-  def handle_event("open_sweep_modal", _params, socket) do
-    scope = socket.assigns.current_scope
-    sweep_groups = load_sweep_groups(scope)
-    sweep_profiles = load_sweep_profiles(scope)
+  def handle_event("open_bulk_edit_modal", _params, socket) do
+    {:noreply, assign(socket, :show_bulk_edit_modal, true)}
+  end
 
+  def handle_event("close_bulk_edit_modal", _params, socket) do
     {:noreply,
      socket
-     |> assign(:show_sweep_modal, true)
-     |> assign(:sweep_modal_mode, :select)
-     |> assign(:sweep_groups, sweep_groups)
-     |> assign(:sweep_profiles, sweep_profiles)
-     |> assign(:new_group_form, %{
-       "name" => "",
-       "interval" => "1h",
-       "profile_id" => "",
-       "enabled" => true
-     })}
-  end
-
-  def handle_event("close_sweep_modal", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_sweep_modal, false)
-     |> assign(:sweep_modal_mode, :select)}
-  end
-
-  def handle_event("sweep_modal_show_create", _params, socket) do
-    {:noreply, assign(socket, :sweep_modal_mode, :create)}
-  end
-
-  def handle_event("sweep_modal_show_select", _params, socket) do
-    {:noreply, assign(socket, :sweep_modal_mode, :select)}
-  end
-
-  def handle_event("update_new_group_form", %{"field" => field, "value" => value}, socket) do
-    form = socket.assigns.new_group_form
-    updated_form = Map.put(form, field, value)
-    {:noreply, assign(socket, :new_group_form, updated_form)}
+     |> assign(:show_bulk_edit_modal, false)
+     |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
@@ -223,104 +174,113 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, socket}
   end
 
-  def handle_event("add_to_sweep_group", %{"group_id" => group_id}, socket) do
+  def handle_event("apply_bulk_tags", %{"bulk" => params}, socket) do
     scope = socket.assigns.current_scope
+    tags_input = Map.get(params, "tags", "")
+    tags = parse_bulk_tags(tags_input)
 
-    # Get IPs either from selection or all matching
-    ips = get_selected_ips(socket)
-
-    if ips == [] do
-      {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
+    if tags == %{} do
+      {:noreply,
+       socket
+       |> assign(:bulk_edit_form, to_form(params, as: :bulk))
+       |> put_flash(:error, "Enter at least one tag to apply")}
     else
-      case add_devices_to_group(scope, group_id, ips) do
-        {:ok, group} ->
+      case apply_tags_to_devices(scope, socket, tags) do
+        {:ok, count} ->
           {:noreply,
            socket
-           |> assign(:show_sweep_modal, false)
-           |> assign(:sweep_modal_mode, :select)
+           |> assign(:show_bulk_edit_modal, false)
+           |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
            |> assign(:selected_devices, MapSet.new())
            |> assign(:select_all_matching, false)
            |> assign(:total_matching_count, nil)
-           |> put_flash(:info, "Added #{length(ips)} device(s) to #{group.name}")}
+           |> put_flash(:info, "Applied tags to #{count} device(s)")}
 
-        {:error, _reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to add devices to sweep group")}
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> assign(:bulk_edit_form, to_form(params, as: :bulk))
+           |> put_flash(:error, "Failed to apply tags: #{reason}")}
       end
     end
   end
 
-  def handle_event("create_and_add_to_sweep_group", _params, socket) do
-    scope = socket.assigns.current_scope
-    form = socket.assigns.new_group_form
-
-    # Validate name
-    name = String.trim(form["name"] || "")
-
-    if name == "" do
-      {:noreply, put_flash(socket, :error, "Please enter a name for the sweep group")}
-    else
-      # Get IPs from selection
-      ips = get_selected_ips(socket)
-
-      if ips == [] do
-        {:noreply, put_flash(socket, :error, "No IP addresses found for selected devices")}
-      else
-        # Create the group with selected devices as static_targets
-        params = %{
-          name: name,
-          interval: form["interval"] || "1h",
-          profile_id: if(form["profile_id"] == "", do: nil, else: form["profile_id"]),
-          enabled: form["enabled"] == true || form["enabled"] == "true",
-          static_targets: ips,
-          partition: "default"
-        }
-
-        case create_sweep_group(scope, params) do
-          {:ok, group} ->
-            {:noreply,
-             socket
-             |> assign(:show_sweep_modal, false)
-             |> assign(:sweep_modal_mode, :select)
-             |> assign(:selected_devices, MapSet.new())
-             |> assign(:select_all_matching, false)
-             |> assign(:total_matching_count, nil)
-             |> put_flash(:info, "Created sweep group \"#{group.name}\" with #{length(ips)} device(s)")}
-
-          {:error, changeset} ->
-            error_msg = format_changeset_errors(changeset)
-            {:noreply, put_flash(socket, :error, "Failed to create sweep group: #{error_msg}")}
-        end
-      end
-    end
-  end
-
-  # Get IPs from selected devices or all matching devices
-  defp get_selected_ips(socket) do
+  # Get device UIDs from selected devices or all matching devices
+  defp get_selected_uids(socket) do
     if socket.assigns.select_all_matching do
-      # Fetch all IPs matching the current filter
       scope = socket.assigns.current_scope
       query = Map.get(socket.assigns.srql || %{}, :query, "")
-      get_all_matching_ips(scope, query)
+      get_all_matching_uids(scope, query)
     else
-      # Get IPs from visible selected devices
-      selected = socket.assigns.selected_devices
-      devices = socket.assigns.devices
-
-      devices
-      |> Enum.filter(fn row ->
-        with true <- is_map(row),
-             uid when is_binary(uid) <- Map.get(row, "uid") || Map.get(row, "id") do
-          MapSet.member?(selected, uid)
-        else
-          _ -> false
-        end
-      end)
-      |> Enum.map(fn row -> Map.get(row, "ip") end)
+      socket.assigns.selected_devices
       |> Enum.filter(&is_binary/1)
-      |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
     end
   end
+
+  defp apply_tags_to_devices(scope, socket, tags) do
+    uids = get_selected_uids(socket)
+
+    if uids == [] do
+      {:error, "No devices selected"}
+    else
+      Enum.reduce_while(uids, {:ok, 0}, fn uid, {:ok, count} ->
+        case update_device_tags(scope, uid, tags) do
+          :ok -> {:cont, {:ok, count + 1}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp update_device_tags(scope, uid, tags) do
+    case Ash.get(Device, uid, scope: scope) do
+      {:ok, device} ->
+        existing = Map.get(device, :tags) || %{}
+        merged = Map.merge(existing, tags)
+
+        device
+        |> Ash.Changeset.for_update(:update, %{tags: merged}, scope: scope)
+        |> Ash.update()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, error} -> {:error, format_changeset_errors(error)}
+        end
+
+      {:error, _} ->
+        {:error, "Device #{uid} not found"}
+    end
+  end
+
+  defp parse_bulk_tags(input) when is_binary(input) do
+    input
+    |> String.split(~r/[\n,]/, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reduce(%{}, fn entry, acc ->
+      case String.split(entry, "=", parts: 2) do
+        [key, value] ->
+          key = String.trim(key)
+
+          if key == "" do
+            acc
+          else
+            Map.put(acc, key, String.trim(value))
+          end
+
+        [key] ->
+          key = String.trim(key)
+
+          if key == "" do
+            acc
+          else
+            Map.put(acc, key, "")
+          end
+      end
+    end)
+  end
+
+  defp parse_bulk_tags(_), do: %{}
 
   @impl true
   def render(assigns) do
@@ -335,7 +295,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Enum.filter(&is_binary/1)
       |> MapSet.new()
 
-    all_selected = MapSet.size(visible_uids) > 0 and MapSet.subset?(visible_uids, assigns.selected_devices)
+    all_selected =
+      MapSet.size(visible_uids) > 0 and MapSet.subset?(visible_uids, assigns.selected_devices)
 
     # Compute effective count (either selected or all matching)
     effective_count =
@@ -384,8 +345,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             <.icon name="hero-x-mark" class="size-3" /> Clear
           </.link>
         </div>
-
-        <!-- Bulk Actions Bar -->
+        
+    <!-- Bulk Actions Bar -->
         <div
           :if={@selected_count > 0 or @select_all_matching}
           class="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3"
@@ -399,8 +360,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                 {String.pad_leading(Integer.to_string(@selected_count), 2, "0")} device(s) selected
               <% end %>
             </span>
-
-            <!-- Select All Matching Toggle -->
+            
+    <!-- Select All Matching Toggle -->
             <button
               :if={!@select_all_matching and has_any_filter?(@srql)}
               phx-click="toggle_select_all_matching"
@@ -417,8 +378,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
-            <.ui_button variant="primary" size="sm" phx-click="open_sweep_modal">
-              <.icon name="hero-signal" class="size-4" /> Add to Sweep Group
+            <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
+              <.icon name="hero-tag" class="size-4" /> Bulk Edit
             </.ui_button>
           </div>
         </div>
@@ -484,7 +445,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
                 <%= for row <- Enum.filter(@devices, &is_map/1) do %>
                   <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
-                  <% is_selected = is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
+                  <% is_selected =
+                    is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
@@ -562,204 +524,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
         </.ui_panel>
       </div>
-
-      <!-- Sweep Group Modal -->
-      <.sweep_group_modal
-        :if={@show_sweep_modal}
-        mode={@sweep_modal_mode}
-        sweep_groups={@sweep_groups}
-        sweep_profiles={@sweep_profiles}
+      
+    <!-- Bulk Edit Modal -->
+      <.bulk_edit_modal
+        :if={@show_bulk_edit_modal}
+        form={@bulk_edit_form}
         selected_count={@effective_count}
-        new_group_form={@new_group_form}
-        interval_options={interval_options()}
       />
     </Layouts.app>
     """
   end
 
-  defp interval_options, do: @interval_options
-
-  # Sweep Group Modal Component
-  attr :mode, :atom, default: :select
-  attr :sweep_groups, :list, required: true
-  attr :sweep_profiles, :list, default: []
+  # Bulk Edit Modal Component
+  attr :form, :any, required: true
   attr :selected_count, :integer, required: true
-  attr :new_group_form, :map, default: %{}
-  attr :interval_options, :list, default: []
 
-  defp sweep_group_modal(assigns) do
+  defp bulk_edit_modal(assigns) do
     ~H"""
-    <dialog id="sweep_group_modal" class="modal modal-open">
+    <dialog id="bulk_edit_modal" class="modal modal-open">
       <div class="modal-box max-w-lg">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_sweep_modal"
+            phx-click="close_bulk_edit_modal"
           >
             x
           </button>
         </form>
 
-        <%= if @mode == :create do %>
-          <!-- Create New Group Form -->
-          <div class="flex items-center gap-2 mb-4">
-            <button
-              phx-click="sweep_modal_show_select"
-              class="btn btn-sm btn-ghost btn-circle"
-            >
-              <.icon name="hero-arrow-left" class="size-4" />
+        <h3 class="text-lg font-bold">Bulk Edit Devices</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Apply tags to {@selected_count} selected device(s).
+        </p>
+
+        <.form for={@form} id="bulk-tags-form" phx-submit="apply_bulk_tags" class="space-y-4">
+          <div>
+            <label class="label">
+              <span class="label-text font-medium">Tags</span>
+              <span class="label-text-alt text-base-content/50">key or key=value</span>
+            </label>
+            <.input
+              type="textarea"
+              field={@form[:tags]}
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="4"
+              placeholder="env=prod\ncritical\nregion=us-east"
+            />
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" phx-click="close_bulk_edit_modal" class="btn btn-ghost">
+              Cancel
             </button>
-            <h3 class="text-lg font-bold">Create New Sweep Group</h3>
+            <button type="submit" class="btn btn-primary">
+              Apply Tags
+            </button>
           </div>
-
-          <p class="text-sm text-base-content/70 mb-4">
-            Create a new sweep group with {@selected_count} selected device(s).
-          </p>
-
-          <div class="space-y-4">
-            <!-- Group Name -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">Group Name</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g., Office Network Scan"
-                class="input input-bordered w-full"
-                value={@new_group_form["name"]}
-                phx-blur="update_new_group_form"
-                phx-value-field="name"
-              />
-            </div>
-
-            <!-- Schedule Interval -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">Scan Interval</span>
-              </label>
-              <select
-                class="select select-bordered w-full"
-                phx-change="update_new_group_form"
-                phx-value-field="interval"
-                name="value"
-              >
-                <%= for {label, value} <- @interval_options do %>
-                  <option value={value} selected={@new_group_form["interval"] == value}>
-                    {label}
-                  </option>
-                <% end %>
-              </select>
-            </div>
-
-            <!-- Scanner Profile (optional) -->
-            <div>
-              <label class="label">
-                <span class="label-text font-medium">Scanner Profile</span>
-                <span class="label-text-alt text-base-content/50">Optional</span>
-              </label>
-              <select
-                class="select select-bordered w-full"
-                phx-change="update_new_group_form"
-                phx-value-field="profile_id"
-                name="value"
-              >
-                <option value="">Default settings</option>
-                <%= for profile <- @sweep_profiles do %>
-                  <option value={profile.id} selected={@new_group_form["profile_id"] == profile.id}>
-                    {profile.name}
-                  </option>
-                <% end %>
-              </select>
-            </div>
-
-            <!-- Enable Toggle -->
-            <div class="flex items-center gap-3">
-              <input
-                type="checkbox"
-                class="toggle toggle-primary"
-                checked={@new_group_form["enabled"]}
-                phx-click="update_new_group_form"
-                phx-value-field="enabled"
-                phx-value-value={!@new_group_form["enabled"]}
-              />
-              <span class="label-text">Enable immediately after creation</span>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
-              <button
-                phx-click="sweep_modal_show_select"
-                class="btn btn-ghost"
-              >
-                Back
-              </button>
-              <button
-                phx-click="create_and_add_to_sweep_group"
-                class="btn btn-primary"
-              >
-                <.icon name="hero-plus" class="size-4" />
-                Create & Add Devices
-              </button>
-            </div>
-          </div>
-        <% else %>
-          <!-- Select Existing Group -->
-          <h3 class="text-lg font-bold">Add to Sweep Group</h3>
-          <p class="py-2 text-sm text-base-content/70">
-            Add {@selected_count} selected device(s) to a network sweep group.
-          </p>
-
-          <div class="mt-4 space-y-2">
-            <%= if @sweep_groups == [] do %>
-              <div class="p-4 bg-base-200 rounded-lg text-center">
-                <p class="text-sm text-base-content/60 mb-3">
-                  No sweep groups configured yet.
-                </p>
-                <button
-                  phx-click="sweep_modal_show_create"
-                  class="btn btn-primary btn-sm"
-                >
-                  <.icon name="hero-plus" class="size-4" /> Create Sweep Group
-                </button>
-              </div>
-            <% else %>
-              <%= for group <- @sweep_groups do %>
-                <button
-                  class="w-full p-3 bg-base-200 hover:bg-base-300 rounded-lg text-left transition-colors"
-                  phx-click="add_to_sweep_group"
-                  phx-value-group_id={group.id}
-                >
-                  <div class="flex items-center justify-between">
-                    <div>
-                      <div class="font-medium">{group.name}</div>
-                      <div class="text-xs text-base-content/60">
-                        {length(group.static_targets || [])} target(s) • Every {group.interval}
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class={"size-2 rounded-full #{if group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
-                      </span>
-                      <.icon name="hero-chevron-right" class="size-4 text-base-content/40" />
-                    </div>
-                  </div>
-                </button>
-              <% end %>
-
-              <div class="divider text-xs">or</div>
-
-              <button
-                phx-click="sweep_modal_show_create"
-                class="w-full p-3 border border-dashed border-base-300 hover:border-primary rounded-lg text-center transition-colors"
-              >
-                <.icon name="hero-plus" class="size-4 mr-1" />
-                <span class="text-sm">Create New Sweep Group</span>
-              </button>
-            <% end %>
-          </div>
-        <% end %>
+        </.form>
       </div>
       <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_sweep_modal">close</button>
+        <button phx-click="close_bulk_edit_modal">close</button>
       </form>
     </dialog>
     """
@@ -1295,52 +1119,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
-  # Sweep group helpers
-
-  defp load_sweep_groups(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.read(SweepGroup, actor: actor, tenant: tenant, authorize?: false) do
-      {:ok, groups} -> groups
-      {:error, _} -> []
-    end
-  end
-
-  defp add_devices_to_group(scope, group_id, ips) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.get(SweepGroup, group_id, actor: actor, tenant: tenant, authorize?: false) do
-      {:ok, group} ->
-        group
-        |> Ash.Changeset.for_update(:add_targets, %{targets: ips}, actor: actor, tenant: tenant)
-        |> Ash.update()
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp load_sweep_profiles(scope) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    case Ash.read(SweepProfile, actor: actor, tenant: tenant, authorize?: false) do
-      {:ok, profiles} -> profiles
-      {:error, _} -> []
-    end
-  end
-
-  defp create_sweep_group(scope, params) do
-    actor = build_actor(scope)
-    tenant = get_tenant(scope)
-
-    SweepGroup
-    |> Ash.Changeset.for_create(:create, params, actor: actor, tenant: tenant)
-    |> Ash.create()
-  end
-
   defp get_total_matching_count(scope, query) do
     srql_module = srql_module()
     # Get count by querying with limit 0 - SRQL should return total_count
@@ -1364,18 +1142,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp get_all_matching_ips(scope, query) do
+  defp get_all_matching_uids(scope, query) do
     srql_module = srql_module()
-    # Fetch all matching devices up to a reasonable limit
     full_query = "in:devices #{query} limit:10000"
 
     case srql_module.query(full_query, %{scope: scope}) do
       {:ok, %{"results" => results}} when is_list(results) ->
         results
         |> Enum.filter(&is_map/1)
-        |> Enum.map(fn row -> Map.get(row, "ip") end)
+        |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
         |> Enum.filter(&is_binary/1)
-        |> Enum.reject(&(&1 == ""))
         |> Enum.uniq()
 
       _ ->
@@ -1411,28 +1187,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_single_error(err),
     do: inspect(err)
-
-  defp build_actor(scope) do
-    case scope do
-      %{user: user} when not is_nil(user) ->
-        %{
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
-        }
-
-      _ ->
-        %{id: "system", email: "system@serviceradar", role: :admin}
-    end
-  end
-
-  defp get_tenant(scope) do
-    case Scope.tenant_id(scope) do
-      nil -> nil
-      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-    end
-  end
 
   # Filter helpers for quick filter buttons
   defp has_filter?(srql, field, value) do

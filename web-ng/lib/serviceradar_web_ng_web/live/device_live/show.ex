@@ -1729,7 +1729,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   @latest.status == :available && "bg-success",
                   @latest.status == :unavailable && "bg-error",
                   @latest.status not in [:available, :unavailable] && "bg-warning"
-                ]}></span>
+                ]}>
+                </span>
                 <span class="font-medium">{status_label(@latest.status)}</span>
               </div>
             </div>
@@ -1760,7 +1761,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
           <%= if @total > 1 do %>
             <div class="mt-4 pt-4 border-t border-base-200">
-              <div class="text-xs text-base-content/60 mb-2">Recent Sweep History ({@total} results)</div>
+              <div class="text-xs text-base-content/60 mb-2">
+                Recent Sweep History ({@total} results)
+              </div>
               <div class="overflow-x-auto">
                 <table class="table table-xs">
                   <thead>
@@ -1786,7 +1789,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                             {status_label(result.status)}
                           </span>
                         </td>
-                        <td class="font-mono text-xs">{format_response_time(result.response_time_ms)}</td>
+                        <td class="font-mono text-xs">
+                          {format_response_time(result.response_time_ms)}
+                        </td>
                         <td class="font-mono text-xs">{format_ports_compact(result.open_ports)}</td>
                       </tr>
                     <% end %>

@@ -41,11 +41,11 @@
 - [x] 2.2.1 Implement `TargetCriteria` module for DSL parsing
 - [x] 2.2.2 Implement criteria-to-SRQL compiler
 - [x] 2.2.3 Add `in_cidr` operator for IP range matching
-- [ ] 2.2.4 Add `in_range` operator for explicit IP ranges
-- [ ] 2.2.5 Add tag match operators for map fields (has_any/has_all/eq)
-- [ ] 2.2.6 Add boolean grouping (all/any) support
-- [ ] 2.2.7 Update target count preview for tag/static target filters
-- [ ] 2.2.8 Update validation for target_criteria attribute (tags/ranges)
+- [x] 2.2.4 Add `in_range` operator for explicit IP ranges
+- [x] 2.2.5 Add tag match operators for map fields (has_any/has_all/eq)
+- [x] 2.2.6 Add boolean grouping (all/any) support
+- [x] 2.2.7 Update target count preview for tag/static target filters
+- [x] 2.2.8 Update validation for target_criteria attribute (tags/ranges)
 
 ### 2.3 Sweep Config Compiler
 - [x] 2.3.1 Implement `SweepCompiler` behaviour module
@@ -56,9 +56,9 @@
 - [x] 2.3.6 Populate device_targets with metadata
 
 ### 2.4 Device Tags Schema
-- [ ] 2.4.1 Add `ocsf_devices.tags` column (JSONB map) via Ash migration
-- [ ] 2.4.2 Update Ash resource to expose tags attribute
-- [ ] 2.4.3 Update DIRE/device ingestion to preserve tags on updates
+- [x] 2.4.1 Add `ocsf_devices.tags` column (JSONB map) via Ash migration
+- [x] 2.4.2 Update Ash resource to expose tags attribute
+- [x] 2.4.3 Update DIRE/device ingestion to preserve tags on updates
 
 ---
 
@@ -77,8 +77,8 @@
 - [x] 3.2.2 Implement group create/edit form
 - [x] 3.2.3 Add interval picker component (5m, 15m, 30m, 1h, 2h, 6h, 12h, 24h)
 - [x] 3.2.4 Add cron expression builder (optional)
-- [ ] 3.2.5 Update visual query builder for tags + static targets + match mode
-- [ ] 3.2.6 Implement live target count preview for tag-based rules
+- [x] 3.2.5 Update visual query builder for tags + static targets + match mode
+- [x] 3.2.6 Implement live target count preview for tag-based rules
 - [x] 3.2.7 Add partition/agent selectors
 - [x] 3.2.8 Implement group enable/disable toggle
 - [x] 3.2.9 Add "Run Now" action button
@@ -101,9 +101,9 @@
 ## Phase 4: Device Inventory Integration
 
 ### 4.1 Bulk Actions
-- [ ] 4.1.1 Rename bulk action to "Bulk Edit" and reuse existing bulk editor
-- [ ] 4.1.2 Limit bulk editor to tag application (no sweep group creation)
-- [ ] 4.1.3 Persist tag updates via Ash for selected devices
+- [x] 4.1.1 Rename bulk action to "Bulk Edit" and reuse existing bulk editor
+- [x] 4.1.2 Limit bulk editor to tag application (no sweep group creation)
+- [x] 4.1.3 Persist tag updates via Ash for selected devices
 
 ### 4.2 Device Detail Panel
 - [x] 4.2.1 Add "Sweep Status" section to device detail
@@ -112,7 +112,7 @@
 - [x] 4.2.4 Add link to group detail from device
 
 ### 4.3 Filters
-- [ ] 4.3.1 Add tag filter (key/value) to device list
+- [x] 4.3.1 Add tag filter (key/value) to device list
 - [x] 4.3.2 Add "Sweep Status" filter (available, unavailable, never swept)
 
 ---
@@ -123,13 +123,13 @@
 - [x] 5.1.1 Update agent to call `GetConfig` with "sweep" type (existing AgentConfigGenerator)
 - [x] 5.1.2 Add config hash field to SweepConfig for change detection
 - [x] 5.1.3 Add SetExecutionContext/GetConfigHash methods to SweepService
-- [ ] 5.1.4 Add configurable poll interval (default: 60s)
-- [ ] 5.1.5 Implement file-based fallback when gateway unavailable
+- [x] 5.1.4 Add configurable poll interval (default: 60s)
+- [x] 5.1.5 Implement file-based fallback when gateway unavailable
 
 ### 5.2 Remove KV/DataSvc Dependencies (Go agent-side)
-- [ ] 5.2.1 Remove KV store config watching from sweeper
-- [ ] 5.2.2 Remove datasvc client from agent sweep service
-- [ ] 5.2.3 Update agent config loading priority: gateway > file > default
+- [x] 5.2.1 Remove KV store config watching from sweeper
+- [x] 5.2.2 Remove datasvc client from agent sweep service
+- [x] 5.2.3 Update agent config loading priority: gateway > file > default
 
 ---
 
@@ -139,13 +139,13 @@
 - [x] 6.1.1 Add execution_id and sweep_group_id to proto messages
 - [x] 6.1.2 Add sweep group ID to SweepSummary and SweepResult models
 - [x] 6.1.3 Update GetSweepResults to include execution context in response
-- [ ] 6.1.4 Implement chunked streaming for large result sets
+- [x] 6.1.4 Implement chunked streaming for large result sets
 
 ### 6.2 Gateway Forwarding (Go gateway-side)
 - [x] 6.2.1 Implement sweep results extraction in gateway (existing NATS publish)
 - [x] 6.2.2 Add RPC call to core-elx for results processing (via NATS JetStream)
-- [ ] 6.2.3 Implement result buffering when core unavailable (Go)
-- [ ] 6.2.4 Add metrics for results forwarding (Go)
+- [x] 6.2.3 Implement result buffering when core unavailable (Go)
+- [x] 6.2.4 Add metrics for results forwarding (Go)
 
 ### 6.3 Core Processing
 - [x] 6.3.1 Create `SweepResultsIngestor` module in core

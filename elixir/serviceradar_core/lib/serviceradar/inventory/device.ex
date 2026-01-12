@@ -129,6 +129,7 @@ defmodule ServiceRadar.Inventory.Device do
         :gateway_id,
         :agent_id,
         :discovery_sources,
+        :tags,
         :is_available,
         :metadata
       ]
@@ -167,6 +168,7 @@ defmodule ServiceRadar.Inventory.Device do
         :groups,
         :agent_list,
         :is_available,
+        :tags,
         :metadata,
         :group_id,
         :last_seen_time
@@ -440,6 +442,12 @@ defmodule ServiceRadar.Inventory.Device do
       default []
       public? true
       description "List of discovery source types"
+    end
+
+    attribute :tags, :map do
+      default %{}
+      public? true
+      description "User-defined tags (key/value map)"
     end
 
     attribute :is_available, :boolean do

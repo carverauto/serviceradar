@@ -18,7 +18,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "is_available",
         "type_id",
-        "discovery_sources"
+        "discovery_sources",
+        "tags"
       ],
       downsample: false
     },

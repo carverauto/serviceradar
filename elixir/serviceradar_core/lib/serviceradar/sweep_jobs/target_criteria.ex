@@ -17,7 +17,10 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   - `starts_with`: String starts with prefix
   - `ends_with`: String ends with suffix
   - `in_cidr`: IP address within CIDR range
+  - `in_range`: IP address within range (e.g. 10.0.0.1-10.0.0.50)
   - `not_in_cidr`: IP address not within CIDR range
+  - `has_any`: Map contains any of the provided tag keys/values
+  - `has_all`: Map contains all of the provided tag keys/values
   - `gt`, `gte`, `lt`, `lte`: Numeric comparisons
   - `is_null`: Field is nil
   - `is_not_null`: Field is not nil
@@ -25,19 +28,16 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   ## Example Criteria
 
       %{
-        "discovery_sources" => %{"contains" => "armis"},
-        "device_class" => %{"eq" => "network"},
-        "type_id" => %{"in" => [9, 10, 12]},
+        "tags" => %{"has_any" => ["critical", "env=prod"]},
         "ip" => %{"in_cidr" => "10.0.0.0/8"},
-        "partition" => %{"eq" => "datacenter-1"},
-        "status" => %{"neq" => "inactive"}
+        "partition" => %{"eq" => "datacenter-1"}
       }
 
   ## Usage
 
       # Check if a device matches criteria
-      criteria = %{"device_class" => %{"eq" => "network"}}
-      device = %{device_class: "network", ip: "10.0.1.5"}
+      criteria = %{"tags" => %{"has_any" => ["critical"]}}
+      device = %{tags: %{"critical" => ""}, ip: "10.0.1.5"}
       TargetCriteria.matches?(device, criteria)
       # => true
 
@@ -151,11 +151,28 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   # Private functions
 
   defp get_field_value(device, field_atom, field_string) when is_map(device) do
-    # Try atom key first, then string key
-    case Map.get(device, field_atom) do
-      nil -> Map.get(device, field_string)
-      value -> value
+    case field_string do
+      "tags" ->
+        get_tags(device)
+
+      _ ->
+        case String.split(field_string, ".", parts: 2) do
+          ["tags", key] ->
+            get_tags(device)
+            |> Map.get(key)
+
+          _ ->
+            # Try atom key first, then string key
+            case Map.get(device, field_atom) do
+              nil -> Map.get(device, field_string)
+              value -> value
+            end
+        end
     end
+  end
+
+  defp get_tags(device) do
+    Map.get(device, :tags) || Map.get(device, "tags") || %{}
   end
 
   defp get_ip(device) do
@@ -208,8 +225,20 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
     ip_in_cidr?(value, cidr)
   end
 
+  defp evaluate_operator(value, %{"in_range" => range}) when is_binary(value) do
+    ip_in_range?(value, range)
+  end
+
   defp evaluate_operator(value, %{"not_in_cidr" => cidr}) when is_binary(value) do
     not ip_in_cidr?(value, cidr)
+  end
+
+  defp evaluate_operator(value, %{"has_any" => list}) when is_map(value) and is_list(list) do
+    Enum.any?(list, &tag_entry_match?(value, &1))
+  end
+
+  defp evaluate_operator(value, %{"has_all" => list}) when is_map(value) and is_list(list) do
+    Enum.all?(list, &tag_entry_match?(value, &1))
   end
 
   defp evaluate_operator(value, %{"gt" => threshold}) when is_number(value) do
@@ -291,6 +320,35 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
     bsl(a, 24) + bsl(b, 16) + bsl(c, 8) + d
   end
 
+  defp ip_in_range?(ip_string, range_string) do
+    case String.split(range_string, "-", parts: 2) do
+      [start_ip, end_ip] ->
+        with {:ok, ip} <- parse_ip(ip_string),
+             {:ok, start} <- parse_ip(String.trim(start_ip)),
+             {:ok, stop} <- parse_ip(String.trim(end_ip)),
+             true <- tuple_size(ip) == 4 and tuple_size(start) == 4 and tuple_size(stop) == 4 do
+          ip_int = ipv4_to_int(ip)
+          start_int = ipv4_to_int(start)
+          stop_int = ipv4_to_int(stop)
+          ip_int >= start_int and ip_int <= stop_int
+        else
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp tag_entry_match?(tags, entry) when is_binary(entry) do
+    case String.split(entry, "=", parts: 2) do
+      [key, value] -> Map.get(tags, String.trim(key)) == String.trim(value)
+      [key] -> Map.has_key?(tags, String.trim(key))
+    end
+  end
+
+  defp tag_entry_match?(_tags, _entry), do: false
+
   # Ash filter building
 
   defp build_ash_condition(field, %{"eq" => value}), do: [{field, value}]
@@ -318,7 +376,7 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
 
   # Validation
 
-  @valid_operators ~w(eq neq in not_in contains not_contains starts_with ends_with in_cidr not_in_cidr gt gte lt lte is_null is_not_null)
+  @valid_operators ~w(eq neq in not_in contains not_contains starts_with ends_with in_cidr not_in_cidr in_range has_any has_all gt gte lt lte is_null is_not_null)
 
   defp validate_operator_spec(field, operator_spec) when is_map(operator_spec) do
     operators = Map.keys(operator_spec)
@@ -329,7 +387,7 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
 
       [op] ->
         if op in @valid_operators do
-          :ok
+          validate_operator_value(field, op, Map.get(operator_spec, op))
         else
           {:error, "Field '#{field}' has invalid operator '#{op}'. Valid: #{Enum.join(@valid_operators, ", ")}"}
         end
@@ -342,4 +400,97 @@ defmodule ServiceRadar.SweepJobs.TargetCriteria do
   defp validate_operator_spec(field, _) do
     {:error, "Field '#{field}' operator spec must be a map"}
   end
+
+  defp validate_operator_value(field, "has_any", value) do
+    validate_tag_operator(field, "has_any", value)
+  end
+
+  defp validate_operator_value(field, "has_all", value) do
+    validate_tag_operator(field, "has_all", value)
+  end
+
+  defp validate_operator_value(field, "in_range", value) when is_binary(value) do
+    if valid_ip_range?(value) do
+      :ok
+    else
+      {:error, "Field '#{field}' has invalid in_range value '#{value}'"}
+    end
+  end
+
+  defp validate_operator_value(field, "in_range", _value) do
+    {:error, "Field '#{field}' in_range expects a string range like 10.0.0.1-10.0.0.50"}
+  end
+
+  defp validate_operator_value(field, op, value) when op in ["in_cidr", "not_in_cidr"] do
+    if is_binary(value) and valid_cidr?(value) do
+      :ok
+    else
+      {:error, "Field '#{field}' has invalid #{op} value '#{value}'"}
+    end
+  end
+
+  defp validate_operator_value(field, op, value) when op in ["in", "not_in"] do
+    if is_list(value) do
+      :ok
+    else
+      {:error, "Field '#{field}' #{op} expects a list value"}
+    end
+  end
+
+  defp validate_operator_value(_field, _op, _value), do: :ok
+
+  defp validate_tag_operator(field, op, value) do
+    cond do
+      field != "tags" ->
+        {:error, "Field '#{field}' does not support #{op} operator"}
+
+      not is_list(value) ->
+        {:error, "Field '#{field}' #{op} expects a list of tags"}
+
+      Enum.any?(value, &(!valid_tag_entry?(&1))) ->
+        {:error, "Field '#{field}' #{op} has invalid tag entries"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_tag_entry?(entry) when is_binary(entry) do
+    trimmed = String.trim(entry)
+
+    case String.split(trimmed, "=", parts: 2) do
+      [key, value] -> key != "" and value != ""
+      [key] -> key != ""
+      _ -> false
+    end
+  end
+
+  defp valid_tag_entry?(_entry), do: false
+
+  defp valid_cidr?(cidr) when is_binary(cidr) do
+    case parse_cidr(String.trim(cidr)) do
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  defp valid_cidr?(_), do: false
+
+  defp valid_ip_range?(range) when is_binary(range) do
+    case String.split(range, "-", parts: 2) do
+      [start_ip, end_ip] ->
+        with {:ok, start} <- parse_ip(String.trim(start_ip)),
+             {:ok, stop} <- parse_ip(String.trim(end_ip)),
+             true <- tuple_size(start) == 4 and tuple_size(stop) == 4 do
+          true
+        else
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp valid_ip_range?(_), do: false
 end

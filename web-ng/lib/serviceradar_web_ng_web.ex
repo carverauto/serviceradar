@@ -96,6 +96,7 @@ defmodule ServiceRadarWebNGWeb do
       # Core UI components
       import ServiceRadarWebNGWeb.CoreComponents
       import ServiceRadarWebNGWeb.UIComponents
+      import ServiceRadarWebNGWeb.QueryBuilderComponents
       import ServiceRadarWebNGWeb.SRQLComponents
       import ServiceRadarWebNGWeb.ReactComponents
 

@@ -18,17 +18,11 @@ package sweeper
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/hashutil"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -42,63 +36,6 @@ const (
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
 )
-
-type kvWatchBackoffSettings struct {
-	initial time.Duration
-	max     time.Duration
-	factor  float64
-	jitter  float64
-}
-
-func defaultKVWatchBackoffSettings() kvWatchBackoffSettings {
-	return kvWatchBackoffSettings{
-		initial: 1 * time.Second,
-		max:     5 * time.Minute,
-		factor:  2.0,
-		jitter:  0.1, // 10% jitter
-	}
-}
-
-func sanitizeKVWatchBackoffSettings(cfg kvWatchBackoffSettings) kvWatchBackoffSettings {
-	defaults := defaultKVWatchBackoffSettings()
-
-	if cfg.initial <= 0 {
-		cfg.initial = defaults.initial
-	}
-
-	if cfg.max <= 0 || cfg.max < cfg.initial {
-		cfg.max = defaults.max
-	}
-
-	if cfg.factor <= 1 {
-		cfg.factor = defaults.factor
-	}
-
-	if cfg.jitter < 0 {
-		cfg.jitter = defaults.jitter
-	}
-
-	return cfg
-}
-
-// WithKVWatchBackoff overrides the KV watch backoff behaviour (primarily used in tests).
-func WithKVWatchBackoff(initial, max time.Duration, factor, jitter float64) Option {
-	return func(ns *NetworkSweeper) {
-		ns.kvBackoff = sanitizeKVWatchBackoffSettings(kvWatchBackoffSettings{
-			initial: initial,
-			max:     max,
-			factor:  factor,
-			jitter:  jitter,
-		})
-	}
-}
-
-func (s *NetworkSweeper) kvWatchBackoff() kvWatchBackoffSettings {
-	cfg := sanitizeKVWatchBackoffSettings(s.kvBackoff)
-	s.kvBackoff = cfg
-
-	return cfg
-}
 
 // DeviceRegistryService interface for device registry operations
 type DeviceRegistryService interface {
@@ -117,19 +54,11 @@ type NetworkSweeper struct {
 	tcpConnectScanner scan.Scanner // TCP connect scanner (safe for conntrack)
 	store             Store
 	processor         ResultProcessor
-	configStore       KVStore
-	objectStore       ObjectStore
 	deviceRegistry    DeviceRegistryService
-	configKey         string
 	logger            logger.Logger
-	kvBackoff         kvWatchBackoffSettings
 	mu                sync.RWMutex
 	done              chan struct{}
-	watchDone         chan struct{}
 	lastSweep         time.Time
-	// Config change detection
-	lastConfigHash [32]byte
-	lastObjectHash [32]byte
 	// Device result aggregation for multi-IP devices
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
@@ -142,7 +71,7 @@ type DeviceResultAggregator struct {
 	ExpectedIPs []string
 	Metadata    map[string]interface{}
 	AgentID     string
-	GatewayID    string
+	GatewayID   string
 	Partition   string
 	mu          sync.Mutex
 }
@@ -165,10 +94,7 @@ func NewNetworkSweeper(
 	config *models.Config,
 	store Store,
 	processor ResultProcessor,
-	configStore KVStore,
-	objectStore ObjectStore,
 	deviceRegistry DeviceRegistryService,
-	configKey string,
 	log logger.Logger,
 	opts ...Option) (*NetworkSweeper, error) {
 	if config == nil {
@@ -193,14 +119,9 @@ func NewNetworkSweeper(
 		tcpConnectScanner: tcpConnectScanner,
 		store:             store,
 		processor:         processor,
-		configStore:       configStore,
-		objectStore:       objectStore,
 		deviceRegistry:    deviceRegistry,
-		configKey:         configKey,
 		logger:            log,
-		kvBackoff:         defaultKVWatchBackoffSettings(),
 		done:              nil,
-		watchDone:         nil,
 		deviceResults:     make(map[string]*DeviceResultAggregator),
 	}
 
@@ -448,27 +369,12 @@ func calculateEffectiveConcurrency(config *models.Config, log logger.Logger) int
 	return effectiveConcurrency
 }
 
-// Start begins periodic sweeping and KV watching.
+// Start begins periodic sweeping.
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	s.logger.Info().Dur("interval", s.config.Interval).Msg("Starting network sweeper")
 
 	s.ensureControlChannels()
 	s.ensureScannersInitialized()
-
-	// Start KV config watching and wait for initial config (if available)
-	configReady := make(chan struct{}, 1)
-	signalConfigReady := newConfigReadySignal(configReady)
-	go s.watchConfigWithInitialSignal(ctx, signalConfigReady)
-
-	// Wait for initial config update (with timeout) or proceed with file config
-	select {
-	case <-configReady:
-		s.logger.Info().Msg("Received initial KV config, starting sweep with updated configuration")
-	case <-time.After(10 * time.Second):
-		s.logger.Info().Msg("No KV config received within timeout, starting sweep with file configuration")
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
 	if err := s.runSweep(initialCtx); err != nil {
@@ -519,7 +425,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	}
 }
 
-// Stop gracefully stops sweeping and KV watching.
+// Stop gracefully stops sweeping.
 func (s *NetworkSweeper) Stop() error {
 	s.logger.Info().Msg("Stopping network sweeper")
 
@@ -530,12 +436,7 @@ func (s *NetworkSweeper) Stop() error {
 
 	close(s.done)
 
-	if s.watchDone != nil {
-		<-s.watchDone // Wait for KV watching to stop
-	}
-
 	s.done = nil
-	s.watchDone = nil
 
 	if s.icmpScanner != nil {
 		if err := s.icmpScanner.Stop(); err != nil {
@@ -564,10 +465,6 @@ func (s *NetworkSweeper) Stop() error {
 func (s *NetworkSweeper) ensureControlChannels() {
 	if s.done == nil {
 		s.done = make(chan struct{})
-	}
-
-	if s.watchDone == nil {
-		s.watchDone = make(chan struct{})
 	}
 }
 
@@ -803,434 +700,6 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	}
 
 	return nil
-}
-
-// configReadySignal ensures the channel is only closed once even if multiple goroutines race to signal readiness.
-func newConfigReadySignal(ch chan struct{}) func() {
-	var once sync.Once
-
-	return func() {
-		once.Do(func() {
-			close(ch)
-		})
-	}
-}
-
-// handleCancellation checks for context cancellation or sweeper shutdown and closes configReady if needed
-func (s *NetworkSweeper) handleCancellation(ctx context.Context, initialConfigReceived bool, signalConfigReady func()) bool {
-	select {
-	case <-ctx.Done():
-		s.logger.Debug().Msg("Context canceled, stopping config watch")
-
-		if !initialConfigReceived {
-			signalConfigReady()
-		}
-
-		return true
-	case <-s.done:
-		s.logger.Debug().Msg("Sweep service closed, stopping config watch")
-
-		if !initialConfigReceived {
-			signalConfigReady()
-		}
-
-		return true
-	default:
-		return false
-	}
-}
-
-// handleBackoffWait implements the backoff logic with cancellation checks
-func (s *NetworkSweeper) handleBackoffWait(
-	ctx context.Context, backoff time.Duration, initialConfigReceived bool, signalConfigReady func(),
-) bool {
-	cfg := s.kvWatchBackoff()
-
-	// Reset backoff on successful initial config to avoid long delays on subsequent reconnects
-	if initialConfigReceived {
-		backoff = cfg.initial
-	}
-
-	// Add jitter to prevent thundering herd
-	jitterDelay := s.addJitter(backoff)
-
-	s.logger.Debug().
-		Dur("delay", jitterDelay).
-		Dur("baseBackoff", backoff).
-		Msg("KV watch channel closed, retrying after backoff")
-
-	// Wait for backoff duration or context cancellation
-	select {
-	case <-ctx.Done():
-		s.logger.Debug().Msg("Context canceled during backoff, stopping config watch")
-
-		if !initialConfigReceived {
-			signalConfigReady()
-		}
-
-		return true
-	case <-s.done:
-		s.logger.Debug().Msg("Sweep service closed during backoff, stopping config watch")
-
-		if !initialConfigReceived {
-			signalConfigReady()
-		}
-
-		return true
-	case <-time.After(jitterDelay):
-		// Continue to next iteration
-		return false
-	}
-}
-
-// watchConfigWithInitialSignal watches the KV store for config updates and signals when first config is received.
-// Implements auto-reconnect with exponential backoff and jitter to handle spurious channel closures.
-func (s *NetworkSweeper) watchConfigWithInitialSignal(ctx context.Context, signalConfigReady func()) {
-	defer close(s.watchDone)
-
-	if s.configStore == nil {
-		s.logger.Debug().Msg("No config store configured, skipping config watch")
-		signalConfigReady() // Signal immediately since there's no KV config to wait for
-
-		return
-	}
-
-	s.logger.Info().Str("configKey", s.configKey).Msg("Starting config watch with auto-reconnect")
-
-	initialConfigReceived := false
-	cfg := s.kvWatchBackoff()
-	backoff := cfg.initial
-	// Auto-reconnect loop with exponential backoff and jitter
-	for {
-		// Check for cancellation
-		if s.handleCancellation(ctx, initialConfigReceived, signalConfigReady) {
-			return
-		}
-
-		// Establish watch connection
-		watchResult := s.performKVWatch(ctx, &initialConfigReceived, signalConfigReady)
-
-		// If watch returned due to context cancellation or sweeper shutdown, exit
-		if watchResult == watchResultCanceled {
-			return
-		}
-
-		// If this was an error establishing the watch, exit (no retry for connection failures)
-		if watchResult == watchResultError {
-			return
-		}
-
-		// If this was a channel closure, implement backoff before retrying
-		if watchResult == watchResultChannelClosed {
-			if s.handleBackoffWait(ctx, backoff, initialConfigReceived, signalConfigReady) {
-				return
-			}
-
-			// Exponentially increase backoff, capped at maximum
-			backoff = time.Duration(math.Min(
-				float64(backoff)*cfg.factor,
-				float64(cfg.max),
-			))
-		}
-	}
-}
-
-// watchResult represents the outcome of a KV watch attempt
-type watchResult int
-
-const (
-	watchResultChannelClosed watchResult = iota
-	watchResultCanceled
-	watchResultError
-)
-
-// performKVWatch performs a single KV watch session and returns the reason it ended
-func (s *NetworkSweeper) performKVWatch(ctx context.Context, initialConfigReceived *bool, signalConfigReady func()) watchResult {
-	ch, err := s.configStore.Watch(ctx, s.configKey)
-	if err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to watch KV key")
-		// If we can't establish the watch and haven't received initial config, signal to proceed with file config
-		if !*initialConfigReceived {
-			signalConfigReady()
-		}
-
-		return watchResultError
-	}
-
-	s.logger.Debug().Str("configKey", s.configKey).Msg("KV watch established")
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Debug().Msg("Context canceled during watch")
-
-			if !*initialConfigReceived {
-				signalConfigReady()
-			}
-
-			return watchResultCanceled
-
-		case <-s.done:
-			s.logger.Debug().Msg("Sweep service closed during watch")
-
-			if !*initialConfigReceived {
-				signalConfigReady()
-			}
-
-			return watchResultCanceled
-
-		case value, ok := <-ch:
-			if !ok {
-				s.logger.Debug().Str("configKey", s.configKey).Msg("Watch channel closed, will retry")
-				return watchResultChannelClosed
-			}
-
-			s.processConfigUpdate(ctx, value)
-
-			// Signal that initial config has been received
-			if !*initialConfigReceived {
-				*initialConfigReceived = true
-
-				signalConfigReady()
-				s.logger.Info().Str("configKey", s.configKey).Msg("Initial KV config received")
-			}
-		}
-	}
-}
-
-// addJitter adds random jitter to backoff duration to prevent thundering herd
-func (s *NetworkSweeper) addJitter(backoff time.Duration) time.Duration {
-	jitter := time.Duration(float64(backoff) * s.kvBackoff.jitter * (rand.Float64()*2 - 1))
-	jitteredBackoff := backoff + jitter
-
-	// Ensure jittered backoff is positive
-	if jitteredBackoff < 0 {
-		jitteredBackoff = backoff
-	}
-
-	return jitteredBackoff
-}
-
-// processConfigUpdate processes a config update from the KV store.
-func (s *NetworkSweeper) processConfigUpdate(ctx context.Context, value []byte) {
-	s.logger.Debug().
-		Int("valueLength", len(value)).
-		Msg("Processing config update")
-
-	configHash := sha256.Sum256(value)
-
-	s.mu.Lock()
-	if s.lastConfigHash == configHash {
-		s.mu.Unlock()
-		s.logger.Debug().Msg("Configuration pointer unchanged, skipping")
-		return
-	}
-	s.mu.Unlock()
-
-	configPayload := value
-	var objectHash [32]byte
-
-	var metadata map[string]interface{}
-	if err := json.Unmarshal(value, &metadata); err == nil {
-		if storage, ok := metadata["storage"].(string); ok && storage == "data_service" {
-			objectKey, hasKey := metadata["object_key"].(string)
-			if !hasKey || objectKey == "" {
-				s.logger.Warn().Str("configKey", s.configKey).Msg("DataService metadata missing object_key")
-				return
-			}
-
-			if s.objectStore == nil {
-				s.logger.Warn().Str("configKey", s.configKey).Msg("Object store unavailable; cannot hydrate sweep config")
-				return
-			}
-
-			objectData, err := s.objectStore.DownloadObject(ctx, objectKey)
-			if err != nil {
-				s.logger.Error().Err(err).Str("objectKey", objectKey).Msg("Failed to download sweep config object")
-				return
-			}
-
-			if expectedSHA, ok := metadata["sha256"].(string); ok && expectedSHA != "" {
-				actualHash := sha256.Sum256(objectData)
-				actualSHA := hex.EncodeToString(actualHash[:])
-
-				if canonicalSHA, err := hashutil.CanonicalHexSHA256(expectedSHA); err != nil {
-					s.logger.Warn().
-						Str("objectKey", objectKey).
-						Str("expected_sha_raw", expectedSHA).
-						Str("actual_sha", actualSHA).
-						Err(err).
-						Msg("Failed to parse expected checksum for sweep config object")
-				} else if !strings.EqualFold(canonicalSHA, actualSHA) {
-					s.logger.Warn().
-						Str("objectKey", objectKey).
-						Str("expected_sha", canonicalSHA).
-						Str("actual_sha", actualSHA).
-						Msg("Checksum mismatch for sweep config object")
-				}
-			}
-
-			configPayload = objectData
-
-			if overrides, ok := metadata["overrides"]; ok {
-				if merged, err := mergeSweepOverrides(configPayload, overrides); err != nil {
-					s.logger.Warn().Err(err).Msg("Failed to merge sweep overrides; using base object")
-				} else {
-					configPayload = merged
-				}
-			}
-
-			objectHash = sha256.Sum256(configPayload)
-
-			s.mu.Lock()
-			if s.lastObjectHash == objectHash {
-				s.lastConfigHash = configHash
-				s.mu.Unlock()
-				s.logger.Debug().Msg("Sweep object unchanged, skipping")
-				return
-			}
-			s.mu.Unlock()
-		}
-	}
-
-	if err := s.processSingleConfig(configPayload); err != nil {
-		return
-	}
-
-	s.mu.Lock()
-	s.lastConfigHash = configHash
-	s.lastObjectHash = objectHash
-	s.mu.Unlock()
-}
-
-// processSingleConfig handles the original single-file config format
-func (s *NetworkSweeper) processSingleConfig(value []byte) error {
-	var temp unmarshalConfig
-	if err := json.Unmarshal(value, &temp); err != nil {
-		s.logger.Error().Err(err).Str("configKey", s.configKey).Msg("Failed to unmarshal single config")
-		return err
-	}
-
-	newConfig := s.createConfigFromUnmarshal(&temp)
-
-	if err := s.UpdateConfig(&newConfig); err != nil {
-		s.logger.Error().Err(err).Msg("Failed to apply single config update")
-		return err
-	} else {
-		s.logger.Info().
-			Int("networks", len(newConfig.Networks)).
-			Int("deviceTargets", len(newConfig.DeviceTargets)).
-			Msg("Successfully updated sweep config from single KV file")
-	}
-
-	return nil
-}
-
-// createConfigFromUnmarshal creates a models.Config from the unmarshaled data
-func (*NetworkSweeper) createConfigFromUnmarshal(temp *unmarshalConfig) models.Config {
-	return models.Config{
-		Networks:      temp.Networks,
-		Ports:         temp.Ports,
-		SweepModes:    temp.SweepModes,
-		DeviceTargets: temp.DeviceTargets,
-		Interval:      time.Duration(temp.Interval),
-		Concurrency:   temp.Concurrency,
-		Timeout:       time.Duration(temp.Timeout),
-		ICMPCount:     temp.ICMPCount,
-		MaxIdle:       temp.MaxIdle,
-		MaxLifetime:   time.Duration(temp.MaxLifetime),
-		IdleTimeout:   time.Duration(temp.IdleTimeout),
-		ICMPSettings: struct {
-			RateLimit int
-			Timeout   time.Duration
-			MaxBatch  int
-		}{
-			RateLimit: temp.ICMPSettings.RateLimit,
-			Timeout:   time.Duration(temp.ICMPSettings.Timeout),
-			MaxBatch:  temp.ICMPSettings.MaxBatch,
-		},
-		TCPSettings: struct {
-			Concurrency        int
-			Timeout            time.Duration
-			MaxBatch           int
-			RouteDiscoveryHost string `json:"route_discovery_host,omitempty"`
-
-			// Ring buffer tuning for SYN scanner memory vs performance tradeoffs
-			RingBlockSize  int `json:"ring_block_size,omitempty"`  // Block size in bytes (default: 1MB, max: 8MB)
-			RingBlockCount int `json:"ring_block_count,omitempty"` // Number of blocks (default: 8, max: 32, total max: 64MB)
-
-			// Network interface selection for multi-homed hosts
-			Interface string `json:"interface,omitempty"` // Network interface (e.g., "eth0", "wlan0") - auto-detected if empty
-
-			// Advanced NAT/firewall compatibility options
-			SuppressRSTReply bool `json:"suppress_rst_reply,omitempty"` // Suppress RST packet generation (optional)
-
-			// Global ring buffer memory cap (in MB) to be distributed across all CPU cores
-			GlobalRingMemoryMB int `json:"global_ring_memory_mb,omitempty"`
-
-			// Ring readers and poll timeout tuning
-			RingReaders       int `json:"ring_readers,omitempty"`
-			RingPollTimeoutMs int `json:"ring_poll_timeout_ms,omitempty"`
-		}{
-			Concurrency:        temp.TCPSettings.Concurrency,
-			Timeout:            time.Duration(temp.TCPSettings.Timeout),
-			MaxBatch:           temp.TCPSettings.MaxBatch,
-			RouteDiscoveryHost: temp.TCPSettings.RouteDiscoveryHost,
-			RingBlockSize:      temp.TCPSettings.RingBlockSize,
-			RingBlockCount:     temp.TCPSettings.RingBlockCount,
-			Interface:          temp.TCPSettings.Interface,
-			SuppressRSTReply:   temp.TCPSettings.SuppressRSTReply,
-			GlobalRingMemoryMB: temp.TCPSettings.GlobalRingMemoryMB,
-			RingReaders:        temp.TCPSettings.RingReaders,
-			RingPollTimeoutMs:  temp.TCPSettings.RingPollTimeoutMs,
-		},
-		EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
-		ICMPRateLimit:             temp.ICMPRateLimit,
-		// Execution tracking
-		SweepGroupID: temp.SweepGroupID,
-		ConfigHash:   temp.ConfigHash,
-	}
-}
-
-func mergeSweepOverrides(base []byte, overrides any) ([]byte, error) {
-	if overrides == nil {
-		return base, nil
-	}
-
-	var baseMap map[string]any
-	if err := json.Unmarshal(base, &baseMap); err != nil {
-		return nil, err
-	}
-
-	overrideBytes, err := json.Marshal(overrides)
-	if err != nil {
-		return nil, err
-	}
-
-	var overrideMap map[string]any
-	if err := json.Unmarshal(overrideBytes, &overrideMap); err != nil {
-		return nil, err
-	}
-
-	merged := mergeMapRecursive(baseMap, overrideMap)
-	return json.Marshal(merged)
-}
-
-func mergeMapRecursive(dst, src map[string]any) map[string]any {
-	for k, v := range src {
-		if srcMap, ok := v.(map[string]any); ok {
-			if dstMap, ok := dst[k].(map[string]any); ok {
-				dst[k] = mergeMapRecursive(dstMap, srcMap)
-			} else {
-				dst[k] = srcMap
-			}
-			continue
-		}
-
-		dst[k] = v
-	}
-
-	return dst
 }
 
 // estimateTargetCount calculates the total number of targets.
@@ -1588,7 +1057,7 @@ func (*NetworkSweeper) createDeviceUpdate(result *models.Result, agentID, gatewa
 
 	return &models.DeviceUpdate{
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Partition:   partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSweep,
@@ -1921,7 +1390,7 @@ func (s *NetworkSweeper) prepareDeviceAggregators(targets []models.Target) {
 			ExpectedIPs: expectedIPs,
 			Metadata:    deviceMetadata[deviceID],
 			AgentID:     agentID,
-			GatewayID:    gatewayID,
+			GatewayID:   gatewayID,
 			Partition:   partition,
 		}
 
@@ -2095,7 +1564,7 @@ func (s *NetworkSweeper) processAggregatedResults(_ context.Context, aggregator 
 	deviceID := fmt.Sprintf("%s:%s", aggregator.Partition, primaryResult.Target.Host)
 	deviceUpdate := &models.DeviceUpdate{
 		AgentID:     aggregator.AgentID,
-		GatewayID:    aggregator.GatewayID,
+		GatewayID:   aggregator.GatewayID,
 		Partition:   aggregator.Partition,
 		DeviceID:    deviceID,
 		Source:      models.DiscoverySourceSweep,

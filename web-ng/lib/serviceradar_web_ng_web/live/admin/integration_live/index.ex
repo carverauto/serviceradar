@@ -245,12 +245,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     end
   end
 
-  defp update_query_field(queries, id, field, value) do
-    Enum.map(queries, fn q ->
-      if q["id"] == id, do: Map.put(q, field, value), else: q
-    end)
-  end
-
   def handle_event("toggle_sweep_mode", %{"id" => id_str, "mode" => mode}, socket) do
     case Integer.parse(id_str) do
       {id, ""} ->
@@ -417,6 +411,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
      |> assign(:filter_type, if(source_type == "", do: nil, else: source_type))
      |> assign(:filter_enabled, if(enabled == "", do: nil, else: enabled == "true"))
      |> assign(:sources, list_sources(tenant_id, filters))}
+  end
+
+  defp update_query_field(queries, id, field, value) do
+    Enum.map(queries, fn q ->
+      if q["id"] == id, do: Map.put(q, field, value), else: q
+    end)
   end
 
   @impl true

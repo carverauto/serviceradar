@@ -46,9 +46,8 @@ type Server struct {
 	config             *ServerConfig
 	connections        map[string]*CheckerConnection
 	configStore        KVStore
-	objectStore        ObjectStore
-	createSweepService func(ctx context.Context, sweepConfig *SweepConfig, configStore KVStore, objectStore ObjectStore) (Service, error)
-	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, ObjectStore, error)
+	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
+	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error)
 	logger             logger.Logger
 }
 
@@ -87,12 +86,12 @@ type CheckerConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
-	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
-	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
-	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
-	Security    *models.SecurityConfig `json:"security,omitempty"`   // Security config for checker connections
-	KVAddress   string                 `json:"kv_address,omitempty"` // Optional KV store address
+	AgentID     string                 `json:"agent_id"`              // Unique identifier for this agent
+	AgentName   string                 `json:"agent_name,omitempty"`  // Explicit name for KV namespacing
+	HostIP      string                 `json:"host_ip,omitempty"`     // Host IP address for device correlation
+	Partition   string                 `json:"partition,omitempty"`   // Partition for device correlation
+	Security    *models.SecurityConfig `json:"security,omitempty"`    // Security config for checker connections
+	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
 	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
 	CheckersDir string                 `json:"checkers_dir"`
 	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
@@ -138,9 +137,9 @@ type ICMPResponse struct {
 	ResponseTime int64   `json:"response_time"` // in nanoseconds
 	PacketLoss   float64 `json:"packet_loss"`
 	Available    bool    `json:"available"`
-	AgentID      string  `json:"agent_id,omitempty"`  // Optional agent ID for context
-	GatewayID     string  `json:"gateway_id,omitempty"` // Optional gateway ID for context
-	DeviceID     string  `json:"device_id,omitempty"` // Device ID for proper correlation (partition:host_ip)
+	AgentID      string  `json:"agent_id,omitempty"`   // Optional agent ID for context
+	GatewayID    string  `json:"gateway_id,omitempty"` // Optional gateway ID for context
+	DeviceID     string  `json:"device_id,omitempty"`  // Device ID for proper correlation (partition:host_ip)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface to allow parsing of a Duration from a JSON string or number.

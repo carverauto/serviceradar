@@ -36,7 +36,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Ash.Query
   require Logger
 
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
   alias ServiceRadar.Cluster.TenantSchemas
 
   @impl true
@@ -69,7 +70,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       # Compile each group
       compiled_groups =
         groups
-        |> Enum.map(&compile_group(&1, profile_map, tenant_id))
+        |> Enum.map(&compile_group(&1, profile_map, tenant_schema, actor))
         |> Enum.reject(&is_nil/1)
 
       # Compute config hash for change detection
@@ -162,7 +163,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, tenant_id) do
+  defp compile_group(group, profile_map, tenant_schema, actor) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -170,7 +171,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     schedule = compile_schedule(group)
 
     # Build targets from criteria and static targets
-    targets = compile_targets(group, tenant_id)
+    targets = compile_targets(group, tenant_schema, actor)
 
     # Merge ports from profile and group overrides
     ports = merge_ports(profile, group)
@@ -210,14 +211,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, tenant_id) do
+  defp compile_targets(group, tenant_schema, actor) do
     # Start with static targets
     static_targets = group.static_targets || []
 
     # Get targets from device criteria if defined
     criteria_targets =
       if map_size(group.target_criteria || %{}) > 0 do
-        get_targets_from_criteria(group.target_criteria, tenant_id)
+        get_targets_from_criteria(group.target_criteria, tenant_schema, actor)
       else
         []
       end
@@ -227,16 +228,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> Enum.uniq()
   end
 
-  defp get_targets_from_criteria(criteria, _tenant_id) do
-    # Load devices from inventory based on criteria
-    # For now, we'll just return the static IPs/CIDRs from the criteria
-    # Full device inventory integration will be added in Phase 4
+  defp get_targets_from_criteria(criteria, tenant_schema, actor) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
 
-    case Map.get(criteria, "ip") do
-      %{"in_cidr" => cidr} -> [cidr]
-      %{"eq" => ip} -> [ip]
-      %{"in" => ips} when is_list(ips) -> ips
-      _ -> []
+    case Ash.read(query, authorize?: false) do
+      {:ok, devices} ->
+        TargetCriteria.extract_targets(devices, criteria, [])
+
+      {:error, reason} ->
+        Logger.warning("SweepCompiler: failed to load devices - #{inspect(reason)}")
+        []
     end
   end
 

@@ -166,12 +166,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     try do
       tasks = [
         Task.async(fn -> {:memory, :rpc.call(node, :erlang, :memory, [], 5000)} end),
-        Task.async(fn -> {:wall_clock, :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)} end),
-        Task.async(fn -> {:process_count, :rpc.call(node, :erlang, :system_info, [:process_count], 5000)} end),
-        Task.async(fn -> {:port_count, :rpc.call(node, :erlang, :system_info, [:port_count], 5000)} end),
-        Task.async(fn -> {:otp_release, :rpc.call(node, :erlang, :system_info, [:otp_release], 5000)} end),
-        Task.async(fn -> {:schedulers, :rpc.call(node, :erlang, :system_info, [:schedulers], 5000)} end),
-        Task.async(fn -> {:schedulers_online, :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000)} end)
+        Task.async(fn ->
+          {:wall_clock, :rpc.call(node, :erlang, :statistics, [:wall_clock], 5000)}
+        end),
+        Task.async(fn ->
+          {:process_count, :rpc.call(node, :erlang, :system_info, [:process_count], 5000)}
+        end),
+        Task.async(fn ->
+          {:port_count, :rpc.call(node, :erlang, :system_info, [:port_count], 5000)}
+        end),
+        Task.async(fn ->
+          {:otp_release, :rpc.call(node, :erlang, :system_info, [:otp_release], 5000)}
+        end),
+        Task.async(fn ->
+          {:schedulers, :rpc.call(node, :erlang, :system_info, [:schedulers], 5000)}
+        end),
+        Task.async(fn ->
+          {:schedulers_online, :rpc.call(node, :erlang, :system_info, [:schedulers_online], 5000)}
+        end)
       ]
 
       results = Task.await_many(tasks, 6000) |> Map.new()

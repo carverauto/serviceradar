@@ -109,19 +109,15 @@ defmodule ServiceRadarAgentGateway.Application do
 
     gateway_children = [
       ServiceRadarAgentGateway.AgentRegistryProxy,
+      ServiceRadarAgentGateway.StatusBuffer,
 
       # Registration worker - registers this gateway in the distributed registry.
       # Gateways are platform-level; tenant context is derived per-request via mTLS.
       {ServiceRadar.Gateway.RegistrationWorker,
-       partition_id: partition_id,
-       gateway_id: gateway_id,
-       domain: domain,
-       entity_type: :gateway},
+       partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
       # Register gateway for platform-wide visibility (Infrastructure UI).
       {ServiceRadar.GatewayRegistrationWorker,
-       gateway_id: gateway_id,
-       partition: partition_id,
-       domain: domain},
+       gateway_id: gateway_id, partition: partition_id, domain: domain},
 
       # gRPC server that receives status pushes from Go agents
       {GRPC.Server.Supervisor,
