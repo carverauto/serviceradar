@@ -33,8 +33,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.JobWriter
   alias ServiceRadar.Identity.Tenant
-  alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Identity.TenantLifecyclePublisher
+  alias ServiceRadar.NATS.AccountClient
 
   # Only select fields needed for NATS account creation.
   # Explicitly excludes encrypted fields (contact_email, contact_name,

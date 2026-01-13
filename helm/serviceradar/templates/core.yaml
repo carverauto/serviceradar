@@ -1,20 +1,29 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
-{{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $database := default (dict) $coreVals.database -}}
+{{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" .Values.tenantWorkloadOperator.kubernetesSelector -}}
+{{- $clusterNodeBasename := default "serviceradar" .Values.tenantWorkloadOperator.kubernetesNodeBasename -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $coreSA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
   strategy:
@@ -26,103 +35,70 @@ spec:
     metadata:
       labels:
         app: serviceradar-core
+        app.kubernetes.io/part-of: serviceradar
       annotations:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
-      initContainers:
-      - name: init-core-jwks
-        image: ghcr.io/carverauto/serviceradar-tools:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
-        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
-        command:
-        - /bin/sh
-        - -c
-        - |
-          set -e
-          TEMPLATE=/etc/serviceradar/core.json
-          TARGET=/var/lib/serviceradar/core.json
-          mkdir -p /var/lib/serviceradar
-
-          PRESERVE_PRIV=""
-          PRESERVE_KID=""
-          if [ -f "$TARGET" ]; then
-            if jq -e . "$TARGET" >/dev/null 2>&1; then
-              PRESERVE_PRIV=$(jq -r '.auth.jwt_private_key_pem // empty' "$TARGET")
-              PRESERVE_KID=$(jq -r '.auth.jwt_key_id // empty' "$TARGET")
-            else
-              echo "Existing $TARGET contains invalid JSON; replacing with template contents"
-              rm -f "$TARGET"
-            fi
-          fi
-
-          cp "$TEMPLATE" "${TARGET}.tmp"
-
-          if [ -n "$PRESERVE_PRIV" ]; then
-            jq --arg priv "$PRESERVE_PRIV" --arg kid "$PRESERVE_KID" '
-              .auth = (.auth // {}) |
-              .auth.jwt_algorithm = "RS256" |
-              .auth.jwt_private_key_pem = $priv |
-              (if $kid != "" then .auth.jwt_key_id = $kid else . end)
-            ' "${TARGET}.tmp" > "$TARGET"
-            rm -f "${TARGET}.tmp"
-          else
-            mv "${TARGET}.tmp" "$TARGET"
-          fi
-
-          serviceradar-cli generate-jwt-keys --file "$TARGET" --bits 2048
-        volumeMounts:
-        - name: serviceradar-config
-          mountPath: /etc/serviceradar
-          readOnly: true
-        - name: core-data
-          mountPath: /var/lib/serviceradar
       containers:
-      - name: core
-        image: ghcr.io/carverauto/serviceradar-core:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
+      - name: core-elx
+        image: ghcr.io/carverauto/serviceradar-core-elx:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "core") }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
-        command: ["/bin/bash"]
-        args:
-        - -c
-        - |
-          cp /etc/serviceradar/core-k8s-init.sh /tmp/core-k8s-init.sh
-          chmod +x /tmp/core-k8s-init.sh
-          exec /tmp/core-k8s-init.sh
         ports:
-        - containerPort: 8090
-          name: http
-        - containerPort: 50052
-          name: grpc
-        - containerPort: 9090
-          name: metrics
-        volumeMounts:
-        - name: serviceradar-config
-          mountPath: /etc/serviceradar
-        - name: core-data
-          mountPath: /var/lib/serviceradar
-        - name: cert-data
-          mountPath: /etc/serviceradar/certs
-          readOnly: true
-        - name: {{ $cnpgClusterName }}-ca
-          mountPath: /etc/serviceradar/cnpg
-          readOnly: true
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
+        - name: epmd
+          containerPort: 4369
+        - name: dist
+          containerPort: 9100
         env:
-        - name: WAIT_FOR_CNPG
+        - name: CLUSTER_ENABLED
           value: "true"
-        - name: INIT_DB
-          value: "true"
-        - name: CONFIG_WATCH_ENABLED
-          value: {{ ternary "true" "false" (default true .Values.core.configWatchEnabled) | quote }}
-{{ include "serviceradar.kvEnv" . | indent 8 }}
-        - name: CONFIG_PATH
-          value: "/var/lib/serviceradar/core.json"
-        - name: KUBERNETES_NAMESPACE
+        - name: CLUSTER_STRATEGY
+          value: "kubernetes"
+        - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: KUBERNETES_SELECTOR
+          value: {{ $clusterSelector | quote }}
+        - name: KUBERNETES_NODE_BASENAME
+          value: {{ $clusterNodeBasename | quote }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: SPIFFE_WORKLOAD_API_SOCKET
+          value: "unix:///run/spire/sockets/agent.sock"
+        - name: SERVICERADAR_CLUSTER_COORDINATOR
+          value: "true"
+        - name: SERVICERADAR_CORE_RUN_MIGRATIONS
+          value: "true"
+        - name: SERVICERADAR_CORE_OBAN_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_REPO_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_REGISTRIES_ENABLED
+          value: "true"
+        - name: SERVICERADAR_CORE_VAULT_ENABLED
+          value: "true"
+        - name: SERVICERADAR_LOCAL_MAILER
+          value: "false"
+        - name: POOL_SIZE
+          value: {{ default 40 $database.poolSize | quote }}
+        - name: DATABASE_QUEUE_TARGET_MS
+          value: {{ default 2000 $database.queueTargetMs | quote }}
+        - name: DATABASE_QUEUE_INTERVAL_MS
+          value: {{ default 2000 $database.queueIntervalMs | quote }}
+        - name: SYNC_INGESTOR_BATCH_CONCURRENCY
+          value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
+        - name: SYNC_INGESTOR_COALESCE_MS
+          value: {{ default 250 $syncIngestor.coalesceMs | quote }}
+        - name: SYNC_INGESTOR_MAX_INFLIGHT
+          value: {{ default 2 $syncIngestor.maxInflight | quote }}
+        - name: SYNC_INGESTOR_QUEUE_MAX_CHUNKS
+          value: {{ default 10 $syncIngestor.queueMaxChunks | quote }}
+        - name: SYNC_INGESTOR_ASYNC
+          value: {{ default true $syncIngestor.async | quote }}
         - name: CNPG_HOST
           value: {{ default (printf "%s-rw.%s.svc.cluster.local" $cnpgClusterName .Release.Namespace) $cnpg.host | quote }}
         - name: CNPG_PORT
@@ -134,41 +110,52 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: username
-        - name: CNPG_SSLMODE
-          value: {{ default "verify-full" $cnpg.sslmode | quote }}
-        - name: CNPG_CERT_DIR
-          value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
-        - name: CNPG_CA_FILE
-          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: CNPG_PASSWORD
           valueFrom:
             secretKeyRef:
               name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
               key: password
-        - name: API_KEY
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        - name: DATASVC_HOST
+          value: "serviceradar-datasvc"
+        - name: DATASVC_PORT
+          value: "50057"
+        - name: DATASVC_SSL
+          value: "true"
+        - name: DATASVC_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        - name: DATASVC_CERT_NAME
+          value: "core"
+        - name: NATS_ENABLED
+          value: "true"
+        - name: NATS_URL
+          value: "tls://serviceradar-nats:4222"
+        - name: NATS_TLS
+          value: "true"
+        - name: NATS_SERVER_NAME
+          value: "serviceradar-nats"
+        - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:
-              name: serviceradar-secrets
-              key: api-key
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: serviceradar-secrets
-              key: jwt-secret
-        - name: EDGE_ONBOARDING_ENCRYPTION_KEY
-          valueFrom:
-            secretKeyRef:
-              name: serviceradar-secrets
-              key: edge-onboarding-key
-        - name: AUTH_PROVIDER
-          value: "local"
-        - name: OAUTH_ENABLED
-          value: "false"
-        - name: ADMIN_BCRYPT_HASH
-          valueFrom:
-            secretKeyRef:
-              name: serviceradar-secrets
-              key: admin-bcrypt-hash
+              name: {{ $secrets | quote }}
+              key: cloak-key
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
         resources:
           limits:
             cpu: "4"
@@ -177,26 +164,24 @@ spec:
             cpu: "500m"
             memory: "1Gi"
         livenessProbe:
-          tcpSocket:
-            port: 8090
-          initialDelaySeconds: 180
+          exec:
+            command:
+              - /app/bin/serviceradar_core_elx
+              - pid
+          initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
-          tcpSocket:
-            port: 8090
-          initialDelaySeconds: 60
+          exec:
+            command:
+              - /app/bin/serviceradar_core_elx
+              - pid
+          initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
-      - name: serviceradar-config
-        configMap:
-          name: serviceradar-config
-      - name: core-data
-        persistentVolumeClaim:
-          claimName: serviceradar-core-data
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
@@ -212,27 +197,34 @@ apiVersion: v1
 kind: Service
 metadata:
   name: serviceradar-core
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
   selector:
     app: serviceradar-core
   ports:
   - name: http
     port: 8090
-    targetPort: http
+    targetPort: 8090
   - name: grpc
     port: 50052
-    targetPort: grpc
+    targetPort: 50052
   - name: metrics
     port: 9090
-    targetPort: metrics
+    targetPort: 9090
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: Service
 metadata:
-  name: serviceradar-core-data
+  name: serviceradar-core-elx-headless
+  labels:
+    app.kubernetes.io/part-of: serviceradar
 spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: serviceradar-core
+  ports:
+  - name: epmd
+    port: 4369
+    targetPort: 4369
