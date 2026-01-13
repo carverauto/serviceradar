@@ -1,4 +1,4 @@
-{{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+{{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.operator }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -12,5 +12,9 @@ stringData:
 {{- if .Values.natsCreds.system }}
   system.creds: |-
 {{ .Values.natsCreds.system | nindent 4 }}
+{{- end }}
+{{- if .Values.natsCreds.operator }}
+  operator.creds: |-
+{{ .Values.natsCreds.operator | nindent 4 }}
 {{- end }}
 {{- end }}

@@ -19,6 +19,7 @@ defmodule ServiceRadar.Infrastructure do
   - `ServiceRadar.Infrastructure.Partition` - Network partitions
   - `ServiceRadar.Infrastructure.HealthEvent` - Health state change history
   - `ServiceRadar.Infrastructure.NatsOperator` - NATS operator (singleton)
+  - `ServiceRadar.Infrastructure.NatsServiceAccount` - Platform service NATS accounts
   - `ServiceRadar.Infrastructure.NatsPlatformToken` - One-time platform bootstrap tokens
 
   ## Distributed Architecture
@@ -39,17 +40,18 @@ defmodule ServiceRadar.Infrastructure do
   end
 
   resources do
-    resource ServiceRadar.Infrastructure.Gateway
-    resource ServiceRadar.Infrastructure.Agent
-    resource ServiceRadar.Infrastructure.Checker
-    resource ServiceRadar.Infrastructure.Partition
-    resource ServiceRadar.Infrastructure.HealthEvent
-    resource ServiceRadar.Infrastructure.NatsOperator
-    resource ServiceRadar.Infrastructure.NatsPlatformToken
+    resource(ServiceRadar.Infrastructure.Gateway)
+    resource(ServiceRadar.Infrastructure.Agent)
+    resource(ServiceRadar.Infrastructure.Checker)
+    resource(ServiceRadar.Infrastructure.Partition)
+    resource(ServiceRadar.Infrastructure.HealthEvent)
+    resource(ServiceRadar.Infrastructure.NatsOperator)
+    resource(ServiceRadar.Infrastructure.NatsServiceAccount)
+    resource(ServiceRadar.Infrastructure.NatsPlatformToken)
   end
 
   authorization do
-    require_actor? false
-    authorize :by_default
+    require_actor?(false)
+    authorize(:by_default)
   end
 end

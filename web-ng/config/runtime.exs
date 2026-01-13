@@ -20,6 +20,22 @@ if System.get_env("PHX_SERVER") do
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint, server: true
 end
 
+api_keys =
+  System.get_env("SERVICERADAR_API_KEYS") ||
+    System.get_env("SERVICERADAR_API_KEY")
+
+if api_keys do
+  keys =
+    api_keys
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
+  if keys != [] do
+    config :serviceradar_web_ng, :api_auth, api_keys: keys
+  end
+end
+
 # libcluster configuration for ERTS cluster formation
 # Strategy selection: kubernetes, epmd, dns, or gossip (future)
 cluster_strategy = System.get_env("CLUSTER_STRATEGY", "epmd")

@@ -86,6 +86,9 @@ defmodule ServiceRadar.Application do
         # NATS JetStream connection for event publishing
         nats_connection_child(),
 
+        # Tenant lifecycle JetStream stream bootstrap
+        tenant_lifecycle_stream_child(),
+
         # NATS operator auto-bootstrap (runs once at startup)
         nats_operator_bootstrap_child(),
 
@@ -334,6 +337,14 @@ defmodule ServiceRadar.Application do
   defp nats_connection_child do
     if nats_enabled?() do
       ServiceRadar.NATS.Connection
+    else
+      nil
+    end
+  end
+
+  defp tenant_lifecycle_stream_child do
+    if nats_enabled?() do
+      ServiceRadar.NATS.TenantLifecycleStreamBootstrap
     else
       nil
     end

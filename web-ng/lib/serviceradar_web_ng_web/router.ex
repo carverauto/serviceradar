@@ -110,6 +110,9 @@ defmodule ServiceRadarWebNGWeb.Router do
     get "/nats/tenants", NatsController, :tenants
     post "/nats/tenants/:id/reprovision", NatsController, :reprovision
 
+    # Tenant workload credentials (operator)
+    post "/tenant-workloads/:id/credentials", TenantWorkloadController, :credentials
+
     # Collector package management (tenant admin)
     get "/collectors", CollectorController, :index
     post "/collectors", CollectorController, :create

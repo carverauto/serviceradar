@@ -52,6 +52,7 @@ image:
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
+    tenantWorkloadOperator: *appTag
     rperfClient: *appTag
     faker: *appTag
     rperfChecker: *appTag
@@ -71,6 +72,36 @@ natsCreds:
   # When set, these are stored in the serviceradar-nats-creds Secret.
   platform: ""
   system: ""
+  operator: ""
+tenantWorkloadOperator:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/carverauto/serviceradar-tenant-workload-operator
+    tag: ""
+  nats:
+    url: "nats://serviceradar-nats:4222"
+    credsSecret: "serviceradar-nats-creds"
+    credsKey: "operator.creds"
+  eventStream: "TENANT_PROVISIONING"
+  eventSubject: "serviceradar.tenants.lifecycle.>"
+  eventConsumer: "tenant-workload-operator"
+  eventBatch: 10
+  eventWait: "10s"
+  # Optional default workloads when tenant events omit workloads. Example: ["agent-gateway", "zen-consumer"].
+  defaultWorkloads: []
+  tenantCredsSecretTemplate: "serviceradar-tenant-%s-nats-creds"
+  tenantCertsPVC: ""
+  tenantCertsSecret: ""
+  coreApi:
+    url: "http://serviceradar-web-ng:4000"
+    apiKeySecret: ""
+    apiKeySecretKey: "api-key"
+  trustDomain: ""
+  spireSocketHostPath: ""
+  clusterCoreService: "serviceradar-core-elx-headless"
+  kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
+  kubernetesNodeBasename: "serviceradar"
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true

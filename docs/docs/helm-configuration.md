@@ -101,6 +101,25 @@ See also
 - [Configuration Basics -> Network Sweep](./configuration.md#network-sweep) for file-based config reference
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
+## Tenant Workload Operator
+
+Kubernetes deployments use the tenant workload operator to provision per-tenant
+agent gateways and zen consumers whenever core emits tenant lifecycle events.
+The operator listens on the `TENANT_PROVISIONING` JetStream stream, reconciles
+per-tenant Deployments/Services, and requests tenant NATS credentials from the
+core API to populate Secrets.
+
+Key values:
+- `tenantWorkloadOperator.enabled`: enable the operator (default true).
+- `tenantWorkloadOperator.nats.url`: NATS endpoint for JetStream.
+- `tenantWorkloadOperator.coreApi.url`: core API base URL (defaults to the web-ng service).
+- `tenantWorkloadOperator.defaultWorkloads`: optional list of workloads to deploy when events omit `workloads`.
+- `tenantWorkloadOperator.tenantCredsSecretTemplate`: Secret name template for per-tenant NATS creds.
+
+The operator uses the `api-key` value from the `serviceradar-secrets` Secret to
+authenticate to the core API. Ensure the secret generator job has run before
+bootstrapping the operator.
+
 ## Mapper Service Settings
 
 The Helm chart ships a `serviceradar-config` ConfigMap that includes `mapper.json`. Update it before installing or as part of an overlay so Mapper discovers the right networks:

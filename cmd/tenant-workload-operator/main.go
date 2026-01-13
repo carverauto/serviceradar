@@ -1,0 +1,1718 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+)
+
+const (
+	defaultNamespace              = "serviceradar"
+	defaultTenantStream           = "TENANT_PROVISIONING"
+	defaultTenantSubject          = "serviceradar.tenants.lifecycle.>"
+	defaultConsumerName           = "tenant-workload-operator"
+	defaultFetchBatch             = 10
+	defaultFetchWait              = 10 * time.Second
+	defaultMaxDeliver             = 5
+	defaultSpiffeTrustDomain      = "carverauto.dev"
+	defaultSpireSocketPath        = "/run/spire/sockets/agent.sock"
+	defaultSpireSocketHostPath    = "/run/spire/sockets"
+	defaultKubernetesSelector     = "app.kubernetes.io/part-of=serviceradar"
+	defaultKubernetesNodeBasename = "serviceradar"
+	defaultCoreService            = "serviceradar-core-elx-headless"
+	defaultZenPort                = 50040
+	defaultResyncInterval         = 5 * time.Minute
+
+	tenantWorkloadGroup          = "workloads.serviceradar.io"
+	tenantWorkloadVersion        = "v1alpha1"
+	tenantWorkloadTemplateKind   = "TenantWorkloadTemplate"
+	tenantWorkloadTemplateList   = "TenantWorkloadTemplateList"
+	tenantWorkloadSetKind        = "TenantWorkloadSet"
+	tenantWorkloadSetList        = "TenantWorkloadSetList"
+	defaultWorkloadSetNamePrefix = "serviceradar-tenant"
+)
+
+type Config struct {
+	Namespace                 string
+	TrustDomain               string
+	SpireSocketPath           string
+	SpireSocketHostPath       string
+	KubernetesSelector        string
+	KubernetesNodeBasename    string
+	ClusterCoreService        string
+	CoreAPIURL                string
+	CoreAPIKey                string
+	CoreAPITimeout            time.Duration
+	NATSURL                   string
+	NATSCredsFile             string
+	NATSTLSCAFile             string
+	NATSTLSCertFile           string
+	NATSTLSKeyFile            string
+	NATSTLSServerName         string
+	TenantStream              string
+	TenantSubject             string
+	ConsumerName              string
+	FetchBatch                int
+	FetchWait                 time.Duration
+	MaxDeliver                int
+	DefaultWorkloads          []string
+	ResyncInterval            time.Duration
+	TenantNATSCredsSecretTmpl string
+	PodCertsPVC               string
+	PodCertsSecret            string
+	ZenConfigBucket           string
+	ZenConfigSubjects         []string
+	ZenDecisionGroups         []ZenDecisionGroup
+}
+
+type TenantEvent struct {
+	EventType         string   `json:"event_type"`
+	TenantID          string   `json:"tenant_id"`
+	TenantSlug        string   `json:"tenant_slug"`
+	Status            string   `json:"status"`
+	Plan              string   `json:"plan"`
+	IsPlatformTenant  bool     `json:"is_platform_tenant"`
+	NATSAccountStatus string   `json:"nats_account_status"`
+	Workloads         []string `json:"workloads"`
+	Timestamp         string   `json:"timestamp"`
+}
+
+type TenantCredentialRequest struct {
+	Workload string `json:"workload"`
+}
+
+type TenantCredentialResponse struct {
+	TenantID      string `json:"tenant_id"`
+	TenantSlug    string `json:"tenant_slug"`
+	UserName      string `json:"user_name"`
+	UserPublicKey string `json:"user_public_key"`
+	Creds         string `json:"creds"`
+	ExpiresAt     string `json:"expires_at"`
+}
+
+type ZenRule struct {
+	Order int    `json:"order"`
+	Key   string `json:"key"`
+}
+
+type ZenDecisionGroup struct {
+	Name     string    `json:"name"`
+	Subjects []string  `json:"subjects"`
+	Rules    []ZenRule `json:"rules"`
+	Format   string    `json:"format,omitempty"`
+}
+
+type ZenSecurity struct {
+	Mode           string `json:"mode,omitempty"`
+	CertDir        string `json:"cert_dir,omitempty"`
+	TrustDomain    string `json:"trust_domain,omitempty"`
+	WorkloadSocket string `json:"workload_socket,omitempty"`
+}
+
+type ZenConfig struct {
+	NATSURL             string             `json:"nats_url"`
+	NATSCredsFile       string             `json:"nats_creds_file,omitempty"`
+	StreamName          string             `json:"stream_name"`
+	ConsumerName        string             `json:"consumer_name"`
+	Subjects            []string           `json:"subjects"`
+	SubjectPrefix       string             `json:"subject_prefix,omitempty"`
+	DecisionGroups      []ZenDecisionGroup `json:"decision_groups"`
+	AgentID             string             `json:"agent_id"`
+	ListenAddr          string             `json:"listen_addr"`
+	ResultSubjectSuffix string             `json:"result_subject_suffix,omitempty"`
+	KVBucket            string             `json:"kv_bucket,omitempty"`
+	GRPCSecurity        *ZenSecurity       `json:"grpc_security,omitempty"`
+	NATSSecurity        *ZenSecurity       `json:"security,omitempty"`
+}
+
+type TenantWorkloadTemplate struct {
+	Name        string
+	Labels      map[string]string
+	Annotations map[string]string
+	Spec        TenantWorkloadTemplateSpec
+}
+
+type TenantWorkloadTemplateSpec struct {
+	WorkloadType   string                 `json:"workloadType"`
+	WorkloadKind   string                 `json:"workloadKind"`
+	DefaultEnabled *bool                  `json:"defaultEnabled,omitempty"`
+	DefaultReplicas *int32                `json:"defaultReplicas,omitempty"`
+	Aliases        []string               `json:"aliases,omitempty"`
+	Labels         map[string]string      `json:"labels,omitempty"`
+	Container      TemplateContainer      `json:"container"`
+	Volumes        []corev1.Volume        `json:"volumes,omitempty"`
+	Service        *TemplateService       `json:"service,omitempty"`
+	SPIFFE         *TemplateSPIFFE        `json:"spiffe,omitempty"`
+	NATSCreds      *TemplateNATSCreds     `json:"natsCreds,omitempty"`
+	ConfigMap      *TemplateConfigMap     `json:"configMap,omitempty"`
+}
+
+type TemplateContainer struct {
+	Image           string                     `json:"image"`
+	Command         []string                   `json:"command,omitempty"`
+	Args            []string                   `json:"args,omitempty"`
+	Env             []corev1.EnvVar            `json:"env,omitempty"`
+	Ports           []corev1.ContainerPort     `json:"ports,omitempty"`
+	Resources       corev1.ResourceRequirements `json:"resources,omitempty"`
+	VolumeMounts    []corev1.VolumeMount       `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy          `json:"imagePullPolicy,omitempty"`
+}
+
+type TemplateService struct {
+	Enabled bool                 `json:"enabled,omitempty"`
+	Type    corev1.ServiceType   `json:"type,omitempty"`
+	Ports   []TemplateServicePort `json:"ports,omitempty"`
+}
+
+type TemplateServicePort struct {
+	Name       string `json:"name,omitempty"`
+	Port       int32  `json:"port"`
+	TargetPort int32  `json:"targetPort,omitempty"`
+	Protocol   string `json:"protocol,omitempty"`
+}
+
+type TemplateSPIFFE struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type TemplateNATSCreds struct {
+	Enabled   bool   `json:"enabled,omitempty"`
+	MountPath string `json:"mountPath,omitempty"`
+	EnvName   string `json:"envName,omitempty"`
+}
+
+type TemplateConfigMap struct {
+	Enabled      bool              `json:"enabled,omitempty"`
+	NameTemplate string            `json:"nameTemplate,omitempty"`
+	MountPath    string            `json:"mountPath,omitempty"`
+	Generator    string            `json:"generator,omitempty"`
+	Data         map[string]string `json:"data,omitempty"`
+}
+
+type TenantWorkloadSet struct {
+	Name      string
+	Namespace string
+	Labels    map[string]string
+	Spec      TenantWorkloadSetSpec
+}
+
+type TenantWorkloadSetSpec struct {
+	TenantID   string               `json:"tenantId"`
+	TenantSlug string               `json:"tenantSlug"`
+	Workloads  []TenantWorkloadRef  `json:"workloads,omitempty"`
+}
+
+type TenantWorkloadRef struct {
+	TemplateRef string `json:"templateRef"`
+	Replicas    *int32 `json:"replicas,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
+}
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("config error: %v", err)
+	}
+
+	kubeClient, err := newKubeClient()
+	if err != nil {
+		log.Fatalf("kubernetes client error: %v", err)
+	}
+
+	if err := run(ctx, cfg, kubeClient); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("operator error: %v", err)
+	}
+}
+
+func loadConfig() (Config, error) {
+	namespace := getEnv("OPERATOR_NAMESPACE", getEnv("NAMESPACE", defaultNamespace))
+	trustDomain := getEnv("SPIFFE_TRUST_DOMAIN", defaultSpiffeTrustDomain)
+	spireSocketPath := getEnv("SPIFFE_WORKLOAD_API_SOCKET", defaultSpireSocketPath)
+	spireSocketHostPath := getEnv("SPIFFE_SOCKET_HOST_PATH", defaultSpireSocketHostPath)
+	natsURL := getEnv("NATS_URL", "nats://serviceradar-nats:4222")
+	coreAPIURL := strings.TrimSpace(os.Getenv("CORE_API_URL"))
+	coreAPIKey := strings.TrimSpace(os.Getenv("CORE_API_KEY"))
+	coreAPITimeout := getEnvDuration("CORE_API_TIMEOUT", 10*time.Second)
+	defaultWorkloads := splitList(getEnv("DEFAULT_TENANT_WORKLOADS", ""))
+	resyncInterval := getEnvDuration("TENANT_CRD_RESYNC_INTERVAL", defaultResyncInterval)
+	fetchBatch := getEnvInt("TENANT_EVENT_BATCH", defaultFetchBatch)
+	fetchWait := getEnvDuration("TENANT_EVENT_WAIT", defaultFetchWait)
+	maxDeliver := getEnvInt("TENANT_EVENT_MAX_DELIVER", defaultMaxDeliver)
+	secretTemplate := getEnv("TENANT_NATS_CREDS_SECRET_TEMPLATE", "serviceradar-tenant-%s-nats-creds")
+	podCertsPVC := strings.TrimSpace(os.Getenv("TENANT_CERTS_PVC"))
+	podCertsSecret := strings.TrimSpace(os.Getenv("TENANT_CERTS_SECRET"))
+
+	cfg := Config{
+		Namespace:                 namespace,
+		TrustDomain:               trustDomain,
+		SpireSocketPath:           spireSocketPath,
+		SpireSocketHostPath:       spireSocketHostPath,
+		KubernetesSelector:        getEnv("KUBERNETES_SELECTOR", defaultKubernetesSelector),
+		KubernetesNodeBasename:    getEnv("KUBERNETES_NODE_BASENAME", defaultKubernetesNodeBasename),
+		ClusterCoreService:        getEnv("CLUSTER_CORE_SERVICE", defaultCoreService),
+		CoreAPIURL:                coreAPIURL,
+		CoreAPIKey:                coreAPIKey,
+		CoreAPITimeout:            coreAPITimeout,
+		NATSURL:                   natsURL,
+		NATSCredsFile:             strings.TrimSpace(os.Getenv("NATS_CREDS_FILE")),
+		NATSTLSCAFile:             strings.TrimSpace(os.Getenv("NATS_TLS_CA_FILE")),
+		NATSTLSCertFile:           strings.TrimSpace(os.Getenv("NATS_TLS_CERT_FILE")),
+		NATSTLSKeyFile:            strings.TrimSpace(os.Getenv("NATS_TLS_KEY_FILE")),
+		NATSTLSServerName:         strings.TrimSpace(os.Getenv("NATS_TLS_SERVER_NAME")),
+		TenantStream:              getEnv("TENANT_EVENT_STREAM", defaultTenantStream),
+		TenantSubject:             getEnv("TENANT_EVENT_SUBJECT", defaultTenantSubject),
+		ConsumerName:              getEnv("TENANT_EVENT_CONSUMER", defaultConsumerName),
+		FetchBatch:                fetchBatch,
+		FetchWait:                 fetchWait,
+		MaxDeliver:                maxDeliver,
+		DefaultWorkloads:          defaultWorkloads,
+		ResyncInterval:            resyncInterval,
+		TenantNATSCredsSecretTmpl: secretTemplate,
+		PodCertsPVC:               podCertsPVC,
+		PodCertsSecret:            podCertsSecret,
+		ZenConfigBucket:           getEnv("ZEN_KV_BUCKET", "serviceradar-datasvc"),
+		ZenConfigSubjects: []string{
+			"logs.syslog",
+			"logs.snmp",
+			"logs.otel",
+			"logs.internal.>",
+		},
+		ZenDecisionGroups: defaultZenDecisionGroups(),
+	}
+
+	if cfg.NATSURL == "" {
+		return Config{}, fmt.Errorf("NATS_URL is required")
+	}
+	if cfg.TenantNATSCredsSecretTmpl == "" || !strings.Contains(cfg.TenantNATSCredsSecretTmpl, "%s") {
+		return Config{}, fmt.Errorf("TENANT_NATS_CREDS_SECRET_TEMPLATE must contain %%s placeholder")
+	}
+	return cfg, nil
+}
+
+func newKubeClient() (client.Client, error) {
+	managerCfg := ctrl.GetConfigOrDie()
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add corev1 scheme: %w", err)
+	}
+	if err := appsv1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("add appsv1 scheme: %w", err)
+	}
+	return client.New(managerCfg, client.Options{Scheme: scheme})
+}
+
+func run(ctx context.Context, cfg Config, kubeClient client.Client) error {
+	nc, _, consumer, err := connectNATS(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer nc.Close()
+
+	log.Printf("tenant workload operator connected: stream=%s subject=%s consumer=%s",
+		cfg.TenantStream, cfg.TenantSubject, cfg.ConsumerName)
+
+	nextResync := time.Now().Add(cfg.ResyncInterval)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if cfg.ResyncInterval > 0 && time.Now().After(nextResync) {
+			if err := reconcileAllTenantWorkloadSets(ctx, kubeClient, cfg); err != nil {
+				log.Printf("resync failed: %v", err)
+			}
+			nextResync = time.Now().Add(cfg.ResyncInterval)
+		}
+
+		batch, err := consumer.Fetch(cfg.FetchBatch, jetstream.FetchMaxWait(cfg.FetchWait))
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return err
+			}
+			log.Printf("fetch error: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		for msg := range batch.Messages() {
+			if err := handleMessage(ctx, kubeClient, cfg, msg); err != nil {
+				log.Printf("event handling failed: %v", err)
+				ackOrNak(msg, cfg.MaxDeliver)
+				continue
+			}
+			if err := msg.Ack(); err != nil {
+				log.Printf("ack failed: %v", err)
+			}
+		}
+	}
+}
+
+func connectNATS(ctx context.Context, cfg Config) (*nats.Conn, jetstream.JetStream, jetstream.Consumer, error) {
+	opts := []nats.Option{
+		nats.Name("tenant-workload-operator"),
+	}
+
+	if cfg.NATSCredsFile != "" {
+		opts = append(opts, nats.UserCredentials(cfg.NATSCredsFile))
+	}
+
+	if cfg.NATSTLSCAFile != "" || cfg.NATSTLSCertFile != "" || cfg.NATSTLSKeyFile != "" {
+		tlsConfig, err := buildTLSConfig(cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		opts = append(opts, nats.Secure(tlsConfig))
+	}
+
+	nc, err := nats.Connect(cfg.NATSURL, opts...)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("connect to nats: %w", err)
+	}
+
+	js, err := jetstream.New(nc)
+	if err != nil {
+		nc.Close()
+		return nil, nil, nil, fmt.Errorf("create jetstream: %w", err)
+	}
+
+	consumer, err := ensureConsumer(ctx, js, cfg)
+	if err != nil {
+		nc.Close()
+		return nil, nil, nil, err
+	}
+
+	return nc, js, consumer, nil
+}
+
+func ensureConsumer(ctx context.Context, js jetstream.JetStream, cfg Config) (jetstream.Consumer, error) {
+	consumerCfg := jetstream.ConsumerConfig{
+		Durable:       cfg.ConsumerName,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       30 * time.Second,
+		MaxDeliver:    cfg.MaxDeliver,
+		MaxAckPending: 200,
+	}
+	if cfg.TenantSubject != "" {
+		consumerCfg.FilterSubject = cfg.TenantSubject
+	}
+
+	consumer, err := js.CreateOrUpdateConsumer(ctx, cfg.TenantStream, consumerCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create consumer: %w", err)
+	}
+	return consumer, nil
+}
+
+func handleMessage(ctx context.Context, kubeClient client.Client, cfg Config, msg jetstream.Msg) error {
+	event, err := parseEvent(msg)
+	if err != nil {
+		return err
+	}
+
+	if event.TenantID == "" || event.TenantSlug == "" {
+		return fmt.Errorf("missing tenant identifiers in event")
+	}
+
+	isDelete := strings.EqualFold(event.EventType, "tenant.deleted") ||
+		strings.EqualFold(event.Status, "deleted")
+
+	if isDelete {
+		return deleteTenantWorkloadSet(ctx, kubeClient, cfg, event)
+	}
+
+	templates, err := listTenantWorkloadTemplates(ctx, kubeClient)
+	if err != nil {
+		return err
+	}
+
+	workloadSet, err := ensureTenantWorkloadSet(ctx, kubeClient, cfg, event, templates)
+	if err != nil {
+		return err
+	}
+
+	return reconcileTenantWorkloadSet(ctx, kubeClient, cfg, workloadSet, templates)
+}
+
+func parseEvent(msg jetstream.Msg) (TenantEvent, error) {
+	var event TenantEvent
+	if err := json.Unmarshal(msg.Data(), &event); err != nil {
+		return TenantEvent{}, fmt.Errorf("decode tenant event: %w", err)
+	}
+	if event.EventType == "" {
+		if subject := msg.Subject(); subject != "" {
+			event.EventType = subjectToEventType(subject)
+		}
+	}
+	return event, nil
+}
+
+func subjectToEventType(subject string) string {
+	parts := strings.Split(subject, ".")
+	if len(parts) == 0 {
+		return ""
+	}
+	action := parts[len(parts)-1]
+	if action == "" {
+		return ""
+	}
+	return fmt.Sprintf("tenant.%s", action)
+}
+
+func normalizeWorkloadName(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "_", "-")
+	return value
+}
+
+func listTenantWorkloadTemplates(ctx context.Context, kubeClient client.Client) ([]TenantWorkloadTemplate, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   tenantWorkloadGroup,
+		Version: tenantWorkloadVersion,
+		Kind:    tenantWorkloadTemplateList,
+	})
+	if err := kubeClient.List(ctx, list); err != nil {
+		return nil, fmt.Errorf("list tenant workload templates: %w", err)
+	}
+
+	templates := make([]TenantWorkloadTemplate, 0, len(list.Items))
+	for _, item := range list.Items {
+		template, err := decodeTenantWorkloadTemplate(item)
+		if err != nil {
+			log.Printf("skip template %s: %v", item.GetName(), err)
+			continue
+		}
+		templates = append(templates, template)
+	}
+	return templates, nil
+}
+
+func listTenantWorkloadSets(ctx context.Context, kubeClient client.Client, namespace string) ([]TenantWorkloadSet, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   tenantWorkloadGroup,
+		Version: tenantWorkloadVersion,
+		Kind:    tenantWorkloadSetList,
+	})
+	if err := kubeClient.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("list tenant workload sets: %w", err)
+	}
+
+	sets := make([]TenantWorkloadSet, 0, len(list.Items))
+	for _, item := range list.Items {
+		set, err := decodeTenantWorkloadSet(item)
+		if err != nil {
+			log.Printf("skip workload set %s: %v", item.GetName(), err)
+			continue
+		}
+		sets = append(sets, set)
+	}
+	return sets, nil
+}
+
+func decodeTenantWorkloadTemplate(item unstructured.Unstructured) (TenantWorkloadTemplate, error) {
+	specMap, ok := item.Object["spec"].(map[string]interface{})
+	if !ok {
+		return TenantWorkloadTemplate{}, fmt.Errorf("missing template spec")
+	}
+	var spec TenantWorkloadTemplateSpec
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(specMap, &spec); err != nil {
+		return TenantWorkloadTemplate{}, fmt.Errorf("decode template spec: %w", err)
+	}
+	if spec.WorkloadType == "" {
+		spec.WorkloadType = item.GetName()
+	}
+	return TenantWorkloadTemplate{
+		Name:        item.GetName(),
+		Labels:      item.GetLabels(),
+		Annotations: item.GetAnnotations(),
+		Spec:        spec,
+	}, nil
+}
+
+func decodeTenantWorkloadSet(item unstructured.Unstructured) (TenantWorkloadSet, error) {
+	specMap, ok := item.Object["spec"].(map[string]interface{})
+	if !ok {
+		return TenantWorkloadSet{}, fmt.Errorf("missing workload set spec")
+	}
+	var spec TenantWorkloadSetSpec
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(specMap, &spec); err != nil {
+		return TenantWorkloadSet{}, fmt.Errorf("decode workload set spec: %w", err)
+	}
+	return TenantWorkloadSet{
+		Name:      item.GetName(),
+		Namespace: item.GetNamespace(),
+		Labels:    item.GetLabels(),
+		Spec:      spec,
+	}, nil
+}
+
+func ensureTenantWorkloadSet(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	event TenantEvent,
+	templates []TenantWorkloadTemplate,
+) (TenantWorkloadSet, error) {
+	refs, err := resolveWorkloadRefs(event, cfg, templates)
+	if err != nil {
+		return TenantWorkloadSet{}, err
+	}
+
+	name := tenantWorkloadSetName(event.TenantSlug)
+	set := &unstructured.Unstructured{}
+	set.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   tenantWorkloadGroup,
+		Version: tenantWorkloadVersion,
+		Kind:    tenantWorkloadSetKind,
+	})
+	set.SetName(name)
+	set.SetNamespace(cfg.Namespace)
+
+	labels := tenantSetLabels(event.TenantID, event.TenantSlug)
+	_, err = controllerutil.CreateOrUpdate(ctx, kubeClient, set, func() error {
+		set.SetLabels(mergeLabels(set.GetLabels(), labels))
+		set.Object["spec"] = workloadSetSpecMap(event, refs)
+		return nil
+	})
+	if err != nil {
+		return TenantWorkloadSet{}, fmt.Errorf("ensure workload set %s: %w", name, err)
+	}
+
+	return TenantWorkloadSet{
+		Name:      name,
+		Namespace: cfg.Namespace,
+		Labels:    labels,
+		Spec: TenantWorkloadSetSpec{
+			TenantID:   event.TenantID,
+			TenantSlug: event.TenantSlug,
+			Workloads:  refs,
+		},
+	}, nil
+}
+
+func deleteTenantWorkloadSet(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	event TenantEvent,
+) error {
+	templates, err := listTenantWorkloadTemplates(ctx, kubeClient)
+	if err != nil {
+		log.Printf("failed to list templates during delete: %v", err)
+	}
+	if len(templates) > 0 {
+		if err := deleteTenantResources(ctx, kubeClient, cfg, event, templates); err != nil {
+			return err
+		}
+	}
+
+	set := &unstructured.Unstructured{}
+	set.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   tenantWorkloadGroup,
+		Version: tenantWorkloadVersion,
+		Kind:    tenantWorkloadSetKind,
+	})
+	set.SetName(tenantWorkloadSetName(event.TenantSlug))
+	set.SetNamespace(cfg.Namespace)
+	if err := deleteObject(ctx, kubeClient, set); err != nil {
+		return err
+	}
+
+	if err := deleteTenantCredsSecret(ctx, kubeClient, cfg, event); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func reconcileTenantWorkloadSet(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	set TenantWorkloadSet,
+	templates []TenantWorkloadTemplate,
+) error {
+	desired := map[string]TenantWorkloadRef{}
+	for _, ref := range set.Spec.Workloads {
+		if ref.Enabled != nil && !*ref.Enabled {
+			continue
+		}
+		desired[ref.TemplateRef] = ref
+	}
+
+	templateMap := map[string]TenantWorkloadTemplate{}
+	for _, template := range templates {
+		templateMap[template.Name] = template
+	}
+
+	for _, ref := range desired {
+		template, ok := templateMap[ref.TemplateRef]
+		if !ok {
+			log.Printf("workload template missing: %s", ref.TemplateRef)
+			continue
+		}
+		if err := ensureWorkloadResources(ctx, kubeClient, cfg, set, template, ref); err != nil {
+			return err
+		}
+	}
+
+	for name, template := range templateMap {
+		if _, ok := desired[name]; ok {
+			continue
+		}
+		if err := deleteWorkloadResources(ctx, kubeClient, cfg, set, template); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func reconcileAllTenantWorkloadSets(ctx context.Context, kubeClient client.Client, cfg Config) error {
+	templates, err := listTenantWorkloadTemplates(ctx, kubeClient)
+	if err != nil {
+		return err
+	}
+	sets, err := listTenantWorkloadSets(ctx, kubeClient, cfg.Namespace)
+	if err != nil {
+		return err
+	}
+	for _, set := range sets {
+		if err := reconcileTenantWorkloadSet(ctx, kubeClient, cfg, set, templates); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveWorkloadRefs(
+	event TenantEvent,
+	cfg Config,
+	templates []TenantWorkloadTemplate,
+) ([]TenantWorkloadRef, error) {
+	if len(templates) == 0 {
+		return nil, fmt.Errorf("no tenant workload templates available")
+	}
+
+	requested := event.Workloads
+	if len(requested) == 0 && len(cfg.DefaultWorkloads) > 0 {
+		requested = cfg.DefaultWorkloads
+	}
+
+	if len(requested) == 0 {
+		for _, template := range templates {
+			if templateDefaultEnabled(template.Spec) {
+				requested = append(requested, template.Name)
+			}
+		}
+	}
+
+	aliasMap := map[string]string{}
+	for _, template := range templates {
+		names := []string{template.Name, template.Spec.WorkloadType}
+		names = append(names, template.Spec.Aliases...)
+		for _, name := range names {
+			normalized := normalizeWorkloadName(name)
+			if normalized != "" {
+				aliasMap[normalized] = template.Name
+			}
+		}
+	}
+
+	var refs []TenantWorkloadRef
+	var unknown []string
+	for _, workload := range requested {
+		normalized := normalizeWorkloadName(workload)
+		if normalized == "" {
+			continue
+		}
+		if name, ok := aliasMap[normalized]; ok {
+			refs = append(refs, TenantWorkloadRef{TemplateRef: name})
+			continue
+		}
+		unknown = append(unknown, normalized)
+	}
+
+	if len(unknown) > 0 {
+		log.Printf("tenant event requested unknown workloads: %s", strings.Join(unknown, ","))
+	}
+
+	return refs, nil
+}
+
+func templateDefaultEnabled(spec TenantWorkloadTemplateSpec) bool {
+	if spec.DefaultEnabled == nil {
+		return false
+	}
+	return *spec.DefaultEnabled
+}
+
+func workloadSetSpecMap(event TenantEvent, refs []TenantWorkloadRef) map[string]interface{} {
+	workloads := make([]interface{}, 0, len(refs))
+	for _, ref := range refs {
+		item := map[string]interface{}{
+			"templateRef": ref.TemplateRef,
+		}
+		if ref.Replicas != nil {
+			item["replicas"] = *ref.Replicas
+		}
+		if ref.Enabled != nil {
+			item["enabled"] = *ref.Enabled
+		}
+		workloads = append(workloads, item)
+	}
+	return map[string]interface{}{
+		"tenantId":   event.TenantID,
+		"tenantSlug": event.TenantSlug,
+		"workloads":  workloads,
+	}
+}
+
+func deleteTenantResources(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	event TenantEvent,
+	templates []TenantWorkloadTemplate,
+) error {
+	set := TenantWorkloadSet{
+		Spec: TenantWorkloadSetSpec{
+			TenantID:   event.TenantID,
+			TenantSlug: event.TenantSlug,
+		},
+	}
+	for _, template := range templates {
+		if err := deleteWorkloadResources(ctx, kubeClient, cfg, set, template); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureWorkloadResources(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	set TenantWorkloadSet,
+	template TenantWorkloadTemplate,
+	ref TenantWorkloadRef,
+) error {
+	tenantID := set.Spec.TenantID
+	tenantSlug := set.Spec.TenantSlug
+	workloadType := workloadTypeFromTemplate(template)
+	name := workloadName(workloadType, tenantSlug)
+	labels := workloadLabels(tenantID, tenantSlug, workloadType, template.Spec.Labels)
+	serviceAccount := name
+
+	if err := ensureServiceAccount(ctx, kubeClient, cfg.Namespace, serviceAccount, labels); err != nil {
+		return err
+	}
+
+	if spiffeEnabled(template.Spec.SPIFFE) {
+		if err := ensureClusterSPIFFEID(ctx, kubeClient, cfg, workloadType, tenantSlug, serviceAccount, labels); err != nil {
+			return err
+		}
+	}
+
+	var configMapName string
+	if template.Spec.ConfigMap != nil && template.Spec.ConfigMap.Enabled {
+		var err error
+		configMapName, err = ensureWorkloadConfigMap(ctx, kubeClient, cfg, set, template, labels)
+		if err != nil {
+			return err
+		}
+	}
+
+	var natsSecretName string
+	if template.Spec.NATSCreds != nil && template.Spec.NATSCreds.Enabled {
+		natsSecretName = fmt.Sprintf(cfg.TenantNATSCredsSecretTmpl, sanitizeName(tenantSlug))
+		if err := ensureTenantCredsSecret(ctx, kubeClient, cfg, tenantID, tenantSlug, workloadType, natsSecretName, labels); err != nil {
+			return err
+		}
+	}
+
+	podSpec, err := buildWorkloadPodSpec(cfg, set, template, ref, serviceAccount, configMapName, natsSecretName)
+	if err != nil {
+		return err
+	}
+
+	switch strings.ToLower(template.Spec.WorkloadKind) {
+	case "daemonset":
+		daemonSet := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}
+		_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, daemonSet, func() error {
+			daemonSet.Labels = mergeLabels(daemonSet.Labels, labels)
+			daemonSet.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+			daemonSet.Spec.Template.ObjectMeta.Labels = labels
+			daemonSet.Spec.Template.Spec = podSpec
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("ensure daemonset %s: %w", name, err)
+		}
+	default:
+		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}
+		replicas := resolveReplicas(template.Spec.DefaultReplicas, ref.Replicas)
+		_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, deployment, func() error {
+			deployment.Labels = mergeLabels(deployment.Labels, labels)
+			deployment.Spec.Replicas = int32ptr(replicas)
+			deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
+			deployment.Spec.Template.ObjectMeta.Labels = labels
+			deployment.Spec.Template.Spec = podSpec
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("ensure deployment %s: %w", name, err)
+		}
+	}
+
+	if template.Spec.Service != nil && template.Spec.Service.Enabled {
+		if err := ensureWorkloadService(ctx, kubeClient, cfg, name, labels, template.Spec.Service); err != nil {
+			return err
+		}
+	} else {
+		if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func deleteWorkloadResources(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	set TenantWorkloadSet,
+	template TenantWorkloadTemplate,
+) error {
+	tenantSlug := set.Spec.TenantSlug
+	workloadType := workloadTypeFromTemplate(template)
+	name := workloadName(workloadType, tenantSlug)
+
+	switch strings.ToLower(template.Spec.WorkloadKind) {
+	case "daemonset":
+		if err := deleteObject(ctx, kubeClient, &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+			return err
+		}
+	default:
+		if err := deleteObject(ctx, kubeClient, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+			return err
+		}
+	}
+
+	if template.Spec.Service != nil && template.Spec.Service.Enabled {
+		if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+			return err
+		}
+	}
+
+	if template.Spec.ConfigMap != nil && template.Spec.ConfigMap.Enabled {
+		configMapName := workloadConfigMapName(cfg, set, template)
+		if err := deleteObject(ctx, kubeClient, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: cfg.Namespace}}); err != nil {
+			return err
+		}
+	}
+
+	serviceAccount := name
+	if err := deleteObject(ctx, kubeClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+
+	if spiffeEnabled(template.Spec.SPIFFE) {
+		if err := deleteClusterSPIFFEID(ctx, kubeClient, cfg, workloadType, tenantSlug); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureWorkloadService(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	name string,
+	labels map[string]string,
+	serviceSpec *TemplateService,
+) error {
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, service, func() error {
+		service.Labels = mergeLabels(service.Labels, labels)
+		service.Spec.Selector = labels
+		service.Spec.Type = serviceSpec.Type
+		service.Spec.Ports = buildServicePorts(serviceSpec.Ports)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ensure service %s: %w", name, err)
+	}
+	return nil
+}
+
+func buildServicePorts(ports []TemplateServicePort) []corev1.ServicePort {
+	out := make([]corev1.ServicePort, 0, len(ports))
+	for _, port := range ports {
+		target := port.TargetPort
+		if target == 0 {
+			target = port.Port
+		}
+		out = append(out, corev1.ServicePort{
+			Name:       port.Name,
+			Port:       port.Port,
+			TargetPort: intstrFromInt(target),
+			Protocol:   corev1.Protocol(port.Protocol),
+		})
+	}
+	return out
+}
+
+func buildWorkloadPodSpec(
+	cfg Config,
+	set TenantWorkloadSet,
+	template TenantWorkloadTemplate,
+	ref TenantWorkloadRef,
+	serviceAccount string,
+	configMapName string,
+	natsSecretName string,
+) (corev1.PodSpec, error) {
+	renderValues := templateRenderValues(cfg, set, template)
+	containerSpec := template.Spec.Container
+	container := corev1.Container{
+		Name:            sanitizeName(workloadTypeFromTemplate(template)),
+		Image:           renderString(containerSpec.Image, renderValues),
+		Command:         renderStringSlice(containerSpec.Command, renderValues),
+		Args:            renderStringSlice(containerSpec.Args, renderValues),
+		Env:             renderEnvVars(containerSpec.Env, renderValues),
+		Ports:           containerSpec.Ports,
+		Resources:       containerSpec.Resources,
+		VolumeMounts:    containerSpec.VolumeMounts,
+		ImagePullPolicy: containerSpec.ImagePullPolicy,
+	}
+
+	if spiffeEnabled(template.Spec.SPIFFE) {
+		container.Env = appendEnvIfMissing(container.Env, []corev1.EnvVar{
+			{Name: "SPIFFE_MODE", Value: "workload_api"},
+			{Name: "SPIFFE_TRUST_DOMAIN", Value: cfg.TrustDomain},
+			{Name: "SPIFFE_WORKLOAD_API_SOCKET", Value: cfg.SpireSocketPath},
+		})
+	}
+
+	if template.Spec.NATSCreds != nil && template.Spec.NATSCreds.Enabled {
+		mountPath := template.Spec.NATSCreds.MountPath
+		if mountPath == "" {
+			mountPath = "/etc/serviceradar/creds"
+		}
+		envName := template.Spec.NATSCreds.EnvName
+		if envName == "" {
+			envName = "NATS_CREDS_FILE"
+		}
+		container.Env = appendEnvIfMissing(container.Env, []corev1.EnvVar{
+			{Name: envName, Value: fmt.Sprintf("%s/nats.creds", mountPath)},
+		})
+	}
+
+	volumes := template.Spec.Volumes
+	volumeMounts := container.VolumeMounts
+
+	if spiffeEnabled(template.Spec.SPIFFE) {
+		volumes = appendVolumeIfMissing(volumes, buildSpireVolume(cfg))
+		volumeMounts = appendVolumeMountIfMissing(volumeMounts, buildSpireVolumeMount())
+	}
+
+	if template.Spec.ConfigMap != nil && template.Spec.ConfigMap.Enabled && configMapName != "" {
+		volumes = appendVolumeIfMissing(volumes, corev1.Volume{
+			Name: "workload-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+				},
+			},
+		})
+		mountPath := template.Spec.ConfigMap.MountPath
+		if mountPath == "" {
+			mountPath = "/etc/serviceradar"
+		}
+		volumeMounts = appendVolumeMountIfMissing(volumeMounts, corev1.VolumeMount{
+			Name:      "workload-config",
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+	}
+
+	if template.Spec.NATSCreds != nil && template.Spec.NATSCreds.Enabled && natsSecretName != "" {
+		mountPath := template.Spec.NATSCreds.MountPath
+		if mountPath == "" {
+			mountPath = "/etc/serviceradar/creds"
+		}
+		volumes = appendVolumeIfMissing(volumes, corev1.Volume{
+			Name: "nats-creds",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: natsSecretName},
+			},
+		})
+		volumeMounts = appendVolumeMountIfMissing(volumeMounts, corev1.VolumeMount{
+			Name:      "nats-creds",
+			MountPath: mountPath,
+			ReadOnly:  true,
+		})
+	}
+
+	volumes = appendCertVolume(volumes, cfg)
+	volumeMounts = appendCertVolumeMounts(volumeMounts, cfg)
+	container.VolumeMounts = volumeMounts
+
+	automount := false
+	podSpec := corev1.PodSpec{
+		ServiceAccountName:           serviceAccount,
+		AutomountServiceAccountToken: &automount,
+		Containers:                   []corev1.Container{container},
+		Volumes:                      volumes,
+	}
+	return podSpec, nil
+}
+
+func ensureWorkloadConfigMap(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	set TenantWorkloadSet,
+	template TenantWorkloadTemplate,
+	labels map[string]string,
+) (string, error) {
+	name := workloadConfigMapName(cfg, set, template)
+	data := map[string]string{}
+	if template.Spec.ConfigMap != nil && len(template.Spec.ConfigMap.Data) > 0 {
+		renderValues := templateRenderValues(cfg, set, template)
+		for key, value := range template.Spec.ConfigMap.Data {
+			data[key] = renderString(value, renderValues)
+		}
+	}
+
+	if template.Spec.ConfigMap != nil && strings.EqualFold(template.Spec.ConfigMap.Generator, "zen") {
+		config, err := buildZenConfig(cfg, set.Spec.TenantSlug)
+		if err != nil {
+			return "", err
+		}
+		payload, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal zen config: %w", err)
+		}
+		data["zen.json"] = string(payload)
+	}
+
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, configMap, func() error {
+		configMap.Labels = mergeLabels(configMap.Labels, labels)
+		configMap.Data = data
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("ensure configmap %s: %w", name, err)
+	}
+	return name, nil
+}
+
+func workloadConfigMapName(cfg Config, set TenantWorkloadSet, template TenantWorkloadTemplate) string {
+	name := ""
+	if template.Spec.ConfigMap != nil {
+		name = template.Spec.ConfigMap.NameTemplate
+	}
+	if name == "" {
+		name = fmt.Sprintf("%s-config", workloadName(workloadTypeFromTemplate(template), set.Spec.TenantSlug))
+	}
+	rendered := renderString(name, templateRenderValues(cfg, set, template))
+	return sanitizeName(rendered)
+}
+
+func buildZenConfig(cfg Config, tenantSlug string) (ZenConfig, error) {
+	credsPath := "/etc/serviceradar/creds/nats.creds"
+	subjectPrefix := strings.TrimSpace(tenantSlug)
+	zenConfig := ZenConfig{
+		NATSURL:             cfg.NATSURL,
+		NATSCredsFile:       credsPath,
+		StreamName:          "events",
+		ConsumerName:        fmt.Sprintf("zen-consumer-%s", sanitizeName(tenantSlug)),
+		Subjects:            tenantPrefixedSubjects(cfg.ZenConfigSubjects, subjectPrefix),
+		SubjectPrefix:       subjectPrefix,
+		DecisionGroups:      cfg.ZenDecisionGroups,
+		AgentID:             fmt.Sprintf("zen-%s", sanitizeName(tenantSlug)),
+		ListenAddr:          fmt.Sprintf("0.0.0.0:%d", defaultZenPort),
+		ResultSubjectSuffix: ".processed",
+		KVBucket:            cfg.ZenConfigBucket,
+		GRPCSecurity: &ZenSecurity{
+			Mode:           "spiffe",
+			TrustDomain:    cfg.TrustDomain,
+			WorkloadSocket: cfg.SpireSocketPath,
+		},
+	}
+	return zenConfig, nil
+}
+
+func ensureServiceAccount(
+	ctx context.Context,
+	kubeClient client.Client,
+	namespace string,
+	name string,
+	labels map[string]string,
+) error {
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, sa, func() error {
+		sa.Labels = mergeLabels(sa.Labels, labels)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ensure service account %s: %w", name, err)
+	}
+	return nil
+}
+
+func ensureClusterSPIFFEID(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	workload string,
+	event TenantEvent,
+	serviceAccount string,
+	labels map[string]string,
+) error {
+	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workload, event.TenantSlug, cfg.Namespace))
+	spiffe := &unstructured.Unstructured{}
+	spiffe.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "spire.spiffe.io",
+		Version: "v1alpha1",
+		Kind:    "ClusterSPIFFEID",
+	})
+	spiffe.SetName(name)
+
+	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, spiffe, func() error {
+		spec := map[string]interface{}{
+			"spiffeIDTemplate": fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", cfg.TrustDomain, cfg.Namespace, serviceAccount),
+			"namespaceSelector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{
+					"kubernetes.io/metadata.name": cfg.Namespace,
+				},
+			},
+			"podSelector": map[string]interface{}{
+				"matchLabels": labels,
+			},
+		}
+		spiffe.Object["spec"] = spec
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ensure cluster spiffe id %s: %w", name, err)
+	}
+	return nil
+}
+
+func ensureSecretPresent(ctx context.Context, kubeClient client.Client, namespace, name string) error {
+	secret := &corev1.Secret{}
+	err := kubeClient.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, secret)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("nats creds secret missing: %s", name)
+		}
+		return fmt.Errorf("lookup secret %s: %w", name, err)
+	}
+	return nil
+}
+
+func ensureTenantCredsSecret(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	event TenantEvent,
+	secretName string,
+	labels map[string]string,
+) error {
+	secret := &corev1.Secret{}
+	err := kubeClient.Get(ctx, client.ObjectKey{Name: secretName, Namespace: cfg.Namespace}, secret)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("lookup secret %s: %w", secretName, err)
+	}
+
+	if cfg.CoreAPIURL == "" || cfg.CoreAPIKey == "" {
+		return fmt.Errorf("nats creds secret missing: %s", secretName)
+	}
+
+	creds, err := fetchTenantCreds(ctx, cfg, event)
+	if err != nil {
+		return err
+	}
+
+	secret = &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: cfg.Namespace}}
+	_, err = controllerutil.CreateOrUpdate(ctx, kubeClient, secret, func() error {
+		secret.Labels = mergeLabels(secret.Labels, labels)
+		secret.Type = corev1.SecretTypeOpaque
+		if secret.Data == nil {
+			secret.Data = map[string][]byte{}
+		}
+		secret.Data["nats.creds"] = []byte(creds)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ensure secret %s: %w", secretName, err)
+	}
+
+	return nil
+}
+
+func fetchTenantCreds(ctx context.Context, cfg Config, event TenantEvent) (string, error) {
+	baseURL := strings.TrimRight(cfg.CoreAPIURL, "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("CORE_API_URL is required to fetch tenant creds")
+	}
+
+	endpoint, err := url.JoinPath(baseURL, "api/admin/tenant-workloads", event.TenantID, "credentials")
+	if err != nil {
+		return "", fmt.Errorf("build core api url: %w", err)
+	}
+
+	payload := TenantCredentialRequest{Workload: "zen-consumer"}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode core api request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build core api request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", cfg.CoreAPIKey)
+
+	client := &http.Client{Timeout: cfg.CoreAPITimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("core api request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read core api response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("core api status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var response TenantCredentialResponse
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", fmt.Errorf("decode core api response: %w", err)
+	}
+	if response.Creds == "" {
+		return "", fmt.Errorf("core api response missing creds")
+	}
+
+	return response.Creds, nil
+}
+
+func deleteTenantResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
+	if err := deleteGatewayResources(ctx, kubeClient, cfg, event); err != nil {
+		return err
+	}
+	if err := deleteZenResources(ctx, kubeClient, cfg, event); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteGatewayResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
+	name := workloadName("agent-gateway", event.TenantSlug)
+	serviceAccount := workloadName("agent-gateway", event.TenantSlug)
+	if err := deleteObject(ctx, kubeClient, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteClusterSPIFFEID(ctx, kubeClient, cfg, "agent-gateway", event); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteZenResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
+	name := workloadName("zen", event.TenantSlug)
+	serviceAccount := workloadName("zen", event.TenantSlug)
+	configMapName := workloadName("zen-config", event.TenantSlug)
+	secretName := fmt.Sprintf(cfg.TenantNATSCredsSecretTmpl, sanitizeName(event.TenantSlug))
+
+	if err := deleteObject(ctx, kubeClient, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteObject(ctx, kubeClient, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: cfg.Namespace}}); err != nil {
+		return err
+	}
+	if err := deleteClusterSPIFFEID(ctx, kubeClient, cfg, "zen", event); err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteClusterSPIFFEID(ctx context.Context, kubeClient client.Client, cfg Config, workload string, event TenantEvent) error {
+	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workload, event.TenantSlug, cfg.Namespace))
+	spiffe := &unstructured.Unstructured{}
+	spiffe.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "spire.spiffe.io",
+		Version: "v1alpha1",
+		Kind:    "ClusterSPIFFEID",
+	})
+	spiffe.SetName(name)
+	return deleteObject(ctx, kubeClient, spiffe)
+}
+
+func deleteObject(ctx context.Context, kubeClient client.Client, obj client.Object) error {
+	err := kubeClient.Delete(ctx, obj)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func gatewayEnv(cfg Config, event TenantEvent) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{Name: "GATEWAY_TENANT_ID", Value: event.TenantID},
+		{Name: "GATEWAY_TENANT_SLUG", Value: event.TenantSlug},
+		{Name: "GATEWAY_PARTITION_ID", Value: "default"},
+		{Name: "GATEWAY_ID", Value: fmt.Sprintf("gateway-%s", sanitizeName(event.TenantSlug))},
+		{Name: "GATEWAY_DOMAIN", Value: "default"},
+		{Name: "GATEWAY_GRPC_PORT", Value: fmt.Sprintf("%d", defaultGatewayPort)},
+		{Name: "STATE_MONITOR_ENABLED", Value: "false"},
+		{Name: "CLUSTER_ENABLED", Value: "true"},
+		{Name: "CLUSTER_STRATEGY", Value: "kubernetes"},
+		{Name: "NAMESPACE", Value: cfg.Namespace},
+		{Name: "KUBERNETES_SELECTOR", Value: cfg.KubernetesSelector},
+		{Name: "KUBERNETES_NODE_BASENAME", Value: cfg.KubernetesNodeBasename},
+		{Name: "CLUSTER_CORE_SERVICE", Value: cfg.ClusterCoreService},
+		{Name: "SPIFFE_MODE", Value: "workload_api"},
+		{Name: "SPIFFE_TRUST_DOMAIN", Value: cfg.TrustDomain},
+		{Name: "SPIFFE_WORKLOAD_API_SOCKET", Value: cfg.SpireSocketPath},
+	}
+}
+
+func buildSpireVolumes(cfg Config) []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name: "spire-agent-socket",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: cfg.SpireSocketHostPath,
+					Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
+				},
+			},
+		},
+	}
+}
+
+func buildSpireVolumeMounts() []corev1.VolumeMount {
+	return []corev1.VolumeMount{
+		{
+			Name:      "spire-agent-socket",
+			MountPath: "/run/spire/sockets",
+			ReadOnly:  true,
+		},
+	}
+}
+
+func appendCertVolume(volumes []corev1.Volume, cfg Config) []corev1.Volume {
+	if cfg.PodCertsPVC == "" && cfg.PodCertsSecret == "" {
+		return volumes
+	}
+	vol := corev1.Volume{Name: "cert-data"}
+	if cfg.PodCertsPVC != "" {
+		vol.VolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: cfg.PodCertsPVC,
+				ReadOnly:  true,
+			},
+		}
+	} else {
+		vol.VolumeSource = corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: cfg.PodCertsSecret,
+			},
+		}
+	}
+	return append(volumes, vol)
+}
+
+func appendCertVolumeMounts(mounts []corev1.VolumeMount, cfg Config) []corev1.VolumeMount {
+	if cfg.PodCertsPVC == "" && cfg.PodCertsSecret == "" {
+		return mounts
+	}
+	return append(mounts, corev1.VolumeMount{
+		Name:      "cert-data",
+		MountPath: "/etc/serviceradar/certs",
+		ReadOnly:  true,
+	})
+}
+
+func tenantLabels(event TenantEvent, workload string) map[string]string {
+	return map[string]string{
+		"app":                         fmt.Sprintf("serviceradar-%s", workload),
+		"app.kubernetes.io/part-of":   "serviceradar",
+		"serviceradar.io/tenant-id":   event.TenantID,
+		"serviceradar.io/tenant-slug": sanitizeName(event.TenantSlug),
+		"serviceradar.io/workload":    workload,
+	}
+}
+
+func workloadName(prefix, tenantSlug string) string {
+	return sanitizeName(fmt.Sprintf("serviceradar-%s-%s", prefix, tenantSlug))
+}
+
+var nameSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
+
+func sanitizeName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = nameSanitizer.ReplaceAllString(value, "-")
+	value = strings.Trim(value, "-")
+	if value == "" {
+		return "default"
+	}
+	if len(value) > 63 {
+		value = value[:63]
+		value = strings.TrimRight(value, "-")
+	}
+	return value
+}
+
+func mergeLabels(existing, desired map[string]string) map[string]string {
+	labels := map[string]string{}
+	for k, v := range existing {
+		labels[k] = v
+	}
+	for k, v := range desired {
+		labels[k] = v
+	}
+	return labels
+}
+
+func buildTLSConfig(cfg Config) (*tls.Config, error) {
+	tlsConfig := &tls.Config{}
+	if cfg.NATSTLSServerName != "" {
+		tlsConfig.ServerName = cfg.NATSTLSServerName
+	}
+	if cfg.NATSTLSCAFile != "" {
+		rootCAs := x509.NewCertPool()
+		certBytes, err := os.ReadFile(filepath.Clean(cfg.NATSTLSCAFile))
+		if err != nil {
+			return nil, fmt.Errorf("read NATS CA file: %w", err)
+		}
+		if !rootCAs.AppendCertsFromPEM(certBytes) {
+			return nil, fmt.Errorf("invalid NATS CA file")
+		}
+		tlsConfig.RootCAs = rootCAs
+	}
+	if cfg.NATSTLSCertFile != "" && cfg.NATSTLSKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.NATSTLSCertFile, cfg.NATSTLSKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load NATS client cert: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+	return tlsConfig, nil
+}
+
+func ackOrNak(msg jetstream.Msg, maxDeliver int) {
+	metadata, err := msg.Metadata()
+	if err != nil {
+		_ = msg.Nak()
+		return
+	}
+	if int(metadata.NumDelivered) >= maxDeliver {
+		_ = msg.Ack()
+	} else {
+		_ = msg.Nak()
+	}
+}
+
+func int32ptr(value int32) *int32 {
+	return &value
+}
+
+func hostPathTypePtr(value corev1.HostPathType) *corev1.HostPathType {
+	return &value
+}
+
+func intstrFromInt(value int32) intstr.IntOrString {
+	return intstr.IntOrString{Type: intstr.Int, IntVal: value}
+}
+
+func getEnv(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func splitList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func tenantPrefixedSubjects(subjects []string, tenantSlug string) []string {
+	if tenantSlug == "" {
+		return subjects
+	}
+	out := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		trimmed := strings.TrimSpace(subject)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "*.") {
+			out = append(out, fmt.Sprintf("%s.%s", tenantSlug, strings.TrimPrefix(trimmed, "*.")))
+			continue
+		}
+		if strings.HasPrefix(trimmed, tenantSlug+".") {
+			out = append(out, trimmed)
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s.%s", tenantSlug, trimmed))
+	}
+	return out
+}
+
+func defaultZenDecisionGroups() []ZenDecisionGroup {
+	return []ZenDecisionGroup{
+		{
+			Name:     "syslog",
+			Subjects: []string{"logs.syslog"},
+			Rules: []ZenRule{
+				{Order: 1, Key: "strip_full_message"},
+				{Order: 2, Key: "cef_severity"},
+			},
+			Format: "json",
+		},
+		{
+			Name:     "snmp",
+			Subjects: []string{"logs.snmp"},
+			Rules: []ZenRule{
+				{Order: 1, Key: "snmp_severity"},
+			},
+			Format: "json",
+		},
+		{
+			Name:     "otel_logs",
+			Subjects: []string{"logs.otel"},
+			Rules: []ZenRule{
+				{Order: 1, Key: "passthrough"},
+			},
+			Format: "protobuf",
+		},
+		{
+			Name:     "internal_logs",
+			Subjects: []string{"logs.internal.>"},
+			Rules: []ZenRule{
+				{Order: 1, Key: "passthrough"},
+			},
+			Format: "json",
+		},
+	}
+}

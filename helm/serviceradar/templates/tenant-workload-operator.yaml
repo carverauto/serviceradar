@@ -1,0 +1,143 @@
+{{- if .Values.tenantWorkloadOperator.enabled }}
+{{- $cfg := .Values.tenantWorkloadOperator -}}
+{{- $ns := .Release.Namespace -}}
+{{- $trustDomain := default .Values.spire.trustDomain $cfg.trustDomain -}}
+{{- $socketHostPath := default (include "serviceradar.spireSocketHostPath" .) $cfg.spireSocketHostPath -}}
+{{- $imageTag := $cfg.image.tag | default (include "serviceradar.imageTag" (dict "Values" .Values "service" "tenantWorkloadOperator")) -}}
+{{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $coreApi := default (dict) $cfg.coreApi -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-tenant-workload-operator
+  labels:
+    app: serviceradar-tenant-workload-operator
+    app.kubernetes.io/part-of: serviceradar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: serviceradar-tenant-workload-operator
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "serviceaccounts", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["spire.spiffe.io"]
+    resources: ["clusterspiffeids"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: serviceradar-tenant-workload-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: serviceradar-tenant-workload-operator
+subjects:
+  - kind: ServiceAccount
+    name: serviceradar-tenant-workload-operator
+    namespace: {{ $ns }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-tenant-workload-operator
+  labels:
+    app: serviceradar-tenant-workload-operator
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ $cfg.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: serviceradar-tenant-workload-operator
+  template:
+    metadata:
+      labels:
+        app: serviceradar-tenant-workload-operator
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      serviceAccountName: serviceradar-tenant-workload-operator
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: tenant-workload-operator
+          image: "{{ $cfg.image.repository }}:{{ $imageTag }}"
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SPIFFE_TRUST_DOMAIN
+              value: {{ $trustDomain | quote }}
+            - name: SPIFFE_WORKLOAD_API_SOCKET
+              value: "unix:/run/spire/sockets/agent.sock"
+            - name: NATS_URL
+              value: {{ $cfg.nats.url | quote }}
+            - name: TENANT_EVENT_STREAM
+              value: {{ $cfg.eventStream | quote }}
+            - name: TENANT_EVENT_SUBJECT
+              value: {{ $cfg.eventSubject | quote }}
+            - name: TENANT_EVENT_CONSUMER
+              value: {{ $cfg.eventConsumer | quote }}
+            - name: TENANT_EVENT_BATCH
+              value: {{ $cfg.eventBatch | quote }}
+            - name: TENANT_EVENT_WAIT
+              value: {{ $cfg.eventWait | quote }}
+            {{- if $cfg.defaultWorkloads }}
+            - name: DEFAULT_TENANT_WORKLOADS
+              value: {{ join "," $cfg.defaultWorkloads | quote }}
+            {{- end }}
+            - name: TENANT_NATS_CREDS_SECRET_TEMPLATE
+              value: {{ $cfg.tenantCredsSecretTemplate | quote }}
+            - name: CLUSTER_CORE_SERVICE
+              value: {{ $cfg.clusterCoreService | quote }}
+            - name: KUBERNETES_SELECTOR
+              value: {{ $cfg.kubernetesSelector | quote }}
+            - name: KUBERNETES_NODE_BASENAME
+              value: {{ $cfg.kubernetesNodeBasename | quote }}
+            {{- if $coreApi.url }}
+            - name: CORE_API_URL
+              value: {{ $coreApi.url | quote }}
+            - name: CORE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default $secrets $coreApi.apiKeySecret | quote }}
+                  key: {{ default "api-key" $coreApi.apiKeySecretKey | quote }}
+            {{- end }}
+            {{- if $cfg.tenantCertsPVC }}
+            - name: TENANT_CERTS_PVC
+              value: {{ $cfg.tenantCertsPVC | quote }}
+            {{- end }}
+            {{- if $cfg.tenantCertsSecret }}
+            - name: TENANT_CERTS_SECRET
+              value: {{ $cfg.tenantCertsSecret | quote }}
+            {{- end }}
+            {{- if $cfg.nats.credsSecret }}
+            - name: NATS_CREDS_FILE
+              value: "/etc/serviceradar/creds/{{ $cfg.nats.credsKey }}"
+            {{- end }}
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+            {{- if $cfg.nats.credsSecret }}
+            - name: nats-creds
+              mountPath: /etc/serviceradar/creds
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: {{ $socketHostPath | quote }}
+            type: DirectoryOrCreate
+        {{- if $cfg.nats.credsSecret }}
+        - name: nats-creds
+          secret:
+            secretName: {{ $cfg.nats.credsSecret | quote }}
+        {{- end }}
+{{- end }}
