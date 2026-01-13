@@ -50,6 +50,8 @@ spec:
         env:
         - name: PORT
           value: "4000"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: PHX_SERVER
           value: "true"
         - name: PHX_HOST

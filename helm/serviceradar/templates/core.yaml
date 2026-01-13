@@ -68,14 +68,20 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         - name: KUBERNETES_SELECTOR
           value: {{ $coreClusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
           value: {{ $coreClusterNodeBasename | quote }}
         - name: RELEASE_NODE
-          value: "serviceradar_core@$(POD_NAME).$(POD_NAMESPACE).pod.cluster.local"
+          value: "serviceradar_core@$(POD_IP)"
         - name: RELEASE_DISTRIBUTION
           value: "name"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
         - name: SPIFFE_MODE
