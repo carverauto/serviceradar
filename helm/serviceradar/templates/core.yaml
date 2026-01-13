@@ -64,6 +64,8 @@ spec:
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
           value: {{ $clusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "sname"
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
         - name: SPIFFE_MODE

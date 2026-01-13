@@ -177,6 +177,22 @@ defmodule ServiceRadar.SPIFFE do
     end
   end
 
+  defp parse_k8s_spiffe_id(spiffe_id) when is_binary(spiffe_id) do
+    case String.replace_prefix(spiffe_id, @spiffe_uri_prefix, "") do
+      ^spiffe_id ->
+        {:error, :invalid_spiffe_uri}
+
+      path ->
+        case String.split(path, "/", parts: 5) do
+          [trust_domain, "ns", namespace, "sa", service_account] ->
+            {:ok, %{trust_domain: trust_domain, namespace: namespace, service_account: service_account}}
+
+          _ ->
+            {:error, :invalid_spiffe_path}
+        end
+    end
+  end
+
   @doc """
   Builds a SPIFFE ID from components.
 
@@ -346,17 +362,30 @@ defmodule ServiceRadar.SPIFFE do
     case ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
       {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
         extra_cacerts = extra_cacerts(opts)
+        bundle_path = trust_bundle_path(opts)
+        all_cacerts = cacerts ++ extra_cacerts
 
         ssl_opts = [
           cert: certs,
           key: key,
-          cacerts: cacerts ++ extra_cacerts,
           verify: :verify_peer,
           fail_if_no_peer_cert: true,
           verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
           depth: 2,
           versions: [:"tlsv1.3", :"tlsv1.2"]
         ]
+
+        ssl_opts =
+          cond do
+            all_cacerts != [] ->
+              Keyword.put(ssl_opts, :cacerts, all_cacerts)
+
+            is_binary(bundle_path) ->
+              Keyword.put(ssl_opts, :cacertfile, String.to_charlist(bundle_path))
+
+            true ->
+              ssl_opts
+          end
 
         {:ok, ssl_opts}
 
@@ -382,9 +411,7 @@ defmodule ServiceRadar.SPIFFE do
   defp allow_any_hostname(_hostname, _cert), do: true
 
   defp extra_cacerts(opts) do
-    bundle_path =
-      Keyword.get(opts, :trust_bundle_path) ||
-        config(:trust_bundle_path, System.get_env("SPIFFE_TRUST_BUNDLE_PATH"))
+    bundle_path = trust_bundle_path(opts)
 
     cond do
       not is_binary(bundle_path) or bundle_path == "" ->
@@ -401,6 +428,11 @@ defmodule ServiceRadar.SPIFFE do
           _ -> []
         end
     end
+  end
+
+  defp trust_bundle_path(opts) do
+    Keyword.get(opts, :trust_bundle_path) ||
+      config(:trust_bundle_path, System.get_env("SPIFFE_TRUST_BUNDLE_PATH"))
   end
 
   defp pem_cacerts(pem) do
@@ -498,16 +530,24 @@ defmodule ServiceRadar.SPIFFE do
 
   defp verify_spiffe_id(spiffe_id, state) do
     case parse_spiffe_id(spiffe_id) do
-      {:ok, %{trust_domain: domain}} when domain == state.trust_domain ->
-        Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
-        {:valid, state}
-
       {:ok, %{trust_domain: domain}} ->
-        Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
-        {:fail, :trust_domain_mismatch}
+        verify_trust_domain(spiffe_id, domain, state)
 
-      {:error, reason} ->
-        {:fail, reason}
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: domain}} -> verify_trust_domain(spiffe_id, domain, state)
+          {:error, reason} -> {:fail, reason}
+        end
+    end
+  end
+
+  defp verify_trust_domain(spiffe_id, domain, state) do
+    if domain == state.trust_domain do
+      Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
+      {:valid, state}
+    else
+      Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
+      {:fail, :trust_domain_mismatch}
     end
   end
 

@@ -126,9 +126,14 @@ defmodule ServiceRadar.SPIFFE.WorkloadAPI do
   end
 
   defp decode_private_key(der) when is_binary(der) do
-    {:ok, :public_key.pem_entry_decode({:PrivateKeyInfo, der, :not_encrypted})}
-  rescue
-    _ -> {:error, :invalid_private_key}
+    try do
+      _ = :public_key.der_decode(:PrivateKeyInfo, der)
+      {:ok, {:PrivateKeyInfo, der}}
+    rescue
+      _ -> {:error, :invalid_private_key}
+    catch
+      _ -> {:error, :invalid_private_key}
+    end
   end
 
   defp split_der_chain(<<>>, acc), do: Enum.reverse(acc)

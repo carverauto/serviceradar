@@ -288,6 +288,7 @@ spire:
   clusterName: carverauto-cluster
   agentServiceAccount: spire-agent
   coreServiceAccount: serviceradar-core
+  webNgServiceAccount: serviceradar-web-ng
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""

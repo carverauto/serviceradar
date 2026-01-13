@@ -15,6 +15,12 @@
 {{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
 {{- $datasvcCertName := default "web" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
+{{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $webNgSA }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,6 +39,7 @@ spec:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $webNgSA }}
       containers:
       - name: web-ng
         image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
