@@ -1,0 +1,115 @@
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- if $gateway.enabled -}}
+{{- $gatewaySA := default "serviceradar-agent-gateway" $gateway.serviceAccountName -}}
+{{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" $gateway.kubernetesSelector -}}
+{{- $clusterNodeBasename := default "serviceradar" $gateway.kubernetesNodeBasename -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $gatewaySA }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  replicas: {{ default 1 $gateway.replicas }}
+  selector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  template:
+    metadata:
+      labels:
+        app: serviceradar-agent-gateway
+        app.kubernetes.io/part-of: serviceradar
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $gatewaySA }}
+      containers:
+      - name: agent-gateway
+        image: ghcr.io/carverauto/serviceradar-agent-gateway:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "agentGateway") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        ports:
+        - name: grpc
+          containerPort: {{ default 50052 $gateway.service.port }}
+          protocol: TCP
+        env:
+        - name: GATEWAY_TENANT_ID
+          value: {{ default "00000000-0000-0000-0000-000000000000" $gateway.tenantId | quote }}
+        - name: GATEWAY_TENANT_SLUG
+          value: {{ default "platform" $gateway.tenantSlug | quote }}
+        - name: GATEWAY_PARTITION_ID
+          value: {{ default "default" $gateway.partitionId | quote }}
+        - name: GATEWAY_ID
+          value: {{ default "gateway-platform" $gateway.gatewayId | quote }}
+        - name: GATEWAY_DOMAIN
+          value: {{ default "default" $gateway.domain | quote }}
+        - name: GATEWAY_GRPC_PORT
+          value: {{ default 50052 $gateway.service.port | quote }}
+        - name: GATEWAY_CAPABILITIES
+          value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
+        - name: CLUSTER_ENABLED
+          value: "true"
+        - name: CLUSTER_STRATEGY
+          value: "kubernetes"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: KUBERNETES_SELECTOR
+          value: {{ $clusterSelector | quote }}
+        - name: KUBERNETES_NODE_BASENAME
+          value: {{ $clusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_SERVICE
+          value: {{ default "serviceradar-core-elx-headless" $gateway.clusterCoreService | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
+        volumeMounts:
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        resources:
+          limits:
+            cpu: {{ default "1" $gateway.resources.limits.cpu | quote }}
+            memory: {{ default "1Gi" $gateway.resources.limits.memory | quote }}
+          requests:
+            cpu: {{ default "200m" $gateway.resources.requests.cpu | quote }}
+            memory: {{ default "512Mi" $gateway.resources.requests.memory | quote }}
+        livenessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: grpc
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: cert-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cert-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  selector:
+    app: serviceradar-agent-gateway
+  ports:
+  - name: grpc
+    port: {{ default 50052 $gateway.service.port }}
+    targetPort: grpc
+{{- end }}

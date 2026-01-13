@@ -366,6 +366,19 @@ if config_env() == :prod do
 
   config :serviceradar_core, :default_tenant_id, default_tenant_id
 
+  spiffe_mode =
+    case System.get_env("SPIFFE_MODE", "filesystem") do
+      "workload_api" -> :workload_api
+      _ -> :filesystem
+    end
+
+  config :serviceradar_core, :spiffe,
+    mode: spiffe_mode,
+    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
+    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+
   # Datasvc gRPC client configuration for KV store access
   # Used for fetching component templates and other KV data
   datasvc_address = System.get_env("DATASVC_ADDRESS")

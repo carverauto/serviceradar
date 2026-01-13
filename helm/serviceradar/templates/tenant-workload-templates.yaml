@@ -54,7 +54,7 @@ spec:
         containerPort: 50052
         protocol: TCP
   spiffe:
-    enabled: true
+    enabled: false
   service:
     enabled: true
     ports:

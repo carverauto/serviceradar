@@ -206,6 +206,13 @@ webNg:
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  datasvc:
+    host: "serviceradar-datasvc"
+    port: 50057
+    secMode: "mtls"
+    certDir: "/etc/serviceradar/certs"
+    certName: "web"
+    serverName: "datasvc.serviceradar"
 agent:
   resources:
     limits:
@@ -214,6 +221,27 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
+agentGateway:
+  enabled: true
+  replicas: 1
+  gatewayId: "gateway-platform"
+  partitionId: "default"
+  domain: "default"
+  tenantId: "00000000-0000-0000-0000-000000000000"
+  tenantSlug: "platform"
+  capabilities: "icmp,tcp,http,grpc"
+  clusterCoreService: "serviceradar-core-elx-headless"
+  kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
+  kubernetesNodeBasename: "serviceradar"
+  service:
+    port: 50052
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
 dbEventWriter:
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
   configSource: file
