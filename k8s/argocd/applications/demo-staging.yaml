@@ -8,11 +8,9 @@ metadata:
 spec:
   project: default
   source:
-    # OCI Helm chart from ghcr.io
-    repoURL: ghcr.io/carverauto/charts
-    chart: serviceradar
-    # Track the latest published chart in staging.
-    targetRevision: "*"
+    repoURL: https://github.com/carverauto/serviceradar.git
+    targetRevision: staging
+    path: helm/serviceradar
     helm:
       releaseName: serviceradar
       valueFiles:

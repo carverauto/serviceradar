@@ -24,7 +24,13 @@ rules:
     resources: ["configmaps", "secrets", "serviceaccounts", "services"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
-    resources: ["deployments"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["workloads.serviceradar.io"]
+    resources: ["tenantworkloadtemplates"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["workloads.serviceradar.io"]
+    resources: ["tenantworkloadsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
@@ -88,6 +94,10 @@ spec:
               value: {{ $cfg.eventBatch | quote }}
             - name: TENANT_EVENT_WAIT
               value: {{ $cfg.eventWait | quote }}
+            {{- if $cfg.resyncInterval }}
+            - name: TENANT_CRD_RESYNC_INTERVAL
+              value: {{ $cfg.resyncInterval | quote }}
+            {{- end }}
             {{- if $cfg.defaultWorkloads }}
             - name: DEFAULT_TENANT_WORKLOADS
               value: {{ join "," $cfg.defaultWorkloads | quote }}

@@ -114,11 +114,18 @@ Key values:
 - `tenantWorkloadOperator.nats.url`: NATS endpoint for JetStream.
 - `tenantWorkloadOperator.coreApi.url`: core API base URL (defaults to the web-ng service).
 - `tenantWorkloadOperator.defaultWorkloads`: optional list of workloads to deploy when events omit `workloads`.
+- `tenantWorkloadOperator.gatewayReplicas`: default replicas for the agent-gateway template.
 - `tenantWorkloadOperator.tenantCredsSecretTemplate`: Secret name template for per-tenant NATS creds.
+- `tenantWorkloadOperator.resyncInterval`: how often to reconcile existing workload sets (default `5m`).
 
 The operator uses the `api-key` value from the `serviceradar-secrets` Secret to
 authenticate to the core API. Ensure the secret generator job has run before
 bootstrapping the operator.
+
+Tenant workload CRDs are installed from `helm/serviceradar/crds/` and default
+templates are rendered by `helm/serviceradar/templates/tenant-workload-templates.yaml`.
+The operator consumes tenant lifecycle events, writes a `TenantWorkloadSet` per
+tenant, and reconciles those sets with the `TenantWorkloadTemplate` definitions.
 
 ## Mapper Service Settings
 

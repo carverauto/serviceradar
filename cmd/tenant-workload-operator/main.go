@@ -180,34 +180,34 @@ type TenantWorkloadTemplate struct {
 }
 
 type TenantWorkloadTemplateSpec struct {
-	WorkloadType   string                 `json:"workloadType"`
-	WorkloadKind   string                 `json:"workloadKind"`
-	DefaultEnabled *bool                  `json:"defaultEnabled,omitempty"`
-	DefaultReplicas *int32                `json:"defaultReplicas,omitempty"`
-	Aliases        []string               `json:"aliases,omitempty"`
-	Labels         map[string]string      `json:"labels,omitempty"`
-	Container      TemplateContainer      `json:"container"`
-	Volumes        []corev1.Volume        `json:"volumes,omitempty"`
-	Service        *TemplateService       `json:"service,omitempty"`
-	SPIFFE         *TemplateSPIFFE        `json:"spiffe,omitempty"`
-	NATSCreds      *TemplateNATSCreds     `json:"natsCreds,omitempty"`
-	ConfigMap      *TemplateConfigMap     `json:"configMap,omitempty"`
+	WorkloadType    string             `json:"workloadType"`
+	WorkloadKind    string             `json:"workloadKind"`
+	DefaultEnabled  *bool              `json:"defaultEnabled,omitempty"`
+	DefaultReplicas *int32             `json:"defaultReplicas,omitempty"`
+	Aliases         []string           `json:"aliases,omitempty"`
+	Labels          map[string]string  `json:"labels,omitempty"`
+	Container       TemplateContainer  `json:"container"`
+	Volumes         []corev1.Volume    `json:"volumes,omitempty"`
+	Service         *TemplateService   `json:"service,omitempty"`
+	SPIFFE          *TemplateSPIFFE    `json:"spiffe,omitempty"`
+	NATSCreds       *TemplateNATSCreds `json:"natsCreds,omitempty"`
+	ConfigMap       *TemplateConfigMap `json:"configMap,omitempty"`
 }
 
 type TemplateContainer struct {
-	Image           string                     `json:"image"`
-	Command         []string                   `json:"command,omitempty"`
-	Args            []string                   `json:"args,omitempty"`
-	Env             []corev1.EnvVar            `json:"env,omitempty"`
-	Ports           []corev1.ContainerPort     `json:"ports,omitempty"`
+	Image           string                      `json:"image"`
+	Command         []string                    `json:"command,omitempty"`
+	Args            []string                    `json:"args,omitempty"`
+	Env             []corev1.EnvVar             `json:"env,omitempty"`
+	Ports           []corev1.ContainerPort      `json:"ports,omitempty"`
 	Resources       corev1.ResourceRequirements `json:"resources,omitempty"`
-	VolumeMounts    []corev1.VolumeMount       `json:"volumeMounts,omitempty"`
-	ImagePullPolicy corev1.PullPolicy          `json:"imagePullPolicy,omitempty"`
+	VolumeMounts    []corev1.VolumeMount        `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy           `json:"imagePullPolicy,omitempty"`
 }
 
 type TemplateService struct {
-	Enabled bool                 `json:"enabled,omitempty"`
-	Type    corev1.ServiceType   `json:"type,omitempty"`
+	Enabled bool                  `json:"enabled,omitempty"`
+	Type    corev1.ServiceType    `json:"type,omitempty"`
 	Ports   []TemplateServicePort `json:"ports,omitempty"`
 }
 
@@ -244,9 +244,9 @@ type TenantWorkloadSet struct {
 }
 
 type TenantWorkloadSetSpec struct {
-	TenantID   string               `json:"tenantId"`
-	TenantSlug string               `json:"tenantSlug"`
-	Workloads  []TenantWorkloadRef  `json:"workloads,omitempty"`
+	TenantID   string              `json:"tenantId"`
+	TenantSlug string              `json:"tenantSlug"`
+	Workloads  []TenantWorkloadRef `json:"workloads,omitempty"`
 }
 
 type TenantWorkloadRef struct {
@@ -774,13 +774,17 @@ func resolveWorkloadRefs(
 
 	var refs []TenantWorkloadRef
 	var unknown []string
+	seen := map[string]bool{}
 	for _, workload := range requested {
 		normalized := normalizeWorkloadName(workload)
 		if normalized == "" {
 			continue
 		}
 		if name, ok := aliasMap[normalized]; ok {
-			refs = append(refs, TenantWorkloadRef{TemplateRef: name})
+			if !seen[name] {
+				refs = append(refs, TenantWorkloadRef{TemplateRef: name})
+				seen[name] = true
+			}
 			continue
 		}
 		unknown = append(unknown, normalized)
@@ -879,12 +883,12 @@ func ensureWorkloadResources(
 	var natsSecretName string
 	if template.Spec.NATSCreds != nil && template.Spec.NATSCreds.Enabled {
 		natsSecretName = fmt.Sprintf(cfg.TenantNATSCredsSecretTmpl, sanitizeName(tenantSlug))
-		if err := ensureTenantCredsSecret(ctx, kubeClient, cfg, tenantID, tenantSlug, workloadType, natsSecretName, labels); err != nil {
+		if err := ensureTenantCredsSecret(ctx, kubeClient, cfg, tenantID, workloadType, natsSecretName, labels); err != nil {
 			return err
 		}
 	}
 
-	podSpec, err := buildWorkloadPodSpec(cfg, set, template, ref, serviceAccount, configMapName, natsSecretName)
+	podSpec, err := buildWorkloadPodSpec(cfg, set, template, serviceAccount, configMapName, natsSecretName)
 	if err != nil {
 		return err
 	}
@@ -1009,11 +1013,15 @@ func buildServicePorts(ports []TemplateServicePort) []corev1.ServicePort {
 		if target == 0 {
 			target = port.Port
 		}
+		protocol := corev1.ProtocolTCP
+		if port.Protocol != "" {
+			protocol = corev1.Protocol(port.Protocol)
+		}
 		out = append(out, corev1.ServicePort{
 			Name:       port.Name,
 			Port:       port.Port,
 			TargetPort: intstrFromInt(target),
-			Protocol:   corev1.Protocol(port.Protocol),
+			Protocol:   protocol,
 		})
 	}
 	return out
@@ -1023,7 +1031,6 @@ func buildWorkloadPodSpec(
 	cfg Config,
 	set TenantWorkloadSet,
 	template TenantWorkloadTemplate,
-	ref TenantWorkloadRef,
 	serviceAccount string,
 	configMapName string,
 	natsSecretName string,
@@ -1211,6 +1218,8 @@ func ensureServiceAccount(
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, sa, func() error {
 		sa.Labels = mergeLabels(sa.Labels, labels)
+		automount := false
+		sa.AutomountServiceAccountToken = &automount
 		return nil
 	})
 	if err != nil {
@@ -1223,12 +1232,12 @@ func ensureClusterSPIFFEID(
 	ctx context.Context,
 	kubeClient client.Client,
 	cfg Config,
-	workload string,
-	event TenantEvent,
+	workloadType string,
+	tenantSlug string,
 	serviceAccount string,
 	labels map[string]string,
 ) error {
-	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workload, event.TenantSlug, cfg.Namespace))
+	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workloadType, tenantSlug, cfg.Namespace))
 	spiffe := &unstructured.Unstructured{}
 	spiffe.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "spire.spiffe.io",
@@ -1258,23 +1267,12 @@ func ensureClusterSPIFFEID(
 	return nil
 }
 
-func ensureSecretPresent(ctx context.Context, kubeClient client.Client, namespace, name string) error {
-	secret := &corev1.Secret{}
-	err := kubeClient.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, secret)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return fmt.Errorf("nats creds secret missing: %s", name)
-		}
-		return fmt.Errorf("lookup secret %s: %w", name, err)
-	}
-	return nil
-}
-
 func ensureTenantCredsSecret(
 	ctx context.Context,
 	kubeClient client.Client,
 	cfg Config,
-	event TenantEvent,
+	tenantID string,
+	workloadType string,
 	secretName string,
 	labels map[string]string,
 ) error {
@@ -1291,7 +1289,7 @@ func ensureTenantCredsSecret(
 		return fmt.Errorf("nats creds secret missing: %s", secretName)
 	}
 
-	creds, err := fetchTenantCreds(ctx, cfg, event)
+	creds, err := fetchTenantCreds(ctx, cfg, tenantID, workloadType)
 	if err != nil {
 		return err
 	}
@@ -1313,18 +1311,26 @@ func ensureTenantCredsSecret(
 	return nil
 }
 
-func fetchTenantCreds(ctx context.Context, cfg Config, event TenantEvent) (string, error) {
+func fetchTenantCreds(
+	ctx context.Context,
+	cfg Config,
+	tenantID string,
+	workloadType string,
+) (string, error) {
 	baseURL := strings.TrimRight(cfg.CoreAPIURL, "/")
 	if baseURL == "" {
 		return "", fmt.Errorf("CORE_API_URL is required to fetch tenant creds")
 	}
 
-	endpoint, err := url.JoinPath(baseURL, "api/admin/tenant-workloads", event.TenantID, "credentials")
+	endpoint, err := url.JoinPath(baseURL, "api/admin/tenant-workloads", tenantID, "credentials")
 	if err != nil {
 		return "", fmt.Errorf("build core api url: %w", err)
 	}
 
-	payload := TenantCredentialRequest{Workload: "zen-consumer"}
+	if workloadType == "" {
+		workloadType = "zen-consumer"
+	}
+	payload := TenantCredentialRequest{Workload: workloadType}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("encode core api request: %w", err)
@@ -1363,63 +1369,18 @@ func fetchTenantCreds(ctx context.Context, cfg Config, event TenantEvent) (strin
 	return response.Creds, nil
 }
 
-func deleteTenantResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
-	if err := deleteGatewayResources(ctx, kubeClient, cfg, event); err != nil {
-		return err
-	}
-	if err := deleteZenResources(ctx, kubeClient, cfg, event); err != nil {
-		return err
-	}
-	return nil
-}
-
-func deleteGatewayResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
-	name := workloadName("agent-gateway", event.TenantSlug)
-	serviceAccount := workloadName("agent-gateway", event.TenantSlug)
-	if err := deleteObject(ctx, kubeClient, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteClusterSPIFFEID(ctx, kubeClient, cfg, "agent-gateway", event); err != nil {
-		return err
-	}
-	return nil
-}
-
-func deleteZenResources(ctx context.Context, kubeClient client.Client, cfg Config, event TenantEvent) error {
-	name := workloadName("zen", event.TenantSlug)
-	serviceAccount := workloadName("zen", event.TenantSlug)
-	configMapName := workloadName("zen-config", event.TenantSlug)
+func deleteTenantCredsSecret(
+	ctx context.Context,
+	kubeClient client.Client,
+	cfg Config,
+	event TenantEvent,
+) error {
 	secretName := fmt.Sprintf(cfg.TenantNATSCredsSecretTmpl, sanitizeName(event.TenantSlug))
-
-	if err := deleteObject(ctx, kubeClient, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: serviceAccount, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteObject(ctx, kubeClient, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: cfg.Namespace}}); err != nil {
-		return err
-	}
-	if err := deleteClusterSPIFFEID(ctx, kubeClient, cfg, "zen", event); err != nil {
-		return err
-	}
-	return nil
+	return deleteObject(ctx, kubeClient, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: cfg.Namespace}})
 }
 
-func deleteClusterSPIFFEID(ctx context.Context, kubeClient client.Client, cfg Config, workload string, event TenantEvent) error {
-	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workload, event.TenantSlug, cfg.Namespace))
+func deleteClusterSPIFFEID(ctx context.Context, kubeClient client.Client, cfg Config, workloadType, tenantSlug string) error {
+	name := sanitizeName(fmt.Sprintf("serviceradar-%s-%s-%s", workloadType, tenantSlug, cfg.Namespace))
 	spiffe := &unstructured.Unstructured{}
 	spiffe.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "spire.spiffe.io",
@@ -1438,48 +1399,23 @@ func deleteObject(ctx context.Context, kubeClient client.Client, obj client.Obje
 	return nil
 }
 
-func gatewayEnv(cfg Config, event TenantEvent) []corev1.EnvVar {
-	return []corev1.EnvVar{
-		{Name: "GATEWAY_TENANT_ID", Value: event.TenantID},
-		{Name: "GATEWAY_TENANT_SLUG", Value: event.TenantSlug},
-		{Name: "GATEWAY_PARTITION_ID", Value: "default"},
-		{Name: "GATEWAY_ID", Value: fmt.Sprintf("gateway-%s", sanitizeName(event.TenantSlug))},
-		{Name: "GATEWAY_DOMAIN", Value: "default"},
-		{Name: "GATEWAY_GRPC_PORT", Value: fmt.Sprintf("%d", defaultGatewayPort)},
-		{Name: "STATE_MONITOR_ENABLED", Value: "false"},
-		{Name: "CLUSTER_ENABLED", Value: "true"},
-		{Name: "CLUSTER_STRATEGY", Value: "kubernetes"},
-		{Name: "NAMESPACE", Value: cfg.Namespace},
-		{Name: "KUBERNETES_SELECTOR", Value: cfg.KubernetesSelector},
-		{Name: "KUBERNETES_NODE_BASENAME", Value: cfg.KubernetesNodeBasename},
-		{Name: "CLUSTER_CORE_SERVICE", Value: cfg.ClusterCoreService},
-		{Name: "SPIFFE_MODE", Value: "workload_api"},
-		{Name: "SPIFFE_TRUST_DOMAIN", Value: cfg.TrustDomain},
-		{Name: "SPIFFE_WORKLOAD_API_SOCKET", Value: cfg.SpireSocketPath},
-	}
-}
-
-func buildSpireVolumes(cfg Config) []corev1.Volume {
-	return []corev1.Volume{
-		{
-			Name: "spire-agent-socket",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: cfg.SpireSocketHostPath,
-					Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
-				},
+func buildSpireVolume(cfg Config) corev1.Volume {
+	return corev1.Volume{
+		Name: "spire-agent-socket",
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: cfg.SpireSocketHostPath,
+				Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
 			},
 		},
 	}
 }
 
-func buildSpireVolumeMounts() []corev1.VolumeMount {
-	return []corev1.VolumeMount{
-		{
-			Name:      "spire-agent-socket",
-			MountPath: "/run/spire/sockets",
-			ReadOnly:  true,
-		},
+func buildSpireVolumeMount() corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name:      "spire-agent-socket",
+		MountPath: "/run/spire/sockets",
+		ReadOnly:  true,
 	}
 }
 
@@ -1502,28 +1438,151 @@ func appendCertVolume(volumes []corev1.Volume, cfg Config) []corev1.Volume {
 			},
 		}
 	}
-	return append(volumes, vol)
+	return appendVolumeIfMissing(volumes, vol)
 }
 
 func appendCertVolumeMounts(mounts []corev1.VolumeMount, cfg Config) []corev1.VolumeMount {
 	if cfg.PodCertsPVC == "" && cfg.PodCertsSecret == "" {
 		return mounts
 	}
-	return append(mounts, corev1.VolumeMount{
+	return appendVolumeMountIfMissing(mounts, corev1.VolumeMount{
 		Name:      "cert-data",
 		MountPath: "/etc/serviceradar/certs",
 		ReadOnly:  true,
 	})
 }
 
-func tenantLabels(event TenantEvent, workload string) map[string]string {
+func tenantWorkloadSetName(tenantSlug string) string {
+	name := fmt.Sprintf("%s-%s", defaultWorkloadSetNamePrefix, tenantSlug)
+	return sanitizeName(name)
+}
+
+func tenantSetLabels(tenantID, tenantSlug string) map[string]string {
 	return map[string]string{
-		"app":                         fmt.Sprintf("serviceradar-%s", workload),
 		"app.kubernetes.io/part-of":   "serviceradar",
-		"serviceradar.io/tenant-id":   event.TenantID,
-		"serviceradar.io/tenant-slug": sanitizeName(event.TenantSlug),
-		"serviceradar.io/workload":    workload,
+		"serviceradar.io/tenant-id":   tenantID,
+		"serviceradar.io/tenant-slug": sanitizeName(tenantSlug),
 	}
+}
+
+func workloadLabels(tenantID, tenantSlug, workloadType string, extra map[string]string) map[string]string {
+	labels := map[string]string{
+		"app":                         fmt.Sprintf("serviceradar-%s", workloadType),
+		"app.kubernetes.io/part-of":   "serviceradar",
+		"serviceradar.io/tenant-id":   tenantID,
+		"serviceradar.io/tenant-slug": sanitizeName(tenantSlug),
+		"serviceradar.io/workload":    workloadType,
+	}
+	for k, v := range extra {
+		labels[k] = v
+	}
+	return labels
+}
+
+func workloadTypeFromTemplate(template TenantWorkloadTemplate) string {
+	if template.Spec.WorkloadType != "" {
+		return template.Spec.WorkloadType
+	}
+	return template.Name
+}
+
+func spiffeEnabled(spec *TemplateSPIFFE) bool {
+	if spec == nil {
+		return true
+	}
+	return spec.Enabled
+}
+
+func resolveReplicas(defaultReplicas, override *int32) int32 {
+	if override != nil {
+		return *override
+	}
+	if defaultReplicas != nil {
+		return *defaultReplicas
+	}
+	return 1
+}
+
+func templateRenderValues(cfg Config, set TenantWorkloadSet, template TenantWorkloadTemplate) map[string]string {
+	return map[string]string{
+		"tenant_id":                set.Spec.TenantID,
+		"tenant_slug":              set.Spec.TenantSlug,
+		"tenant_slug_sanitized":    sanitizeName(set.Spec.TenantSlug),
+		"namespace":                cfg.Namespace,
+		"trust_domain":             cfg.TrustDomain,
+		"spire_socket":             cfg.SpireSocketPath,
+		"nats_url":                 cfg.NATSURL,
+		"core_service":             cfg.ClusterCoreService,
+		"kubernetes_selector":      cfg.KubernetesSelector,
+		"kubernetes_node_basename": cfg.KubernetesNodeBasename,
+		"workload_name":            workloadName(workloadTypeFromTemplate(template), set.Spec.TenantSlug),
+		"workload_type":            workloadTypeFromTemplate(template),
+	}
+}
+
+func renderString(value string, data map[string]string) string {
+	out := value
+	for key, val := range data {
+		out = strings.ReplaceAll(out, fmt.Sprintf("{{%s}}", key), val)
+	}
+	return out
+}
+
+func renderStringSlice(values []string, data map[string]string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, renderString(value, data))
+	}
+	return out
+}
+
+func renderEnvVars(values []corev1.EnvVar, data map[string]string) []corev1.EnvVar {
+	if len(values) == 0 {
+		return values
+	}
+	out := make([]corev1.EnvVar, 0, len(values))
+	for _, env := range values {
+		if env.Value != "" {
+			env.Value = renderString(env.Value, data)
+		}
+		out = append(out, env)
+	}
+	return out
+}
+
+func appendEnvIfMissing(env []corev1.EnvVar, additions []corev1.EnvVar) []corev1.EnvVar {
+	seen := map[string]bool{}
+	for _, entry := range env {
+		seen[entry.Name] = true
+	}
+	for _, entry := range additions {
+		if seen[entry.Name] {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return env
+}
+
+func appendVolumeIfMissing(volumes []corev1.Volume, volume corev1.Volume) []corev1.Volume {
+	for _, existing := range volumes {
+		if existing.Name == volume.Name {
+			return volumes
+		}
+	}
+	return append(volumes, volume)
+}
+
+func appendVolumeMountIfMissing(mounts []corev1.VolumeMount, mount corev1.VolumeMount) []corev1.VolumeMount {
+	for _, existing := range mounts {
+		if existing.Name == mount.Name {
+			return mounts
+		}
+	}
+	return append(mounts, mount)
 }
 
 func workloadName(prefix, tenantSlug string) string {

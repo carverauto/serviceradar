@@ -1,0 +1,103 @@
+{{- if .Values.tenantWorkloadOperator.enabled }}
+{{- $cfg := .Values.tenantWorkloadOperator -}}
+{{- $gatewayTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "agentGateway") -}}
+{{- $zenTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") -}}
+{{- $gatewayRepo := default "ghcr.io/carverauto/serviceradar-agent-gateway" $cfg.templates.agentGateway.repository -}}
+{{- $zenRepo := default "ghcr.io/carverauto/serviceradar-zen" $cfg.templates.zenConsumer.repository -}}
+---
+apiVersion: workloads.serviceradar.io/v1alpha1
+kind: TenantWorkloadTemplate
+metadata:
+  name: agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  workloadType: agent-gateway
+  workloadKind: Deployment
+  defaultEnabled: true
+  defaultReplicas: {{ $cfg.gatewayReplicas | default 1 }}
+  aliases:
+    - gateway
+    - agent_gateway
+  container:
+    image: "{{ $gatewayRepo }}:{{ $gatewayTag }}"
+    imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+    env:
+      - name: GATEWAY_TENANT_ID
+        value: {{ "{{tenant_id}}" | quote }}
+      - name: GATEWAY_TENANT_SLUG
+        value: {{ "{{tenant_slug}}" | quote }}
+      - name: GATEWAY_PARTITION_ID
+        value: "default"
+      - name: GATEWAY_ID
+        value: {{ "gateway-{{tenant_slug_sanitized}}" | quote }}
+      - name: GATEWAY_DOMAIN
+        value: "default"
+      - name: GATEWAY_GRPC_PORT
+        value: "50052"
+      - name: STATE_MONITOR_ENABLED
+        value: "false"
+      - name: CLUSTER_ENABLED
+        value: "true"
+      - name: CLUSTER_STRATEGY
+        value: "kubernetes"
+      - name: NAMESPACE
+        value: {{ "{{namespace}}" | quote }}
+      - name: KUBERNETES_SELECTOR
+        value: {{ "{{kubernetes_selector}}" | quote }}
+      - name: KUBERNETES_NODE_BASENAME
+        value: {{ "{{kubernetes_node_basename}}" | quote }}
+      - name: CLUSTER_CORE_SERVICE
+        value: {{ "{{core_service}}" | quote }}
+    ports:
+      - name: grpc
+        containerPort: 50052
+        protocol: TCP
+  spiffe:
+    enabled: true
+  service:
+    enabled: true
+    ports:
+      - name: grpc
+        port: 50052
+        targetPort: 50052
+        protocol: TCP
+---
+apiVersion: workloads.serviceradar.io/v1alpha1
+kind: TenantWorkloadTemplate
+metadata:
+  name: zen-consumer
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  workloadType: zen-consumer
+  workloadKind: DaemonSet
+  defaultEnabled: true
+  aliases:
+    - zen
+    - zen-consumer
+  container:
+    image: "{{ $zenRepo }}:{{ $zenTag }}"
+    imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+    env:
+      - name: ZEN_CONFIG
+        value: "/etc/serviceradar/zen.json"
+      - name: CONFIG_SOURCE
+        value: "file"
+      - name: RUST_LOG
+        value: "info"
+    ports:
+      - name: grpc
+        containerPort: 50040
+        protocol: TCP
+  spiffe:
+    enabled: true
+  natsCreds:
+    enabled: true
+    mountPath: "/etc/serviceradar/creds"
+    envName: "NATS_CREDS_FILE"
+  configMap:
+    enabled: true
+    generator: zen
+    mountPath: "/etc/serviceradar"
+{{- end }}
