@@ -14,7 +14,8 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   alias ServiceRadar.Identity.TenantLifecyclePublisher
 
   @zero_uuid "00000000-0000-0000-0000-000000000000"
-  @publish_retry_delay 10_000
+  @initial_publish_retry_delay 1_000
+  @max_publish_retry_delay 60_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -197,19 +198,39 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
   @impl true
   def handle_info({:publish_platform_event, tenant_id, event}, state) do
+    handle_info({:publish_platform_event, tenant_id, event, 1}, state)
+  end
+
+  def handle_info({:publish_platform_event, tenant_id, event, attempt}, state) do
     case fetch_platform_tenant(tenant_id) do
       {:ok, tenant} ->
         if publish_event(event, tenant) != :ok do
-          schedule_publish_retry(tenant_id, event)
+          schedule_publish_retry(tenant_id, event, attempt + 1)
         end
+
+      {:error, :not_found} ->
+        Logger.warning(
+          "[PlatformTenantBootstrap] Tenant not found during publish retry; stopping retries.",
+          tenant_id: tenant_id,
+          event: event
+        )
+
+      {:error, {:unexpected_count, count}} ->
+        Logger.error(
+          "[PlatformTenantBootstrap] Multiple tenants found during publish retry; stopping retries.",
+          tenant_id: tenant_id,
+          count: count,
+          event: event
+        )
 
       {:error, reason} ->
         Logger.warning("[PlatformTenantBootstrap] Retry publish failed to load tenant",
           tenant_id: tenant_id,
-          reason: inspect(reason)
+          reason: inspect(reason),
+          event: event
         )
 
-        schedule_publish_retry(tenant_id, event)
+        schedule_publish_retry(tenant_id, event, attempt + 1)
     end
 
     {:noreply, state}
@@ -222,7 +243,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
         event: event
       )
 
-      schedule_publish_retry(tenant.id, event)
+      schedule_publish_retry(tenant.id, event, 1)
     end
   end
 
@@ -231,8 +252,20 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   defp publish_event(:deleted, tenant), do: TenantLifecyclePublisher.publish_deleted(tenant)
   defp publish_event(_event, tenant), do: TenantLifecyclePublisher.publish_updated(tenant)
 
-  defp schedule_publish_retry(tenant_id, event) do
-    Process.send_after(self(), {:publish_platform_event, tenant_id, event}, @publish_retry_delay)
+  defp schedule_publish_retry(tenant_id, event, attempt) do
+    delay = calculate_publish_backoff(attempt)
+    Process.send_after(self(), {:publish_platform_event, tenant_id, event, attempt}, delay)
+  end
+
+  defp calculate_publish_backoff(attempt) do
+    exponent = min(max(attempt - 1, 0), 16)
+    base_delay =
+      @initial_publish_retry_delay
+      |> Kernel.*(Integer.pow(2, exponent))
+      |> min(@max_publish_retry_delay)
+
+    jitter = :rand.uniform(max(div(base_delay, 2), 1))
+    min(base_delay + jitter, @max_publish_retry_delay)
   end
 
   defp fetch_platform_tenant(tenant_id) do
