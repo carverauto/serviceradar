@@ -88,9 +88,14 @@ tenantWorkloadOperator:
     repository: ghcr.io/carverauto/serviceradar-tenant-workload-operator
     tag: ""
   nats:
-    url: "nats://serviceradar-nats:4222"
-    credsSecret: "serviceradar-nats-creds"
+    url: "tls://serviceradar-nats:4222"
+    credsSecret: ""
     credsKey: "operator.creds"
+    tls:
+      caFile: "/etc/serviceradar/certs/root.pem"
+      certFile: "/etc/serviceradar/certs/client.pem"
+      keyFile: "/etc/serviceradar/certs/client-key.pem"
+      serverName: "serviceradar-nats"
   eventStream: "TENANT_PROVISIONING"
   eventSubject: "serviceradar.tenants.lifecycle.>"
   eventConsumer: "tenant-workload-operator"
