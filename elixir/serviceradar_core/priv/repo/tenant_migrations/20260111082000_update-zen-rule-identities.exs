@@ -8,21 +8,26 @@ defmodule :"Elixir.ServiceRadar.Repo.TenantMigrations.Update-zen-rule-identities
   use Ecto.Migration
 
   def up do
+    # Drop old index if it exists (uses [:tenant_id, :name])
     drop_if_exists unique_index(:zen_rules, [:tenant_id, :name],
                      name: "zen_rules_unique_name_index"
                    )
 
-    create unique_index(:zen_rules, [:tenant_id, :subject, :name],
-             name: "zen_rules_unique_name_index"
-           )
+    # Create new index with subject field - skip if already exists
+    # (handles case where migration was partially run before)
+    execute """
+    CREATE UNIQUE INDEX IF NOT EXISTS zen_rules_unique_name_index
+    ON zen_rules (tenant_id, subject, name)
+    """
 
     drop_if_exists unique_index(:zen_rule_templates, [:tenant_id, :name],
                      name: "zen_rule_templates_unique_name_index"
                    )
 
-    create unique_index(:zen_rule_templates, [:tenant_id, :subject, :name],
-             name: "zen_rule_templates_unique_name_index"
-           )
+    execute """
+    CREATE UNIQUE INDEX IF NOT EXISTS zen_rule_templates_unique_name_index
+    ON zen_rule_templates (tenant_id, subject, name)
+    """
   end
 
   def down do
