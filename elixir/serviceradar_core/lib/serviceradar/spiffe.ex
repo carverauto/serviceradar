@@ -522,6 +522,14 @@ defmodule ServiceRadar.SPIFFE do
       {:ok, spiffe_id} ->
         verify_spiffe_id(spiffe_id, state)
 
+      {:error, :no_san_extension} ->
+        if certificate_ca?(cert) do
+          {:valid, state}
+        else
+          Logger.warning("Failed to verify peer SPIFFE ID: :no_san_extension")
+          {:fail, :no_san_extension}
+        end
+
       {:error, reason} ->
         Logger.warning("Failed to verify peer SPIFFE ID: #{inspect(reason)}")
         {:fail, reason}
@@ -554,7 +562,12 @@ defmodule ServiceRadar.SPIFFE do
   defp extract_spiffe_id(tbs_cert) do
     # Extract the Subject Alternative Name extension which contains the SPIFFE ID
     # The SPIFFE ID is stored as a URI type SAN
-    extensions = elem(tbs_cert, 8)
+    extensions =
+      if tuple_size(tbs_cert) > 10 do
+        elem(tbs_cert, 10)
+      else
+        :asn1_NOVALUE
+      end
 
     case find_san_extension(extensions) do
       nil ->
@@ -600,6 +613,26 @@ defmodule ServiceRadar.SPIFFE do
   end
 
   defp find_uri_san(_), do: nil
+
+  defp certificate_ca?(cert) when is_binary(cert) do
+    case :public_key.pkix_decode_cert(cert, :otp) do
+      {:OTPCertificate, tbs_cert, _, _} ->
+        extensions =
+          if tuple_size(tbs_cert) > 10 do
+            elem(tbs_cert, 10)
+          else
+            :asn1_NOVALUE
+          end
+
+        Enum.any?(extensions, fn
+          {:Extension, {2, 5, 29, 19}, _critical, {:BasicConstraints, true, _}} -> true
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  end
 
   defp verify_spiffe_id(spiffe_id) do
     trust_domain = config(:trust_domain, @trust_domain_default)
