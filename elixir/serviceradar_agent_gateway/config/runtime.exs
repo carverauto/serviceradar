@@ -31,10 +31,12 @@ topologies =
         # Connects to both core and other gateways via headless services
         namespace = System.get_env("NAMESPACE", "serviceradar")
         kubernetes_selector = System.get_env("KUBERNETES_SELECTOR", "app=serviceradar")
-        kubernetes_node_basename = System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar")
+        kubernetes_node_basename =
+          System.get_env("KUBERNETES_NODE_BASENAME", "serviceradar_agent_gateway")
 
         # Core service discovery (serviceradar-core-elx)
         core_service = System.get_env("CLUSTER_CORE_SERVICE", "serviceradar-core-elx-headless")
+        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
 
         [
           serviceradar: [
@@ -52,7 +54,7 @@ topologies =
             strategy: Cluster.Strategy.Kubernetes.DNS,
             config: [
               service: core_service,
-              application_name: "serviceradar",
+              application_name: core_node_basename,
               namespace: namespace,
               polling_interval: 5_000
             ]
@@ -62,10 +64,11 @@ topologies =
       "dns" ->
         # DNSPoll strategy for bare metal with service discovery
         dns_query = System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar")
+        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_agent_gateway")
 
         # Core DNS name (e.g., serviceradar-core.serviceradar.local)
         core_dns_query = System.get_env("CLUSTER_CORE_DNS_QUERY", dns_query)
+        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
 
         [
           serviceradar: [
@@ -81,7 +84,7 @@ topologies =
             config: [
               polling_interval: 5_000,
               query: core_dns_query,
-              node_basename: "serviceradar"
+              node_basename: core_node_basename
             ]
           ]
         ]

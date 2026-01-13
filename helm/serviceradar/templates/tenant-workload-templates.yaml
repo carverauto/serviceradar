@@ -49,6 +49,10 @@ spec:
         value: {{ "{{kubernetes_node_basename}}" | quote }}
       - name: CLUSTER_CORE_SERVICE
         value: {{ "{{core_service}}" | quote }}
+      - name: CLUSTER_CORE_NODE_BASENAME
+        value: {{ "{{core_node_basename}}" | quote }}
+      - name: GATEWAY_CERT_DIR
+        value: "/etc/serviceradar/certs"
     ports:
       - name: grpc
         containerPort: 50052

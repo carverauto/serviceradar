@@ -62,6 +62,8 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        - name: DATASVC_ENABLED
+          value: "false"
         - name: SECRET_KEY_BASE
           valueFrom:
             secretKeyRef:

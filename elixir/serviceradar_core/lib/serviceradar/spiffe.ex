@@ -236,7 +236,9 @@ defmodule ServiceRadar.SPIFFE do
   def certs_available? do
     case config(:mode, :filesystem) do
       :workload_api ->
-        false
+        socket = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+        socket_path = workload_api_socket_path(socket)
+        is_binary(socket_path) and File.exists?(socket_path)
 
       _ ->
         dir = cert_dir()
@@ -254,27 +256,12 @@ defmodule ServiceRadar.SPIFFE do
   """
   @spec cert_expiry(keyword()) :: {:ok, map()} | {:error, term()}
   def cert_expiry(opts \\ []) do
-    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
-    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+    case Keyword.get(opts, :mode, config(:mode, :filesystem)) do
+      :workload_api ->
+        cert_expiry_workload_api(opts)
 
-    with {:ok, pem} <- File.read(cert_file),
-         {:ok, der} <- extract_der_cert(pem),
-         {:ok, validity} <- decode_validity(der),
-         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
-         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
-      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
-      days_remaining = div(seconds_remaining, 86_400)
-
-      {:ok,
-       %{
-         not_before: not_before,
-         expires_at: not_after,
-         seconds_remaining: seconds_remaining,
-         days_remaining: days_remaining
-       }}
-    else
-      {:error, _} = error -> error
-      error -> {:error, error}
+      _ ->
+        cert_expiry_filesystem(opts)
     end
   end
 
@@ -286,28 +273,45 @@ defmodule ServiceRadar.SPIFFE do
   @spec watch_certificates(keyword()) :: {:ok, pid()} | {:error, term()}
   def watch_certificates(opts \\ []) do
     callback = Keyword.get(opts, :callback, fn -> :ok end)
-    dir = cert_dir()
 
-    # Use file_system library if available, otherwise poll
-    if Code.ensure_loaded?(FileSystem) do
-      {:ok, pid} = FileSystem.start_link(dirs: [dir])
-      FileSystem.subscribe(pid)
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        interval = Keyword.get(opts, :poll_interval, 60_000)
+        socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+        trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+        fingerprint = workload_api_fingerprint(socket, trust_domain)
 
-      spawn_link(fn ->
-        watch_loop(callback)
-      end)
+        pid =
+          spawn_link(fn ->
+            poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
+          end)
 
-      {:ok, pid}
-    else
-      # Fallback to polling
-      interval = Keyword.get(opts, :poll_interval, 60_000)
+        {:ok, pid}
 
-      pid =
-        spawn_link(fn ->
-          poll_certificates(callback, interval, get_cert_mtimes(dir))
-        end)
+      _ ->
+        dir = cert_dir()
 
-      {:ok, pid}
+        # Use file_system library if available, otherwise poll
+        if Code.ensure_loaded?(FileSystem) do
+          {:ok, pid} = FileSystem.start_link(dirs: [dir])
+          FileSystem.subscribe(pid)
+
+          spawn_link(fn ->
+            watch_loop(callback)
+          end)
+
+          {:ok, pid}
+        else
+          # Fallback to polling
+          interval = Keyword.get(opts, :poll_interval, 60_000)
+
+          pid =
+            spawn_link(fn ->
+              poll_certificates(callback, interval, get_cert_mtimes(dir))
+            end)
+
+          {:ok, pid}
+        end
     end
   end
 
@@ -395,6 +399,88 @@ defmodule ServiceRadar.SPIFFE do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp cert_expiry_workload_api(opts) do
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+
+    with {:ok, %{certs: [leaf | _]}} <-
+           ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
+         {:ok, validity} <- decode_validity(leaf),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:ok, %{certs: []}} -> {:error, :workload_api_no_certs}
+      {:error, _} = error -> error
+      error -> {:error, error}
+    end
+  end
+
+  defp cert_expiry_filesystem(opts) do
+    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
+    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+
+    with {:ok, pem} <- File.read(cert_file),
+         {:ok, der} <- extract_der_cert(pem),
+         {:ok, validity} <- decode_validity(der),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:error, _} = error -> error
+      error -> {:error, error}
+    end
+  end
+
+  defp workload_api_socket_path(socket) when is_binary(socket) do
+    case URI.parse(socket) do
+      %URI{scheme: "unix", path: path} when is_binary(path) -> path
+      %URI{scheme: nil} -> socket
+      %URI{scheme: "unix"} -> socket
+      _ -> nil
+    end
+  end
+
+  defp workload_api_socket_path(_), do: nil
+
+  defp workload_api_fingerprint(socket, trust_domain) do
+    case ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: [leaf | _]}} -> :crypto.hash(:sha256, leaf)
+      _ -> nil
+    end
+  end
+
+  defp poll_workload_api(callback, interval, socket, trust_domain, last_fingerprint) do
+    current = workload_api_fingerprint(socket, trust_domain)
+
+    if last_fingerprint && current && current != last_fingerprint do
+      callback.()
+    end
+
+    :timer.sleep(interval)
+
+    next_fingerprint = if current, do: current, else: last_fingerprint
+    poll_workload_api(callback, interval, socket, trust_domain, next_fingerprint)
   end
 
 

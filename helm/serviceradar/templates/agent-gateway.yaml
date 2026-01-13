@@ -2,7 +2,10 @@
 {{- if $gateway.enabled -}}
 {{- $gatewaySA := default "serviceradar-agent-gateway" $gateway.serviceAccountName -}}
 {{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" $gateway.kubernetesSelector -}}
-{{- $clusterNodeBasename := default "serviceradar" $gateway.kubernetesNodeBasename -}}
+{{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -67,7 +70,9 @@ spec:
           value: {{ $clusterNodeBasename | quote }}
         - name: CLUSTER_CORE_SERVICE
           value: {{ default "serviceradar-core-elx-headless" $gateway.clusterCoreService | quote }}
-        - name: SPIFFE_CERT_DIR
+        - name: CLUSTER_CORE_NODE_BASENAME
+          value: {{ $clusterCoreNodeBasename | quote }}
+        - name: GATEWAY_CERT_DIR
           value: "/etc/serviceradar/certs"
         volumeMounts:
         - name: cert-data

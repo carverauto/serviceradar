@@ -1,6 +1,6 @@
 ## ADDED Requirements
 ### Requirement: Platform SPIFFE mTLS for internal gRPC
-Platform services that communicate via gRPC (web-ng, datasvc, core-elx, agent-gateway) SHALL support SPIFFE SVID-based mTLS inside Kubernetes clusters. When SPIFFE Workload API mode is enabled, Elixir services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
+Platform services that communicate with datasvc via gRPC (web-ng, core-elx) SHALL support SPIFFE SVID-based mTLS inside Kubernetes clusters. Datasvc SHALL validate SPIFFE identities for those clients. When SPIFFE Workload API mode is enabled, Elixir services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
 
 #### Scenario: SPIFFE-enabled web-ng connects to datasvc
 - **GIVEN** SPIFFE is enabled for the cluster

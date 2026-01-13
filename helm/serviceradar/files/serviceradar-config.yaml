@@ -5,6 +5,15 @@
 {{- $datasvcSA := .Values.spire.datasvcServiceAccount | default "serviceradar-datasvc" -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $agentSA := default "serviceradar-agent" $agentVals.serviceAccount -}}
+{{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gatewayVals.service -}}
+{{- $gatewayPort := default 50052 $gatewayService.port -}}
+{{- $agentID := default "k8s-agent" $agentVals.agentId -}}
+{{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
+{{- $agentTenantSlug := default (default "platform" $gatewayVals.tenantSlug) $agentVals.tenantSlug -}}
+{{- $agentTenantCertDir := printf "/etc/serviceradar/certs/tenants/%s" $agentTenantSlug -}}
+{{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
+{{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
@@ -304,11 +313,11 @@ data:
   agent.json: |
       {
         "checkers_dir": "/etc/serviceradar/checkers",
-        "agent_id": "k8s-agent",
+        "agent_id": "{{$agentID}}",
         "agent_name": "agent",
         "host_ip": "agent",
-        "partition": "default",
-        "gateway_addr": "serviceradar-agent-gateway-platform:50052",
+        "partition": "{{$agentPartition}}",
+        "gateway_addr": "serviceradar-agent-gateway:{{$gatewayPort}}",
         "push_interval": "30s",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
@@ -339,16 +348,15 @@ data:
           }
         },
         "gateway_security": {
-          "mode": "spiffe",
-          "cert_dir": "/etc/serviceradar/certs",
+          "mode": "mtls",
+          "cert_dir": "{{$agentTenantCertDir}}",
+          "server_name": "serviceradar-agent-gateway",
           "role": "agent",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-agent-gateway-platform",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem"
+            "cert_file": "{{$agentComponentCert}}",
+            "key_file": "{{$agentComponentKey}}",
+            "ca_file": "ca-chain.pem",
+            "client_ca_file": "ca-chain.pem"
           }
         },
         "logging": {

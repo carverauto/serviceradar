@@ -11,6 +11,7 @@ ORGANIZATION="ServiceRadar"
 ORG_UNIT="Kubernetes"
 DEFAULT_TENANT_SLUG="${DEFAULT_TENANT_SLUG:-default}"
 DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-partition-1}"
+DEFAULT_AGENT_COMPONENT_ID="${DEFAULT_AGENT_COMPONENT_ID:-agent-001}"
 mkdir -p "$CERT_DIR"
 mkdir -p "$CERT_DIR/tenants"
 chmod 755 "$CERT_DIR"
@@ -181,4 +182,4 @@ EOF
 
 # Generate default tenant CA and component certs for development
 generate_tenant_ca "$DEFAULT_TENANT_SLUG"
-generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "agent-001" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:serviceradar-agent"
+generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "$DEFAULT_AGENT_COMPONENT_ID" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:serviceradar-agent"

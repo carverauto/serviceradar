@@ -113,8 +113,9 @@ tenantWorkloadOperator:
   trustDomain: ""
   spireSocketHostPath: ""
   clusterCoreService: "serviceradar-core-elx-headless"
+  clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
-  kubernetesNodeBasename: "serviceradar"
+  kubernetesNodeBasename: "serviceradar_agent_gateway"
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true
@@ -216,6 +217,8 @@ webNg:
     certName: "web"
     serverName: "datasvc.serviceradar"
 agent:
+  agentId: "k8s-agent"
+  partitionId: "default"
   resources:
     limits:
       cpu: 500m
@@ -233,8 +236,9 @@ agentGateway:
   tenantSlug: "platform"
   capabilities: "icmp,tcp,http,grpc"
   clusterCoreService: "serviceradar-core-elx-headless"
+  clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
-  kubernetesNodeBasename: "serviceradar"
+  kubernetesNodeBasename: "serviceradar_agent_gateway"
   service:
     port: 50052
   resources:

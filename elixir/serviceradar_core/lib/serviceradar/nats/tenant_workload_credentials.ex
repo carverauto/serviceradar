@@ -30,11 +30,17 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
 
   defp get_tenant(tenant_id) do
     actor = SystemActor.platform(:tenant_workload_credentials)
+    seed_attr = seed_attribute()
+    select_fields =
+      case seed_attr do
+        nil -> [:id, :slug, :nats_account_status]
+        attr -> [:id, :slug, :nats_account_status, attr]
+      end
 
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^tenant_id)
-    |> Ash.Query.select([:id, :slug, :nats_account_status, :nats_account_seed_ciphertext])
+    |> Ash.Query.select(select_fields)
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -46,7 +52,9 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
   defp validate_tenant_nats_ready(%{nats_account_status: :ready}), do: :ok
   defp validate_tenant_nats_ready(_), do: {:error, :tenant_nats_not_ready}
 
-  defp decrypt_account_seed(%{nats_account_seed_ciphertext: encrypted_value}) do
+  defp decrypt_account_seed(tenant) do
+    encrypted_value = account_seed_ciphertext(tenant)
+
     case encrypted_value do
       nil ->
         {:error, :account_seed_not_found}
@@ -65,6 +73,24 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
 
       _ ->
         {:error, :account_seed_not_found}
+    end
+  end
+
+  defp account_seed_ciphertext(tenant) do
+    Map.get(tenant, :nats_account_seed_ciphertext) ||
+      Map.get(tenant, :encrypted_nats_account_seed_ciphertext)
+  end
+
+  defp seed_attribute do
+    cond do
+      Ash.Resource.Info.attribute(Tenant, :nats_account_seed_ciphertext) ->
+        :nats_account_seed_ciphertext
+
+      Ash.Resource.Info.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
+        :encrypted_nats_account_seed_ciphertext
+
+      true ->
+        nil
     end
   end
 

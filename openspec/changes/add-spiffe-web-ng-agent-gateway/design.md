@@ -5,7 +5,7 @@ Demo-staging Helm installs are expected to use SPIFFE/SPIRE for in-cluster ident
 - Goals:
   - Enable web-ng to connect to datasvc using SPIFFE SVIDs in Kubernetes.
   - Preserve file-based mTLS behavior for Docker Compose and non-SPIFFE environments.
-  - Deploy serviceradar-agent-gateway via Helm with SPIFFE identity and cluster wiring.
+  - Deploy serviceradar-agent-gateway via Helm with tenant-CA mTLS and cluster wiring.
   - Keep Helm installs idempotent with no manual post-install steps.
 - Non-Goals:
   - Redefine tenant CA hierarchy or platform-admin cross-tenant access.
@@ -23,12 +23,12 @@ Demo-staging Helm installs are expected to use SPIFFE/SPIRE for in-cluster ident
 ## Risks / Trade-offs
 - Risk: Mixed TLS modes (SPIFFE vs file-based) could misconfigure services if envs are inconsistent.
   - Mitigation: Provide explicit Helm defaults and validation in values comments.
-- Risk: Agent-gateway defaults could start before SPIRE is ready, causing transient failures.
-  - Mitigation: Use readiness probes and retry logic; align SPIRE and gateway startup ordering in Helm.
+- Risk: Agent-gateway defaults could start before tenant CA certs are available, causing transient failures.
+  - Mitigation: Use readiness probes and ensure cert PVC/secret wiring is consistent in Helm.
 
 ## Migration Plan
 1. Add SPIFFE mode toggles and env wiring for web-ng datasvc connections.
-2. Add agent-gateway Helm templates and values; default to enabled in demo-staging.
+2. Add agent-gateway Helm templates and values; default to enabled in demo-staging (tenant-CA mTLS only).
 3. Roll Helm upgrade; verify datasvc connectivity, NATS bootstrap, and gateway readiness.
 
 ## Open Questions

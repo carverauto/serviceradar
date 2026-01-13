@@ -124,6 +124,8 @@ spec:
               value: {{ $cfg.tenantCredsSecretTemplate | quote }}
             - name: CLUSTER_CORE_SERVICE
               value: {{ $cfg.clusterCoreService | quote }}
+            - name: CLUSTER_CORE_NODE_BASENAME
+              value: {{ $cfg.clusterCoreNodeBasename | quote }}
             - name: KUBERNETES_SELECTOR
               value: {{ $cfg.kubernetesSelector | quote }}
             - name: KUBERNETES_NODE_BASENAME
