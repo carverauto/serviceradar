@@ -389,8 +389,8 @@ defmodule ServiceRadar.SPIFFE do
 
         {:ok, ssl_opts}
 
-      {:error, {:workload_api_unavailable, _}} ->
-        ssl_dist_opts_filesystem([])
+      {:error, {:workload_api_unavailable, _}} = error ->
+        error
 
       {:error, _reason} = error ->
         error
@@ -640,7 +640,12 @@ defmodule ServiceRadar.SPIFFE do
     case parse_spiffe_id(spiffe_id) do
       {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
       {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
-      error -> error
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
+          {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
+          error -> error
+        end
     end
   end
 

@@ -4,7 +4,7 @@
 namespace: demo-staging
 
 global:
-  imageTag: "sha-28cae8b11e2de5c60d8f8833f1453270a430287c"
+  imageTag: "sha-2eb55e8671d7ca050cc1c09ee65f330073ccf704"
   imagePullPolicy: Always
 
 image:

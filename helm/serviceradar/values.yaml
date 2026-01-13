@@ -121,6 +121,8 @@ checkerTemplates:
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  kubernetesSelector: "app=serviceradar-core"
+  kubernetesNodeBasename: "serviceradar_core"
   database:
     poolSize: 40
     queueTargetMs: 2000

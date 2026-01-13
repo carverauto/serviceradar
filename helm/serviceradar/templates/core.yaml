@@ -6,11 +6,11 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
-{{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" .Values.tenantWorkloadOperator.kubernetesSelector -}}
-{{- $clusterNodeBasename := default "serviceradar" .Values.tenantWorkloadOperator.kubernetesNodeBasename -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -60,12 +60,22 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         - name: KUBERNETES_SELECTOR
-          value: {{ $clusterSelector | quote }}
+          value: {{ $coreClusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
-          value: {{ $clusterNodeBasename | quote }}
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: RELEASE_NODE
+          value: "serviceradar_core@$(POD_NAME).$(POD_NAMESPACE).pod.cluster.local"
         - name: RELEASE_DISTRIBUTION
-          value: "sname"
+          value: "name"
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
         - name: SPIFFE_MODE
