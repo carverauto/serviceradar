@@ -11,8 +11,10 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
   alias ServiceRadar.Identity.Tenant
+  alias ServiceRadar.Identity.TenantLifecyclePublisher
 
   @zero_uuid "00000000-0000-0000-0000-000000000000"
+  @publish_retry_delay 10_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -48,12 +50,14 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
       {:ok, []} ->
         tenant = create_platform_tenant!(platform_slug)
         set_platform_tenant_id!(tenant.id, platform_slug)
+        publish_platform_lifecycle_event(:created, tenant)
         :ok
 
       {:ok, [tenant]} ->
         validate_platform_tenant!(tenant, platform_slug)
         ensure_platform_tenant_infrastructure!(tenant)
         set_platform_tenant_id!(tenant.id, platform_slug)
+        publish_platform_lifecycle_event(:updated, tenant)
         :ok
 
       {:ok, tenants} ->
@@ -188,6 +192,63 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
 
     if is_nil(default_tenant_id) or default_tenant_id == @zero_uuid do
       Application.put_env(:serviceradar_core, :default_tenant_id, platform_tenant_id)
+    end
+  end
+
+  @impl true
+  def handle_info({:publish_platform_event, tenant_id, event}, state) do
+    case fetch_platform_tenant(tenant_id) do
+      {:ok, tenant} ->
+        if publish_event(event, tenant) != :ok do
+          schedule_publish_retry(tenant_id, event)
+        end
+
+      {:error, reason} ->
+        Logger.warning("[PlatformTenantBootstrap] Retry publish failed to load tenant",
+          tenant_id: tenant_id,
+          reason: inspect(reason)
+        )
+
+        schedule_publish_retry(tenant_id, event)
+    end
+
+    {:noreply, state}
+  end
+
+  defp publish_platform_lifecycle_event(event, tenant) do
+    if publish_event(event, tenant) != :ok do
+      Logger.warning("[PlatformTenantBootstrap] Tenant lifecycle publish failed; retrying",
+        tenant_id: tenant.id,
+        event: event
+      )
+
+      schedule_publish_retry(tenant.id, event)
+    end
+  end
+
+  defp publish_event(:created, tenant), do: TenantLifecyclePublisher.publish_created(tenant)
+  defp publish_event(:updated, tenant), do: TenantLifecyclePublisher.publish_updated(tenant)
+  defp publish_event(:deleted, tenant), do: TenantLifecyclePublisher.publish_deleted(tenant)
+  defp publish_event(_event, tenant), do: TenantLifecyclePublisher.publish_updated(tenant)
+
+  defp schedule_publish_retry(tenant_id, event) do
+    Process.send_after(self(), {:publish_platform_event, tenant_id, event}, @publish_retry_delay)
+  end
+
+  defp fetch_platform_tenant(tenant_id) do
+    actor = SystemActor.platform(:platform_tenant_bootstrap)
+
+    query =
+      Tenant
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^tenant_id)
+      |> Ash.Query.select([:id, :slug, :status, :plan, :is_platform_tenant, :nats_account_status])
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [tenant]} -> {:ok, tenant}
+      {:ok, []} -> {:error, :not_found}
+      {:ok, tenants} -> {:error, {:unexpected_count, length(tenants)}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
