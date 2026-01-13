@@ -78,9 +78,9 @@ spec:
         - name: CNPG_CA_FILE
           value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: CNPG_CERT_FILE
-          value: "/etc/serviceradar/certs/web.pem"
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
         - name: CNPG_KEY_FILE
-          value: "/etc/serviceradar/certs/web-key.pem"
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs

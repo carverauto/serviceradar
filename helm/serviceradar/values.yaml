@@ -196,6 +196,8 @@ cnpg:
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
   caFile: /etc/serviceradar/cnpg/ca.crt
+  clientCertName: cnpg-client.pem
+  clientKeyName: cnpg-client-key.pem
   clientCASecret: ""
   clientCAFromCerts: false
   requireClientCert: false
