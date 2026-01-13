@@ -9,6 +9,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
@@ -18,6 +22,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
@@ -31,6 +39,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -48,6 +60,9 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: cnpg-client-ca
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   ttlSecondsAfterFinished: 300
   backoffLimit: 2
@@ -109,23 +124,6 @@ spec:
             has_secret=true
           fi
 
-          missing_keys=""
-          if [ "${has_secret}" = true ]; then
-            if ! jq -e '.data | has("ca.crt")' "${existing_secret}" >/dev/null; then
-              missing_keys="${missing_keys} ca.crt"
-            fi
-            if ! jq -e '.data | has("ca.key")' "${existing_secret}" >/dev/null; then
-              missing_keys="${missing_keys} ca.key"
-            fi
-            if [ -z "${missing_keys#"${missing_keys%%[![:space:]]*}"}" ]; then
-              echo "✅ CNPG client CA secret already present"
-              exit 0
-            fi
-            echo "ℹ️ CNPG client CA secret missing:${missing_keys}; patching in-place"
-          else
-            echo "ℹ️ CNPG client CA secret not found; creating"
-          fi
-
           CA_CERT_B64=$(base64 -w 0 "${CA_CERT}")
           CA_KEY_B64=$(base64 -w 0 "${CA_KEY}")
 
@@ -157,32 +155,19 @@ spec:
           fi
 
           patch_file=$(mktemp)
-          echo "[" > "${patch_file}"
-          first=1
-          add_patch() {
-            key="$1"
-            val="$2"
-            if [ "${first}" -eq 0 ]; then
-              echo "," >> "${patch_file}"
-            fi
-            first=0
-            printf '{"op":"add","path":"/data/%s","value":"%s"}' "${key}" "${val}" >> "${patch_file}"
-          }
-
-          if echo " ${missing_keys} " | grep -q " ca.crt "; then
-            add_patch "ca.crt" "${CA_CERT_B64}"
-          fi
-          if echo " ${missing_keys} " | grep -q " ca.key "; then
-            add_patch "ca.key" "${CA_KEY_B64}"
-          fi
-          echo "]" >> "${patch_file}"
+          cat <<EOF > "${patch_file}"
+          [
+            {"op":"add","path":"/data/ca.crt","value":"${CA_CERT_B64}"},
+            {"op":"add","path":"/data/ca.key","value":"${CA_KEY_B64}"}
+          ]
+          EOF
 
           curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
             --header "Content-Type: application/json-patch+json" \
             -X PATCH "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" \
             -d @"${patch_file}"
 
-          echo "✅ Patched ${SECRET_NAME}"
+          echo "✅ Reconciled ${SECRET_NAME}"
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
