@@ -89,6 +89,12 @@ ServiceRadar consists of these main components:
 - **OTEL**: OpenTelemetry metrics collector
 - **Zen**: Event processing and alerting engine
 
+## Tenant Behavior in Docker
+
+Docker Compose runs a single-tenant stack. The platform tenant uses static
+gateway and zen deployments, and no tenant workload operator or provisioning
+events are required.
+
 ## Configuration
 
 ### Environment Variables

@@ -47,6 +47,11 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: web-ng-secret-key-base
+        - name: SERVICERADAR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secrets | quote }}
+              key: api-key
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:

@@ -31,6 +31,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.NatsOperator
   alias ServiceRadar.NATS.AccountClient
+  alias ServiceRadar.NATS.ServiceAccountBootstrap
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
 
   @default_operator_name "serviceradar"
@@ -56,6 +57,21 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   def handle_info(:check_and_bootstrap, state) do
     new_state = do_bootstrap_check()
     {:noreply, Map.merge(state, new_state)}
+  end
+
+  def handle_info(:ensure_service_account, state) do
+    case ServiceAccountBootstrap.ensure_operator_account() do
+      {:ok, _account} ->
+        {:noreply, Map.put(state, :service_account, :ready)}
+
+      {:error, reason} ->
+        Logger.warning("[NATS Bootstrap] Operator service account not ready",
+          reason: inspect(reason)
+        )
+
+        Process.send_after(self(), :ensure_service_account, 30_000)
+        {:noreply, Map.put(state, :service_account, {:error, reason})}
+    end
   end
 
   def handle_info(_msg, state) do
@@ -196,6 +212,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   defp get_current_operator do
     # Operator bootstrap is a platform operation
     actor = SystemActor.platform(:operator_bootstrap)
+
     case NatsOperator
          |> Ash.Query.for_read(:get_current)
          |> Ash.Query.limit(1)
@@ -208,6 +225,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
 
   defp create_operator_record(name, result) do
     actor = SystemActor.platform(:operator_bootstrap)
+
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
@@ -223,6 +241,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
     # is_initialized, and system_account_public_key. The operator_jwt is not
     # available from this endpoint (only from BootstrapOperator).
     actor = SystemActor.platform(:operator_bootstrap)
+
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
@@ -242,6 +261,13 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
 
     # After operator is ready, ensure default tenant has NATS account
     ensure_default_tenant_nats_account()
+
+    # Provision operator service account after platform account exists
+    schedule_service_account_check()
+  end
+
+  defp schedule_service_account_check do
+    Process.send_after(self(), :ensure_service_account, 10_000)
   end
 
   defp ensure_default_tenant_nats_account do
@@ -276,7 +302,9 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp enqueue_tenant_account(tenant) do
-    Logger.info("[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})")
+    Logger.info(
+      "[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})"
+    )
 
     case CreateAccountWorker.enqueue(tenant.id) do
       {:ok, _job} ->
@@ -303,6 +331,7 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
     # Use :for_nats_provisioning action to avoid AshCloak decryption issues
     # when encrypted columns are NULL
     actor = SystemActor.platform(:operator_bootstrap)
+
     Tenant
     |> Ash.Query.for_read(:for_nats_provisioning)
     |> Ash.Query.filter(

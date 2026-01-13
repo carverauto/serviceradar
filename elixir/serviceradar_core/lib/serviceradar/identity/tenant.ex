@@ -30,15 +30,16 @@ defmodule ServiceRadar.Identity.Tenant do
     extensions: [AshCloak]
 
   postgres do
-    table "tenants"
-    repo ServiceRadar.Repo
+    table("tenants")
+    repo(ServiceRadar.Repo)
 
     custom_indexes do
       # Ensure only one platform tenant can exist
-      index [:is_platform_tenant],
+      index([:is_platform_tenant],
         unique: true,
         where: "is_platform_tenant = true",
         name: "tenants_unique_platform_tenant_index"
+      )
     end
   end
 
@@ -50,16 +51,16 @@ defmodule ServiceRadar.Identity.Tenant do
   end
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     read :by_slug do
-      argument :slug, :ci_string, allow_nil?: false
-      get? true
-      filter expr(slug == ^arg(:slug))
+      argument(:slug, :ci_string, allow_nil?: false)
+      get?(true)
+      filter(expr(slug == ^arg(:slug)))
     end
 
     read :active do
-      filter expr(status == :active)
+      filter(expr(status == :active))
     end
 
     read :for_nats_provisioning do
@@ -67,57 +68,64 @@ defmodule ServiceRadar.Identity.Tenant do
       Read tenants for NATS provisioning without loading encrypted fields.
       This avoids AshCloak decryption issues when encrypted columns are NULL.
       """
-      prepare fn query, _context ->
+      prepare(fn query, _context ->
         # Don't load any cloaked attributes to avoid decryption
         query
         |> Ash.Query.unload([:contact_email, :contact_name, :nats_account_seed_ciphertext])
-      end
+      end)
     end
 
     create :create do
-      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
-      change ServiceRadar.Identity.Changes.GenerateSlug
-      change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+      accept([:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users])
+      change(ServiceRadar.Identity.Changes.GenerateSlug)
+      change(ServiceRadar.Identity.Changes.InitializeTenantInfrastructure)
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :created})
     end
 
     create :create_platform do
-      accept [:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users]
-      change set_attribute(:is_platform_tenant, true)
-      change ServiceRadar.Identity.Changes.GenerateSlug
-      change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+      accept([:name, :slug, :contact_email, :contact_name, :plan, :max_devices, :max_users])
+      change(set_attribute(:is_platform_tenant, true))
+      change(ServiceRadar.Identity.Changes.GenerateSlug)
+      change(ServiceRadar.Identity.Changes.InitializeTenantInfrastructure)
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :created})
     end
 
     update :update do
-      accept [:name, :contact_email, :contact_name, :settings]
+      accept([:name, :contact_email, :contact_name, :settings])
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :upgrade_plan do
-      accept [:plan, :max_devices, :max_users]
+      accept([:plan, :max_devices, :max_users])
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :suspend do
-      change set_attribute(:status, :suspended)
+      change(set_attribute(:status, :suspended))
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :activate do
-      change set_attribute(:status, :active)
+      change(set_attribute(:status, :active))
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :soft_delete do
-      change set_attribute(:status, :deleted)
+      change(set_attribute(:status, :deleted))
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :deleted})
     end
 
     update :set_nats_account do
-      description "Set NATS account credentials after successful provisioning"
+      description("Set NATS account credentials after successful provisioning")
       # Non-atomic: encrypts seed and sets multiple attributes
-      require_atomic? false
-      accept []
+      require_atomic?(false)
+      accept([])
 
-      argument :account_public_key, :string, allow_nil?: false
-      argument :account_seed, :string, allow_nil?: false
-      argument :account_jwt, :string, allow_nil?: false
+      argument(:account_public_key, :string, allow_nil?: false)
+      argument(:account_seed, :string, allow_nil?: false)
+      argument(:account_jwt, :string, allow_nil?: false)
 
-      change fn changeset, _context ->
+      change(fn changeset, _context ->
         account_seed = Ash.Changeset.get_argument(changeset, :account_seed)
 
         changeset
@@ -127,80 +135,93 @@ defmodule ServiceRadar.Identity.Tenant do
         )
         # Use AshCloak.encrypt_and_set for encrypted attributes (the attribute is transformed to encrypted_*)
         |> AshCloak.encrypt_and_set(:nats_account_seed_ciphertext, account_seed)
-        |> Ash.Changeset.change_attribute(:nats_account_jwt, Ash.Changeset.get_argument(changeset, :account_jwt))
+        |> Ash.Changeset.change_attribute(
+          :nats_account_jwt,
+          Ash.Changeset.get_argument(changeset, :account_jwt)
+        )
         |> Ash.Changeset.change_attribute(:nats_account_status, :ready)
         |> Ash.Changeset.change_attribute(:nats_account_error, nil)
         |> Ash.Changeset.change_attribute(:nats_account_provisioned_at, DateTime.utc_now())
-      end
+      end)
+
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :set_nats_account_error do
-      description "Record NATS account provisioning failure"
+      description("Record NATS account provisioning failure")
       # Non-atomic: uses function to set error message from argument
-      require_atomic? false
-      accept []
+      require_atomic?(false)
+      accept([])
 
-      argument :error_message, :string, allow_nil?: false
+      argument(:error_message, :string, allow_nil?: false)
 
-      change set_attribute(:nats_account_status, :error)
-      change fn changeset, _context ->
+      change(set_attribute(:nats_account_status, :error))
+
+      change(fn changeset, _context ->
         Ash.Changeset.change_attribute(
           changeset,
           :nats_account_error,
           Ash.Changeset.get_argument(changeset, :error_message)
         )
-      end
+      end)
+
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :set_nats_account_pending do
-      description "Mark NATS account provisioning as pending"
-      accept []
-      change set_attribute(:nats_account_status, :pending)
-      change set_attribute(:nats_account_error, nil)
+      description("Mark NATS account provisioning as pending")
+      accept([])
+      change(set_attribute(:nats_account_status, :pending))
+      change(set_attribute(:nats_account_error, nil))
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :update_nats_account_jwt do
-      description "Update NATS account JWT (after re-signing)"
+      description("Update NATS account JWT (after re-signing)")
       # Non-atomic: uses function to set JWT from argument
-      require_atomic? false
-      accept []
+      require_atomic?(false)
+      accept([])
 
-      argument :account_jwt, :string, allow_nil?: false
+      argument(:account_jwt, :string, allow_nil?: false)
 
-      change fn changeset, _context ->
+      change(fn changeset, _context ->
         Ash.Changeset.change_attribute(
           changeset,
           :nats_account_jwt,
           Ash.Changeset.get_argument(changeset, :account_jwt)
         )
-      end
+      end)
+
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     update :clear_nats_account do
-      description "Clear NATS account credentials (revoke/reset)"
+      description("Clear NATS account credentials (revoke/reset)")
       # Non-atomic: clears encrypted seed attribute
-      require_atomic? false
-      accept []
+      require_atomic?(false)
+      accept([])
 
-      argument :reason, :string, allow_nil?: true
+      argument(:reason, :string, allow_nil?: true)
 
-      change set_attribute(:nats_account_public_key, nil)
-      change set_attribute(:nats_account_jwt, nil)
-      change set_attribute(:nats_account_status, nil)
-      change set_attribute(:nats_account_error, nil)
-      change set_attribute(:nats_account_provisioned_at, nil)
+      change(set_attribute(:nats_account_public_key, nil))
+      change(set_attribute(:nats_account_jwt, nil))
+      change(set_attribute(:nats_account_status, nil))
+      change(set_attribute(:nats_account_error, nil))
+      change(set_attribute(:nats_account_provisioned_at, nil))
 
-      change fn changeset, _context ->
+      change(fn changeset, _context ->
         Ash.Changeset.force_change_attribute(
           changeset,
           :encrypted_nats_account_seed_ciphertext,
           nil
         )
-      end
+      end)
+
+      change({ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent, event: :updated})
     end
 
     action :generate_ca, :struct do
-      description """
+      description("""
       Generate a per-tenant Certificate Authority for edge component isolation.
 
       Creates an intermediate CA signed by the platform root CA. All edge
@@ -209,27 +230,27 @@ defmodule ServiceRadar.Identity.Tenant do
 
       This action is idempotent - if an active CA already exists, it returns
       the existing CA.
-      """
+      """)
 
-      constraints instance_of: ServiceRadar.Edge.TenantCA
+      constraints(instance_of: ServiceRadar.Edge.TenantCA)
 
       argument :tenant, :struct do
-        constraints instance_of: ServiceRadar.Identity.Tenant
-        allow_nil? false
-        description "The tenant to generate CA for"
+        constraints(instance_of: ServiceRadar.Identity.Tenant)
+        allow_nil?(false)
+        description("The tenant to generate CA for")
       end
 
       argument :validity_years, :integer do
-        default 10
-        description "CA validity in years"
+        default(10)
+        description("CA validity in years")
       end
 
       argument :force_regenerate, :boolean do
-        default false
-        description "If true, revokes existing CA and generates new one"
+        default(false)
+        description("If true, revokes existing CA and generates new one")
       end
 
-      run fn input, _context ->
+      run(fn input, _context ->
         tenant = input.arguments.tenant
         validity_years = input.arguments.validity_years
         force_regenerate = input.arguments.force_regenerate
@@ -254,12 +275,13 @@ defmodule ServiceRadar.Identity.Tenant do
 
           existing_ca != nil and force_regenerate ->
             # Revoke existing and generate new
-            {:ok, _} = Ash.update(existing_ca, %{},
-              action: :revoke,
-              arguments: %{reason: "Regenerated by admin"},
-              tenant: tenant,
-              actor: actor
-            )
+            {:ok, _} =
+              Ash.update(existing_ca, %{},
+                action: :revoke,
+                arguments: %{reason: "Regenerated by admin"},
+                tenant: tenant,
+                actor: actor
+              )
 
             Ash.create(ServiceRadar.Edge.TenantCA, %{},
               action: :generate,
@@ -277,28 +299,31 @@ defmodule ServiceRadar.Identity.Tenant do
               actor: actor
             )
         end
-      end
+      end)
     end
 
     create :register do
-      description """
+      description("""
       Register a new tenant with an owner user.
 
       Creates the tenant, the owner user, and an owner membership in one transaction.
       This is the primary way to create new tenants during signup.
-      """
+      """)
 
-      accept [:name, :slug]
+      accept([:name, :slug])
 
       argument :owner, :map do
-        description "Owner user information (email, password, password_confirmation, display_name)"
-        allow_nil? false
+        description(
+          "Owner user information (email, password, password_confirmation, display_name)"
+        )
+
+        allow_nil?(false)
       end
 
-      change ServiceRadar.Identity.Changes.GenerateSlug
-      change ServiceRadar.Identity.Changes.InitializeTenantInfrastructure
+      change(ServiceRadar.Identity.Changes.GenerateSlug)
+      change(ServiceRadar.Identity.Changes.InitializeTenantInfrastructure)
 
-      change fn changeset, _ ->
+      change(fn changeset, _ ->
         changeset
         |> Ash.Changeset.after_action(fn _changeset, tenant ->
           first_user? = first_user?()
@@ -344,7 +369,7 @@ defmodule ServiceRadar.Identity.Tenant do
             {:error, error} -> {:error, error}
           end
         end)
-      end
+      end)
     end
   end
 
@@ -375,13 +400,16 @@ defmodule ServiceRadar.Identity.Tenant do
     |> Ash.read_one(actor: actor)
   end
 
-  defp ensure_platform_owner(true, %{id: tenant_id} = platform_tenant, user, actor) when is_binary(tenant_id) do
+  defp ensure_platform_owner(true, %{id: tenant_id} = platform_tenant, user, actor)
+       when is_binary(tenant_id) do
     with {:ok, _} <-
-           Ash.create(ServiceRadar.Identity.TenantMembership, %{
-             user_id: user.id,
-             tenant_id: tenant_id,
-             role: :owner
-           },
+           Ash.create(
+             ServiceRadar.Identity.TenantMembership,
+             %{
+               user_id: user.id,
+               tenant_id: tenant_id,
+               role: :owner
+             },
              actor: actor
            ),
          {:ok, _} <- Ash.update(platform_tenant, %{owner_id: user.id}, actor: actor) do
@@ -394,228 +422,232 @@ defmodule ServiceRadar.Identity.Tenant do
   policies do
     # Allow public tenant registration (no actor required)
     bypass action(:register) do
-      authorize_if always()
+      authorize_if(always())
     end
 
     # Super admins can do anything
     bypass action_type(:read) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     bypass action_type(:create) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     bypass action_type(:update) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     # Regular users can only read their own tenant
     policy action_type(:read) do
-      authorize_if expr(id == ^actor(:tenant_id))
+      authorize_if(expr(id == ^actor(:tenant_id)))
     end
 
     # Tenant admins can update their own tenant (limited fields)
     policy action(:update) do
-      authorize_if expr(id == ^actor(:tenant_id) and ^actor(:role) == :admin)
+      authorize_if(expr(id == ^actor(:tenant_id) and ^actor(:role) == :admin))
     end
 
     # Only super_admins can generate/regenerate tenant CAs
     policy action(:generate_ca) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     # NATS account actions are internal (system only, no actor)
     # These are called by Oban jobs with authorize?: false
     policy action(:set_nats_account) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     policy action(:set_nats_account_error) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     policy action(:set_nats_account_pending) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     policy action(:update_nats_account_jwt) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     policy action(:clear_nats_account) do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
   end
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key(:id)
 
     attribute :name, :string do
-      allow_nil? false
-      public? true
-      description "Human-readable tenant name"
+      allow_nil?(false)
+      public?(true)
+      description("Human-readable tenant name")
     end
 
     attribute :slug, :ci_string do
-      allow_nil? false
-      public? true
-      description "URL-safe unique identifier"
+      allow_nil?(false)
+      public?(true)
+      description("URL-safe unique identifier")
     end
 
     attribute :status, :atom do
-      allow_nil? false
-      default :active
-      public? true
-      constraints one_of: [:active, :suspended, :pending, :deleted]
-      description "Current tenant status"
+      allow_nil?(false)
+      default(:active)
+      public?(true)
+      constraints(one_of: [:active, :suspended, :pending, :deleted])
+      description("Current tenant status")
     end
 
     attribute :is_platform_tenant, :boolean do
-      allow_nil? false
-      default false
-      public? true
-      description "Whether this is the platform tenant (only one allowed)"
+      allow_nil?(false)
+      default(false)
+      public?(true)
+      description("Whether this is the platform tenant (only one allowed)")
     end
 
     attribute :settings, :map do
-      default %{}
-      public? true
-      description "Tenant-specific configuration settings"
+      default(%{})
+      public?(true)
+      description("Tenant-specific configuration settings")
     end
 
     attribute :plan, :atom do
-      default :free
-      public? true
-      constraints one_of: [:free, :pro, :enterprise]
-      description "Billing plan tier"
+      default(:free)
+      public?(true)
+      constraints(one_of: [:free, :pro, :enterprise])
+      description("Billing plan tier")
     end
 
     attribute :max_devices, :integer do
-      default 100
-      public? true
-      description "Maximum number of devices allowed"
+      default(100)
+      public?(true)
+      description("Maximum number of devices allowed")
     end
 
     attribute :max_users, :integer do
-      default 5
-      public? true
-      description "Maximum number of users allowed"
+      default(5)
+      public?(true)
+      description("Maximum number of users allowed")
     end
 
     attribute :contact_email, :string do
-      public? true
-      description "Primary contact email for the tenant"
+      public?(true)
+      description("Primary contact email for the tenant")
     end
 
     attribute :contact_name, :string do
-      public? true
-      description "Primary contact name"
+      public?(true)
+      description("Primary contact name")
     end
 
     attribute :owner_id, :uuid do
-      allow_nil? true
-      public? true
-      description "Owner user ID (set during registration)"
+      allow_nil?(true)
+      public?(true)
+      description("Owner user ID (set during registration)")
     end
 
     # NATS Account fields for multi-tenant isolation
     attribute :nats_account_public_key, :string do
-      allow_nil? true
-      public? false
-      description "NATS account public key (starts with 'A')"
+      allow_nil?(true)
+      public?(false)
+      description("NATS account public key (starts with 'A')")
     end
 
     attribute :nats_account_seed_ciphertext, :binary do
-      allow_nil? true
-      public? false
-      description "Encrypted NATS account seed (starts with 'SA' when decrypted)"
+      allow_nil?(true)
+      public?(false)
+      description("Encrypted NATS account seed (starts with 'SA' when decrypted)")
     end
 
     attribute :nats_account_jwt, :string do
-      allow_nil? true
-      public? false
-      constraints max_length: 8192
-      description "Signed NATS account JWT"
+      allow_nil?(true)
+      public?(false)
+      constraints(max_length: 8192)
+      description("Signed NATS account JWT")
     end
 
     attribute :nats_account_status, :atom do
-      allow_nil? true
-      public? false
-      constraints one_of: [:pending, :ready, :error]
-      description "NATS account provisioning status"
+      allow_nil?(true)
+      public?(false)
+      constraints(one_of: [:pending, :ready, :error])
+      description("NATS account provisioning status")
     end
 
     attribute :nats_account_error, :string do
-      allow_nil? true
-      public? false
-      description "Error message if NATS account provisioning failed"
+      allow_nil?(true)
+      public?(false)
+      description("Error message if NATS account provisioning failed")
     end
 
     attribute :nats_account_provisioned_at, :utc_datetime_usec do
-      allow_nil? true
-      public? false
-      description "When the NATS account was successfully provisioned"
+      allow_nil?(true)
+      public?(false)
+      description("When the NATS account was successfully provisioned")
     end
 
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
   end
 
   relationships do
     # Memberships for role-based access
     has_many :memberships, ServiceRadar.Identity.TenantMembership do
-      source_attribute :id
-      destination_attribute :tenant_id
-      public? true
+      source_attribute(:id)
+      destination_attribute(:tenant_id)
+      public?(true)
     end
 
     # Per-tenant certificate authorities for edge isolation
     has_many :certificate_authorities, ServiceRadar.Edge.TenantCA do
-      source_attribute :id
-      destination_attribute :tenant_id
-      public? true
+      source_attribute(:id)
+      destination_attribute(:tenant_id)
+      public?(true)
     end
 
     # Active CA for this tenant (used for generating new edge certs)
     has_one :active_ca, ServiceRadar.Edge.TenantCA do
-      source_attribute :id
-      destination_attribute :tenant_id
-      filter expr(status == :active)
-      public? true
+      source_attribute(:id)
+      destination_attribute(:tenant_id)
+      filter(expr(status == :active))
+      public?(true)
     end
   end
 
   calculations do
-    calculate :display_status,
-              :string,
-              expr(
-                if status == :active do
-                  "Active"
-                else
-                  if status == :suspended do
-                    "Suspended"
-                  else
-                    if status == :pending do
-                      "Pending"
-                    else
-                      "Deleted"
-                    end
-                  end
-                end
-              )
+    calculate(
+      :display_status,
+      :string,
+      expr(
+        if status == :active do
+          "Active"
+        else
+          if status == :suspended do
+            "Suspended"
+          else
+            if status == :pending do
+              "Pending"
+            else
+              "Deleted"
+            end
+          end
+        end
+      )
+    )
 
-    calculate :nats_account_ready?,
-              :boolean,
-              expr(nats_account_status == :ready and not is_nil(nats_account_jwt))
+    calculate(
+      :nats_account_ready?,
+      :boolean,
+      expr(nats_account_status == :ready and not is_nil(nats_account_jwt))
+    )
   end
 
   identities do
-    identity :unique_slug, [:slug]
+    identity(:unique_slug, [:slug])
   end
 
   validations do
-    validate ServiceRadar.Identity.Validations.UniquePlatformTenant
-    validate ServiceRadar.Identity.Validations.ReservedTenantSlug
+    validate(ServiceRadar.Identity.Validations.UniquePlatformTenant)
+    validate(ServiceRadar.Identity.Validations.ReservedTenantSlug)
   end
 end

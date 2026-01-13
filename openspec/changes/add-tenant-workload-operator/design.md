@@ -16,6 +16,9 @@ We need per-tenant workloads (agent-gateway, serviceradar-zen, and future servic
 - Implement the operator in Go using controller-runtime and CRDs or direct event reconciliation.
 - Create a dedicated NATS account for the operator during platform bootstrap; store credentials in a Kubernetes Secret that the operator mounts.
 - Operator obtains tenant-specific artifacts (mTLS certs, NATS creds, gateway/zen config) by calling core APIs and persists them as Kubernetes Secrets.
+- Use a shared namespace with tenant labels and NetworkPolicies instead of per-tenant namespaces.
+- Use SPIFFE identities for in-cluster workload authentication; avoid static cert Secrets for gateways/zen.
+- Event schema includes: `event_type`, `tenant_id`, `tenant_slug`, `status`, `plan`, `is_platform_tenant`, `nats_account_status`, `workloads`, and `timestamp`.
 
 ## Risks / Trade-offs
 - Event ordering and retry handling must be idempotent to avoid duplicate provisioning.
@@ -28,6 +31,4 @@ We need per-tenant workloads (agent-gateway, serviceradar-zen, and future servic
 3. Migrate tenant provisioning to emit events and verify operator reconciliation.
 
 ## Open Questions
-- Namespace strategy: per-tenant namespaces vs shared namespace with labels/NetworkPolicies.
-- SPIFFE: should in-cluster workloads use SPIFFE identities instead of static cert Secrets.
-- Event schema: define required fields for scale targets, regions, and optional workloads.
+- Event schema extensions for scale targets, regions, and future workload flags.

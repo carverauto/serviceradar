@@ -34,6 +34,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   alias ServiceRadar.Events.JobWriter
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.NATS.AccountClient
+  alias ServiceRadar.Identity.TenantLifecyclePublisher
 
   # Only select fields needed for NATS account creation.
   # Explicitly excludes encrypted fields (contact_email, contact_name,
@@ -81,8 +82,10 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"tenant_id" => tenant_id}, attempt: attempt, max_attempts: max} =
-        job) do
+  def perform(
+        %Oban.Job{args: %{"tenant_id" => tenant_id}, attempt: attempt, max_attempts: max} =
+          job
+      ) do
     Logger.info("Creating NATS account for tenant #{tenant_id} (attempt #{attempt}/#{max})")
 
     with {:ok, tenant} <- get_tenant(tenant_id),
@@ -208,11 +211,13 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     actor = SystemActor.platform(:nats_account_worker)
 
     tenant
-    |> Ash.Changeset.for_update(:set_nats_account, %{
-      account_public_key: result.account_public_key,
-      account_seed: result.account_seed,
-      account_jwt: result.account_jwt
-    }, actor: actor)
+    |> Ash.Changeset.for_update(
+      :set_nats_account,
+      %{
+        account_public_key: result.account_public_key,
+        account_seed: result.account_seed,
+        account_jwt: result.account_jwt
+      }, actor: actor)
     |> Ash.update()
   end
 
@@ -222,7 +227,9 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
         actor = SystemActor.platform(:nats_account_worker)
 
         tenant
-        |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message}, actor: actor)
+        |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message},
+          actor: actor
+        )
         |> Ash.update()
 
         :ok
@@ -355,11 +362,13 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
          {:ok, platform_seed} <- decrypt_account_seed(platform_tenant),
          {:ok, import_tenants} <- load_import_tenants(),
          imports <- build_stream_imports(import_tenants),
+         exports <- build_platform_exports(),
          {:ok, result} <-
            AccountClient.sign_account_jwt(
              to_string(platform_tenant.slug),
              platform_seed,
-             imports: imports
+             imports: imports,
+             exports: exports
            ),
          {:ok, _tenant} <- update_platform_jwt(platform_tenant, result.account_jwt),
          :ok <- push_platform_jwt(platform_tenant, result.account_jwt) do
@@ -458,11 +467,19 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     end)
   end
 
+  defp build_platform_exports do
+    [
+      %{subject: TenantLifecyclePublisher.subject_pattern(), name: "tenant-provisioning"}
+    ]
+  end
+
   defp update_platform_jwt(platform_tenant, account_jwt) do
     actor = SystemActor.platform(:nats_account_worker)
 
     platform_tenant
-    |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt}, actor: actor)
+    |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt},
+      actor: actor
+    )
     |> Ash.update()
   end
 

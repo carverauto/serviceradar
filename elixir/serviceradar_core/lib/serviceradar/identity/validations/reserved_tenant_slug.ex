@@ -5,6 +5,8 @@ defmodule ServiceRadar.Identity.Validations.ReservedTenantSlug do
 
   use Ash.Resource.Validation
 
+  @reserved_slugs ["serviceradar-operator"]
+
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
 
@@ -14,18 +16,19 @@ defmodule ServiceRadar.Identity.Validations.ReservedTenantSlug do
 
     if is_binary(slug) do
       platform_slug = platform_tenant_slug()
+      reserved_slugs = [platform_slug | @reserved_slugs]
       is_platform = platform_flag(changeset)
 
       cond do
+        slug in reserved_slugs and slug != platform_slug ->
+          {:error, field: :slug, message: "slug is reserved for internal platform services"}
+
         slug == platform_slug and not is_platform ->
-          {:error,
-           field: :slug,
-           message: "slug is reserved for the platform tenant"}
+          {:error, field: :slug, message: "slug is reserved for the platform tenant"}
 
         is_platform and slug != platform_slug ->
           {:error,
-           field: :slug,
-           message: "platform tenant must use reserved slug #{platform_slug}"}
+           field: :slug, message: "platform tenant must use reserved slug #{platform_slug}"}
 
         true ->
           :ok
