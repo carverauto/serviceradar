@@ -79,6 +79,21 @@ const (
 	defaultWorkloadSetNamePrefix = "serviceradar-tenant"
 )
 
+var (
+	errNATSURLRequired               = errors.New("NATS_URL is required")
+	errTenantNATSCredsSecretTemplate = errors.New("TENANT_NATS_CREDS_SECRET_TEMPLATE must contain %s placeholder")
+	errTenantEventSubjectRequired    = errors.New("tenant event subject is required")
+	errMissingTenantIdentifiers      = errors.New("missing tenant identifiers in event")
+	errMissingTemplateSpec           = errors.New("missing template spec")
+	errMissingWorkloadSetSpec        = errors.New("missing workload set spec")
+	errNoTenantWorkloadTemplates     = errors.New("no tenant workload templates available")
+	errNATSCredsSecretMissing        = errors.New("nats creds secret missing")
+	errCoreAPIURLRequired            = errors.New("CORE_API_URL is required to fetch tenant creds")
+	errCoreAPIStatus                 = errors.New("core api status")
+	errCoreAPIResponseMissingCreds   = errors.New("core api response missing creds")
+	errInvalidNATSCAFile             = errors.New("invalid NATS CA file")
+)
+
 type Config struct {
 	Namespace                 string
 	TrustDomain               string
@@ -257,21 +272,25 @@ type TenantWorkloadRef struct {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	cfg, err := loadConfig()
 	if err != nil {
+		stop()
 		log.Fatalf("config error: %v", err)
 	}
 
 	kubeClient, err := newKubeClient()
 	if err != nil {
+		stop()
 		log.Fatalf("kubernetes client error: %v", err)
 	}
 
 	if err := run(ctx, cfg, kubeClient); err != nil && !errors.Is(err, context.Canceled) {
+		stop()
 		log.Fatalf("operator error: %v", err)
 	}
+
+	stop()
 }
 
 func loadConfig() (Config, error) {
@@ -331,10 +350,10 @@ func loadConfig() (Config, error) {
 	}
 
 	if cfg.NATSURL == "" {
-		return Config{}, fmt.Errorf("NATS_URL is required")
+		return Config{}, errNATSURLRequired
 	}
 	if cfg.TenantNATSCredsSecretTmpl == "" || !strings.Contains(cfg.TenantNATSCredsSecretTmpl, "%s") {
-		return Config{}, fmt.Errorf("TENANT_NATS_CREDS_SECRET_TEMPLATE must contain %%s placeholder")
+		return Config{}, errTenantNATSCredsSecretTemplate
 	}
 	return cfg, nil
 }
@@ -444,7 +463,7 @@ func connectNATS(ctx context.Context, cfg Config) (*nats.Conn, jetstream.JetStre
 func ensureStream(ctx context.Context, js jetstream.JetStream, cfg Config) error {
 	subject := strings.TrimSpace(cfg.TenantSubject)
 	if subject == "" {
-		return fmt.Errorf("tenant event subject is required")
+		return errTenantEventSubjectRequired
 	}
 
 	stream, err := js.Stream(ctx, cfg.TenantStream)
@@ -551,7 +570,7 @@ func handleMessage(ctx context.Context, kubeClient client.Client, cfg Config, ms
 	}
 
 	if event.TenantID == "" || event.TenantSlug == "" {
-		return fmt.Errorf("missing tenant identifiers in event")
+		return errMissingTenantIdentifiers
 	}
 
 	isDelete := strings.EqualFold(event.EventType, "tenant.deleted") ||
@@ -654,7 +673,7 @@ func listTenantWorkloadSets(ctx context.Context, kubeClient client.Client, names
 func decodeTenantWorkloadTemplate(item unstructured.Unstructured) (TenantWorkloadTemplate, error) {
 	specMap, ok := item.Object["spec"].(map[string]interface{})
 	if !ok {
-		return TenantWorkloadTemplate{}, fmt.Errorf("missing template spec")
+		return TenantWorkloadTemplate{}, errMissingTemplateSpec
 	}
 	var spec TenantWorkloadTemplateSpec
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(specMap, &spec); err != nil {
@@ -674,7 +693,7 @@ func decodeTenantWorkloadTemplate(item unstructured.Unstructured) (TenantWorkloa
 func decodeTenantWorkloadSet(item unstructured.Unstructured) (TenantWorkloadSet, error) {
 	specMap, ok := item.Object["spec"].(map[string]interface{})
 	if !ok {
-		return TenantWorkloadSet{}, fmt.Errorf("missing workload set spec")
+		return TenantWorkloadSet{}, errMissingWorkloadSetSpec
 	}
 	var spec TenantWorkloadSetSpec
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(specMap, &spec); err != nil {
@@ -833,7 +852,7 @@ func resolveWorkloadRefs(
 	templates []TenantWorkloadTemplate,
 ) ([]TenantWorkloadRef, error) {
 	if len(templates) == 0 {
-		return nil, fmt.Errorf("no tenant workload templates available")
+		return nil, errNoTenantWorkloadTemplates
 	}
 
 	requested := event.Workloads
@@ -862,7 +881,7 @@ func resolveWorkloadRefs(
 	}
 
 	var refs []TenantWorkloadRef
-	var unknown []string
+	unknown := make([]string, 0, len(requested))
 	seen := map[string]bool{}
 	for _, workload := range requested {
 		normalized := normalizeWorkloadName(workload)
@@ -977,10 +996,7 @@ func ensureWorkloadResources(
 		}
 	}
 
-	podSpec, err := buildWorkloadPodSpec(cfg, set, template, serviceAccount, configMapName, natsSecretName)
-	if err != nil {
-		return err
-	}
+	podSpec := buildWorkloadPodSpec(cfg, set, template, serviceAccount, configMapName, natsSecretName)
 
 	switch strings.ToLower(template.Spec.WorkloadKind) {
 	case "daemonset":
@@ -988,7 +1004,7 @@ func ensureWorkloadResources(
 		_, err := controllerutil.CreateOrUpdate(ctx, kubeClient, daemonSet, func() error {
 			daemonSet.Labels = mergeLabels(daemonSet.Labels, labels)
 			daemonSet.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-			daemonSet.Spec.Template.ObjectMeta.Labels = labels
+			daemonSet.Spec.Template.Labels = labels
 			daemonSet.Spec.Template.Spec = podSpec
 			return nil
 		})
@@ -1002,7 +1018,7 @@ func ensureWorkloadResources(
 			deployment.Labels = mergeLabels(deployment.Labels, labels)
 			deployment.Spec.Replicas = int32ptr(replicas)
 			deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
-			deployment.Spec.Template.ObjectMeta.Labels = labels
+			deployment.Spec.Template.Labels = labels
 			deployment.Spec.Template.Spec = podSpec
 			return nil
 		})
@@ -1123,7 +1139,7 @@ func buildWorkloadPodSpec(
 	serviceAccount string,
 	configMapName string,
 	natsSecretName string,
-) (corev1.PodSpec, error) {
+) corev1.PodSpec {
 	renderValues := templateRenderValues(cfg, set, template)
 	containerSpec := template.Spec.Container
 	container := corev1.Container{
@@ -1217,7 +1233,7 @@ func buildWorkloadPodSpec(
 		Containers:                   []corev1.Container{container},
 		Volumes:                      volumes,
 	}
-	return podSpec, nil
+	return podSpec
 }
 
 func ensureWorkloadConfigMap(
@@ -1238,10 +1254,7 @@ func ensureWorkloadConfigMap(
 	}
 
 	if template.Spec.ConfigMap != nil && strings.EqualFold(template.Spec.ConfigMap.Generator, "zen") {
-		config, err := buildZenConfig(cfg, set.Spec.TenantSlug)
-		if err != nil {
-			return "", err
-		}
+		config := buildZenConfig(cfg, set.Spec.TenantSlug)
 		payload, err := json.MarshalIndent(config, "", "  ")
 		if err != nil {
 			return "", fmt.Errorf("marshal zen config: %w", err)
@@ -1273,7 +1286,7 @@ func workloadConfigMapName(cfg Config, set TenantWorkloadSet, template TenantWor
 	return sanitizeName(rendered)
 }
 
-func buildZenConfig(cfg Config, tenantSlug string) (ZenConfig, error) {
+func buildZenConfig(cfg Config, tenantSlug string) ZenConfig {
 	credsPath := "/etc/serviceradar/creds/nats.creds"
 	subjectPrefix := strings.TrimSpace(tenantSlug)
 	zenConfig := ZenConfig{
@@ -1294,7 +1307,7 @@ func buildZenConfig(cfg Config, tenantSlug string) (ZenConfig, error) {
 			WorkloadSocket: cfg.SpireSocketPath,
 		},
 	}
-	return zenConfig, nil
+	return zenConfig
 }
 
 func ensureServiceAccount(
@@ -1375,7 +1388,7 @@ func ensureTenantCredsSecret(
 	}
 
 	if cfg.CoreAPIURL == "" || cfg.CoreAPIKey == "" {
-		return fmt.Errorf("nats creds secret missing: %s", secretName)
+		return fmt.Errorf("%w: %s", errNATSCredsSecretMissing, secretName)
 	}
 
 	creds, err := fetchTenantCreds(ctx, cfg, tenantID, workloadType)
@@ -1408,7 +1421,7 @@ func fetchTenantCreds(
 ) (string, error) {
 	baseURL := strings.TrimRight(cfg.CoreAPIURL, "/")
 	if baseURL == "" {
-		return "", fmt.Errorf("CORE_API_URL is required to fetch tenant creds")
+		return "", errCoreAPIURLRequired
 	}
 
 	endpoint, err := url.JoinPath(baseURL, "api/admin/tenant-workloads", tenantID, "credentials")
@@ -1437,14 +1450,18 @@ func fetchTenantCreds(
 	if err != nil {
 		return "", fmt.Errorf("core api request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("close core api response body: %v", err)
+		}
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("read core api response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("core api status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return "", fmt.Errorf("%w: %d: %s", errCoreAPIStatus, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
 	var response TenantCredentialResponse
@@ -1452,7 +1469,7 @@ func fetchTenantCreds(
 		return "", fmt.Errorf("decode core api response: %w", err)
 	}
 	if response.Creds == "" {
-		return "", fmt.Errorf("core api response missing creds")
+		return "", errCoreAPIResponseMissingCreds
 	}
 
 	return response.Creds, nil
@@ -1717,7 +1734,7 @@ func buildTLSConfig(cfg Config) (*tls.Config, error) {
 			return nil, fmt.Errorf("read NATS CA file: %w", err)
 		}
 		if !rootCAs.AppendCertsFromPEM(certBytes) {
-			return nil, fmt.Errorf("invalid NATS CA file")
+			return nil, errInvalidNATSCAFile
 		}
 		tlsConfig.RootCAs = rootCAs
 	}

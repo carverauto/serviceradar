@@ -7,16 +7,16 @@ defmodule ServiceRadar.NATS.ServiceAccountBootstrap do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.TenantLifecyclePublisher
   alias ServiceRadar.Infrastructure.NatsServiceAccount
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.NATS.AccountClient
 
   @operator_account_name "tenant-workload-operator"
   @operator_account_slug "serviceradar-operator"
   @operator_user_name "tenant-workload-operator"
 
-  @spec ensure_operator_account() :: {:ok, %NatsServiceAccount{}} | {:error, term()}
+  @spec ensure_operator_account() :: {:ok, NatsServiceAccount.t()} | {:error, term()}
   def ensure_operator_account do
     case get_service_account() do
       {:ok, %NatsServiceAccount{status: :ready} = account} ->
