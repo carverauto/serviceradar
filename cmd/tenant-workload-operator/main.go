@@ -427,6 +427,11 @@ func connectNATS(ctx context.Context, cfg Config) (*nats.Conn, jetstream.JetStre
 		return nil, nil, nil, fmt.Errorf("create jetstream: %w", err)
 	}
 
+	if err := ensureStream(ctx, js, cfg); err != nil {
+		nc.Close()
+		return nil, nil, nil, err
+	}
+
 	consumer, err := ensureConsumer(ctx, js, cfg)
 	if err != nil {
 		nc.Close()
@@ -434,6 +439,42 @@ func connectNATS(ctx context.Context, cfg Config) (*nats.Conn, jetstream.JetStre
 	}
 
 	return nc, js, consumer, nil
+}
+
+func ensureStream(ctx context.Context, js jetstream.JetStream, cfg Config) error {
+	subject := strings.TrimSpace(cfg.TenantSubject)
+	if subject == "" {
+		return fmt.Errorf("tenant event subject is required")
+	}
+
+	stream, err := js.Stream(ctx, cfg.TenantStream)
+	switch {
+	case err == nil:
+		info, infoErr := stream.Info(ctx)
+		if infoErr != nil {
+			return fmt.Errorf("stream info for %s: %w", cfg.TenantStream, infoErr)
+		}
+		updatedSubjects := ensureSubjectList(info.Config.Subjects, subject)
+		if len(updatedSubjects) != len(info.Config.Subjects) {
+			streamCfg := info.Config
+			streamCfg.Subjects = updatedSubjects
+			if _, err := js.CreateOrUpdateStream(ctx, streamCfg); err != nil {
+				return fmt.Errorf("update stream %s subjects: %w", cfg.TenantStream, err)
+			}
+		}
+		return nil
+	case isStreamMissingErr(err):
+		streamCfg := jetstream.StreamConfig{
+			Name:     cfg.TenantStream,
+			Subjects: []string{subject},
+		}
+		if _, err := js.CreateOrUpdateStream(ctx, streamCfg); err != nil {
+			return fmt.Errorf("create stream %s: %w", cfg.TenantStream, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("lookup stream %s: %w", cfg.TenantStream, err)
+	}
 }
 
 func ensureConsumer(ctx context.Context, js jetstream.JetStream, cfg Config) (jetstream.Consumer, error) {
@@ -453,6 +494,54 @@ func ensureConsumer(ctx context.Context, js jetstream.JetStream, cfg Config) (je
 		return nil, fmt.Errorf("create consumer: %w", err)
 	}
 	return consumer, nil
+}
+
+func ensureSubjectList(subjects []string, subject string) []string {
+	if len(subjects) == 0 {
+		return []string{subject}
+	}
+
+	for _, existing := range subjects {
+		if matchesSubject(existing, subject) {
+			return subjects
+		}
+	}
+
+	return append(subjects, subject)
+}
+
+func matchesSubject(pattern, subject string) bool {
+	if pattern == subject || pattern == ">" {
+		return true
+	}
+
+	patternTokens := strings.Split(pattern, ".")
+	subjectTokens := strings.Split(subject, ".")
+
+	for i, token := range patternTokens {
+		if token == ">" {
+			return true
+		}
+		if i >= len(subjectTokens) {
+			return false
+		}
+		if token == "*" {
+			continue
+		}
+		if token != subjectTokens[i] {
+			return false
+		}
+	}
+
+	return len(patternTokens) == len(subjectTokens)
+}
+
+func isStreamMissingErr(err error) bool {
+	return errors.Is(err, jetstream.ErrStreamNotFound) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrStreamNotFound) ||
+		errors.Is(err, nats.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrNoResponders)
 }
 
 func handleMessage(ctx context.Context, kubeClient client.Client, cfg Config, msg jetstream.Msg) error {
