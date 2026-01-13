@@ -53,6 +53,14 @@ spec:
       - name: grpc
         containerPort: 50052
         protocol: TCP
+    volumeMounts:
+      - name: cert-data
+        mountPath: /etc/serviceradar/certs
+        readOnly: true
+  volumes:
+    - name: cert-data
+      persistentVolumeClaim:
+        claimName: serviceradar-cert-data
   spiffe:
     enabled: false
   service:

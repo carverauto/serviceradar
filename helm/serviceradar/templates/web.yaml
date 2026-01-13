@@ -4,6 +4,8 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
 {{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
 {{- $datasvcPort := default 50057 $datasvc.port -}}
@@ -108,11 +110,15 @@ spec:
           value: {{ $datasvcServerName | quote }}
         {{- if eq $datasvcSecModeLower "spiffe" }}
         - name: SPIFFE_TRUST_DOMAIN
-          value: {{ .Values.spire.trustDomain | default "carverauto.dev" | quote }}
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
         - name: SPIFFE_CERT_DIR
           value: {{ $datasvcCertDir | quote }}
         - name: SPIFFE_WORKLOAD_API_SOCKET
           value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
         {{- end }}
         volumeMounts:
         - name: cert-data
@@ -124,6 +130,9 @@ spec:
         {{- if eq $datasvcSecModeLower "spiffe" }}
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
           readOnly: true
         {{- end }}
         resources:
@@ -161,6 +170,9 @@ spec:
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
       {{- end }}
 ---
 apiVersion: v1

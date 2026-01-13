@@ -87,8 +87,9 @@ defmodule ServiceRadar.SPIFFE do
       # Client options don't need server-specific settings
       client_opts =
         base_opts
-        |> Keyword.delete(:verify_fun)
+        |> Keyword.delete(:fail_if_no_peer_cert)
         |> Keyword.put(:verify, :verify_peer)
+        |> Keyword.put(:customize_hostname_check, [match_fun: &allow_any_hostname/2])
 
       {:ok, client_opts}
     end
@@ -217,11 +218,17 @@ defmodule ServiceRadar.SPIFFE do
   """
   @spec certs_available?() :: boolean()
   def certs_available? do
-    dir = cert_dir()
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        false
 
-    File.exists?(Path.join(dir, "svid.pem")) and
-      File.exists?(Path.join(dir, "svid-key.pem")) and
-      File.exists?(Path.join(dir, "bundle.pem"))
+      _ ->
+        dir = cert_dir()
+
+        File.exists?(Path.join(dir, "svid.pem")) and
+          File.exists?(Path.join(dir, "svid-key.pem")) and
+          File.exists?(Path.join(dir, "bundle.pem"))
+    end
   end
 
   @doc """
@@ -319,26 +326,48 @@ defmodule ServiceRadar.SPIFFE do
           fail_if_no_peer_cert: true,
           verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
           depth: 2,
-          versions: [:"tlsv1.3", :"tlsv1.2"],
-          ciphers: :ssl.cipher_suites(:default, :"tlsv1.3")
+          versions: [:"tlsv1.3", :"tlsv1.2"]
         ]
+
+        ssl_opts =
+          case extra_cacerts(opts) do
+            [] -> ssl_opts
+            extra -> Keyword.put(ssl_opts, :cacerts, extra)
+          end
 
         {:ok, ssl_opts}
     end
   end
 
-  defp ssl_dist_opts_workload_api(_opts) do
-    # SPIRE Workload API integration
-    # This would use the SPIRE agent's Unix domain socket
-    socket_path = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+  defp ssl_dist_opts_workload_api(opts) do
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
-    if File.exists?(socket_path) do
-      Logger.warning("SPIRE Workload API mode not yet implemented, falling back to filesystem")
-      ssl_dist_opts_filesystem([])
-    else
-      {:error, {:workload_api_unavailable, socket_path}}
+    case ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
+        extra_cacerts = extra_cacerts(opts)
+
+        ssl_opts = [
+          cert: certs,
+          key: key,
+          cacerts: cacerts ++ extra_cacerts,
+          verify: :verify_peer,
+          fail_if_no_peer_cert: true,
+          verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
+          depth: 2,
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+        {:ok, ssl_opts}
+
+      {:error, {:workload_api_unavailable, _}} ->
+        ssl_dist_opts_filesystem([])
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
 
   defp extract_der_cert(pem) do
     pem
@@ -348,6 +377,39 @@ defmodule ServiceRadar.SPIFFE do
       {:Certificate, der, _} -> {:ok, der}
       nil -> {:error, :no_certificate}
     end
+  end
+
+  defp allow_any_hostname(_hostname, _cert), do: true
+
+  defp extra_cacerts(opts) do
+    bundle_path =
+      Keyword.get(opts, :trust_bundle_path) ||
+        config(:trust_bundle_path, System.get_env("SPIFFE_TRUST_BUNDLE_PATH"))
+
+    cond do
+      not is_binary(bundle_path) or bundle_path == "" ->
+        []
+
+      not File.exists?(bundle_path) ->
+        []
+
+      true ->
+        bundle_path
+        |> File.read()
+        |> case do
+          {:ok, pem} -> pem_cacerts(pem)
+          _ -> []
+        end
+    end
+  end
+
+  defp pem_cacerts(pem) do
+    pem
+    |> :public_key.pem_decode()
+    |> Enum.flat_map(fn
+      {:Certificate, der, _} -> [der]
+      _ -> []
+    end)
   end
 
   defp decode_validity(der) do

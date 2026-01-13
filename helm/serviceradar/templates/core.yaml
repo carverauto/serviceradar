@@ -1,5 +1,6 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
@@ -65,10 +66,14 @@ spec:
           value: {{ $clusterNodeBasename | quote }}
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
         - name: SPIFFE_CERT_DIR
           value: "/etc/serviceradar/certs"
         - name: SPIFFE_WORKLOAD_API_SOCKET
           value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
@@ -127,6 +132,8 @@ spec:
           value: "serviceradar-datasvc"
         - name: DATASVC_PORT
           value: "50057"
+        - name: DATASVC_SEC_MODE
+          value: {{ default "spiffe" .Values.kv.secMode | quote }}
         - name: DATASVC_SSL
           value: "true"
         - name: DATASVC_CERT_DIR
@@ -155,6 +162,9 @@ spec:
           readOnly: true
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
           readOnly: true
         resources:
           limits:
@@ -192,6 +202,9 @@ spec:
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
 ---
 apiVersion: v1
 kind: Service

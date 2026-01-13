@@ -5,3 +5,4 @@
 - [x] 1.4 Ensure Helm service discovery works for datasvc (service alias or explicit host) without manual tweaks.
 - [x] 1.5 Document new Helm values in chart values or README snippets.
 - [x] 1.6 Validate rendered Helm manifests (template) and capture smoke-test steps for demo-staging.
+- [x] 1.7 Implement SPIFFE Workload API support in Elixir and wire SPIFFE_MODE for Helm installs.

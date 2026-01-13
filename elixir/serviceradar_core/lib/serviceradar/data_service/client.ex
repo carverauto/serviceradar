@@ -383,10 +383,6 @@ defmodule ServiceRadar.DataService.Client do
 
         case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
           {:ok, ssl_opts} ->
-            ssl_opts =
-              ssl_opts
-              |> Keyword.put(:server_name_indication, String.to_charlist(config.server_name))
-
             Logger.info("Connecting to datasvc with SPIFFE mTLS")
             {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
 

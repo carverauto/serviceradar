@@ -209,7 +209,7 @@ webNg:
   datasvc:
     host: "serviceradar-datasvc"
     port: 50057
-    secMode: "mtls"
+    secMode: "spiffe"
     certDir: "/etc/serviceradar/certs"
     certName: "web"
     serverName: "datasvc.serviceradar"
@@ -434,5 +434,5 @@ sweep:
 # =============================================================================
 
 spiffe:
-  mode: "filesystem"
+  mode: "workload_api"
   trustDomain: "serviceradar.local"

@@ -5,6 +5,7 @@ The demo-staging Helm install relies on SPIFFE for in-cluster identity, but web-
 
 ## What Changes
 - Add SPIFFE-aware gRPC configuration in web-ng so datasvc connections can use SPIFFE SVIDs in Kubernetes while retaining file-based mTLS for Docker Compose.
+- Implement SPIFFE Workload API support in Elixir so web-ng/core-elx can fetch X.509 SVIDs via the SPIRE agent socket.
 - Add Helm values and templates to deploy serviceradar-agent-gateway with tenant-CA mTLS for edge gRPC and ERTS cluster wiring (no SPIFFE on gateway).
 - Ensure Helm installs set the correct datasvc connection parameters for web-ng (service hostname + TLS mode selection) so NATS bootstrap succeeds.
 
