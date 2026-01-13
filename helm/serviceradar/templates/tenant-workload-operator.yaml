@@ -6,6 +6,8 @@
 {{- $imageTag := $cfg.image.tag | default (include "serviceradar.imageTag" (dict "Values" .Values "service" "tenantWorkloadOperator")) -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- $coreApi := default (dict) $cfg.coreApi -}}
+{{- $nats := default (dict) $cfg.nats -}}
+{{- $natsTLS := default (dict) $nats.tls -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -83,7 +85,23 @@ spec:
             - name: SPIFFE_WORKLOAD_API_SOCKET
               value: "unix:/run/spire/sockets/agent.sock"
             - name: NATS_URL
-              value: {{ $cfg.nats.url | quote }}
+              value: {{ $nats.url | quote }}
+            {{- if $natsTLS.caFile }}
+            - name: NATS_TLS_CA_FILE
+              value: {{ $natsTLS.caFile | quote }}
+            {{- end }}
+            {{- if $natsTLS.certFile }}
+            - name: NATS_TLS_CERT_FILE
+              value: {{ $natsTLS.certFile | quote }}
+            {{- end }}
+            {{- if $natsTLS.keyFile }}
+            - name: NATS_TLS_KEY_FILE
+              value: {{ $natsTLS.keyFile | quote }}
+            {{- end }}
+            {{- if $natsTLS.serverName }}
+            - name: NATS_TLS_SERVER_NAME
+              value: {{ $natsTLS.serverName | quote }}
+            {{- end }}
             - name: TENANT_EVENT_STREAM
               value: {{ $cfg.eventStream | quote }}
             - name: TENANT_EVENT_SUBJECT
@@ -127,15 +145,18 @@ spec:
             - name: TENANT_CERTS_SECRET
               value: {{ $cfg.tenantCertsSecret | quote }}
             {{- end }}
-            {{- if $cfg.nats.credsSecret }}
+            {{- if $nats.credsSecret }}
             - name: NATS_CREDS_FILE
-              value: "/etc/serviceradar/creds/{{ $cfg.nats.credsKey }}"
+              value: "/etc/serviceradar/creds/{{ $nats.credsKey }}"
             {{- end }}
           volumeMounts:
             - name: spire-agent-socket
               mountPath: /run/spire/sockets
               readOnly: true
-            {{- if $cfg.nats.credsSecret }}
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+            {{- if $nats.credsSecret }}
             - name: nats-creds
               mountPath: /etc/serviceradar/creds
               readOnly: true
@@ -145,9 +166,12 @@ spec:
           hostPath:
             path: {{ $socketHostPath | quote }}
             type: DirectoryOrCreate
-        {{- if $cfg.nats.credsSecret }}
+        - name: cert-data
+          persistentVolumeClaim:
+            claimName: serviceradar-cert-data
+        {{- if $nats.credsSecret }}
         - name: nats-creds
           secret:
-            secretName: {{ $cfg.nats.credsSecret | quote }}
+            secretName: {{ $nats.credsSecret | quote }}
         {{- end }}
 {{- end }}
