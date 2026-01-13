@@ -2,64 +2,67 @@
 
 ## Phase 1: Library Foundation (`pkg/sysmon`)
 
-- [ ] 1.1 Create `pkg/sysmon/config.go` with Config struct and JSON marshaling
-- [ ] 1.2 Create `pkg/sysmon/metrics.go` with MetricSample struct (compatible with Rust output)
-- [ ] 1.3 Create `pkg/sysmon/collector.go` with Collector interface and base implementation
-- [ ] 1.4 Implement `pkg/sysmon/cpu.go` CPU metrics using gopsutil
-- [ ] 1.5 Add `pkg/sysmon/cpu_darwin.go` for macOS-specific CPU frequency handling
-- [ ] 1.6 Implement `pkg/sysmon/memory.go` memory metrics using gopsutil
-- [ ] 1.7 Implement `pkg/sysmon/disk.go` disk metrics with configurable paths
-- [ ] 1.8 Implement `pkg/sysmon/network.go` network interface metrics
-- [ ] 1.9 Implement `pkg/sysmon/process.go` top-N process collection
-- [ ] 1.10 Write unit tests for all metric collectors
-- [ ] 1.11 Verify MetricSample JSON output matches existing Rust sysmon format
-- [ ] 1.12 Test on macOS (Intel and Apple Silicon)
+- [x] 1.1 Create `pkg/sysmon/config.go` with Config struct and JSON marshaling
+- [x] 1.2 Create `pkg/sysmon/metrics.go` with MetricSample struct (compatible with Rust output)
+- [x] 1.3 Create `pkg/sysmon/collector.go` with Collector interface and base implementation
+- [x] 1.4 Implement `pkg/sysmon/cpu.go` CPU metrics using gopsutil
+- [x] 1.5 Add `pkg/sysmon/cpu_darwin.go` for macOS-specific CPU frequency handling (via cpufreq package)
+- [x] 1.6 Implement `pkg/sysmon/memory.go` memory metrics using gopsutil
+- [x] 1.7 Implement `pkg/sysmon/disk.go` disk metrics with configurable paths
+- [x] 1.8 Implement `pkg/sysmon/network.go` network interface metrics
+- [x] 1.9 Implement `pkg/sysmon/process.go` process collection (all processes, backend decides topN)
+- [x] 1.10 Write unit tests for all metric collectors
+- [x] 1.11 Verify MetricSample JSON output matches existing Rust sysmon format
+- [x] 1.12 Test on macOS (Intel and Apple Silicon)
 - [ ] 1.13 Test on Linux (Debian-based and RHEL-based)
 
 ## Phase 2: Agent Integration
 
-- [ ] 2.1 Add `SysmonConfig` to agent config structures
-- [ ] 2.2 Implement local config loader in agent (`loadLocalSysmonConfig()`)
-- [ ] 2.3 Add config file path detection (Linux vs macOS paths)
-- [ ] 2.4 Initialize sysmon collector in agent `Server.Start()`
-- [ ] 2.5 Integrate sysmon metrics into agent status reports
-- [ ] 2.6 Implement config caching to `/var/lib/serviceradar/cache/`
-- [ ] 2.7 Add periodic config refresh loop (default 5 min with jitter)
-- [ ] 2.8 Implement graceful collector reconfiguration on config change
-- [ ] 2.9 Add logging for config source (local/remote/cached/default)
-- [ ] 2.10 Write integration tests for agent + embedded sysmon
+- [x] 2.1 Add `SysmonConfig` to agent config structures
+- [x] 2.2 Implement local config loader in agent (`loadLocalSysmonConfig()`)
+- [x] 2.3 Add config file path detection (Linux vs macOS paths)
+- [x] 2.4 Initialize sysmon collector in agent `Server.Start()`
+- [x] 2.5 Integrate sysmon metrics into agent status reports
+- [x] 2.6 Implement config caching to `/var/lib/serviceradar/cache/`
+- [x] 2.7 Add periodic config refresh loop (default 5 min with jitter)
+- [x] 2.8 Implement graceful collector reconfiguration on config change
+- [x] 2.9 Add logging for config source (local/remote/cached/default)
+- [x] 2.10 Write integration tests for agent + embedded sysmon
 
 ## Phase 3: Protocol & Backend
 
 ### 3.1 Protobuf Updates
-- [ ] 3.1.1 Define `SysmonConfig` message in `proto/monitoring.proto`
-- [ ] 3.1.2 Add `sysmon_config` field to `AgentConfigResponse`
-- [ ] 3.1.3 Regenerate Go and Elixir protobuf code
-- [ ] 3.1.4 Update agent to parse `SysmonConfig` from `GetConfig` response
+- [x] 3.1.1 Define `SysmonConfig` message in `proto/monitoring.proto`
+- [x] 3.1.2 Add `sysmon_config` field to `AgentConfigResponse`
+- [x] 3.1.3 Regenerate Go and Elixir protobuf code
+- [x] 3.1.4 Update agent to parse `SysmonConfig` from `GetConfig` response
+- [x] 3.1.5 Update agent to use `StreamStatus` for sysmon (large payloads)
+- [x] 3.1.6 Set Source field to `sysmon-metrics` (distinct from SNMP, etc.)
 
 ### 3.2 Ash Resources (Elixir)
-- [ ] 3.2.1 Create `SysmonProfile` resource in `serviceradar_core`
-- [ ] 3.2.2 Create `SysmonProfileAssignment` resource with device/tag polymorphism
-- [ ] 3.2.3 Add tenant isolation policies to both resources
-- [ ] 3.2.4 Create migrations for sysmon_profiles and sysmon_profile_assignments tables
-- [ ] 3.2.5 Add domain registration for sysmon resources
+- [x] 3.2.1 Create `SysmonProfile` resource in `serviceradar_core`
+- [x] 3.2.2 Create `SysmonProfileAssignment` resource with device/tag polymorphism
+- [x] 3.2.3 Add tenant isolation policies to both resources
+- [x] 3.2.4 Create migrations for sysmon_profiles and sysmon_profile_assignments tables
+- [x] 3.2.5 Add domain registration for sysmon resources
+- [x] 3.2.6 Regenerate Elixir protobuf code with SysmonConfig message
 
 ### 3.3 Config Compilation
-- [ ] 3.3.1 Create `SysmonCompiler` module following `SweepCompiler` pattern
-- [ ] 3.3.2 Implement profile resolution logic (local → device → tag → default)
-- [ ] 3.3.3 Compile profile to JSON matching agent schema
-- [ ] 3.3.4 Integrate with `ConfigInvalidationNotifier` for change propagation
-- [ ] 3.3.5 Add caching for compiled configs
+- [x] 3.3.1 Create `SysmonCompiler` module following `SweepCompiler` pattern
+- [x] 3.3.2 Implement profile resolution logic (device → tag → default)
+- [x] 3.3.3 Compile profile to JSON matching agent schema
+- [x] 3.3.4 Integrate with `ConfigInvalidationNotifier` for change propagation
+- [x] 3.3.5 Add caching for compiled configs (via ConfigServer)
 
 ### 3.4 Default Profile
-- [ ] 3.4.1 Seed default SysmonProfile on tenant creation
-- [ ] 3.4.2 Mark default profile with `is_default: true`
-- [ ] 3.4.3 Add policy preventing deletion of default profile
+- [x] 3.4.1 Seed default SysmonProfile on tenant creation
+- [x] 3.4.2 Mark default profile with `is_default: true` attribute
+- [x] 3.4.3 Add policy preventing deletion of default profile
 - [ ] 3.4.4 Write tests for default profile seeding
 
 ### 3.5 Config Delivery
-- [ ] 3.5.1 Update `GetConfig` RPC handler to include sysmon config
-- [ ] 3.5.2 Add sysmon profile resolution in config response builder
+- [x] 3.5.1 Update `GetConfig` RPC handler to include sysmon config
+- [x] 3.5.2 Add sysmon profile resolution in config response builder
 - [ ] 3.5.3 Test end-to-end config delivery from UI to agent
 
 ## Phase 4: Web UI (`web-ng`)

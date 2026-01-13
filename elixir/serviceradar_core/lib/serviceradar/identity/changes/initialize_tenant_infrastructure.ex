@@ -32,6 +32,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
   alias ServiceRadar.Oban.TenantQueues
   alias ServiceRadar.Observability.{TemplateSeeder, ZenRuleSeeder}
+  alias ServiceRadar.SysmonProfiles.SysmonProfileSeeder
 
   require Logger
 
@@ -99,6 +100,9 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
       ZenRuleSeeder.seed_for_tenant(tenant)
       Logger.debug("Seeded Zen rules for tenant: #{tenant_slug}")
+
+      SysmonProfileSeeder.seed_for_tenant(tenant)
+      Logger.debug("Seeded default sysmon profile for tenant: #{tenant_slug}")
 
       {:ok, tenant}
     else

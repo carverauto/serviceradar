@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -94,6 +95,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	// Bootstrap default configs for common services in KV (PutIfAbsent), best-effort.
 	if s.configStore != nil && cfg.AgentID != "" {
 		s.bootstrapKVDefaults(ctx, cfg.AgentID)
+	}
+
+	// Initialize embedded sysmon service
+	if err := s.initSysmonService(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize sysmon service, continuing without it")
 	}
 
 	return s, nil
@@ -383,6 +389,41 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	return nil
 }
 
+// initSysmonService creates and initializes the embedded sysmon service.
+func (s *Server) initSysmonService(ctx context.Context) error {
+	sysmonSvc, err := NewSysmonService(SysmonServiceConfig{
+		AgentID:   s.config.AgentID,
+		Partition: s.config.Partition,
+		ConfigDir: s.configDir,
+		Logger:    s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create sysmon service: %w", err)
+	}
+
+	// Start the sysmon service
+	if err := sysmonSvc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start sysmon service: %w", err)
+	}
+
+	s.sysmonService = sysmonSvc
+	s.logger.Info().Msg("Sysmon service initialized and started")
+	return nil
+}
+
+// GetSysmonStatus returns the current sysmon metrics if the service is running.
+func (s *Server) GetSysmonStatus(ctx context.Context) (*sysmon.MetricSample, error) {
+	s.mu.RLock()
+	svc := s.sysmonService
+	s.mu.RUnlock()
+
+	if svc == nil || !svc.IsEnabled() {
+		return nil, nil
+	}
+
+	return svc.GetLatestSample(), nil
+}
+
 // Start initializes and starts all agent services.
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
@@ -411,6 +452,13 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully shuts down all agent services.
 func (s *Server) Stop(_ context.Context) error {
 	s.logger.Info().Msg("Stopping agent service...")
+
+	// Stop sysmon service if running
+	if s.sysmonService != nil {
+		if err := s.sysmonService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop sysmon service")
+		}
+	}
 
 	for _, svc := range s.services {
 		if err := svc.Stop(context.Background()); err != nil {

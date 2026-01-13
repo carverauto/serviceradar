@@ -34,9 +34,6 @@ const (
 	// MaxSampleInterval is the maximum allowed sample interval.
 	MaxSampleInterval = 5 * time.Minute
 
-	// DefaultProcessTopN is the default number of top processes to collect.
-	DefaultProcessTopN = 10
-
 	// DefaultConfigRefreshInterval is how often agents check for config updates.
 	DefaultConfigRefreshInterval = 5 * time.Minute
 )
@@ -69,9 +66,6 @@ type Config struct {
 	// If empty, all mounted filesystems are monitored.
 	DiskPaths []string `json:"disk_paths,omitempty"`
 
-	// ProcessTopN limits how many top processes (by CPU/memory) are collected.
-	ProcessTopN int `json:"process_top_n,omitempty"`
-
 	// Thresholds defines warning/critical thresholds for alerting.
 	Thresholds map[string]string `json:"thresholds,omitempty"`
 }
@@ -87,7 +81,6 @@ func DefaultConfig() Config {
 		CollectNetwork:   false, // Opt-in due to verbosity
 		CollectProcesses: false, // Opt-in due to resource usage
 		DiskPaths:        []string{"/"},
-		ProcessTopN:      DefaultProcessTopN,
 		Thresholds:       make(map[string]string),
 	}
 }
@@ -102,7 +95,6 @@ type ParsedConfig struct {
 	CollectNetwork   bool
 	CollectProcesses bool
 	DiskPaths        []string
-	ProcessTopN      int
 	Thresholds       map[string]string
 }
 
@@ -116,7 +108,6 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		CollectNetwork:   c.CollectNetwork,
 		CollectProcesses: c.CollectProcesses,
 		DiskPaths:        c.DiskPaths,
-		ProcessTopN:      c.ProcessTopN,
 		Thresholds:       c.Thresholds,
 	}
 
@@ -141,11 +132,6 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 	// Default disk paths if none specified
 	if len(parsed.DiskPaths) == 0 {
 		parsed.DiskPaths = []string{"/"}
-	}
-
-	// Default process top N
-	if parsed.ProcessTopN <= 0 {
-		parsed.ProcessTopN = DefaultProcessTopN
 	}
 
 	// Initialize thresholds map if nil
@@ -194,10 +180,6 @@ func (c *Config) MergeWithDefaults() Config {
 
 	if len(c.DiskPaths) > 0 {
 		merged.DiskPaths = c.DiskPaths
-	}
-
-	if c.ProcessTopN > 0 {
-		merged.ProcessTopN = c.ProcessTopN
 	}
 
 	if len(c.Thresholds) > 0 {

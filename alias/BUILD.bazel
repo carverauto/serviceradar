@@ -198,6 +198,12 @@ alias(
     actual = "//pkg/sweeper:sweeper",
 )
 
+# pkg/sysmon
+alias(
+    name = "sysmon",
+    actual = "//pkg/sysmon:sysmon",
+)
+
 # pkg/sync
 alias(
     name = "sync",

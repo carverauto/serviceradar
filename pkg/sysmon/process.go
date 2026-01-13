@@ -34,12 +34,10 @@ type processInfo struct {
 	createTime  int64
 }
 
-// CollectProcesses gathers metrics for the top N processes by CPU and memory usage.
-func CollectProcesses(ctx context.Context, topN int) ([]ProcessMetric, error) {
-	if topN <= 0 {
-		topN = DefaultProcessTopN
-	}
-
+// CollectProcesses gathers metrics for all running processes.
+// Results are sorted by CPU usage (descending) for convenience, but all processes are returned.
+// The backend decides what to display (e.g., top N by CPU/memory).
+func CollectProcesses(ctx context.Context) ([]ProcessMetric, error) {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil, err
@@ -57,6 +55,7 @@ func CollectProcesses(ctx context.Context, topN int) ([]ProcessMetric, error) {
 	}
 
 	// Sort by CPU usage (descending), then by memory (descending)
+	// This provides a useful default ordering; backend can re-sort as needed
 	sort.Slice(infos, func(i, j int) bool {
 		if infos[i].cpuPercent != infos[j].cpuPercent {
 			return infos[i].cpuPercent > infos[j].cpuPercent
@@ -64,12 +63,7 @@ func CollectProcesses(ctx context.Context, topN int) ([]ProcessMetric, error) {
 		return infos[i].memoryBytes > infos[j].memoryBytes
 	})
 
-	// Take top N
-	if len(infos) > topN {
-		infos = infos[:topN]
-	}
-
-	// Convert to metrics
+	// Convert to metrics - return ALL processes
 	metrics := make([]ProcessMetric, 0, len(infos))
 	for _, info := range infos {
 		startTime := "unknown"

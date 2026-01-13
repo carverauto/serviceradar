@@ -265,6 +265,43 @@ message AgentConfigResponse {
 
   // Optional: raw JSON config for extensibility
   bytes config_json = 7;
+
+  // Sysmon configuration for embedded system monitoring
+  SysmonConfig sysmon_config = 8;
+}
+
+// SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
+message SysmonConfig {
+  // Whether sysmon collection is enabled
+  bool enabled = 1;
+
+  // Sample interval as a duration string (e.g., "10s", "1m", "500ms")
+  string sample_interval = 2;
+
+  // Which metrics to collect
+  bool collect_cpu = 3;
+  bool collect_memory = 4;
+  bool collect_disk = 5;
+  bool collect_network = 6;
+  bool collect_processes = 7;
+
+  // Disk paths to monitor (e.g., ["/", "/data"])
+  // Empty means monitor all mounted filesystems
+  repeated string disk_paths = 8;
+
+  // Reserved field 9 (was process_top_n, removed - collect all processes)
+  reserved 9;
+
+  // Alert thresholds as key-value pairs
+  // Keys: cpu_warning, cpu_critical, memory_warning, memory_critical,
+  //       disk_warning, disk_critical
+  // Values: percentage as string (e.g., "80", "95")
+  map<string, string> thresholds = 10;
+
+  // Profile metadata (for UI display and debugging)
+  string profile_id = 11;           // UUID of the profile this config came from
+  string profile_name = 12;         // Name of the profile for logging
+  string config_source = 13;        // Source: "profile", "tag", "device", "default"
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.

@@ -208,7 +208,7 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 
 	// Collect process metrics
 	if config.CollectProcesses {
-		processes, err := CollectProcesses(ctx, config.ProcessTopN)
+		processes, err := CollectProcesses(ctx)
 		if err != nil {
 			c.log.Warn().Err(err).Msg("process collection failed")
 		} else {
