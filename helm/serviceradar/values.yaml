@@ -45,6 +45,7 @@ image:
     nats: "2.12.2-alpine"
     datasvc: *appTag
     agent: *appTag
+    agentGateway: *appTag
     snmpChecker: *appTag
     dbEventWriter: *appTag
     otel: *appTag
@@ -76,6 +77,13 @@ natsCreds:
 tenantWorkloadOperator:
   enabled: true
   replicas: 1
+  resyncInterval: "5m"
+  gatewayReplicas: 1
+  templates:
+    agentGateway:
+      repository: ghcr.io/carverauto/serviceradar-agent-gateway
+    zenConsumer:
+      repository: ghcr.io/carverauto/serviceradar-zen
   image:
     repository: ghcr.io/carverauto/serviceradar-tenant-workload-operator
     tag: ""
