@@ -77,8 +77,8 @@ spec:
 
           SECRET_NAME="${CNPG_CLIENT_CA_SECRET}"
           CERT_DIR="${CERT_DIR:-/etc/serviceradar/certs}"
-          CA_CERT="${CERT_DIR}/root.pem"
-          CA_KEY="${CERT_DIR}/root-key.pem"
+          CA_CERT="${CERT_DIR}/cnpg-ca.pem"
+          CA_KEY="${CERT_DIR}/cnpg-ca-key.pem"
 
           APISERVER="https://kubernetes.default.svc"
           SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"

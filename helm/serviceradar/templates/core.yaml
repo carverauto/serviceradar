@@ -120,9 +120,9 @@ spec:
         - name: CNPG_CA_FILE
           value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: CNPG_CERT_FILE
-          value: "/etc/serviceradar/certs/core.pem"
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
         - name: CNPG_KEY_FILE
-          value: "/etc/serviceradar/certs/core-key.pem"
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
         - name: DATASVC_HOST
           value: "serviceradar-datasvc"
         - name: DATASVC_PORT

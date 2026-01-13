@@ -19,6 +19,29 @@ if [ ! -f "$CERT_DIR/root.pem" ]; then
   openssl req -new -x509 -sha256 -key "$CERT_DIR/root-key.pem" -out "$CERT_DIR/root.pem" -days $DAYS_VALID -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$ORG_UNIT/CN=ServiceRadar Root CA"
   chmod 644 "$CERT_DIR/root.pem"; chmod 640 "$CERT_DIR/root-key.pem"
 fi
+if [ ! -f "$CERT_DIR/cnpg-ca.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
+  openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-ca-key.pem"
+  cat > "$CERT_DIR/cnpg-ca.conf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_ca
+prompt = no
+[req_distinguished_name]
+C = $COUNTRY
+ST = $STATE
+L = $LOCALITY
+O = $ORGANIZATION
+OU = $ORG_UNIT
+CN = ServiceRadar CNPG CA
+[v3_ca]
+basicConstraints = critical, CA:TRUE, pathlen:0
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+EOF
+  openssl req -new -x509 -sha256 -key "$CERT_DIR/cnpg-ca-key.pem" -out "$CERT_DIR/cnpg-ca.pem" -days $DAYS_VALID -config "$CERT_DIR/cnpg-ca.conf"
+  rm "$CERT_DIR/cnpg-ca.conf"
+  chmod 644 "$CERT_DIR/cnpg-ca.pem"; chmod 600 "$CERT_DIR/cnpg-ca-key.pem"
+fi
 generate_cert() {
   local component=$1; local cn=$2; local san=$3
   if [ -f "$CERT_DIR/$component.pem" ] && [ "$FORCE_REGENERATE" != "true" ]; then return; fi
@@ -58,6 +81,30 @@ generate_cert "otel" "serviceradar-otel" "DNS:serviceradar-otel,DNS:otel,DNS:ote
 generate_cert "mapper" "serviceradar-mapper" "DNS:serviceradar-mapper,DNS:mapper,DNS:mapper.serviceradar,DNS:serviceradar-mapper.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "trapd" "serviceradar-trapd" "DNS:serviceradar-trapd,DNS:trapd,DNS:trapd.serviceradar,DNS:serviceradar-trapd.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "client" "serviceradar-debug-client" "DNS:serviceradar-tools,DNS:client,DNS:debug-client,DNS:localhost,IP:127.0.0.1"
+if [ ! -f "$CERT_DIR/cnpg-client.pem" ] || [ "$FORCE_REGENERATE" = "true" ]; then
+  openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/cnpg-client-key.pem"
+  cat > "$CERT_DIR/cnpg-client.conf" <<EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+[req_distinguished_name]
+C = $COUNTRY
+ST = $STATE
+L = $LOCALITY
+O = $ORGANIZATION
+OU = $ORG_UNIT
+CN = serviceradar-cnpg-client
+[v3_req]
+keyUsage = digitalSignature
+extendedKeyUsage = clientAuth
+subjectAltName = DNS:serviceradar-cnpg-client
+EOF
+  openssl req -new -sha256 -key "$CERT_DIR/cnpg-client-key.pem" -out "$CERT_DIR/cnpg-client.csr" -config "$CERT_DIR/cnpg-client.conf"
+  openssl x509 -req -in "$CERT_DIR/cnpg-client.csr" -CA "$CERT_DIR/cnpg-ca.pem" -CAkey "$CERT_DIR/cnpg-ca-key.pem" -CAcreateserial -out "$CERT_DIR/cnpg-client.pem" -days $DAYS_VALID -sha256 -extensions v3_req -extfile "$CERT_DIR/cnpg-client.conf"
+  rm "$CERT_DIR/cnpg-client.csr" "$CERT_DIR/cnpg-client.conf"
+  chmod 644 "$CERT_DIR/cnpg-client.pem"; chmod 640 "$CERT_DIR/cnpg-client-key.pem"
+fi
 if [ ! -f "$CERT_DIR/jwt-secret" ]; then openssl rand -hex 32 > "$CERT_DIR/jwt-secret"; chmod 640 "$CERT_DIR/jwt-secret"; fi
 if [ ! -f "$CERT_DIR/api-key" ]; then openssl rand -hex 32 > "$CERT_DIR/api-key"; chmod 640 "$CERT_DIR/api-key"; fi
 
