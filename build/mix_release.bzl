@@ -207,6 +207,8 @@ rm -rf /tmp/elixir/datasvc
 ln -s "$WORKDIR/elixir/datasvc" /tmp/elixir/datasvc
 rm -rf /tmp/elixir/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/elixir/serviceradar_core
+rm -rf /tmp/elixir/serviceradar_srql
+ln -s "$WORKDIR/elixir/serviceradar_srql" /tmp/elixir/serviceradar_srql
 rm -rf /tmp/serviceradar_core
 ln -s "$WORKDIR/elixir/serviceradar_core" /tmp/serviceradar_core
 
