@@ -546,7 +546,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
-      <.form for={@form} phx-submit="save_profile" phx-change="validate_profile" class="space-y-6">
+      <.form for={@form} phx-submit="save_profile" phx-change="validate_profile" phx-debounce="300" class="space-y-6">
         <!-- Basic Info Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
