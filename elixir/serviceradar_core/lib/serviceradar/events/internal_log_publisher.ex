@@ -69,6 +69,9 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
 
   defp stringify_keys(value), do: value
 
+  defp stringify_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp stringify_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp stringify_value(%Date{} = value), do: Date.to_iso8601(value)
   defp stringify_value(value) when is_map(value), do: stringify_keys(value)
   defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)
   defp stringify_value(value), do: value

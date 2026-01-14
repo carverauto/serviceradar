@@ -45,14 +45,14 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   - `{:ok, nil}` - No targeting profiles matched
   - `{:error, reason}` - An error occurred
   """
-  # UUID regex for validation - prevents SRQL injection via crafted device UIDs
-  @uuid_regex ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+  # Device UID regex for validation - prevents SRQL injection via crafted device UIDs
+  @device_uid_regex ~r/^(?:sr:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
   @spec resolve_for_device(String.t(), String.t(), map()) ::
           {:ok, SysmonProfile.t() | nil} | {:error, term()}
   def resolve_for_device(tenant_schema, device_uid, actor) when is_binary(device_uid) do
-    # Validate device_uid is a proper UUID to prevent SRQL injection
-    if Regex.match?(@uuid_regex, device_uid) do
+    # Validate device_uid is a proper ServiceRadar UUID to prevent SRQL injection
+    if Regex.match?(@device_uid_regex, device_uid) do
       # Load all targeting profiles ordered by priority
       case load_targeting_profiles(tenant_schema, actor) do
         {:ok, []} ->
@@ -118,7 +118,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
       {:ok, false}
     else
       # Build the combined query: original query + device UID filter
-      combined_query = "#{target_query} uid:#{device_uid}"
+      combined_query = "#{target_query} uid:\"#{device_uid}\""
 
       case execute_srql_match(combined_query, tenant_schema, actor) do
         {:ok, matched} -> {:ok, matched}
