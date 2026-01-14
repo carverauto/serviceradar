@@ -51,7 +51,11 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
         return_error(conn, :internal_server_error, "Failed to decrypt tenant NATS seed")
 
       {:error, reason} ->
-        return_error(conn, :internal_server_error, "Failed to issue credentials: #{inspect(reason)}")
+        return_error(
+          conn,
+          :internal_server_error,
+          "Failed to issue credentials: #{inspect(reason)}"
+        )
     end
   end
 

@@ -186,6 +186,10 @@ func TestNewCollector(t *testing.T) {
 }
 
 func TestCollectorCollect(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	cfg := DefaultConfig()
 	cfg.SampleInterval = "100ms" // Fast for testing
 	cfg.CollectProcesses = true
@@ -239,6 +243,10 @@ func TestCollectorCollect(t *testing.T) {
 }
 
 func TestCollectorStartStop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	cfg := DefaultConfig()
 	cfg.SampleInterval = "100ms" // Fast for testing
 

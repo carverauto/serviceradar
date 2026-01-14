@@ -575,7 +575,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
                   <% sysmon_profile =
-                    if is_binary(device_uid), do: Map.get(@sysmon_profiles_by_device, device_uid), else: nil %>
+                    if is_binary(device_uid),
+                      do: Map.get(@sysmon_profiles_by_device, device_uid),
+                      else: nil %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -756,7 +758,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             <%= for profile <- @profiles do %>
               <label class={[
                 "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                if(@selected_profile_id == profile.id, do: "border-primary bg-primary/10", else: "border-base-200 hover:bg-base-100")
+                if(@selected_profile_id == profile.id,
+                  do: "border-primary bg-primary/10",
+                  else: "border-base-200 hover:bg-base-100"
+                )
               ]}>
                 <input
                   type="radio"
@@ -1538,10 +1543,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         |> Ash.create(scope: scope)
       end)
 
-    success_count = Enum.count(results, fn
-      {:ok, _} -> true
-      _ -> false
-    end)
+    success_count =
+      Enum.count(results, fn
+        {:ok, _} -> true
+        _ -> false
+      end)
 
     if success_count > 0 do
       {:ok, success_count}

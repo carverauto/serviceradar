@@ -92,6 +92,11 @@ func TestSysmonServiceName(t *testing.T) {
 
 func TestSysmonServiceLifecycle(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -147,6 +152,11 @@ func TestSysmonServiceGetStatus_NotStarted(t *testing.T) {
 
 func TestSysmonServiceGetStatusPayload(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -186,6 +196,11 @@ func TestSysmonServiceGetStatusPayload(t *testing.T) {
 
 func TestSysmonServiceReconfigure(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -222,6 +237,11 @@ func TestSysmonServiceReconfigure(t *testing.T) {
 
 func TestSysmonServiceGetLatestSample(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -255,6 +275,11 @@ func TestSysmonServiceGetLatestSample(t *testing.T) {
 
 func TestSysmonServiceStartIdempotent(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -279,6 +304,11 @@ func TestSysmonServiceStartIdempotent(t *testing.T) {
 
 func TestSysmonServiceStopIdempotent(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -303,6 +333,11 @@ func TestSysmonServiceStopIdempotent(t *testing.T) {
 
 func TestSysmonServiceConfigSource(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
@@ -357,6 +392,12 @@ func TestComputeConfigHash(t *testing.T) {
 }
 
 func TestSysmonServiceConfigCaching(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	// Skip if we can't write to temp directory
 	tmpDir := t.TempDir()
 
@@ -399,6 +440,11 @@ func TestSysmonServiceConfigCaching(t *testing.T) {
 // over remote/cached config (task 5.2 from sysmon-consolidation spec).
 func TestLocalOverrideTakesPrecedence(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
@@ -467,6 +513,11 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 // but is now unavailable, and we need to use the cached config.
 func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
@@ -542,6 +593,11 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 // doesn't override a local config with a remote one.
 func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling")
+	}
+
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()

@@ -58,7 +58,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp apply_action(socket, :new_profile, _params) do
     scope = socket.assigns.current_scope
-    ash_form = Form.for_create(SysmonProfile, :create, domain: ServiceRadar.SysmonProfiles, scope: scope)
+
+    ash_form =
+      Form.for_create(SysmonProfile, :create, domain: ServiceRadar.SysmonProfiles, scope: scope)
 
     socket
     |> assign(:page_title, "New Sysmon Profile")
@@ -81,7 +83,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
       profile ->
         scope = socket.assigns.current_scope
-        ash_form = Form.for_update(profile, :update, domain: ServiceRadar.SysmonProfiles, scope: scope)
+
+        ash_form =
+          Form.for_update(profile, :update, domain: ServiceRadar.SysmonProfiles, scope: scope)
+
         json_preview = compile_profile_preview(profile)
         device_count = count_target_devices(scope, profile.target_query)
 
@@ -230,7 +235,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     socket =
       if builder_open do
         # When opening, try to parse current target_query into builder
-        form_data = socket.assigns.ash_form |> Form.params() |> Map.new(fn {k, v} -> {to_string(k), v} end)
+        form_data =
+          socket.assigns.ash_form |> Form.params() |> Map.new(fn {k, v} -> {to_string(k), v} end)
+
         target_query = Map.get(form_data, "target_query", "")
         {builder, builder_sync} = parse_target_query_to_builder(target_query)
 
@@ -354,8 +361,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
         <% end %>
       </div>
-
-      <!-- JSON Preview Modal -->
+      
+    <!-- JSON Preview Modal -->
       <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
     </.settings_shell>
     """
@@ -434,7 +441,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                     <% profile.is_default -> %>
                       <span class="text-base-content/60 italic">All unmatched devices</span>
                     <% profile.target_query && profile.target_query != "" -> %>
-                      <code class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]" title={profile.target_query}>
+                      <code
+                        class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[200px]"
+                        title={profile.target_query}
+                      >
                         {profile.target_query}
                       </code>
                     <% true -> %>
@@ -447,10 +457,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <td>
                   <div class="flex flex-wrap gap-1">
                     <.ui_badge :if={profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
-                    <.ui_badge :if={profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
+                    <.ui_badge :if={profile.collect_memory} variant="ghost" size="xs">
+                      Memory
+                    </.ui_badge>
                     <.ui_badge :if={profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
-                    <.ui_badge :if={profile.collect_network} variant="ghost" size="xs">Network</.ui_badge>
-                    <.ui_badge :if={profile.collect_processes} variant="ghost" size="xs">Processes</.ui_badge>
+                    <.ui_badge :if={profile.collect_network} variant="ghost" size="xs">
+                      Network
+                    </.ui_badge>
+                    <.ui_badge :if={profile.collect_processes} variant="ghost" size="xs">
+                      Processes
+                    </.ui_badge>
                   </div>
                 </td>
                 <td>
@@ -524,7 +540,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <.ui_panel>
       <:header>
         <div class="text-sm font-semibold">
-          {if @show_form == :new_profile, do: "New Sysmon Profile", else: "Edit #{@selected_profile.name}"}
+          {if @show_form == :new_profile,
+            do: "New Sysmon Profile",
+            else: "Edit #{@selected_profile.name}"}
         </div>
       </:header>
 
@@ -573,8 +591,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             />
           </div>
         </div>
-
-        <!-- Device Targeting Section -->
+        
+    <!-- Device Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             Device Targeting
@@ -618,14 +636,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 </div>
                 <label class="label">
                   <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>,
-                    <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
+                    SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
                     <code class="bg-base-200 px-1 rounded">type:Server</code>
                   </span>
                 </label>
               </div>
-
-              <!-- Visual Query Builder -->
+              
+    <!-- Visual Query Builder -->
               <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
                 <div class="flex items-center justify-between mb-4">
                   <div class="text-sm font-semibold">Query Builder</div>
@@ -726,8 +743,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   </div>
                 </form>
               </div>
-
-              <!-- Device Count Preview -->
+              
+    <!-- Device Count Preview -->
               <div :if={@target_device_count != nil} class="flex items-center gap-2">
                 <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
                 <span class="text-sm">
@@ -735,8 +752,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                   <span class="text-base-content/60">device(s) match this query</span>
                 </span>
               </div>
-
-              <!-- Priority -->
+              
+    <!-- Priority -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label class="label"><span class="label-text">Priority</span></label>
@@ -757,8 +774,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </div>
           <% end %>
         </div>
-
-        <!-- Collectors Section -->
+        
+    <!-- Collectors Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             Metric Collectors
@@ -766,23 +783,43 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
           <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             <label class="flex items-center gap-2 cursor-pointer">
-              <.input type="checkbox" field={@form[:collect_cpu]} class="checkbox checkbox-primary checkbox-sm" />
+              <.input
+                type="checkbox"
+                field={@form[:collect_cpu]}
+                class="checkbox checkbox-primary checkbox-sm"
+              />
               <span class="label-text">CPU</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <.input type="checkbox" field={@form[:collect_memory]} class="checkbox checkbox-primary checkbox-sm" />
+              <.input
+                type="checkbox"
+                field={@form[:collect_memory]}
+                class="checkbox checkbox-primary checkbox-sm"
+              />
               <span class="label-text">Memory</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <.input type="checkbox" field={@form[:collect_disk]} class="checkbox checkbox-primary checkbox-sm" />
+              <.input
+                type="checkbox"
+                field={@form[:collect_disk]}
+                class="checkbox checkbox-primary checkbox-sm"
+              />
               <span class="label-text">Disk</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <.input type="checkbox" field={@form[:collect_network]} class="checkbox checkbox-primary checkbox-sm" />
+              <.input
+                type="checkbox"
+                field={@form[:collect_network]}
+                class="checkbox checkbox-primary checkbox-sm"
+              />
               <span class="label-text">Network</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <.input type="checkbox" field={@form[:collect_processes]} class="checkbox checkbox-primary checkbox-sm" />
+              <.input
+                type="checkbox"
+                field={@form[:collect_processes]}
+                class="checkbox checkbox-primary checkbox-sm"
+              />
               <span class="label-text">Processes</span>
             </label>
           </div>
@@ -790,8 +827,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             Note: Process collection can be resource-intensive on systems with many processes.
           </p>
         </div>
-
-        <!-- Disk Paths Section -->
+        
+    <!-- Disk Paths Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             Disk Paths
@@ -812,8 +849,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </label>
           </div>
         </div>
-
-        <!-- Actions -->
+        
+    <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/sysmon"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
@@ -1128,7 +1165,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   defp normalize_filter_field("", config), do: config.default_filter_field
   defp normalize_filter_field(field, _config), do: field
 
-  defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"], do: op
+  defp normalize_filter_op(op) when op in ["contains", "not_contains", "equals", "not_equals"],
+    do: op
+
   defp normalize_filter_op(_), do: "contains"
 
   defp build_target_query(builder) do

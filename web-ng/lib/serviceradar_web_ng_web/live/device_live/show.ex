@@ -1992,16 +1992,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
                 <.ui_badge :if={@profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
                 <.ui_badge :if={@profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
-                <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">Network</.ui_badge>
-                <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">Processes</.ui_badge>
+                <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">
+                  Network
+                </.ui_badge>
+                <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">
+                  Processes
+                </.ui_badge>
               </div>
             </div>
             <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
               Using default configuration
             </div>
           </div>
-
-          <!-- Assignment Controls -->
+          
+    <!-- Assignment Controls -->
           <div class="space-y-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
               Direct Assignment
@@ -2116,7 +2120,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp load_device_assignment(tenant_schema, device_uid, actor) do
     query =
       SysmonProfileAssignment
-      |> Ash.Query.for_read(:for_device, %{device_uid: device_uid}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:for_device, %{device_uid: device_uid},
+        actor: actor,
+        tenant: tenant_schema
+      )
 
     case Ash.read_one(query, actor: actor) do
       {:ok, assignment} -> assignment
@@ -2157,7 +2164,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     actor = get_sweep_actor(scope)
 
     case load_device_assignment(tenant_schema, device_uid, actor) do
-      nil -> :ok
+      nil ->
+        :ok
+
       assignment ->
         case Ash.destroy(assignment, actor: actor, tenant: tenant_schema) do
           :ok -> :ok
