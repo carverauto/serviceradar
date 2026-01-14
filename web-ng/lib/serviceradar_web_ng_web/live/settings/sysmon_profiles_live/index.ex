@@ -113,12 +113,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     target_query = Map.get(params, "target_query")
     device_count = count_target_devices(scope, target_query)
     ash_form = socket.assigns.ash_form |> Form.validate(params)
+    {parsed_builder, builder_sync} = parse_target_query_to_builder(target_query)
 
-    {:noreply,
-     socket
-     |> assign(:ash_form, ash_form)
-     |> assign(:form, to_form(ash_form))
-     |> assign(:target_device_count, device_count)}
+    socket =
+      socket
+      |> assign(:ash_form, ash_form)
+      |> assign(:form, to_form(ash_form))
+      |> assign(:target_device_count, device_count)
+      |> assign(:builder_sync, builder_sync)
+
+    socket =
+      if builder_sync do
+        assign(socket, :builder, parsed_builder)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
@@ -341,30 +352,32 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <.settings_shell current_path="/settings/sysmon">
-      <.settings_nav current_path="/settings/sysmon" />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <.settings_shell current_path="/settings/sysmon">
+        <.settings_nav current_path="/settings/sysmon" />
 
-      <div class="space-y-4">
-        <!-- Content based on form state -->
-        <%= if @show_form in [:new_profile, :edit_profile] do %>
-          <.profile_form
-            form={@form}
-            show_form={@show_form}
-            selected_profile={@selected_profile}
-            json_preview={@json_preview}
-            target_device_count={@target_device_count}
-            builder_open={@builder_open}
-            builder={@builder}
-            builder_sync={@builder_sync}
-          />
-        <% else %>
-          <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
-        <% end %>
-      </div>
-      
-    <!-- JSON Preview Modal -->
-      <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
-    </.settings_shell>
+        <div class="space-y-4">
+          <!-- Content based on form state -->
+          <%= if @show_form in [:new_profile, :edit_profile] do %>
+            <.profile_form
+              form={@form}
+              show_form={@show_form}
+              selected_profile={@selected_profile}
+              json_preview={@json_preview}
+              target_device_count={@target_device_count}
+              builder_open={@builder_open}
+              builder={@builder}
+              builder_sync={@builder_sync}
+            />
+          <% else %>
+            <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
+          <% end %>
+        </div>
+        
+      <!-- JSON Preview Modal -->
+        <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
+      </.settings_shell>
+    </Layouts.app>
     """
   end
 
@@ -548,6 +561,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
       <.form
         for={@form}
+        id="sysmon-profile-form"
         phx-submit="save_profile"
         phx-change="validate_profile"
         phx-debounce="300"
