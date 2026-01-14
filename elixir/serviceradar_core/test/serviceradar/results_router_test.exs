@@ -21,13 +21,22 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
   end
 
+  defmodule TestSysmonIngestor do
+    def ingest(payload, status, tenant_id) do
+      send(self(), {:sysmon_ingest, payload, status, tenant_id})
+      :ok
+    end
+  end
+
   setup do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_sweep = Application.get_env(:serviceradar_core, :sweep_ingestor)
+    previous_sysmon = Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor)
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sweep_ingestor, TestSweepIngestor)
+    Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, TestSysmonIngestor)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -46,6 +55,12 @@ defmodule ServiceRadar.ResultsRouterTest do
         Application.delete_env(:serviceradar_core, :sweep_ingestor)
       else
         Application.put_env(:serviceradar_core, :sweep_ingestor, previous_sweep)
+      end
+
+      if is_nil(previous_sysmon) do
+        Application.delete_env(:serviceradar_core, :sysmon_metrics_ingestor)
+      else
+        Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, previous_sysmon)
       end
     end)
 
@@ -132,5 +147,35 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
     assert %{tenant_id: "tenant-1"} = opts[:actor]
+  end
+
+  test "routes sysmon metrics payloads" do
+    payload = %{
+      "available" => true,
+      "response_time" => 123,
+      "status" => %{
+        "timestamp" => "2025-04-24T14:15:22Z",
+        "host_id" => "host-1",
+        "host_ip" => "192.168.1.100",
+        "cpus" => [],
+        "disks" => [],
+        "memory" => %{"used_bytes" => 1, "total_bytes" => 2},
+        "processes" => []
+      }
+    }
+
+    status = %{
+      source: "sysmon-metrics",
+      service_type: "sysmon",
+      message: Jason.encode!(payload),
+      tenant_id: "tenant-1",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:sysmon_ingest, decoded, ^status, "tenant-1"}
+    assert %{"status" => _} = decoded
   end
 end

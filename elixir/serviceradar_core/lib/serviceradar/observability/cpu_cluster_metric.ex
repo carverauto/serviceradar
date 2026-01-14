@@ -1,8 +1,8 @@
-defmodule ServiceRadar.Observability.MemoryMetric do
+defmodule ServiceRadar.Observability.CpuClusterMetric do
   @moduledoc """
-  Memory utilization metric resource.
+  CPU cluster metric resource.
 
-  Maps to the `memory_metrics` TimescaleDB hypertable. This table is managed by raw SQL
+  Maps to the `cpu_cluster_metrics` TimescaleDB hypertable. This table is managed by raw SQL
   migrations that match the Go schema exactly.
   """
 
@@ -13,18 +13,16 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     extensions: [AshJsonApi.Resource]
 
   postgres do
-    table "memory_metrics"
+    table "cpu_cluster_metrics"
     repo ServiceRadar.Repo
-    # Don't generate migrations - table is managed by raw SQL migration
-    # that creates TimescaleDB hypertable matching Go schema
     migrate? false
   end
 
   json_api do
-    type "memory_metric"
+    type "cpu_cluster_metric"
 
     routes do
-      base "/memory_metrics"
+      base "/cpu_cluster_metrics"
 
       index :read
     end
@@ -35,7 +33,6 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   end
 
   resource do
-    # TimescaleDB hypertables don't have traditional primary keys
     require_primary_key? false
   end
 
@@ -58,10 +55,8 @@ defmodule ServiceRadar.Observability.MemoryMetric do
         :gateway_id,
         :agent_id,
         :host_id,
-        :total_bytes,
-        :used_bytes,
-        :available_bytes,
-        :usage_percent,
+        :cluster,
+        :frequency_hz,
         :device_id,
         :partition,
         :created_at
@@ -70,7 +65,6 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   end
 
   policies do
-    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
@@ -80,10 +74,7 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     end
   end
 
-  # Note: This hypertable does not include tenant_id; schema isolation handles tenancy.
-
   attributes do
-    # TimescaleDB hypertable - no traditional PK
     attribute :timestamp, :utc_datetime_usec do
       allow_nil? false
       public? true
@@ -91,6 +82,7 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     end
 
     attribute :gateway_id, :string do
+      allow_nil? false
       public? true
       description "Gateway that collected this metric"
     end
@@ -105,24 +97,14 @@ defmodule ServiceRadar.Observability.MemoryMetric do
       description "Host identifier"
     end
 
-    attribute :total_bytes, :integer do
+    attribute :cluster, :string do
       public? true
-      description "Total memory in bytes"
+      description "Cluster name"
     end
 
-    attribute :used_bytes, :integer do
+    attribute :frequency_hz, :float do
       public? true
-      description "Used memory in bytes"
-    end
-
-    attribute :available_bytes, :integer do
-      public? true
-      description "Available memory in bytes"
-    end
-
-    attribute :usage_percent, :float do
-      public? true
-      description "Memory usage percentage"
+      description "Cluster frequency in Hz"
     end
 
     attribute :device_id, :string do

@@ -9,6 +9,7 @@ defmodule ServiceRadar.ResultsRouter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.SyncIngestorQueue
+  alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   @duration_regex ~r/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)/
@@ -37,6 +38,7 @@ defmodule ServiceRadar.ResultsRouter do
 
     case process(status) do
       :ok -> :ok
+      {:ok, _result} -> :ok
       {:error, reason} -> Logger.warning("Results processing failed: #{inspect(reason)}")
     end
 
@@ -49,6 +51,10 @@ defmodule ServiceRadar.ResultsRouter do
       "sweep" -> handle_sweep_results(status)
       _ -> :ok
     end
+  end
+
+  defp process(%{source: source} = status) when source in ["sysmon-metrics", :sysmon_metrics] do
+    handle_sysmon_metrics(status)
   end
 
   defp process(_status), do: :ok
@@ -94,7 +100,27 @@ defmodule ServiceRadar.ResultsRouter do
             ]
             |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
-          sweep_ingestor().ingest_results(results, execution_id, tenant_id, opts)
+          case sweep_ingestor().ingest_results(results, execution_id, tenant_id, opts) do
+            :ok -> :ok
+            {:ok, _stats} -> :ok
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp handle_sysmon_metrics(status) do
+    tenant_id = status[:tenant_id]
+
+    cond do
+      not is_binary(tenant_id) or tenant_id == "" ->
+        {:error, :missing_tenant_id}
+
+      true ->
+        with {:ok, payload} <- decode_payload(status[:message]) do
+          sysmon_ingestor().ingest(payload, status, tenant_id)
         else
           {:error, reason} -> {:error, reason}
         end
@@ -157,17 +183,22 @@ defmodule ServiceRadar.ResultsRouter do
   defp sweep_results(_payload), do: {:error, :unsupported_payload}
 
   defp parse_execution_id(payload) do
-    payload["execution_id"] || payload["executionId"]
-    |> normalize_uuid()
-    |> case do
+    value =
+      payload["execution_id"] ||
+        payload["executionId"]
+
+    case normalize_uuid(value) do
       nil -> Ash.UUID.generate()
-      value -> value
+      normalized -> normalized
     end
   end
 
   defp parse_sweep_group_id(payload) do
-    payload["sweep_group_id"] || payload["sweepGroupId"]
-    |> normalize_uuid()
+    value =
+      payload["sweep_group_id"] ||
+        payload["sweepGroupId"]
+
+    normalize_uuid(value)
   end
 
   defp normalize_uuid(value) when is_binary(value) and value != "" do
@@ -177,8 +208,11 @@ defmodule ServiceRadar.ResultsRouter do
   defp normalize_uuid(_value), do: nil
 
   defp parse_last_sweep(payload) do
-    payload["last_sweep"] || payload["lastSweep"]
-    |> parse_time()
+    value =
+      payload["last_sweep"] ||
+        payload["lastSweep"]
+
+    parse_time(value)
   end
 
   defp parse_time(value) when is_integer(value) do
@@ -335,5 +369,9 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp sweep_ingestor do
     Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)
+  end
+
+  defp sysmon_ingestor do
+    Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor, SysmonMetricsIngestor)
   end
 end

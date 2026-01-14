@@ -70,7 +70,8 @@ defmodule ServiceRadar.Observability.DiskMetric do
         :available_bytes,
         :usage_percent,
         :device_id,
-        :partition
+        :partition,
+        :created_at
       ]
     end
   end

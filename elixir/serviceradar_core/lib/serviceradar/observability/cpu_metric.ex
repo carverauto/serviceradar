@@ -64,7 +64,8 @@ defmodule ServiceRadar.Observability.CpuMetric do
         :label,
         :cluster,
         :device_id,
-        :partition
+        :partition,
+        :created_at
       ]
     end
   end

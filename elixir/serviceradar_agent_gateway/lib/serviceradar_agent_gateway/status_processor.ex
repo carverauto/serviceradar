@@ -235,7 +235,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp handler_module(status) do
-    if should_buffer?(status) do
+    if results_router_source?(status) do
       ServiceRadar.ResultsRouter
     else
       ServiceRadar.StatusHandler
@@ -264,8 +264,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp should_buffer?(status) do
-    status[:source] in ["results", :results]
+  defp should_buffer?(status), do: results_router_source?(status)
+
+  defp results_router_source?(status) do
+    status[:source] in ["results", :results, "sysmon-metrics", :sysmon_metrics]
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do

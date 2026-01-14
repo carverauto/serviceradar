@@ -70,7 +70,8 @@ defmodule ServiceRadar.Observability.ProcessMetric do
         :status,
         :start_time,
         :device_id,
-        :partition
+        :partition,
+        :created_at
       ]
     end
   end
