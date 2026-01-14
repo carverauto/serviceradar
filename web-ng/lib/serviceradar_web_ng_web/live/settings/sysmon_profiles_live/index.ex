@@ -352,30 +352,32 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <.settings_shell current_path="/settings/sysmon">
-      <.settings_nav current_path="/settings/sysmon" />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <.settings_shell current_path="/settings/sysmon">
+        <.settings_nav current_path="/settings/sysmon" />
 
-      <div class="space-y-4">
-        <!-- Content based on form state -->
-        <%= if @show_form in [:new_profile, :edit_profile] do %>
-          <.profile_form
-            form={@form}
-            show_form={@show_form}
-            selected_profile={@selected_profile}
-            json_preview={@json_preview}
-            target_device_count={@target_device_count}
-            builder_open={@builder_open}
-            builder={@builder}
-            builder_sync={@builder_sync}
-          />
-        <% else %>
-          <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
-        <% end %>
-      </div>
-      
-    <!-- JSON Preview Modal -->
-      <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
-    </.settings_shell>
+        <div class="space-y-4">
+          <!-- Content based on form state -->
+          <%= if @show_form in [:new_profile, :edit_profile] do %>
+            <.profile_form
+              form={@form}
+              show_form={@show_form}
+              selected_profile={@selected_profile}
+              json_preview={@json_preview}
+              target_device_count={@target_device_count}
+              builder_open={@builder_open}
+              builder={@builder}
+              builder_sync={@builder_sync}
+            />
+          <% else %>
+            <.profiles_panel profiles={@profiles} json_preview={@json_preview} />
+          <% end %>
+        </div>
+        
+      <!-- JSON Preview Modal -->
+        <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
+      </.settings_shell>
+    </Layouts.app>
     """
   end
 
