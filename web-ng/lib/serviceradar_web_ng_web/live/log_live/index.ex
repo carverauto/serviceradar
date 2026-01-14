@@ -1657,6 +1657,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :log_duration_stats,
         "Duration stats skipped: tenant schema unavailable"
       )
+
       %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
     else
       query =
@@ -1766,6 +1767,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         :log_sparklines,
         "Sparkline stats skipped: tenant schema unavailable"
       )
+
       %{}
     else
       query =

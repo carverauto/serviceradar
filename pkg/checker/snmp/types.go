@@ -116,6 +116,60 @@ type DataPoint struct {
 	Delta     bool        `json:"delta"`
 }
 
+// SecurityLevel represents SNMPv3 security levels.
+type SecurityLevel string
+
+const (
+	// SecurityLevelNoAuthNoPriv represents no authentication and no privacy.
+	SecurityLevelNoAuthNoPriv SecurityLevel = "noAuthNoPriv"
+	// SecurityLevelAuthNoPriv represents authentication without privacy.
+	SecurityLevelAuthNoPriv SecurityLevel = "authNoPriv"
+	// SecurityLevelAuthPriv represents authentication with privacy.
+	SecurityLevelAuthPriv SecurityLevel = "authPriv"
+)
+
+// AuthProtocol represents SNMPv3 authentication protocols.
+type AuthProtocol string
+
+const (
+	// AuthProtocolMD5 represents MD5 authentication.
+	AuthProtocolMD5 AuthProtocol = "MD5"
+	// AuthProtocolSHA represents SHA authentication.
+	AuthProtocolSHA AuthProtocol = "SHA"
+	// AuthProtocolSHA224 represents SHA-224 authentication.
+	AuthProtocolSHA224 AuthProtocol = "SHA224"
+	// AuthProtocolSHA256 represents SHA-256 authentication.
+	AuthProtocolSHA256 AuthProtocol = "SHA256"
+	// AuthProtocolSHA384 represents SHA-384 authentication.
+	AuthProtocolSHA384 AuthProtocol = "SHA384"
+	// AuthProtocolSHA512 represents SHA-512 authentication.
+	AuthProtocolSHA512 AuthProtocol = "SHA512"
+)
+
+// PrivProtocol represents SNMPv3 privacy protocols.
+type PrivProtocol string
+
+const (
+	// PrivProtocolDES represents DES privacy.
+	PrivProtocolDES PrivProtocol = "DES"
+	// PrivProtocolAES represents AES-128 privacy.
+	PrivProtocolAES PrivProtocol = "AES"
+	// PrivProtocolAES192 represents AES-192 privacy.
+	PrivProtocolAES192 PrivProtocol = "AES192"
+	// PrivProtocolAES256 represents AES-256 privacy.
+	PrivProtocolAES256 PrivProtocol = "AES256"
+)
+
+// V3Auth represents SNMPv3 authentication parameters.
+type V3Auth struct {
+	Username      string        `json:"username"`
+	SecurityLevel SecurityLevel `json:"security_level"`
+	AuthProtocol  AuthProtocol  `json:"auth_protocol,omitempty"`
+	AuthPassword  string        `json:"auth_password,omitempty" sensitive:"true"`
+	PrivProtocol  PrivProtocol  `json:"priv_protocol,omitempty"`
+	PrivPassword  string        `json:"priv_password,omitempty" sensitive:"true"`
+}
+
 // Target represents a device to monitor via SNMP.
 type Target struct {
 	Name      string      `json:"name"`
@@ -123,6 +177,7 @@ type Target struct {
 	Port      uint16      `json:"port"`
 	Community string      `json:"community" sensitive:"true"`
 	Version   SNMPVersion `json:"version"`
+	V3Auth    *V3Auth     `json:"v3_auth,omitempty"`
 	Interval  Duration    `json:"interval"`
 	Timeout   Duration    `json:"timeout"`
 	Retries   int         `json:"retries"`

@@ -50,6 +50,7 @@ type Server struct {
 	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error)
 	logger             logger.Logger
 	sysmonService      *SysmonService
+	snmpService        *SNMPAgentService
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

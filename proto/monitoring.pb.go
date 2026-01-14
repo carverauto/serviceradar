@@ -36,6 +36,301 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SNMPVersion represents SNMP protocol versions.
+type SNMPVersion int32
+
+const (
+	SNMPVersion_SNMP_VERSION_UNSPECIFIED SNMPVersion = 0
+	SNMPVersion_SNMP_VERSION_V1          SNMPVersion = 1
+	SNMPVersion_SNMP_VERSION_V2C         SNMPVersion = 2
+	SNMPVersion_SNMP_VERSION_V3          SNMPVersion = 3
+)
+
+// Enum value maps for SNMPVersion.
+var (
+	SNMPVersion_name = map[int32]string{
+		0: "SNMP_VERSION_UNSPECIFIED",
+		1: "SNMP_VERSION_V1",
+		2: "SNMP_VERSION_V2C",
+		3: "SNMP_VERSION_V3",
+	}
+	SNMPVersion_value = map[string]int32{
+		"SNMP_VERSION_UNSPECIFIED": 0,
+		"SNMP_VERSION_V1":          1,
+		"SNMP_VERSION_V2C":         2,
+		"SNMP_VERSION_V3":          3,
+	}
+)
+
+func (x SNMPVersion) Enum() *SNMPVersion {
+	p := new(SNMPVersion)
+	*p = x
+	return p
+}
+
+func (x SNMPVersion) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SNMPVersion) Descriptor() protoreflect.EnumDescriptor {
+	return file_monitoring_proto_enumTypes[0].Descriptor()
+}
+
+func (SNMPVersion) Type() protoreflect.EnumType {
+	return &file_monitoring_proto_enumTypes[0]
+}
+
+func (x SNMPVersion) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SNMPVersion.Descriptor instead.
+func (SNMPVersion) EnumDescriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{0}
+}
+
+// SNMPSecurityLevel represents SNMPv3 security levels.
+type SNMPSecurityLevel int32
+
+const (
+	SNMPSecurityLevel_SNMP_SECURITY_LEVEL_UNSPECIFIED     SNMPSecurityLevel = 0
+	SNMPSecurityLevel_SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV SNMPSecurityLevel = 1
+	SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_NO_PRIV    SNMPSecurityLevel = 2
+	SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV       SNMPSecurityLevel = 3
+)
+
+// Enum value maps for SNMPSecurityLevel.
+var (
+	SNMPSecurityLevel_name = map[int32]string{
+		0: "SNMP_SECURITY_LEVEL_UNSPECIFIED",
+		1: "SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV",
+		2: "SNMP_SECURITY_LEVEL_AUTH_NO_PRIV",
+		3: "SNMP_SECURITY_LEVEL_AUTH_PRIV",
+	}
+	SNMPSecurityLevel_value = map[string]int32{
+		"SNMP_SECURITY_LEVEL_UNSPECIFIED":     0,
+		"SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV": 1,
+		"SNMP_SECURITY_LEVEL_AUTH_NO_PRIV":    2,
+		"SNMP_SECURITY_LEVEL_AUTH_PRIV":       3,
+	}
+)
+
+func (x SNMPSecurityLevel) Enum() *SNMPSecurityLevel {
+	p := new(SNMPSecurityLevel)
+	*p = x
+	return p
+}
+
+func (x SNMPSecurityLevel) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SNMPSecurityLevel) Descriptor() protoreflect.EnumDescriptor {
+	return file_monitoring_proto_enumTypes[1].Descriptor()
+}
+
+func (SNMPSecurityLevel) Type() protoreflect.EnumType {
+	return &file_monitoring_proto_enumTypes[1]
+}
+
+func (x SNMPSecurityLevel) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SNMPSecurityLevel.Descriptor instead.
+func (SNMPSecurityLevel) EnumDescriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{1}
+}
+
+// SNMPAuthProtocol represents SNMPv3 authentication protocols.
+type SNMPAuthProtocol int32
+
+const (
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_UNSPECIFIED SNMPAuthProtocol = 0
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_MD5         SNMPAuthProtocol = 1
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA         SNMPAuthProtocol = 2
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA224      SNMPAuthProtocol = 3
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA256      SNMPAuthProtocol = 4
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA384      SNMPAuthProtocol = 5
+	SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA512      SNMPAuthProtocol = 6
+)
+
+// Enum value maps for SNMPAuthProtocol.
+var (
+	SNMPAuthProtocol_name = map[int32]string{
+		0: "SNMP_AUTH_PROTOCOL_UNSPECIFIED",
+		1: "SNMP_AUTH_PROTOCOL_MD5",
+		2: "SNMP_AUTH_PROTOCOL_SHA",
+		3: "SNMP_AUTH_PROTOCOL_SHA224",
+		4: "SNMP_AUTH_PROTOCOL_SHA256",
+		5: "SNMP_AUTH_PROTOCOL_SHA384",
+		6: "SNMP_AUTH_PROTOCOL_SHA512",
+	}
+	SNMPAuthProtocol_value = map[string]int32{
+		"SNMP_AUTH_PROTOCOL_UNSPECIFIED": 0,
+		"SNMP_AUTH_PROTOCOL_MD5":         1,
+		"SNMP_AUTH_PROTOCOL_SHA":         2,
+		"SNMP_AUTH_PROTOCOL_SHA224":      3,
+		"SNMP_AUTH_PROTOCOL_SHA256":      4,
+		"SNMP_AUTH_PROTOCOL_SHA384":      5,
+		"SNMP_AUTH_PROTOCOL_SHA512":      6,
+	}
+)
+
+func (x SNMPAuthProtocol) Enum() *SNMPAuthProtocol {
+	p := new(SNMPAuthProtocol)
+	*p = x
+	return p
+}
+
+func (x SNMPAuthProtocol) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SNMPAuthProtocol) Descriptor() protoreflect.EnumDescriptor {
+	return file_monitoring_proto_enumTypes[2].Descriptor()
+}
+
+func (SNMPAuthProtocol) Type() protoreflect.EnumType {
+	return &file_monitoring_proto_enumTypes[2]
+}
+
+func (x SNMPAuthProtocol) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SNMPAuthProtocol.Descriptor instead.
+func (SNMPAuthProtocol) EnumDescriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{2}
+}
+
+// SNMPPrivProtocol represents SNMPv3 privacy (encryption) protocols.
+type SNMPPrivProtocol int32
+
+const (
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED SNMPPrivProtocol = 0
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_DES         SNMPPrivProtocol = 1
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES         SNMPPrivProtocol = 2
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192      SNMPPrivProtocol = 3
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256      SNMPPrivProtocol = 4
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192C     SNMPPrivProtocol = 5
+	SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C     SNMPPrivProtocol = 6
+)
+
+// Enum value maps for SNMPPrivProtocol.
+var (
+	SNMPPrivProtocol_name = map[int32]string{
+		0: "SNMP_PRIV_PROTOCOL_UNSPECIFIED",
+		1: "SNMP_PRIV_PROTOCOL_DES",
+		2: "SNMP_PRIV_PROTOCOL_AES",
+		3: "SNMP_PRIV_PROTOCOL_AES192",
+		4: "SNMP_PRIV_PROTOCOL_AES256",
+		5: "SNMP_PRIV_PROTOCOL_AES192C",
+		6: "SNMP_PRIV_PROTOCOL_AES256C",
+	}
+	SNMPPrivProtocol_value = map[string]int32{
+		"SNMP_PRIV_PROTOCOL_UNSPECIFIED": 0,
+		"SNMP_PRIV_PROTOCOL_DES":         1,
+		"SNMP_PRIV_PROTOCOL_AES":         2,
+		"SNMP_PRIV_PROTOCOL_AES192":      3,
+		"SNMP_PRIV_PROTOCOL_AES256":      4,
+		"SNMP_PRIV_PROTOCOL_AES192C":     5,
+		"SNMP_PRIV_PROTOCOL_AES256C":     6,
+	}
+)
+
+func (x SNMPPrivProtocol) Enum() *SNMPPrivProtocol {
+	p := new(SNMPPrivProtocol)
+	*p = x
+	return p
+}
+
+func (x SNMPPrivProtocol) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SNMPPrivProtocol) Descriptor() protoreflect.EnumDescriptor {
+	return file_monitoring_proto_enumTypes[3].Descriptor()
+}
+
+func (SNMPPrivProtocol) Type() protoreflect.EnumType {
+	return &file_monitoring_proto_enumTypes[3]
+}
+
+func (x SNMPPrivProtocol) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SNMPPrivProtocol.Descriptor instead.
+func (SNMPPrivProtocol) EnumDescriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{3}
+}
+
+// SNMPDataType represents the type of data for an OID.
+type SNMPDataType int32
+
+const (
+	SNMPDataType_SNMP_DATA_TYPE_UNSPECIFIED SNMPDataType = 0
+	SNMPDataType_SNMP_DATA_TYPE_COUNTER     SNMPDataType = 1 // Monotonically increasing counter
+	SNMPDataType_SNMP_DATA_TYPE_GAUGE       SNMPDataType = 2 // Current value that can go up or down
+	SNMPDataType_SNMP_DATA_TYPE_BOOLEAN     SNMPDataType = 3 // True/false value
+	SNMPDataType_SNMP_DATA_TYPE_BYTES       SNMPDataType = 4 // Byte count
+	SNMPDataType_SNMP_DATA_TYPE_STRING      SNMPDataType = 5 // Text value
+	SNMPDataType_SNMP_DATA_TYPE_FLOAT       SNMPDataType = 6 // Floating point value
+	SNMPDataType_SNMP_DATA_TYPE_TIMETICKS   SNMPDataType = 7 // Time value in hundredths of a second
+)
+
+// Enum value maps for SNMPDataType.
+var (
+	SNMPDataType_name = map[int32]string{
+		0: "SNMP_DATA_TYPE_UNSPECIFIED",
+		1: "SNMP_DATA_TYPE_COUNTER",
+		2: "SNMP_DATA_TYPE_GAUGE",
+		3: "SNMP_DATA_TYPE_BOOLEAN",
+		4: "SNMP_DATA_TYPE_BYTES",
+		5: "SNMP_DATA_TYPE_STRING",
+		6: "SNMP_DATA_TYPE_FLOAT",
+		7: "SNMP_DATA_TYPE_TIMETICKS",
+	}
+	SNMPDataType_value = map[string]int32{
+		"SNMP_DATA_TYPE_UNSPECIFIED": 0,
+		"SNMP_DATA_TYPE_COUNTER":     1,
+		"SNMP_DATA_TYPE_GAUGE":       2,
+		"SNMP_DATA_TYPE_BOOLEAN":     3,
+		"SNMP_DATA_TYPE_BYTES":       4,
+		"SNMP_DATA_TYPE_STRING":      5,
+		"SNMP_DATA_TYPE_FLOAT":       6,
+		"SNMP_DATA_TYPE_TIMETICKS":   7,
+	}
+)
+
+func (x SNMPDataType) Enum() *SNMPDataType {
+	p := new(SNMPDataType)
+	*p = x
+	return p
+}
+
+func (x SNMPDataType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SNMPDataType) Descriptor() protoreflect.EnumDescriptor {
+	return file_monitoring_proto_enumTypes[4].Descriptor()
+}
+
+func (SNMPDataType) Type() protoreflect.EnumType {
+	return &file_monitoring_proto_enumTypes[4]
+}
+
+func (x SNMPDataType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SNMPDataType.Descriptor instead.
+func (SNMPDataType) EnumDescriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{4}
+}
+
 type SweepCompletionStatus_Status int32
 
 const (
@@ -75,11 +370,11 @@ func (x SweepCompletionStatus_Status) String() string {
 }
 
 func (SweepCompletionStatus_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_monitoring_proto_enumTypes[0].Descriptor()
+	return file_monitoring_proto_enumTypes[5].Descriptor()
 }
 
 func (SweepCompletionStatus_Status) Type() protoreflect.EnumType {
-	return &file_monitoring_proto_enumTypes[0]
+	return &file_monitoring_proto_enumTypes[5]
 }
 
 func (x SweepCompletionStatus_Status) Number() protoreflect.EnumNumber {
@@ -1732,7 +2027,9 @@ type AgentConfigResponse struct {
 	// Optional: raw JSON config for extensibility
 	ConfigJson []byte `protobuf:"bytes,7,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
 	// Sysmon configuration for embedded system monitoring
-	SysmonConfig  *SysmonConfig `protobuf:"bytes,8,opt,name=sysmon_config,json=sysmonConfig,proto3" json:"sysmon_config,omitempty"`
+	SysmonConfig *SysmonConfig `protobuf:"bytes,8,opt,name=sysmon_config,json=sysmonConfig,proto3" json:"sysmon_config,omitempty"`
+	// SNMP configuration for embedded SNMP monitoring
+	SnmpConfig    *SNMPConfig `protobuf:"bytes,9,opt,name=snmp_config,json=snmpConfig,proto3" json:"snmp_config,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1819,6 +2116,13 @@ func (x *AgentConfigResponse) GetConfigJson() []byte {
 func (x *AgentConfigResponse) GetSysmonConfig() *SysmonConfig {
 	if x != nil {
 		return x.SysmonConfig
+	}
+	return nil
+}
+
+func (x *AgentConfigResponse) GetSnmpConfig() *SNMPConfig {
+	if x != nil {
+		return x.SnmpConfig
 	}
 	return nil
 }
@@ -2095,6 +2399,369 @@ func (x *AgentCheckConfig) GetSettings() map[string]string {
 	return nil
 }
 
+// SNMPConfig defines SNMP monitoring configuration for the embedded SNMP collector.
+type SNMPConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether SNMP collection is enabled
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Profile metadata (for UI display and debugging)
+	ProfileId   string `protobuf:"bytes,2,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`       // UUID of the profile this config came from
+	ProfileName string `protobuf:"bytes,3,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"` // Name of the profile for logging
+	// SNMP targets to poll
+	Targets       []*SNMPTargetConfig `protobuf:"bytes,4,rep,name=targets,proto3" json:"targets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPConfig) Reset() {
+	*x = SNMPConfig{}
+	mi := &file_monitoring_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPConfig) ProtoMessage() {}
+
+func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPConfig.ProtoReflect.Descriptor instead.
+func (*SNMPConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SNMPConfig) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *SNMPConfig) GetProfileId() string {
+	if x != nil {
+		return x.ProfileId
+	}
+	return ""
+}
+
+func (x *SNMPConfig) GetProfileName() string {
+	if x != nil {
+		return x.ProfileName
+	}
+	return ""
+}
+
+func (x *SNMPConfig) GetTargets() []*SNMPTargetConfig {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+// SNMPTargetConfig defines a single SNMP target (network device) to poll.
+type SNMPTargetConfig struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`                                        // Target ID (UUID)
+	Name    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                                    // Human-readable name
+	Host    string                 `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`                                    // Hostname or IP address
+	Port    uint32                 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`                                   // SNMP port (default 161)
+	Version SNMPVersion            `protobuf:"varint,5,opt,name=version,proto3,enum=monitoring.SNMPVersion" json:"version,omitempty"` // SNMP protocol version
+	// SNMPv1/v2c authentication
+	Community string `protobuf:"bytes,6,opt,name=community,proto3" json:"community,omitempty"` // Community string (decrypted)
+	// SNMPv3 authentication
+	V3Auth *SNMPv3Auth `protobuf:"bytes,7,opt,name=v3_auth,json=v3Auth,proto3" json:"v3_auth,omitempty"`
+	// Polling configuration
+	PollIntervalSeconds uint32 `protobuf:"varint,8,opt,name=poll_interval_seconds,json=pollIntervalSeconds,proto3" json:"poll_interval_seconds,omitempty"` // How often to poll (default 60)
+	TimeoutSeconds      uint32 `protobuf:"varint,9,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`                  // Timeout per request (default 5)
+	Retries             uint32 `protobuf:"varint,10,opt,name=retries,proto3" json:"retries,omitempty"`                                                     // Number of retries (default 3)
+	// OIDs to poll
+	Oids          []*SNMPOIDConfig `protobuf:"bytes,11,rep,name=oids,proto3" json:"oids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPTargetConfig) Reset() {
+	*x = SNMPTargetConfig{}
+	mi := &file_monitoring_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPTargetConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPTargetConfig) ProtoMessage() {}
+
+func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPTargetConfig.ProtoReflect.Descriptor instead.
+func (*SNMPTargetConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SNMPTargetConfig) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SNMPTargetConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SNMPTargetConfig) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *SNMPTargetConfig) GetPort() uint32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *SNMPTargetConfig) GetVersion() SNMPVersion {
+	if x != nil {
+		return x.Version
+	}
+	return SNMPVersion_SNMP_VERSION_UNSPECIFIED
+}
+
+func (x *SNMPTargetConfig) GetCommunity() string {
+	if x != nil {
+		return x.Community
+	}
+	return ""
+}
+
+func (x *SNMPTargetConfig) GetV3Auth() *SNMPv3Auth {
+	if x != nil {
+		return x.V3Auth
+	}
+	return nil
+}
+
+func (x *SNMPTargetConfig) GetPollIntervalSeconds() uint32 {
+	if x != nil {
+		return x.PollIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SNMPTargetConfig) GetTimeoutSeconds() uint32 {
+	if x != nil {
+		return x.TimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SNMPTargetConfig) GetRetries() uint32 {
+	if x != nil {
+		return x.Retries
+	}
+	return 0
+}
+
+func (x *SNMPTargetConfig) GetOids() []*SNMPOIDConfig {
+	if x != nil {
+		return x.Oids
+	}
+	return nil
+}
+
+// SNMPv3Auth contains SNMPv3 authentication parameters.
+type SNMPv3Auth struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	SecurityLevel SNMPSecurityLevel      `protobuf:"varint,2,opt,name=security_level,json=securityLevel,proto3,enum=monitoring.SNMPSecurityLevel" json:"security_level,omitempty"`
+	AuthProtocol  SNMPAuthProtocol       `protobuf:"varint,3,opt,name=auth_protocol,json=authProtocol,proto3,enum=monitoring.SNMPAuthProtocol" json:"auth_protocol,omitempty"`
+	AuthPassword  string                 `protobuf:"bytes,4,opt,name=auth_password,json=authPassword,proto3" json:"auth_password,omitempty"` // Decrypted password
+	PrivProtocol  SNMPPrivProtocol       `protobuf:"varint,5,opt,name=priv_protocol,json=privProtocol,proto3,enum=monitoring.SNMPPrivProtocol" json:"priv_protocol,omitempty"`
+	PrivPassword  string                 `protobuf:"bytes,6,opt,name=priv_password,json=privPassword,proto3" json:"priv_password,omitempty"` // Decrypted password
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPv3Auth) Reset() {
+	*x = SNMPv3Auth{}
+	mi := &file_monitoring_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPv3Auth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPv3Auth) ProtoMessage() {}
+
+func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPv3Auth.ProtoReflect.Descriptor instead.
+func (*SNMPv3Auth) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SNMPv3Auth) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *SNMPv3Auth) GetSecurityLevel() SNMPSecurityLevel {
+	if x != nil {
+		return x.SecurityLevel
+	}
+	return SNMPSecurityLevel_SNMP_SECURITY_LEVEL_UNSPECIFIED
+}
+
+func (x *SNMPv3Auth) GetAuthProtocol() SNMPAuthProtocol {
+	if x != nil {
+		return x.AuthProtocol
+	}
+	return SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_UNSPECIFIED
+}
+
+func (x *SNMPv3Auth) GetAuthPassword() string {
+	if x != nil {
+		return x.AuthPassword
+	}
+	return ""
+}
+
+func (x *SNMPv3Auth) GetPrivProtocol() SNMPPrivProtocol {
+	if x != nil {
+		return x.PrivProtocol
+	}
+	return SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED
+}
+
+func (x *SNMPv3Auth) GetPrivPassword() string {
+	if x != nil {
+		return x.PrivPassword
+	}
+	return ""
+}
+
+// SNMPOIDConfig defines an OID to poll from an SNMP target.
+type SNMPOIDConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Oid           string                 `protobuf:"bytes,1,opt,name=oid,proto3" json:"oid,omitempty"`                                                         // OID string (e.g., ".1.3.6.1.2.1.1.1.0")
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                                                       // Human-readable name (e.g., "sysDescr")
+	DataType      SNMPDataType           `protobuf:"varint,3,opt,name=data_type,json=dataType,proto3,enum=monitoring.SNMPDataType" json:"data_type,omitempty"` // Expected data type
+	Scale         float64                `protobuf:"fixed64,4,opt,name=scale,proto3" json:"scale,omitempty"`                                                   // Scale factor (default 1.0)
+	Delta         bool                   `protobuf:"varint,5,opt,name=delta,proto3" json:"delta,omitempty"`                                                    // Calculate rate of change
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SNMPOIDConfig) Reset() {
+	*x = SNMPOIDConfig{}
+	mi := &file_monitoring_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SNMPOIDConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SNMPOIDConfig) ProtoMessage() {}
+
+func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SNMPOIDConfig.ProtoReflect.Descriptor instead.
+func (*SNMPOIDConfig) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SNMPOIDConfig) GetOid() string {
+	if x != nil {
+		return x.Oid
+	}
+	return ""
+}
+
+func (x *SNMPOIDConfig) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SNMPOIDConfig) GetDataType() SNMPDataType {
+	if x != nil {
+		return x.DataType
+	}
+	return SNMPDataType_SNMP_DATA_TYPE_UNSPECIFIED
+}
+
+func (x *SNMPOIDConfig) GetScale() float64 {
+	if x != nil {
+		return x.Scale
+	}
+	return 0
+}
+
+func (x *SNMPOIDConfig) GetDelta() bool {
+	if x != nil {
+		return x.Delta
+	}
+	return false
+}
+
 var File_monitoring_proto protoreflect.FileDescriptor
 
 const file_monitoring_proto_rawDesc = "" +
@@ -2277,7 +2944,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"tenantSlug\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
-	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\x8f\x03\n" +
+	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xc8\x03\n" +
 	"\x13AgentConfigResponse\x12!\n" +
 	"\fnot_modified\x18\x01 \x01(\bR\vnotModified\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -2287,7 +2954,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x06checks\x18\x06 \x03(\v2\x1c.monitoring.AgentCheckConfigR\x06checks\x12\x1f\n" +
 	"\vconfig_json\x18\a \x01(\fR\n" +
 	"configJson\x12=\n" +
-	"\rsysmon_config\x18\b \x01(\v2\x18.monitoring.SysmonConfigR\fsysmonConfig\"\xa7\x04\n" +
+	"\rsysmon_config\x18\b \x01(\v2\x18.monitoring.SysmonConfigR\fsysmonConfig\x127\n" +
+	"\vsnmp_config\x18\t \x01(\v2\x16.monitoring.SNMPConfigR\n" +
+	"snmpConfig\"\xa7\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
@@ -2328,7 +2997,76 @@ const file_monitoring_proto_rawDesc = "" +
 	"\bsettings\x18\v \x03(\v2*.monitoring.AgentCheckConfig.SettingsEntryR\bsettings\x1a;\n" +
 	"\rSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xe8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
+	"\n" +
+	"SNMPConfig\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1d\n" +
+	"\n" +
+	"profile_id\x18\x02 \x01(\tR\tprofileId\x12!\n" +
+	"\fprofile_name\x18\x03 \x01(\tR\vprofileName\x126\n" +
+	"\atargets\x18\x04 \x03(\v2\x1c.monitoring.SNMPTargetConfigR\atargets\"\x86\x03\n" +
+	"\x10SNMPTargetConfig\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\rR\x04port\x121\n" +
+	"\aversion\x18\x05 \x01(\x0e2\x17.monitoring.SNMPVersionR\aversion\x12\x1c\n" +
+	"\tcommunity\x18\x06 \x01(\tR\tcommunity\x12/\n" +
+	"\av3_auth\x18\a \x01(\v2\x16.monitoring.SNMPv3AuthR\x06v3Auth\x122\n" +
+	"\x15poll_interval_seconds\x18\b \x01(\rR\x13pollIntervalSeconds\x12'\n" +
+	"\x0ftimeout_seconds\x18\t \x01(\rR\x0etimeoutSeconds\x12\x18\n" +
+	"\aretries\x18\n" +
+	" \x01(\rR\aretries\x12-\n" +
+	"\x04oids\x18\v \x03(\v2\x19.monitoring.SNMPOIDConfigR\x04oids\"\xbe\x02\n" +
+	"\n" +
+	"SNMPv3Auth\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12D\n" +
+	"\x0esecurity_level\x18\x02 \x01(\x0e2\x1d.monitoring.SNMPSecurityLevelR\rsecurityLevel\x12A\n" +
+	"\rauth_protocol\x18\x03 \x01(\x0e2\x1c.monitoring.SNMPAuthProtocolR\fauthProtocol\x12#\n" +
+	"\rauth_password\x18\x04 \x01(\tR\fauthPassword\x12A\n" +
+	"\rpriv_protocol\x18\x05 \x01(\x0e2\x1c.monitoring.SNMPPrivProtocolR\fprivProtocol\x12#\n" +
+	"\rpriv_password\x18\x06 \x01(\tR\fprivPassword\"\x98\x01\n" +
+	"\rSNMPOIDConfig\x12\x10\n" +
+	"\x03oid\x18\x01 \x01(\tR\x03oid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x125\n" +
+	"\tdata_type\x18\x03 \x01(\x0e2\x18.monitoring.SNMPDataTypeR\bdataType\x12\x14\n" +
+	"\x05scale\x18\x04 \x01(\x01R\x05scale\x12\x14\n" +
+	"\x05delta\x18\x05 \x01(\bR\x05delta*k\n" +
+	"\vSNMPVersion\x12\x1c\n" +
+	"\x18SNMP_VERSION_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fSNMP_VERSION_V1\x10\x01\x12\x14\n" +
+	"\x10SNMP_VERSION_V2C\x10\x02\x12\x13\n" +
+	"\x0fSNMP_VERSION_V3\x10\x03*\xaa\x01\n" +
+	"\x11SNMPSecurityLevel\x12#\n" +
+	"\x1fSNMP_SECURITY_LEVEL_UNSPECIFIED\x10\x00\x12'\n" +
+	"#SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV\x10\x01\x12$\n" +
+	" SNMP_SECURITY_LEVEL_AUTH_NO_PRIV\x10\x02\x12!\n" +
+	"\x1dSNMP_SECURITY_LEVEL_AUTH_PRIV\x10\x03*\xea\x01\n" +
+	"\x10SNMPAuthProtocol\x12\"\n" +
+	"\x1eSNMP_AUTH_PROTOCOL_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16SNMP_AUTH_PROTOCOL_MD5\x10\x01\x12\x1a\n" +
+	"\x16SNMP_AUTH_PROTOCOL_SHA\x10\x02\x12\x1d\n" +
+	"\x19SNMP_AUTH_PROTOCOL_SHA224\x10\x03\x12\x1d\n" +
+	"\x19SNMP_AUTH_PROTOCOL_SHA256\x10\x04\x12\x1d\n" +
+	"\x19SNMP_AUTH_PROTOCOL_SHA384\x10\x05\x12\x1d\n" +
+	"\x19SNMP_AUTH_PROTOCOL_SHA512\x10\x06*\xec\x01\n" +
+	"\x10SNMPPrivProtocol\x12\"\n" +
+	"\x1eSNMP_PRIV_PROTOCOL_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16SNMP_PRIV_PROTOCOL_DES\x10\x01\x12\x1a\n" +
+	"\x16SNMP_PRIV_PROTOCOL_AES\x10\x02\x12\x1d\n" +
+	"\x19SNMP_PRIV_PROTOCOL_AES192\x10\x03\x12\x1d\n" +
+	"\x19SNMP_PRIV_PROTOCOL_AES256\x10\x04\x12\x1e\n" +
+	"\x1aSNMP_PRIV_PROTOCOL_AES192C\x10\x05\x12\x1e\n" +
+	"\x1aSNMP_PRIV_PROTOCOL_AES256C\x10\x06*\xed\x01\n" +
+	"\fSNMPDataType\x12\x1e\n" +
+	"\x1aSNMP_DATA_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16SNMP_DATA_TYPE_COUNTER\x10\x01\x12\x18\n" +
+	"\x14SNMP_DATA_TYPE_GAUGE\x10\x02\x12\x1a\n" +
+	"\x16SNMP_DATA_TYPE_BOOLEAN\x10\x03\x12\x18\n" +
+	"\x14SNMP_DATA_TYPE_BYTES\x10\x04\x12\x19\n" +
+	"\x15SNMP_DATA_TYPE_STRING\x10\x05\x12\x18\n" +
+	"\x14SNMP_DATA_TYPE_FLOAT\x10\x06\x12\x1c\n" +
+	"\x18SNMP_DATA_TYPE_TIMETICKS\x10\a2\xe8\x01\n" +
 	"\fAgentService\x12D\n" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
@@ -2353,66 +3091,84 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 	return file_monitoring_proto_rawDescData
 }
 
-var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_monitoring_proto_goTypes = []any{
-	(SweepCompletionStatus_Status)(0), // 0: monitoring.SweepCompletionStatus.Status
-	(*DeviceStatusRequest)(nil),       // 1: monitoring.DeviceStatusRequest
-	(*StatusRequest)(nil),             // 2: monitoring.StatusRequest
-	(*ResultsRequest)(nil),            // 3: monitoring.ResultsRequest
-	(*StatusResponse)(nil),            // 4: monitoring.StatusResponse
-	(*ResultsResponse)(nil),           // 5: monitoring.ResultsResponse
-	(*SweepServiceStatus)(nil),        // 6: monitoring.SweepServiceStatus
-	(*PortStatus)(nil),                // 7: monitoring.PortStatus
-	(*ResultsChunk)(nil),              // 8: monitoring.ResultsChunk
-	(*SweepCompletionStatus)(nil),     // 9: monitoring.SweepCompletionStatus
-	(*SweepScannerStats)(nil),         // 10: monitoring.SweepScannerStats
-	(*GatewayStatusRequest)(nil),      // 11: monitoring.GatewayStatusRequest
-	(*GatewayStatusResponse)(nil),     // 12: monitoring.GatewayStatusResponse
-	(*GatewayStatusChunk)(nil),        // 13: monitoring.GatewayStatusChunk
-	(*GatewayServiceStatus)(nil),      // 14: monitoring.GatewayServiceStatus
-	(*AgentHelloRequest)(nil),         // 15: monitoring.AgentHelloRequest
-	(*AgentHelloResponse)(nil),        // 16: monitoring.AgentHelloResponse
-	(*AgentConfigRequest)(nil),        // 17: monitoring.AgentConfigRequest
-	(*AgentConfigResponse)(nil),       // 18: monitoring.AgentConfigResponse
-	(*SysmonConfig)(nil),              // 19: monitoring.SysmonConfig
-	(*AgentCheckConfig)(nil),          // 20: monitoring.AgentCheckConfig
-	nil,                               // 21: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                               // 22: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                               // 23: monitoring.AgentCheckConfig.SettingsEntry
+	(SNMPVersion)(0),                  // 0: monitoring.SNMPVersion
+	(SNMPSecurityLevel)(0),            // 1: monitoring.SNMPSecurityLevel
+	(SNMPAuthProtocol)(0),             // 2: monitoring.SNMPAuthProtocol
+	(SNMPPrivProtocol)(0),             // 3: monitoring.SNMPPrivProtocol
+	(SNMPDataType)(0),                 // 4: monitoring.SNMPDataType
+	(SweepCompletionStatus_Status)(0), // 5: monitoring.SweepCompletionStatus.Status
+	(*DeviceStatusRequest)(nil),       // 6: monitoring.DeviceStatusRequest
+	(*StatusRequest)(nil),             // 7: monitoring.StatusRequest
+	(*ResultsRequest)(nil),            // 8: monitoring.ResultsRequest
+	(*StatusResponse)(nil),            // 9: monitoring.StatusResponse
+	(*ResultsResponse)(nil),           // 10: monitoring.ResultsResponse
+	(*SweepServiceStatus)(nil),        // 11: monitoring.SweepServiceStatus
+	(*PortStatus)(nil),                // 12: monitoring.PortStatus
+	(*ResultsChunk)(nil),              // 13: monitoring.ResultsChunk
+	(*SweepCompletionStatus)(nil),     // 14: monitoring.SweepCompletionStatus
+	(*SweepScannerStats)(nil),         // 15: monitoring.SweepScannerStats
+	(*GatewayStatusRequest)(nil),      // 16: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),     // 17: monitoring.GatewayStatusResponse
+	(*GatewayStatusChunk)(nil),        // 18: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),      // 19: monitoring.GatewayServiceStatus
+	(*AgentHelloRequest)(nil),         // 20: monitoring.AgentHelloRequest
+	(*AgentHelloResponse)(nil),        // 21: monitoring.AgentHelloResponse
+	(*AgentConfigRequest)(nil),        // 22: monitoring.AgentConfigRequest
+	(*AgentConfigResponse)(nil),       // 23: monitoring.AgentConfigResponse
+	(*SysmonConfig)(nil),              // 24: monitoring.SysmonConfig
+	(*AgentCheckConfig)(nil),          // 25: monitoring.AgentCheckConfig
+	(*SNMPConfig)(nil),                // 26: monitoring.SNMPConfig
+	(*SNMPTargetConfig)(nil),          // 27: monitoring.SNMPTargetConfig
+	(*SNMPv3Auth)(nil),                // 28: monitoring.SNMPv3Auth
+	(*SNMPOIDConfig)(nil),             // 29: monitoring.SNMPOIDConfig
+	nil,                               // 30: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                               // 31: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                               // 32: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
-	9,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
-	9,  // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
-	7,  // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
-	0,  // 3: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
-	10, // 4: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
-	14, // 5: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
-	14, // 6: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
-	21, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
-	20, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
-	19, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
-	22, // 10: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	23, // 11: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	2,  // 12: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	3,  // 13: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	3,  // 14: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	15, // 15: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	17, // 16: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	11, // 17: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	13, // 18: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	4,  // 19: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	5,  // 20: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	8,  // 21: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	16, // 22: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	18, // 23: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	12, // 24: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	12, // 25: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	19, // [19:26] is the sub-list for method output_type
-	12, // [12:19] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	14, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
+	14, // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
+	12, // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
+	5,  // 3: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
+	15, // 4: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
+	19, // 5: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	19, // 6: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	30, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	25, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	24, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
+	26, // 10: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
+	31, // 11: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	32, // 12: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	27, // 13: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	0,  // 14: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	28, // 15: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	29, // 16: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 17: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 18: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 19: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 20: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	7,  // 21: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 22: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 23: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	20, // 24: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	22, // 25: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	16, // 26: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	18, // 27: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	9,  // 28: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	10, // 29: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	13, // 30: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	21, // 31: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	23, // 32: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	17, // 33: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	17, // 34: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	28, // [28:35] is the sub-list for method output_type
+	21, // [21:28] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -2425,8 +3181,8 @@ func file_monitoring_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   23,
+			NumEnums:      6,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
