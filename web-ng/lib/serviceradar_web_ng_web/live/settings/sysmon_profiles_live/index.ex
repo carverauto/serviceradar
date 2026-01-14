@@ -374,7 +374,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <% end %>
         </div>
         
-      <!-- JSON Preview Modal -->
+    <!-- JSON Preview Modal -->
         <.json_preview_modal :if={@json_preview && @show_form == nil} json_preview={@json_preview} />
       </.settings_shell>
     </Layouts.app>
