@@ -113,12 +113,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     target_query = Map.get(params, "target_query")
     device_count = count_target_devices(scope, target_query)
     ash_form = socket.assigns.ash_form |> Form.validate(params)
+    {parsed_builder, builder_sync} = parse_target_query_to_builder(target_query)
 
-    {:noreply,
-     socket
-     |> assign(:ash_form, ash_form)
-     |> assign(:form, to_form(ash_form))
-     |> assign(:target_device_count, device_count)}
+    socket =
+      socket
+      |> assign(:ash_form, ash_form)
+      |> assign(:form, to_form(ash_form))
+      |> assign(:target_device_count, device_count)
+      |> assign(:builder_sync, builder_sync)
+
+    socket =
+      if builder_sync do
+        assign(socket, :builder, parsed_builder)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
@@ -548,6 +559,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
       <.form
         for={@form}
+        id="sysmon-profile-form"
         phx-submit="save_profile"
         phx-change="validate_profile"
         phx-debounce="300"
