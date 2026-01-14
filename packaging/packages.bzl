@@ -502,44 +502,6 @@ PACKAGES = {
             "/etc/serviceradar/profiler.toml",
         ],
     },
-    "sysmon": {
-        "package_name": "serviceradar-sysmon-checker",
-        "description": "ServiceRadar System Monitor checker",
-        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "libssl-dev", "ca-certificates"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/checkers/sysmon:sysmon",
-            "dest": "/usr/local/bin/serviceradar-sysmon-checker-nonzfs",
-        },
-        "files": [
-            {
-                "target": "//cmd/checkers/sysmon:sysmon_zfs",
-                "dest": "/usr/local/bin/serviceradar-sysmon-checker-zfs",
-                "mode": "0755",
-            },
-            {
-                "src": "config/checkers/sysmon.json.example",
-                "dest": "/etc/serviceradar/checkers/sysmon.json.example",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-sysmon-checker.service",
-            "dest": "/lib/systemd/system/serviceradar-sysmon-checker.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/checkers/sysmon.json.example",
-        ],
-        # Custom spec template to disable AutoReq for ZFS binary's optional dependencies
-        "rpm_spec_template": "//packaging/sysmon:template.spec.tpl",
-    },
     "cli": {
         "package_name": "serviceradar-cli",
         "description": "ServiceRadar CLI tool",

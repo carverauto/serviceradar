@@ -43,6 +43,9 @@ defmodule ServiceRadarWebNG.MixProject do
       # ServiceRadar Core - Ash domains, cluster, registry
       {:serviceradar_core, path: "../elixir/serviceradar_core"},
 
+      # SRQL shared library for query parsing and execution
+      {:serviceradar_srql, path: "../elixir/serviceradar_srql"},
+
       # Phoenix Web Framework
       {:bcrypt_elixir, "~> 3.0"},
       {:phoenix, "~> 1.8.3"},
@@ -62,7 +65,6 @@ defmodule ServiceRadarWebNG.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
-      {:rustler, "~> 0.36"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:gettext, "~> 1.0"},

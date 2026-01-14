@@ -24,6 +24,9 @@ defmodule ServiceRadar.Sync.Client do
 
   require Logger
 
+  # Suppress warning for gRPC stub that is generated from protobuf at build time
+  @compile {:no_warn_undefined, Monitoring.AgentGatewayService.Stub}
+
   @default_host "localhost"
   @default_port 50_051
   @default_timeout 30_000

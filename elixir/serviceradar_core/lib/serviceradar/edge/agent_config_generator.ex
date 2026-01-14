@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -79,7 +80,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {:ok, checks} ->
         sync_payload = load_sync_payload(agent_id, tenant_id)
         sweep_config = load_sweep_config(agent_id, tenant_id)
-        config = build_config(checks, sync_payload, sweep_config)
+        sysmon_config = load_sysmon_config(agent_id, tenant_id)
+        config = build_config(checks, sync_payload, sweep_config, sysmon_config)
         {:ok, config}
 
       {:error, reason} ->
@@ -184,14 +186,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Build the full config structure from database checks
-  defp build_config(checks, sync_payload, sweep_config) do
+  defp build_config(checks, sync_payload, sweep_config, sysmon_config) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
 
     # Merge sweep config into the payload
     full_payload = Map.put(sync_payload, "sweep", sweep_config)
 
-    # Compute version hash from checks, sync payload, and sweep config
-    config_version = compute_version_hash(check_configs, full_payload)
+    # Compute version hash from checks, sync payload, sweep config, and sysmon config
+    config_version = compute_version_hash(check_configs, full_payload, sysmon_config)
     config_json = Jason.encode!(full_payload)
 
     %{
@@ -200,7 +202,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_poll_interval_sec: @default_config_poll_interval_sec,
       checks: check_configs,
-      config_json: config_json
+      config_json: config_json,
+      sysmon_config: build_sysmon_proto_config(sysmon_config)
     }
   end
 
@@ -255,12 +258,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp stringify_value(v), do: v
 
   # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(check_configs, sync_payload) do
+  defp compute_version_hash(check_configs, sync_payload, sysmon_config) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
     # Serialize deterministically for hashing (works for any Erlang term).
-    bin = :erlang.term_to_binary(%{checks: sorted_checks, sync: sync_payload})
+    bin = :erlang.term_to_binary(%{
+      checks: sorted_checks,
+      sync: sync_payload,
+      sysmon: sysmon_config
+    })
 
     # Compute SHA256 hash
     hash = :crypto.hash(:sha256, bin)
@@ -306,5 +313,48 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
         %{}
     end
+  end
+
+  # Load sysmon configuration from the AgentConfig system
+  # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
+  defp load_sysmon_config(agent_id, tenant_id) do
+    partition = "default"
+
+    case ConfigServer.get_config(tenant_id, :sysmon, partition, agent_id) do
+      {:ok, entry} ->
+        entry.config
+
+      {:error, :no_config_found} ->
+        # Return default sysmon config when none defined
+        Logger.debug("No sysmon config found for agent #{agent_id}, using default")
+        SysmonCompiler.default_config()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        SysmonCompiler.default_config()
+    end
+  end
+
+  # Build the proto-compatible SysmonConfig struct
+  defp build_sysmon_proto_config(nil), do: nil
+
+  defp build_sysmon_proto_config(config) when is_map(config) do
+    %Monitoring.SysmonConfig{
+      enabled: Map.get(config, "enabled", true),
+      sample_interval: Map.get(config, "sample_interval", "10s"),
+      collect_cpu: Map.get(config, "collect_cpu", true),
+      collect_memory: Map.get(config, "collect_memory", true),
+      collect_disk: Map.get(config, "collect_disk", true),
+      collect_network: Map.get(config, "collect_network", false),
+      collect_processes: Map.get(config, "collect_processes", false),
+      disk_paths: Map.get(config, "disk_paths", ["/"]),
+      thresholds: Map.get(config, "thresholds", %{}),
+      profile_id: Map.get(config, "profile_id", ""),
+      profile_name: Map.get(config, "profile_name", ""),
+      config_source: Map.get(config, "config_source", "default")
+    }
   end
 end

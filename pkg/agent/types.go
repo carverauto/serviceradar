@@ -49,6 +49,7 @@ type Server struct {
 	createSweepService func(ctx context.Context, sweepConfig *SweepConfig) (Service, error)
 	setupDataStores    func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error)
 	logger             logger.Logger
+	sysmonService      *SysmonService
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

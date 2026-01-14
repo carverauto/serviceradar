@@ -38,6 +38,9 @@ defmodule ServiceRadarCore.MixProject do
 
   defp deps do
     [
+      # SRQL shared library for query parsing and execution
+      {:serviceradar_srql, path: "../serviceradar_srql"},
+
       # Ash Framework
       {:ash, "~> 3.4"},
       {:ash_postgres, "~> 2.4"},

@@ -210,7 +210,8 @@ config :serviceradar_core,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
-    ServiceRadar.SweepJobs
+    ServiceRadar.SweepJobs,
+    ServiceRadar.SysmonProfiles
   ]
 
 # Reduce log noise in tests

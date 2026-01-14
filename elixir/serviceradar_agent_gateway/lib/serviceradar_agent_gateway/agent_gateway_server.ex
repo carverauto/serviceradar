@@ -93,6 +93,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     capabilities = normalize_capabilities(request.capabilities || [])
 
     ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
+    ensure_device_for_agent(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
     ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
 
     # Registration is stored in the tenant registry and DB; acceptance remains cert-based.
@@ -739,7 +740,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         _ -> get_peer_ip(stream)
       end
 
-    touch_agent_record(tenant_info, agent_id, partition_id, source_ip)
+    config_source = extract_config_source(request)
+
+    touch_agent_record(tenant_info, agent_id, partition_id, source_ip, config_source)
+  end
+
+  defp extract_config_source(request) do
+    case request do
+      %{config_source: source} when is_binary(source) and source != "" ->
+        case source do
+          "remote" -> :remote
+          "local" -> :local
+          "cached" -> :cached
+          "default" -> :default
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
   end
 
   defp agent_registry_metadata(tenant_info, partition_id, capabilities, stream) do
@@ -772,8 +791,47 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp touch_agent_record(tenant_info, agent_id, partition_id, source_ip) do
-    attrs = agent_record_attrs(agent_id, partition_id, nil, source_ip, tenant_info)
+  defp ensure_device_for_agent(tenant_info, agent_id, partition_id, request, source_ip) do
+    attrs = device_attrs_from_request(partition_id, request, source_ip)
+
+    case core_call(AgentGatewaySync, :ensure_device_for_agent, [
+           agent_id,
+           tenant_info.tenant_id,
+           attrs
+         ]) do
+      {:ok, {:ok, device_uid}} ->
+        Logger.debug("Agent #{agent_id} linked to device #{device_uid}")
+        :ok
+
+      {:ok, {:error, reason}} ->
+        # Device creation failure is non-fatal - agent can still operate
+        Logger.warning("Failed to create device for agent #{agent_id}: #{inspect(reason)}")
+        :ok
+
+      {:error, :core_unavailable} ->
+        # Non-fatal - device will be created on next hello
+        Logger.warning("Core unavailable while creating device for agent #{agent_id}")
+        :ok
+    end
+  end
+
+  defp device_attrs_from_request(partition_id, request, source_ip) do
+    capabilities = if request, do: request.capabilities || [], else: []
+
+    %{
+      hostname: if(request, do: request.hostname, else: nil),
+      os: if(request, do: request.os, else: nil),
+      arch: if(request, do: request.arch, else: nil),
+      partition: partition_id,
+      source_ip: source_ip,
+      capabilities: capabilities
+    }
+  end
+
+  defp touch_agent_record(tenant_info, agent_id, partition_id, source_ip, config_source) do
+    attrs =
+      agent_record_attrs(agent_id, partition_id, nil, source_ip, tenant_info)
+      |> maybe_add_config_source(config_source)
 
     case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, tenant_info.tenant_id, attrs]) do
       {:ok, :ok} ->
@@ -788,6 +846,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         :ok
     end
   end
+
+  defp maybe_add_config_source(attrs, nil), do: attrs
+  defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
 
   defp agent_record_attrs(agent_id, partition_id, request, source_ip, tenant_info) do
     metadata =

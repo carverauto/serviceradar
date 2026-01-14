@@ -1,0 +1,17 @@
+# Dependencies
+/_build/
+/deps/
+/doc/
+*.ez
+*.beam
+
+# Rust NIF build artifacts
+/native/srql_nif/target/
+/priv/native/
+
+# Coverage and test artifacts
+/cover/
+/tmp/
+
+# Editor artifacts
+.elixir_ls/

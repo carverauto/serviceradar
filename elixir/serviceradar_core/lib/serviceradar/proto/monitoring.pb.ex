@@ -1,7 +1,11 @@
 defmodule Monitoring.SweepCompletionStatus.Status do
   @moduledoc false
 
-  use Protobuf, enum: true, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    enum: true,
+    full_name: "monitoring.SweepCompletionStatus.Status",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :UNKNOWN, 0
   field :NOT_STARTED, 1
@@ -13,7 +17,10 @@ end
 defmodule Monitoring.DeviceStatusRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.DeviceStatusRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :agent_id, 1, type: :string, json_name: "agentId"
 end
@@ -21,7 +28,10 @@ end
 defmodule Monitoring.StatusRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.StatusRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :service_type, 2, type: :string, json_name: "serviceType"
@@ -34,7 +44,10 @@ end
 defmodule Monitoring.ResultsRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.ResultsRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :service_type, 2, type: :string, json_name: "serviceType"
@@ -51,7 +64,10 @@ end
 defmodule Monitoring.StatusResponse do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.StatusResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :available, 1, type: :bool
   field :message, 2, type: :bytes
@@ -65,7 +81,10 @@ end
 defmodule Monitoring.ResultsResponse do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.ResultsResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :available, 1, type: :bool
   field :data, 2, type: :bytes
@@ -81,12 +100,18 @@ defmodule Monitoring.ResultsResponse do
   field :sweep_completion, 11,
     type: Monitoring.SweepCompletionStatus,
     json_name: "sweepCompletion"
+
+  field :execution_id, 12, type: :string, json_name: "executionId"
+  field :sweep_group_id, 13, type: :string, json_name: "sweepGroupId"
 end
 
 defmodule Monitoring.SweepServiceStatus do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.SweepServiceStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :network, 1, type: :string
   field :total_hosts, 2, type: :int32, json_name: "totalHosts"
@@ -98,7 +123,10 @@ end
 defmodule Monitoring.PortStatus do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.PortStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :port, 1, type: :int32
   field :available, 2, type: :int32
@@ -107,7 +135,10 @@ end
 defmodule Monitoring.ResultsChunk do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.ResultsChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :data, 1, type: :bytes
   field :is_final, 2, type: :bool, json_name: "isFinal"
@@ -120,7 +151,10 @@ end
 defmodule Monitoring.SweepCompletionStatus do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.SweepCompletionStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :status, 1, type: Monitoring.SweepCompletionStatus.Status, enum: true
   field :completion_time, 2, type: :int64, json_name: "completionTime"
@@ -136,7 +170,10 @@ end
 defmodule Monitoring.SweepScannerStats do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.SweepScannerStats",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :packets_sent, 1, type: :uint64, json_name: "packetsSent"
   field :packets_recv, 2, type: :uint64, json_name: "packetsRecv"
@@ -155,7 +192,10 @@ end
 defmodule Monitoring.GatewayStatusRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.GatewayStatusRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :services, 1, repeated: true, type: Monitoring.GatewayServiceStatus
   field :gateway_id, 2, type: :string, json_name: "gatewayId"
@@ -166,12 +206,16 @@ defmodule Monitoring.GatewayStatusRequest do
   field :kv_store_id, 7, type: :string, json_name: "kvStoreId"
   field :tenant_id, 8, type: :string, json_name: "tenantId"
   field :tenant_slug, 9, type: :string, json_name: "tenantSlug"
+  field :config_source, 10, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.GatewayStatusResponse do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.GatewayStatusResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :received, 1, type: :bool
 end
@@ -179,7 +223,10 @@ end
 defmodule Monitoring.GatewayStatusChunk do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.GatewayStatusChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :services, 1, repeated: true, type: Monitoring.GatewayServiceStatus
   field :gateway_id, 2, type: :string, json_name: "gatewayId"
@@ -193,12 +240,16 @@ defmodule Monitoring.GatewayStatusChunk do
   field :kv_store_id, 10, type: :string, json_name: "kvStoreId"
   field :tenant_id, 11, type: :string, json_name: "tenantId"
   field :tenant_slug, 12, type: :string, json_name: "tenantSlug"
+  field :config_source, 13, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.GatewayServiceStatus do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.GatewayServiceStatus",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :available, 2, type: :bool
@@ -217,7 +268,11 @@ end
 defmodule Monitoring.AgentHelloRequest.LabelsEntry do
   @moduledoc false
 
-  use Protobuf, map: true, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentHelloRequest.LabelsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :string
@@ -226,7 +281,10 @@ end
 defmodule Monitoring.AgentHelloRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentHelloRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :agent_id, 1, type: :string, json_name: "agentId"
   field :version, 2, type: :string
@@ -237,12 +295,16 @@ defmodule Monitoring.AgentHelloRequest do
   field :partition, 7, type: :string
   field :config_version, 8, type: :string, json_name: "configVersion"
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
+  field :config_source, 10, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.AgentHelloResponse do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentHelloResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :accepted, 1, type: :bool
   field :agent_id, 2, type: :string, json_name: "agentId"
@@ -258,7 +320,10 @@ end
 defmodule Monitoring.AgentConfigRequest do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentConfigRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :agent_id, 1, type: :string, json_name: "agentId"
   field :config_version, 2, type: :string, json_name: "configVersion"
@@ -267,7 +332,10 @@ end
 defmodule Monitoring.AgentConfigResponse do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentConfigResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :not_modified, 1, type: :bool, json_name: "notModified"
   field :config_version, 2, type: :string, json_name: "configVersion"
@@ -276,12 +344,52 @@ defmodule Monitoring.AgentConfigResponse do
   field :config_poll_interval_sec, 5, type: :int32, json_name: "configPollIntervalSec"
   field :checks, 6, repeated: true, type: Monitoring.AgentCheckConfig
   field :config_json, 7, type: :bytes, json_name: "configJson"
+  field :sysmon_config, 8, type: Monitoring.SysmonConfig, json_name: "sysmonConfig"
+end
+
+defmodule Monitoring.SysmonConfig.ThresholdsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SysmonConfig.ThresholdsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Monitoring.SysmonConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SysmonConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :enabled, 1, type: :bool
+  field :sample_interval, 2, type: :string, json_name: "sampleInterval"
+  field :collect_cpu, 3, type: :bool, json_name: "collectCpu"
+  field :collect_memory, 4, type: :bool, json_name: "collectMemory"
+  field :collect_disk, 5, type: :bool, json_name: "collectDisk"
+  field :collect_network, 6, type: :bool, json_name: "collectNetwork"
+  field :collect_processes, 7, type: :bool, json_name: "collectProcesses"
+  field :disk_paths, 8, repeated: true, type: :string, json_name: "diskPaths"
+  field :thresholds, 10, repeated: true, type: Monitoring.SysmonConfig.ThresholdsEntry, map: true
+  field :profile_id, 11, type: :string, json_name: "profileId"
+  field :profile_name, 12, type: :string, json_name: "profileName"
+  field :config_source, 13, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.AgentCheckConfig.SettingsEntry do
   @moduledoc false
 
-  use Protobuf, map: true, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentCheckConfig.SettingsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :string
@@ -290,7 +398,10 @@ end
 defmodule Monitoring.AgentCheckConfig do
   @moduledoc false
 
-  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+  use Protobuf,
+    full_name: "monitoring.AgentCheckConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :check_id, 1, type: :string, json_name: "checkId"
   field :check_type, 2, type: :string, json_name: "checkType"
@@ -303,42 +414,4 @@ defmodule Monitoring.AgentCheckConfig do
   field :path, 9, type: :string
   field :method, 10, type: :string
   field :settings, 11, repeated: true, type: Monitoring.AgentCheckConfig.SettingsEntry, map: true
-end
-
-defmodule Monitoring.AgentService.Service do
-  @moduledoc false
-
-  use GRPC.Service, name: "monitoring.AgentService", protoc_gen_elixir_version: "0.15.0"
-
-  rpc :GetStatus, Monitoring.StatusRequest, Monitoring.StatusResponse
-
-  rpc :GetResults, Monitoring.ResultsRequest, Monitoring.ResultsResponse
-
-  rpc :StreamResults, Monitoring.ResultsRequest, stream(Monitoring.ResultsChunk)
-end
-
-defmodule Monitoring.AgentService.Stub do
-  @moduledoc false
-
-  use GRPC.Stub, service: Monitoring.AgentService.Service
-end
-
-defmodule Monitoring.AgentGatewayService.Service do
-  @moduledoc false
-
-  use GRPC.Service, name: "monitoring.AgentGatewayService", protoc_gen_elixir_version: "0.15.0"
-
-  rpc :Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse
-
-  rpc :GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse
-
-  rpc :PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse
-
-  rpc :StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse
-end
-
-defmodule Monitoring.AgentGatewayService.Stub do
-  @moduledoc false
-
-  use GRPC.Stub, service: Monitoring.AgentGatewayService.Service
 end

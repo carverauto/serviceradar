@@ -205,6 +205,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
             </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+              Sysmon
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
               Connected
             </th>
@@ -215,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan="7" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="8" class="text-sm text-base-content/60 py-8 text-center">
               No live agents connected. Agents will appear here when they register with the Horde cluster.
             </td>
           </tr>
@@ -249,6 +252,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               </td>
               <td class="text-xs">
                 <.capabilities_list capabilities={agent.capabilities} />
+              </td>
+              <td class="text-xs">
+                <.sysmon_status_badge capabilities={agent.capabilities} />
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_datetime(agent.connected_at)}
@@ -321,6 +327,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
               Capabilities
             </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20">
+              Sysmon
+            </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-36">
               Last Seen
             </th>
@@ -328,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan="6" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="7" class="text-sm text-base-content/60 py-8 text-center">
               No agents found.
             </td>
           </tr>
@@ -363,6 +372,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               <td class="text-xs">
                 <.capabilities_list capabilities={Map.get(agent, "capabilities", [])} />
               </td>
+              <td class="text-xs">
+                <.sysmon_status_badge capabilities={Map.get(agent, "capabilities", [])} />
+              </td>
               <td class="whitespace-nowrap text-xs font-mono">
                 {format_timestamp(agent)}
               </td>
@@ -371,6 +383,28 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
         </tbody>
       </table>
     </div>
+    """
+  end
+
+  # Sysmon status badge component
+  attr :capabilities, :list, default: []
+
+  defp sysmon_status_badge(assigns) do
+    caps = assigns.capabilities || []
+
+    has_sysmon =
+      Enum.any?(caps, fn cap ->
+        cap_lower = String.downcase(to_string(cap))
+        String.contains?(cap_lower, "sysmon") or String.contains?(cap_lower, "system_monitor")
+      end)
+
+    assigns = assign(assigns, :has_sysmon, has_sysmon)
+
+    ~H"""
+    <div :if={@has_sysmon} class="flex items-center gap-1" title="Sysmon metrics enabled">
+      <.icon name="hero-cpu-chip" class="size-4 text-success" />
+    </div>
+    <span :if={not @has_sysmon} class="text-base-content/40">—</span>
     """
   end
 

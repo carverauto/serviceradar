@@ -4,7 +4,6 @@ on:
     paths:
       - 'cmd/checkers/rperf-client/**'
       - 'cmd/checkers/rperf-server/**'
-      - 'cmd/checkers/sysmon/**'
       - 'cmd/trapd/**'
       - 'cmd/consumers/zen/**'
       - 'cmd/otel/**'
@@ -26,7 +25,6 @@ jobs:
       matrix:
         project:
           - cmd/checkers/rperf-client
-          - cmd/checkers/sysmon
           - cmd/trapd
           - cmd/consumers/zen
           - cmd/otel

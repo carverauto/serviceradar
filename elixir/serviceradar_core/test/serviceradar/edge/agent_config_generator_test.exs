@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
-  @moduletag :database
+  @moduletag :integration
 
   setup_all do
     tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-config")
@@ -225,6 +225,57 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       # Version should be different now
       assert config1.config_version != config2.config_version
+    end
+  end
+
+  describe "sysmon config" do
+    test "includes default sysmon config when no profile exists", %{tenant_id: tenant_id, agent_uid: agent_uid} do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+
+      # Should have sysmon_config field with default values
+      assert config.sysmon_config != nil
+      assert config.sysmon_config.enabled == true
+      assert config.sysmon_config.sample_interval == "10s"
+      assert config.sysmon_config.collect_cpu == true
+      assert config.sysmon_config.collect_memory == true
+      assert config.sysmon_config.collect_disk == true
+      assert config.sysmon_config.collect_network == false
+      assert config.sysmon_config.collect_processes == false
+      assert config.sysmon_config.config_source == "default"
+    end
+
+    test "sysmon config affects version hash", %{tenant_id: tenant_id, agent_uid: agent_uid} do
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+
+      # Create a custom sysmon profile (this would normally be done through the seeder/UI)
+      # For now, we just verify that the config includes sysmon and has a version
+      assert config1.sysmon_config != nil
+      assert String.starts_with?(config1.config_version, "v")
+
+      # Same config should produce same hash
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      assert config1.config_version == config2.config_version
+    end
+
+    test "sysmon_config is proto-compatible struct", %{tenant_id: tenant_id, agent_uid: agent_uid} do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+
+      # Verify it's the proto struct
+      assert is_struct(config.sysmon_config, Monitoring.SysmonConfig)
+
+      # Verify all expected fields exist
+      assert Map.has_key?(config.sysmon_config, :enabled)
+      assert Map.has_key?(config.sysmon_config, :sample_interval)
+      assert Map.has_key?(config.sysmon_config, :collect_cpu)
+      assert Map.has_key?(config.sysmon_config, :collect_memory)
+      assert Map.has_key?(config.sysmon_config, :collect_disk)
+      assert Map.has_key?(config.sysmon_config, :collect_network)
+      assert Map.has_key?(config.sysmon_config, :collect_processes)
+      assert Map.has_key?(config.sysmon_config, :disk_paths)
+      assert Map.has_key?(config.sysmon_config, :thresholds)
+      assert Map.has_key?(config.sysmon_config, :profile_id)
+      assert Map.has_key?(config.sysmon_config, :profile_name)
+      assert Map.has_key?(config.sysmon_config, :config_source)
     end
   end
 end

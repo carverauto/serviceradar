@@ -83,3 +83,34 @@ func (*SYNScanner) Scan(_ context.Context, _ []models.Target) (<-chan models.Res
 func (*SYNScanner) Stop() error {
 	return fmt.Errorf("%w", ErrSYNScanNotSupported)
 }
+
+// ScannerStats holds performance and diagnostic counters for the scanner.
+// This is a stub implementation for non-Linux platforms with the same fields
+// as the Linux version for API compatibility.
+type ScannerStats struct {
+	// Packet statistics
+	PacketsSent    uint64 // Total SYN packets sent
+	PacketsRecv    uint64 // Total packets received (SYN-ACK, RST, etc.)
+	PacketsDropped uint64 // Packets dropped by kernel (ring buffer full)
+
+	// Ring buffer statistics
+	RingBlocksProcessed uint64 // TPACKET_V3 blocks processed
+	RingBlocksDropped   uint64 // TPACKET_V3 blocks lost due to buffer overruns
+
+	// Retry statistics
+	RetriesAttempted  uint64 // Number of retry attempts made
+	RetriesSuccessful uint64 // Number of successful retries
+
+	// Port allocation statistics
+	PortsAllocated uint64 // Total port allocations
+	PortsReleased  uint64 // Total port releases
+	PortExhaustion uint64 // Number of times port allocator was exhausted
+
+	// Rate limiting statistics
+	RateLimitDeferrals uint64 // Packet send operations deferred due to rate limiting
+}
+
+// GetStats returns empty stats on non-Linux platforms.
+func (*SYNScanner) GetStats() ScannerStats {
+	return ScannerStats{}
+}
