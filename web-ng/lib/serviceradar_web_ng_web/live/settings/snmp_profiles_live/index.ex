@@ -541,7 +541,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     # Convert port to integer if needed
     port =
       case port do
-        p when is_integer(p) -> p
+        p when is_integer(p) ->
+          p
 
         p when is_binary(p) ->
           case Integer.parse(p) do
@@ -549,7 +550,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             :error -> 161
           end
 
-        _ -> 161
+        _ ->
+          161
       end
 
     # Validate we have a host
@@ -906,7 +908,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     {:noreply, assign(socket, :custom_template_oids, oids)}
   end
 
-  def handle_event("update_template_oid", %{"index" => index_str, "field" => field} = params, socket) do
+  def handle_event(
+        "update_template_oid",
+        %{"index" => index_str, "field" => field} = params,
+        socket
+      ) do
     index = String.to_integer(index_str)
     oids = socket.assigns.custom_template_oids
     current_oid = Enum.at(oids, index)
@@ -2449,7 +2455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="oid"
                       />
                     </div>
-
+                    
     <!-- Name -->
                     <div>
                       <label class="label py-0">
@@ -2466,7 +2472,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="name"
                       />
                     </div>
-
+                    
     <!-- Data Type -->
                     <div>
                       <label class="label py-0">
@@ -2484,7 +2490,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         <% end %>
                       </select>
                     </div>
-
+                    
     <!-- Scale -->
                     <div>
                       <label class="label py-0">
@@ -2501,7 +2507,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="scale"
                       />
                     </div>
-
+                    
     <!-- Delta checkbox -->
                     <div class="col-span-2 flex items-center gap-2 mt-1">
                       <input
