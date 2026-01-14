@@ -52,6 +52,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       |> assign(:show_template_browser, false)
       |> assign(:template_search, "")
       |> assign(:selected_vendor, "standard")
+      # Custom template modal state
+      |> assign(:show_custom_template_modal, false)
+      |> assign(:custom_template_form, nil)
+      |> assign(:custom_template_oids, [])
+      |> assign(:editing_custom_template, nil)
+      |> assign(:custom_templates, load_custom_templates(scope))
 
     {:ok, socket}
   end
@@ -774,6 +780,43 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  def handle_event("add_custom_template_oids", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Ash.get(SNMPOIDTemplate, id, scope: scope) do
+      {:ok, template} ->
+        # Convert template OIDs to our working format
+        new_oids =
+          Enum.map(template.oids || [], fn oid ->
+            %{
+              "oid" => Map.get(oid, "oid", ""),
+              "name" => Map.get(oid, "name", ""),
+              "data_type" => Map.get(oid, "data_type", "gauge"),
+              "scale" => to_string(Map.get(oid, "scale", 1.0)),
+              "delta" => Map.get(oid, "delta", false),
+              "temp_id" => System.unique_integer([:positive])
+            }
+          end)
+
+        # Add to existing OIDs (avoiding duplicates by OID string)
+        existing_oid_strings = Enum.map(socket.assigns.target_oids, & &1["oid"])
+
+        unique_new_oids =
+          Enum.reject(new_oids, fn oid -> oid["oid"] in existing_oid_strings end)
+
+        updated_oids = socket.assigns.target_oids ++ unique_new_oids
+
+        {:noreply,
+         socket
+         |> assign(:target_oids, updated_oids)
+         |> assign(:show_template_browser, false)
+         |> put_flash(:info, "Added #{length(unique_new_oids)} OID(s) from #{template.name}")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Template not found")}
+    end
+  end
+
   def handle_event("copy_template_to_custom", %{"template_id" => template_id}, socket) do
     templates = BuiltinTemplates.all_templates()
     scope = socket.assigns.current_scope
@@ -822,6 +865,190 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> Ash.create(scope: scope)
   end
 
+  # Custom Template Modal Event Handlers
+
+  def handle_event("open_custom_template_modal", _params, socket) do
+    scope = socket.assigns.current_scope
+
+    ash_form =
+      Form.for_create(SNMPOIDTemplate, :create, domain: ServiceRadar.SNMPProfiles, scope: scope)
+
+    {:noreply,
+     socket
+     |> assign(:show_custom_template_modal, true)
+     |> assign(:custom_template_form, to_form(ash_form))
+     |> assign(:custom_template_oids, [])
+     |> assign(:editing_custom_template, nil)
+     |> assign(:ash_custom_template_form, ash_form)}
+  end
+
+  def handle_event("edit_custom_template", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Ash.get(SNMPOIDTemplate, id, scope: scope) do
+      {:ok, template} ->
+        ash_form =
+          Form.for_update(template, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
+
+        # Convert OIDs to UI format
+        oids =
+          Enum.map(template.oids || [], fn oid ->
+            %{
+              "oid" => Map.get(oid, "oid", ""),
+              "name" => Map.get(oid, "name", ""),
+              "data_type" => Map.get(oid, "data_type", "gauge"),
+              "scale" => to_string(Map.get(oid, "scale", 1.0)),
+              "delta" => Map.get(oid, "delta", false),
+              "temp_id" => System.unique_integer([:positive])
+            }
+          end)
+
+        {:noreply,
+         socket
+         |> assign(:show_custom_template_modal, true)
+         |> assign(:custom_template_form, to_form(ash_form))
+         |> assign(:custom_template_oids, oids)
+         |> assign(:editing_custom_template, template)
+         |> assign(:ash_custom_template_form, ash_form)}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Template not found")}
+    end
+  end
+
+  def handle_event("close_custom_template_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_custom_template_modal, false)
+     |> assign(:custom_template_form, nil)
+     |> assign(:custom_template_oids, [])
+     |> assign(:editing_custom_template, nil)
+     |> assign(:ash_custom_template_form, nil)}
+  end
+
+  def handle_event("validate_custom_template", %{"form" => params}, socket) do
+    ash_form = socket.assigns.ash_custom_template_form |> Form.validate(params)
+    {:noreply, assign(socket, :custom_template_form, to_form(ash_form)) |> assign(:ash_custom_template_form, ash_form)}
+  end
+
+  def handle_event("save_custom_template", %{"form" => params}, socket) do
+    scope = socket.assigns.current_scope
+    oids = socket.assigns.custom_template_oids
+
+    # Convert OIDs to the format expected by the resource
+    oids_data =
+      Enum.map(oids, fn oid ->
+        %{
+          "oid" => Map.get(oid, "oid", ""),
+          "name" => Map.get(oid, "name", ""),
+          "data_type" => Map.get(oid, "data_type", "gauge"),
+          "scale" => parse_float(Map.get(oid, "scale", "1.0")),
+          "delta" => Map.get(oid, "delta", false)
+        }
+      end)
+      |> Enum.reject(fn oid -> oid["oid"] == "" end)
+
+    # Merge OIDs into params
+    params = Map.put(params, "oids", oids_data)
+    # Ensure vendor is set to "custom"
+    params = Map.put(params, "vendor", "custom")
+
+    ash_form = socket.assigns.ash_custom_template_form |> Form.validate(params)
+
+    case Form.submit(ash_form, params: params) do
+      {:ok, template} ->
+        action = if socket.assigns.editing_custom_template, do: "updated", else: "created"
+
+        {:noreply,
+         socket
+         |> assign(:show_custom_template_modal, false)
+         |> assign(:custom_template_form, nil)
+         |> assign(:custom_template_oids, [])
+         |> assign(:editing_custom_template, nil)
+         |> assign(:ash_custom_template_form, nil)
+         |> assign(:custom_templates, load_custom_templates(scope))
+         |> put_flash(:info, "Template #{action}: #{template.name}")}
+
+      {:error, ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:custom_template_form, to_form(ash_form))
+         |> assign(:ash_custom_template_form, ash_form)
+         |> put_flash(:error, "Failed to save template")}
+    end
+  end
+
+  def handle_event("delete_custom_template", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Ash.get(SNMPOIDTemplate, id, scope: scope) do
+      {:ok, template} ->
+        case Ash.destroy(template, scope: scope) do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(:custom_templates, load_custom_templates(scope))
+             |> put_flash(:info, "Template deleted: #{template.name}")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete template")}
+        end
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Template not found")}
+    end
+  end
+
+  # Custom template OID management
+  def handle_event("add_template_oid", _params, socket) do
+    new_oid = %{
+      "oid" => "",
+      "name" => "",
+      "data_type" => "gauge",
+      "scale" => "1.0",
+      "delta" => false,
+      "temp_id" => System.unique_integer([:positive])
+    }
+
+    oids = socket.assigns.custom_template_oids ++ [new_oid]
+    {:noreply, assign(socket, :custom_template_oids, oids)}
+  end
+
+  def handle_event("remove_template_oid", %{"index" => index_str}, socket) do
+    index = String.to_integer(index_str)
+    oids = List.delete_at(socket.assigns.custom_template_oids, index)
+    {:noreply, assign(socket, :custom_template_oids, oids)}
+  end
+
+  def handle_event("update_template_oid", %{"index" => index_str} = params, socket) do
+    index = String.to_integer(index_str)
+    oids = socket.assigns.custom_template_oids
+
+    updated_oid =
+      Enum.at(oids, index)
+      |> Map.merge(%{
+        "oid" => Map.get(params, "oid", ""),
+        "name" => Map.get(params, "name", ""),
+        "data_type" => Map.get(params, "data_type", "gauge"),
+        "scale" => Map.get(params, "scale", "1.0"),
+        "delta" => Map.get(params, "delta", "false") == "true"
+      })
+
+    updated_oids = List.replace_at(oids, index, updated_oid)
+    {:noreply, assign(socket, :custom_template_oids, updated_oids)}
+  end
+
+  defp parse_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {float, _} -> float
+      :error -> 1.0
+    end
+  end
+
+  defp parse_float(value) when is_float(value), do: value
+  defp parse_float(value) when is_integer(value), do: value / 1
+  defp parse_float(_), do: 1.0
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -862,6 +1089,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         :if={@show_template_browser}
         search={@template_search}
         selected_vendor={@selected_vendor}
+        custom_templates={@custom_templates}
+      />
+
+      <!-- Custom Template Modal -->
+      <.custom_template_modal
+        :if={@show_custom_template_modal}
+        form={@custom_template_form}
+        oids={@custom_template_oids}
+        editing={@editing_custom_template}
       />
     </.settings_shell>
     """
@@ -1797,27 +2033,56 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   # Template Browser Modal
   attr :search, :string, default: ""
   attr :selected_vendor, :string, default: "standard"
+  attr :custom_templates, :list, default: []
 
   defp template_browser_modal(assigns) do
-    templates = BuiltinTemplates.all_templates()
+    builtin_templates = BuiltinTemplates.all_templates()
     vendors = BuiltinTemplates.vendors()
+    # Add "Custom" vendor tab
+    vendors_with_custom = vendors ++ [%{id: "custom", name: "Custom"}]
 
-    # Filter templates by vendor and search
+    is_custom_tab = assigns.selected_vendor == "custom"
+
+    # Filter templates based on selected vendor
     filtered_templates =
-      templates
-      |> Enum.filter(fn t ->
-        # Vendor match is case-insensitive
-        vendor_match = String.downcase(t.vendor) == String.downcase(assigns.selected_vendor)
-        search_match = assigns.search == "" or
-          String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
-          String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
-        vendor_match and search_match
-      end)
+      if is_custom_tab do
+        # Show custom templates
+        assigns.custom_templates
+        |> Enum.filter(fn t ->
+          assigns.search == "" or
+            String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
+            String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
+        end)
+        |> Enum.map(fn t ->
+          # Convert to a format compatible with the template display
+          %{
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            vendor: t.vendor,
+            category: t.category,
+            oids: t.oids || [],
+            is_custom: true
+          }
+        end)
+      else
+        # Show builtin templates
+        builtin_templates
+        |> Enum.filter(fn t ->
+          vendor_match = String.downcase(t.vendor) == String.downcase(assigns.selected_vendor)
+          search_match = assigns.search == "" or
+            String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
+            String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
+          vendor_match and search_match
+        end)
+        |> Enum.map(fn t -> Map.put(t, :is_custom, false) end)
+      end
 
     assigns =
       assigns
       |> assign(:templates, filtered_templates)
-      |> assign(:vendors, vendors)
+      |> assign(:vendors, vendors_with_custom)
+      |> assign(:is_custom_tab, is_custom_tab)
 
     ~H"""
     <dialog id="template_browser_modal" class="modal modal-open">
@@ -1850,6 +2115,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               name="search"
             />
           </div>
+          <div :if={@is_custom_tab}>
+            <.ui_button type="button" variant="primary" size="sm" phx-click="open_custom_template_modal">
+              <.icon name="hero-plus" class="size-4" /> New Template
+            </.ui_button>
+          </div>
         </div>
 
         <!-- Vendor Tabs -->
@@ -1868,9 +2138,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
         <!-- Templates List -->
         <div class="overflow-y-auto max-h-[40vh] space-y-2">
-          <div :if={@templates == []} class="text-center py-8 text-base-content/60">
+          <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-base-content/60">
             <.icon name="hero-document-magnifying-glass" class="size-10 mx-auto mb-2 opacity-50" />
             <p>No templates found</p>
+          </div>
+
+          <div :if={@templates == [] && @is_custom_tab} class="text-center py-8 text-base-content/60">
+            <.icon name="hero-document-plus" class="size-10 mx-auto mb-2 opacity-50" />
+            <p>No custom templates yet</p>
+            <p class="text-xs mt-1">Create your own template or copy from a built-in template</p>
           </div>
 
           <%= for template <- @templates do %>
@@ -1890,25 +2166,60 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <.ui_button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  phx-click="copy_template_to_custom"
-                  phx-value-template_id={template.id}
-                  title="Create editable copy"
-                >
-                  <.icon name="hero-document-duplicate" class="size-4" />
-                </.ui_button>
-                <.ui_button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  phx-click="add_template_oids"
-                  phx-value-template_id={template.id}
-                >
-                  <.icon name="hero-plus" class="size-4" /> Add
-                </.ui_button>
+                <%= if template.is_custom do %>
+                  <!-- Custom template actions: Edit, Delete, Add -->
+                  <.ui_button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    phx-click="edit_custom_template"
+                    phx-value-id={template.id}
+                    title="Edit template"
+                  >
+                    <.icon name="hero-pencil" class="size-4" />
+                  </.ui_button>
+                  <.ui_button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    phx-click="delete_custom_template"
+                    phx-value-id={template.id}
+                    title="Delete template"
+                    data-confirm="Are you sure you want to delete this template?"
+                  >
+                    <.icon name="hero-trash" class="size-4 text-error" />
+                  </.ui_button>
+                  <.ui_button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    phx-click="add_custom_template_oids"
+                    phx-value-id={template.id}
+                  >
+                    <.icon name="hero-plus" class="size-4" /> Add
+                  </.ui_button>
+                <% else %>
+                  <!-- Built-in template actions: Copy, Add -->
+                  <.ui_button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    phx-click="copy_template_to_custom"
+                    phx-value-template_id={template.id}
+                    title="Create editable copy"
+                  >
+                    <.icon name="hero-document-duplicate" class="size-4" />
+                  </.ui_button>
+                  <.ui_button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    phx-click="add_template_oids"
+                    phx-value-template_id={template.id}
+                  >
+                    <.icon name="hero-plus" class="size-4" /> Add
+                  </.ui_button>
+                <% end %>
               </div>
             </div>
           <% end %>
@@ -1923,6 +2234,237 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       </div>
       <form method="dialog" class="modal-backdrop">
         <button type="button" phx-click="close_template_browser">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Custom Template Modal
+  attr :form, :any, required: true
+  attr :oids, :list, default: []
+  attr :editing, :any, default: nil
+
+  defp custom_template_modal(assigns) do
+    categories = [
+      {"interface", "Interface"},
+      {"cpu-memory", "CPU/Memory"},
+      {"environment", "Environment"},
+      {"bgp", "BGP"},
+      {"system", "System"},
+      {"other", "Other"}
+    ]
+
+    data_types = [
+      {"gauge", "Gauge"},
+      {"counter", "Counter"},
+      {"string", "String"},
+      {"integer", "Integer"},
+      {"timeticks", "TimeTicks"}
+    ]
+
+    assigns =
+      assigns
+      |> assign(:categories, categories)
+      |> assign(:data_types, data_types)
+
+    ~H"""
+    <dialog id="custom_template_modal" class="modal modal-open">
+      <div class="modal-box max-w-2xl max-h-[85vh]">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            type="button"
+            phx-click="close_custom_template_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="font-bold text-lg mb-4">
+          <%= if @editing, do: "Edit Custom Template", else: "New Custom Template" %>
+        </h3>
+
+        <.form
+          for={@form}
+          phx-change="validate_custom_template"
+          phx-submit="save_custom_template"
+          class="space-y-4"
+        >
+          <!-- Template Name -->
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Template Name</span>
+            </label>
+            <.input
+              type="text"
+              field={@form[:name]}
+              class="input input-bordered w-full"
+              placeholder="e.g., My Router Monitoring"
+            />
+          </div>
+
+          <!-- Description -->
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Description</span>
+            </label>
+            <.input
+              type="textarea"
+              field={@form[:description]}
+              class="textarea textarea-bordered w-full"
+              rows="2"
+              placeholder="Describe what this template monitors..."
+            />
+          </div>
+
+          <!-- Category -->
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Category</span>
+            </label>
+            <select name={@form[:category].name} class="select select-bordered w-full">
+              <option value="">Select a category...</option>
+              <%= for {value, label} <- @categories do %>
+                <option value={value} selected={@form[:category].value == value}>{label}</option>
+              <% end %>
+            </select>
+          </div>
+
+          <!-- OIDs Section -->
+          <div class="form-control">
+            <div class="flex items-center justify-between mb-2">
+              <label class="label">
+                <span class="label-text font-medium">OID Definitions</span>
+              </label>
+              <.ui_button
+                type="button"
+                variant="ghost"
+                size="sm"
+                phx-click="add_template_oid"
+              >
+                <.icon name="hero-plus" class="size-4" /> Add OID
+              </.ui_button>
+            </div>
+
+            <div :if={@oids == []} class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg">
+              <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
+              <p class="text-sm">No OIDs defined</p>
+              <p class="text-xs mt-1">Add OIDs to include in this template</p>
+            </div>
+
+            <div :if={@oids != []} class="space-y-3 max-h-[30vh] overflow-y-auto">
+              <%= for {oid, idx} <- Enum.with_index(@oids) do %>
+                <div class="flex items-start gap-2 p-3 bg-base-200/30 rounded-lg">
+                  <div class="flex-1 grid grid-cols-2 gap-2">
+                    <!-- OID -->
+                    <div>
+                      <label class="label py-0">
+                        <span class="label-text text-xs">OID</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={oid["oid"]}
+                        placeholder=".1.3.6.1.2.1..."
+                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        phx-blur="update_template_oid"
+                        phx-value-index={idx}
+                        name="oid"
+                      />
+                    </div>
+
+                    <!-- Name -->
+                    <div>
+                      <label class="label py-0">
+                        <span class="label-text text-xs">Name</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={oid["name"]}
+                        placeholder="e.g., ifInOctets"
+                        class="input input-bordered input-sm w-full text-xs"
+                        phx-blur="update_template_oid"
+                        phx-value-index={idx}
+                        name="name"
+                      />
+                    </div>
+
+                    <!-- Data Type -->
+                    <div>
+                      <label class="label py-0">
+                        <span class="label-text text-xs">Data Type</span>
+                      </label>
+                      <select
+                        class="select select-bordered select-sm w-full text-xs"
+                        phx-change="update_template_oid"
+                        phx-value-index={idx}
+                        name="data_type"
+                      >
+                        <%= for {value, label} <- @data_types do %>
+                          <option value={value} selected={oid["data_type"] == value}>{label}</option>
+                        <% end %>
+                      </select>
+                    </div>
+
+                    <!-- Scale -->
+                    <div>
+                      <label class="label py-0">
+                        <span class="label-text text-xs">Scale</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={oid["scale"]}
+                        placeholder="1.0"
+                        class="input input-bordered input-sm w-full text-xs"
+                        phx-blur="update_template_oid"
+                        phx-value-index={idx}
+                        name="scale"
+                      />
+                    </div>
+
+                    <!-- Delta checkbox -->
+                    <div class="col-span-2 flex items-center gap-2 mt-1">
+                      <input
+                        type="checkbox"
+                        checked={oid["delta"]}
+                        class="checkbox checkbox-sm"
+                        phx-click="update_template_oid"
+                        phx-value-index={idx}
+                        phx-value-delta={if oid["delta"], do: "false", else: "true"}
+                        name="delta"
+                      />
+                      <span class="text-xs text-base-content/70">Calculate delta (rate of change)</span>
+                    </div>
+                  </div>
+
+                  <!-- Remove button -->
+                  <.ui_icon_button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    phx-click="remove_template_oid"
+                    phx-value-index={idx}
+                    title="Remove OID"
+                  >
+                    <.icon name="hero-x-mark" class="size-4" />
+                  </.ui_icon_button>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+          <!-- Modal Actions -->
+          <div class="modal-action">
+            <.ui_button type="button" variant="ghost" phx-click="close_custom_template_modal">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" variant="primary">
+              <%= if @editing, do: "Update Template", else: "Create Template" %>
+            </.ui_button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button type="button" phx-click="close_custom_template_modal">close</button>
       </form>
     </dialog>
     """
@@ -2000,6 +2542,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp load_custom_templates(scope) do
+    case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
+      {:ok, templates} -> templates
+      {:error, _} -> []
     end
   end
 

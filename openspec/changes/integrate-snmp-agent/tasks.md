@@ -66,7 +66,7 @@
 - [x] 7.2 Profile list table (name, enabled, targets count, matched interfaces)
 - [x] 7.3 Profile form with basic settings (poll interval, timeout, retries)
 - [x] 7.4 SRQL query builder integration for interface targeting
-- [ ] 7.5 Matched interfaces preview panel (count function)
+- [x] 7.5 Matched interfaces preview panel (count function)
 - [x] 7.6 Add SNMP profiles to settings navigation sidebar
 
 ## 8. UI - SNMP Target Modal
@@ -77,7 +77,7 @@
 - [x] 8.4 Auth tab (v3): username, security level, protocol selectors, passwords
 - [x] 8.5 OIDs tab: template selector button + custom OID list
 - [x] 8.6 Add/remove OID rows with data type, scale, delta options
-- [ ] 8.7 Test connection button with result feedback
+- [x] 8.7 Test connection button with result feedback
 
 ## 9. OID Templates (Vendor-Based Library)
 
@@ -97,14 +97,14 @@
   - [x] 9.5.1 environment: aristaEnvMonTempValue, aristaEnvMonFanState
 - [x] 9.6 Create SNMPOIDTemplate resource for user-created templates
 - [x] 9.7 UI: Template browser modal (vendor tabs, search, preview)
-- [ ] 9.8 UI: "Copy to Custom" action for built-in templates
-- [ ] 9.9 UI: Create/edit custom template modal
+- [x] 9.8 UI: "Copy to Custom" action for built-in templates
+- [x] 9.9 UI: Create/edit custom template modal
 
 ## 10. Testing
 
 - [x] 10.1 Elixir: SNMPProfile resource tests
 - [x] 10.2 Elixir: SNMPCompiler unit tests
-- [ ] 10.3 Elixir: SRQL targeting resolution tests
+- [x] 10.3 Elixir: SRQL targeting resolution tests
 - [x] 10.4 Go: SNMPService unit tests
 - [x] 10.5 Go: Config refresh and hot-reload tests
 - [x] 10.6 Go: Collector lifecycle tests
@@ -120,6 +120,6 @@
 
 ## 12. Backwards Compatibility
 
-- [ ] 12.1 Ensure standalone snmp-checker still works
-- [ ] 12.2 Agent gracefully ignores SNMP config if standalone checker configured
-- [ ] 12.3 Add deprecation warning to standalone snmp-checker
+- [x] 12.1 ~~Ensure standalone snmp-checker still works~~ (N/A - standalone checker being removed)
+- [x] 12.2 ~~Agent gracefully ignores SNMP config if standalone checker configured~~ (N/A - standalone checker being removed)
+- [x] 12.3 ~~Add deprecation warning to standalone snmp-checker~~ (N/A - standalone checker being removed)
