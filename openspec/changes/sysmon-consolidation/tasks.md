@@ -71,7 +71,7 @@
 - [x] 3.6.3 Create/update device record on agent enrollment (hello)
 - [x] 3.6.4 Link agent to device via `device_uid` field
 - [x] 3.6.5 Set `discovery_sources: ["agent"]` for agent-created devices
-- [ ] 3.6.6 Test agent enrollment creates device in inventory
+- [x] 3.6.6 Test agent enrollment creates device in inventory (agent_gateway_sync_test.exs)
 
 ## Phase 4: Web UI (`web-ng`)
 
@@ -106,10 +106,10 @@
 
 ## Phase 5: Testing & Documentation
 
-- [ ] 5.1 End-to-end test: Create profile → assign to tag → verify agent receives config
+- [x] 5.1 End-to-end test: Create profile → assign to tag → verify agent receives config (sysmon_profile_assignment_test.exs)
 - [ ] 5.2 Test local override takes precedence over remote
 - [ ] 5.3 Test config caching when backend unavailable
-- [ ] 5.4 Test default profile for new agents
+- [x] 5.4 Test default profile for new agents (covered in sysmon_profile_assignment_test.exs fallback test)
 - [ ] 5.5 Performance test: Config fetch latency with 1000 agents
 - [ ] 5.6 Write user documentation for Sysmon Profiles UI
 - [ ] 5.7 Write admin documentation for local config override

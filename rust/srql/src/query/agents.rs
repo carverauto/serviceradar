@@ -401,4 +401,48 @@ mod tests {
         let result = build_query(&plan);
         assert!(result.is_ok(), "should build query with type_id filter");
     }
+
+    #[test]
+    fn builds_query_with_config_source_filter() {
+        let plan = QueryPlan {
+            entity: Entity::Agents,
+            filters: vec![Filter {
+                field: "config_source".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("remote".to_string()),
+            }],
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+        };
+
+        let result = build_query(&plan);
+        assert!(result.is_ok(), "should build query with config_source filter");
+    }
+
+    #[test]
+    fn builds_query_with_config_source_in_filter() {
+        let plan = QueryPlan {
+            entity: Entity::Agents,
+            filters: vec![Filter {
+                field: "config_source".into(),
+                op: FilterOp::In,
+                value: FilterValue::List(vec!["remote".to_string(), "local".to_string()]),
+            }],
+            order: Vec::new(),
+            limit: 50,
+            offset: 0,
+            time_range: None,
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+        };
+
+        let result = build_query(&plan);
+        assert!(result.is_ok(), "should build query with config_source IN filter");
+    }
 }
