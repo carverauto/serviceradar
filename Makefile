@@ -46,8 +46,6 @@ RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
 RPERF_SERVER_BUILD_DIR ?= cmd/checkers/rperf-server/target/release
 RPERF_SERVER_BIN ?= rperf
-SYSMON_BUILD_DIR ?= cmd/checkers/sysmon/target/release
-SYSMON_BIN ?= serviceradar-sysmon
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
@@ -135,19 +133,15 @@ cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-stagin
 	echo "$(COLOR_BOLD)Running CNPG smoke tests in namespace $${NS}$(COLOR_RESET)"; \
 	./scripts/cnpg-smoke.sh $${NS}
 
-.PHONY: sysmonosx-build-checker-darwin
-sysmonosx-build-checker-darwin: hostfreq-embed-object ## Build the sysmon-osx checker for macOS (arm64) into dist/sysmonosx/mac-host/bin
-	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/sysmonosx)/mac-host/bin); \
+.PHONY: agent-build-darwin
+agent-build-darwin: hostfreq-embed-object ## Build the agent for macOS (arm64) into dist/agent/bin
+	@OUTDIR=$(abspath $(if $(WORKSPACE),$(WORKSPACE),dist/agent)/bin); \
 	mkdir -p "$$OUTDIR"; \
-	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-sysmon-osx" ./cmd/checkers/sysmon-osx; then exit 1; fi
+	if ! GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags hostfreq_embed -trimpath -ldflags "-s -w" -o "$$OUTDIR/serviceradar-agent" ./cmd/agent; then exit 1; fi
 
-.PHONY: sysmonosx-host-install
-sysmonosx-host-install: ## Install the macOS sysmon-osx checker launchd service (run with sudo)
-	@scripts/sysmonosx/host-install-macos.sh
-
-.PHONY: sysmonosx-host-package
-sysmonosx-host-package: ## Build macOS sysmon-osx host helper tarball and installer package
-	@scripts/sysmonosx/package-host-macos.sh
+.PHONY: agent-package-macos
+agent-package-macos: ## Build macOS agent installer package (.pkg) with signing/notarization support
+	@scripts/agent/package-macos.sh
 
 .PHONY: tidy
 tidy: ## Tidy and format Go code
@@ -156,7 +150,6 @@ tidy: ## Tidy and format Go code
 	@$(GO) fmt ./...
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(RUSTFMT) src/*.rs
-	@cd cmd/checkers/sysmon && $(RUSTFMT) src/*.rs
 	@cd cmd/trapd && $(RUSTFMT) src/*.rs
 	@cd cmd/consumers/zen && $(RUSTFMT) src/*.rs
 	@cd cmd/otel && $(RUSTFMT) src/*.rs
@@ -173,7 +166,6 @@ lint: get-golangcilint ## Run linting checks
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
@@ -192,7 +184,6 @@ test: $(TEST_PREREQS) ## Run all tests with coverage
 	@$(GO) test $(GO_TEST_TAGS) -timeout=120s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd cmd/checkers/sysmon && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd cmd/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
@@ -282,7 +273,6 @@ clean: ## Clean up build artifacts
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
 	@cd cmd/checkers/rperf-client && $(CARGO) clean
-	@cd cmd/checkers/sysmon && $(CARGO) clean
 	@cd cmd/trapd && $(CARGO) clean
 	@cd cmd/consumers/zen && $(CARGO) clean
 	@cd cmd/otel && $(CARGO) clean
@@ -341,7 +331,6 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
 	@cd cmd/checkers/rperf-server && $(CARGO) build --release
-	@cd cmd/checkers/sysmon && $(CARGO) build --release
 	@cd cmd/trapd && $(CARGO) build --release
 	@cd cmd/consumers/zen && $(CARGO) build --release
 	@cd cmd/otel && $(CARGO) build --release
@@ -349,7 +338,6 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
-	@cp $(SYSMON_BUILD_DIR)/$(SYSMON_BIN) bin/serviceradar-sysmon
 	@cp cmd/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
 	@cp cmd/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
 	@cp cmd/otel/target/release/serviceradar-otel bin/serviceradar-otel
@@ -527,19 +515,6 @@ build-rperf: generate-proto ## Build only the rperf server
 run-rperf: build-rperf ## Run the rperf server
 	@echo "$(COLOR_BOLD)Running rperf server$(COLOR_RESET)"
 	@./bin/serviceradar-rperf $(ARGS)
-
-# Sysmon specific targets
-.PHONY: build-sysmon
-build-sysmon: generate-proto ## Build only the sysmon checker
-	@echo "$(COLOR_BOLD)Building Rust sysmon checker$(COLOR_RESET)"
-	@cd cmd/checkers/sysmon && $(CARGO) build --release
-	@mkdir -p bin
-	@cp -v $(shell pwd)/cmd/checkers/sysmon/target/release/$(SYSMON_BIN) bin/serviceradar-sysmon
-
-.PHONY: run-sysmon
-run-sysmon: build-sysmon ## Run the sysmon checker
-	@echo "$(COLOR_BOLD)Running sysmon checker$(COLOR_RESET)"
-	@./bin/serviceradar-sysmon $(ARGS)
 
 # Default target
 .DEFAULT_GOAL := help

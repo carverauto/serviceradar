@@ -16,7 +16,6 @@
           "goflow2",
           "nats",
           "zen",
-          "sysmon",
           "snmp",
           "rperf-checker",
           "dusk-checker"
@@ -840,57 +839,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-profiler.service",
       "source": "packaging/profiler/systemd/serviceradar-profiler.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "docker_output_path": "/output/serviceradar-sysmon-checker",
-      "output_path": "/usr/local/bin/serviceradar-sysmon-checker",
-      "source_path": "cmd/checkers/sysmon"
-    },
-    "conffiles": [
-      "/etc/serviceradar/checkers/sysmon.json.example"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/checkers/sysmon.json.example",
-        "source": "packaging/sysmon/config/checkers/sysmon.json.example"
-      }
-    ],
-    "custom_steps": [],
-    "deb": {
-      "depends": [
-        "systemd",
-        "libssl-dev",
-        "ca-certificates"
-      ],
-      "dockerfile": "cmd/checkers/sysmon/Dockerfile"
-    },
-    "description": "ServiceRadar System Monitor checker",
-    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-    "name": "sysmon",
-    "package_name": "serviceradar-sysmon-checker",
-    "postinst": {
-      "source": "packaging/sysmon/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "packaging/sysmon/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.sysmon",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-sysmon-checker.service",
-      "source": "packaging/sysmon/systemd/serviceradar-sysmon-checker.service"
     },
     "version": "1.0.58"
   }

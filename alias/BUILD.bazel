@@ -27,12 +27,6 @@ alias(
     actual = "//pkg/checker/snmp:snmp",
 )
 
-alias(
-    name = "sysmonosx",
-    actual = "//pkg/checker/sysmonosx:sysmonosx",
-    target_compatible_with = ["@platforms//os:macos"],
-)
-
 # pkg/cli
 alias(
     name = "cli",

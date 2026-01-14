@@ -29,34 +29,14 @@ def declare_release_artifacts():
 
     component_names = sorted(PACKAGES.keys())
 
-    # sysmon requires --config=el9 due to ZFS binary dependency
-    # It's separated so it can be built with the correct platform
-    el9_components = ["sysmon"]
-    standard_components = [name for name in component_names if name not in el9_components]
-
     deb_targets = [
         "//packaging/{name}:{name}_deb".format(name = name)
-        for name in standard_components
+        for name in component_names
     ]
     rpm_targets = [
         "//packaging/{name}:{name}_rpm".format(name = name)
-        for name in standard_components
+        for name in component_names
     ]
-
-    el9_deb_targets = [
-        "//packaging/{name}:{name}_deb".format(name = name)
-        for name in el9_components
-    ]
-    el9_rpm_targets = [
-        "//packaging/{name}:{name}_rpm".format(name = name)
-        for name in el9_components
-    ]
-
-    mac_pkg_targets = ["//packaging/sysmonosx_host:sysmonosx_host_pkg"]
-    mac_pkg_select = select({
-        "@platforms//os:macos": mac_pkg_targets,
-        "//conditions:default": [],
-    })
 
     native.filegroup(
         name = "package_debs",
@@ -70,58 +50,14 @@ def declare_release_artifacts():
         visibility = ["//visibility:public"],
     )
 
-    # EL9 packages (sysmon) - requires --config=el9 to build
-    native.filegroup(
-        name = "package_el9_debs",
-        srcs = el9_deb_targets,
-        visibility = ["//visibility:public"],
-    )
-
-    native.filegroup(
-        name = "package_el9_rpms",
-        srcs = el9_rpm_targets,
-        visibility = ["//visibility:public"],
-    )
-
-    native.filegroup(
-        name = "package_el9",
-        srcs = el9_deb_targets + el9_rpm_targets,
-        visibility = ["//visibility:public"],
-    )
-
     native.filegroup(
         name = "package_artifacts",
-        srcs = deb_targets + rpm_targets + mac_pkg_select,
-        visibility = ["//visibility:public"],
-    )
-
-    # All packages including EL9 - only use with proper platform config
-    native.filegroup(
-        name = "package_artifacts_all",
-        srcs = deb_targets + rpm_targets + el9_deb_targets + el9_rpm_targets + mac_pkg_select,
-        visibility = ["//visibility:public"],
-    )
-
-    native.filegroup(
-        name = "package_macos",
-        srcs = mac_pkg_select,
+        srcs = deb_targets + rpm_targets,
         visibility = ["//visibility:public"],
     )
 
     package_manifest(
         name = "package_manifest",
-        srcs = deb_targets + rpm_targets + mac_pkg_select,
-        visibility = ["//visibility:public"],
-    )
-
-    package_manifest(
-        name = "package_manifest_el9",
-        srcs = el9_deb_targets + el9_rpm_targets,
-        visibility = ["//visibility:public"],
-    )
-
-    package_manifest(
-        name = "package_manifest_all",
-        srcs = deb_targets + rpm_targets + el9_deb_targets + el9_rpm_targets + mac_pkg_select,
+        srcs = deb_targets + rpm_targets,
         visibility = ["//visibility:public"],
     )
