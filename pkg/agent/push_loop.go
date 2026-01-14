@@ -557,7 +557,7 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 		}
 	}
 
-	baseData := make(map[string]interface{}, len(metadata)+1)
+	baseData := make(map[string]interface{}, len(metadata))
 	for key, value := range metadata {
 		baseData[key] = value
 	}
@@ -617,7 +617,7 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 	for chunkIndex, chunkRange := range ranges {
 		chunkHosts := hosts[chunkRange.start:chunkRange.end]
 
-		chunkData := make(map[string]interface{}, len(metadata)+1)
+		chunkData := make(map[string]interface{}, len(metadata))
 		for key, value := range metadata {
 			chunkData[key] = value
 		}
