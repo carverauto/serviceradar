@@ -1,0 +1,30 @@
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- if $gateway.enabled -}}
+{{- $gatewaySA := default "serviceradar-agent-gateway" $gateway.serviceAccountName -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+rules:
+- apiGroups: [""]
+  resources: ["endpoints", "pods", "services"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: serviceradar-agent-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-agent-gateway
+subjects:
+- kind: ServiceAccount
+  name: {{ $gatewaySA }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

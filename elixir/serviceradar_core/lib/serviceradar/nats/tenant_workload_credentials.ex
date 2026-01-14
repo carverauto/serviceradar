@@ -30,11 +30,11 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
 
   defp get_tenant(tenant_id) do
     actor = SystemActor.platform(:tenant_workload_credentials)
-
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^tenant_id)
-    |> Ash.Query.select([:id, :slug, :nats_account_status, :nats_account_seed_ciphertext])
+    # Avoid AshCloak decrypt attempts on nullable contact fields.
+    |> Ash.Query.unload([:contact_email, :contact_name])
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -46,7 +46,9 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
   defp validate_tenant_nats_ready(%{nats_account_status: :ready}), do: :ok
   defp validate_tenant_nats_ready(_), do: {:error, :tenant_nats_not_ready}
 
-  defp decrypt_account_seed(%{nats_account_seed_ciphertext: encrypted_value}) do
+  defp decrypt_account_seed(tenant) do
+    encrypted_value = account_seed_ciphertext(tenant)
+
     case encrypted_value do
       nil ->
         {:error, :account_seed_not_found}
@@ -66,6 +68,11 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
       _ ->
         {:error, :account_seed_not_found}
     end
+  end
+
+  defp account_seed_ciphertext(tenant) do
+    Map.get(tenant, :nats_account_seed_ciphertext) ||
+      Map.get(tenant, :encrypted_nats_account_seed_ciphertext)
   end
 
   defp generate_user_credentials(tenant, account_seed) do

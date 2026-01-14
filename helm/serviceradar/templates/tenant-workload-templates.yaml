@@ -4,6 +4,8 @@
 {{- $zenTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") -}}
 {{- $gatewayRepo := default "ghcr.io/carverauto/serviceradar-agent-gateway" $cfg.templates.agentGateway.repository -}}
 {{- $zenRepo := default "ghcr.io/carverauto/serviceradar-zen" $cfg.templates.zenConsumer.repository -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: workloads.serviceradar.io/v1alpha1
 kind: TenantWorkloadTemplate
@@ -40,21 +42,49 @@ spec:
       - name: CLUSTER_ENABLED
         value: "true"
       - name: CLUSTER_STRATEGY
-        value: "kubernetes"
+        value: "dns"
+      - name: CLUSTER_DNS_QUERY
+        value: {{ "serviceradar-agent-gateway-headless.{{namespace}}.svc.cluster.local" | quote }}
+      - name: CLUSTER_NODE_BASENAME
+        value: {{ "{{kubernetes_node_basename}}" | quote }}
+      - name: CLUSTER_CORE_DNS_QUERY
+        value: {{ "{{core_service}}.{{namespace}}.svc.cluster.local" | quote }}
       - name: NAMESPACE
         value: {{ "{{namespace}}" | quote }}
+      - name: POD_IP
+        valueFrom:
+          fieldRef:
+            fieldPath: status.podIP
+      - name: RELEASE_NODE
+        value: {{ "{{kubernetes_node_basename}}@$(POD_IP)" | quote }}
+      - name: RELEASE_DISTRIBUTION
+        value: "name"
+      - name: RELEASE_COOKIE
+        value: {{ $clusterCookie | quote }}
       - name: KUBERNETES_SELECTOR
         value: {{ "{{kubernetes_selector}}" | quote }}
       - name: KUBERNETES_NODE_BASENAME
         value: {{ "{{kubernetes_node_basename}}" | quote }}
       - name: CLUSTER_CORE_SERVICE
         value: {{ "{{core_service}}" | quote }}
+      - name: CLUSTER_CORE_NODE_BASENAME
+        value: {{ "{{core_node_basename}}" | quote }}
+      - name: GATEWAY_CERT_DIR
+        value: "/etc/serviceradar/certs"
     ports:
       - name: grpc
         containerPort: 50052
         protocol: TCP
+    volumeMounts:
+      - name: cert-data
+        mountPath: /etc/serviceradar/certs
+        readOnly: true
+  volumes:
+    - name: cert-data
+      persistentVolumeClaim:
+        claimName: serviceradar-cert-data
   spiffe:
-    enabled: true
+    enabled: false
   service:
     enabled: true
     ports:

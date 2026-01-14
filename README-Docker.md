@@ -66,6 +66,8 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
    docker compose up -d
    ```
 
+By default, Compose pulls `latest` tags. Set `APP_TAG` when you need a pinned release or commit.
+
 5. **Get your admin password**:
    ```bash
    docker compose logs config-updater | grep "Password:"
@@ -80,7 +82,7 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
 
 ## Update an Existing Stack
 
-1. Choose a target image tag:
+1. Optional: choose a target image tag (Compose defaults to `latest`):
    - Latest release: `APP_TAG=v1.0.77`
    - Specific commit: `APP_TAG=sha-<git-sha>`
 

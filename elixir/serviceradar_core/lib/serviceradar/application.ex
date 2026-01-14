@@ -261,7 +261,7 @@ defmodule ServiceRadar.Application do
   end
 
   defp grpc_client_supervisor_child do
-    if datasvc_enabled?() do
+    if datasvc_enabled?() or spiffe_workload_api?() do
       {GRPC.Client.Supervisor, []}
     else
       nil
@@ -307,6 +307,12 @@ defmodule ServiceRadar.Application do
       value when value in ["true", "1", "yes"] -> true
       _ -> false
     end
+  end
+
+  defp spiffe_workload_api? do
+    Application.get_env(:serviceradar_core, :spiffe, [])
+    |> Keyword.get(:mode, :filesystem)
+    |> Kernel.==(:workload_api)
   end
 
   defp cluster_children do

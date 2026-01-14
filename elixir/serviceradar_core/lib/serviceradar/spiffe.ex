@@ -42,6 +42,8 @@ defmodule ServiceRadar.SPIFFE do
   ```
   """
 
+  alias ServiceRadar.SPIFFE.WorkloadAPI
+
   require Logger
 
   @type spiffe_id :: String.t()
@@ -87,8 +89,9 @@ defmodule ServiceRadar.SPIFFE do
       # Client options don't need server-specific settings
       client_opts =
         base_opts
-        |> Keyword.delete(:verify_fun)
+        |> Keyword.delete(:fail_if_no_peer_cert)
         |> Keyword.put(:verify, :verify_peer)
+        |> Keyword.put(:customize_hostname_check, [match_fun: &allow_any_hostname/2])
 
       {:ok, client_opts}
     end
@@ -176,6 +179,22 @@ defmodule ServiceRadar.SPIFFE do
     end
   end
 
+  defp parse_k8s_spiffe_id(spiffe_id) when is_binary(spiffe_id) do
+    case String.replace_prefix(spiffe_id, @spiffe_uri_prefix, "") do
+      ^spiffe_id ->
+        {:error, :invalid_spiffe_uri}
+
+      path ->
+        case String.split(path, "/", parts: 5) do
+          [trust_domain, "ns", namespace, "sa", service_account] ->
+            {:ok, %{trust_domain: trust_domain, namespace: namespace, service_account: service_account}}
+
+          _ ->
+            {:error, :invalid_spiffe_path}
+        end
+    end
+  end
+
   @doc """
   Builds a SPIFFE ID from components.
 
@@ -217,11 +236,19 @@ defmodule ServiceRadar.SPIFFE do
   """
   @spec certs_available?() :: boolean()
   def certs_available? do
-    dir = cert_dir()
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        socket = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+        socket_path = workload_api_socket_path(socket)
+        is_binary(socket_path) and File.exists?(socket_path)
 
-    File.exists?(Path.join(dir, "svid.pem")) and
-      File.exists?(Path.join(dir, "svid-key.pem")) and
-      File.exists?(Path.join(dir, "bundle.pem"))
+      _ ->
+        dir = cert_dir()
+
+        File.exists?(Path.join(dir, "svid.pem")) and
+          File.exists?(Path.join(dir, "svid-key.pem")) and
+          File.exists?(Path.join(dir, "bundle.pem"))
+    end
   end
 
   @doc """
@@ -231,27 +258,12 @@ defmodule ServiceRadar.SPIFFE do
   """
   @spec cert_expiry(keyword()) :: {:ok, map()} | {:error, term()}
   def cert_expiry(opts \\ []) do
-    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
-    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+    case Keyword.get(opts, :mode, config(:mode, :filesystem)) do
+      :workload_api ->
+        cert_expiry_workload_api(opts)
 
-    with {:ok, pem} <- File.read(cert_file),
-         {:ok, der} <- extract_der_cert(pem),
-         {:ok, validity} <- decode_validity(der),
-         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
-         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
-      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
-      days_remaining = div(seconds_remaining, 86_400)
-
-      {:ok,
-       %{
-         not_before: not_before,
-         expires_at: not_after,
-         seconds_remaining: seconds_remaining,
-         days_remaining: days_remaining
-       }}
-    else
-      {:error, _} = error -> error
-      error -> {:error, error}
+      _ ->
+        cert_expiry_filesystem(opts)
     end
   end
 
@@ -263,6 +275,33 @@ defmodule ServiceRadar.SPIFFE do
   @spec watch_certificates(keyword()) :: {:ok, pid()} | {:error, term()}
   def watch_certificates(opts \\ []) do
     callback = Keyword.get(opts, :callback, fn -> :ok end)
+
+    case config(:mode, :filesystem) do
+      :workload_api ->
+        watch_workload_api(callback, opts)
+
+      _ ->
+        watch_filesystem(callback, opts)
+    end
+  end
+
+  # Private functions
+
+  defp watch_workload_api(callback, opts) do
+    interval = Keyword.get(opts, :poll_interval, 60_000)
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+    fingerprint = workload_api_fingerprint(socket, trust_domain)
+
+    pid =
+      spawn_link(fn ->
+        poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
+      end)
+
+    {:ok, pid}
+  end
+
+  defp watch_filesystem(callback, opts) do
     dir = cert_dir()
 
     # Use file_system library if available, otherwise poll
@@ -287,8 +326,6 @@ defmodule ServiceRadar.SPIFFE do
       {:ok, pid}
     end
   end
-
-  # Private functions
 
   defp ssl_dist_opts_filesystem(opts) do
     dir = Keyword.get(opts, :cert_dir, cert_dir())
@@ -319,25 +356,140 @@ defmodule ServiceRadar.SPIFFE do
           fail_if_no_peer_cert: true,
           verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
           depth: 2,
-          versions: [:"tlsv1.3", :"tlsv1.2"],
-          ciphers: :ssl.cipher_suites(:default, :"tlsv1.3")
+          versions: [:"tlsv1.3", :"tlsv1.2"]
         ]
+
+        ssl_opts =
+          case extra_cacerts(opts) do
+            [] -> ssl_opts
+            extra -> Keyword.put(ssl_opts, :cacerts, extra)
+          end
 
         {:ok, ssl_opts}
     end
   end
 
-  defp ssl_dist_opts_workload_api(_opts) do
-    # SPIRE Workload API integration
-    # This would use the SPIRE agent's Unix domain socket
-    socket_path = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
+  defp ssl_dist_opts_workload_api(opts) do
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
-    if File.exists?(socket_path) do
-      Logger.warning("SPIRE Workload API mode not yet implemented, falling back to filesystem")
-      ssl_dist_opts_filesystem([])
-    else
-      {:error, {:workload_api_unavailable, socket_path}}
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
+        extra_cacerts = extra_cacerts(opts)
+        bundle_path = trust_bundle_path(opts)
+        all_cacerts = cacerts ++ extra_cacerts
+
+        ssl_opts = [
+          cert: certs,
+          key: key,
+          verify: :verify_peer,
+          fail_if_no_peer_cert: true,
+          verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
+          depth: 2,
+          versions: [:"tlsv1.3", :"tlsv1.2"]
+        ]
+
+        ssl_opts =
+          cond do
+            all_cacerts != [] ->
+              Keyword.put(ssl_opts, :cacerts, all_cacerts)
+
+            is_binary(bundle_path) ->
+              Keyword.put(ssl_opts, :cacertfile, String.to_charlist(bundle_path))
+
+            true ->
+              ssl_opts
+          end
+
+        {:ok, ssl_opts}
+
+      {:error, {:workload_api_unavailable, _}} = error ->
+        error
+
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  defp cert_expiry_workload_api(opts) do
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+
+    with {:ok, %{certs: [leaf | _]}} <- WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
+         {:ok, validity} <- decode_validity(leaf),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:ok, %{certs: []}} -> {:error, :workload_api_no_certs}
+      {:error, _} = error -> error
+      error -> {:error, error}
+    end
+  end
+
+  defp cert_expiry_filesystem(opts) do
+    cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
+    cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
+
+    with {:ok, pem} <- File.read(cert_file),
+         {:ok, der} <- extract_der_cert(pem),
+         {:ok, validity} <- decode_validity(der),
+         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
+         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
+      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
+      days_remaining = div(seconds_remaining, 86_400)
+
+      {:ok,
+       %{
+         not_before: not_before,
+         expires_at: not_after,
+         seconds_remaining: seconds_remaining,
+         days_remaining: days_remaining
+       }}
+    else
+      {:error, _} = error -> error
+      error -> {:error, error}
+    end
+  end
+
+  defp workload_api_socket_path(socket) when is_binary(socket) do
+    case URI.parse(socket) do
+      %URI{scheme: "unix", path: path} when is_binary(path) -> path
+      %URI{scheme: nil} -> socket
+      %URI{scheme: "unix"} -> socket
+      _ -> nil
+    end
+  end
+
+  defp workload_api_socket_path(_), do: nil
+
+  defp workload_api_fingerprint(socket, trust_domain) do
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+      {:ok, %{certs: [leaf | _]}} -> :crypto.hash(:sha256, leaf)
+      _ -> nil
+    end
+  end
+
+  defp poll_workload_api(callback, interval, socket, trust_domain, last_fingerprint) do
+    current = workload_api_fingerprint(socket, trust_domain)
+
+    if last_fingerprint && current && current != last_fingerprint do
+      callback.()
+    end
+
+    :timer.sleep(interval)
+
+    next_fingerprint = if current, do: current, else: last_fingerprint
+    poll_workload_api(callback, interval, socket, trust_domain, next_fingerprint)
   end
 
   defp extract_der_cert(pem) do
@@ -348,6 +500,42 @@ defmodule ServiceRadar.SPIFFE do
       {:Certificate, der, _} -> {:ok, der}
       nil -> {:error, :no_certificate}
     end
+  end
+
+  defp allow_any_hostname(_hostname, _cert), do: true
+
+  defp extra_cacerts(opts) do
+    bundle_path = trust_bundle_path(opts)
+
+    cond do
+      not is_binary(bundle_path) or bundle_path == "" ->
+        []
+
+      not File.exists?(bundle_path) ->
+        []
+
+      true ->
+        bundle_path
+        |> File.read()
+        |> case do
+          {:ok, pem} -> pem_cacerts(pem)
+          _ -> []
+        end
+    end
+  end
+
+  defp trust_bundle_path(opts) do
+    Keyword.get(opts, :trust_bundle_path) ||
+      config(:trust_bundle_path, System.get_env("SPIFFE_TRUST_BUNDLE_PATH"))
+  end
+
+  defp pem_cacerts(pem) do
+    pem
+    |> :public_key.pem_decode()
+    |> Enum.flat_map(fn
+      {:Certificate, der, _} -> [der]
+      _ -> []
+    end)
   end
 
   defp decode_validity(der) do
@@ -428,6 +616,14 @@ defmodule ServiceRadar.SPIFFE do
       {:ok, spiffe_id} ->
         verify_spiffe_id(spiffe_id, state)
 
+      {:error, :no_san_extension} ->
+        if certificate_ca?(cert) do
+          {:valid, state}
+        else
+          Logger.warning("Failed to verify peer SPIFFE ID: :no_san_extension")
+          {:fail, :no_san_extension}
+        end
+
       {:error, reason} ->
         Logger.warning("Failed to verify peer SPIFFE ID: #{inspect(reason)}")
         {:fail, reason}
@@ -436,23 +632,36 @@ defmodule ServiceRadar.SPIFFE do
 
   defp verify_spiffe_id(spiffe_id, state) do
     case parse_spiffe_id(spiffe_id) do
-      {:ok, %{trust_domain: domain}} when domain == state.trust_domain ->
-        Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
-        {:valid, state}
-
       {:ok, %{trust_domain: domain}} ->
-        Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
-        {:fail, :trust_domain_mismatch}
+        verify_trust_domain(spiffe_id, domain, state)
 
-      {:error, reason} ->
-        {:fail, reason}
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: domain}} -> verify_trust_domain(spiffe_id, domain, state)
+          {:error, reason} -> {:fail, reason}
+        end
+    end
+  end
+
+  defp verify_trust_domain(spiffe_id, domain, state) do
+    if domain == state.trust_domain do
+      Logger.debug("Verified peer SPIFFE ID: #{spiffe_id}")
+      {:valid, state}
+    else
+      Logger.warning("Peer trust domain mismatch: #{domain} != #{state.trust_domain}")
+      {:fail, :trust_domain_mismatch}
     end
   end
 
   defp extract_spiffe_id(tbs_cert) do
     # Extract the Subject Alternative Name extension which contains the SPIFFE ID
     # The SPIFFE ID is stored as a URI type SAN
-    extensions = elem(tbs_cert, 8)
+    extensions =
+      if tuple_size(tbs_cert) > 10 do
+        elem(tbs_cert, 10)
+      else
+        :asn1_NOVALUE
+      end
 
     case find_san_extension(extensions) do
       nil ->
@@ -499,13 +708,38 @@ defmodule ServiceRadar.SPIFFE do
 
   defp find_uri_san(_), do: nil
 
+  defp certificate_ca?(cert) when is_binary(cert) do
+    case :public_key.pkix_decode_cert(cert, :otp) do
+      {:OTPCertificate, tbs_cert, _, _} ->
+        extensions =
+          if tuple_size(tbs_cert) > 10 do
+            elem(tbs_cert, 10)
+          else
+            :asn1_NOVALUE
+          end
+
+        Enum.any?(extensions, fn
+          {:Extension, {2, 5, 29, 19}, _critical, {:BasicConstraints, true, _}} -> true
+          _ -> false
+        end)
+
+      _ ->
+        false
+    end
+  end
+
   defp verify_spiffe_id(spiffe_id) do
     trust_domain = config(:trust_domain, @trust_domain_default)
 
     case parse_spiffe_id(spiffe_id) do
       {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
       {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
-      error -> error
+      {:error, _reason} ->
+        case parse_k8s_spiffe_id(spiffe_id) do
+          {:ok, %{trust_domain: ^trust_domain}} -> {:ok, spiffe_id}
+          {:ok, %{trust_domain: other}} -> {:error, {:trust_domain_mismatch, other, trust_domain}}
+          error -> error
+        end
     end
   end
 

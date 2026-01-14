@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   require Ash.Query
   require Logger
 
+  alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
@@ -194,10 +195,20 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   defp get_tenant(tenant_id) do
     # Tenant resource is cross-tenant, use platform actor
     actor = SystemActor.platform(:provision_collector)
+    seed_attr = seed_attribute()
+    select_fields =
+      case seed_attr do
+        nil ->
+          [:id, :slug, :nats_account_status, :nats_account_jwt]
+
+        attr ->
+          [:id, :slug, :nats_account_status, :nats_account_jwt, attr]
+      end
 
     case Tenant
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^tenant_id)
+         |> Ash.Query.select(select_fields)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
@@ -216,7 +227,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   defp get_account_seed(tenant) do
     # The nats_account_seed_ciphertext is encrypted via AshCloak
     # Since it's not in decrypt_by_default, we decrypt it via the Vault
-    case tenant.nats_account_seed_ciphertext do
+    case account_seed_ciphertext(tenant) do
       nil ->
         {:error, :account_seed_not_found}
 
@@ -234,6 +245,24 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
       _ ->
         {:error, :account_seed_not_found}
+    end
+  end
+
+  defp account_seed_ciphertext(tenant) do
+    Map.get(tenant, :nats_account_seed_ciphertext) ||
+      Map.get(tenant, :encrypted_nats_account_seed_ciphertext)
+  end
+
+  defp seed_attribute do
+    cond do
+      AshResourceInfo.attribute(Tenant, :nats_account_seed_ciphertext) ->
+        :nats_account_seed_ciphertext
+
+      AshResourceInfo.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
+        :encrypted_nats_account_seed_ciphertext
+
+      true ->
+        nil
     end
   end
 

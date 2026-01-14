@@ -30,6 +30,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   require Ash.Query
   require Logger
 
+  alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.JobWriter
   alias ServiceRadar.Identity.Tenant
@@ -391,18 +392,33 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
   defp get_platform_tenant do
     actor = SystemActor.platform(:nats_account_worker)
+    seed_attr = seed_attribute()
+    select_fields =
+      case seed_attr do
+        nil ->
+          [
+            :id,
+            :slug,
+            :nats_account_public_key,
+            :nats_account_status,
+            :nats_account_jwt
+          ]
+
+        attr ->
+          [
+            :id,
+            :slug,
+            :nats_account_public_key,
+            :nats_account_status,
+            :nats_account_jwt,
+            attr
+          ]
+      end
 
     Tenant
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(is_platform_tenant == true)
-    |> Ash.Query.select([
-      :id,
-      :slug,
-      :nats_account_public_key,
-      :nats_account_seed_ciphertext,
-      :nats_account_status,
-      :nats_account_jwt
-    ])
+    |> Ash.Query.select(select_fields)
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :platform_missing}
@@ -419,7 +435,9 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     end
   end
 
-  defp decrypt_account_seed(%{nats_account_seed_ciphertext: encrypted_value}) do
+  defp decrypt_account_seed(tenant) do
+    encrypted_value = account_seed_ciphertext(tenant)
+
     case encrypted_value do
       nil ->
         {:error, :account_seed_not_found}
@@ -438,6 +456,24 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
       _ ->
         {:error, :account_seed_not_found}
+    end
+  end
+
+  defp account_seed_ciphertext(tenant) do
+    Map.get(tenant, :nats_account_seed_ciphertext) ||
+      Map.get(tenant, :encrypted_nats_account_seed_ciphertext)
+  end
+
+  defp seed_attribute do
+    cond do
+      AshResourceInfo.attribute(Tenant, :nats_account_seed_ciphertext) ->
+        :nats_account_seed_ciphertext
+
+      AshResourceInfo.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
+        :encrypted_nats_account_seed_ciphertext
+
+      true ->
+        nil
     end
   end
 

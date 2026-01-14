@@ -192,9 +192,7 @@ defmodule ServiceRadar.Oban.TenantQueues do
       |> Keyword.put(:meta, meta)
 
     with_tenant_oban(tenant_id, fn oban_name ->
-      args
-      |> worker.new(job_opts)
-      |> Oban.insert(oban_name)
+      Oban.insert(oban_name, worker.new(args, job_opts))
     end)
   end
 

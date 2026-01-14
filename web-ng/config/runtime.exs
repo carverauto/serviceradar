@@ -1,5 +1,7 @@
 import Config
 
+require Logger
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -74,19 +76,44 @@ if cluster_enabled do
 
       "dns" ->
         # DNSPoll strategy for bare metal with service discovery
-        dns_query = System.get_env("CLUSTER_DNS_QUERY", "serviceradar.local")
-        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar")
+        dns_query = System.get_env("CLUSTER_DNS_QUERY", "")
+        node_basename = System.get_env("CLUSTER_NODE_BASENAME", "serviceradar_web_ng")
 
-        [
-          serviceradar: [
-            strategy: Cluster.Strategy.DNSPoll,
-            config: [
-              polling_interval: 5_000,
-              query: dns_query,
-              node_basename: node_basename
-            ]
-          ]
-        ]
+        core_dns_query = System.get_env("CLUSTER_CORE_DNS_QUERY", "")
+        core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
+
+        gateway_dns_query = System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
+
+        gateway_node_basename =
+          System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
+
+        maybe_add_dns_topology = fn topologies, name, query, basename ->
+          if query in [nil, ""] do
+            topologies
+          else
+            topologies ++
+              [
+                {name,
+                 [
+                   strategy: Cluster.Strategy.DNSPoll,
+                   config: [
+                     polling_interval: 5_000,
+                     query: query,
+                     node_basename: basename
+                   ]
+                 ]}
+              ]
+          end
+        end
+
+        []
+        |> maybe_add_dns_topology.(:serviceradar, dns_query, node_basename)
+        |> maybe_add_dns_topology.(:serviceradar_core, core_dns_query, core_node_basename)
+        |> maybe_add_dns_topology.(
+          :serviceradar_gateway,
+          gateway_dns_query,
+          gateway_node_basename
+        )
 
       "epmd" ->
         # EPMD strategy for development and static bare metal
@@ -366,6 +393,22 @@ if config_env() == :prod do
 
   config :serviceradar_core, :default_tenant_id, default_tenant_id
 
+  spiffe_mode =
+    case System.get_env("SPIFFE_MODE", "filesystem") do
+      "workload_api" -> :workload_api
+      _ -> :filesystem
+    end
+
+  spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
+
+  config :serviceradar_core, :spiffe,
+    mode: spiffe_mode,
+    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
+    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    trust_bundle_path: spiffe_bundle_path
+
   # Datasvc gRPC client configuration for KV store access
   # Used for fetching component templates and other KV data
   datasvc_address = System.get_env("DATASVC_ADDRESS")
@@ -373,18 +416,49 @@ if config_env() == :prod do
   if datasvc_address do
     datasvc_cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
     datasvc_server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
+    datasvc_sec_mode = System.get_env("DATASVC_SEC_MODE")
+    datasvc_ssl = System.get_env("DATASVC_SSL", "false") in ~w(true 1 yes)
 
-    # Build TLS config if cert dir exists
+    datasvc_sec_mode =
+      case datasvc_sec_mode && String.downcase(String.trim(datasvc_sec_mode)) do
+        "spiffe" -> "spiffe"
+        "mtls" -> "mtls"
+        "tls" -> "tls"
+        "plaintext" -> "plaintext"
+        "none" -> "plaintext"
+        _ -> if datasvc_ssl, do: "mtls", else: "plaintext"
+      end
+
     tls_config =
-      if File.exists?(datasvc_cert_dir) do
-        [
-          cacertfile: Path.join(datasvc_cert_dir, "root.pem"),
-          certfile: Path.join(datasvc_cert_dir, "web.pem"),
-          keyfile: Path.join(datasvc_cert_dir, "web-key.pem"),
-          server_name_indication: String.to_charlist(datasvc_server_name)
-        ]
-      else
-        nil
+      case datasvc_sec_mode do
+        "spiffe" ->
+          spiffe_cert_dir = System.get_env("DATASVC_SPIFFE_CERT_DIR")
+          spiffe_opts = if spiffe_cert_dir, do: [cert_dir: spiffe_cert_dir], else: []
+
+          case ServiceRadar.SPIFFE.client_ssl_opts(spiffe_opts) do
+            {:ok, ssl_opts} ->
+              ssl_opts
+
+            {:error, reason} ->
+              Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
+              nil
+          end
+
+        "mtls" ->
+          if File.exists?(datasvc_cert_dir) do
+            [
+              cacertfile: Path.join(datasvc_cert_dir, "root.pem"),
+              certfile: Path.join(datasvc_cert_dir, "web.pem"),
+              keyfile: Path.join(datasvc_cert_dir, "web-key.pem"),
+              server_name_indication: String.to_charlist(datasvc_server_name)
+            ]
+          end
+
+        "tls" ->
+          []
+
+        _ ->
+          nil
       end
 
     datasvc_config = [
@@ -402,9 +476,37 @@ if config_env() == :prod do
     config :datasvc, :datasvc, datasvc_config
   end
 
-  if local_mailer do
+  mailer_adapter_env =
+    System.get_env("SERVICERADAR_CORE_MAILER_ADAPTER") ||
+      System.get_env("SERVICERADAR_MAILER_ADAPTER")
+
+  mailer_adapter =
+    case String.trim(mailer_adapter_env || "") do
+      "" ->
+        Swoosh.Adapters.Local
+
+      "local" ->
+        Swoosh.Adapters.Local
+
+      "test" ->
+        Swoosh.Adapters.Test
+
+      adapter ->
+        if String.contains?(adapter, ".") do
+          adapter
+          |> String.split(".")
+          |> Enum.map(&String.to_atom/1)
+          |> Module.concat()
+        else
+          Module.concat(Swoosh.Adapters, Macro.camelize(adapter))
+        end
+    end
+
+  config :serviceradar_core, ServiceRadar.Mailer, adapter: mailer_adapter
+
+  if local_mailer or mailer_adapter == Swoosh.Adapters.Local do
     config :swoosh, local: true
-    config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
+    config :swoosh, :api_client, false
   end
 
   config :serviceradar_web_ng, ServiceRadarWebNGWeb.Endpoint,

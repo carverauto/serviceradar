@@ -18,6 +18,8 @@ spec:
     metadata:
       labels:
         app: serviceradar-agent
+      annotations:
+        checksum/serviceradar-config: {{ include (print $.Template.BasePath "/serviceradar-config.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ $agentSA }}
       hostNetwork: true

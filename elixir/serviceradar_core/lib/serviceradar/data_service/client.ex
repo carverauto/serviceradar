@@ -20,8 +20,10 @@ defmodule ServiceRadar.DataService.Client do
 
   - `DATASVC_HOST` - hostname (default: "datasvc")
   - `DATASVC_PORT` - port (default: 50057)
+  - `DATASVC_SEC_MODE` - security mode: spiffe|mtls|tls|plaintext (optional)
   - `DATASVC_SSL` - enable SSL/TLS (default: false)
   - `DATASVC_CERT_DIR` - directory containing certs for mTLS
+  - `DATASVC_SPIFFE_CERT_DIR` - directory containing SPIFFE SVID files (optional)
   - `DATASVC_CERT_NAME` - cert name prefix (default: "core", uses core.pem/core-key.pem)
   - `DATASVC_CONNECT_TIMEOUT_MS` - gRPC connect timeout in ms (default: 5000)
   - `DATASVC_RECONNECT_BASE_MS` - base reconnect backoff in ms (default: 1000)
@@ -284,8 +286,10 @@ defmodule ServiceRadar.DataService.Client do
     %{
       host: config_value(opts, app_config, :host, "DATASVC_HOST", @default_host),
       port: config_value_int(opts, app_config, :port, "DATASVC_PORT", @default_port),
+      sec_mode: config_value(opts, app_config, :sec_mode, "DATASVC_SEC_MODE"),
       ssl: config_value_bool(opts, app_config, :ssl, "DATASVC_SSL", false),
       cert_dir: config_value(opts, app_config, :cert_dir, "DATASVC_CERT_DIR"),
+      spiffe_cert_dir: config_value(opts, app_config, :spiffe_cert_dir, "DATASVC_SPIFFE_CERT_DIR"),
       cert_name: config_value(opts, app_config, :cert_name, "DATASVC_CERT_NAME", "core"),
       connect_timeout_ms:
         config_value_int(
@@ -359,10 +363,38 @@ defmodule ServiceRadar.DataService.Client do
   defp connect(config) do
     endpoint = "#{config.host}:#{config.port}"
 
-    cred_opts =
-      case {config.ssl, config.cert_dir} do
-        {true, cert_dir} when is_binary(cert_dir) ->
-          # mTLS with client certificates
+    case build_cred_opts(config) do
+      {:ok, cred_opts} ->
+        connect_opts =
+          cred_opts
+          |> Keyword.put(:adapter_opts, [connect_timeout: config.connect_timeout_ms])
+
+        GRPC.Stub.connect(endpoint, connect_opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_cred_opts(config) do
+    case normalize_sec_mode(config) do
+      :spiffe ->
+        spiffe_cert_dir = config.spiffe_cert_dir || config.cert_dir
+
+        case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
+          {:ok, ssl_opts} ->
+            Logger.info("Connecting to datasvc with SPIFFE mTLS")
+            {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
+
+          {:error, reason} ->
+            Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
+            {:error, {:spiffe_unavailable, reason}}
+        end
+
+      :mtls ->
+        cert_dir = config.cert_dir
+
+        if is_binary(cert_dir) do
           cert_name = config.cert_name
           cert_file = Path.join(cert_dir, "#{cert_name}.pem")
           key_file = Path.join(cert_dir, "#{cert_name}-key.pem")
@@ -378,23 +410,45 @@ defmodule ServiceRadar.DataService.Client do
             server_name_indication: String.to_charlist(config.server_name)
           ]
 
-          [cred: GRPC.Credential.new(ssl: ssl_opts)]
+          {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
+        else
+          {:error, :mtls_cert_dir_missing}
+        end
 
-        {true, _} ->
-          # SSL without client certs
-          [cred: GRPC.Credential.new(ssl: [])]
+      :tls ->
+        {:ok, [cred: GRPC.Credential.new(ssl: [])]}
 
-        _ ->
-          # No SSL
-          []
-      end
-
-    connect_opts =
-      cred_opts
-      |> Keyword.put(:adapter_opts, [connect_timeout: config.connect_timeout_ms])
-
-    GRPC.Stub.connect(endpoint, connect_opts)
+      :plaintext ->
+        {:ok, []}
+    end
   end
+
+  defp normalize_sec_mode(%{sec_mode: sec_mode, ssl: ssl} = config) do
+    sec_mode
+    |> normalize_sec_mode_value(ssl, config)
+  end
+
+  defp normalize_sec_mode_value(nil, ssl, config), do: default_sec_mode(ssl, config)
+  defp normalize_sec_mode_value("", ssl, config), do: default_sec_mode(ssl, config)
+
+  defp normalize_sec_mode_value(value, ssl, config) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "spiffe" -> :spiffe
+      "mtls" -> :mtls
+      "tls" -> :tls
+      "plaintext" -> :plaintext
+      "none" -> :plaintext
+      _ -> default_sec_mode(ssl, config)
+    end
+  end
+
+  defp normalize_sec_mode_value(_value, ssl, config), do: default_sec_mode(ssl, config)
+
+  defp default_sec_mode(true, config) do
+    if is_binary(config.cert_dir), do: :mtls, else: :tls
+  end
+
+  defp default_sec_mode(false, _config), do: :plaintext
 
   defp start_connect_task(state) do
     parent = self()
