@@ -1038,14 +1038,7 @@ func (p *PushLoop) applySysmonConfig(protoConfig *proto.SysmonConfig) {
 	// Convert proto config to sysmon.Config
 	cfg := protoToSysmonConfig(protoConfig)
 
-	// Check if this is a meaningful configuration change
-	if !protoConfig.Enabled {
-		p.logger.Info().Msg("Sysmon disabled in gateway config")
-		// Don't stop the service here - let admin do that explicitly
-		return
-	}
-
-	// Parse and apply the configuration
+	// Parse and apply the configuration (including when disabled - collector checks Enabled flag)
 	parsed, err := cfg.Parse()
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to parse sysmon config from gateway")
@@ -1061,6 +1054,7 @@ func (p *PushLoop) applySysmonConfig(protoConfig *proto.SysmonConfig) {
 		Str("profile_id", protoConfig.ProfileId).
 		Str("profile_name", protoConfig.ProfileName).
 		Str("config_source", protoConfig.ConfigSource).
+		Bool("enabled", cfg.Enabled).
 		Str("sample_interval", cfg.SampleInterval).
 		Bool("cpu", cfg.CollectCPU).
 		Bool("memory", cfg.CollectMemory).

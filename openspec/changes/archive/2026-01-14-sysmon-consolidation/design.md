@@ -205,19 +205,19 @@ type Config struct {
 
 ## Migration Plan
 
-### Phase 1: Library Foundation
+### Phase 1: Library Foundation ✅
 1. Create `pkg/sysmon` with gopsutil
 2. Port sysmon-osx logic to new library
 3. Add Linux-specific paths
 4. Unit tests for cross-platform parity
 
-### Phase 2: Agent Integration
+### Phase 2: Agent Integration ✅
 1. Add sysmon collector initialization to agent
 2. Implement local config loading
 3. Add config caching
 4. Integration tests with agent
 
-### Phase 3: Backend & Config Delivery
+### Phase 3: Backend & Config Delivery ✅
 1. Create `SysmonProfile` Ash resource with SRQL targeting fields
 2. Create `SrqlTargetResolver` module for profile-to-device matching
 3. Implement `SysmonCompiler` for profile-to-config compilation
@@ -225,16 +225,24 @@ type Config struct {
 5. Add ConfigInvalidationNotifier hooks
 6. Seed default profile on tenant creation
 
-### Phase 4: UI
+### Phase 4: UI ✅
 1. Sysmon Profiles page (CRUD with SRQL query builder)
 2. Profile targeting via SRQL query with live match preview
 3. Device detail sysmon section (read-only, shows matched profile)
 4. Agent list with sysmon status
 
-### Phase 5: Deprecation
+### Phase 5: Deprecation ✅
 1. Mark standalone sysmon/sysmon-osx as deprecated
 2. Add migration docs
-3. Remove standalone checkers after 2 releases
+3. Remove standalone checkers
+
+### Phase 6: Cleanup ✅
+1. Remove `cmd/checkers/sysmon/` (Rust)
+2. Remove `cmd/checkers/sysmon-osx/` (Go)
+3. Remove `pkg/checker/sysmonosx/` (legacy)
+4. Remove all sysmon packaging (Bazel, specs, Dockerfiles)
+5. Update CI workflows to remove sysmon references
+6. Migrate macOS codesign/notarization to agent packaging
 
 ## Open Questions
 

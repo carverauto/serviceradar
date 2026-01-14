@@ -124,12 +124,17 @@ Update `serviceradar-agent` to embed `pkg/sysmon`:
 - `web-ng/` - Profile management LiveView pages
 
 ### Migration
-- Phase 1: Create `pkg/sysmon`, embed in agent alongside existing checker support
-- Phase 2: Add profile management backend and UI
-- Phase 3: Deprecate standalone sysmon/sysmon-osx checkers
-- Phase 4: Remove Rust sysmon checker
+- Phase 1: ✅ Create `pkg/sysmon`, embed in agent alongside existing checker support
+- Phase 2: ✅ Add profile management backend and UI with SRQL targeting
+- Phase 3: ✅ Deprecate standalone sysmon/sysmon-osx checkers
+- Phase 4: ✅ Remove Rust sysmon checker
+- Phase 5: ✅ Remove Go sysmon-osx checker and all standalone packaging
+- Phase 6: ✅ Migrate macOS codesign/notarization to agent packaging
 
-### Breaking Changes
-- **None for existing deployments**: Existing sysmon checkers continue to work
-- New embedded sysmon is opt-in until Phase 3
-- Rust sysmon removal (Phase 4) will require migration to embedded sysmon
+### Status: COMPLETE
+
+All phases completed. The standalone sysmon checkers have been removed. System monitoring is now:
+- Embedded directly in `serviceradar-agent` via `pkg/sysmon`
+- Configured via Sysmon Profiles with SRQL-based device targeting
+- Supports local config override for distributed deployments
+- macOS packaging infrastructure migrated to agent build process

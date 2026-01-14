@@ -163,6 +163,11 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 	config := c.config
 	c.mu.RUnlock()
 
+	// If collection is disabled, return an empty sample
+	if !config.Enabled {
+		return nil, nil
+	}
+
 	sample := NewMetricSample(c.hostID, c.hostIP, c.agentID, c.partition)
 
 	// Collect CPU metrics

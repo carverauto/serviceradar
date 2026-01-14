@@ -974,9 +974,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     end)
   end
 
-  defp apply_srql_filter(query, %{field: field, op: _op, value: value}) when is_binary(field) do
+  defp apply_srql_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
     if String.starts_with?(field, "tags.") do
       tag_key = String.replace_prefix(field, "tags.", "")
+      # Tags only support equality matching via JSONB containment
       Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => value}))
     else
       # Map common fields
@@ -991,7 +992,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         end
 
       if mapped_field do
-        Ash.Query.filter_input(query, %{mapped_field => %{eq: value}})
+        apply_field_filter(query, mapped_field, op, value)
       else
         query
       end
@@ -1001,6 +1002,33 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   defp apply_srql_filter(query, _), do: query
+
+  # Apply filter based on SRQL operator (op comes from rust parser: eq, not_eq, like, not_like)
+  defp apply_field_filter(query, field, "eq", value) do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  defp apply_field_filter(query, field, "not_eq", value) do
+    Ash.Query.filter_input(query, %{field => %{not_eq: value}})
+  end
+
+  defp apply_field_filter(query, field, "like", value) do
+    # SRQL "like" values contain % wildcards (e.g., "%test%"), strip them for Ash contains
+    stripped = value |> String.trim_leading("%") |> String.trim_trailing("%")
+    Ash.Query.filter_input(query, %{field => %{contains: stripped}})
+  end
+
+  defp apply_field_filter(query, _field, "not_like", _value) do
+    # Ash filter_input doesn't have a direct not_contains operator
+    # For now, skip this filter - count will be an approximation
+    # TODO: Use Ash.Query.filter with dynamic field reference for negation
+    query
+  end
+
+  defp apply_field_filter(query, field, _op, value) do
+    # Default to equality for unknown operators
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
 
   # Builder Helper Functions
 

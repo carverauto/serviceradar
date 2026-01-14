@@ -118,7 +118,10 @@
 - [x] 6.1 Add deprecation notice to standalone sysmon/sysmon-osx READMEs
 - [x] 6.2 Update installation docs to reflect embedded sysmon (docs/docs/installation.md)
 - [x] 6.3 Create migration guide from standalone checker to embedded (docs/docs/runbooks/sysmon-migration.md)
-- [ ] 6.4 Remove standalone sysmon builds from CI (after 2 releases)
-- [ ] 6.5 Remove `cmd/checkers/sysmon/` (Rust)
-- [ ] 6.6 Remove `cmd/checkers/sysmon-osx/` (Go)
-- [ ] 6.7 Remove `pkg/checker/sysmonosx/` (legacy Go package)
+- [x] 6.4 Remove standalone sysmon builds from CI
+- [x] 6.5 Remove `cmd/checkers/sysmon/` (Rust)
+- [x] 6.6 Remove `cmd/checkers/sysmon-osx/` (Go)
+- [x] 6.7 Remove `pkg/checker/sysmonosx/` (legacy Go package)
+- [x] 6.8 Remove `packaging/sysmon*` directories and Bazel targets
+- [x] 6.9 Update GitHub workflow files to remove sysmon references
+- [x] 6.10 Migrate macOS codesign/notarization infrastructure to agent packaging

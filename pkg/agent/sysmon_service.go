@@ -200,6 +200,10 @@ func (s *SysmonService) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	// Mark as stopping to prevent concurrent Stop() calls from re-entering
+	// and attempting to close an already-closed channel
+	s.started = false
+
 	// Stop the config refresh loop
 	if s.stopRefresh != nil {
 		close(s.stopRefresh)
@@ -227,7 +231,6 @@ func (s *SysmonService) Stop(ctx context.Context) error {
 		}
 	}
 
-	s.started = false
 	s.logger.Info().Msg("Sysmon service stopped")
 	return nil
 }

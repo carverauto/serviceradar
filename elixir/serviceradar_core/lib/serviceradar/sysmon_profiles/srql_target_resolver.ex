@@ -187,7 +187,10 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
       apply_standard_filter(query, mapped_field, op, value)
     end
   rescue
-    _ -> query
+    e ->
+      # Log the error but continue - unknown fields are skipped gracefully
+      Logger.debug("SrqlTargetResolver: skipping filter #{field} #{op} #{inspect(value)}: #{Exception.message(e)}")
+      query
   end
 
   defp apply_filter(query, _), do: query

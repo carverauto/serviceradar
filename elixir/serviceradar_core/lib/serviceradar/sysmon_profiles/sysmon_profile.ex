@@ -132,9 +132,16 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       accept []
       require_atomic? false
 
+      change ServiceRadar.SysmonProfiles.Changes.SetAsDefault
+    end
+
+    update :unset_default do
+      description "Remove this profile as the default (internal use only)"
+      accept []
+      require_atomic? false
+
       change fn changeset, _context ->
-        # This will be handled by a custom change that unsets other defaults
-        Ash.Changeset.change_attribute(changeset, :is_default, true)
+        Ash.Changeset.change_attribute(changeset, :is_default, false)
       end
     end
 
