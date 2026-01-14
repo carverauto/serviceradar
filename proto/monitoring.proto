@@ -298,6 +298,9 @@ message SysmonConfig {
   // Reserved field 9 (was process_top_n, removed - collect all processes)
   reserved 9;
 
+  // Disk paths to exclude when collecting disk metrics
+  repeated string disk_exclude_paths = 14;
+
   // Alert thresholds as key-value pairs
   // Keys: cpu_warning, cpu_critical, memory_warning, memory_critical,
   //       disk_warning, disk_critical

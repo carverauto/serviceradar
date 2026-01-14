@@ -63,7 +63,8 @@ defmodule ServiceRadar.Observability.MemoryMetric do
         :available_bytes,
         :usage_percent,
         :device_id,
-        :partition
+        :partition,
+        :created_at
       ]
     end
   end

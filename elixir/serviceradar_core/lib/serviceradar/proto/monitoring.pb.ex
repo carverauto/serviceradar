@@ -376,6 +376,7 @@ defmodule Monitoring.SysmonConfig do
   field :collect_network, 6, type: :bool, json_name: "collectNetwork"
   field :collect_processes, 7, type: :bool, json_name: "collectProcesses"
   field :disk_paths, 8, repeated: true, type: :string, json_name: "diskPaths"
+  field :disk_exclude_paths, 14, repeated: true, type: :string, json_name: "diskExcludePaths"
   field :thresholds, 10, repeated: true, type: Monitoring.SysmonConfig.ThresholdsEntry, map: true
   field :profile_id, 11, type: :string, json_name: "profileId"
   field :profile_name, 12, type: :string, json_name: "profileName"

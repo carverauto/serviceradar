@@ -1,6 +1,6 @@
 defmodule ServiceRadarAgentGateway.StatusBuffer do
   @moduledoc """
-  Buffers result payloads when core processing is unavailable.
+  Buffers results and sysmon payloads when core processing is unavailable.
 
   This is an in-memory, bounded queue intended to reduce data loss
   during short core outages. It is not durable across restarts.

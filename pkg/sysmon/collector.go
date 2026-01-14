@@ -207,7 +207,7 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 
 	// Collect disk metrics
 	if config.CollectDisk {
-		disks, err := CollectDisks(ctx, config.DiskPaths)
+		disks, err := CollectDisks(ctx, config.DiskPaths, config.DiskExcludePaths)
 		if err != nil {
 			c.log.Warn().Err(err).Msg("disk collection failed")
 		} else {
