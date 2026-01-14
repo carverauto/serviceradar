@@ -890,10 +890,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     ~H"""
     <div class="flex items-center gap-1">
-      <span data-testid="sysmon-profile-label" class={[
-        "text-xs truncate max-w-[8rem]",
-        if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
-      ]}>
+      <span
+        data-testid="sysmon-profile-label"
+        class={[
+          "text-xs truncate max-w-[8rem]",
+          if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
+        ]}
+      >
         {@label}
       </span>
       <span
