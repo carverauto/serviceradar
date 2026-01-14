@@ -4,10 +4,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Cluster.TenantSchemas
   alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
+
+  require Logger
 
   @default_limit 20
   @max_limit 100
@@ -1514,7 +1517,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp apply_tab_assigns(socket, "metrics", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
     metrics_stats = build_metrics_stats(srql_module, scope)
-    sparklines = load_sparklines(socket.assigns.metrics)
+    sparklines = load_sparklines(socket.assigns.metrics, scope)
 
     socket
     |> assign(:metrics_stats, metrics_stats)
@@ -1536,7 +1539,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp build_metrics_stats(srql_module, scope) do
     metrics_counts = load_metrics_counts(srql_module, scope)
-    duration_stats = load_duration_stats_from_cagg()
+    duration_stats = load_duration_stats_from_cagg(scope)
 
     metrics_counts
     |> Map.merge(duration_stats)
@@ -1645,36 +1648,46 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Load duration stats from the continuous aggregation for full 24h data
-  defp load_duration_stats_from_cagg do
+  defp load_duration_stats_from_cagg(scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    schema = schema_for_scope(scope)
 
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms)
-        }
+    if is_nil(schema) do
+      log_schema_warning_once(
+        :log_duration_stats,
+        "Duration stats skipped: tenant schema unavailable"
       )
+      %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+    else
+      query =
+        from(s in "otel_metrics_hourly_stats",
+          prefix: ^schema,
+          where: s.bucket >= ^cutoff,
+          select: %{
+            total_count: sum(s.total_count),
+            avg_duration_ms:
+              fragment(
+                "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
+                s.total_count,
+                s.avg_duration_ms,
+                s.total_count,
+                s.total_count
+              ),
+            p95_duration_ms: max(s.p95_duration_ms)
+          }
+        )
 
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) and total > 0 ->
-        %{
-          avg_duration_ms: numeric_to_float(stats.avg_duration_ms),
-          p95_duration_ms: numeric_to_float(stats.p95_duration_ms),
-          sample_size: to_int(total)
-        }
+      case Repo.one(query) do
+        %{total_count: total} = stats when not is_nil(total) and total > 0 ->
+          %{
+            avg_duration_ms: numeric_to_float(stats.avg_duration_ms),
+            p95_duration_ms: numeric_to_float(stats.p95_duration_ms),
+            sample_size: to_int(total)
+          }
 
-      _ ->
-        %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+        _ ->
+          %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
+      end
     end
   rescue
     e ->
@@ -1685,13 +1698,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   # Load sparkline data for gauge/counter metrics
   # Returns a map of metric_name -> list of {bucket, avg_value} tuples
-  defp load_sparklines(metrics) when is_list(metrics) do
+  defp load_sparklines(metrics, scope) when is_list(metrics) do
     metric_names = sparkline_metric_names(metrics)
 
     if metric_names == [] do
       %{}
     else
-      fetch_sparklines(metric_names)
+      fetch_sparklines(metric_names, scope)
     end
   rescue
     e ->
@@ -1701,7 +1714,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       %{}
   end
 
-  defp load_sparklines(_), do: %{}
+  defp load_sparklines(_, _), do: %{}
+
+  defp schema_for_scope(nil), do: nil
+
+  defp schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
+    safe_schema_for_tenant(active_tenant)
+  end
+
+  defp schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
+    safe_schema_for_tenant(tenant_id)
+  end
+
+  defp schema_for_scope(_), do: nil
+
+  defp safe_schema_for_tenant(tenant) do
+    TenantSchemas.schema_for_tenant(tenant)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp log_schema_warning_once(key, message) do
+    warned_key = {:schema_warning, key}
+
+    if Process.get(warned_key) do
+      :ok
+    else
+      Logger.warning(message)
+      Process.put(warned_key, true)
+      :ok
+    end
+  end
 
   defp sparkline_metric_names(metrics) do
     metrics
@@ -1714,24 +1757,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Enum.uniq()
   end
 
-  defp fetch_sparklines(metric_names) do
+  defp fetch_sparklines(metric_names, scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
+    schema = schema_for_scope(scope)
 
-    query =
-      from(m in "otel_metrics",
-        where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
-        group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-        order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-        select: %{
-          metric_name: m.metric_name,
-          bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
-          avg_value: avg(m.value)
-        }
+    if is_nil(schema) do
+      log_schema_warning_once(
+        :log_sparklines,
+        "Sparkline stats skipped: tenant schema unavailable"
       )
+      %{}
+    else
+      query =
+        from(m in "otel_metrics",
+          prefix: ^schema,
+          where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
+          group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+          order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
+          select: %{
+            metric_name: m.metric_name,
+            bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
+            avg_value: avg(m.value)
+          }
+        )
 
-    query
-    |> Repo.all()
-    |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
+      query
+      |> Repo.all()
+      |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
+    end
   end
 
   defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do

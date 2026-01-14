@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -105,49 +106,59 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   # Query the continuous aggregation for efficient pre-computed stats
-  defp get_hourly_metrics_stats do
+  defp get_hourly_metrics_stats(scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+    schema = schema_for_scope(scope)
 
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          error_count: sum(s.error_count),
-          slow_count: sum(s.slow_count),
-          http_4xx_count: sum(s.http_4xx_count),
-          http_5xx_count: sum(s.http_5xx_count),
-          grpc_error_count: sum(s.grpc_error_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms),
-          max_duration_ms: max(s.max_duration_ms)
-        }
+    if is_nil(schema) do
+      log_schema_warning_once(
+        :analytics_hourly_stats,
+        "Hourly metrics stats skipped: tenant schema unavailable"
       )
+      nil
+    else
+      query =
+        from(s in "otel_metrics_hourly_stats",
+          prefix: ^schema,
+          where: s.bucket >= ^cutoff,
+          select: %{
+            total_count: sum(s.total_count),
+            error_count: sum(s.error_count),
+            slow_count: sum(s.slow_count),
+            http_4xx_count: sum(s.http_4xx_count),
+            http_5xx_count: sum(s.http_5xx_count),
+            grpc_error_count: sum(s.grpc_error_count),
+            avg_duration_ms:
+              fragment(
+                "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
+                s.total_count,
+                s.avg_duration_ms,
+                s.total_count,
+                s.total_count
+              ),
+            p95_duration_ms: max(s.p95_duration_ms),
+            max_duration_ms: max(s.max_duration_ms)
+          }
+        )
 
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) ->
-        %{
-          total: to_int(total),
-          error: to_int(stats.error_count),
-          slow: to_int(stats.slow_count),
-          http_4xx: to_int(stats.http_4xx_count),
-          http_5xx: to_int(stats.http_5xx_count),
-          grpc_error: to_int(stats.grpc_error_count),
-          avg_duration_ms: to_float(stats.avg_duration_ms),
-          p95_duration_ms: to_float(stats.p95_duration_ms),
-          max_duration_ms: to_float(stats.max_duration_ms)
-        }
+      case Repo.one(query) do
+        %{total_count: total} = stats when not is_nil(total) ->
+          %{
+            total: to_int(total),
+            error: to_int(stats.error_count),
+            slow: to_int(stats.slow_count),
+            http_4xx: to_int(stats.http_4xx_count),
+            http_5xx: to_int(stats.http_5xx_count),
+            grpc_error: to_int(stats.grpc_error_count),
+            avg_duration_ms: to_float(stats.avg_duration_ms),
+            p95_duration_ms: to_float(stats.p95_duration_ms),
+            max_duration_ms: to_float(stats.max_duration_ms)
+          }
 
-      _ ->
-        Logger.debug("Hourly metrics stats not available, falling back to SRQL queries")
-        nil
+        _ ->
+          Logger.debug("Hourly metrics stats not available, falling back to SRQL queries")
+          nil
+      end
     end
   rescue
     error ->
@@ -161,12 +172,42 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp to_float(v) when is_integer(v), do: v * 1.0
   defp to_float(_), do: 0.0
 
+  defp log_schema_warning_once(key, message) do
+    warned_key = {:schema_warning, key}
+
+    if Process.get(warned_key) do
+      :ok
+    else
+      Logger.warning(message)
+      Process.put(warned_key, true)
+      :ok
+    end
+  end
+
+  defp schema_for_scope(nil), do: nil
+
+  defp schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
+    safe_schema_for_tenant(active_tenant)
+  end
+
+  defp schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
+    safe_schema_for_tenant(tenant_id)
+  end
+
+  defp schema_for_scope(_), do: nil
+
+  defp safe_schema_for_tenant(tenant) do
+    TenantSchemas.schema_for_tenant(tenant)
+  rescue
+    ArgumentError -> nil
+  end
+
   defp load_analytics(socket) do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
     # Try to get metrics stats from continuous aggregation first (more efficient)
-    hourly_stats = get_hourly_metrics_stats()
+    hourly_stats = get_hourly_metrics_stats(scope)
 
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
