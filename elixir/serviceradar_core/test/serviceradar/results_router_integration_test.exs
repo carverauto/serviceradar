@@ -1,4 +1,4 @@
-defmodule ServiceRadar.StatusHandlerIntegrationTest do
+defmodule ServiceRadar.ResultsRouterIntegrationTest do
   @moduledoc """
   Integration coverage for sync status ingestion through DIRE into inventory.
   """
@@ -9,7 +9,7 @@ defmodule ServiceRadar.StatusHandlerIntegrationTest do
 
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
-  alias ServiceRadar.StatusHandler
+  alias ServiceRadar.ResultsRouter
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -66,7 +66,7 @@ defmodule ServiceRadar.StatusHandlerIntegrationTest do
       tenant_id: tenant_id
     }
 
-    assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
     assert {:ok, device} =
              Device.get_by_uid(expected_id, tenant: tenant_id, actor: actor, authorize?: false)

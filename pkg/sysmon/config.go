@@ -66,6 +66,9 @@ type Config struct {
 	// If empty, all mounted filesystems are monitored.
 	DiskPaths []string `json:"disk_paths,omitempty"`
 
+	// DiskExcludePaths specifies mount points to exclude from collection.
+	DiskExcludePaths []string `json:"disk_exclude_paths,omitempty"`
+
 	// Thresholds defines warning/critical thresholds for alerting.
 	Thresholds map[string]string `json:"thresholds,omitempty"`
 }
@@ -80,7 +83,8 @@ func DefaultConfig() Config {
 		CollectDisk:      true,
 		CollectNetwork:   false, // Opt-in due to verbosity
 		CollectProcesses: false, // Opt-in due to resource usage
-		DiskPaths:        []string{"/"},
+		DiskPaths:        []string{},
+		DiskExcludePaths: []string{},
 		Thresholds:       make(map[string]string),
 	}
 }
@@ -95,6 +99,7 @@ type ParsedConfig struct {
 	CollectNetwork   bool
 	CollectProcesses bool
 	DiskPaths        []string
+	DiskExcludePaths []string
 	Thresholds       map[string]string
 }
 
@@ -108,6 +113,7 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		CollectNetwork:   c.CollectNetwork,
 		CollectProcesses: c.CollectProcesses,
 		DiskPaths:        c.DiskPaths,
+		DiskExcludePaths: c.DiskExcludePaths,
 		Thresholds:       c.Thresholds,
 	}
 
@@ -127,11 +133,6 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		}
 
 		parsed.SampleInterval = d
-	}
-
-	// Default disk paths if none specified
-	if len(parsed.DiskPaths) == 0 {
-		parsed.DiskPaths = []string{"/"}
 	}
 
 	// Initialize thresholds map if nil
@@ -180,6 +181,10 @@ func (c *Config) MergeWithDefaults() Config {
 
 	if len(c.DiskPaths) > 0 {
 		merged.DiskPaths = c.DiskPaths
+	}
+
+	if len(c.DiskExcludePaths) > 0 {
+		merged.DiskExcludePaths = c.DiskExcludePaths
 	}
 
 	if len(c.Thresholds) > 0 {

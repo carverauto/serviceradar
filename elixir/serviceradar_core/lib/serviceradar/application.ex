@@ -101,7 +101,10 @@ defmodule ServiceRadar.Application do
         # Tenant sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
-        # Status handler for agent-gateway push results
+        # Results router for agent-gateway push results
+        results_router_child(),
+
+        # Status handler (legacy) for agent-gateway push results
         status_handler_child(),
 
         # Health check runner supervisor (high-frequency gRPC checks)
@@ -255,6 +258,14 @@ defmodule ServiceRadar.Application do
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
+    else
+      nil
+    end
+  end
+
+  defp results_router_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.ResultsRouter
     else
       nil
     end

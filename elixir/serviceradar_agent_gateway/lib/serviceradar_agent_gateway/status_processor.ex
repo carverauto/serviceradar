@@ -145,6 +145,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     source = status[:source]
     _tenant_id = status[:tenant_id]
     tenant_slug = status[:tenant_slug]
+    handler = handler_module(status)
 
     # Log at info level for sync results to trace the flow
     if service_type == "sync" and source == "results" do
@@ -161,12 +162,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
     # Try to forward to the core cluster
     # First check if we have a local core process, then try distributed
-    case forward_local(status) do
+    case forward_local(status, handler) do
       :ok ->
         :ok
 
       {:error, :not_available} ->
-        forward_distributed(status)
+        forward_distributed(status, handler)
 
       error ->
         error
@@ -174,15 +175,17 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   # Forward to local core process (same node)
-  defp forward_local(status) do
+  defp forward_local(status, handler) do
     # Check if core is available locally
-    case Process.whereis(ServiceRadar.StatusHandler) do
+    message = handler_message(handler, status)
+
+    case Process.whereis(handler) do
       nil ->
         {:error, :not_available}
 
       pid when is_pid(pid) ->
         try do
-          GenServer.cast(pid, {:status_update, status})
+          GenServer.cast(pid, message)
           :ok
         catch
           :exit, _ -> {:error, :not_available}
@@ -191,24 +194,26 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   # Forward to distributed core process via RPC
-  defp forward_distributed(status) do
+  defp forward_distributed(status, handler) do
     tenant_slug = status[:tenant_slug] || "default"
     service_type = status[:service_type]
     source = status[:source]
     is_sync_results = service_type == "sync" and source == "results"
 
-    case find_status_handler_node() do
+    message = handler_message(handler, status)
+
+    case find_handler_node(handler) do
       {:ok, node} ->
         try do
-          # Cast to StatusHandler on the remote node
-          GenServer.cast({ServiceRadar.StatusHandler, node}, {:status_update, status})
+          # Cast to the core handler on the remote node
+          GenServer.cast({handler, node}, message)
 
           if is_sync_results do
             Logger.info(
-              "Forwarded sync results to StatusHandler on #{node} for tenant=#{tenant_slug}"
+              "Forwarded sync results to #{inspect(handler)} on #{node} for tenant=#{tenant_slug}"
             )
           else
-            Logger.debug("Forwarded status to StatusHandler on #{node} for tenant=#{tenant_slug}")
+            Logger.debug("Forwarded status to #{inspect(handler)} on #{node} for tenant=#{tenant_slug}")
           end
 
           :ok
@@ -220,23 +225,34 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, :not_found} ->
         if is_sync_results do
-          Logger.warning("No StatusHandler found on any node for sync results")
+          Logger.warning("No handler found on any node for sync results")
         else
-          Logger.debug("No StatusHandler found on any node")
+          Logger.debug("No handler found on any node")
         end
 
         {:error, :not_available}
     end
   end
 
-  # Find a node that has StatusHandler running
-  defp find_status_handler_node do
+  defp handler_module(status) do
+    if results_router_source?(status) do
+      ServiceRadar.ResultsRouter
+    else
+      ServiceRadar.StatusHandler
+    end
+  end
+
+  defp handler_message(ServiceRadar.ResultsRouter, status), do: {:results_update, status}
+  defp handler_message(_handler, status), do: {:status_update, status}
+
+  # Find a node that has the handler running
+  defp find_handler_node(handler) do
     nodes = [Node.self() | Node.list()] |> Enum.uniq()
 
-    # First, try to find nodes with StatusHandler
+    # First, try to find nodes with the handler
     handler_nodes =
       Enum.filter(nodes, fn node ->
-        case :rpc.call(node, Process, :whereis, [ServiceRadar.StatusHandler], 5_000) do
+        case :rpc.call(node, Process, :whereis, [handler], 5_000) do
           pid when is_pid(pid) -> true
           _ -> false
         end
@@ -248,8 +264,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp should_buffer?(status) do
-    status[:source] in ["results", :results]
+  defp should_buffer?(status), do: results_router_source?(status)
+
+  defp results_router_source?(status) do
+    status[:source] in ["results", :results, "sysmon-metrics", :sysmon_metrics]
   end
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do

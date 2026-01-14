@@ -19,6 +19,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -42,6 +43,11 @@ import (
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
+var (
+	errSweepMissingHosts  = errors.New("sweep data missing hosts field")
+	errSweepHostsNotArray = errors.New("hosts field is not an array")
+)
+
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
@@ -60,6 +66,7 @@ type PushLoop struct {
 	syncStarted        bool
 	enrollMu           sync.Mutex
 	enrollInFlight     bool
+	sweepResultsSeq    string
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -114,6 +121,18 @@ func (p *PushLoop) isEnrolled() bool {
 func (p *PushLoop) setEnrolled(v bool) {
 	p.stateMu.Lock()
 	p.enrolled = v
+	p.stateMu.Unlock()
+}
+
+func (p *PushLoop) getSweepResultsSequence() string {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return p.sweepResultsSeq
+}
+
+func (p *PushLoop) setSweepResultsSequence(seq string) {
+	p.stateMu.Lock()
+	p.sweepResultsSeq = seq
 	p.stateMu.Unlock()
 }
 
@@ -349,7 +368,9 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		p.pushSysmonStatus(ctx, sysmonStatus)
 	}
 
-	if len(statuses) == 0 && sysmonStatus == nil {
+	sentSweepResults := p.pushSweepResults(ctx)
+
+	if len(statuses) == 0 && sysmonStatus == nil && !sentSweepResults {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }
@@ -429,6 +450,207 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	}
 }
 
+func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
+	sweepSvc := p.findSweepService()
+	if sweepSvc == nil {
+		return false
+	}
+
+	lastSequence := p.getSweepResultsSequence()
+	response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to get sweep results")
+		return false
+	}
+
+	if response == nil {
+		return false
+	}
+
+	pendingSeq := response.CurrentSequence
+
+	if !response.HasNewData || len(response.Data) == 0 {
+		if pendingSeq != "" {
+			p.setSweepResultsSequence(pendingSeq)
+		}
+		return false
+	}
+
+	chunks, err := buildSweepResultsChunks(response)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
+		return false
+	}
+
+	serviceName := response.ServiceName
+	if serviceName == "" {
+		serviceName = "network_sweep"
+	}
+
+	serviceType := response.ServiceType
+	if serviceType == "" {
+		serviceType = sweepType
+	}
+
+	statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
+		return false
+	}
+
+	if pendingSeq != "" {
+		p.setSweepResultsSequence(pendingSeq)
+	}
+
+	p.logger.Info().
+		Str("service_name", serviceName).
+		Int("chunk_count", len(statusChunks)).
+		Msg("Streamed sweep results to gateway")
+
+	return true
+}
+
+func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsChunk, error) {
+	if response == nil {
+		return nil, nil
+	}
+
+	if len(response.Data) == 0 {
+		return nil, nil
+	}
+
+	const (
+		maxChunkSize     = 1024 * 1024
+		maxHostsPerChunk = 1000
+	)
+
+	if len(response.Data) <= maxChunkSize {
+		return []*proto.ResultsChunk{{
+			Data:            response.Data,
+			IsFinal:         true,
+			ChunkIndex:      0,
+			TotalChunks:     1,
+			CurrentSequence: response.CurrentSequence,
+			Timestamp:       response.Timestamp,
+		}}, nil
+	}
+
+	var sweepData map[string]interface{}
+	if err := json.Unmarshal(response.Data, &sweepData); err != nil {
+		return nil, fmt.Errorf("parse sweep data: %w", err)
+	}
+
+	hostsInterface, ok := sweepData["hosts"]
+	if !ok {
+		return nil, errSweepMissingHosts
+	}
+
+	hosts, ok := hostsInterface.([]interface{})
+	if !ok {
+		return nil, errSweepHostsNotArray
+	}
+
+	totalHosts := len(hosts)
+
+	metadata := make(map[string]interface{})
+	for key, value := range sweepData {
+		if key != "hosts" {
+			metadata[key] = value
+		}
+	}
+
+	baseData := make(map[string]interface{}, len(metadata))
+	for key, value := range metadata {
+		baseData[key] = value
+	}
+	baseData["hosts"] = []interface{}{}
+
+	baseBytes, err := json.Marshal(baseData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal sweep metadata: %w", err)
+	}
+
+	baseSize := len(baseBytes) - 2
+	if baseSize < 0 {
+		baseSize = len(baseBytes)
+	}
+
+	hostSizes := make([]int, totalHosts)
+	for i, host := range hosts {
+		hostBytes, err := json.Marshal(host)
+		if err != nil {
+			return nil, fmt.Errorf("marshal sweep host %d: %w", i, err)
+		}
+		hostSizes[i] = len(hostBytes)
+	}
+
+	type hostRange struct {
+		start int
+		end   int
+	}
+
+	var ranges []hostRange
+	start := 0
+	currentSize := baseSize + 2
+
+	for i, hostSize := range hostSizes {
+		additional := hostSize
+		if i > start {
+			additional++
+		}
+
+		if (currentSize+additional > maxChunkSize || i-start >= maxHostsPerChunk) && i > start {
+			ranges = append(ranges, hostRange{start: start, end: i})
+			start = i
+			currentSize = baseSize + 2
+			additional = hostSize
+		}
+
+		currentSize += additional
+	}
+
+	if start < totalHosts {
+		ranges = append(ranges, hostRange{start: start, end: totalHosts})
+	}
+
+	totalChunks := len(ranges)
+	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
+
+	for chunkIndex, chunkRange := range ranges {
+		chunkHosts := hosts[chunkRange.start:chunkRange.end]
+
+		chunkData := make(map[string]interface{}, len(metadata))
+		for key, value := range metadata {
+			chunkData[key] = value
+		}
+		chunkData["hosts"] = chunkHosts
+
+		chunkBytes, err := json.Marshal(chunkData)
+		if err != nil {
+			return nil, fmt.Errorf("marshal sweep chunk %d: %w", chunkIndex, err)
+		}
+
+		chunks = append(chunks, &proto.ResultsChunk{
+			Data:            chunkBytes,
+			IsFinal:         chunkIndex == totalChunks-1,
+			ChunkIndex:      int32(chunkIndex),
+			TotalChunks:     int32(totalChunks),
+			CurrentSequence: response.CurrentSequence,
+			Timestamp:       response.Timestamp,
+		})
+	}
+
+	return chunks, nil
+}
+
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
 // Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
 func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
@@ -480,6 +702,20 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	}
 
 	return statuses, sysmonStatus
+}
+
+func (p *PushLoop) findSweepService() *SweepService {
+	p.server.mu.RLock()
+	services := append([]Service(nil), p.server.services...)
+	p.server.mu.RUnlock()
+
+	for _, svc := range services {
+		if sweepSvc, ok := svc.(*SweepService); ok {
+			return sweepSvc
+		}
+	}
+
+	return nil
 }
 
 // getCheckerStatus gets the status of a configured checker.
@@ -564,6 +800,63 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 		TenantId:     tenantID,
 		TenantSlug:   tenantSlug,
 	}
+}
+
+func (p *PushLoop) buildResultsStatusChunks(
+	chunks []*proto.ResultsChunk,
+	serviceName string,
+	serviceType string,
+) []*proto.GatewayStatusChunk {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	tenantID := p.server.config.TenantID
+	tenantSlug := p.server.config.TenantSlug
+	p.server.mu.RUnlock()
+	gatewayID := ""
+
+	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
+
+	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+
+		status := &proto.GatewayServiceStatus{
+			ServiceName:  serviceName,
+			Available:    true,
+			Message:      chunk.Data,
+			ServiceType:  serviceType,
+			ResponseTime: 0,
+			AgentId:      agentID,
+			GatewayId:    gatewayID,
+			Partition:    partition,
+			Source:       "results",
+			KvStoreId:    "",
+			TenantId:     tenantID,
+			TenantSlug:   tenantSlug,
+		}
+
+		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
+			Services:    []*proto.GatewayServiceStatus{status},
+			GatewayId:   gatewayID,
+			AgentId:     agentID,
+			Timestamp:   chunk.Timestamp,
+			Partition:   partition,
+			IsFinal:     chunk.IsFinal,
+			ChunkIndex:  chunk.ChunkIndex,
+			TotalChunks: chunk.TotalChunks,
+			KvStoreId:   "",
+			TenantId:    tenantID,
+			TenantSlug:  tenantSlug,
+		})
+	}
+
+	return statusChunks
 }
 
 // getSourceIP attempts to determine the source IP of this agent.
@@ -1079,6 +1372,7 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 		CollectNetwork:   proto.CollectNetwork,
 		CollectProcesses: proto.CollectProcesses,
 		DiskPaths:        proto.DiskPaths,
+		DiskExcludePaths: proto.DiskExcludePaths,
 		Thresholds:       proto.Thresholds,
 	}
 

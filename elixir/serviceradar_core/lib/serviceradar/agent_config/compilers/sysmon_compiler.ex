@@ -27,7 +27,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
         "collect_disk" => true,
         "collect_network" => false,
         "collect_processes" => false,
-        "disk_paths" => ["/"],
+        "disk_paths" => [],
+        "disk_exclude_paths" => [],
         "thresholds" => %{
           "cpu_warning" => "80",
           "cpu_critical" => "95"
@@ -143,6 +144,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
       "collect_network" => profile.collect_network,
       "collect_processes" => profile.collect_processes,
       "disk_paths" => profile.disk_paths,
+      "disk_exclude_paths" => profile.disk_exclude_paths,
       "thresholds" => profile.thresholds || %{},
       "profile_id" => profile.id,
       "profile_name" => profile.name,
@@ -163,7 +165,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
       "collect_disk" => true,
       "collect_network" => false,
       "collect_processes" => false,
-      "disk_paths" => ["/"],
+      "disk_paths" => [],
+      "disk_exclude_paths" => [],
       "thresholds" => %{},
       "profile_id" => nil,
       "profile_name" => "Default",

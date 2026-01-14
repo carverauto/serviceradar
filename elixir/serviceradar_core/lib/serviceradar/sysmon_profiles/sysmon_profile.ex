@@ -16,7 +16,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   - `collect_disk`: Enable disk metrics collection
   - `collect_network`: Enable network interface metrics collection
   - `collect_processes`: Enable process metrics collection (can be resource-intensive)
-  - `disk_paths`: Specific paths to monitor (e.g., ["/", "/data"])
+  - `disk_paths`: Specific paths to monitor (empty means all mounted filesystems)
+  - `disk_exclude_paths`: Paths to omit from disk metrics collection
   - `thresholds`: Alert thresholds as key-value pairs
   - `is_default`: Whether this is the default profile for the tenant
   - `enabled`: Whether this profile is available for use
@@ -92,6 +93,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :collect_network,
         :collect_processes,
         :disk_paths,
+        :disk_exclude_paths,
         :thresholds,
         :is_default,
         :enabled,
@@ -114,6 +116,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :collect_network,
         :collect_processes,
         :disk_paths,
+        :disk_exclude_paths,
         :thresholds,
         :enabled,
         :target_query,
@@ -275,8 +278,15 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     attribute :disk_paths, {:array, :string} do
       allow_nil? false
       public? true
-      default ["/"]
-      description "Disk mount points to monitor"
+      default []
+      description "Disk mount points to monitor (empty means all)"
+    end
+
+    attribute :disk_exclude_paths, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+      description "Disk mount points to exclude"
     end
 
     attribute :thresholds, :map do

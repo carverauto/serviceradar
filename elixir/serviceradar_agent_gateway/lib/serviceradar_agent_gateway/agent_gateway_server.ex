@@ -48,6 +48,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_services_per_request 5_000
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
+  @max_sysmon_message_bytes 15 * 1024 * 1024
   @agent_gateway_component_types [:agent]
 
   # Gateway identifier (node name or configured ID)
@@ -593,14 +594,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     max_bytes =
       case source do
         "results" -> @max_results_message_bytes
+        "sysmon-metrics" -> @max_sysmon_message_bytes
         _ -> @max_status_message_bytes
       end
 
     if byte_size(msg) > max_bytes do
-      if source == "results" do
+      if source in ["results", "sysmon-metrics"] do
         raise GRPC.RPCError,
           status: :resource_exhausted,
-          message: "results payload exceeds max size"
+          message: "payload exceeds max size"
       else
         binary_part(msg, 0, @max_status_message_bytes)
       end

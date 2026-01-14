@@ -84,7 +84,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
       collect_disk: true,
       collect_network: false,
       collect_processes: false,
-      disk_paths: ["/"],
+      disk_paths: [],
+      disk_exclude_paths: [],
       thresholds: %{
         "cpu_warning" => "80",
         "cpu_critical" => "95",

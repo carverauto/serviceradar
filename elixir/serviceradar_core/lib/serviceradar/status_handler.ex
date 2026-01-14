@@ -2,7 +2,7 @@ defmodule ServiceRadar.StatusHandler do
   @moduledoc """
   Handles service status updates forwarded from agent-gateway.
 
-  The handler focuses on sync result ingestion for push-first discovery.
+  Results payloads are routed to ResultsRouter when available.
   """
 
   use GenServer
@@ -10,6 +10,7 @@ defmodule ServiceRadar.StatusHandler do
   require Logger
 
   alias ServiceRadar.Inventory.SyncIngestorQueue
+  alias ServiceRadar.ResultsRouter
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -42,23 +43,30 @@ defmodule ServiceRadar.StatusHandler do
     {:noreply, state}
   end
 
-  defp process(%{service_type: "sync"} = status) do
-    case status do
-      %{source: "results"} ->
-        tenant_id = status[:tenant_id]
-
-        if is_binary(tenant_id) and tenant_id != "" do
-          schedule_sync_ingestion(status, tenant_id)
-        else
-          {:error, :missing_tenant_id}
-        end
+  defp process(%{source: "results"} = status) do
+    case Process.whereis(ResultsRouter) do
+      pid when is_pid(pid) ->
+        GenServer.cast(pid, {:results_update, status})
+        :ok
 
       _ ->
-        :ok
+        process_legacy_results(status)
     end
   end
 
   defp process(_status), do: :ok
+
+  defp process_legacy_results(%{service_type: "sync"} = status) do
+    tenant_id = status[:tenant_id]
+
+    if is_binary(tenant_id) and tenant_id != "" do
+      schedule_sync_ingestion(status, tenant_id)
+    else
+      {:error, :missing_tenant_id}
+    end
+  end
+
+  defp process_legacy_results(_status), do: :ok
 
   defp schedule_sync_ingestion(status, tenant_id) do
     message = status[:message]

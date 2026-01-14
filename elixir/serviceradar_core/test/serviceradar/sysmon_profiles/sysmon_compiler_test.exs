@@ -45,7 +45,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_disk"] == true
       assert config["collect_network"] == false
       assert config["collect_processes"] == false
-      assert config["disk_paths"] == ["/"]
+      assert config["disk_paths"] == []
+      assert config["disk_exclude_paths"] == []
       assert config["thresholds"] == %{}
       assert config["profile_name"] == "Default"
       assert config["config_source"] == "default"
@@ -107,6 +108,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
           collect_network: true,
           collect_processes: true,
           disk_paths: ["/", "/data"],
+          disk_exclude_paths: ["/var/lib/docker"],
           thresholds: %{"cpu_warning" => "75"},
           is_default: true,
           enabled: true
@@ -121,6 +123,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_network"] == true
       assert config["collect_processes"] == true
       assert config["disk_paths"] == ["/", "/data"]
+      assert config["disk_exclude_paths"] == ["/var/lib/docker"]
       assert config["thresholds"]["cpu_warning"] == "75"
       assert config["profile_id"] == profile.id
       assert config["profile_name"] == "Test Default"
@@ -140,6 +143,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         collect_network: true,
         collect_processes: true,
         disk_paths: ["/", "/var", "/home"],
+        disk_exclude_paths: ["/var/lib/docker"],
         thresholds: %{
           "cpu_warning" => "70",
           "cpu_critical" => "90"
@@ -158,6 +162,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_network"] == true
       assert config["collect_processes"] == true
       assert config["disk_paths"] == ["/", "/var", "/home"]
+      assert config["disk_exclude_paths"] == ["/var/lib/docker"]
       assert config["thresholds"]["cpu_warning"] == "70"
       assert config["thresholds"]["cpu_critical"] == "90"
       assert config["profile_id"] == "test-uuid"
@@ -176,7 +181,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         collect_disk: true,
         collect_network: false,
         collect_processes: false,
-        disk_paths: ["/"],
+        disk_paths: [],
+        disk_exclude_paths: [],
         thresholds: %{},
         is_default: true,
         target_query: nil

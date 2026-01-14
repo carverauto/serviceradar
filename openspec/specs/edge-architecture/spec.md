@@ -84,3 +84,17 @@ Edge agents SHALL initiate gRPC connections to gateway endpoints to push status 
 - **THEN** it receives the gateway endpoint in its configuration
 - **AND** uses that endpoint to establish the gRPC session
 
+### Requirement: Sysmon Metrics Ingestion
+
+Sysmon metrics pushed via gRPC SHALL be routed to core ingestion and stored in tenant-scoped hypertables.
+
+#### Scenario: Sysmon metrics forwarded to core
+- **WHEN** an edge agent emits sysmon metrics
+- **AND** the payload is sent with `source=sysmon-metrics`
+- **THEN** the gateway forwards the payload to core ingestion
+- **AND** core writes CPU, CPU cluster, memory, disk, and process metrics into tenant schemas
+
+#### Scenario: Sysmon payload size tolerance
+- **WHEN** a sysmon metrics payload exceeds the standard status size limit
+- **THEN** the gateway accepts the larger payload up to the configured sysmon limit
+- **AND** oversized payloads are rejected explicitly
