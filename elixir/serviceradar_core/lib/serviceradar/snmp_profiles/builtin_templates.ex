@@ -91,23 +91,23 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
       Enum.map(templates, fn template ->
         attrs = Map.put(template, :is_builtin, true)
 
-        case SNMPOIDTemplate
-             |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_schema)
-             |> Ash.create(actor: actor) do
-          {:ok, _} -> :created
-          {:error, %Ash.Error.Invalid{errors: errors}} ->
-            # Check if it's a uniqueness error (template already exists)
-            if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)) do
-              :exists
-            else
-              :error
-            end
-          {:error, _} -> :error
-        end
+        SNMPOIDTemplate
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_schema)
+        |> Ash.create(actor: actor)
+        |> classify_seed_result()
       end)
 
     created = Enum.count(results, &(&1 == :created))
     {:ok, created}
+  end
+
+  defp classify_seed_result({:ok, _}), do: :created
+  defp classify_seed_result({:error, %Ash.Error.Invalid{errors: errors}}), do: classify_ash_error(errors)
+  defp classify_seed_result({:error, _}), do: :error
+
+  defp classify_ash_error(errors) do
+    # Check if it's a uniqueness error (template already exists)
+    if Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidChanges{}, &1)), do: :exists, else: :error
   end
 
   # Standard MIB-II Templates

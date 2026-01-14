@@ -138,7 +138,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       # Verify targets are included
       targets = entry.config["targets"]
       assert is_list(targets)
-      assert length(targets) >= 1
+      refute Enum.empty?(targets)
 
       target_config = Enum.find(targets, fn t -> t["host"] == device.ip end)
       assert target_config != nil
@@ -244,7 +244,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       assert entry.config["enabled"] == true
 
       targets = entry.config["targets"]
-      assert length(targets) >= 1
+      refute Enum.empty?(targets)
     end
 
     @tag :integration
@@ -317,7 +317,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       assert snmp_payload != nil
       assert snmp_payload["enabled"] == true
       assert is_list(snmp_payload["targets"])
-      assert length(snmp_payload["targets"]) >= 1
+      refute Enum.empty?(snmp_payload["targets"])
     end
 
     @tag :integration

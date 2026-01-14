@@ -7,6 +7,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
   use ExUnit.Case, async: false
 
+  alias ResourceInfo, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -26,37 +27,37 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
   describe "default values" do
     test "poll_interval defaults to 60" do
       # Get attribute default from resource
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       poll_interval = Enum.find(attrs, &(&1.name == :poll_interval))
       assert poll_interval.default == 60
     end
 
     test "timeout defaults to 5" do
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       timeout = Enum.find(attrs, &(&1.name == :timeout))
       assert timeout.default == 5
     end
 
     test "retries defaults to 3" do
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       retries = Enum.find(attrs, &(&1.name == :retries))
       assert retries.default == 3
     end
 
     test "is_default defaults to false" do
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       is_default = Enum.find(attrs, &(&1.name == :is_default))
       assert is_default.default == false
     end
 
     test "enabled defaults to true" do
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       enabled = Enum.find(attrs, &(&1.name == :enabled))
       assert enabled.default == true
     end
 
     test "priority defaults to 0" do
-      attrs = Ash.Resource.Info.attributes(SNMPProfile)
+      attrs = ResourceInfo.attributes(SNMPProfile)
       priority = Enum.find(attrs, &(&1.name == :priority))
       assert priority.default == 0
     end
@@ -64,32 +65,32 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
   describe "actions" do
     test "has create action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :create))
     end
 
     test "has update action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :update))
     end
 
     test "has read action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :read))
     end
 
     test "has set_as_default action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :set_as_default))
     end
 
     test "has get_default action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :get_default))
     end
 
     test "has list_targeting_profiles action" do
-      actions = Ash.Resource.Info.actions(SNMPProfile)
+      actions = ResourceInfo.actions(SNMPProfile)
       assert Enum.any?(actions, &(&1.name == :list_targeting_profiles))
     end
   end
