@@ -1006,13 +1006,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp parse_filters_from_query(query) do
     # Split by whitespace, but handle escaped spaces
+    # Filter out known SRQL keywords that aren't filter expressions
+    known_prefixes = ["in:", "limit:", "sort:", "time:"]
+
     tokens =
       query
       |> String.split(~r/(?<!\\)\s+/, trim: true)
-      |> Enum.reject(&String.starts_with?(&1, "in:"))
-      |> Enum.reject(&String.starts_with?(&1, "limit:"))
-      |> Enum.reject(&String.starts_with?(&1, "sort:"))
-      |> Enum.reject(&String.starts_with?(&1, "time:"))
+      |> Enum.reject(fn token ->
+        Enum.any?(known_prefixes, &String.starts_with?(token, &1))
+      end)
 
     filters =
       tokens
