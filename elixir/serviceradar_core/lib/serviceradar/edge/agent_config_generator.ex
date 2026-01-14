@@ -26,6 +26,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -326,14 +327,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {:error, :no_config_found} ->
         # Return default sysmon config when none defined
         Logger.debug("No sysmon config found for agent #{agent_id}, using default")
-        ServiceRadar.AgentConfig.Compilers.SysmonCompiler.default_config()
+        SysmonCompiler.default_config()
 
       {:error, reason} ->
         Logger.warning(
           "Failed to load sysmon config for agent #{agent_id}: #{inspect(reason)}"
         )
 
-        ServiceRadar.AgentConfig.Compilers.SysmonCompiler.default_config()
+        SysmonCompiler.default_config()
     end
   end
 

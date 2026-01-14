@@ -166,7 +166,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         version: "1.0.0",
         capabilities: ["icmp", "tcp"],
         host: "192.168.1.50",
-        port: 50051
+        port: 50_051
       }
 
       result = AgentGatewaySync.upsert_agent(agent_id, tenant_id, attrs)

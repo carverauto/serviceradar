@@ -289,7 +289,20 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :gateway_sync do
       description "Sync agent metadata from the agent-gateway"
-      accept [:name, :capabilities, :host, :port, :spiffe_identity, :metadata, :version, :type_id, :device_uid, :config_source]
+
+      accept [
+        :name,
+        :capabilities,
+        :host,
+        :port,
+        :spiffe_identity,
+        :metadata,
+        :version,
+        :type_id,
+        :device_uid,
+        :config_source
+      ]
+
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 

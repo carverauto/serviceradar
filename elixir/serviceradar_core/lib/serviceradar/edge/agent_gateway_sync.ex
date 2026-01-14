@@ -199,36 +199,34 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:error, reason} ->
         if not_found_error?(reason) do
           # Create new device
-          create_device_for_agent(
-            device_uid,
-            agent_id,
-            hostname,
-            source_ip,
-            partition,
-            os_info,
-            capabilities,
-            tenant_schema,
-            actor,
-            now
-          )
+          device_context = %{
+            device_uid: device_uid,
+            agent_id: agent_id,
+            hostname: hostname,
+            source_ip: source_ip,
+            partition: partition,
+            os_info: os_info,
+            capabilities: capabilities
+          }
+
+          create_device_for_agent(device_context, tenant_schema, actor, now)
         else
           {:error, reason}
         end
     end
   end
 
-  defp create_device_for_agent(
-         device_uid,
-         agent_id,
-         hostname,
-         source_ip,
-         partition,
-         os_info,
-         capabilities,
-         tenant_schema,
-         actor,
-         now
-       ) do
+  defp create_device_for_agent(device_context, tenant_schema, actor, now) do
+    %{
+      device_uid: device_uid,
+      agent_id: agent_id,
+      hostname: hostname,
+      source_ip: source_ip,
+      partition: partition,
+      os_info: os_info,
+      capabilities: capabilities
+    } = device_context
+
     # Build discovery_sources based on agent capabilities
     discovery_sources = build_discovery_sources(capabilities)
 
