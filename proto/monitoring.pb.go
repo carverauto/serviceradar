@@ -2965,7 +2965,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"configJson\x12=\n" +
 	"\rsysmon_config\x18\b \x01(\v2\x18.monitoring.SysmonConfigR\fsysmonConfig\x127\n" +
 	"\vsnmp_config\x18\t \x01(\v2\x16.monitoring.SNMPConfigR\n" +
-	"snmpConfig\"\xa7\x04\n" +
+	"snmpConfig\"\xd5\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
