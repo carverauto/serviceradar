@@ -12,7 +12,7 @@ Sysmon disk collection currently uses an explicit include list (`disk_paths`), w
 
 ## Decisions
 - Decision: Add `disk_exclude_paths` (array of strings) to sysmon config with a default of `[]`.
-- Decision: Interpret `disk_paths: []` as “collect all disks,” then remove any mounts in `disk_exclude_paths`.
+- Decision: Interpret `disk_paths: []` as "collect all disks", then remove any mounts in `disk_exclude_paths`.
 - Decision: Update the default sysmon profile to set `disk_paths: []` and `disk_exclude_paths: []`.
 
 ## Risks / Trade-offs

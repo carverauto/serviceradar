@@ -53,6 +53,14 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.CollectProcesses {
 		t.Error("expected CollectProcesses to be false by default")
 	}
+
+	if len(cfg.DiskPaths) != 0 {
+		t.Errorf("expected DiskPaths to be empty by default, got %v", cfg.DiskPaths)
+	}
+
+	if len(cfg.DiskExcludePaths) != 0 {
+		t.Errorf("expected DiskExcludePaths to be empty by default, got %v", cfg.DiskExcludePaths)
+	}
 }
 
 func TestConfigParse(t *testing.T) {
@@ -136,7 +144,7 @@ func TestCollectDisks(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with root path - in containers this may be overlay filesystem
-	disks, err := CollectDisks(ctx, []string{"/"})
+	disks, err := CollectDisks(ctx, []string{"/"}, nil)
 	if err != nil {
 		t.Fatalf("CollectDisks failed: %v", err)
 	}
@@ -144,7 +152,7 @@ func TestCollectDisks(t *testing.T) {
 	// If no disks found with specific path, try collecting all disks
 	// This handles CI environments where "/" may not be directly accessible
 	if len(disks) == 0 {
-		disks, err = CollectDisks(ctx, nil)
+		disks, err = CollectDisks(ctx, nil, nil)
 		if err != nil {
 			t.Fatalf("CollectDisks (all) failed: %v", err)
 		}
@@ -160,6 +168,21 @@ func TestCollectDisks(t *testing.T) {
 		}
 		if disk.TotalBytes == 0 {
 			t.Errorf("expected TotalBytes > 0 for %s", disk.MountPoint)
+		}
+	}
+}
+
+func TestCollectDisksExcludePaths(t *testing.T) {
+	ctx := context.Background()
+
+	disks, err := CollectDisks(ctx, []string{"/"}, []string{"/"})
+	if err != nil {
+		t.Fatalf("CollectDisks failed: %v", err)
+	}
+
+	for _, disk := range disks {
+		if disk.MountPoint == "/" {
+			t.Errorf("expected excluded mount point to be omitted: %s", disk.MountPoint)
 		}
 	}
 }

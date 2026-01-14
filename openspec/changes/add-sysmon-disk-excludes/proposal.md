@@ -5,7 +5,7 @@ Containerized agents can see multiple mounts, but the current sysmon configurati
 
 ## What Changes
 - Add `disk_exclude_paths` to sysmon configuration to allow operators to omit specific mount points.
-- Treat an empty `disk_paths` list as “collect all disks,” then apply the exclude list.
+- Treat an empty `disk_paths` list as "collect all disks", then apply the exclude list.
 - Update the default sysmon profile to collect all disks with no excludes.
 - Update the settings UI to expose disk exclusion rules and clarify the collect-all behavior.
 

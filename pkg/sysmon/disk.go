@@ -23,10 +23,12 @@ import (
 )
 
 // CollectDisks gathers disk usage metrics for specified paths.
-// If paths is empty or contains only "/", all mounted filesystems are collected.
-func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
+// If paths is empty, all mounted filesystems are collected.
+func CollectDisks(ctx context.Context, paths []string, excludePaths []string) ([]DiskMetric, error) {
+	excludeSet := buildPathSet(excludePaths)
+
 	if len(paths) > 0 {
-		metrics := collectDiskUsageForPaths(ctx, paths)
+		metrics := collectDiskUsageForPaths(ctx, paths, excludeSet)
 		if len(metrics) > 0 {
 			return metrics, nil
 		}
@@ -63,6 +65,10 @@ func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
 			}
 		}
 
+		if _, ok := excludeSet[mountpoint]; ok {
+			continue
+		}
+
 		// Skip pseudo filesystems
 		if isPseudoFilesystem(partition.Fstype) {
 			continue
@@ -84,7 +90,7 @@ func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
 	return metrics, nil
 }
 
-func collectDiskUsageForPaths(ctx context.Context, paths []string) []DiskMetric {
+func collectDiskUsageForPaths(ctx context.Context, paths []string, excludeSet map[string]struct{}) []DiskMetric {
 	metrics := make([]DiskMetric, 0, len(paths))
 	seen := make(map[string]struct{}, len(paths))
 
@@ -106,6 +112,10 @@ func collectDiskUsageForPaths(ctx context.Context, paths []string) []DiskMetric 
 		if mountpoint == "" {
 			mountpoint = path
 		}
+		if _, ok := excludeSet[mountpoint]; ok {
+			continue
+		}
+
 		if _, ok := seen[mountpoint]; ok {
 			continue
 		}
@@ -119,6 +129,17 @@ func collectDiskUsageForPaths(ctx context.Context, paths []string) []DiskMetric 
 	}
 
 	return metrics
+}
+
+func buildPathSet(paths []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		set[path] = struct{}{}
+	}
+	return set
 }
 
 // isPseudoFilesystem returns true for virtual/pseudo filesystems that shouldn't be monitored.

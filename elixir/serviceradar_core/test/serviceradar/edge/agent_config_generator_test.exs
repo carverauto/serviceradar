@@ -241,6 +241,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.sysmon_config.collect_disk == true
       assert config.sysmon_config.collect_network == false
       assert config.sysmon_config.collect_processes == false
+      assert config.sysmon_config.disk_paths == []
+      assert config.sysmon_config.disk_exclude_paths == []
       assert config.sysmon_config.config_source == "default"
     end
 
@@ -272,6 +274,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert Map.has_key?(config.sysmon_config, :collect_network)
       assert Map.has_key?(config.sysmon_config, :collect_processes)
       assert Map.has_key?(config.sysmon_config, :disk_paths)
+      assert Map.has_key?(config.sysmon_config, :disk_exclude_paths)
       assert Map.has_key?(config.sysmon_config, :thresholds)
       assert Map.has_key?(config.sysmon_config, :profile_id)
       assert Map.has_key?(config.sysmon_config, :profile_name)

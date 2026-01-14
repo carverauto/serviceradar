@@ -855,7 +855,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </h3>
 
           <div>
-            <label class="label"><span class="label-text">Mount Points to Monitor</span></label>
+            <label class="label"><span class="label-text">Mount Points to Monitor (optional)</span></label>
             <.input
               type="text"
               field={@form[:disk_paths]}
@@ -864,7 +864,29 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             />
             <label class="label">
               <span class="label-text-alt text-base-content/50">
-                Comma-separated list of disk mount points
+                Leave empty to collect all disks. Use a comma-separated list to restrict collection.
+              </span>
+            </label>
+          </div>
+        </div>
+
+    <!-- Disk Excludes Section -->
+        <div class="space-y-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
+            Disk Excludes
+          </h3>
+
+          <div>
+            <label class="label"><span class="label-text">Mount Points to Exclude</span></label>
+            <.input
+              type="text"
+              field={@form[:disk_exclude_paths]}
+              class="input input-bordered w-full"
+              placeholder="/var/lib/docker, /var/lib/kubelet"
+            />
+            <label class="label">
+              <span class="label-text-alt text-base-content/50">
+                Comma-separated list of mount points to ignore when collecting all disks.
               </span>
             </label>
           </div>

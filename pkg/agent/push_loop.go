@@ -1362,6 +1362,7 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 		CollectNetwork:   proto.CollectNetwork,
 		CollectProcesses: proto.CollectProcesses,
 		DiskPaths:        proto.DiskPaths,
+		DiskExcludePaths: proto.DiskExcludePaths,
 		Thresholds:       proto.Thresholds,
 	}
 
