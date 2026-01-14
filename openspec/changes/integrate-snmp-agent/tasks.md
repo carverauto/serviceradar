@@ -26,7 +26,7 @@
 - [x] 3.4 Profile resolution: SRQL match → default profile fallback
 - [x] 3.5 Register compiler in AgentConfig.Compiler
 - [x] 3.6 Add proto encoding for SNMPConfig (via compile output)
-- [ ] 3.7 Write compiler tests
+- [x] 3.7 Write compiler tests
 
 ## 4. Go Agent SNMP Service
 
@@ -38,7 +38,7 @@
 - [x] 4.6 Local config override support (`/etc/serviceradar/snmp.json`)
 - [x] 4.7 Config caching for offline operation
 - [x] 4.8 Health check status aggregation from collectors
-- [ ] 4.9 Write unit tests
+- [x] 4.9 Write unit tests
 
 ## 5. Refactor SNMP Checker as Library
 
@@ -102,12 +102,12 @@
 
 ## 10. Testing
 
-- [ ] 10.1 Elixir: SNMPProfile resource tests
-- [ ] 10.2 Elixir: SNMPCompiler unit tests
+- [x] 10.1 Elixir: SNMPProfile resource tests
+- [x] 10.2 Elixir: SNMPCompiler unit tests
 - [ ] 10.3 Elixir: SRQL targeting resolution tests
-- [ ] 10.4 Go: SNMPService unit tests
-- [ ] 10.5 Go: Config refresh and hot-reload tests
-- [ ] 10.6 Go: Collector lifecycle tests
+- [x] 10.4 Go: SNMPService unit tests
+- [x] 10.5 Go: Config refresh and hot-reload tests
+- [x] 10.6 Go: Collector lifecycle tests
 - [ ] 10.7 Integration: Agent receives SNMP config from control plane
 - [ ] 10.8 E2E: Create profile in UI → agent polls SNMP target
 

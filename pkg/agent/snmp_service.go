@@ -79,7 +79,22 @@ type SNMPAgentService struct {
 	configSource string        // Source of current config (local/cache/default)
 
 	// Test support
-	testConfig *snmp.SNMPConfig // Override config for testing
+	testConfig     *snmp.SNMPConfig    // Override config for testing
+	serviceFactory SNMPServiceFactory  // Factory for creating SNMP services
+}
+
+// SNMPServiceFactory creates SNMP services for the agent.
+// This interface allows injection of mock services for testing.
+type SNMPServiceFactory interface {
+	// CreateService creates an SNMP service from the given config.
+	CreateService(config *snmp.SNMPConfig, log logger.Logger) (*snmp.SNMPService, error)
+}
+
+// defaultSNMPServiceFactory is the production service factory.
+type defaultSNMPServiceFactory struct{}
+
+func (f *defaultSNMPServiceFactory) CreateService(config *snmp.SNMPConfig, log logger.Logger) (*snmp.SNMPService, error) {
+	return snmp.NewSNMPServiceForAgent(config, log)
 }
 
 // SNMPAgentServiceConfig holds configuration for the SNMP agent service.
@@ -90,20 +105,29 @@ type SNMPAgentServiceConfig struct {
 	Logger    logger.Logger
 	// TestConfig overrides the default SNMP config for testing.
 	TestConfig *snmp.SNMPConfig
+	// ServiceFactory allows injection of mock services for testing.
+	// If nil, the default factory is used.
+	ServiceFactory SNMPServiceFactory
 }
 
 // NewSNMPAgentService creates a new SNMP agent service.
 func NewSNMPAgentService(cfg SNMPAgentServiceConfig) (*SNMPAgentService, error) {
 	s := &SNMPAgentService{
-		agentID:    cfg.AgentID,
-		partition:  cfg.Partition,
-		configDir:  cfg.ConfigDir,
-		logger:     cfg.Logger,
-		testConfig: cfg.TestConfig,
+		agentID:        cfg.AgentID,
+		partition:      cfg.Partition,
+		configDir:      cfg.ConfigDir,
+		logger:         cfg.Logger,
+		testConfig:     cfg.TestConfig,
+		serviceFactory: cfg.ServiceFactory,
 	}
 
 	if s.logger == nil {
 		s.logger = logger.NewTestLogger()
+	}
+
+	// Use default factory if none provided
+	if s.serviceFactory == nil {
+		s.serviceFactory = &defaultSNMPServiceFactory{}
 	}
 
 	return s, nil
@@ -150,8 +174,8 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 	s.configHash = computeSNMPConfigHash(config)
 	s.configSource = source
 
-	// Create the SNMP service
-	service, err := snmp.NewSNMPServiceForAgent(config, s.logger)
+	// Create the SNMP service using the factory
+	service, err := s.serviceFactory.CreateService(config, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create SNMP service: %w", err)
 	}
@@ -457,8 +481,8 @@ func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
 		}
 	}
 
-	// Create new service with new config
-	service, err := snmp.NewSNMPServiceForAgent(newConfig, s.logger)
+	// Create new service with new config using factory
+	service, err := s.serviceFactory.CreateService(newConfig, s.logger)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to create new SNMP service")
 		return
@@ -579,8 +603,8 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 		}
 	}
 
-	// Create and start new service
-	service, err := snmp.NewSNMPServiceForAgent(config, s.logger)
+	// Create and start new service using factory
+	service, err := s.serviceFactory.CreateService(config, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create SNMP service: %w", err)
 	}
