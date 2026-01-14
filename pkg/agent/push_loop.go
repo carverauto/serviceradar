@@ -467,11 +467,12 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		return false
 	}
 
-	if response.CurrentSequence != "" {
-		p.setSweepResultsSequence(response.CurrentSequence)
-	}
+	pendingSeq := response.CurrentSequence
 
 	if !response.HasNewData || len(response.Data) == 0 {
+		if pendingSeq != "" {
+			p.setSweepResultsSequence(pendingSeq)
+		}
 		return false
 	}
 
@@ -502,7 +503,11 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
-		return true
+		return false
+	}
+
+	if pendingSeq != "" {
+		p.setSweepResultsSequence(pendingSeq)
 	}
 
 	p.logger.Info().

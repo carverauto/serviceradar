@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
+
   alias ServiceRadar.Observability.{
     CpuClusterMetric,
     CpuMetric,
@@ -89,7 +90,9 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   defp resolve_device_id(tenant_schema, agent_id, actor) do
     case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
-      {:ok, agent} -> agent.device_uid
+      {:ok, agent} ->
+        agent.device_uid
+
       {:error, reason} ->
         Logger.debug("SysmonMetricsIngestor: agent lookup failed: #{inspect(reason)}")
         nil
@@ -229,11 +232,17 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
         :ok
 
       %Ash.BulkResult{status: :error, errors: errors} ->
-        Logger.warning("SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(errors)}")
+        Logger.warning(
+          "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(errors)}"
+        )
+
         {:error, errors}
 
       {:error, reason} ->
-        Logger.warning("SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(reason)}")
+        Logger.warning(
+          "SysmonMetricsIngestor: failed to insert #{inspect(resource)}: #{inspect(reason)}"
+        )
+
         {:error, reason}
     end
   end
@@ -251,7 +260,13 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   defp fetch_value(map, key) when is_map(map) do
     Map.get(map, key) ||
-      Map.get(map, String.to_atom(key))
+      if is_binary(key) do
+        try do
+          Map.get(map, String.to_existing_atom(key))
+        rescue
+          ArgumentError -> nil
+        end
+      end
   end
 
   defp fetch_value(_map, _key), do: nil
@@ -306,7 +321,8 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   defp available_bytes(nil, _used), do: nil
   defp available_bytes(_total, nil), do: nil
 
-  defp available_bytes(total, used) when is_integer(total) and is_integer(used) and total >= used do
+  defp available_bytes(total, used)
+       when is_integer(total) and is_integer(used) and total >= used do
     total - used
   end
 
@@ -323,5 +339,4 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   defp require_tenant_schema(nil), do: {:error, :tenant_schema_not_found}
   defp require_tenant_schema(schema), do: {:ok, schema}
-
 end
