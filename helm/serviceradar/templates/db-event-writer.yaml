@@ -77,8 +77,6 @@ spec:
           value: "/etc/serviceradar/credentials/password"
         - name: CNPG_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }}
-        - name: CNPG_CA_FILE
-          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         - name: KV_ADDRESS
           value: {{ default "serviceradar-datasvc:50057" .Values.kv.address | quote }}
         - name: KV_SEC_MODE
