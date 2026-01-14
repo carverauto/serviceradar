@@ -83,47 +83,43 @@ defmodule ServiceRadar.ResultsRouter do
   defp handle_sweep_results(status) do
     tenant_id = status[:tenant_id]
 
-    cond do
-      not is_binary(tenant_id) or tenant_id == "" ->
-        {:error, :missing_tenant_id}
+    if is_binary(tenant_id) and tenant_id != "" do
+      with {:ok, payload} <- decode_payload(status[:message]),
+           {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
+        actor = SystemActor.for_tenant(tenant_id, :sweep_ingestor)
 
-      true ->
-        with {:ok, payload} <- decode_payload(status[:message]),
-             {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
-          actor = SystemActor.for_tenant(tenant_id, :sweep_ingestor)
+        opts =
+          [
+            sweep_group_id: sweep_group_id,
+            agent_id: status[:agent_id],
+            actor: actor
+          ]
+          |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
-          opts =
-            [
-              sweep_group_id: sweep_group_id,
-              agent_id: status[:agent_id],
-              actor: actor
-            ]
-            |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
-
-          case sweep_ingestor().ingest_results(results, execution_id, tenant_id, opts) do
-            :ok -> :ok
-            {:ok, _stats} -> :ok
-            {:error, reason} -> {:error, reason}
-          end
-        else
+        case sweep_ingestor().ingest_results(results, execution_id, tenant_id, opts) do
+          :ok -> :ok
+          {:ok, _stats} -> :ok
           {:error, reason} -> {:error, reason}
         end
+      else
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :missing_tenant_id}
     end
   end
 
   defp handle_sysmon_metrics(status) do
     tenant_id = status[:tenant_id]
 
-    cond do
-      not is_binary(tenant_id) or tenant_id == "" ->
-        {:error, :missing_tenant_id}
-
-      true ->
-        with {:ok, payload} <- decode_payload(status[:message]) do
-          sysmon_ingestor().ingest(payload, status, tenant_id)
-        else
-          {:error, reason} -> {:error, reason}
-        end
+    if is_binary(tenant_id) and tenant_id != "" do
+      with {:ok, payload} <- decode_payload(status[:message]) do
+        sysmon_ingestor().ingest(payload, status, tenant_id)
+      else
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :missing_tenant_id}
     end
   end
 
@@ -238,59 +234,80 @@ defmodule ServiceRadar.ResultsRouter do
   defp parse_time(_value), do: nil
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
-    host_ip = host["host"] || host["host_ip"] || host["hostIp"] || host["ip"]
-
-    if is_binary(host_ip) and host_ip != "" do
-      icmp_status = host["icmp_status"] || host["icmpStatus"]
-      port_results = host["port_results"] || host["portResults"] || []
-
-      icmp_available =
-        cond do
-          is_map(icmp_status) and map_size(icmp_status) > 0 ->
-            icmp_status["available"] || icmp_status[:available] || false
-
-          true ->
-            host["available"] || host[:available] || false
-        end
-
-      icmp_response_time_ns =
-        (if is_map(icmp_status) do
-           parse_duration_ns(icmp_status["round_trip"] || icmp_status["roundTrip"])
-         end) ||
-          parse_duration_ns(host["response_time"] || host["responseTime"])
-
-      icmp_packet_loss =
-        if is_map(icmp_status) do
-          icmp_status["packet_loss"] || icmp_status["packetLoss"]
-        else
-          nil
-        end
-
-      port_scan_results = build_port_scan_results(port_results)
-      tcp_ports_open = Enum.filter(port_scan_results, &(&1["available"])) |> Enum.map(& &1["port"])
+    with host_ip when is_binary(host_ip) and host_ip != "" <- host_ip(host) do
+      icmp_status = icmp_status(host)
+      port_scan_results = build_port_scan_results(port_results(host))
 
       base = %{
         "host_ip" => host_ip,
         "hostname" => host["hostname"],
-        "icmp_available" => icmp_available,
-        "icmp_response_time_ns" => icmp_response_time_ns,
-        "icmp_packet_loss" => icmp_packet_loss,
-        "tcp_ports_open" => tcp_ports_open,
+        "icmp_available" => icmp_available(host, icmp_status),
+        "icmp_response_time_ns" => icmp_response_time_ns(host, icmp_status),
+        "icmp_packet_loss" => icmp_packet_loss(icmp_status),
+        "tcp_ports_open" => open_ports(port_scan_results),
         "port_scan_results" => port_scan_results,
         "last_sweep_time" => last_sweep_time
       }
 
-      if is_binary(network) and network != "" do
-        Map.put(base, "network_cidr", network)
-      else
-        base
-      end
+      maybe_put_network(base, network)
     else
-      nil
+      _ -> nil
     end
   end
 
   defp build_sweep_result(_host, _last_sweep_time, _network), do: nil
+
+  defp host_ip(host) do
+    value = host["host"] || host["host_ip"] || host["hostIp"] || host["ip"]
+
+    if is_binary(value) and value != "" do
+      value
+    end
+  end
+
+  defp port_results(host), do: host["port_results"] || host["portResults"] || []
+
+  defp icmp_status(host) do
+    status = host["icmp_status"] || host["icmpStatus"]
+
+    if is_map(status) and map_size(status) > 0 do
+      status
+    end
+  end
+
+  defp icmp_available(host, icmp_status) do
+    if icmp_status do
+      icmp_status["available"] || icmp_status[:available] || false
+    else
+      host["available"] || host[:available] || false
+    end
+  end
+
+  defp icmp_response_time_ns(host, icmp_status) do
+    (icmp_status &&
+       parse_duration_ns(icmp_status["round_trip"] || icmp_status["roundTrip"])) ||
+      parse_duration_ns(host["response_time"] || host["responseTime"])
+  end
+
+  defp icmp_packet_loss(icmp_status) do
+    if icmp_status do
+      icmp_status["packet_loss"] || icmp_status["packetLoss"]
+    end
+  end
+
+  defp open_ports(port_scan_results) do
+    port_scan_results
+    |> Enum.filter(& &1["available"])
+    |> Enum.map(& &1["port"])
+  end
+
+  defp maybe_put_network(base, network) do
+    if is_binary(network) and network != "" do
+      Map.put(base, "network_cidr", network)
+    else
+      base
+    end
+  end
 
   defp build_port_scan_results(port_results) do
     port_results
@@ -303,7 +320,9 @@ defmodule ServiceRadar.ResultsRouter do
           "port" => port,
           "available" => result["available"] || result[:available] || false,
           "response_time_ns" =>
-            parse_duration_ns(result["response_time"] || result["responseTime"] || result[:response_time])
+            parse_duration_ns(
+              result["response_time"] || result["responseTime"] || result[:response_time]
+            )
         }
 
         [entry | acc]

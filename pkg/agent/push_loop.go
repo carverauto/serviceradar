@@ -43,6 +43,11 @@ import (
 //nolint:gochecknoglobals // Required for build-time ldflags injection
 var Version = "dev"
 
+var (
+	errSweepMissingHosts  = errors.New("sweep data missing hosts field")
+	errSweepHostsNotArray = errors.New("hosts field is not an array")
+)
+
 // PushLoop manages the periodic pushing of agent status to the gateway.
 type PushLoop struct {
 	server             *Server
@@ -540,12 +545,12 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 
 	hostsInterface, ok := sweepData["hosts"]
 	if !ok {
-		return nil, fmt.Errorf("sweep data missing hosts field")
+		return nil, errSweepMissingHosts
 	}
 
 	hosts, ok := hostsInterface.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("hosts field is not an array")
+		return nil, errSweepHostsNotArray
 	}
 
 	totalHosts := len(hosts)
