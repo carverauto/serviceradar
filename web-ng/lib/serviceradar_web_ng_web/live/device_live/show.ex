@@ -1957,7 +1957,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               Interval: <span class="font-mono">{@profile.sample_interval}</span>
             </div>
             <div :if={@profile.target_query && @source == "srql"} class="text-xs text-base-content/60">
-              Matched by: <code class="font-mono bg-base-200/50 px-1 rounded">{@profile.target_query}</code>
+              Matched by:
+              <code class="font-mono bg-base-200/50 px-1 rounded">{@profile.target_query}</code>
             </div>
             <div class="flex flex-wrap gap-1 mt-1">
               <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
@@ -1975,8 +1976,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             Using default configuration
           </div>
           <div class="text-xs text-base-content/50 pt-2">
-            Profile targeting is configured via SRQL queries in
-            <.link navigate="/settings/sysmon" class="link link-primary">Settings</.link>.
+            Profile targeting is configured via SRQL queries in <.link
+              navigate="/settings/sysmon"
+              class="link link-primary"
+            >Settings</.link>.
           </div>
         </div>
       </div>
