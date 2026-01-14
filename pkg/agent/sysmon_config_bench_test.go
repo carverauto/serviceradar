@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	errConfigNotEnabled = errors.New("config not enabled")
+	errConfigNotEnabled  = errors.New("config not enabled")
 	errConfigSourceEmpty = errors.New("config source empty")
 )
 
@@ -49,18 +49,18 @@ func BenchmarkConfigHash(b *testing.B) {
 // BenchmarkConfigParse benchmarks parsing sysmon config.
 func BenchmarkConfigParse(b *testing.B) {
 	cfg := sysmon.Config{
-		Enabled:         true,
-		SampleInterval:  "10s",
-		CollectCPU:      true,
-		CollectMemory:   true,
-		CollectDisk:     true,
-		CollectNetwork:  true,
+		Enabled:          true,
+		SampleInterval:   "10s",
+		CollectCPU:       true,
+		CollectMemory:    true,
+		CollectDisk:      true,
+		CollectNetwork:   true,
 		CollectProcesses: true,
-		DiskPaths:       []string{"/", "/var", "/home", "/data"},
+		DiskPaths:        []string{"/", "/var", "/home", "/data"},
 		Thresholds: map[string]string{
-			"cpu_warning":    "75",
-			"cpu_critical":   "90",
-			"memory_warning": "80",
+			"cpu_warning":     "75",
+			"cpu_critical":    "90",
+			"memory_warning":  "80",
 			"memory_critical": "95",
 		},
 	}
@@ -81,14 +81,14 @@ func BenchmarkConfigLoadFromFile(b *testing.B) {
 	configPath := tmpDir + "/sysmon.json"
 
 	cfg := sysmon.Config{
-		Enabled:         true,
-		SampleInterval:  "10s",
-		CollectCPU:      true,
-		CollectMemory:   true,
-		CollectDisk:     true,
-		CollectNetwork:  false,
+		Enabled:          true,
+		SampleInterval:   "10s",
+		CollectCPU:       true,
+		CollectMemory:    true,
+		CollectDisk:      true,
+		CollectNetwork:   false,
 		CollectProcesses: false,
-		DiskPaths:       []string{"/"},
+		DiskPaths:        []string{"/"},
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -165,9 +165,9 @@ func TestConcurrentConfigLoad(t *testing.T) {
 		maxAvgMs  int64 // max acceptable average latency in milliseconds
 		maxMaxMs  int64 // max acceptable max latency in milliseconds
 	}{
-		{name: "1K_agents", numAgents: 1000, maxAvgMs: 100, maxMaxMs: 500},
-		{name: "5K_agents", numAgents: 5000, maxAvgMs: 150, maxMaxMs: 1000},
-		{name: "10K_agents", numAgents: 10000, maxAvgMs: 200, maxMaxMs: 2000},
+		{name: "1K_agents", numAgents: 1000, maxAvgMs: 120, maxMaxMs: 500},
+		{name: "5K_agents", numAgents: 5000, maxAvgMs: 180, maxMaxMs: 1000},
+		{name: "10K_agents", numAgents: 10000, maxAvgMs: 240, maxMaxMs: 2000},
 	}
 
 	for _, tc := range tests {

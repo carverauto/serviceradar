@@ -855,7 +855,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           </h3>
 
           <div>
-            <label class="label"><span class="label-text">Mount Points to Monitor (optional)</span></label>
+            <label class="label">
+              <span class="label-text">Mount Points to Monitor (optional)</span>
+            </label>
             <.input
               type="text"
               field={@form[:disk_paths]}
@@ -869,7 +871,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
             </label>
           </div>
         </div>
-
+        
     <!-- Disk Excludes Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
