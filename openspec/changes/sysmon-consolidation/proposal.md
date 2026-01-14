@@ -46,26 +46,24 @@ Update `serviceradar-agent` to embed `pkg/sysmon`:
 
 **Configuration Resolution Order**:
 1. Local `sysmon.json` in config directory (highest priority)
-2. Profile assigned to device via tags
-3. Profile assigned directly to device
-4. Default system profile (lowest priority)
+2. SRQL-targeted profile matching device (evaluated by priority, highest first)
+3. Default tenant profile (lowest priority)
 
 ### 3. Configuration & UI: Sysmon Profiles
 
 **Backend (Elixir/Ash)**:
 - Create `SysmonProfile` resource following the `SweepProfile` pattern
-- Fields: name, description, sample_interval, enabled_metrics, disk_paths, thresholds, etc.
-- Create `SysmonProfileAssignment` for tag-based or direct device assignments
+- Fields: name, description, sample_interval, enabled_metrics, disk_paths, thresholds, target_query, priority
+- Use SRQL `target_query` for device targeting (e.g., `tags.role:database hostname:%prod%`)
+- `SrqlTargetResolver` module evaluates profiles by priority to find the matching profile for a device
 - Implement `SysmonCompiler` (following `SweepCompiler` pattern) to compile profiles into agent config JSON
 
 **UI (web-ng)**:
 - Add "Sysmon Profiles" page under Settings
 - Profile CRUD: create, view, edit, delete monitoring profiles
+- SRQL query builder for device targeting with live match preview
 - Preview compiled JSON before saving
-- Add profile assignment UI:
-  - Assign profile to specific devices
-  - Assign profile to device tags (e.g., "Database Servers" tag → "High Performance" profile)
-- View which devices are using which profile
+- View profile details on device pages (read-only, shows which profile matches via SRQL)
 
 **Default Profile**:
 - Ship a "Default" profile that works on Linux and macOS
@@ -96,9 +94,8 @@ Update `serviceradar-agent` to embed `pkg/sysmon`:
 ### 5. Deployment Flexibility
 
 **Centralized (UI-managed)**:
-- Admins create profiles in UI
-- Assign profiles to devices/tags
-- Agents automatically pick up configuration
+- Admins create profiles in UI with SRQL-based device targeting
+- Profiles automatically apply to matching devices based on `target_query`
 - Changes propagate via `ConfigInvalidationNotifier`
 
 **Distributed (filesystem-managed)**:

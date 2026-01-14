@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
-  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
+  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @default_limit 50
   @max_limit 200
@@ -154,34 +154,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      push_patch(socket,
        to: page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => socket.assigns.limit})
      )}
-  end
-
-  def handle_event("assign_sysmon_profile", %{"profile_id" => profile_id}, socket) do
-    scope = socket.assigns.current_scope
-    device_uid = socket.assigns.device_uid
-
-    result =
-      if profile_id == "" do
-        # Remove direct assignment
-        remove_device_sysmon_assignment(scope, device_uid)
-      else
-        # Create or update direct assignment
-        assign_sysmon_profile_to_device(scope, device_uid, profile_id)
-      end
-
-    case result do
-      :ok ->
-        {sysmon_profile_info, available_profiles} = load_sysmon_profile_info(scope, device_uid)
-
-        {:noreply,
-         socket
-         |> assign(:sysmon_profile_info, sysmon_profile_info)
-         |> assign(:available_profiles, available_profiles)
-         |> put_flash(:info, "Sysmon profile updated")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update profile: #{inspect(reason)}")}
-    end
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -1953,13 +1925,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def sysmon_config_section(assigns) do
     profile = Map.get(assigns.profile_info, :profile)
     source = Map.get(assigns.profile_info, :source, "default")
-    direct_assignment = Map.get(assigns.profile_info, :direct_assignment)
 
     assigns =
       assigns
       |> assign(:profile, profile)
       |> assign(:source, source)
-      |> assign(:direct_assignment, direct_assignment)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -1974,63 +1944,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
 
       <div class="p-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <!-- Current Profile Info -->
-          <div class="space-y-3">
-            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-              Effective Profile
+        <div class="space-y-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+            Effective Profile
+          </div>
+          <div :if={@profile} class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{@profile.name}</span>
+              <.ui_badge :if={@profile.is_default} variant="info" size="xs">Default</.ui_badge>
             </div>
-            <div :if={@profile} class="space-y-2">
-              <div class="flex items-center gap-2">
-                <span class="font-medium">{@profile.name}</span>
-                <.ui_badge :if={@profile.is_default} variant="info" size="xs">Default</.ui_badge>
-              </div>
-              <div class="text-xs text-base-content/60">
-                Interval: <span class="font-mono">{@profile.sample_interval}</span>
-              </div>
-              <div class="flex flex-wrap gap-1 mt-1">
-                <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
-                <.ui_badge :if={@profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
-                <.ui_badge :if={@profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
-                <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">
-                  Network
-                </.ui_badge>
-                <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">
-                  Processes
-                </.ui_badge>
-              </div>
+            <div class="text-xs text-base-content/60">
+              Interval: <span class="font-mono">{@profile.sample_interval}</span>
             </div>
-            <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
-              Using default configuration
+            <div :if={@profile.target_query && @source == "srql"} class="text-xs text-base-content/60">
+              Matched by: <code class="font-mono bg-base-200/50 px-1 rounded">{@profile.target_query}</code>
+            </div>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
+              <.ui_badge :if={@profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
+              <.ui_badge :if={@profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
+              <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">
+                Network
+              </.ui_badge>
+              <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">
+                Processes
+              </.ui_badge>
             </div>
           </div>
-          
-    <!-- Assignment Controls -->
-          <div class="space-y-3">
-            <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-              Direct Assignment
-            </div>
-            <form phx-change="assign_sysmon_profile" class="flex items-center gap-2">
-              <select
-                name="profile_id"
-                class="select select-bordered select-sm flex-1"
-              >
-                <option value="" selected={is_nil(@direct_assignment)}>
-                  Use tag/default profile
-                </option>
-                <%= for p <- @available_profiles do %>
-                  <option
-                    value={p.id}
-                    selected={@direct_assignment && @direct_assignment.profile_id == p.id}
-                  >
-                    {p.name}
-                  </option>
-                <% end %>
-              </select>
-            </form>
-            <div class="text-xs text-base-content/50">
-              Direct assignments override tag-based and default profiles.
-            </div>
+          <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
+            Using default configuration
+          </div>
+          <div class="text-xs text-base-content/50 pt-2">
+            Profile targeting is configured via SRQL queries in
+            <.link navigate="/settings/sysmon" class="link link-primary">Settings</.link>.
           </div>
         </div>
       </div>
@@ -2043,11 +1989,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp source_badge(assigns) do
     {label, variant} =
       case assigns.source do
-        "device" -> {"Direct", "primary"}
-        "tag" -> {"Tag", "secondary"}
+        "srql" -> {"SRQL Targeting", "primary"}
         "default" -> {"Default", "ghost"}
         "local" -> {"Local Override", "warning"}
-        _ -> {"Unknown", "ghost"}
+        _ -> {"Default", "ghost"}
       end
 
     assigns =
@@ -2077,28 +2022,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
       actor = get_sweep_actor(scope)
 
-      # Load available profiles
+      # Load available profiles (for reference)
       available_profiles = load_available_profiles(tenant_schema, actor)
 
-      # Check for direct device assignment
-      direct_assignment = load_device_assignment(tenant_schema, device_uid, actor)
-
-      # Resolve the effective profile
+      # Resolve the effective profile via SRQL targeting
       profile = SysmonCompiler.resolve_profile(tenant_schema, device_uid, nil, actor)
 
+      # Determine source based on profile type
       source =
         cond do
-          direct_assignment -> "device"
-          # Could check for tag match here, but for simplicity we'll show "default" for non-direct
-          profile && profile.is_default -> "default"
-          profile -> "tag"
+          is_nil(profile) -> "default"
+          profile.is_default -> "default"
+          not is_nil(profile.target_query) -> "srql"
           true -> "default"
         end
 
       profile_info = %{
         profile: profile,
-        source: source,
-        direct_assignment: direct_assignment
+        source: source
       }
 
       {profile_info, available_profiles}
@@ -2114,64 +2055,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     case Ash.read(SysmonProfile, action: :list_available, actor: actor, tenant: tenant_schema) do
       {:ok, profiles} -> profiles
       {:error, _} -> []
-    end
-  end
-
-  defp load_device_assignment(tenant_schema, device_uid, actor) do
-    query =
-      SysmonProfileAssignment
-      |> Ash.Query.for_read(:for_device, %{device_uid: device_uid},
-        actor: actor,
-        tenant: tenant_schema
-      )
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, assignment} -> assignment
-      {:error, _} -> nil
-    end
-  end
-
-  defp assign_sysmon_profile_to_device(scope, device_uid, profile_id) do
-    tenant_id = Scope.tenant_id(scope)
-    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-    actor = get_sweep_actor(scope)
-
-    # First, remove any existing direct assignment
-    case load_device_assignment(tenant_schema, device_uid, actor) do
-      nil -> :ok
-      existing -> Ash.destroy(existing, actor: actor, tenant: tenant_schema)
-    end
-
-    # Create new assignment
-    attrs = %{
-      profile_id: profile_id,
-      assignment_type: :device,
-      device_uid: device_uid,
-      priority: 100
-    }
-
-    changeset = Ash.Changeset.for_create(SysmonProfileAssignment, :create, attrs)
-
-    case Ash.create(changeset, actor: actor, tenant: tenant_schema) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp remove_device_sysmon_assignment(scope, device_uid) do
-    tenant_id = Scope.tenant_id(scope)
-    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-    actor = get_sweep_actor(scope)
-
-    case load_device_assignment(tenant_schema, device_uid, actor) do
-      nil ->
-        :ok
-
-      assignment ->
-        case Ash.destroy(assignment, actor: actor, tenant: tenant_schema) do
-          :ok -> :ok
-          {:error, reason} -> {:error, reason}
-        end
     end
   end
 end

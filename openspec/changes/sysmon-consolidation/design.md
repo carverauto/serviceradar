@@ -16,7 +16,7 @@ Both implement the same `monitoring.AgentService` gRPC interface but are separat
 
 1. **Unify codebase**: Single Go library replacing both implementations
 2. **Simplify deployment**: Embed sysmon directly in agent (no separate checker process)
-3. **Centralized management**: UI-based profile management with tag-based assignments
+3. **Centralized management**: UI-based profile management with SRQL-based device targeting
 4. **Backward compatibility**: Support local config override for automation/air-gapped scenarios
 5. **Feature parity**: Ensure no regression from either existing implementation
 
@@ -62,20 +62,21 @@ Both implement the same `monitoring.AgentService` gRPC interface but are separat
 - Remote always wins: Rejected because it breaks air-gapped and automation use cases
 - Environment variable override: Could be added later, not needed for v1
 
-### Decision 3: Profile assignment model (direct vs. tag-based)
+### Decision 3: Profile targeting model (SRQL-based)
 
-**Decision**: Support both direct device assignment AND tag-based assignment
+**Decision**: Use SRQL queries for device targeting instead of explicit assignments
 
 **Rationale**:
-- Tags enable scalable management (assign once, applies to all matching devices)
-- Direct assignment allows exceptions ("this specific server needs special config")
-- Mirrors existing SweepProfile pattern which works well
+- SRQL provides powerful, flexible device matching (tags, hostname patterns, device type, etc.)
+- Single targeting mechanism reduces complexity vs. multiple assignment types
+- Profiles with `target_query` are evaluated by priority (highest first)
+- No need for separate assignment table or per-device assignment management
+- Consistent with other SRQL usage in the platform
 
 **Priority order**:
 1. Local file (highest)
-2. Direct device assignment
-3. Tag-based assignment (most recently assigned tag wins if multiple match)
-4. Default profile (lowest)
+2. SRQL-targeted profiles (evaluated by priority descending, first match wins)
+3. Default tenant profile (lowest)
 
 ### Decision 4: Configuration delivery mechanism
 
@@ -92,12 +93,13 @@ Both implement the same `monitoring.AgentService` gRPC interface but are separat
 
 ### Decision 5: Ash resource structure
 
-**Decision**: Two resources: `SysmonProfile` and `SysmonProfileAssignment`
+**Decision**: Single resource `SysmonProfile` with SRQL targeting via `target_query` field
 
 **Rationale**:
-- Follows existing `SweepProfile` + `SweepGroup` pattern
-- Clean separation between profile definition and assignment
-- Supports both device and tag assignments in one table
+- Simpler than separate assignment table
+- SRQL query provides all needed flexibility (tags, hostname patterns, device attributes)
+- Priority field enables deterministic resolution order
+- Default profile has `is_default: true` and no `target_query`
 
 **Schema**:
 ```
@@ -105,23 +107,22 @@ SysmonProfile
 ├── id (UUID)
 ├── name (unique per tenant)
 ├── description
-├── sample_interval_ms
-├── collect_* flags
-├── disk_paths[]
-├── thresholds (embedded)
+├── sample_interval (string, e.g., "10s")
+├── collect_* flags (booleans)
+├── disk_paths[] (array of strings)
+├── thresholds (map)
+├── target_query (string, nullable) - SRQL query for device matching
+├── priority (integer, default 0) - higher = evaluated first
 ├── is_default (boolean)
-└── tenant_id
-
-SysmonProfileAssignment
-├── id (UUID)
-├── profile_id → SysmonProfile
-├── device_id → Device (nullable)
-├── tag_name (string, nullable)
-├── priority (integer)
-└── tenant_id
-
-Constraint: (device_id IS NOT NULL) XOR (tag_name IS NOT NULL)
+├── enabled (boolean)
+└── tenant_id (UUID)
 ```
+
+**Resolution via SrqlTargetResolver**:
+1. Load profiles with `target_query` ordered by priority DESC
+2. For each profile, execute `{target_query} uid:{device_uid}`
+3. Return first profile with non-empty match
+4. Fall back to default profile if no SRQL match
 
 ### Decision 6: Default profile handling
 
@@ -217,16 +218,17 @@ type Config struct {
 4. Integration tests with agent
 
 ### Phase 3: Backend & Config Delivery
-1. Create Ash resources (SysmonProfile, SysmonProfileAssignment)
-2. Implement SysmonCompiler
-3. Extend GetConfig RPC with SysmonConfig
-4. Add ConfigInvalidationNotifier hooks
-5. Seed default profile on tenant creation
+1. Create `SysmonProfile` Ash resource with SRQL targeting fields
+2. Create `SrqlTargetResolver` module for profile-to-device matching
+3. Implement `SysmonCompiler` for profile-to-config compilation
+4. Extend GetConfig RPC with SysmonConfig
+5. Add ConfigInvalidationNotifier hooks
+6. Seed default profile on tenant creation
 
 ### Phase 4: UI
-1. Sysmon Profiles page (CRUD)
-2. Tag assignment UI
-3. Device detail sysmon section
+1. Sysmon Profiles page (CRUD with SRQL query builder)
+2. Profile targeting via SRQL query with live match preview
+3. Device detail sysmon section (read-only, shows matched profile)
 4. Agent list with sysmon status
 
 ### Phase 5: Deprecation
@@ -239,8 +241,8 @@ type Config struct {
 1. **Q: Should we support Windows in future?**
    A: Out of scope for v1. gopsutil supports Windows, so library is extensible.
 
-2. **Q: How do we handle config conflicts when device has multiple tags?**
-   A: Most recently created tag assignment wins. Could add explicit priority field later.
+2. **Q: How do we handle when device matches multiple profiles?**
+   A: Profiles are evaluated by priority (highest first). First SRQL match wins.
 
 3. **Q: Should profile changes be instant or wait for refresh?**
    A: Wait for refresh (default 5 min). Could add push mechanism via NATS later for instant updates.

@@ -2,9 +2,7 @@ defmodule ServiceRadar.SysmonProfiles do
   @moduledoc """
   Domain for system monitoring profile management.
 
-  This domain manages sysmon configurations including:
-  - SysmonProfile: Reusable system monitoring profiles (admin-managed templates)
-  - SysmonProfileAssignment: Assignment of profiles to devices or tags
+  This domain manages sysmon configurations via SysmonProfile resources.
 
   ## Sysmon Profiles
 
@@ -12,13 +10,13 @@ defmodule ServiceRadar.SysmonProfiles do
   - CPU, memory, disk, network, and process metrics
   - Configurable sample intervals
   - Alert thresholds for each metric type
+  - SRQL `target_query` for device targeting (e.g., "in:devices tags.role:database")
 
-  ## Profile Resolution
+  ## Profile Resolution (via SrqlTargetResolver)
 
-  When an agent requests its sysmon configuration, the profile is resolved in order:
-  1. Device-specific assignment (highest priority)
-  2. Tag-based assignment (priority-ordered)
-  3. Default profile for the tenant
+  When an agent requests its sysmon configuration, the profile is resolved:
+  1. SRQL targeting: Profiles with `target_query` evaluated by priority (highest first)
+  2. Default profile for the tenant (fallback)
 
   ## Integration with Agents
 
@@ -34,7 +32,6 @@ defmodule ServiceRadar.SysmonProfiles do
 
   resources do
     resource ServiceRadar.SysmonProfiles.SysmonProfile
-    resource ServiceRadar.SysmonProfiles.SysmonProfileAssignment
   end
 
   authorization do

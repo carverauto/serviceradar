@@ -10,7 +10,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
+  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   require Ash.Query
 
@@ -31,7 +31,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     test "source_resources returns expected modules" do
       resources = SysmonCompiler.source_resources()
       assert SysmonProfile in resources
-      assert SysmonProfileAssignment in resources
     end
   end
 
@@ -128,7 +127,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
   end
 
-  describe "compile_profile/4" do
+  describe "compile_profile/1" do
     test "converts profile to config format" do
       profile = %SysmonProfile{
         id: "test-uuid",
@@ -144,10 +143,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         thresholds: %{
           "cpu_warning" => "70",
           "cpu_critical" => "90"
-        }
+        },
+        is_default: false,
+        target_query: "in:devices tags.env:prod"
       }
 
-      config = SysmonCompiler.compile_profile(profile, "tenant_test", %{}, "profile")
+      config = SysmonCompiler.compile_profile(profile)
 
       assert config["enabled"] == true
       assert config["sample_interval"] == "5s"
@@ -161,7 +162,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["thresholds"]["cpu_critical"] == "90"
       assert config["profile_id"] == "test-uuid"
       assert config["profile_name"] == "Production Monitoring"
-      assert config["config_source"] == "profile"
+      assert config["config_source"] == "srql"
+    end
+
+    test "sets config_source to default for default profile" do
+      profile = %SysmonProfile{
+        id: "default-uuid",
+        name: "Default Profile",
+        enabled: true,
+        sample_interval: "10s",
+        collect_cpu: true,
+        collect_memory: true,
+        collect_disk: true,
+        collect_network: false,
+        collect_processes: false,
+        disk_paths: ["/"],
+        thresholds: %{},
+        is_default: true,
+        target_query: nil
+      }
+
+      config = SysmonCompiler.compile_profile(profile)
+      assert config["config_source"] == "default"
     end
   end
 end

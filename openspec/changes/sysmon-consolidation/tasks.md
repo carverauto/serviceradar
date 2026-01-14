@@ -40,16 +40,17 @@
 - [x] 3.1.6 Set Source field to `sysmon-metrics` (distinct from SNMP, etc.)
 
 ### 3.2 Ash Resources (Elixir)
-- [x] 3.2.1 Create `SysmonProfile` resource in `serviceradar_core`
-- [x] 3.2.2 Create `SysmonProfileAssignment` resource with device/tag polymorphism
-- [x] 3.2.3 Add tenant isolation policies to both resources
-- [x] 3.2.4 Create migrations for sysmon_profiles and sysmon_profile_assignments tables
+- [x] 3.2.1 Create `SysmonProfile` resource in `serviceradar_core` with SRQL targeting fields
+- [x] 3.2.2 Add `target_query` (string) and `priority` (integer) attributes for SRQL targeting
+- [x] 3.2.3 Add tenant isolation policies to SysmonProfile
+- [x] 3.2.4 Create migration for sysmon_profiles table
 - [x] 3.2.5 Add domain registration for sysmon resources
 - [x] 3.2.6 Regenerate Elixir protobuf code with SysmonConfig message
+- [x] 3.2.7 Create `SrqlTargetResolver` module for profile-to-device matching via SRQL
 
 ### 3.3 Config Compilation
 - [x] 3.3.1 Create `SysmonCompiler` module following `SweepCompiler` pattern
-- [x] 3.3.2 Implement profile resolution logic (device → tag → default)
+- [x] 3.3.2 Implement profile resolution logic (SRQL targeting → default)
 - [x] 3.3.3 Compile profile to JSON matching agent schema
 - [x] 3.3.4 Integrate with `ConfigInvalidationNotifier` for change propagation
 - [x] 3.3.5 Add caching for compiled configs (via ConfigServer)
@@ -77,27 +78,25 @@
 
 ### 4.1 Sysmon Profiles Page
 - [x] 4.1.1 Create route: Settings → Sysmon Profiles
-- [x] 4.1.2 Implement profile list view with columns (name, interval, assignments)
+- [x] 4.1.2 Implement profile list view with columns (name, interval, targeting)
 - [x] 4.1.3 Add "Create Profile" form with all config fields
 - [x] 4.1.4 Add "Edit Profile" form with pre-populated values
-- [x] 4.1.5 Add "Delete Profile" with reassignment confirmation
+- [x] 4.1.5 Add "Delete Profile" action
 - [x] 4.1.6 Add JSON preview panel for compiled config
-- [x] 4.1.7 Add "System" badge for default profile
+- [x] 4.1.7 Add "Default" badge for default profile
 - [x] 4.1.8 Disable delete for default profile
 
-### 4.2 Tag Assignments
-- [x] 4.2.1 Add "Tag Assignments" tab to Sysmon Profiles page
-- [x] 4.2.2 Implement tag → profile assignment form
-- [x] 4.2.3 Show device count per tag assignment
-- [x] 4.2.4 Add remove assignment action
+### 4.2 SRQL Targeting
+- [x] 4.2.1 Add SRQL query builder to profile form
+- [x] 4.2.2 Implement `target_query` field with live device count preview
+- [x] 4.2.3 Add priority field for profile resolution order
 
 ### 4.3 Device Integration
 - [x] 4.3.1 Add "Sysmon Profile" column to Devices list (optional)
 - [x] 4.3.2 Add "System Monitoring" section to Device detail page
-- [x] 4.3.3 Show effective profile with source (direct/tag/default)
+- [x] 4.3.3 Show effective profile with source (srql/default)
 - [x] 4.3.4 Add "Local Override" badge when agent uses local config
-- [x] 4.3.5 Add direct profile assignment dropdown to Device detail
-- [x] 4.3.6 Add bulk "Assign Sysmon Profile" action to Devices list
+- [x] 4.3.5 Show matched SRQL query on device detail (read-only)
 
 ### 4.4 Agent Visibility
 - [x] 4.4.1 Add sysmon status to existing Agent views

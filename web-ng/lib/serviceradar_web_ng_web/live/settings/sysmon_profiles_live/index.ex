@@ -912,7 +912,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   defp compile_profile_preview(profile) do
-    config = SysmonCompiler.compile_profile(profile, "preview", %{}, "profile")
+    config = SysmonCompiler.compile_profile(profile)
     Jason.encode!(config, pretty: true)
   rescue
     _ -> "{\"error\": \"Failed to compile config\"}"

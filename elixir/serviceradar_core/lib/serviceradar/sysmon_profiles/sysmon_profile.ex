@@ -310,15 +310,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     update_timestamp :updated_at
   end
 
-  relationships do
-    has_many :assignments, ServiceRadar.SysmonProfiles.SysmonProfileAssignment do
-      destination_attribute :profile_id
-    end
-  end
-
-  calculations do
-    calculate :assignment_count, :integer, expr(count(assignments))
-  end
+  # Note: SysmonProfileAssignment removed - use target_query for SRQL-based targeting
 
   identities do
     identity :unique_name_per_tenant, [:tenant_id, :name]

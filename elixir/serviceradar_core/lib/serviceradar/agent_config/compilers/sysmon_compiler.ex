@@ -2,19 +2,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   @moduledoc """
   Compiler for sysmon configurations.
 
-  Transforms SysmonProfile and SysmonProfileAssignment Ash resources into
-  agent-consumable sysmon configuration format.
+  Transforms SysmonProfile Ash resources into agent-consumable sysmon
+  configuration format using SRQL-based targeting.
 
   ## Resolution Order
 
   When resolving which profile applies to a device:
-  1. Device-specific assignment (legacy, for backwards compatibility)
-  2. SRQL targeting profiles (ordered by priority, highest first)
-  3. Tag-based assignments (legacy, for backwards compatibility)
-  4. Default tenant profile (fallback)
+  1. SRQL targeting profiles (ordered by priority, highest first)
+  2. Default tenant profile (fallback)
 
-  SRQL targeting is the preferred method. Device and tag assignments are
-  maintained for backwards compatibility during the migration period.
+  Profiles use `target_query` (SRQL) to define which devices they apply to.
+  Example: `target_query: "in:devices tags.role:database"` matches all devices
+  with the tag `role=database`.
 
   ## Output Format
 
@@ -46,16 +45,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
-  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
+  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @impl true
   def config_type, do: :sysmon
 
   @impl true
   def source_resources do
-    [SysmonProfile, SysmonProfileAssignment]
+    [SysmonProfile]
   end
 
   @impl true
@@ -68,7 +66,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     profile = resolve_profile(tenant_schema, device_uid, agent_id, actor)
 
     if profile do
-      config = compile_profile(profile, tenant_schema, actor)
+      config = compile_profile(profile)
       {:ok, config}
     else
       # Return default config if no profile found
@@ -95,28 +93,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   end
 
   @doc """
-  Resolves the sysmon profile for a device.
+  Resolves the sysmon profile for a device using SRQL targeting.
 
   Resolution order:
-  1. Device-specific assignment (legacy, for backwards compatibility)
-  2. SRQL targeting profiles (ordered by priority, highest first)
-  3. Tag-based assignment (legacy, for backwards compatibility)
-  4. Default profile for tenant
+  1. SRQL targeting profiles (ordered by priority, highest first)
+  2. Default profile for tenant
 
-  Returns `{profile, config_source}` tuple where config_source indicates
-  how the profile was resolved ("device", "srql", "tag", or "default").
+  Returns the matching SysmonProfile or nil if no profile matches.
   """
   @spec resolve_profile(String.t(), String.t() | nil, String.t() | nil, map()) ::
           SysmonProfile.t() | nil
   def resolve_profile(tenant_schema, device_uid, _agent_id, actor) do
-    # Resolution order:
-    # 1. Device-specific assignment (legacy)
-    # 2. SRQL targeting profiles
-    # 3. Tag-based assignment (legacy)
-    # 4. Default profile
-    try_device_assignment(tenant_schema, device_uid, actor) ||
-      try_srql_targeting(tenant_schema, device_uid, actor) ||
-      try_tag_assignment(tenant_schema, device_uid, actor) ||
+    try_srql_targeting(tenant_schema, device_uid, actor) ||
       get_default_profile(tenant_schema, actor)
   end
 
@@ -125,7 +113,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   defp try_srql_targeting(tenant_schema, device_uid, actor) do
     case SrqlTargetResolver.resolve_for_device(tenant_schema, device_uid, actor) do
-      {:ok, profile} -> profile
+      {:ok, profile} ->
+        profile
+
       {:error, reason} ->
         Logger.warning("SysmonCompiler: SRQL targeting failed - #{inspect(reason)}")
         nil
@@ -135,8 +125,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   @doc """
   Compiles a profile to the agent config format.
   """
-  @spec compile_profile(SysmonProfile.t(), String.t(), map()) :: map()
-  def compile_profile(profile, _tenant_schema, _actor, config_source \\ "profile") do
+  @spec compile_profile(SysmonProfile.t()) :: map()
+  def compile_profile(profile) do
+    config_source =
+      cond do
+        profile.is_default -> "default"
+        not is_nil(profile.target_query) -> "srql"
+        true -> "profile"
+      end
+
     %{
       "enabled" => profile.enabled,
       "sample_interval" => profile.sample_interval,
@@ -174,98 +171,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     }
   end
 
-  # Private helpers
-
-  defp try_device_assignment(_tenant_schema, nil, _actor), do: nil
-
-  defp try_device_assignment(tenant_schema, device_uid, actor) do
-    query =
-      SysmonProfileAssignment
-      |> Ash.Query.for_read(:for_device, %{device_uid: device_uid},
-        actor: actor,
-        tenant: tenant_schema
-      )
-      |> Ash.Query.load(:profile)
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, nil} ->
-        nil
-
-      {:ok, assignment} ->
-        assignment.profile
-
-      {:error, reason} ->
-        Logger.warning("SysmonCompiler: failed to load device assignment - #{inspect(reason)}")
-        nil
-    end
-  end
-
-  defp try_tag_assignment(_tenant_schema, nil, _actor), do: nil
-
-  defp try_tag_assignment(tenant_schema, device_uid, actor) do
-    # Load device to get its tags
-    device = load_device(tenant_schema, device_uid, actor)
-
-    if device && is_map(device.tags) && map_size(device.tags) > 0 do
-      # Get all tag assignments and find the highest priority match
-      assignments = load_tag_assignments(tenant_schema, actor)
-
-      matching_assignment =
-        assignments
-        |> Enum.filter(&tag_matches_device?(&1, device.tags))
-        |> Enum.sort_by(& &1.priority, :desc)
-        |> List.first()
-
-      if matching_assignment do
-        matching_assignment.profile
-      else
-        nil
-      end
-    else
-      nil
-    end
-  end
-
-  defp load_device(tenant_schema, device_uid, actor) do
-    query =
-      Device
-      |> Ash.Query.for_read(:by_uid, %{uid: device_uid}, actor: actor, tenant: tenant_schema)
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, device} -> device
-      {:error, _} -> nil
-    end
-  end
-
-  defp load_tag_assignments(tenant_schema, actor) do
-    query =
-      SysmonProfileAssignment
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
-      |> Ash.Query.filter(assignment_type == :tag)
-      |> Ash.Query.load(:profile)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, assignments} -> assignments
-      {:error, _} -> []
-    end
-  end
-
-  defp tag_matches_device?(assignment, device_tags) do
-    tag_key = assignment.tag_key
-    tag_value = assignment.tag_value
-
-    device_value = Map.get(device_tags, tag_key)
-
-    cond do
-      # Device doesn't have this tag
-      is_nil(device_value) -> false
-      # Assignment matches any value for this key
-      is_nil(tag_value) -> true
-      # Assignment matches specific value
-      true -> device_value == tag_value
-    end
-  end
-
+  # Get the default profile for the tenant
   defp get_default_profile(tenant_schema, actor) do
     query =
       SysmonProfile
