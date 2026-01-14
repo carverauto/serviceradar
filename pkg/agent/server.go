@@ -103,6 +103,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize sysmon service, continuing without it")
 	}
 
+	// Initialize embedded SNMP service
+	if err := s.initSNMPService(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
+	}
+
 	return s, nil
 }
 
@@ -425,6 +430,41 @@ func (s *Server) GetSysmonStatus(ctx context.Context) (*sysmon.MetricSample, err
 	return svc.GetLatestSample(), nil
 }
 
+// initSNMPService creates and initializes the embedded SNMP service.
+func (s *Server) initSNMPService(ctx context.Context) error {
+	snmpSvc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
+		AgentID:   s.config.AgentID,
+		Partition: s.config.Partition,
+		ConfigDir: s.configDir,
+		Logger:    s.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create SNMP service: %w", err)
+	}
+
+	// Start the SNMP service
+	if err := snmpSvc.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start SNMP service: %w", err)
+	}
+
+	s.snmpService = snmpSvc
+	s.logger.Info().Msg("SNMP service initialized and started")
+	return nil
+}
+
+// GetSNMPStatus returns the current SNMP status if the service is running.
+func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	s.mu.RLock()
+	svc := s.snmpService
+	s.mu.RUnlock()
+
+	if svc == nil || !svc.IsEnabled() {
+		return nil, nil
+	}
+
+	return svc.GetStatus(ctx)
+}
+
 // Start initializes and starts all agent services.
 func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info().Msg("Starting agent service...")
@@ -458,6 +498,13 @@ func (s *Server) Stop(_ context.Context) error {
 	if s.sysmonService != nil {
 		if err := s.sysmonService.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop sysmon service")
+		}
+	}
+
+	// Stop SNMP service if running
+	if s.snmpService != nil {
+		if err := s.snmpService.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop SNMP service")
 		}
 	}
 

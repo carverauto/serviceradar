@@ -67,6 +67,21 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
 
+	return newSNMPServiceInternal(config, log), nil
+}
+
+// NewSNMPServiceForAgent creates a new SNMP monitoring service for agent use.
+// This uses less strict validation that doesn't require NodeAddress, ListenAddr, and Partition.
+func NewSNMPServiceForAgent(config *SNMPConfig, log logger.Logger) (*SNMPService, error) {
+	if err := config.ValidateForAgent(); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
+	}
+
+	return newSNMPServiceInternal(config, log), nil
+}
+
+// newSNMPServiceInternal creates the service without validation.
+func newSNMPServiceInternal(config *SNMPConfig, log logger.Logger) *SNMPService {
 	service := &SNMPService{
 		collectors:  make(map[string]Collector),
 		aggregators: make(map[string]Aggregator),
@@ -80,7 +95,7 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 	service.collectorFactory = &defaultCollectorFactory{}
 	service.aggregatorFactory = &defaultAggregatorFactory{}
 
-	return service, nil
+	return service
 }
 
 // Start implements the Service interface.

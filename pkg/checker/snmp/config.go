@@ -20,8 +20,10 @@ package snmp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 
 // SNMPConfig is a local copy of models.SNMPConfig to allow receiver methods
 type SNMPConfig struct {
+	Enabled     bool                   `json:"enabled"`
 	NodeAddress string                 `json:"node_address"`
 	Timeout     models.Duration        `json:"timeout"`
 	ListenAddr  string                 `json:"listen_addr"`
@@ -249,4 +252,63 @@ func isValidDataType(dt DataType) bool {
 	default:
 		return false
 	}
+}
+
+// DefaultConfig returns a default SNMP configuration for agent use.
+// The default config has SNMP disabled (no targets configured).
+func DefaultConfig() *SNMPConfig {
+	return &SNMPConfig{
+		Enabled: false,
+		Timeout: models.Duration(defaultTimeout),
+		Targets: []Target{},
+	}
+}
+
+// LoadConfigFromFile loads an SNMPConfig from a JSON file.
+func LoadConfigFromFile(path string) (*SNMPConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config SNMPConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return &config, nil
+}
+
+// ValidateForAgent validates an SNMPConfig for agent use (less strict than standalone).
+// This allows configs without NodeAddress, ListenAddr, and Partition.
+func (c *SNMPConfig) ValidateForAgent() error {
+	if !c.Enabled {
+		return nil // Disabled config is always valid
+	}
+
+	if len(c.Targets) == 0 {
+		return errNoTargets
+	}
+
+	// Validate timeout
+	if time.Duration(c.Timeout) == 0 {
+		c.Timeout = models.Duration(defaultTimeout)
+	}
+
+	// Track target names to check for duplicates
+	targetNames := make(map[string]bool)
+
+	// Validate each target
+	for i := range c.Targets {
+		if err := c.validateTarget(&c.Targets[i], targetNames); err != nil {
+			return fmt.Errorf("target %d: %w", i+1, err)
+		}
+
+		// set max data points
+		if c.Targets[i].MaxPoints == 0 {
+			c.Targets[i].MaxPoints = defaultMaxPoints
+		}
+	}
+
+	return nil
 }
