@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:serviceradar_core, path: "../elixir/serviceradar_core"},
 
       # SRQL shared library for query parsing and execution
-      {:serviceradar_srql, path: "../elixir/serviceradar_srql"},
+      {:serviceradar_srql, path: "../elixir/serviceradar_srql", override: true},
 
       # Phoenix Web Framework
       {:bcrypt_elixir, "~> 3.0"},

@@ -16,6 +16,11 @@ docker-compose -f docker-compose.dev.yml up
 
 Builds images locally from source. Best for development and testing changes.
 
+Tip: To make the dev file the default (no `-f` needed), set this in `.env`:
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+```
+
 ## What happens with one command:
 - ✅ Generate mTLS certificates automatically
 - ✅ Pull/Build Docker images  
@@ -70,6 +75,7 @@ Copy `.env.example` to `.env` to customize:
 - API keys
 - Log levels
 - Service configuration
+ - Optional compose defaults (see `COMPOSE_FILE` in `.env.example`)
 
 All values have sensible defaults, so the `.env` file is optional.
 

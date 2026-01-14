@@ -67,6 +67,7 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and en
    ```
 
 By default, Compose pulls `latest` tags. Set `APP_TAG` when you need a pinned release or commit.
+To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env`.
 
 5. **Get your admin password**:
    ```bash
