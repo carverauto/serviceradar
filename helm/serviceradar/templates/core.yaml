@@ -55,7 +55,11 @@ spec:
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY
-          value: "kubernetes"
+          value: {{ default "dns" $coreVals.clusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
         - name: NAMESPACE
           valueFrom:
             fieldRef:

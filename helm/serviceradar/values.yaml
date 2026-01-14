@@ -71,6 +71,7 @@ kv:
 natsCreds:
   # Inline NATS .creds files for platform/system accounts.
   # When set, these are stored in the serviceradar-nats-creds Secret.
+  autoGenerate: true
   platform: ""
   system: ""
   operator: ""
@@ -122,6 +123,7 @@ checkerTemplates:
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  clusterStrategy: "dns"
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   database:
@@ -235,6 +237,7 @@ agentGateway:
   tenantId: "00000000-0000-0000-0000-000000000000"
   tenantSlug: "platform"
   capabilities: "icmp,tcp,http,grpc"
+  clusterStrategy: "dns"
   clusterCoreService: "serviceradar-core-elx-headless"
   clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"

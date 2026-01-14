@@ -40,9 +40,21 @@ spec:
       - name: CLUSTER_ENABLED
         value: "true"
       - name: CLUSTER_STRATEGY
-        value: "kubernetes"
+        value: "dns"
+      - name: CLUSTER_DNS_QUERY
+        value: {{ "serviceradar-agent-gateway-headless.{{namespace}}.svc.cluster.local" | quote }}
+      - name: CLUSTER_NODE_BASENAME
+        value: {{ "{{kubernetes_node_basename}}" | quote }}
+      - name: CLUSTER_CORE_DNS_QUERY
+        value: {{ "{{core_service}}.{{namespace}}.svc.cluster.local" | quote }}
       - name: NAMESPACE
         value: {{ "{{namespace}}" | quote }}
+      - name: POD_IP
+        valueFrom:
+          fieldRef:
+            fieldPath: status.podIP
+      - name: RELEASE_NODE
+        value: {{ "{{kubernetes_node_basename}}@$(POD_IP)" | quote }}
       - name: KUBERNETES_SELECTOR
         value: {{ "{{kubernetes_selector}}" | quote }}
       - name: KUBERNETES_NODE_BASENAME
