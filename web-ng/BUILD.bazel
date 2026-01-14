@@ -67,6 +67,7 @@ mix_release(
     src_dir = "web-ng",
     extra_dirs = [
         "elixir/serviceradar_core",
+        "elixir/serviceradar_srql",
         "proto",
         "rust/srql",
         "rust/kvutil",
@@ -74,6 +75,7 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//elixir/serviceradar_core:srcs",
+        "//elixir/serviceradar_srql:srcs",
         "//proto:kv_proto_src",
         "//rust/srql:srcs",
         "//rust/kvutil:srcs",

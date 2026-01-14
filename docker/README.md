@@ -31,8 +31,13 @@ This directory contains Docker configurations for ServiceRadar components.
    This automatically:
    - Generates mTLS certificates
    - Builds Docker images from source
-   - Starts Core services
-   - Sets up networking and volumes
+      - Starts Core services
+      - Sets up networking and volumes
+
+   Tip: To make the dev compose file the default (no `-f` needed), set this in `.env`:
+   ```bash
+   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+   ```
 
 2. **Or use the Makefile shortcuts:**
    ```bash
@@ -69,6 +74,8 @@ Images are automatically built and published via GitHub Actions on every push to
 - `develop`: Latest development build
 - `v1.2.3`: Specific version tags
 - `1.2`: Major.minor tags for compatibility
+
+Pin releases in Docker Compose by setting `APP_TAG` in `.env` (example: `APP_TAG=v1.0.78`).
 
 ## Architecture
 
