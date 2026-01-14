@@ -804,10 +804,10 @@ func (p *PushLoop) buildResultsStatusChunks(
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
-	gatewayID := p.server.config.GatewayID
 	tenantID := p.server.config.TenantID
 	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
+	gatewayID := ""
 
 	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
 
