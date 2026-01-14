@@ -42,6 +42,8 @@ defmodule ServiceRadar.SPIFFE do
   ```
   """
 
+  alias ServiceRadar.SPIFFE.WorkloadAPI
+
   require Logger
 
   @type spiffe_id :: String.t()
@@ -276,46 +278,54 @@ defmodule ServiceRadar.SPIFFE do
 
     case config(:mode, :filesystem) do
       :workload_api ->
-        interval = Keyword.get(opts, :poll_interval, 60_000)
-        socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
-        trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
-        fingerprint = workload_api_fingerprint(socket, trust_domain)
-
-        pid =
-          spawn_link(fn ->
-            poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
-          end)
-
-        {:ok, pid}
+        watch_workload_api(callback, opts)
 
       _ ->
-        dir = cert_dir()
-
-        # Use file_system library if available, otherwise poll
-        if Code.ensure_loaded?(FileSystem) do
-          {:ok, pid} = FileSystem.start_link(dirs: [dir])
-          FileSystem.subscribe(pid)
-
-          spawn_link(fn ->
-            watch_loop(callback)
-          end)
-
-          {:ok, pid}
-        else
-          # Fallback to polling
-          interval = Keyword.get(opts, :poll_interval, 60_000)
-
-          pid =
-            spawn_link(fn ->
-              poll_certificates(callback, interval, get_cert_mtimes(dir))
-            end)
-
-          {:ok, pid}
-        end
+        watch_filesystem(callback, opts)
     end
   end
 
   # Private functions
+
+  defp watch_workload_api(callback, opts) do
+    interval = Keyword.get(opts, :poll_interval, 60_000)
+    socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
+    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
+    fingerprint = workload_api_fingerprint(socket, trust_domain)
+
+    pid =
+      spawn_link(fn ->
+        poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
+      end)
+
+    {:ok, pid}
+  end
+
+  defp watch_filesystem(callback, opts) do
+    dir = cert_dir()
+
+    # Use file_system library if available, otherwise poll
+    if Code.ensure_loaded?(FileSystem) do
+      {:ok, pid} = FileSystem.start_link(dirs: [dir])
+      FileSystem.subscribe(pid)
+
+      spawn_link(fn ->
+        watch_loop(callback)
+      end)
+
+      {:ok, pid}
+    else
+      # Fallback to polling
+      interval = Keyword.get(opts, :poll_interval, 60_000)
+
+      pid =
+        spawn_link(fn ->
+          poll_certificates(callback, interval, get_cert_mtimes(dir))
+        end)
+
+      {:ok, pid}
+    end
+  end
 
   defp ssl_dist_opts_filesystem(opts) do
     dir = Keyword.get(opts, :cert_dir, cert_dir())
@@ -363,7 +373,7 @@ defmodule ServiceRadar.SPIFFE do
     socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
     trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
-    case ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
       {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
         extra_cacerts = extra_cacerts(opts)
         bundle_path = trust_bundle_path(opts)
@@ -405,8 +415,7 @@ defmodule ServiceRadar.SPIFFE do
     socket = Keyword.get(opts, :workload_api_socket, config(:workload_api_socket, "/run/spire/sockets/agent.sock"))
     trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
 
-    with {:ok, %{certs: [leaf | _]}} <-
-           ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
+    with {:ok, %{certs: [leaf | _]}} <- WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
          {:ok, validity} <- decode_validity(leaf),
          {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
          {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
@@ -464,7 +473,7 @@ defmodule ServiceRadar.SPIFFE do
   defp workload_api_socket_path(_), do: nil
 
   defp workload_api_fingerprint(socket, trust_domain) do
-    case ServiceRadar.SPIFFE.WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
+    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
       {:ok, %{certs: [leaf | _]}} -> :crypto.hash(:sha256, leaf)
       _ -> nil
     end
@@ -482,7 +491,6 @@ defmodule ServiceRadar.SPIFFE do
     next_fingerprint = if current, do: current, else: last_fingerprint
     poll_workload_api(callback, interval, socket, trust_domain, next_fingerprint)
   end
-
 
   defp extract_der_cert(pem) do
     pem

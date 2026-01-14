@@ -424,28 +424,31 @@ defmodule ServiceRadar.DataService.Client do
   end
 
   defp normalize_sec_mode(%{sec_mode: sec_mode, ssl: ssl} = config) do
-    case sec_mode do
-      nil ->
-        if ssl do
-          if is_binary(config.cert_dir), do: :mtls, else: :tls
-        else
-          :plaintext
-        end
+    sec_mode
+    |> normalize_sec_mode_value(ssl, config)
+  end
 
-      "" ->
-        normalize_sec_mode(%{config | sec_mode: nil})
+  defp normalize_sec_mode_value(nil, ssl, config), do: default_sec_mode(ssl, config)
+  defp normalize_sec_mode_value("", ssl, config), do: default_sec_mode(ssl, config)
 
-      value ->
-        case String.downcase(String.trim(value)) do
-          "spiffe" -> :spiffe
-          "mtls" -> :mtls
-          "tls" -> :tls
-          "plaintext" -> :plaintext
-          "none" -> :plaintext
-          _ -> if ssl, do: :mtls, else: :plaintext
-        end
+  defp normalize_sec_mode_value(value, ssl, config) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "spiffe" -> :spiffe
+      "mtls" -> :mtls
+      "tls" -> :tls
+      "plaintext" -> :plaintext
+      "none" -> :plaintext
+      _ -> default_sec_mode(ssl, config)
     end
   end
+
+  defp normalize_sec_mode_value(_value, ssl, config), do: default_sec_mode(ssl, config)
+
+  defp default_sec_mode(true, config) do
+    if is_binary(config.cert_dir), do: :mtls, else: :tls
+  end
+
+  defp default_sec_mode(false, _config), do: :plaintext
 
   defp start_connect_task(state) do
     parent = self()
