@@ -25,10 +25,16 @@ import (
 // CollectDisks gathers disk usage metrics for specified paths.
 // If paths is empty or contains only "/", all mounted filesystems are collected.
 func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
-	// Get all partitions
+	// Get all partitions (fallback to include non-physical mounts in containers)
 	partitions, err := disk.PartitionsWithContext(ctx, false)
 	if err != nil {
 		return nil, err
+	}
+	if len(partitions) == 0 {
+		partitions, err = disk.PartitionsWithContext(ctx, true)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Build a set of requested paths for quick lookup
