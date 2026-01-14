@@ -229,7 +229,7 @@ agent:
       cpu: 200m
       memory: 512Mi
 agentGateway:
-  enabled: true
+  enabled: false
   replicas: 1
   gatewayId: "gateway-platform"
   partitionId: "default"
