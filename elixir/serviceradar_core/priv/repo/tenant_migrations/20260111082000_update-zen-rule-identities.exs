@@ -16,8 +16,14 @@ defmodule :"Elixir.ServiceRadar.Repo.TenantMigrations.Update-zen-rule-identities
     # Create new index with subject field - skip if already exists
     # (handles case where migration was partially run before)
     execute """
-    CREATE UNIQUE INDEX IF NOT EXISTS zen_rules_unique_name_index
-    ON zen_rules (tenant_id, subject, name)
+    DO $$
+    BEGIN
+      IF to_regclass('zen_rules') IS NOT NULL THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS zen_rules_unique_name_index
+        ON zen_rules (tenant_id, subject, name);
+      END IF;
+    END
+    $$;
     """
 
     drop_if_exists unique_index(:zen_rule_templates, [:tenant_id, :name],
@@ -25,8 +31,14 @@ defmodule :"Elixir.ServiceRadar.Repo.TenantMigrations.Update-zen-rule-identities
                    )
 
     execute """
-    CREATE UNIQUE INDEX IF NOT EXISTS zen_rule_templates_unique_name_index
-    ON zen_rule_templates (tenant_id, subject, name)
+    DO $$
+    BEGIN
+      IF to_regclass('zen_rule_templates') IS NOT NULL THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS zen_rule_templates_unique_name_index
+        ON zen_rule_templates (tenant_id, subject, name);
+      END IF;
+    END
+    $$;
     """
   end
 

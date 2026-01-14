@@ -65,8 +65,9 @@ const (
 	defaultSpireSocketPath        = "/run/spire/sockets/agent.sock"
 	defaultSpireSocketHostPath    = "/run/spire/sockets"
 	defaultKubernetesSelector     = "app.kubernetes.io/part-of=serviceradar"
-	defaultKubernetesNodeBasename = "serviceradar"
+	defaultKubernetesNodeBasename = "serviceradar_agent_gateway"
 	defaultCoreService            = "serviceradar-core-elx-headless"
+	defaultCoreNodeBasename       = "serviceradar_core"
 	defaultZenPort                = 50040
 	defaultResyncInterval         = 5 * time.Minute
 
@@ -102,6 +103,7 @@ type Config struct {
 	KubernetesSelector        string
 	KubernetesNodeBasename    string
 	ClusterCoreService        string
+	ClusterCoreNodeBasename   string
 	CoreAPIURL                string
 	CoreAPIKey                string
 	CoreAPITimeout            time.Duration
@@ -319,6 +321,7 @@ func loadConfig() (Config, error) {
 		KubernetesSelector:        getEnv("KUBERNETES_SELECTOR", defaultKubernetesSelector),
 		KubernetesNodeBasename:    getEnv("KUBERNETES_NODE_BASENAME", defaultKubernetesNodeBasename),
 		ClusterCoreService:        getEnv("CLUSTER_CORE_SERVICE", defaultCoreService),
+		ClusterCoreNodeBasename:   getEnv("CLUSTER_CORE_NODE_BASENAME", defaultCoreNodeBasename),
 		CoreAPIURL:                coreAPIURL,
 		CoreAPIKey:                coreAPIKey,
 		CoreAPITimeout:            coreAPITimeout,
@@ -1619,6 +1622,7 @@ func templateRenderValues(cfg Config, set TenantWorkloadSet, template TenantWork
 		"spire_socket":             cfg.SpireSocketPath,
 		"nats_url":                 cfg.NATSURL,
 		"core_service":             cfg.ClusterCoreService,
+		"core_node_basename":       cfg.ClusterCoreNodeBasename,
 		"kubernetes_selector":      cfg.KubernetesSelector,
 		"kubernetes_node_basename": cfg.KubernetesNodeBasename,
 		"workload_name":            workloadName(workloadTypeFromTemplate(template), set.Spec.TenantSlug),

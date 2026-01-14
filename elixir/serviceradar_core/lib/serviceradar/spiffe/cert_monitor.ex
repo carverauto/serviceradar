@@ -56,6 +56,11 @@ defmodule ServiceRadar.SPIFFE.CertMonitor do
     {:noreply, new_state}
   end
 
+  @impl true
+  def handle_info(_message, state) do
+    {:noreply, state}
+  end
+
   defp start_watch(%__MODULE__{} = state) do
     _ =
       SPIFFE.watch_certificates(

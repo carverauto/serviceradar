@@ -3,7 +3,9 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Use ServiceRadar.Repo directly for Ecto.Adapters.SQL operations
   # (The wrapper module ServiceRadarWebNG.Repo doesn't work with SQL adapter functions)
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.AshAdapter
   alias ServiceRadarWebNG.SRQL.Native
 
@@ -31,7 +33,7 @@ defmodule ServiceRadarWebNG.SRQL do
         if ash_srql_enabled?() and AshAdapter.ash_entity?(entity) do
           execute_ash_query(entity, query, limit, cursor, scope)
         else
-          execute_sql_query(query, limit, cursor, direction, mode)
+          execute_sql_query(query, limit, cursor, direction, mode, scope)
         end
 
       {:error, reason} ->
@@ -58,13 +60,13 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   # Execute query through traditional SQL path
-  defp execute_sql_query(query, limit, cursor, direction, mode) do
+  defp execute_sql_query(query, limit, cursor, direction, mode, scope) do
     entity = extract_entity(query)
     start_time = System.monotonic_time()
 
     result =
       with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-        execute_translation(translation)
+        execute_translation(translation, scope)
       end
 
     status = if match?({:ok, _}, result), do: :ok, else: :error
@@ -259,22 +261,80 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_translation(%{"sql" => sql} = translation) when is_binary(sql) do
+  defp execute_translation(%{"sql" => sql} = translation, scope) when is_binary(sql) do
     params =
       translation
       |> Map.get("params", [])
       |> decode_params()
 
-    with {:ok, params} <- params,
-         {:ok, result} <- Ecto.Adapters.SQL.query(Repo, sql, params) do
-      {:ok, build_response(translation, result)}
+    with {:ok, params} <- params do
+      case tenant_schema_for_scope(scope) do
+        nil ->
+          case Ecto.Adapters.SQL.query(Repo, sql, params) do
+            {:ok, result} -> {:ok, build_response(translation, result)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        schema ->
+          case Repo.transaction(fn -> run_query_in_schema(sql, params, schema) end) do
+            {:ok, {:ok, result}} -> {:ok, build_response(translation, result)}
+            {:ok, {:error, reason}} -> {:error, reason}
+            {:error, reason} -> {:error, reason}
+          end
+      end
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp execute_translation(_translation) do
+  defp execute_translation(_translation, _scope) do
     {:error, :invalid_srql_translation}
+  end
+
+  defp tenant_schema_for_scope(nil), do: nil
+
+  defp tenant_schema_for_scope(%Scope{active_tenant: active_tenant})
+       when not is_nil(active_tenant) do
+    safe_schema_for_tenant(active_tenant)
+  end
+
+  defp tenant_schema_for_scope(%Scope{} = scope) do
+    scope
+    |> Scope.tenant_id()
+    |> tenant_schema_for_scope()
+  end
+
+  defp tenant_schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
+    safe_schema_for_tenant(active_tenant)
+  end
+
+  defp tenant_schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
+    safe_schema_for_tenant(tenant_id)
+  end
+
+  defp tenant_schema_for_scope(tenant_id) when is_binary(tenant_id) do
+    safe_schema_for_tenant(tenant_id)
+  end
+
+  defp tenant_schema_for_scope(_), do: nil
+
+  defp safe_schema_for_tenant(tenant) do
+    TenantSchemas.schema_for_tenant(tenant)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp run_query_in_schema(sql, params, schema) do
+    search_path = build_search_path(schema)
+
+    case Ecto.Adapters.SQL.query(Repo, "SET LOCAL search_path = #{search_path}", []) do
+      {:ok, _} -> Ecto.Adapters.SQL.query(Repo, sql, params)
+      {:error, reason} -> {:error, {:search_path_failed, reason}}
+    end
+  end
+
+  defp build_search_path(schema) do
+    ~s("#{schema}",ag_catalog,pg_catalog,"$user",public)
   end
 
   defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do

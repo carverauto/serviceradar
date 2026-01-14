@@ -34,7 +34,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
@@ -53,6 +53,20 @@ spec:
           value: "info"
         - name: SPIFFE_ENDPOINT_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
+        - name: NATS_OPERATOR_SEED
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-nats-creds
+              key: operator.seed
+              optional: true
+        - name: NATS_SYSTEM_ACCOUNT_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: serviceradar-nats-creds
+              key: system_account.pub
+              optional: true
+        - name: NATS_SYSTEM_ACCOUNT_CREDS_FILE
+          value: "/etc/serviceradar/creds/system.creds"
         resources:
           limits:
             cpu: "500m"
@@ -81,10 +95,11 @@ spec:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
-      {{- if or .Values.natsCreds.platform .Values.natsCreds.system }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds
         secret:
-          name: serviceradar-nats-creds
+          secretName: serviceradar-nats-creds
+          optional: true
       {{- end }}
       - name: datasvc-data
         persistentVolumeClaim:

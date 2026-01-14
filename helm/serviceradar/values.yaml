@@ -71,6 +71,7 @@ kv:
 natsCreds:
   # Inline NATS .creds files for platform/system accounts.
   # When set, these are stored in the serviceradar-nats-creds Secret.
+  autoGenerate: true
   platform: ""
   system: ""
   operator: ""
@@ -113,14 +114,18 @@ tenantWorkloadOperator:
   trustDomain: ""
   spireSocketHostPath: ""
   clusterCoreService: "serviceradar-core-elx-headless"
+  clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
-  kubernetesNodeBasename: "serviceradar"
+  kubernetesNodeBasename: "serviceradar_agent_gateway"
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true
 core:
   # Enable or disable KV watch/reload in the core service
   configWatchEnabled: true
+  clusterStrategy: "dns"
+  kubernetesSelector: "app=serviceradar-core"
+  kubernetesNodeBasename: "serviceradar_core"
   database:
     poolSize: 40
     queueTargetMs: 2000
@@ -206,7 +211,24 @@ webNg:
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  clusterEnabled: "true"
+  clusterStrategy: "dns"
+  clusterDnsQuery: ""
+  clusterCoreDnsQuery: ""
+  clusterGatewayDnsQuery: ""
+  clusterCookie: "serviceradar_dev_cookie"
+  kubernetesNodeBasename: "serviceradar_web_ng"
+  datasvc:
+    host: "serviceradar-datasvc"
+    port: 50057
+    secMode: "spiffe"
+    certDir: "/etc/serviceradar/certs"
+    certName: "web"
+    serverName: "datasvc.serviceradar"
 agent:
+  agentId: "k8s-agent"
+  gatewayAddress: ""
+  partitionId: "default"
   resources:
     limits:
       cpu: 500m
@@ -214,6 +236,29 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
+agentGateway:
+  enabled: false
+  replicas: 1
+  gatewayId: "gateway-platform"
+  partitionId: "default"
+  domain: "default"
+  tenantId: "00000000-0000-0000-0000-000000000000"
+  tenantSlug: "platform"
+  capabilities: "icmp,tcp,http,grpc"
+  clusterStrategy: "dns"
+  clusterCoreService: "serviceradar-core-elx-headless"
+  clusterCoreNodeBasename: "serviceradar_core"
+  kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
+  kubernetesNodeBasename: "serviceradar_agent_gateway"
+  service:
+    port: 50052
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
 dbEventWriter:
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
   configSource: file
@@ -260,6 +305,7 @@ spire:
   clusterName: carverauto-cluster
   agentServiceAccount: spire-agent
   coreServiceAccount: serviceradar-core
+  webNgServiceAccount: serviceradar-web-ng
   datasvcServiceAccount: serviceradar-datasvc
   serviceradarAgentServiceAccount: serviceradar-agent
   socketHostPath: ""
@@ -406,5 +452,5 @@ sweep:
 # =============================================================================
 
 spiffe:
-  mode: "filesystem"
+  mode: "workload_api"
   trustDomain: "serviceradar.local"

@@ -11,6 +11,7 @@ ORGANIZATION="ServiceRadar"
 ORG_UNIT="Kubernetes"
 DEFAULT_TENANT_SLUG="${DEFAULT_TENANT_SLUG:-default}"
 DEFAULT_PARTITION_ID="${DEFAULT_PARTITION_ID:-partition-1}"
+DEFAULT_AGENT_COMPONENT_ID="${DEFAULT_AGENT_COMPONENT_ID:-agent-001}"
 mkdir -p "$CERT_DIR"
 mkdir -p "$CERT_DIR/tenants"
 chmod 755 "$CERT_DIR"
@@ -72,6 +73,7 @@ generate_cert "core" "serviceradar-core" "DNS:serviceradar-core,DNS:core,DNS:cor
 generate_cert "web" "serviceradar-web-ng" "DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:web,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "kv" "serviceradar-datasvc" "DNS:serviceradar-datasvc,DNS:kv,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
+generate_cert "gateway" "serviceradar-agent-gateway" "DNS:serviceradar-agent-gateway,DNS:agent-gateway,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "snmp-checker" "serviceradar-snmp-checker" "DNS:serviceradar-snmp-checker,DNS:snmp-checker,DNS:snmp-checker.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
 generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -180,4 +182,4 @@ EOF
 
 # Generate default tenant CA and component certs for development
 generate_tenant_ca "$DEFAULT_TENANT_SLUG"
-generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "agent-001" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:serviceradar-agent"
+generate_tenant_component_cert "$DEFAULT_TENANT_SLUG" "$DEFAULT_AGENT_COMPONENT_ID" "$DEFAULT_PARTITION_ID" "DNS:agent,DNS:serviceradar-agent"

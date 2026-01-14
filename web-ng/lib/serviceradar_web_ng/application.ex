@@ -171,23 +171,31 @@ defmodule ServiceRadarWebNG.Application do
     # Try to get the docker network gateway IP
     network = System.get_env("DOCKER_NETWORK", "serviceradar_serviceradar-net")
 
-    case System.cmd(
-           "docker",
-           [
-             "network",
-             "inspect",
-             network,
-             "--format",
-             "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
-           ],
-           stderr_to_stdout: true
-         ) do
-      {ip, 0} when ip != "" ->
-        String.trim(ip)
+    case System.find_executable("docker") do
+      nil ->
+        :error
 
       _ ->
-        :error
+        case System.cmd(
+               "docker",
+               [
+                 "network",
+                 "inspect",
+                 network,
+                 "--format",
+                 "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
+               ],
+               stderr_to_stdout: true
+             ) do
+          {ip, 0} when ip != "" ->
+            String.trim(ip)
+
+          _ ->
+            :error
+        end
     end
+  rescue
+    _ -> :error
   end
 
   defp get_default_interface_ip do
