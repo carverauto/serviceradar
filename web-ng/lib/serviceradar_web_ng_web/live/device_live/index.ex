@@ -890,7 +890,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     ~H"""
     <div class="flex items-center gap-1">
-      <span class={[
+      <span data-testid="sysmon-profile-label" class={[
         "text-xs truncate max-w-[8rem]",
         if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
       ]}>
@@ -908,13 +908,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp sysmon_profile_label(profile) when is_map(profile) do
-    case Map.get(profile, :name) || Map.get(profile, "name") do
-      name when is_binary(name) ->
-        name = String.trim(name)
-        if name == "", do: nil, else: name
-
-      _ ->
-        nil
+    with name when is_binary(name) <- Map.get(profile, :name) || Map.get(profile, "name"),
+         trimmed_name = String.trim(name),
+         true <- trimmed_name != "" do
+      trimmed_name
+    else
+      _ -> nil
     end
   end
 

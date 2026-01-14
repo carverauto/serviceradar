@@ -46,6 +46,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
-    assert has_element?(view, "td span", "Unassigned")
+    assert has_element?(view, "[data-testid='sysmon-profile-label']", "Unassigned")
   end
 end
