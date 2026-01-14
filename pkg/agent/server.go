@@ -52,6 +52,7 @@ var (
 
 const (
 	defaultTimeout     = 30 * time.Second
+	defaultPartition   = "default"
 	jsonSuffix         = ".json"
 	grpcType           = "grpc"
 	sweepType          = "sweep"
@@ -321,7 +322,7 @@ func buildSweepModelConfig(cfg *ServerConfig, sweepConfig *SweepConfig, log logg
 	partition := cfg.Partition
 	if partition == "" {
 		log.Warn().Msg("Partition not configured, using 'default'. Consider setting partition in agent config")
-		partition = "default"
+		partition = defaultPartition
 	}
 
 	if cfg.AgentID == "" {

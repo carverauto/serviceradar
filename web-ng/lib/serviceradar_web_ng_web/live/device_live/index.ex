@@ -1575,13 +1575,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       # Build map of device_uid -> profile
       profiles_by_device =
-        Enum.reduce(assignments, %{}, fn assignment, acc ->
-          if assignment.device_uid && assignment.sysmon_profile do
-            Map.put(acc, assignment.device_uid, assignment.sysmon_profile)
-          else
-            acc
-          end
-        end)
+        assignments
+        |> Enum.filter(&(&1.device_uid && &1.sysmon_profile))
+        |> Map.new(&{&1.device_uid, &1.sysmon_profile})
 
       # Load default profile
       default_profile =

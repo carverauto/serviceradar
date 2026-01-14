@@ -482,16 +482,6 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	return statuses, sysmonStatus
 }
 
-// collectAllStatuses gathers status from all configured services and checkers.
-// Deprecated: Use collectAllStatusesSeparated for proper sysmon handling.
-func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServiceStatus {
-	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
-	if sysmonStatus != nil {
-		statuses = append(statuses, sysmonStatus)
-	}
-	return statuses
-}
-
 // getCheckerStatus gets the status of a configured checker.
 func (p *PushLoop) getCheckerStatus(ctx context.Context, name string, conf *CheckerConfig) *proto.GatewayServiceStatus {
 	p.server.mu.RLock()

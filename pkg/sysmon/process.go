@@ -24,6 +24,8 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
+const unknownStatus = "unknown"
+
 // processInfo holds collected process information for sorting.
 type processInfo struct {
 	pid         int32
@@ -66,7 +68,7 @@ func CollectProcesses(ctx context.Context) ([]ProcessMetric, error) {
 	// Convert to metrics - return ALL processes
 	metrics := make([]ProcessMetric, 0, len(infos))
 	for _, info := range infos {
-		startTime := "unknown"
+		startTime := unknownStatus
 		if info.createTime > 0 {
 			startTime = time.Unix(info.createTime/1000, 0).UTC().Format(time.RFC3339)
 		}
@@ -114,7 +116,7 @@ func collectProcessInfo(ctx context.Context, p *process.Process) (processInfo, e
 	if err == nil && len(statusSlice) > 0 {
 		info.status = statusSlice[0]
 	} else {
-		info.status = "unknown"
+		info.status = unknownStatus
 	}
 
 	// Get create time

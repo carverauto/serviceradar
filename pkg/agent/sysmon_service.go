@@ -53,6 +53,9 @@ const (
 	// Config refresh settings
 	defaultRefreshInterval = 5 * time.Minute
 	refreshJitterMax       = 30 * time.Second
+
+	// Config source values
+	configSourceDefault = "default"
 )
 
 // ErrCollectorNotInitialized is returned when attempting to reconfigure before starting.
@@ -120,7 +123,7 @@ func (s *SysmonService) Start(ctx context.Context) error {
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to load sysmon config, using defaults")
 		config = sysmon.DefaultConfig()
-		source = "default"
+		source = configSourceDefault
 	}
 
 	// Check if sysmon is enabled
@@ -329,7 +332,7 @@ func (s *SysmonService) loadConfig(_ context.Context) (sysmon.Config, string, er
 
 	// Fall back to defaults
 	s.logger.Info().Msg("Using default sysmon configuration")
-	return sysmon.DefaultConfig(), "default", nil
+	return sysmon.DefaultConfig(), configSourceDefault, nil
 }
 
 // cacheConfig writes the current config to the cache file for resilience.

@@ -47,8 +47,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
   alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
+  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
 
   @impl true
   def config_type, do: :sysmon
@@ -109,30 +109,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   @spec resolve_profile(String.t(), String.t() | nil, String.t() | nil, map()) ::
           SysmonProfile.t() | nil
   def resolve_profile(tenant_schema, device_uid, _agent_id, actor) do
-    # Try device-specific assignment first (legacy)
-    profile = try_device_assignment(tenant_schema, device_uid, actor)
-
-    if profile do
-      profile
-    else
-      # Try SRQL targeting profiles
-      profile = try_srql_targeting(tenant_schema, device_uid, actor)
-
-      if profile do
-        profile
-      else
-        # Try tag-based assignment (legacy)
-        profile =
-          if not is_nil(device_uid) do
-            try_tag_assignment(tenant_schema, device_uid, actor)
-          else
-            nil
-          end
-
-        # Fall back to default profile
-        profile || get_default_profile(tenant_schema, actor)
-      end
-    end
+    # Resolution order:
+    # 1. Device-specific assignment (legacy)
+    # 2. SRQL targeting profiles
+    # 3. Tag-based assignment (legacy)
+    # 4. Default profile
+    try_device_assignment(tenant_schema, device_uid, actor) ||
+      try_srql_targeting(tenant_schema, device_uid, actor) ||
+      try_tag_assignment(tenant_schema, device_uid, actor) ||
+      get_default_profile(tenant_schema, actor)
   end
 
   # Try to find a matching profile via SRQL targeting
@@ -214,6 +199,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
         nil
     end
   end
+
+  defp try_tag_assignment(_tenant_schema, nil, _actor), do: nil
 
   defp try_tag_assignment(tenant_schema, device_uid, actor) do
     # Load device to get its tags
