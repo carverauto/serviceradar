@@ -25,6 +25,13 @@ import (
 // CollectDisks gathers disk usage metrics for specified paths.
 // If paths is empty or contains only "/", all mounted filesystems are collected.
 func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
+	if len(paths) > 0 {
+		metrics := collectDiskUsageForPaths(ctx, paths)
+		if len(metrics) > 0 {
+			return metrics, nil
+		}
+	}
+
 	// Get all partitions (fallback to include non-physical mounts in containers)
 	partitions, err := disk.PartitionsWithContext(ctx, false)
 	if err != nil {
@@ -75,6 +82,43 @@ func CollectDisks(ctx context.Context, paths []string) ([]DiskMetric, error) {
 	}
 
 	return metrics, nil
+}
+
+func collectDiskUsageForPaths(ctx context.Context, paths []string) []DiskMetric {
+	metrics := make([]DiskMetric, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+
+		usage, err := disk.UsageWithContext(ctx, path)
+		if err != nil {
+			continue
+		}
+
+		if isPseudoFilesystem(usage.Fstype) {
+			continue
+		}
+
+		mountpoint := usage.Path
+		if mountpoint == "" {
+			mountpoint = path
+		}
+		if _, ok := seen[mountpoint]; ok {
+			continue
+		}
+
+		seen[mountpoint] = struct{}{}
+		metrics = append(metrics, DiskMetric{
+			MountPoint: mountpoint,
+			UsedBytes:  usage.Used,
+			TotalBytes: usage.Total,
+		})
+	}
+
+	return metrics
 }
 
 // isPseudoFilesystem returns true for virtual/pseudo filesystems that shouldn't be monitored.
