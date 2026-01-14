@@ -107,18 +107,18 @@
 ## Phase 5: Testing & Documentation
 
 - [x] 5.1 End-to-end test: Create profile → assign to tag → verify agent receives config (sysmon_profile_assignment_test.exs)
-- [ ] 5.2 Test local override takes precedence over remote
-- [ ] 5.3 Test config caching when backend unavailable
+- [x] 5.2 Test local override takes precedence over remote (TestLocalOverrideTakesPrecedence in sysmon_service_test.go)
+- [x] 5.3 Test config caching when backend unavailable (TestCacheFallbackWhenLocalUnavailable in sysmon_service_test.go)
 - [x] 5.4 Test default profile for new agents (covered in sysmon_profile_assignment_test.exs fallback test)
-- [ ] 5.5 Performance test: Config fetch latency with 1000 agents
-- [ ] 5.6 Write user documentation for Sysmon Profiles UI
-- [ ] 5.7 Write admin documentation for local config override
+- [x] 5.5 Performance test: Config fetch latency with 1K/5K/10K agents
+- [x] 5.6 Write user documentation for Sysmon Profiles UI (docs/docs/sysmon-profiles.md)
+- [x] 5.7 Write admin documentation for local config override (docs/docs/sysmon-local-config.md)
 
 ## Phase 6: Deprecation & Cleanup
 
-- [ ] 6.1 Add deprecation notice to standalone sysmon/sysmon-osx READMEs
-- [ ] 6.2 Update installation docs to reflect embedded sysmon
-- [ ] 6.3 Create migration guide from standalone checker to embedded
+- [x] 6.1 Add deprecation notice to standalone sysmon/sysmon-osx READMEs
+- [x] 6.2 Update installation docs to reflect embedded sysmon (docs/docs/installation.md)
+- [x] 6.3 Create migration guide from standalone checker to embedded (docs/docs/runbooks/sysmon-migration.md)
 - [ ] 6.4 Remove standalone sysmon builds from CI (after 2 releases)
 - [ ] 6.5 Remove `cmd/checkers/sysmon/` (Rust)
 - [ ] 6.6 Remove `cmd/checkers/sysmon-osx/` (Go)

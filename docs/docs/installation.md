@@ -526,9 +526,46 @@ sudo dnf remove -y serviceradar-nats serviceradar-datasvc
 sudo dnf remove -y nats-server
 ```
 
+## System Monitoring (Sysmon)
+
+The ServiceRadar agent includes **embedded system monitoring** that collects host metrics (CPU, memory, disk, network, processes) without requiring a separate checker process.
+
+### Automatic Enablement
+
+System monitoring starts automatically when the agent starts. By default, it collects:
+- CPU usage (every 10 seconds)
+- Memory usage (every 10 seconds)
+- Root filesystem disk usage (every 10 seconds)
+
+### Configuration Options
+
+You can configure sysmon in two ways:
+
+1. **Centralized (Recommended)**: Create profiles in the web UI at **Settings > Sysmon Profiles** and assign them to devices or tags. See [Sysmon Profiles](./sysmon-profiles.md).
+
+2. **Local Config File**: Deploy a `sysmon.json` file to the agent's config directory for automation-driven or air-gapped deployments. See [Sysmon Local Configuration](./sysmon-local-config.md).
+
+### Configuration File Locations
+
+| Platform | Config Path | Cache Path |
+|----------|-------------|------------|
+| Linux | `/etc/serviceradar/sysmon.json` | `/var/lib/serviceradar/cache/sysmon-config.json` |
+| macOS | `/usr/local/etc/serviceradar/sysmon.json` | `/usr/local/var/serviceradar/cache/sysmon-config.json` |
+
+### Migrating from Standalone Checkers
+
+If you were previously using the standalone `sysmon` (Rust) or `sysmon-osx` (Go) checkers, these are now deprecated. To migrate:
+
+1. Remove the standalone checker from your agent's checker configuration
+2. (Optional) Create a `sysmon.json` file or configure a profile in the UI
+3. Restart the agent
+
+The embedded sysmon produces identical metrics, so no backend changes are required.
+
 ## Next Steps
 
 After installation, proceed to:
 
 1. [Configuration Basics](./configuration.md) to configure your components
 2. [TLS Security](./tls-security.md) to secure communications between components
+3. [Sysmon Profiles](./sysmon-profiles.md) to configure system monitoring

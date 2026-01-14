@@ -1,5 +1,23 @@
 # serviceradar-sysmon
 
+> **DEPRECATION NOTICE**
+>
+> This standalone sysmon checker is **deprecated** and will be removed in a future release.
+>
+> System monitoring is now built directly into the ServiceRadar agent (`pkg/sysmon`). The embedded
+> sysmon provides the same metrics with additional benefits:
+> - Centralized profile management via the web UI (Settings > Sysmon Profiles)
+> - Tag-based configuration assignment for scalable deployments
+> - No separate process or gRPC overhead
+> - Cross-platform support (Linux and macOS) in a single implementation
+>
+> **Migration Guide:**
+> 1. Remove `sysmon` from your agent's checker configuration
+> 2. (Optional) Deploy a local `sysmon.json` to `/etc/serviceradar/sysmon.json` or use the web UI to create a profile
+> 3. Restart the agent - embedded sysmon starts automatically
+>
+> See [Sysmon Profiles documentation](../../docs/docs/sysmon-profiles.md) for details.
+
 ## Overview
 `serviceradar-sysmon` is a system monitoring tool that collects and reports CPU usage, memory usage, disk I/O, and optionally ZFS pool/dataset metrics. It is designed to be lightweight and efficient, suitable for production environments.
 

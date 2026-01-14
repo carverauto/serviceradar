@@ -55,6 +55,9 @@ const (
 	refreshJitterMax       = 30 * time.Second
 )
 
+// ErrCollectorNotInitialized is returned when attempting to reconfigure before starting.
+var ErrCollectorNotInitialized = fmt.Errorf("collector not initialized")
+
 // SysmonService wraps the sysmon collector as an agent Service.
 type SysmonService struct {
 	mu        sync.RWMutex
@@ -293,7 +296,10 @@ func (s *SysmonService) GetStatus(ctx context.Context) (*proto.StatusResponse, e
 
 // loadConfig loads the sysmon configuration from local file or defaults.
 // It also tracks the source of the config for logging/debugging.
-func (s *SysmonService) loadConfig(ctx context.Context) (sysmon.Config, string, error) {
+// The ctx parameter and error return are kept for future remote config fetching support.
+//
+//nolint:unparam // error return reserved for future remote config fetching
+func (s *SysmonService) loadConfig(_ context.Context) (sysmon.Config, string, error) {
 	// Try local config file first (highest priority)
 	localPath := s.getLocalConfigPath()
 	if localPath != "" {
@@ -484,7 +490,7 @@ func (s *SysmonService) Reconfigure(config *sysmon.ParsedConfig) error {
 	defer s.mu.Unlock()
 
 	if s.collector == nil {
-		return fmt.Errorf("collector not initialized")
+		return ErrCollectorNotInitialized
 	}
 
 	if err := s.collector.Reconfigure(config); err != nil {

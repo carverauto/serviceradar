@@ -1,5 +1,25 @@
 # sysmon-osx Checker
 
+> **DEPRECATION NOTICE**
+>
+> This standalone sysmon-osx checker is **deprecated** and will be removed in a future release.
+>
+> System monitoring is now built directly into the ServiceRadar agent (`pkg/sysmon`). The embedded
+> sysmon provides the same metrics with additional benefits:
+> - Centralized profile management via the web UI (Settings > Sysmon Profiles)
+> - Tag-based configuration assignment for scalable deployments
+> - No separate process or gRPC overhead
+> - Cross-platform support (Linux and macOS) in a single implementation
+> - macOS CPU frequency collection via the embedded IOReport sampler
+>
+> **Migration Guide:**
+> 1. Stop and unload the `com.serviceradar.sysmonosx` launchd service
+> 2. Remove `sysmon-osx` from your agent's checker configuration
+> 3. (Optional) Deploy a local `sysmon.json` to `/usr/local/etc/serviceradar/sysmon.json`
+> 4. Restart the agent - embedded sysmon starts automatically
+>
+> See [Sysmon Profiles documentation](../../../docs/docs/sysmon-profiles.md) for details.
+
 The `sysmon-osx` checker is a lightweight gRPC service that exposes CPU metrics (including instantaneous frequency) from macOS hosts where ServiceRadar's standard Rust sysmon agent is not available.
 
 ## Features
