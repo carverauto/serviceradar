@@ -551,138 +551,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
-  @impl true
-  def handle_info({:test_snmp_connection, host, port}, socket) do
-    result = test_snmp_connectivity(host, port)
-
-    {:noreply,
-     socket
-     |> assign(:test_connection_loading, false)
-     |> assign(:test_connection_result, result)}
-  end
-
-  def handle_info(_msg, socket), do: {:noreply, socket}
-
-  # Test SNMP connectivity by resolving the host and sending a UDP probe
-  # Note: SNMP uses UDP, so we can't use TCP connection tests
-  defp test_snmp_connectivity(host, port) do
-    # First, resolve the hostname to verify it exists
-    host_charlist = String.to_charlist(host)
-
-    case :inet.getaddr(host_charlist, :inet) do
-      {:ok, ip_addr} ->
-        # Host resolved successfully, now try UDP reachability test
-        test_udp_reachability(host, ip_addr, port)
-
-      {:error, :nxdomain} ->
-        %{
-          success: false,
-          message: "Host not found - check the hostname"
-        }
-
-      {:error, :einval} ->
-        %{
-          success: false,
-          message: "Invalid host address format"
-        }
-
-      {:error, reason} ->
-        %{
-          success: false,
-          message: "DNS resolution failed: #{inspect(reason)}"
-        }
-    end
-  rescue
-    e ->
-      %{
-        success: false,
-        message: "Error: #{Exception.message(e)}"
-      }
-  end
-
-  # Try to send a UDP packet and see if we get an ICMP unreachable
-  # This is a best-effort test since SNMP uses UDP
-  defp test_udp_reachability(host, ip_addr, port) do
-    case :gen_udp.open(0, [:binary, active: false]) do
-      {:ok, socket} ->
-        # Send a minimal SNMP GET request packet
-        # This is a simplified SNMPv1 GET for sysDescr.0 (.1.3.6.1.2.1.1.1.0)
-        snmp_packet = build_snmp_get_request()
-
-        :gen_udp.send(socket, ip_addr, port, snmp_packet)
-
-        # Wait briefly for a response (300ms timeout)
-        result =
-          case :gen_udp.recv(socket, 0, 3_000) do
-            {:ok, {_addr, _recv_port, _data}} ->
-              %{
-                success: true,
-                message: "SNMP agent responded at #{host}:#{port}"
-              }
-
-            {:error, :timeout} ->
-              # No response could mean firewall, wrong community, or host down
-              # Report as potentially reachable since UDP is connectionless
-              %{
-                success: true,
-                message: "Host #{host}:#{port} is reachable (no SNMP response - check community string)"
-              }
-
-            {:error, :econnrefused} ->
-              %{
-                success: false,
-                message: "ICMP port unreachable - no SNMP agent on #{host}:#{port}"
-              }
-
-            {:error, reason} ->
-              %{
-                success: false,
-                message: "UDP test failed: #{inspect(reason)}"
-              }
-          end
-
-        :gen_udp.close(socket)
-        result
-
-      {:error, reason} ->
-        %{
-          success: false,
-          message: "Failed to create test socket: #{inspect(reason)}"
-        }
-    end
-  end
-
-  # Build a minimal SNMPv1 GET request for sysDescr.0
-  # This is used just to elicit a response from the SNMP agent
-  defp build_snmp_get_request do
-    # SNMPv1 GET request structure (ASN.1 BER encoded)
-    # Request for .1.3.6.1.2.1.1.1.0 (sysDescr.0) with community "public"
-    <<
-      # SEQUENCE (total length 0x27 = 39 bytes)
-      0x30, 0x27,
-      # INTEGER - version (0 = SNMPv1)
-      0x02, 0x01, 0x00,
-      # OCTET STRING - community "public"
-      0x04, 0x06, "public",
-      # GetRequest-PDU (length 0x1A = 26 bytes)
-      0xA0, 0x1A,
-      # INTEGER - request-id
-      0x02, 0x04, 0x00, 0x00, 0x00, 0x01,
-      # INTEGER - error-status
-      0x02, 0x01, 0x00,
-      # INTEGER - error-index
-      0x02, 0x01, 0x00,
-      # SEQUENCE - variable-bindings (length 0x0C = 12 bytes)
-      0x30, 0x0C,
-      # SEQUENCE - single binding (length 0x0A = 10 bytes)
-      0x30, 0x0A,
-      # OID - .1.3.6.1.2.1.1.1.0 (sysDescr.0) - length 8
-      0x06, 0x08, 0x2B, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00,
-      # NULL value
-      0x05, 0x00
-    >>
-  end
-
   # OID management event handlers
 
   def handle_event("add_oid", _params, socket) do
@@ -859,12 +727,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
-  defp create_custom_template(scope, attrs) do
-    SNMPOIDTemplate
-    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-    |> Ash.create(scope: scope)
-  end
-
   # Custom Template Modal Event Handlers
 
   def handle_event("open_custom_template_modal", _params, socket) do
@@ -928,7 +790,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
 
   def handle_event("validate_custom_template", %{"form" => params}, socket) do
     ash_form = socket.assigns.ash_custom_template_form |> Form.validate(params)
-    {:noreply, assign(socket, :custom_template_form, to_form(ash_form)) |> assign(:ash_custom_template_form, ash_form)}
+
+    {:noreply,
+     assign(socket, :custom_template_form, to_form(ash_form))
+     |> assign(:ash_custom_template_form, ash_form)}
   end
 
   def handle_event("save_custom_template", %{"form" => params}, socket) do
@@ -1038,6 +903,176 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     {:noreply, assign(socket, :custom_template_oids, updated_oids)}
   end
 
+  # Handle info callbacks
+
+  @impl true
+  def handle_info({:test_snmp_connection, host, port}, socket) do
+    result = test_snmp_connectivity(host, port)
+
+    {:noreply,
+     socket
+     |> assign(:test_connection_loading, false)
+     |> assign(:test_connection_result, result)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Private helper functions
+
+  defp create_custom_template(scope, attrs) do
+    SNMPOIDTemplate
+    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+    |> Ash.create(scope: scope)
+  end
+
+  # Test SNMP connectivity by resolving the host and sending a UDP probe
+  # Note: SNMP uses UDP, so we can't use TCP connection tests
+  defp test_snmp_connectivity(host, port) do
+    # First, resolve the hostname to verify it exists
+    host_charlist = String.to_charlist(host)
+
+    case :inet.getaddr(host_charlist, :inet) do
+      {:ok, ip_addr} ->
+        # Host resolved successfully, now try UDP reachability test
+        test_udp_reachability(host, ip_addr, port)
+
+      {:error, :nxdomain} ->
+        %{
+          success: false,
+          message: "Host not found - check the hostname"
+        }
+
+      {:error, :einval} ->
+        %{
+          success: false,
+          message: "Invalid host address format"
+        }
+
+      {:error, reason} ->
+        %{
+          success: false,
+          message: "DNS resolution failed: #{inspect(reason)}"
+        }
+    end
+  rescue
+    e ->
+      %{
+        success: false,
+        message: "Error: #{Exception.message(e)}"
+      }
+  end
+
+  # Try to send a UDP packet and see if we get an ICMP unreachable
+  # This is a best-effort test since SNMP uses UDP
+  defp test_udp_reachability(host, ip_addr, port) do
+    case :gen_udp.open(0, [:binary, active: false]) do
+      {:ok, socket} ->
+        # Send a minimal SNMP GET request packet
+        # This is a simplified SNMPv1 GET for sysDescr.0 (.1.3.6.1.2.1.1.1.0)
+        snmp_packet = build_snmp_get_request()
+
+        :gen_udp.send(socket, ip_addr, port, snmp_packet)
+
+        # Wait briefly for a response (300ms timeout)
+        result =
+          case :gen_udp.recv(socket, 0, 3_000) do
+            {:ok, {_addr, _recv_port, _data}} ->
+              %{
+                success: true,
+                message: "SNMP agent responded at #{host}:#{port}"
+              }
+
+            {:error, :timeout} ->
+              # No response could mean firewall, wrong community, or host down
+              # Report as potentially reachable since UDP is connectionless
+              %{
+                success: true,
+                message:
+                  "Host #{host}:#{port} is reachable (no SNMP response - check community string)"
+              }
+
+            {:error, :econnrefused} ->
+              %{
+                success: false,
+                message: "ICMP port unreachable - no SNMP agent on #{host}:#{port}"
+              }
+
+            {:error, reason} ->
+              %{
+                success: false,
+                message: "UDP test failed: #{inspect(reason)}"
+              }
+          end
+
+        :gen_udp.close(socket)
+        result
+
+      {:error, reason} ->
+        %{
+          success: false,
+          message: "Failed to create test socket: #{inspect(reason)}"
+        }
+    end
+  end
+
+  # Build a minimal SNMPv1 GET request for sysDescr.0
+  # This is used just to elicit a response from the SNMP agent
+  defp build_snmp_get_request do
+    # SNMPv1 GET request structure (ASN.1 BER encoded)
+    # Request for .1.3.6.1.2.1.1.1.0 (sysDescr.0) with community "public"
+    <<
+      # SEQUENCE (total length 0x27 = 39 bytes)
+      0x30,
+      0x27,
+      # INTEGER - version (0 = SNMPv1)
+      0x02,
+      0x01,
+      0x00,
+      # OCTET STRING - community "public"
+      0x04,
+      0x06,
+      "public",
+      # GetRequest-PDU (length 0x1A = 26 bytes)
+      0xA0,
+      0x1A,
+      # INTEGER - request-id
+      0x02,
+      0x04,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      # INTEGER - error-status
+      0x02,
+      0x01,
+      0x00,
+      # INTEGER - error-index
+      0x02,
+      0x01,
+      0x00,
+      # SEQUENCE - variable-bindings (length 0x0C = 12 bytes)
+      0x30,
+      0x0C,
+      # SEQUENCE - single binding (length 0x0A = 10 bytes)
+      0x30,
+      0x0A,
+      # OID - .1.3.6.1.2.1.1.1.0 (sysDescr.0) - length 8
+      0x06,
+      0x08,
+      0x2B,
+      0x06,
+      0x01,
+      0x02,
+      0x01,
+      0x01,
+      0x01,
+      0x00,
+      # NULL value
+      0x05,
+      0x00
+    >>
+  end
+
   defp parse_float(value) when is_binary(value) do
     case Float.parse(value) do
       {float, _} -> float
@@ -1072,8 +1107,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           <.profiles_panel profiles={@profiles} />
         <% end %>
       </div>
-
-      <!-- Target Modal -->
+      
+    <!-- Target Modal -->
       <.target_modal
         :if={@show_target_modal}
         form={@target_form}
@@ -1083,16 +1118,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         test_connection_result={@test_connection_result}
         test_connection_loading={@test_connection_loading}
       />
-
-      <!-- Template Browser Modal -->
+      
+    <!-- Template Browser Modal -->
       <.template_browser_modal
         :if={@show_template_browser}
         search={@template_search}
         selected_vendor={@selected_vendor}
         custom_templates={@custom_templates}
       />
-
-      <!-- Custom Template Modal -->
+      
+    <!-- Custom Template Modal -->
       <.custom_template_modal
         :if={@show_custom_template_modal}
         form={@custom_template_form}
@@ -1331,8 +1366,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             />
           </div>
         </div>
-
-        <!-- Interface Targeting Section -->
+        
+    <!-- Interface Targeting Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
             Interface Targeting
@@ -1376,12 +1411,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 </div>
                 <label class="label">
                   <span class="label-text-alt text-base-content/50">
-                    SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>, <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
+                    SRQL filters to match interfaces. Examples: <code class="bg-base-200 px-1 rounded">type:ethernet</code>,
+                    <code class="bg-base-200 px-1 rounded">device.hostname:%router%</code>
                   </span>
                 </label>
               </div>
-
-              <!-- Visual Query Builder -->
+              
+    <!-- Visual Query Builder -->
               <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
                 <div class="flex items-center justify-between mb-4">
                   <div class="text-sm font-semibold">Query Builder</div>
@@ -1482,8 +1518,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   </div>
                 </form>
               </div>
-
-              <!-- Device Count Preview -->
+              
+    <!-- Device Count Preview -->
               <div :if={@target_device_count != nil} class="flex items-center gap-2">
                 <.icon name="hero-signal" class="size-4 text-base-content/60" />
                 <span class="text-sm">
@@ -1491,8 +1527,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                   <span class="text-base-content/60">interface(s) match this query</span>
                 </span>
               </div>
-
-              <!-- Priority -->
+              
+    <!-- Priority -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label class="label"><span class="label-text">Priority</span></label>
@@ -1513,8 +1549,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             </div>
           <% end %>
         </div>
-
-        <!-- Actions -->
+        
+    <!-- Actions -->
         <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
           <.link navigate={~p"/settings/snmp"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
@@ -1524,8 +1560,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
           </.ui_button>
         </div>
       </.form>
-
-      <!-- SNMP Targets Section (only shown when editing) -->
+      
+    <!-- SNMP Targets Section (only shown when editing) -->
       <div :if={@show_form == :edit_profile} class="mt-6 pt-6 border-t border-base-200">
         <div class="flex items-center justify-between mb-4">
           <div>
@@ -1710,8 +1746,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </div>
             </div>
           </div>
-
-          <!-- Authentication based on version -->
+          
+    <!-- Authentication based on version -->
           <div class="space-y-4">
             <h4 class="text-sm font-semibold text-base-content/70">Authentication</h4>
 
@@ -1725,7 +1761,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                     name="form[community]"
                     value=""
                     class="input input-bordered w-full"
-                    placeholder={if @editing_target, do: "Enter new value to change", else: "e.g., public"}
+                    placeholder={
+                      if @editing_target, do: "Enter new value to change", else: "e.g., public"
+                    }
                     autocomplete="off"
                   />
                   <.ui_icon_button
@@ -1733,7 +1771,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                     phx-click="toggle_password_visibility"
                     title={if @show_password, do: "Hide", else: "Show"}
                   >
-                    <.icon name={if @show_password, do: "hero-eye-slash", else: "hero-eye"} class="size-4" />
+                    <.icon
+                      name={if @show_password, do: "hero-eye-slash", else: "hero-eye"}
+                      class="size-4"
+                    />
                   </.ui_icon_button>
                 </div>
                 <label class="label">
@@ -1806,7 +1847,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                       phx-click="toggle_password_visibility"
                       title={if @show_password, do: "Hide", else: "Show"}
                     >
-                      <.icon name={if @show_password, do: "hero-eye-slash", else: "hero-eye"} class="size-4" />
+                      <.icon
+                        name={if @show_password, do: "hero-eye-slash", else: "hero-eye"}
+                        class="size-4"
+                      />
                     </.ui_icon_button>
                   </div>
                 </div>
@@ -1849,8 +1893,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </p>
             <% end %>
           </div>
-
-          <!-- OIDs Section -->
+          
+    <!-- OIDs Section -->
           <div class="space-y-4">
             <div class="flex items-center justify-between">
               <h4 class="text-sm font-semibold text-base-content/70">OIDs to Monitor</h4>
@@ -1874,7 +1918,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </div>
             </div>
 
-            <div :if={@target_oids == []} class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg">
+            <div
+              :if={@target_oids == []}
+              class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg"
+            >
               <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
               <p class="text-sm">No OIDs configured</p>
               <p class="text-xs mt-1">Add OIDs manually or select from a template</p>
@@ -1930,9 +1977,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name={"oid_#{idx}_data_type"}
                       >
                         <option value="gauge" selected={oid["data_type"] == "gauge"}>Gauge</option>
-                        <option value="counter" selected={oid["data_type"] == "counter"}>Counter</option>
+                        <option value="counter" selected={oid["data_type"] == "counter"}>
+                          Counter
+                        </option>
                         <option value="string" selected={oid["data_type"] == "string"}>String</option>
-                        <option value="timeticks" selected={oid["data_type"] == "timeticks"}>Timeticks</option>
+                        <option value="timeticks" selected={oid["data_type"] == "timeticks"}>
+                          Timeticks
+                        </option>
                       </select>
                       <span class="text-[10px] text-base-content/50">Type</span>
                     </div>
@@ -1948,7 +1999,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                           phx-value-name={oid["name"]}
                           phx-value-data_type={oid["data_type"]}
                           phx-value-scale={oid["scale"]}
-                          phx-value-delta={to_string(!(oid["delta"] == true or oid["delta"] == "true"))}
+                          phx-value-delta={
+                            to_string(!(oid["delta"] == true or oid["delta"] == "true"))
+                          }
                         />
                         <span class="text-xs">Delta</span>
                       </label>
@@ -1971,8 +2024,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               Configure which SNMP OIDs to poll from this target. Use templates for common device types.
             </p>
           </div>
-
-          <!-- Test Connection -->
+          
+    <!-- Test Connection -->
           <div class="space-y-3">
             <div class="flex items-center gap-3">
               <.ui_button
@@ -1983,19 +2036,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                 disabled={@test_connection_loading}
               >
                 <%= if @test_connection_loading do %>
-                  <span class="loading loading-spinner loading-xs mr-2"></span>
-                  Testing...
+                  <span class="loading loading-spinner loading-xs mr-2"></span> Testing...
                 <% else %>
-                  <.icon name="hero-signal" class="size-4 mr-2" />
-                  Test Connection
+                  <.icon name="hero-signal" class="size-4 mr-2" /> Test Connection
                 <% end %>
               </.ui_button>
               <span class="text-xs text-base-content/50">
                 Verify connectivity to the SNMP agent
               </span>
             </div>
-
-            <!-- Test Result -->
+            
+    <!-- Test Result -->
             <%= if @test_connection_result do %>
               <div class={[
                 "flex items-center gap-2 p-3 rounded-lg text-sm",
@@ -2011,8 +2062,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </div>
             <% end %>
           </div>
-
-          <!-- Modal Actions -->
+          
+    <!-- Modal Actions -->
           <div class="modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_target_modal">
               Cancel
@@ -2051,7 +2102,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> Enum.filter(fn t ->
           assigns.search == "" or
             String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
-            String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
+            String.contains?(
+              String.downcase(t.description || ""),
+              String.downcase(assigns.search)
+            )
         end)
         |> Enum.map(fn t ->
           # Convert to a format compatible with the template display
@@ -2070,9 +2124,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         builtin_templates
         |> Enum.filter(fn t ->
           vendor_match = String.downcase(t.vendor) == String.downcase(assigns.selected_vendor)
-          search_match = assigns.search == "" or
-            String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
-            String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
+
+          search_match =
+            assigns.search == "" or
+              String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
+              String.contains?(
+                String.downcase(t.description || ""),
+                String.downcase(assigns.search)
+              )
+
           vendor_match and search_match
         end)
         |> Enum.map(fn t -> Map.put(t, :is_custom, false) end)
@@ -2101,8 +2161,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         <p class="text-sm text-base-content/60 mb-4">
           Select a template to add pre-configured OIDs for common device types.
         </p>
-
-        <!-- Search and Vendor Filter -->
+        
+    <!-- Search and Vendor Filter -->
         <div class="flex flex-col md:flex-row gap-4 mb-4">
           <div class="flex-1">
             <input
@@ -2116,13 +2176,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             />
           </div>
           <div :if={@is_custom_tab}>
-            <.ui_button type="button" variant="primary" size="sm" phx-click="open_custom_template_modal">
+            <.ui_button
+              type="button"
+              variant="primary"
+              size="sm"
+              phx-click="open_custom_template_modal"
+            >
               <.icon name="hero-plus" class="size-4" /> New Template
             </.ui_button>
           </div>
         </div>
-
-        <!-- Vendor Tabs -->
+        
+    <!-- Vendor Tabs -->
         <div class="tabs tabs-boxed mb-4">
           <%= for vendor <- @vendors do %>
             <button
@@ -2135,8 +2200,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             </button>
           <% end %>
         </div>
-
-        <!-- Templates List -->
+        
+    <!-- Templates List -->
         <div class="overflow-y-auto max-h-[40vh] space-y-2">
           <div :if={@templates == [] && !@is_custom_tab} class="text-center py-8 text-base-content/60">
             <.icon name="hero-document-magnifying-glass" class="size-10 mx-auto mb-2 opacity-50" />
@@ -2224,8 +2289,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             </div>
           <% end %>
         </div>
-
-        <!-- Modal Actions -->
+        
+    <!-- Modal Actions -->
         <div class="modal-action">
           <.ui_button type="button" variant="ghost" phx-click="close_template_browser">
             Close
@@ -2281,7 +2346,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         </form>
 
         <h3 class="font-bold text-lg mb-4">
-          <%= if @editing, do: "Edit Custom Template", else: "New Custom Template" %>
+          {if @editing, do: "Edit Custom Template", else: "New Custom Template"}
         </h3>
 
         <.form
@@ -2302,8 +2367,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               placeholder="e.g., My Router Monitoring"
             />
           </div>
-
-          <!-- Description -->
+          
+    <!-- Description -->
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Description</span>
@@ -2316,8 +2381,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               placeholder="Describe what this template monitors..."
             />
           </div>
-
-          <!-- Category -->
+          
+    <!-- Category -->
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Category</span>
@@ -2329,8 +2394,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               <% end %>
             </select>
           </div>
-
-          <!-- OIDs Section -->
+          
+    <!-- OIDs Section -->
           <div class="form-control">
             <div class="flex items-center justify-between mb-2">
               <label class="label">
@@ -2346,7 +2411,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               </.ui_button>
             </div>
 
-            <div :if={@oids == []} class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg">
+            <div
+              :if={@oids == []}
+              class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg"
+            >
               <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
               <p class="text-sm">No OIDs defined</p>
               <p class="text-xs mt-1">Add OIDs to include in this template</p>
@@ -2371,8 +2439,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="oid"
                       />
                     </div>
-
-                    <!-- Name -->
+                    
+    <!-- Name -->
                     <div>
                       <label class="label py-0">
                         <span class="label-text text-xs">Name</span>
@@ -2387,8 +2455,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="name"
                       />
                     </div>
-
-                    <!-- Data Type -->
+                    
+    <!-- Data Type -->
                     <div>
                       <label class="label py-0">
                         <span class="label-text text-xs">Data Type</span>
@@ -2404,8 +2472,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         <% end %>
                       </select>
                     </div>
-
-                    <!-- Scale -->
+                    
+    <!-- Scale -->
                     <div>
                       <label class="label py-0">
                         <span class="label-text text-xs">Scale</span>
@@ -2420,8 +2488,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         name="scale"
                       />
                     </div>
-
-                    <!-- Delta checkbox -->
+                    
+    <!-- Delta checkbox -->
                     <div class="col-span-2 flex items-center gap-2 mt-1">
                       <input
                         type="checkbox"
@@ -2432,11 +2500,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         phx-value-delta={if oid["delta"], do: "false", else: "true"}
                         name="delta"
                       />
-                      <span class="text-xs text-base-content/70">Calculate delta (rate of change)</span>
+                      <span class="text-xs text-base-content/70">
+                        Calculate delta (rate of change)
+                      </span>
                     </div>
                   </div>
-
-                  <!-- Remove button -->
+                  
+    <!-- Remove button -->
                   <.ui_icon_button
                     type="button"
                     variant="ghost"
@@ -2451,14 +2521,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
               <% end %>
             </div>
           </div>
-
-          <!-- Modal Actions -->
+          
+    <!-- Modal Actions -->
           <div class="modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_custom_template_modal">
               Cancel
             </.ui_button>
             <.ui_button type="submit" variant="primary">
-              <%= if @editing, do: "Update Template", else: "Create Template" %>
+              {if @editing, do: "Update Template", else: "Create Template"}
             </.ui_button>
           </div>
         </.form>
