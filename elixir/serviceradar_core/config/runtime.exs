@@ -38,6 +38,26 @@ if config_env() == :prod do
 
   config :serviceradar_core, :default_tenant_id, default_tenant_id
 
+  spiffe_mode =
+    case System.get_env("SPIFFE_MODE", "filesystem") do
+      "workload_api" -> :workload_api
+      _ -> :filesystem
+    end
+
+  spiffe_socket =
+    System.get_env("SPIFFE_WORKLOAD_API_SOCKET") ||
+      System.get_env("SPIFFE_ENDPOINT_SOCKET") ||
+      "unix:///run/spire/sockets/agent.sock"
+
+  spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
+
+  config :serviceradar_core, :spiffe,
+    mode: spiffe_mode,
+    trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
+    cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
+    workload_api_socket: spiffe_socket,
+    trust_bundle_path: spiffe_bundle_path
+
   platform_tenant_id =
     System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
       System.get_env("PLATFORM_TENANT_ID")

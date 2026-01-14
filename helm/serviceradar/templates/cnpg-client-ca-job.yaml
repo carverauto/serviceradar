@@ -1,5 +1,7 @@
 {{- if and .Values.cnpg.clientCAFromCerts .Values.cnpg.clientCASecret }}
 {{- $toolsTag := default "latest" .Values.image.tags.tools -}}
+{{- $pg := default (dict) .Values.spire.postgres -}}
+{{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -94,6 +96,7 @@ spec:
           CERT_DIR="${CERT_DIR:-/etc/serviceradar/certs}"
           CA_CERT="${CERT_DIR}/cnpg-ca.pem"
           CA_KEY="${CERT_DIR}/cnpg-ca-key.pem"
+          CNPG_CA_CERT="/etc/serviceradar/cnpg/ca.crt"
 
           APISERVER="https://kubernetes.default.svc"
           SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
@@ -116,6 +119,22 @@ spec:
             exit 1
           fi
 
+          for i in $(seq 1 60); do
+            if [ -s "${CNPG_CA_CERT}" ]; then
+              break
+            fi
+            echo "⏳ Waiting for ${CNPG_CA_CERT}..."
+            sleep 2
+          done
+
+          bundle=$(mktemp)
+          cat "${CA_CERT}" > "${bundle}"
+          if [ -s "${CNPG_CA_CERT}" ]; then
+            cat "${CNPG_CA_CERT}" >> "${bundle}"
+          else
+            echo "⚠️ CNPG server CA not found; proceeding with generated client CA only"
+          fi
+
           existing_secret=$(mktemp)
           has_secret=false
           if curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
@@ -124,7 +143,7 @@ spec:
             has_secret=true
           fi
 
-          CA_CERT_B64=$(base64 -w 0 "${CA_CERT}")
+          CA_CERT_B64=$(base64 -w 0 "${bundle}")
           CA_KEY_B64=$(base64 -w 0 "${CA_KEY}")
 
           if [ "${has_secret}" = false ]; then
@@ -172,8 +191,14 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
+        - name: cnpg-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
       volumes:
       - name: cert-data
         persistentVolumeClaim:
           claimName: serviceradar-cert-data
+      - name: cnpg-ca
+        secret:
+          secretName: {{ printf "%s-ca" $cnpgClusterName | quote }}
 {{- end }}

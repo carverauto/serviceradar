@@ -4,6 +4,32 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
+{{- $datasvc := default (dict) $webNg.datasvc -}}
+{{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
+{{- $datasvcPort := default 50057 $datasvc.port -}}
+{{- $datasvcSecMode := default "mtls" $datasvc.secMode -}}
+{{- $datasvcSecModeLower := lower $datasvcSecMode -}}
+{{- $datasvcTLS := ternary "true" "false" (ne $datasvcSecModeLower "plaintext") -}}
+{{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
+{{- $datasvcCertName := default "web" $datasvc.certName -}}
+{{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
+{{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayClusterNodeBasename := default "serviceradar_agent_gateway" $gatewayVals.kubernetesNodeBasename -}}
+{{- $webClusterNodeBasename := default "serviceradar_web_ng" $webNg.kubernetesNodeBasename -}}
+{{- $webClusterStrategy := default "dns" $webNg.clusterStrategy -}}
+{{- $webClusterDnsQuery := default (printf "serviceradar-web-ng-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterDnsQuery -}}
+{{- $coreClusterDnsQuery := default (printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterCoreDnsQuery -}}
+{{- $gatewayClusterDnsQuery := default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterGatewayDnsQuery -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $webNgSA }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -22,6 +48,7 @@ spec:
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
     spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $webNgSA }}
       containers:
       - name: web-ng
         image: ghcr.io/carverauto/serviceradar-web-ng:{{ include "serviceradar.imageTag" (dict "Values" .Values "service" "webNg") }}
@@ -32,6 +59,8 @@ spec:
         env:
         - name: PORT
           value: "4000"
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: PHX_SERVER
           value: "true"
         - name: PHX_HOST
@@ -42,6 +71,38 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        - name: CLUSTER_ENABLED
+          value: {{ default "true" $webNg.clusterEnabled | quote }}
+        - name: CLUSTER_STRATEGY
+          value: {{ $webClusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ $webClusterDnsQuery | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $webClusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_DNS_QUERY
+          value: {{ $coreClusterDnsQuery | quote }}
+        - name: CLUSTER_CORE_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_GATEWAY_DNS_QUERY
+          value: {{ $gatewayClusterDnsQuery | quote }}
+        - name: CLUSTER_GATEWAY_NODE_BASENAME
+          value: {{ $gatewayClusterNodeBasename | quote }}
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RELEASE_NODE
+          value: {{ printf "%s@$(POD_IP)" $webClusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          value: {{ default "serviceradar_dev_cookie" $webNg.clusterCookie | quote }}
+        - name: DATASVC_ENABLED
+          value: "false"
         - name: SECRET_KEY_BASE
           valueFrom:
             secretKeyRef:
@@ -81,6 +142,34 @@ spec:
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
         - name: CNPG_KEY_FILE
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        - name: DATASVC_ADDRESS
+          value: {{ printf "%s:%v" $datasvcHost $datasvcPort | quote }}
+        - name: DATASVC_HOST
+          value: {{ $datasvcHost | quote }}
+        - name: DATASVC_PORT
+          value: {{ $datasvcPort | quote }}
+        - name: DATASVC_SEC_MODE
+          value: {{ $datasvcSecMode | quote }}
+        - name: DATASVC_SSL
+          value: {{ $datasvcTLS | quote }}
+        - name: DATASVC_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: DATASVC_CERT_NAME
+          value: {{ $datasvcCertName | quote }}
+        - name: DATASVC_SERVER_NAME
+          value: {{ $datasvcServerName | quote }}
+        {{- if eq $datasvcSecModeLower "spiffe" }}
+        - name: SPIFFE_TRUST_DOMAIN
+          value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
+        - name: SPIFFE_WORKLOAD_API_SOCKET
+          value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
+        {{- end }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -88,6 +177,14 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
+        {{- if eq $datasvcSecModeLower "spiffe" }}
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
+          readOnly: true
+        {{- end }}
         resources:
           limits:
             cpu: "1"
@@ -118,12 +215,35 @@ spec:
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
+      {{- if eq $datasvcSecModeLower "spiffe" }}
+      - name: spire-agent-socket
+        hostPath:
+          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
+          type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: serviceradar-web-ng
 spec:
+  selector:
+    app: serviceradar-web-ng
+  ports:
+  - name: http
+    port: 4000
+    targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web-ng-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app: serviceradar-web-ng
   ports:

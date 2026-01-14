@@ -1,0 +1,168 @@
+{{- $auto := default true .Values.natsCreds.autoGenerate -}}
+{{- if and $auto (not (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.operator)) }}
+{{- $toolsTag := default "latest" .Values.image.tags.tools -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceradar-nats-creds-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: nats-creds-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-nats-creds-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: nats-creds-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: serviceradar-nats-creds-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: nats-creds-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: serviceradar-nats-creds-generator
+subjects:
+- kind: ServiceAccount
+  name: serviceradar-nats-creds-generator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-nats-creds-generator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: nats-creds-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: nats-creds-generator
+    spec:
+      serviceAccountName: serviceradar-nats-creds-generator
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - name: nats-creds-generator
+        image: ghcr.io/carverauto/serviceradar-tools:{{ $toolsTag }}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -euo pipefail
+
+          SECRET_NAME="serviceradar-nats-creds"
+          APISERVER="https://kubernetes.default.svc"
+          SERVICEACCOUNT="/var/run/secrets/kubernetes.io/serviceaccount"
+          TOKEN=$(cat "${SERVICEACCOUNT}/token")
+          NAMESPACE=$(cat "${SERVICEACCOUNT}/namespace")
+          CACERT="${SERVICEACCOUNT}/ca.crt"
+          REQUIRED_KEYS="operator.seed system.creds platform.creds system_account.pub"
+
+          existing_secret=$(mktemp)
+          has_secret=false
+          if curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+            -o "${existing_secret}" \
+            "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" >/dev/null 2>&1; then
+            has_secret=true
+          fi
+
+          missing_keys=""
+          if [ "${has_secret}" = true ]; then
+            for key in ${REQUIRED_KEYS}; do
+              if ! jq -e --arg k "${key}" '.data | has($k)' "${existing_secret}" >/dev/null; then
+                missing_keys="${missing_keys} ${key}"
+              fi
+            done
+            if [ -z "${missing_keys#"${missing_keys%%[![:space:]]*}"}" ]; then
+              echo "✅ Secret ${SECRET_NAME} already has required keys; skipping generation"
+              exit 0
+            fi
+            echo "ℹ️ Secret ${SECRET_NAME} exists but missing keys:${missing_keys}"
+          else
+            echo "ℹ️ Secret ${SECRET_NAME} not found; generating new one"
+          fi
+
+          tmp_dir=$(mktemp -d)
+          serviceradar-cli nats-bootstrap --local --output-dir "${tmp_dir}" --output json >/dev/null
+
+          operator_seed=$(cat "${tmp_dir}/operator.seed")
+          system_creds=$(cat "${tmp_dir}/system.creds")
+          platform_creds=$(cat "${tmp_dir}/platform.creds")
+          system_pub=$(cat "${tmp_dir}/system_account.pub")
+
+          b64_nows() { printf '%s' "$1" | base64 | tr -d '\n'; }
+          data_json=$(jq -n \
+            --arg operator_seed "$(b64_nows "${operator_seed}")" \
+            --arg system_creds "$(b64_nows "${system_creds}")" \
+            --arg platform_creds "$(b64_nows "${platform_creds}")" \
+            --arg system_pub "$(b64_nows "${system_pub}")" \
+            '{data: {
+              "operator.seed": $operator_seed,
+              "system.creds": $system_creds,
+              "platform.creds": $platform_creds,
+              "system_account.pub": $system_pub
+            }}')
+
+          if [ "${has_secret}" = true ]; then
+            curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/merge-patch+json" \
+              -X PATCH \
+              -d "${data_json}" \
+              "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}" >/dev/null
+          else
+            secret_json=$(jq -n \
+              --arg name "${SECRET_NAME}" \
+              --arg namespace "${NAMESPACE}" \
+              --argjson data "${data_json}" \
+              '{
+                apiVersion: "v1",
+                kind: "Secret",
+                metadata: {
+                  name: $name,
+                  namespace: $namespace
+                },
+                type: "Opaque",
+                data: $data.data
+              }')
+            curl -fsS --cacert "${CACERT}" --header "Authorization: Bearer ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST \
+              -d "${secret_json}" \
+              "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets" >/dev/null
+          fi
+{{- end }}

@@ -153,16 +153,8 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp get_grpc_ssl_opts do
-    # Try SPIFFE certs first, then fall back to mounted certs
-    case ServiceRadar.SPIFFE.server_ssl_opts() do
-      {:ok, ssl_opts} ->
-        Logger.info("Using SPIFFE mTLS for agent gateway gRPC server")
-        GRPC.Credential.new(ssl: ssl_opts)
-
-      {:error, _reason} ->
-        # Fall back to mounted certificates
-        get_mounted_ssl_opts()
-    end
+    # Agent gateway serves edge gRPC using tenant-issued mTLS certificates.
+    get_mounted_ssl_opts()
   end
 
   defp get_mounted_ssl_opts do

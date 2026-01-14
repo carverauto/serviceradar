@@ -329,9 +329,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
 
   # Build gRPC credentials with mTLS if configured
   defp build_grpc_credentials(host, expected_tenant_slug) do
-    case ServiceRadar.SPIFFE.client_ssl_opts() do
+    case gateway_client_ssl_opts() do
       {:ok, ssl_opts} ->
-        # Add server name indication and tenant verification
         ssl_opts_with_verification =
           ssl_opts
           |> Keyword.put(:server_name_indication, String.to_charlist(host))
@@ -343,6 +342,26 @@ defmodule ServiceRadarAgentGateway.AgentClient do
       {:error, reason} ->
         Logger.warning("mTLS not available (#{inspect(reason)}), using insecure connection")
         []
+    end
+  end
+
+  defp gateway_client_ssl_opts do
+    cert_dir = System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+    cert_file = Path.join(cert_dir, "gateway.pem")
+    key_file = Path.join(cert_dir, "gateway-key.pem")
+    ca_file = Path.join(cert_dir, "root.pem")
+
+    if File.exists?(cert_file) and File.exists?(key_file) and File.exists?(ca_file) do
+      ssl_opts = [
+        cacertfile: String.to_charlist(ca_file),
+        certfile: String.to_charlist(cert_file),
+        keyfile: String.to_charlist(key_file),
+        verify: :verify_peer
+      ]
+
+      {:ok, ssl_opts}
+    else
+      {:error, :gateway_certs_missing}
     end
   end
 

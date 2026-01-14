@@ -500,33 +500,92 @@ defmodule ServiceRadar.NATS.AccountClient do
   defp create_fresh_channel do
     host = System.get_env("DATASVC_HOST", "datasvc")
     port = String.to_integer(System.get_env("DATASVC_PORT", "50057"))
-    cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
-    cert_name = System.get_env("DATASVC_CERT_NAME", "core")
-    server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
 
     endpoint = "#{host}:#{port}"
 
-    ssl_opts = [
-      cacertfile: String.to_charlist(Path.join(cert_dir, "root.pem")),
-      certfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}.pem")),
-      keyfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}-key.pem")),
-      verify: :verify_peer,
-      server_name_indication: String.to_charlist(server_name)
-    ]
+    with {:ok, cred_opts} <- build_cred_opts() do
+      connect_opts =
+        cred_opts
+        |> Keyword.put(:adapter_opts, [connect_timeout: 5_000])
 
-    connect_opts = [
-      cred: GRPC.Credential.new(ssl: ssl_opts),
-      adapter_opts: [connect_timeout: 5_000]
-    ]
+      case GRPC.Stub.connect(endpoint, connect_opts) do
+        {:ok, channel} ->
+          Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
+          {:ok, channel}
 
-    case GRPC.Stub.connect(endpoint, connect_opts) do
-      {:ok, channel} ->
-        Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
-        {:ok, channel}
-
+        {:error, reason} ->
+          Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
+          {:error, {:connection_failed, reason}}
+      end
+    else
       {:error, reason} ->
-        Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
+        Logger.error("Failed to build NATS account gRPC credentials: #{inspect(reason)}")
         {:error, {:connection_failed, reason}}
+    end
+  end
+
+  defp build_cred_opts do
+    sec_mode = System.get_env("DATASVC_SEC_MODE")
+    ssl = System.get_env("DATASVC_SSL", "false") in ["true", "1", "yes"]
+
+    case normalize_sec_mode(sec_mode, ssl) do
+      :spiffe ->
+        spiffe_cert_dir =
+          System.get_env("DATASVC_SPIFFE_CERT_DIR") ||
+            System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
+
+        case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
+          {:ok, ssl_opts} ->
+            Logger.info("Connecting to datasvc with SPIFFE mTLS (account service)")
+            {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
+
+          {:error, reason} ->
+            Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
+            {:error, {:spiffe_unavailable, reason}}
+        end
+
+      :mtls ->
+        cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
+        cert_name = System.get_env("DATASVC_CERT_NAME", "core")
+        server_name = System.get_env("DATASVC_SERVER_NAME", "datasvc.serviceradar")
+
+        ssl_opts = [
+          cacertfile: String.to_charlist(Path.join(cert_dir, "root.pem")),
+          certfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}.pem")),
+          keyfile: String.to_charlist(Path.join(cert_dir, "#{cert_name}-key.pem")),
+          verify: :verify_peer,
+          server_name_indication: String.to_charlist(server_name)
+        ]
+
+        {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
+
+      :tls ->
+        {:ok, [cred: GRPC.Credential.new(ssl: [])]}
+
+      :plaintext ->
+        {:ok, []}
+    end
+  end
+
+  defp normalize_sec_mode(nil, ssl) do
+    if ssl do
+      cert_dir = System.get_env("DATASVC_CERT_DIR")
+      if is_binary(cert_dir), do: :mtls, else: :tls
+    else
+      :plaintext
+    end
+  end
+
+  defp normalize_sec_mode("", ssl), do: normalize_sec_mode(nil, ssl)
+
+  defp normalize_sec_mode(value, ssl) do
+    case String.downcase(String.trim(value)) do
+      "spiffe" -> :spiffe
+      "mtls" -> :mtls
+      "tls" -> :tls
+      "plaintext" -> :plaintext
+      "none" -> :plaintext
+      _ -> if ssl, do: :mtls, else: :plaintext
     end
   end
 

@@ -1,15 +1,18 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" -}}
 {{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $coreSA := .Values.spire.coreServiceAccount | default "serviceradar-core" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
-{{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" .Values.tenantWorkloadOperator.kubernetesSelector -}}
-{{- $clusterNodeBasename := default "serviceradar" .Values.tenantWorkloadOperator.kubernetesNodeBasename -}}
+{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -54,21 +57,49 @@ spec:
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY
-          value: "kubernetes"
+          value: {{ default "dns" $coreVals.clusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
         - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         - name: KUBERNETES_SELECTOR
-          value: {{ $clusterSelector | quote }}
+          value: {{ $coreClusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
-          value: {{ $clusterNodeBasename | quote }}
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: RELEASE_NODE
+          value: "serviceradar_core@$(POD_IP)"
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          value: {{ $clusterCookie | quote }}
+        - name: ELIXIR_ERL_OPTIONS
+          value: "+fnu"
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
+        - name: SPIFFE_MODE
+          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
         - name: SPIFFE_CERT_DIR
           value: "/etc/serviceradar/certs"
         - name: SPIFFE_WORKLOAD_API_SOCKET
           value: "unix:///run/spire/sockets/agent.sock"
+        - name: SPIFFE_TRUST_BUNDLE_PATH
+          value: "/run/spire/bundle/bundle.crt"
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
@@ -127,6 +158,8 @@ spec:
           value: "serviceradar-datasvc"
         - name: DATASVC_PORT
           value: "50057"
+        - name: DATASVC_SEC_MODE
+          value: {{ default "spiffe" .Values.kv.secMode | quote }}
         - name: DATASVC_SSL
           value: "true"
         - name: DATASVC_CERT_DIR
@@ -155,6 +188,9 @@ spec:
           readOnly: true
         - name: spire-agent-socket
           mountPath: /run/spire/sockets
+          readOnly: true
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
           readOnly: true
         resources:
           limits:
@@ -192,6 +228,9 @@ spec:
         hostPath:
           path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
           type: DirectoryOrCreate
+      - name: spire-bundle
+        configMap:
+          name: {{ $spireBundle | quote }}
 ---
 apiVersion: v1
 kind: Service

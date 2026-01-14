@@ -30,6 +30,12 @@ spec:
           value: "/certs"
         - name: FORCE_REGENERATE
           value: "true"
+        - name: DEFAULT_TENANT_SLUG
+          value: {{ default "platform" (default (dict) .Values.agentGateway).tenantSlug | quote }}
+        - name: DEFAULT_PARTITION_ID
+          value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
+        - name: DEFAULT_AGENT_COMPONENT_ID
+          value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
       volumes:
       - name: cert-scripts
         configMap:
