@@ -33,6 +33,11 @@ if [[ -f VERSION ]]; then
 else
   version="dev"
 fi
+if [[ -n "$version" && "$version" != "dev" ]]; then
+  if ! git tag --points-at HEAD | grep -Fxq "v${version}"; then
+    version="dev"
+  fi
+fi
 echo "STABLE_VERSION $version"
 
 # Note: the "STABLE_" suffix causes these to be part of the "stable" workspace

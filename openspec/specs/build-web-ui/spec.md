@@ -150,7 +150,7 @@ The UI MUST allow assigning profiles to device tags for group-based configuratio
 
 ### Requirement: Device Sysmon Status Visibility
 
-The UI MUST show the sysmon configuration status for devices.
+The UI MUST show the sysmon configuration status for devices. The UI MUST render the Devices list and device detail views even when sysmon profile or status data is missing or malformed, and MUST display a fallback label and neutral status indicator when data is unavailable.
 
 #### Scenario: Device list sysmon column
 - **GIVEN** the Devices list page
@@ -172,6 +172,12 @@ The UI MUST show the sysmon configuration status for devices.
 - **WHEN** the admin views the device
 - **THEN** they see a badge "Local Override"
 - **AND** a tooltip explains "Agent is using local configuration file"
+
+#### Scenario: Missing sysmon profile data
+- **GIVEN** a device record without sysmon profile assignment or status fields
+- **WHEN** the Devices list page renders the Sysmon column
+- **THEN** the row SHALL render a fallback label such as "Unassigned"
+- **AND** the page SHALL render without error
 
 ### Requirement: Agent Visibility Page
 

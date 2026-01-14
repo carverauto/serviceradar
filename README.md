@@ -96,6 +96,10 @@ helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
 
 Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
 
+Docker Compose notes:
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.0.78`).
+- Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
+
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
 
 Notes:
