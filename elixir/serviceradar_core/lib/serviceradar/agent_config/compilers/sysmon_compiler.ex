@@ -8,9 +8,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   ## Resolution Order
 
   When resolving which profile applies to a device:
-  1. Device-specific assignment (highest priority)
-  2. Tag-based assignments (ordered by priority field, highest first)
-  3. Default tenant profile (fallback)
+  1. Device-specific assignment (legacy, for backwards compatibility)
+  2. SRQL targeting profiles (ordered by priority, highest first)
+  3. Tag-based assignments (legacy, for backwards compatibility)
+  4. Default tenant profile (fallback)
+
+  SRQL targeting is the preferred method. Device and tag assignments are
+  maintained for backwards compatibility during the migration period.
 
   ## Output Format
 
@@ -31,7 +35,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
         },
         "profile_id" => "uuid",
         "profile_name" => "Production Monitoring",
-        "config_source" => "device"
+        "config_source" => "srql"
       }
   """
 
@@ -44,6 +48,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
+  alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
 
   @impl true
   def config_type, do: :sysmon
@@ -93,26 +98,53 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   Resolves the sysmon profile for a device.
 
   Resolution order:
-  1. Device-specific assignment
-  2. Tag-based assignment (highest priority)
-  3. Default profile for tenant
+  1. Device-specific assignment (legacy, for backwards compatibility)
+  2. SRQL targeting profiles (ordered by priority, highest first)
+  3. Tag-based assignment (legacy, for backwards compatibility)
+  4. Default profile for tenant
+
+  Returns `{profile, config_source}` tuple where config_source indicates
+  how the profile was resolved ("device", "srql", "tag", or "default").
   """
   @spec resolve_profile(String.t(), String.t() | nil, String.t() | nil, map()) ::
           SysmonProfile.t() | nil
   def resolve_profile(tenant_schema, device_uid, _agent_id, actor) do
-    # Try device-specific assignment first
+    # Try device-specific assignment first (legacy)
     profile = try_device_assignment(tenant_schema, device_uid, actor)
 
-    profile =
-      if is_nil(profile) and not is_nil(device_uid) do
-        # Try tag-based assignment
-        try_tag_assignment(tenant_schema, device_uid, actor)
-      else
-        profile
-      end
+    if profile do
+      profile
+    else
+      # Try SRQL targeting profiles
+      profile = try_srql_targeting(tenant_schema, device_uid, actor)
 
-    # Fall back to default profile
-    profile || get_default_profile(tenant_schema, actor)
+      if profile do
+        profile
+      else
+        # Try tag-based assignment (legacy)
+        profile =
+          if not is_nil(device_uid) do
+            try_tag_assignment(tenant_schema, device_uid, actor)
+          else
+            nil
+          end
+
+        # Fall back to default profile
+        profile || get_default_profile(tenant_schema, actor)
+      end
+    end
+  end
+
+  # Try to find a matching profile via SRQL targeting
+  defp try_srql_targeting(_tenant_schema, nil, _actor), do: nil
+
+  defp try_srql_targeting(tenant_schema, device_uid, actor) do
+    case SrqlTargetResolver.resolve_for_device(tenant_schema, device_uid, actor) do
+      {:ok, profile} -> profile
+      {:error, reason} ->
+        Logger.warning("SysmonCompiler: SRQL targeting failed - #{inspect(reason)}")
+        nil
+    end
   end
 
   @doc """

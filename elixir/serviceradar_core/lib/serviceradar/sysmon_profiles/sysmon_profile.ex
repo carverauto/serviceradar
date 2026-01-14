@@ -20,28 +20,43 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   - `thresholds`: Alert thresholds as key-value pairs
   - `is_default`: Whether this is the default profile for the tenant
   - `enabled`: Whether this profile is available for use
+  - `target_query`: SRQL query for device targeting (e.g., "in:devices tags.role:database")
+  - `priority`: Priority for resolution order (higher = evaluated first)
+
+  ## Device Targeting
+
+  Profiles can target specific devices using SRQL queries. When resolving which
+  profile to use for a device, profiles are evaluated in priority order (highest first).
+  The first profile whose `target_query` matches the device is used.
+
+  Example queries:
+  - `in:devices tags.role:database` - Match devices with role=database tag
+  - `in:devices hostname:prod-*` - Match devices with hostname prefix "prod-"
+  - `in:devices type:Server` - Match devices of type Server
 
   ## Default Profile
 
-  Each tenant has exactly one default profile (is_default: true). When no explicit
-  assignment exists for a device, the default profile is used. The default profile
-  cannot be deleted.
+  Each tenant has exactly one default profile (is_default: true). When no targeting
+  profile matches a device, the default profile is used. The default profile
+  cannot be deleted and has no `target_query` (applies to all unmatched devices).
 
   ## Usage
 
-      # Create a profile for production servers
+      # Create a profile for database servers
       SysmonProfile
       |> Ash.Changeset.for_create(:create, %{
-        name: "Production Monitoring",
-        sample_interval: "10s",
+        name: "Database Servers",
+        sample_interval: "5s",
         collect_cpu: true,
         collect_memory: true,
         collect_disk: true,
         collect_processes: true,
+        target_query: "in:devices tags.role:database",
+        priority: 10,
         thresholds: %{
-          "cpu_warning" => "80",
-          "cpu_critical" => "95",
-          "memory_warning" => "85",
+          "cpu_warning" => "70",
+          "cpu_critical" => "90",
+          "memory_warning" => "80",
           "memory_critical" => "95"
         }
       })
@@ -79,10 +94,13 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :disk_paths,
         :thresholds,
         :is_default,
-        :enabled
+        :enabled,
+        :target_query,
+        :priority
       ]
 
       change ServiceRadar.Changes.AssignTenantId
+      change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
     end
 
     update :update do
@@ -97,8 +115,13 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :collect_processes,
         :disk_paths,
         :thresholds,
-        :enabled
+        :enabled,
+        :target_query,
+        :priority
       ]
+
+      require_atomic? false
+      change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
 
       # Note: is_default cannot be changed via update
       # Use set_as_default action instead
@@ -130,6 +153,18 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       description "Get the default profile for the tenant"
       get? true
       filter expr(is_default == true)
+    end
+
+    read :list_targeting_profiles do
+      description """
+      List profiles with SRQL targeting, ordered by priority (highest first).
+      Used by the compiler to find which profile matches a device.
+      """
+      filter expr(enabled == true and is_default == false and not is_nil(target_query))
+
+      prepare fn query, _context ->
+        Ash.Query.sort(query, priority: :desc)
+      end
     end
   end
 
@@ -256,6 +291,19 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       public? true
       default true
       description "Whether this profile is available for use"
+    end
+
+    attribute :target_query, :string do
+      allow_nil? true
+      public? true
+      description "SRQL query for device targeting (e.g., 'in:devices tags.role:database')"
+    end
+
+    attribute :priority, :integer do
+      allow_nil? false
+      public? true
+      default 0
+      description "Priority for profile resolution (higher = evaluated first)"
     end
 
     create_timestamp :inserted_at

@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
 

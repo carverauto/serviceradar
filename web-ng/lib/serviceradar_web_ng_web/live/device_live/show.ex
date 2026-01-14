@@ -2060,6 +2060,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # Sysmon Profile Loading
   # ---------------------------------------------------------------------------
 
+  # Extract the user from scope to use as actor for Ash operations
+  defp get_sweep_actor(%Scope{user: user}), do: user
+  defp get_sweep_actor(_), do: nil
+
   defp load_sysmon_profile_info(scope, device_uid) do
     tenant_id = Scope.tenant_id(scope)
 
