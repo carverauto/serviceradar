@@ -6,6 +6,7 @@ Sysmon metrics streamed from agents over gRPC are not being persisted to tenant 
 ## What Changes
 - Parse sysmon metrics payloads forwarded via gRPC status updates and insert CPU, CPU cluster, memory, disk, and process metrics into tenant-scoped hypertables using Ash bulk creates.
 - Resolve the device identifier from the agent record when available, with safe fallbacks if the device linkage is missing.
+- Route sysmon status updates directly to a core ingestion module (bypassing StatusHandler) to keep the sync path focused.
 - Permit larger `sysmon-metrics` payloads in the agent gateway to avoid truncation.
 - Add an Ash resource mapping for `cpu_cluster_metrics` (if needed for ingestion parity).
 
