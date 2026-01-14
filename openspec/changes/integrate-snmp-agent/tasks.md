@@ -108,15 +108,15 @@
 - [x] 10.4 Go: SNMPService unit tests
 - [x] 10.5 Go: Config refresh and hot-reload tests
 - [x] 10.6 Go: Collector lifecycle tests
-- [ ] 10.7 Integration: Agent receives SNMP config from control plane
-- [ ] 10.8 E2E: Create profile in UI → agent polls SNMP target
+- [x] 10.7 Integration: Agent receives SNMP config from control plane
+- [ ] 10.8 E2E: Create profile in UI → agent polls SNMP target (manual verification)
 
 ## 11. Documentation
 
-- [ ] 11.1 Update agent configuration docs for embedded SNMP
-- [ ] 11.2 Document SNMP profile targeting with SRQL
-- [ ] 11.3 Migration guide from standalone snmp-checker
-- [ ] 11.4 OID template reference
+- [x] 11.1 Update agent configuration docs for embedded SNMP
+- [x] 11.2 Document SNMP profile targeting with SRQL
+- [x] 11.3 Migration guide from standalone snmp-checker
+- [x] 11.4 OID template reference
 
 ## 12. Backwards Compatibility
 
