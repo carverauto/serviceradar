@@ -16,6 +16,15 @@
 {{- $datasvcCertName := default "web" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
 {{- $webNgSA := default "serviceradar-web-ng" .Values.spire.webNgServiceAccount -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
+{{- $gatewayVals := default (dict) .Values.agentGateway -}}
+{{- $gatewayClusterNodeBasename := default "serviceradar_agent_gateway" $gatewayVals.kubernetesNodeBasename -}}
+{{- $webClusterNodeBasename := default "serviceradar_web_ng" $webNg.kubernetesNodeBasename -}}
+{{- $webClusterStrategy := default "dns" $webNg.clusterStrategy -}}
+{{- $webClusterDnsQuery := default (printf "serviceradar-web-ng-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterDnsQuery -}}
+{{- $coreClusterDnsQuery := default (printf "serviceradar-core-elx-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterCoreDnsQuery -}}
+{{- $gatewayClusterDnsQuery := default (printf "serviceradar-agent-gateway-headless.%s.svc.cluster.local" .Release.Namespace) $webNg.clusterGatewayDnsQuery -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -62,6 +71,36 @@ spec:
           value: {{ default "false" $webNg.devRoutes | quote }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
+        - name: CLUSTER_ENABLED
+          value: {{ default "true" $webNg.clusterEnabled | quote }}
+        - name: CLUSTER_STRATEGY
+          value: {{ $webClusterStrategy | quote }}
+        - name: CLUSTER_DNS_QUERY
+          value: {{ $webClusterDnsQuery | quote }}
+        - name: CLUSTER_NODE_BASENAME
+          value: {{ $webClusterNodeBasename | quote }}
+        - name: CLUSTER_CORE_DNS_QUERY
+          value: {{ $coreClusterDnsQuery | quote }}
+        - name: CLUSTER_CORE_NODE_BASENAME
+          value: {{ $coreClusterNodeBasename | quote }}
+        - name: CLUSTER_GATEWAY_DNS_QUERY
+          value: {{ $gatewayClusterDnsQuery | quote }}
+        - name: CLUSTER_GATEWAY_NODE_BASENAME
+          value: {{ $gatewayClusterNodeBasename | quote }}
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RELEASE_NODE
+          value: {{ printf "%s@$(POD_IP)" $webClusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          value: {{ default "serviceradar_dev_cookie" $webNg.clusterCookie | quote }}
         - name: DATASVC_ENABLED
           value: "false"
         - name: SECRET_KEY_BASE
@@ -191,6 +230,20 @@ kind: Service
 metadata:
   name: serviceradar-web-ng
 spec:
+  selector:
+    app: serviceradar-web-ng
+  ports:
+  - name: http
+    port: 4000
+    targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-web-ng-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app: serviceradar-web-ng
   ports:

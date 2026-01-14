@@ -211,6 +211,13 @@ webNg:
   checkOrigin: "false"
   devRoutes: "false"
   localMailer: "false"
+  clusterEnabled: "true"
+  clusterStrategy: "dns"
+  clusterDnsQuery: ""
+  clusterCoreDnsQuery: ""
+  clusterGatewayDnsQuery: ""
+  clusterCookie: "serviceradar_dev_cookie"
+  kubernetesNodeBasename: "serviceradar_web_ng"
   datasvc:
     host: "serviceradar-datasvc"
     port: 50057

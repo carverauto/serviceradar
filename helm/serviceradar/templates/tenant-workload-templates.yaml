@@ -4,6 +4,8 @@
 {{- $zenTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "zen") -}}
 {{- $gatewayRepo := default "ghcr.io/carverauto/serviceradar-agent-gateway" $cfg.templates.agentGateway.repository -}}
 {{- $zenRepo := default "ghcr.io/carverauto/serviceradar-zen" $cfg.templates.zenConsumer.repository -}}
+{{- $webNg := default (dict) .Values.webNg -}}
+{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: workloads.serviceradar.io/v1alpha1
 kind: TenantWorkloadTemplate
@@ -55,6 +57,10 @@ spec:
             fieldPath: status.podIP
       - name: RELEASE_NODE
         value: {{ "{{kubernetes_node_basename}}@$(POD_IP)" | quote }}
+      - name: RELEASE_DISTRIBUTION
+        value: "name"
+      - name: RELEASE_COOKIE
+        value: {{ $clusterCookie | quote }}
       - name: KUBERNETES_SELECTOR
         value: {{ "{{kubernetes_selector}}" | quote }}
       - name: KUBERNETES_NODE_BASENAME

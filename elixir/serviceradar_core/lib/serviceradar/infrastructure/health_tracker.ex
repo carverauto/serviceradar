@@ -131,7 +131,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       node = Keyword.get(opts, :node, to_string(node()))
       metadata = Keyword.get(opts, :metadata, %{})
       broadcast = Keyword.get(opts, :broadcast, true)
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_schema = safe_schema_for_tenant(tenant_id)
 
       attrs = %{
         entity_type: entity_type,
@@ -299,7 +299,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     require Ash.Query
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_schema = safe_schema_for_tenant(tenant_id)
 
       case tenant_schema do
         nil ->
@@ -340,7 +340,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_schema = safe_schema_for_tenant(tenant_id)
 
       require Ash.Query
 
@@ -377,7 +377,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     require Ash.Query
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_schema = safe_schema_for_tenant(tenant_id)
 
       # Get the most recent event for each entity
       # This is a simplified approach - for production, use a materialized view
@@ -434,7 +434,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     entity_type = Keyword.get(opts, :entity_type)
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_schema = safe_schema_for_tenant(tenant_id)
 
       require Ash.Query
 
@@ -462,6 +462,14 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       end
     else
       {:error, reason} -> return_with_skip(:recent, "tenant", reason)
+    end
+  end
+
+  defp safe_schema_for_tenant(tenant_id) do
+    try do
+      TenantSchemas.schema_for_tenant(tenant_id)
+    rescue
+      ArgumentError -> nil
     end
   end
 

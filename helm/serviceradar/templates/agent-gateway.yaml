@@ -4,8 +4,10 @@
 {{- $clusterSelector := default "app.kubernetes.io/part-of=serviceradar" $gateway.kubernetesSelector -}}
 {{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $webNg := default (dict) .Values.webNg -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
+{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -76,6 +78,10 @@ spec:
               fieldPath: status.podIP
         - name: RELEASE_NODE
           value: {{ printf "%s@$(POD_IP)" $clusterNodeBasename | quote }}
+        - name: RELEASE_DISTRIBUTION
+          value: "name"
+        - name: RELEASE_COOKIE
+          value: {{ $clusterCookie | quote }}
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME

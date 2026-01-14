@@ -6,11 +6,13 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $webNg := default (dict) .Values.webNg -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
+{{- $clusterCookie := default "serviceradar_dev_cookie" $webNg.clusterCookie -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -84,6 +86,8 @@ spec:
           value: "serviceradar_core@$(POD_IP)"
         - name: RELEASE_DISTRIBUTION
           value: "name"
+        - name: RELEASE_COOKIE
+          value: {{ $clusterCookie | quote }}
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         - name: SPIFFE_TRUST_DOMAIN
