@@ -21,6 +21,7 @@ OCI chart quick start
   - `--set global.imageTag="v1.0.75"`
 - Track mutable images (staging/dev):
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
+  - If you omit `global.imageTag`, the chart defaults to `latest`.
 
 Key values: `sweep`
 - networks: list of CIDRs/IPs to scan.
