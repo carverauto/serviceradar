@@ -56,10 +56,17 @@ const (
 
 	// Config source values
 	snmpConfigSourceDefault = "default"
+	snmpConfigSourceTest    = "test"
+
+	// Platform constants
+	snmpPlatformDarwin = "darwin"
 )
 
 // ErrSNMPServiceNotInitialized is returned when attempting to reconfigure before starting.
 var ErrSNMPServiceNotInitialized = fmt.Errorf("SNMP service not initialized")
+
+// ErrNilProtoConfig is returned when a nil proto config is passed to ApplyProtoConfig.
+var ErrNilProtoConfig = fmt.Errorf("nil proto config")
 
 // SNMPAgentService wraps the SNMP service as an agent Service.
 type SNMPAgentService struct {
@@ -152,7 +159,7 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 	var source string
 	if s.testConfig != nil {
 		config = s.testConfig
-		source = "test"
+		source = snmpConfigSourceTest
 	} else {
 		// Load configuration (local file takes precedence)
 		var err error
@@ -209,6 +216,8 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 }
 
 // Stop halts the SNMP service and config refresh loop.
+//
+//nolint:dupl // Intentional parallel structure with SysmonService.Stop
 func (s *SNMPAgentService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 
@@ -510,7 +519,7 @@ func (s *SNMPAgentService) checkConfigUpdate(ctx context.Context) {
 // getSNMPLocalConfigPath returns the platform-specific local config path.
 func (s *SNMPAgentService) getSNMPLocalConfigPath() string {
 	switch runtime.GOOS {
-	case "darwin":
+	case snmpPlatformDarwin:
 		// Try Linux path first, then macOS-specific path
 		if _, err := os.Stat(snmpLinuxConfigPath); err == nil {
 			return snmpLinuxConfigPath
@@ -524,7 +533,7 @@ func (s *SNMPAgentService) getSNMPLocalConfigPath() string {
 // getSNMPCachePath returns the platform-specific cache path.
 func (s *SNMPAgentService) getSNMPCachePath() string {
 	switch runtime.GOOS {
-	case "darwin":
+	case snmpPlatformDarwin:
 		return snmpDarwinCachePath
 	default:
 		return snmpLinuxCachePath
@@ -556,7 +565,7 @@ func (s *SNMPAgentService) GetConfigHash() string {
 // This is used when receiving config from the control plane.
 func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *proto.SNMPConfig) error {
 	if protoConfig == nil {
-		return fmt.Errorf("nil proto config")
+		return ErrNilProtoConfig
 	}
 
 	// Convert proto config to internal config format
@@ -685,9 +694,10 @@ func protoToSNMPVersion(v proto.SNMPVersion) snmp.SNMPVersion {
 		return snmp.Version2c
 	case proto.SNMPVersion_SNMP_VERSION_V3:
 		return snmp.Version3
-	default:
+	case proto.SNMPVersion_SNMP_VERSION_UNSPECIFIED:
 		return snmp.Version2c
 	}
+	return snmp.Version2c
 }
 
 // protoToSNMPDataType converts proto SNMPDataType to snmp.DataType.
@@ -703,7 +713,12 @@ func protoToSNMPDataType(dt proto.SNMPDataType) snmp.DataType {
 		return snmp.TypeString
 	case proto.SNMPDataType_SNMP_DATA_TYPE_FLOAT:
 		return snmp.TypeFloat
-	default:
+	case proto.SNMPDataType_SNMP_DATA_TYPE_BYTES:
+		return snmp.TypeString // Map bytes to string type
+	case proto.SNMPDataType_SNMP_DATA_TYPE_TIMETICKS:
+		return snmp.TypeCounter // Timeticks are counter-like
+	case proto.SNMPDataType_SNMP_DATA_TYPE_UNSPECIFIED:
 		return snmp.TypeGauge
 	}
+	return snmp.TypeGauge
 }

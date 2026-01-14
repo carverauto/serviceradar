@@ -2609,41 +2609,40 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   end
 
   defp apply_srql_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
-    # Map interface fields from SRQL to Ash attributes
-    mapped_field =
-      case field do
-        "if_name" -> :if_name
-        "name" -> :if_name
-        "if_descr" -> :if_descr
-        "description" -> :if_descr
-        "if_alias" -> :if_alias
-        "alias" -> :if_alias
-        "device_id" -> :device_id
-        "device_ip" -> :device_ip
-        "ip" -> :device_ip
-        "gateway_id" -> :gateway_id
-        "agent_id" -> :agent_id
-        "if_oper_status" -> :if_oper_status
-        "oper_status" -> :if_oper_status
-        "if_admin_status" -> :if_admin_status
-        "admin_status" -> :if_admin_status
-        "if_speed" -> :if_speed
-        "speed" -> :if_speed
-        "if_phys_address" -> :if_phys_address
-        "mac" -> :if_phys_address
-        _ -> nil
-      end
-
-    if mapped_field do
-      apply_field_filter(query, mapped_field, op, value)
-    else
-      query
+    case map_srql_field(field) do
+      nil -> query
+      mapped_field -> apply_field_filter(query, mapped_field, op, value)
     end
   rescue
     _ -> query
   end
 
   defp apply_srql_filter(query, _), do: query
+
+  # Map SRQL interface fields to Ash attributes
+  @srql_field_mapping %{
+    "if_name" => :if_name,
+    "name" => :if_name,
+    "if_descr" => :if_descr,
+    "description" => :if_descr,
+    "if_alias" => :if_alias,
+    "alias" => :if_alias,
+    "device_id" => :device_id,
+    "device_ip" => :device_ip,
+    "ip" => :device_ip,
+    "gateway_id" => :gateway_id,
+    "agent_id" => :agent_id,
+    "if_oper_status" => :if_oper_status,
+    "oper_status" => :if_oper_status,
+    "if_admin_status" => :if_admin_status,
+    "admin_status" => :if_admin_status,
+    "if_speed" => :if_speed,
+    "speed" => :if_speed,
+    "if_phys_address" => :if_phys_address,
+    "mac" => :if_phys_address
+  }
+
+  defp map_srql_field(field), do: Map.get(@srql_field_mapping, field)
 
   # Apply filter based on SRQL operator
   defp apply_field_filter(query, field, "eq", value) do
