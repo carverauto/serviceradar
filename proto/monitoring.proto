@@ -171,6 +171,7 @@ message GatewayStatusRequest {
   string kv_store_id = 7;      // KV store identifier this agent is using
   string tenant_id = 8;        // Tenant UUID for multi-tenant routing
   string tenant_slug = 9;      // Tenant slug for NATS subject prefixing
+  string config_source = 10;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
@@ -192,6 +193,7 @@ message GatewayStatusChunk {
   string kv_store_id = 10;     // KV store identifier this agent is using
   string tenant_id = 11;       // Tenant UUID for multi-tenant routing
   string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
+  string config_source = 13;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.
@@ -225,6 +227,7 @@ message AgentHelloRequest {
   string partition = 7;             // Partition/site identifier
   string config_version = 8;        // Current config version hash (for config sync)
   map<string, string> labels = 9;   // Optional labels/tags for grouping
+  string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -265,6 +268,43 @@ message AgentConfigResponse {
 
   // Optional: raw JSON config for extensibility
   bytes config_json = 7;
+
+  // Sysmon configuration for embedded system monitoring
+  SysmonConfig sysmon_config = 8;
+}
+
+// SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
+message SysmonConfig {
+  // Whether sysmon collection is enabled
+  bool enabled = 1;
+
+  // Sample interval as a duration string (e.g., "10s", "1m", "500ms")
+  string sample_interval = 2;
+
+  // Which metrics to collect
+  bool collect_cpu = 3;
+  bool collect_memory = 4;
+  bool collect_disk = 5;
+  bool collect_network = 6;
+  bool collect_processes = 7;
+
+  // Disk paths to monitor (e.g., ["/", "/data"])
+  // Empty means monitor all mounted filesystems
+  repeated string disk_paths = 8;
+
+  // Reserved field 9 (was process_top_n, removed - collect all processes)
+  reserved 9;
+
+  // Alert thresholds as key-value pairs
+  // Keys: cpu_warning, cpu_critical, memory_warning, memory_critical,
+  //       disk_warning, disk_critical
+  // Values: percentage as string (e.g., "80", "95")
+  map<string, string> thresholds = 10;
+
+  // Profile metadata (for UI display and debugging)
+  string profile_id = 11;           // UUID of the profile this config came from
+  string profile_name = 12;         // Name of the profile for logging
+  string config_source = 13;        // Source: "profile", "tag", "device", "default"
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.

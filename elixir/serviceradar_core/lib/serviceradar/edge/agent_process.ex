@@ -42,6 +42,9 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
   require Logger
 
+  # Suppress warning for gRPC stub that is generated from protobuf at build time
+  @compile {:no_warn_undefined, Monitoring.AgentService.Stub}
+
   alias Monitoring.AgentService.Stub, as: AgentServiceStub
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Sync.Client, as: SyncClient

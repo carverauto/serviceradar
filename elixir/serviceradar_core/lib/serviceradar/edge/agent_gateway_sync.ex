@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.{Device, IdentityReconciler}
 
   @doc """
   Returns the platform tenant ID and slug.
@@ -111,6 +112,241 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  @doc """
+  Ensure a device record exists for the agent's host.
+
+  When an agent enrolls, we create or update a device record representing
+  the host machine. This enables the agent's sysmon metrics to be associated
+  with a device in the inventory.
+
+  The device identity is resolved using DIRE (Device Identity and Reconciliation Engine)
+  based on the agent's hostname and source IP.
+  """
+  @spec ensure_device_for_agent(String.t(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, term()}
+  def ensure_device_for_agent(agent_id, tenant_id, attrs) do
+    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
+    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+
+    # Build device update from agent metadata
+    device_update = build_device_update_from_agent(attrs)
+
+    # Resolve device ID using DIRE
+    case IdentityReconciler.resolve_device_id(device_update, actor: actor) do
+      {:ok, device_uid} ->
+        # Create or update the device record
+        case upsert_device_for_agent(device_uid, agent_id, attrs, tenant_schema, actor) do
+          :ok ->
+            # Link the agent to the device
+            link_agent_to_device(agent_id, device_uid, tenant_schema, actor)
+            {:ok, device_uid}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to upsert device for agent #{agent_id}: #{inspect(reason)}"
+            )
+
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to resolve device ID for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp build_device_update_from_agent(attrs) do
+    %{
+      device_id: nil,
+      ip: Map.get(attrs, :source_ip) || Map.get(attrs, :host),
+      mac: nil,
+      partition: Map.get(attrs, :partition, "default"),
+      metadata: %{
+        "hostname" => Map.get(attrs, :hostname),
+        "os" => Map.get(attrs, :os),
+        "arch" => Map.get(attrs, :arch)
+      }
+    }
+  end
+
+  defp upsert_device_for_agent(device_uid, agent_id, attrs, tenant_schema, actor) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    hostname = Map.get(attrs, :hostname)
+    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+    partition = Map.get(attrs, :partition, "default")
+    os_name = Map.get(attrs, :os)
+    arch = Map.get(attrs, :arch)
+    capabilities = Map.get(attrs, :capabilities, [])
+
+    # Build OS info map
+    os_info =
+      %{}
+      |> maybe_put("name", os_name)
+      |> maybe_put("cpu_architecture", arch)
+
+    os_info = if map_size(os_info) == 0, do: nil, else: os_info
+
+    # Check if device exists
+    case Device.get_by_uid(device_uid, tenant: tenant_schema, actor: actor) do
+      {:ok, device} ->
+        # Update existing device
+        update_existing_device_for_agent(device, agent_id, attrs, capabilities, tenant_schema, actor, now)
+
+      {:error, reason} ->
+        if not_found_error?(reason) do
+          # Create new device
+          device_context = %{
+            device_uid: device_uid,
+            agent_id: agent_id,
+            hostname: hostname,
+            source_ip: source_ip,
+            partition: partition,
+            os_info: os_info,
+            capabilities: capabilities
+          }
+
+          create_device_for_agent(device_context, tenant_schema, actor, now)
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  defp create_device_for_agent(device_context, tenant_schema, actor, now) do
+    %{
+      device_uid: device_uid,
+      agent_id: agent_id,
+      hostname: hostname,
+      source_ip: source_ip,
+      partition: partition,
+      os_info: os_info,
+      capabilities: capabilities
+    } = device_context
+
+    # Build discovery_sources based on agent capabilities
+    discovery_sources = build_discovery_sources(capabilities)
+
+    create_attrs =
+      %{
+        uid: device_uid,
+        hostname: hostname,
+        name: hostname,
+        ip: source_ip,
+        agent_id: agent_id,
+        type_id: 1,
+        type: "Server",
+        is_available: true,
+        discovery_sources: discovery_sources,
+        first_seen_time: now,
+        last_seen_time: now,
+        created_time: now,
+        modified_time: now
+      }
+      |> maybe_put(:os, os_info)
+      |> maybe_put(:zone, partition)
+      |> compact_attrs()
+
+    Device
+    |> Ash.Changeset.for_create(:create, create_attrs)
+    |> Ash.create(tenant: tenant_schema, actor: actor)
+    |> case do
+      {:ok, _device} ->
+        Logger.info("Created device #{device_uid} for agent #{agent_id}")
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, tenant_schema, actor, now) do
+    hostname = Map.get(attrs, :hostname)
+    source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
+
+    # Merge discovery_sources with capability-based sources
+    existing_sources = device.discovery_sources || []
+    capability_sources = build_discovery_sources(capabilities)
+    new_sources = Enum.uniq(capability_sources ++ existing_sources)
+
+    update_attrs =
+      %{
+        agent_id: agent_id,
+        is_available: true,
+        discovery_sources: new_sources,
+        last_seen_time: now,
+        modified_time: now
+      }
+      |> maybe_put(:hostname, hostname)
+      |> maybe_put(:ip, source_ip)
+      |> compact_attrs()
+
+    device
+    |> Ash.Changeset.for_update(:update, update_attrs)
+    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> case do
+      {:ok, _device} ->
+        Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Build discovery_sources list based on agent capabilities
+  defp build_discovery_sources(capabilities) when is_list(capabilities) do
+    base_sources = ["agent"]
+
+    # Add sysmon source if agent has sysmon capability
+    has_sysmon =
+      Enum.any?(capabilities, fn cap ->
+        cap_lower = String.downcase(to_string(cap))
+        String.contains?(cap_lower, "sysmon") or String.contains?(cap_lower, "system_monitor")
+      end)
+
+    if has_sysmon do
+      ["sysmon" | base_sources]
+    else
+      base_sources
+    end
+  end
+
+  defp build_discovery_sources(_), do: ["agent"]
+
+  defp link_agent_to_device(agent_id, device_uid, tenant_schema, actor) do
+    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
+      {:ok, %Agent{device_uid: existing_uid} = agent} when existing_uid != device_uid ->
+        agent
+        |> Ash.Changeset.for_update(:gateway_sync, %{device_uid: device_uid})
+        |> Ash.update(tenant: tenant_schema, actor: actor)
+        |> case do
+          {:ok, _} ->
+            Logger.debug("Linked agent #{agent_id} to device #{device_uid}")
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Failed to link agent #{agent_id} to device: #{inspect(reason)}")
+            :ok
+        end
+
+      {:ok, _agent} ->
+        # Already linked or same device
+        :ok
+
+      {:error, _} ->
+        # Agent not found yet, will be linked on next update
+        :ok
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp update_agent(agent, tenant_schema, attrs, actor) do
     update_attrs =
       attrs
@@ -179,7 +415,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp heartbeat_agent_record(agent, tenant_schema, attrs, actor) do
     heartbeat_attrs =
       attrs
-      |> Map.take([:capabilities, :is_healthy])
+      |> Map.take([:capabilities, :is_healthy, :config_source])
       |> compact_attrs()
 
     agent

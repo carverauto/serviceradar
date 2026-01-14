@@ -9,7 +9,6 @@ members = [
     "cmd/otel",
     "cmd/consumers/zen",
     "cmd/checkers/rperf-client",
-    "cmd/checkers/sysmon",
     "rust/srql",
 ]
 

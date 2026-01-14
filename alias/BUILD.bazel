@@ -27,12 +27,6 @@ alias(
     actual = "//pkg/checker/snmp:snmp",
 )
 
-alias(
-    name = "sysmonosx",
-    actual = "//pkg/checker/sysmonosx:sysmonosx",
-    target_compatible_with = ["@platforms//os:macos"],
-)
-
 # pkg/cli
 alias(
     name = "cli",
@@ -196,6 +190,12 @@ alias(
 alias(
     name = "sweeper",
     actual = "//pkg/sweeper:sweeper",
+)
+
+# pkg/sysmon
+alias(
+    name = "sysmon",
+    actual = "//pkg/sysmon:sysmon",
 )
 
 # pkg/sync

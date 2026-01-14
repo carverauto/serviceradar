@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	syncsvc "github.com/carverauto/serviceradar/pkg/sync"
+	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -335,15 +336,26 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		return
 	}
 
-	// Collect status from all services
-	statuses := p.collectAllStatuses(ctx)
+	// Collect statuses, separating sysmon from other services
+	statuses, sysmonStatus := p.collectAllStatusesSeparated(ctx)
 
-	if len(statuses) == 0 {
-		p.logger.Debug().Msg("No statuses to push")
-		return
+	// Push regular statuses via PushStatus
+	if len(statuses) > 0 {
+		p.pushRegularStatuses(ctx, statuses)
 	}
 
-	// Build the request
+	// Push sysmon via StreamStatus (it can have large payloads with all processes)
+	if sysmonStatus != nil {
+		p.pushSysmonStatus(ctx, sysmonStatus)
+	}
+
+	if len(statuses) == 0 && sysmonStatus == nil {
+		p.logger.Debug().Msg("No statuses to push")
+	}
+}
+
+// pushRegularStatuses sends non-sysmon statuses via PushStatus.
+func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus) {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -364,7 +376,6 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		TenantSlug: tenantSlug,
 	}
 
-	// Push to gateway
 	resp, err := p.gateway.PushStatus(ctx, req)
 	if err != nil {
 		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
@@ -378,9 +389,51 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 }
 
-// collectAllStatuses gathers status from all configured services and checkers.
-func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServiceStatus {
+// pushSysmonStatus sends sysmon metrics via StreamStatus for large payloads.
+func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewayServiceStatus) {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	tenantID := p.server.config.TenantID
+	tenantSlug := p.server.config.TenantSlug
+	p.server.mu.RUnlock()
+
+	// Build a single chunk for sysmon metrics
+	chunk := &proto.GatewayStatusChunk{
+		Services:    []*proto.GatewayServiceStatus{status},
+		GatewayId:   "",
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
+		IsFinal:     true,
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		TenantId:    tenantID,
+		TenantSlug:  tenantSlug,
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
+		return
+	}
+
+	if resp.Received {
+		p.logger.Info().Msg("Successfully streamed sysmon metrics to gateway")
+	} else {
+		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+	}
+}
+
+// collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
+// Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
+func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
 	var statuses []*proto.GatewayServiceStatus
+	var sysmonStatus *proto.GatewayServiceStatus
 
 	// Collect from sweep services (SweepStatusProvider)
 	p.server.mu.RLock()
@@ -393,6 +446,7 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 		c := *conf // snapshot by value to avoid races on shared pointers
 		checkerConfs[key] = &c
 	}
+	sysmonSvc := p.server.sysmonService
 	p.server.mu.RUnlock()
 
 	for _, svc := range services {
@@ -407,6 +461,16 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 		}
 	}
 
+	// Collect from embedded sysmon service - separate from regular statuses
+	if sysmonSvc != nil && sysmonSvc.IsEnabled() {
+		status, err := sysmonSvc.GetStatus(ctx)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to get sysmon status")
+		} else if status != nil {
+			sysmonStatus = p.convertToSysmonGatewayStatus(status)
+		}
+	}
+
 	// Collect from configured checkers
 	for name, conf := range checkerConfs {
 		status := p.getCheckerStatus(ctx, name, conf)
@@ -415,7 +479,7 @@ func (p *PushLoop) collectAllStatuses(ctx context.Context) []*proto.GatewayServi
 		}
 	}
 
-	return statuses
+	return statuses, sysmonStatus
 }
 
 // getCheckerStatus gets the status of a configured checker.
@@ -465,6 +529,37 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		GatewayId:    "", // Will be set by gateway
 		Partition:    partition,
 		Source:       "status",
+		KvStoreId:    kvStoreID,
+		TenantId:     tenantID,
+		TenantSlug:   tenantSlug,
+	}
+}
+
+// convertToSysmonGatewayStatus converts a sysmon StatusResponse to a GatewayServiceStatus.
+// Uses Source: "sysmon-metrics" to distinguish from other metrics sources (e.g., SNMP).
+func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *proto.GatewayServiceStatus {
+	if resp == nil {
+		return nil
+	}
+
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	tenantID := p.server.config.TenantID
+	tenantSlug := p.server.config.TenantSlug
+	p.server.mu.RUnlock()
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  SysmonServiceName,
+		Available:    resp.Available,
+		Message:      resp.Message,
+		ServiceType:  SysmonServiceType,
+		ResponseTime: resp.ResponseTime,
+		AgentId:      agentID,
+		GatewayId:    "", // Will be set by gateway
+		Partition:    partition,
+		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
 		TenantId:     tenantID,
 		TenantSlug:   tenantSlug,
@@ -807,6 +902,11 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 	p.applyChecks(configResp.Checks)
 	p.applySweepConfig(configResp.ConfigJson)
 
+	// Apply sysmon config if present
+	if configResp.SysmonConfig != nil {
+		p.applySysmonConfig(configResp.SysmonConfig)
+	}
+
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
 	p.logger.Info().
@@ -922,6 +1022,68 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 		Str("config_hash", sweepConfig.ConfigHash).
 		Int("targets", len(sweepConfig.Networks)).
 		Msg("Applied sweep config from gateway")
+}
+
+// applySysmonConfig applies sysmon configuration from the gateway to the embedded sysmon service.
+func (p *PushLoop) applySysmonConfig(protoConfig *proto.SysmonConfig) {
+	p.server.mu.RLock()
+	sysmonSvc := p.server.sysmonService
+	p.server.mu.RUnlock()
+
+	if sysmonSvc == nil {
+		p.logger.Debug().Msg("Sysmon service not initialized, skipping config apply")
+		return
+	}
+
+	// Convert proto config to sysmon.Config
+	cfg := protoToSysmonConfig(protoConfig)
+
+	// Parse and apply the configuration (including when disabled - collector checks Enabled flag)
+	parsed, err := cfg.Parse()
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to parse sysmon config from gateway")
+		return
+	}
+
+	if err := sysmonSvc.Reconfigure(parsed); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to apply sysmon config from gateway")
+		return
+	}
+
+	p.logger.Info().
+		Str("profile_id", protoConfig.ProfileId).
+		Str("profile_name", protoConfig.ProfileName).
+		Str("config_source", protoConfig.ConfigSource).
+		Bool("enabled", cfg.Enabled).
+		Str("sample_interval", cfg.SampleInterval).
+		Bool("cpu", cfg.CollectCPU).
+		Bool("memory", cfg.CollectMemory).
+		Bool("disk", cfg.CollectDisk).
+		Bool("network", cfg.CollectNetwork).
+		Bool("processes", cfg.CollectProcesses).
+		Msg("Applied sysmon config from gateway")
+}
+
+// protoToSysmonConfig converts a proto SysmonConfig to a sysmon.Config.
+func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
+	if proto == nil {
+		return sysmon.DefaultConfig()
+	}
+
+	cfg := sysmon.Config{
+		Enabled:          proto.Enabled,
+		SampleInterval:   proto.SampleInterval,
+		CollectCPU:       proto.CollectCpu,
+		CollectMemory:    proto.CollectMemory,
+		CollectDisk:      proto.CollectDisk,
+		CollectNetwork:   proto.CollectNetwork,
+		CollectProcesses: proto.CollectProcesses,
+		DiskPaths:        proto.DiskPaths,
+		Thresholds:       proto.Thresholds,
+	}
+
+	// Apply defaults for any unset values
+	return cfg.MergeWithDefaults()
 }
 
 // Default timeout for checks when not specified or invalid
@@ -1127,5 +1289,6 @@ func getAgentCapabilities() []string {
 		"snmp",
 		"process",
 		"sync",
+		"sysmon",
 	}
 }

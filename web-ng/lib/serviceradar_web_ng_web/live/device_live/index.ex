@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @default_limit 20
   @max_limit 100
@@ -30,6 +31,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:icmp_error, nil)
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
+     |> assign(:sysmon_profiles_by_device, %{})
+     |> assign(:default_sysmon_profile, nil)
      |> assign(:limit, @default_limit)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
@@ -57,12 +60,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {snmp_presence, sysmon_presence} =
       load_metric_presence(srql_module(), socket.assigns.devices, scope)
 
+    {sysmon_profiles_by_device, default_sysmon_profile} =
+      load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
+
     {:noreply,
      assign(socket,
        icmp_sparklines: icmp_sparklines,
        icmp_error: icmp_error,
        snmp_presence: snmp_presence,
-       sysmon_presence: sysmon_presence
+       sysmon_presence: sysmon_presence,
+       sysmon_profiles_by_device: sysmon_profiles_by_device,
+       default_sysmon_profile: default_sysmon_profile
      )}
   end
 
@@ -486,6 +494,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   >
                     Metrics
                   </th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="Sysmon monitoring profile"
+                  >
+                    Sysmon Profile
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Gateway</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
@@ -493,7 +507,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="12" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="13" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -508,6 +522,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
+                  <% sysmon_profile =
+                    if is_binary(device_uid),
+                      do: Map.get(@sysmon_profiles_by_device, device_uid),
+                      else: nil %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -552,6 +570,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         device_uid={device_uid}
                         has_snmp={has_snmp}
                         has_sysmon={has_sysmon}
+                      />
+                    </td>
+                    <td class="text-xs">
+                      <.sysmon_profile_badge
+                        profile={sysmon_profile}
+                        default_profile={@default_sysmon_profile}
                       />
                     </td>
                     <td class="text-xs">
@@ -837,6 +861,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </span>
     </div>
     <span :if={not @has_snmp and not @has_sysmon} class="text-base-content/40">—</span>
+    """
+  end
+
+  attr :profile, :any, default: nil
+  attr :default_profile, :any, default: nil
+
+  def sysmon_profile_badge(assigns) do
+    {label, is_direct} =
+      cond do
+        is_map(assigns.profile) ->
+          {assigns.profile.name, true}
+
+        is_map(assigns.default_profile) ->
+          {assigns.default_profile.name, false}
+
+        true ->
+          {nil, false}
+      end
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:is_direct, is_direct)
+
+    ~H"""
+    <div :if={@label} class="flex items-center gap-1">
+      <span class={[
+        "text-xs truncate max-w-[8rem]",
+        if(@is_direct, do: "font-medium text-base-content", else: "text-base-content/60")
+      ]}>
+        {@label}
+      </span>
+      <span
+        :if={not @is_direct}
+        class="badge badge-ghost badge-xs"
+        title="Using default profile"
+      >
+        Default
+      </span>
+    </div>
+    <span :if={not @label} class="text-base-content/40">—</span>
     """
   end
 
@@ -1275,5 +1340,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp has_any_filter?(srql) do
     query = Map.get(srql || %{}, :query, "") || ""
     String.trim(query) != ""
+  end
+
+  # Sysmon profile helpers
+  # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
+  # This function returns an empty map for profiles_by_device and just the default profile.
+  defp load_sysmon_profiles_for_devices(scope, _devices) do
+    # Load default profile for display purposes
+    default_profile =
+      SysmonProfile
+      |> Ash.Query.for_read(:get_default, %{})
+      |> Ash.read_one(scope: scope)
+      |> case do
+        {:ok, profile} -> profile
+        _ -> nil
+      end
+
+    # Return empty map for profiles_by_device since profile targeting is now via SRQL
+    {%{}, default_profile}
+  rescue
+    _ -> {%{}, nil}
   end
 end

@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @default_limit 50
   @max_limit 200
@@ -40,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
      |> assign(:sysmon_summary, nil)
+     |> assign(:sysmon_profile_info, nil)
+     |> assign(:available_profiles, [])
      |> assign(:availability, nil)
      |> assign(:healthcheck_summary, nil)
      |> assign(:sweep_results, nil)
@@ -110,6 +114,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_ip = get_device_ip(results)
     sweep_results = load_sweep_results(socket.assigns.current_scope, device_ip)
 
+    # Load sysmon profile info
+    {sysmon_profile_info, available_profiles} = load_sysmon_profile_info(scope, uid)
+
     {:noreply,
      socket
      |> assign(:device_uid, uid)
@@ -118,6 +125,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:panels, Engine.build_panels(srql_response))
      |> assign(:metric_sections, metric_sections)
      |> assign(:sysmon_summary, sysmon_summary)
+     |> assign(:sysmon_profile_info, sysmon_profile_info)
+     |> assign(:available_profiles, available_profiles)
      |> assign(:availability, availability)
      |> assign(:healthcheck_summary, healthcheck_summary)
      |> assign(:sweep_results, sweep_results)
@@ -205,6 +214,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <.healthcheck_section :if={is_map(@healthcheck_summary)} summary={@healthcheck_summary} />
 
           <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
+
+          <.sysmon_config_section
+            :if={is_map(@sysmon_profile_info)}
+            profile_info={@sysmon_profile_info}
+            available_profiles={@available_profiles}
+            device_uid={@device_uid}
+          />
 
           <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
 
@@ -1895,6 +1911,153 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     case Scope.tenant_id(scope) do
       nil -> nil
       tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Sysmon Configuration Section
+  # ---------------------------------------------------------------------------
+
+  attr :profile_info, :map, required: true
+  attr :available_profiles, :list, required: true
+  attr :device_uid, :string, required: true
+
+  def sysmon_config_section(assigns) do
+    profile = Map.get(assigns.profile_info, :profile)
+    source = Map.get(assigns.profile_info, :source, "default")
+
+    assigns =
+      assigns
+      |> assign(:profile, profile)
+      |> assign(:source, source)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-cog-6-tooth" class="size-4 text-base-content/60" />
+          <span class="text-sm font-semibold">Sysmon Configuration</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <.source_badge source={@source} />
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div class="space-y-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+            Effective Profile
+          </div>
+          <div :if={@profile} class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="font-medium">{@profile.name}</span>
+              <.ui_badge :if={@profile.is_default} variant="info" size="xs">Default</.ui_badge>
+            </div>
+            <div class="text-xs text-base-content/60">
+              Interval: <span class="font-mono">{@profile.sample_interval}</span>
+            </div>
+            <div :if={@profile.target_query && @source == "srql"} class="text-xs text-base-content/60">
+              Matched by:
+              <code class="font-mono bg-base-200/50 px-1 rounded">{@profile.target_query}</code>
+            </div>
+            <div class="flex flex-wrap gap-1 mt-1">
+              <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
+              <.ui_badge :if={@profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
+              <.ui_badge :if={@profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
+              <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">
+                Network
+              </.ui_badge>
+              <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">
+                Processes
+              </.ui_badge>
+            </div>
+          </div>
+          <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
+            Using default configuration
+          </div>
+          <div class="text-xs text-base-content/50 pt-2">
+            Profile targeting is configured via SRQL queries in <.link
+              navigate="/settings/sysmon"
+              class="link link-primary"
+            >Settings</.link>.
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :source, :string, required: true
+
+  defp source_badge(assigns) do
+    {label, variant} =
+      case assigns.source do
+        "srql" -> {"SRQL Targeting", "primary"}
+        "default" -> {"Default", "ghost"}
+        "local" -> {"Local Override", "warning"}
+        _ -> {"Default", "ghost"}
+      end
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:variant, variant)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="sm">{@label}</.ui_badge>
+    """
+  end
+
+  # ---------------------------------------------------------------------------
+  # Sysmon Profile Loading
+  # ---------------------------------------------------------------------------
+
+  # Extract the user from scope to use as actor for Ash operations
+  defp get_sweep_actor(%Scope{user: user}), do: user
+  defp get_sweep_actor(_), do: nil
+
+  defp load_sysmon_profile_info(scope, device_uid) do
+    tenant_id = Scope.tenant_id(scope)
+
+    if is_nil(tenant_id) do
+      {nil, []}
+    else
+      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+      actor = get_sweep_actor(scope)
+
+      # Load available profiles (for reference)
+      available_profiles = load_available_profiles(tenant_schema, actor)
+
+      # Resolve the effective profile via SRQL targeting
+      profile = SysmonCompiler.resolve_profile(tenant_schema, device_uid, nil, actor)
+
+      # Determine source based on profile type
+      source =
+        cond do
+          is_nil(profile) -> "default"
+          profile.is_default -> "default"
+          not is_nil(profile.target_query) -> "srql"
+          true -> "default"
+        end
+
+      profile_info = %{
+        profile: profile,
+        source: source
+      }
+
+      {profile_info, available_profiles}
+    end
+  rescue
+    e ->
+      require Logger
+      Logger.warning("Failed to load sysmon profile info: #{inspect(e)}")
+      {nil, []}
+  end
+
+  defp load_available_profiles(tenant_schema, actor) do
+    case Ash.read(SysmonProfile, action: :list_available, actor: actor, tenant: tenant_schema) do
+      {:ok, profiles} -> profiles
+      {:error, _} -> []
     end
   end
 end

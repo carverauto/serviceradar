@@ -142,6 +142,8 @@ func TestResolveKVConnectionSettingsEnvFallback(t *testing.T) {
 // In server_test.go
 
 func TestNewServerBasic(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -189,6 +191,8 @@ func TestNewServerBasic(t *testing.T) {
 }
 
 func TestServer_HandleSweepGetResults_Success(t *testing.T) {
+	t.Parallel()
+
 	// Setup mock sweep service
 	mockSweepService := &SweepService{
 		sweeper: &mockSweeper{
@@ -245,6 +249,8 @@ func TestServer_HandleSweepGetResults_Success(t *testing.T) {
 }
 
 func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
+	t.Parallel()
+
 	// Setup mock sweep service with existing sequence
 	sweepTimestamp := time.Now().Unix()
 	mockSweepService := &SweepService{
@@ -305,6 +311,8 @@ func TestServer_HandleSweepGetResults_NoNewData(t *testing.T) {
 }
 
 func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
+	t.Parallel()
+
 	// Setup server without sweep service
 	server := &Server{
 		config: &ServerConfig{
@@ -338,6 +346,8 @@ func TestServer_HandleSweepGetResults_NoSweepService(t *testing.T) {
 }
 
 func TestServer_GetResults_SweepService(t *testing.T) {
+	t.Parallel()
+
 	// Setup mock sweep service
 	mockSweepService := &SweepService{
 		sweeper: &mockSweeper{
@@ -389,6 +399,8 @@ func TestServer_GetResults_SweepService(t *testing.T) {
 }
 
 func TestServer_GetResults_UnsupportedServiceType(t *testing.T) {
+	t.Parallel()
+
 	server := &Server{
 		config: &ServerConfig{
 			AgentID: "test-agent",
@@ -455,6 +467,8 @@ func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {
 }
 
 func TestNewServerWithSweepConfig(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -518,6 +532,8 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 }
 
 func TestServerGetStatus(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -584,6 +600,12 @@ func TestServerGetStatus(t *testing.T) {
 }
 
 func TestServerLifecycle(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping test in short mode - starts real services")
+	}
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -599,6 +621,8 @@ func TestServerLifecycle(t *testing.T) {
 }
 
 func TestServerListServices(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -622,6 +646,8 @@ func TestServerListServices(t *testing.T) {
 }
 
 func TestGetCheckerCaching(t *testing.T) {
+	t.Parallel()
+
 	testLogger := createTestLogger()
 	s := &Server{
 		checkers: make(map[string]checker.Checker),
@@ -659,6 +685,8 @@ func TestGetCheckerCaching(t *testing.T) {
 
 // TestServerGetResults tests the GetResults method for various scenarios
 func TestServerGetResults(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
@@ -744,6 +772,8 @@ func TestServerGetResults(t *testing.T) {
 
 // TestGetResultsConsistencyWithGetStatus tests that GetResults handles different service types correctly
 func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
+	t.Parallel()
+
 	tmpDir, cleanup := setupTempDir(t)
 	defer cleanup()
 
