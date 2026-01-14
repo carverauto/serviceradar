@@ -210,6 +210,7 @@ config :serviceradar_core,
     ServiceRadar.Jobs,
     ServiceRadar.Monitoring,
     ServiceRadar.Observability,
+    ServiceRadar.SNMPProfiles,
     ServiceRadar.SweepJobs,
     ServiceRadar.SysmonProfiles
   ]
