@@ -466,11 +466,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   end
 
   defp safe_schema_for_tenant(tenant_id) do
-    try do
-      TenantSchemas.schema_for_tenant(tenant_id)
-    rescue
-      ArgumentError -> nil
-    end
+    TenantSchemas.schema_for_tenant(tenant_id)
+  rescue
+    ArgumentError -> nil
   end
 
   defp return_with_skip(entity_type, entity_id, reason) do

@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   require Ash.Query
   require Logger
 
+  alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
@@ -254,10 +255,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   defp seed_attribute do
     cond do
-      Ash.Resource.Info.attribute(Tenant, :nats_account_seed_ciphertext) ->
+      AshResourceInfo.attribute(Tenant, :nats_account_seed_ciphertext) ->
         :nats_account_seed_ciphertext
 
-      Ash.Resource.Info.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
+      AshResourceInfo.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
         :encrypted_nats_account_seed_ciphertext
 
       true ->

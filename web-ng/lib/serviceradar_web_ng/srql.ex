@@ -262,33 +262,34 @@ defmodule ServiceRadarWebNG.SRQL do
   end
 
   defp execute_translation(%{"sql" => sql} = translation, scope) when is_binary(sql) do
-    params =
-      translation
-      |> Map.get("params", [])
-      |> decode_params()
+    translation
+    |> Map.get("params", [])
+    |> decode_params()
+    |> case do
+      {:ok, params} ->
+        execute_translation_with_params(sql, params, translation, scope)
 
-    with {:ok, params} <- params do
-      case tenant_schema_for_scope(scope) do
-        nil ->
-          case Ecto.Adapters.SQL.query(Repo, sql, params) do
-            {:ok, result} -> {:ok, build_response(translation, result)}
-            {:error, reason} -> {:error, reason}
-          end
-
-        schema ->
-          case Repo.transaction(fn -> run_query_in_schema(sql, params, schema) end) do
-            {:ok, {:ok, result}} -> {:ok, build_response(translation, result)}
-            {:ok, {:error, reason}} -> {:error, reason}
-            {:error, reason} -> {:error, reason}
-          end
-      end
-    else
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp execute_translation(_translation, _scope) do
     {:error, :invalid_srql_translation}
+  end
+
+  defp execute_translation_with_params(sql, params, translation, scope) do
+    scope
+    |> tenant_schema_for_scope()
+    |> case do
+      nil ->
+        run_sql(sql, params)
+        |> build_translation_response(translation)
+
+      schema ->
+        run_sql_in_schema(sql, params, schema)
+        |> build_translation_response(translation)
+    end
   end
 
   defp tenant_schema_for_scope(nil), do: nil
@@ -331,6 +332,27 @@ defmodule ServiceRadarWebNG.SRQL do
       {:ok, _} -> Ecto.Adapters.SQL.query(Repo, sql, params)
       {:error, reason} -> {:error, {:search_path_failed, reason}}
     end
+  end
+
+  defp run_sql(sql, params) do
+    Ecto.Adapters.SQL.query(Repo, sql, params)
+  end
+
+  defp run_sql_in_schema(sql, params, schema) do
+    Repo.transaction(fn -> run_query_in_schema(sql, params, schema) end)
+    |> case do
+      {:ok, {:ok, result}} -> {:ok, result}
+      {:ok, {:error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_translation_response({:ok, result}, translation) do
+    {:ok, build_response(translation, result)}
+  end
+
+  defp build_translation_response({:error, reason}, _translation) do
+    {:error, reason}
   end
 
   defp build_search_path(schema) do
