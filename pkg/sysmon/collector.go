@@ -58,6 +58,7 @@ type DefaultCollector struct {
 	running      bool
 	stopCh       chan struct{}
 	stoppedCh    chan struct{}
+	cancel       context.CancelFunc
 	cpuCollector *CPUCollector
 }
 
@@ -123,9 +124,14 @@ func (c *DefaultCollector) Start(ctx context.Context) error {
 	c.running = true
 	c.stopCh = make(chan struct{})
 	c.stoppedCh = make(chan struct{})
+
+	// Create a cancellable context for the collection loop.
+	// This allows Stop() to interrupt long-running operations like CPU sampling.
+	collectionCtx, cancel := context.WithCancel(ctx)
+	c.cancel = cancel
 	c.mu.Unlock()
 
-	go c.collectionLoop(ctx)
+	go c.collectionLoop(collectionCtx)
 
 	c.log.Info().
 		Str("sample_interval", c.config.SampleInterval.String()).
@@ -147,6 +153,13 @@ func (c *DefaultCollector) Stop() error {
 		return nil
 	}
 	c.running = false
+
+	// Cancel the context first to interrupt any in-progress collection
+	// (e.g., CPU sampling which can block for the sample interval)
+	if c.cancel != nil {
+		c.cancel()
+	}
+
 	close(c.stopCh)
 	c.mu.Unlock()
 

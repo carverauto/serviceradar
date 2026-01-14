@@ -29,6 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testSysmonConfig returns a fast config for testing.
+// Uses 100ms sample interval to avoid long CPU sampling delays.
+func testSysmonConfig() *sysmon.Config {
+	cfg := sysmon.DefaultConfig()
+	cfg.SampleInterval = "100ms"
+	return &cfg
+}
+
 func TestNewSysmonService(t *testing.T) {
 	t.Parallel()
 
@@ -93,16 +101,13 @@ func TestSysmonServiceName(t *testing.T) {
 func TestSysmonServiceLifecycle(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -153,16 +158,13 @@ func TestSysmonServiceGetStatus_NotStarted(t *testing.T) {
 func TestSysmonServiceGetStatusPayload(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -197,16 +199,13 @@ func TestSysmonServiceGetStatusPayload(t *testing.T) {
 func TestSysmonServiceReconfigure(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -238,16 +237,13 @@ func TestSysmonServiceReconfigure(t *testing.T) {
 func TestSysmonServiceGetLatestSample(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -276,16 +272,13 @@ func TestSysmonServiceGetLatestSample(t *testing.T) {
 func TestSysmonServiceStartIdempotent(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -305,16 +298,13 @@ func TestSysmonServiceStartIdempotent(t *testing.T) {
 func TestSysmonServiceStopIdempotent(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -334,16 +324,13 @@ func TestSysmonServiceStopIdempotent(t *testing.T) {
 func TestSysmonServiceConfigSource(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
 	svc, err := NewSysmonService(SysmonServiceConfig{
-		AgentID: "test-agent",
-		Logger:  log,
+		AgentID:    "test-agent",
+		Logger:     log,
+		TestConfig: testSysmonConfig(),
 	})
 	require.NoError(t, err)
 
@@ -356,11 +343,11 @@ func TestSysmonServiceConfigSource(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = svc.Stop(ctx) }()
 
-	// After start, should have a config source (likely "default" since no config files exist)
+	// After start, should have a config source
 	source := svc.GetConfigSource()
 	assert.NotEmpty(t, source)
-	// Source should be one of: local:*, cache:*, or default
-	assert.True(t, source == "default" ||
+	// Source should be one of: local:*, cache:*, default, or test (when using TestConfig)
+	assert.True(t, source == "default" || source == "test" ||
 		len(source) > 6 && (source[:6] == "local:" || source[:6] == "cache:"),
 		"unexpected config source: %s", source)
 
@@ -394,10 +381,6 @@ func TestComputeConfigHash(t *testing.T) {
 func TestSysmonServiceConfigCaching(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	// Skip if we can't write to temp directory
 	tmpDir := t.TempDir()
 
@@ -405,10 +388,11 @@ func TestSysmonServiceConfigCaching(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Create a config file in the temp directory
+	// Use 100ms interval for fast test execution
 	configPath := tmpDir + "/sysmon.json"
 	configData := `{
 		"enabled": true,
-		"sample_interval": "15s",
+		"sample_interval": "100ms",
 		"collect_cpu": true,
 		"collect_memory": true,
 		"collect_disk": false,
@@ -441,10 +425,6 @@ func TestSysmonServiceConfigCaching(t *testing.T) {
 func TestLocalOverrideTakesPrecedence(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
@@ -457,7 +437,7 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 
 	cachedConfig := `{
 		"enabled": true,
-		"sample_interval": "60s",
+		"sample_interval": "100ms",
 		"collect_cpu": true,
 		"collect_memory": true,
 		"collect_disk": true,
@@ -471,7 +451,7 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 	// Create a local config with 5s interval (should take precedence)
 	localConfig := `{
 		"enabled": true,
-		"sample_interval": "5s",
+		"sample_interval": "100ms",
 		"collect_cpu": true,
 		"collect_memory": false,
 		"collect_disk": false,
@@ -514,10 +494,6 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
@@ -530,7 +506,7 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 
 	initialConfig := `{
 		"enabled": true,
-		"sample_interval": "20s",
+		"sample_interval": "100ms",
 		"collect_cpu": true,
 		"collect_memory": true,
 		"collect_disk": true,
@@ -594,19 +570,15 @@ func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
 func TestConfigRefreshPreservesLocalOverride(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("skipping test in short mode - requires CPU sampling")
-	}
-
 	tmpDir := t.TempDir()
 
 	ctx := context.Background()
 	log := logger.NewTestLogger()
 
-	// Create local config
+	// Create local config (use 100ms interval for fast test execution)
 	localConfig := `{
 		"enabled": true,
-		"sample_interval": "3s",
+		"sample_interval": "100ms",
 		"collect_cpu": true,
 		"collect_memory": false,
 		"collect_disk": false,

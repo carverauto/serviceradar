@@ -78,6 +78,9 @@ type SysmonService struct {
 	stopRefresh  chan struct{} // Signal to stop refresh loop
 	refreshDone  chan struct{} // Signal that refresh loop has stopped
 	configSource string        // Source of current config (local/cache/default)
+
+	// Test support
+	testConfig *sysmon.Config // Override config for testing (uses faster intervals)
 }
 
 // SysmonServiceConfig holds configuration for the sysmon service.
@@ -86,15 +89,19 @@ type SysmonServiceConfig struct {
 	Partition string
 	ConfigDir string
 	Logger    logger.Logger
+	// TestConfig overrides the default sysmon config for testing.
+	// Use this in tests to set a fast sample interval (e.g., 100ms).
+	TestConfig *sysmon.Config
 }
 
 // NewSysmonService creates a new sysmon service.
 func NewSysmonService(cfg SysmonServiceConfig) (*SysmonService, error) {
 	s := &SysmonService{
-		agentID:   cfg.AgentID,
-		partition: cfg.Partition,
-		configDir: cfg.ConfigDir,
-		logger:    cfg.Logger,
+		agentID:    cfg.AgentID,
+		partition:  cfg.Partition,
+		configDir:  cfg.ConfigDir,
+		logger:     cfg.Logger,
+		testConfig: cfg.TestConfig,
 	}
 
 	if s.logger == nil {
@@ -118,12 +125,21 @@ func (s *SysmonService) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Load configuration (local file takes precedence)
-	config, source, err := s.loadConfig(ctx)
-	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to load sysmon config, using defaults")
-		config = sysmon.DefaultConfig()
-		source = configSourceDefault
+	// Use test config if provided (for fast test execution)
+	var config sysmon.Config
+	var source string
+	if s.testConfig != nil {
+		config = *s.testConfig
+		source = "test"
+	} else {
+		// Load configuration (local file takes precedence)
+		var err error
+		config, source, err = s.loadConfig(ctx)
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to load sysmon config, using defaults")
+			config = sysmon.DefaultConfig()
+			source = configSourceDefault
+		}
 	}
 
 	// Check if sysmon is enabled
