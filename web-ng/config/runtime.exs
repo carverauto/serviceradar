@@ -83,6 +83,7 @@ if cluster_enabled do
         core_node_basename = System.get_env("CLUSTER_CORE_NODE_BASENAME", "serviceradar_core")
 
         gateway_dns_query = System.get_env("CLUSTER_GATEWAY_DNS_QUERY", "")
+
         gateway_node_basename =
           System.get_env("CLUSTER_GATEWAY_NODE_BASENAME", "serviceradar_agent_gateway")
 
@@ -108,7 +109,11 @@ if cluster_enabled do
         []
         |> maybe_add_dns_topology.(:serviceradar, dns_query, node_basename)
         |> maybe_add_dns_topology.(:serviceradar_core, core_dns_query, core_node_basename)
-        |> maybe_add_dns_topology.(:serviceradar_gateway, gateway_dns_query, gateway_node_basename)
+        |> maybe_add_dns_topology.(
+          :serviceradar_gateway,
+          gateway_dns_query,
+          gateway_node_basename
+        )
 
       "epmd" ->
         # EPMD strategy for development and static bare metal
