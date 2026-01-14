@@ -11,6 +11,8 @@
 {{- $agentID := default "k8s-agent" $agentVals.agentId -}}
 {{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
 {{- $agentTenantSlug := default (default "platform" $gatewayVals.tenantSlug) $agentVals.tenantSlug -}}
+{{- $gatewayServiceName := ternary "serviceradar-agent-gateway" (printf "serviceradar-agent-gateway-%s" $agentTenantSlug) $gatewayVals.enabled -}}
+{{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
 {{- $agentTenantCertDir := printf "/etc/serviceradar/certs/tenants/%s" $agentTenantSlug -}}
 {{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
 {{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
@@ -317,7 +319,7 @@ data:
         "agent_name": "agent",
         "host_ip": "agent",
         "partition": "{{$agentPartition}}",
-        "gateway_addr": "serviceradar-agent-gateway:{{$gatewayPort}}",
+        "gateway_addr": "{{$gatewayAddress}}",
         "push_interval": "30s",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {

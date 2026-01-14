@@ -227,6 +227,7 @@ webNg:
     serverName: "datasvc.serviceradar"
 agent:
   agentId: "k8s-agent"
+  gatewayAddress: ""
   partitionId: "default"
   resources:
     limits:
