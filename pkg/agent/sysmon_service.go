@@ -208,6 +208,8 @@ func (s *SysmonService) Start(ctx context.Context) error {
 }
 
 // Stop halts the sysmon collector and config refresh loop.
+//
+//nolint:dupl // Intentional parallel structure with SNMPAgentService.Stop
 func (s *SysmonService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 

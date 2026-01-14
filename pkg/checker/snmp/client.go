@@ -68,7 +68,21 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	case Version2c:
 		client.Version = gosnmp.Version2c
 	case Version3:
-		return nil, ErrNotImplemented
+		client.Version = gosnmp.Version3
+		client.SecurityModel = gosnmp.UserSecurityModel
+		if target.V3Auth != nil {
+			client.MsgFlags = securityLevelToMsgFlags(target.V3Auth.SecurityLevel)
+			client.SecurityParameters = &gosnmp.UsmSecurityParameters{
+				UserName:                 target.V3Auth.Username,
+				AuthenticationProtocol:   authProtocolToGoSNMP(target.V3Auth.AuthProtocol),
+				AuthenticationPassphrase: target.V3Auth.AuthPassword,
+				PrivacyProtocol:          privProtocolToGoSNMP(target.V3Auth.PrivProtocol),
+				PrivacyPassphrase:        target.V3Auth.PrivPassword,
+			}
+		} else {
+			// SNMPv3 requires V3Auth to be set
+			return nil, fmt.Errorf("%w: SNMPv3 requires V3Auth configuration", ErrInvalidTargetConfig)
+		}
 	default:
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedSNMPVersion, target.Version)
 	}
@@ -376,4 +390,54 @@ func validateTarget(target *Target) error {
 	}
 
 	return nil
+}
+
+// securityLevelToMsgFlags converts SecurityLevel to gosnmp.SnmpV3MsgFlags.
+func securityLevelToMsgFlags(sl SecurityLevel) gosnmp.SnmpV3MsgFlags {
+	switch sl {
+	case SecurityLevelNoAuthNoPriv:
+		return gosnmp.NoAuthNoPriv
+	case SecurityLevelAuthNoPriv:
+		return gosnmp.AuthNoPriv
+	case SecurityLevelAuthPriv:
+		return gosnmp.AuthPriv
+	default:
+		return gosnmp.NoAuthNoPriv
+	}
+}
+
+// authProtocolToGoSNMP converts AuthProtocol to gosnmp.SnmpV3AuthProtocol.
+func authProtocolToGoSNMP(ap AuthProtocol) gosnmp.SnmpV3AuthProtocol {
+	switch ap {
+	case AuthProtocolMD5:
+		return gosnmp.MD5
+	case AuthProtocolSHA:
+		return gosnmp.SHA
+	case AuthProtocolSHA224:
+		return gosnmp.SHA224
+	case AuthProtocolSHA256:
+		return gosnmp.SHA256
+	case AuthProtocolSHA384:
+		return gosnmp.SHA384
+	case AuthProtocolSHA512:
+		return gosnmp.SHA512
+	default:
+		return gosnmp.NoAuth
+	}
+}
+
+// privProtocolToGoSNMP converts PrivProtocol to gosnmp.SnmpV3PrivProtocol.
+func privProtocolToGoSNMP(pp PrivProtocol) gosnmp.SnmpV3PrivProtocol {
+	switch pp {
+	case PrivProtocolDES:
+		return gosnmp.DES
+	case PrivProtocolAES:
+		return gosnmp.AES
+	case PrivProtocolAES192:
+		return gosnmp.AES192
+	case PrivProtocolAES256:
+		return gosnmp.AES256
+	default:
+		return gosnmp.NoPriv
+	}
 }

@@ -115,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         :analytics_hourly_stats,
         "Hourly metrics stats skipped: tenant schema unavailable"
       )
+
       nil
     else
       query =

@@ -271,6 +271,9 @@ message AgentConfigResponse {
 
   // Sysmon configuration for embedded system monitoring
   SysmonConfig sysmon_config = 8;
+
+  // SNMP configuration for embedded SNMP monitoring
+  SNMPConfig snmp_config = 9;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
@@ -327,4 +330,113 @@ message AgentCheckConfig {
 
   // Additional settings as key-value pairs
   map<string, string> settings = 11;
+}
+
+// ============================================================================
+// SNMP Configuration Messages
+// ============================================================================
+
+// SNMPConfig defines SNMP monitoring configuration for the embedded SNMP collector.
+message SNMPConfig {
+  // Whether SNMP collection is enabled
+  bool enabled = 1;
+
+  // Profile metadata (for UI display and debugging)
+  string profile_id = 2;           // UUID of the profile this config came from
+  string profile_name = 3;         // Name of the profile for logging
+
+  // SNMP targets to poll
+  repeated SNMPTargetConfig targets = 4;
+}
+
+// SNMPTargetConfig defines a single SNMP target (network device) to poll.
+message SNMPTargetConfig {
+  string id = 1;                    // Target ID (UUID)
+  string name = 2;                  // Human-readable name
+  string host = 3;                  // Hostname or IP address
+  uint32 port = 4;                  // SNMP port (default 161)
+  SNMPVersion version = 5;          // SNMP protocol version
+
+  // SNMPv1/v2c authentication
+  string community = 6;             // Community string (decrypted)
+
+  // SNMPv3 authentication
+  SNMPv3Auth v3_auth = 7;
+
+  // Polling configuration
+  uint32 poll_interval_seconds = 8; // How often to poll (default 60)
+  uint32 timeout_seconds = 9;       // Timeout per request (default 5)
+  uint32 retries = 10;              // Number of retries (default 3)
+
+  // OIDs to poll
+  repeated SNMPOIDConfig oids = 11;
+}
+
+// SNMPVersion represents SNMP protocol versions.
+enum SNMPVersion {
+  SNMP_VERSION_UNSPECIFIED = 0;
+  SNMP_VERSION_V1 = 1;
+  SNMP_VERSION_V2C = 2;
+  SNMP_VERSION_V3 = 3;
+}
+
+// SNMPv3Auth contains SNMPv3 authentication parameters.
+message SNMPv3Auth {
+  string username = 1;
+  SNMPSecurityLevel security_level = 2;
+  SNMPAuthProtocol auth_protocol = 3;
+  string auth_password = 4;         // Decrypted password
+  SNMPPrivProtocol priv_protocol = 5;
+  string priv_password = 6;         // Decrypted password
+}
+
+// SNMPSecurityLevel represents SNMPv3 security levels.
+enum SNMPSecurityLevel {
+  SNMP_SECURITY_LEVEL_UNSPECIFIED = 0;
+  SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV = 1;
+  SNMP_SECURITY_LEVEL_AUTH_NO_PRIV = 2;
+  SNMP_SECURITY_LEVEL_AUTH_PRIV = 3;
+}
+
+// SNMPAuthProtocol represents SNMPv3 authentication protocols.
+enum SNMPAuthProtocol {
+  SNMP_AUTH_PROTOCOL_UNSPECIFIED = 0;
+  SNMP_AUTH_PROTOCOL_MD5 = 1;
+  SNMP_AUTH_PROTOCOL_SHA = 2;
+  SNMP_AUTH_PROTOCOL_SHA224 = 3;
+  SNMP_AUTH_PROTOCOL_SHA256 = 4;
+  SNMP_AUTH_PROTOCOL_SHA384 = 5;
+  SNMP_AUTH_PROTOCOL_SHA512 = 6;
+}
+
+// SNMPPrivProtocol represents SNMPv3 privacy (encryption) protocols.
+enum SNMPPrivProtocol {
+  SNMP_PRIV_PROTOCOL_UNSPECIFIED = 0;
+  SNMP_PRIV_PROTOCOL_DES = 1;
+  SNMP_PRIV_PROTOCOL_AES = 2;
+  SNMP_PRIV_PROTOCOL_AES192 = 3;
+  SNMP_PRIV_PROTOCOL_AES256 = 4;
+  SNMP_PRIV_PROTOCOL_AES192C = 5;
+  SNMP_PRIV_PROTOCOL_AES256C = 6;
+}
+
+// SNMPOIDConfig defines an OID to poll from an SNMP target.
+message SNMPOIDConfig {
+  string oid = 1;                   // OID string (e.g., ".1.3.6.1.2.1.1.1.0")
+  string name = 2;                  // Human-readable name (e.g., "sysDescr")
+  SNMPDataType data_type = 3;       // Expected data type
+  double scale = 4;                 // Scale factor (default 1.0)
+  bool delta = 5;                   // Calculate rate of change
+}
+
+// SNMPDataType represents the type of data for an OID.
+enum SNMPDataType {
+  SNMP_DATA_TYPE_UNSPECIFIED = 0;
+  SNMP_DATA_TYPE_COUNTER = 1;       // Monotonically increasing counter
+  SNMP_DATA_TYPE_GAUGE = 2;         // Current value that can go up or down
+  SNMP_DATA_TYPE_BOOLEAN = 3;       // True/false value
+  SNMP_DATA_TYPE_BYTES = 4;         // Byte count
+  SNMP_DATA_TYPE_STRING = 5;        // Text value
+  SNMP_DATA_TYPE_FLOAT = 6;         // Floating point value
+  SNMP_DATA_TYPE_TIMETICKS = 7;     // Time value in hundredths of a second
 }
