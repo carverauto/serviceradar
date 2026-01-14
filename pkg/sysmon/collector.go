@@ -174,6 +174,7 @@ func (c *DefaultCollector) Stop() error {
 func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 	c.mu.RLock()
 	config := c.config
+	cpuCollector := c.cpuCollector
 	c.mu.RUnlock()
 
 	// If collection is disabled, return an empty sample
@@ -185,7 +186,7 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 
 	// Collect CPU metrics
 	if config.CollectCPU {
-		cpus, clusters, err := c.cpuCollector.Collect(ctx)
+		cpus, clusters, err := cpuCollector.Collect(ctx)
 		if err != nil {
 			c.log.Warn().Err(err).Msg("CPU collection failed")
 		} else {

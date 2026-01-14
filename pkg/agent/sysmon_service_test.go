@@ -223,9 +223,10 @@ func TestSysmonServiceReconfigure(t *testing.T) {
 	defer func() { _ = svc.Stop(ctx) }()
 
 	// Reconfigure after start should succeed
+	// Use 200ms interval to keep test fast while still testing reconfiguration
 	newConfig := &sysmon.ParsedConfig{
 		Enabled:        true,
-		SampleInterval: 10 * time.Second,
+		SampleInterval: 200 * time.Millisecond,
 		CollectCPU:     true,
 		CollectMemory:  true,
 		CollectDisk:    false,
@@ -492,6 +493,9 @@ func TestLocalOverrideTakesPrecedence(t *testing.T) {
 // This simulates the scenario where the backend was available previously
 // but is now unavailable, and we need to use the cached config.
 func TestCacheFallbackWhenLocalUnavailable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode - requires CPU sampling with default interval")
+	}
 	t.Parallel()
 
 	tmpDir := t.TempDir()
