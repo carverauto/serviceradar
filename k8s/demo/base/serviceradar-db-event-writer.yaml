@@ -60,6 +60,16 @@ spec:
           value: "cnpg-rw.$(SERVICERADAR_NAMESPACE).svc"
         - name: CNPG_PORT
           value: "5432"
+        - name: CNPG_DATABASE
+          value: "telemetry"
+        - name: CNPG_USERNAME
+          value: "postgres"
+        - name: CNPG_CA_FILE
+          value: "/etc/serviceradar/cnpg/ca.crt"
+        - name: CNPG_CERT_FILE
+          value: "/etc/serviceradar/certs/cnpg-client.pem"
+        - name: CNPG_KEY_FILE
+          value: "/etc/serviceradar/certs/cnpg-client-key.pem"
         - name: KV_ADDRESS
           value: "serviceradar-datasvc:50057"
         - name: KV_SEC_MODE

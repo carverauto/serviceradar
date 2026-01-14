@@ -56,8 +56,8 @@ data:
         "ssl_mode": "verify-full",
         "cert_dir": "/etc/serviceradar/certs",
         "tls": {
-          "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-          "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
+          "cert_file": "/etc/serviceradar/certs/cnpg-client.pem",
+          "key_file": "/etc/serviceradar/certs/cnpg-client-key.pem",
           "ca_file": "/etc/serviceradar/cnpg/ca.crt"
         }
       },

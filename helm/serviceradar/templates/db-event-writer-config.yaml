@@ -1,5 +1,9 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" }}
 {{- $cnpg := default (dict) .Values.cnpg }}
+{{- $cnpgRuntime := default (dict) $cnpg.runtimeParams }}
+{{- $searchPath := default "public,ag_catalog,\\\"$user\\\"" $cnpgRuntime.search_path }}
+{{- $tenantSlug := default "platform" (default (dict) .Values.agentGateway).tenantSlug }}
+{{- $tenantSchema := printf "tenant_%s" $tenantSlug }}
 {{- $pg := default (dict) .Values.spire.postgres }}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName }}
 apiVersion: v1
@@ -37,6 +41,9 @@ data:
         "password": "",
         "ssl_mode": "verify-full",
         "cert_dir": {{ default "/etc/serviceradar/certs" $cnpg.certDir | quote }},
+        "runtime_params": {
+          "search_path": "{{ printf "%s,%s" $tenantSchema $searchPath }}"
+        },
         "tls": {
           "cert_file": "{{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) }}",
           "key_file": "{{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) }}",
