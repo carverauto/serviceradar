@@ -546,7 +546,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
         </div>
       </:header>
 
-      <.form for={@form} phx-submit="save_profile" phx-change="validate_profile" phx-debounce="300" class="space-y-6">
+      <.form
+        for={@form}
+        phx-submit="save_profile"
+        phx-change="validate_profile"
+        phx-debounce="300"
+        class="space-y-6"
+      >
         <!-- Basic Info Section -->
         <div class="space-y-4">
           <h3 class="text-sm font-semibold uppercase tracking-wide text-base-content/60">
@@ -1019,9 +1025,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   defp apply_field_filter(query, _field, "not_like", _value) do
-    # Ash filter_input doesn't have a direct not_contains operator
-    # For now, skip this filter - count will be an approximation
-    # TODO: Use Ash.Query.filter with dynamic field reference for negation
+    # Ash filter_input doesn't have a direct not_contains operator.
+    # Skip this filter - device count will be an approximation for not_like queries.
     query
   end
 

@@ -52,10 +52,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
           {:ok, SysmonProfile.t() | nil} | {:error, term()}
   def resolve_for_device(tenant_schema, device_uid, actor) when is_binary(device_uid) do
     # Validate device_uid is a proper UUID to prevent SRQL injection
-    unless Regex.match?(@uuid_regex, device_uid) do
-      Logger.warning("SrqlTargetResolver: invalid device_uid format: #{inspect(device_uid)}")
-      {:error, :invalid_device_uid}
-    else
+    if Regex.match?(@uuid_regex, device_uid) do
       # Load all targeting profiles ordered by priority
       case load_targeting_profiles(tenant_schema, actor) do
         {:ok, []} ->
@@ -68,6 +65,9 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
         {:error, reason} ->
           {:error, reason}
       end
+    else
+      Logger.warning("SrqlTargetResolver: invalid device_uid format: #{inspect(device_uid)}")
+      {:error, :invalid_device_uid}
     end
   end
 
