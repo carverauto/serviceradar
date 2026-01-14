@@ -17,7 +17,7 @@
 // versions:
 // 	protoc-gen-go v1.36.9
 // 	protoc        v6.32.1
-// source: proto/monitoring.proto
+// source: monitoring.proto
 
 package proto
 
@@ -75,11 +75,11 @@ func (x SweepCompletionStatus_Status) String() string {
 }
 
 func (SweepCompletionStatus_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_monitoring_proto_enumTypes[0].Descriptor()
+	return file_monitoring_proto_enumTypes[0].Descriptor()
 }
 
 func (SweepCompletionStatus_Status) Type() protoreflect.EnumType {
-	return &file_proto_monitoring_proto_enumTypes[0]
+	return &file_monitoring_proto_enumTypes[0]
 }
 
 func (x SweepCompletionStatus_Status) Number() protoreflect.EnumNumber {
@@ -88,7 +88,7 @@ func (x SweepCompletionStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SweepCompletionStatus_Status.Descriptor instead.
 func (SweepCompletionStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{8, 0}
+	return file_monitoring_proto_rawDescGZIP(), []int{8, 0}
 }
 
 type DeviceStatusRequest struct {
@@ -100,7 +100,7 @@ type DeviceStatusRequest struct {
 
 func (x *DeviceStatusRequest) Reset() {
 	*x = DeviceStatusRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[0]
+	mi := &file_monitoring_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -112,7 +112,7 @@ func (x *DeviceStatusRequest) String() string {
 func (*DeviceStatusRequest) ProtoMessage() {}
 
 func (x *DeviceStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[0]
+	mi := &file_monitoring_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -125,7 +125,7 @@ func (x *DeviceStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceStatusRequest.ProtoReflect.Descriptor instead.
 func (*DeviceStatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{0}
+	return file_monitoring_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DeviceStatusRequest) GetAgentId() string {
@@ -149,7 +149,7 @@ type StatusRequest struct {
 
 func (x *StatusRequest) Reset() {
 	*x = StatusRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[1]
+	mi := &file_monitoring_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -161,7 +161,7 @@ func (x *StatusRequest) String() string {
 func (*StatusRequest) ProtoMessage() {}
 
 func (x *StatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[1]
+	mi := &file_monitoring_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -174,7 +174,7 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{1}
+	return file_monitoring_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *StatusRequest) GetServiceName() string {
@@ -234,7 +234,7 @@ type ResultsRequest struct {
 
 func (x *ResultsRequest) Reset() {
 	*x = ResultsRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[2]
+	mi := &file_monitoring_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +246,7 @@ func (x *ResultsRequest) String() string {
 func (*ResultsRequest) ProtoMessage() {}
 
 func (x *ResultsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[2]
+	mi := &file_monitoring_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +259,7 @@ func (x *ResultsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsRequest.ProtoReflect.Descriptor instead.
 func (*ResultsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{2}
+	return file_monitoring_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ResultsRequest) GetServiceName() string {
@@ -326,7 +326,7 @@ type StatusResponse struct {
 
 func (x *StatusResponse) Reset() {
 	*x = StatusResponse{}
-	mi := &file_proto_monitoring_proto_msgTypes[3]
+	mi := &file_monitoring_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +338,7 @@ func (x *StatusResponse) String() string {
 func (*StatusResponse) ProtoMessage() {}
 
 func (x *StatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[3]
+	mi := &file_monitoring_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +351,7 @@ func (x *StatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatusResponse.ProtoReflect.Descriptor instead.
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{3}
+	return file_monitoring_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StatusResponse) GetAvailable() bool {
@@ -424,7 +424,7 @@ type ResultsResponse struct {
 
 func (x *ResultsResponse) Reset() {
 	*x = ResultsResponse{}
-	mi := &file_proto_monitoring_proto_msgTypes[4]
+	mi := &file_monitoring_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +436,7 @@ func (x *ResultsResponse) String() string {
 func (*ResultsResponse) ProtoMessage() {}
 
 func (x *ResultsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[4]
+	mi := &file_monitoring_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +449,7 @@ func (x *ResultsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsResponse.ProtoReflect.Descriptor instead.
 func (*ResultsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{4}
+	return file_monitoring_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ResultsResponse) GetAvailable() bool {
@@ -556,7 +556,7 @@ type SweepServiceStatus struct {
 
 func (x *SweepServiceStatus) Reset() {
 	*x = SweepServiceStatus{}
-	mi := &file_proto_monitoring_proto_msgTypes[5]
+	mi := &file_monitoring_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +568,7 @@ func (x *SweepServiceStatus) String() string {
 func (*SweepServiceStatus) ProtoMessage() {}
 
 func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[5]
+	mi := &file_monitoring_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +581,7 @@ func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepServiceStatus.ProtoReflect.Descriptor instead.
 func (*SweepServiceStatus) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{5}
+	return file_monitoring_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SweepServiceStatus) GetNetwork() string {
@@ -629,7 +629,7 @@ type PortStatus struct {
 
 func (x *PortStatus) Reset() {
 	*x = PortStatus{}
-	mi := &file_proto_monitoring_proto_msgTypes[6]
+	mi := &file_monitoring_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -641,7 +641,7 @@ func (x *PortStatus) String() string {
 func (*PortStatus) ProtoMessage() {}
 
 func (x *PortStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[6]
+	mi := &file_monitoring_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -654,7 +654,7 @@ func (x *PortStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortStatus.ProtoReflect.Descriptor instead.
 func (*PortStatus) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{6}
+	return file_monitoring_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PortStatus) GetPort() int32 {
@@ -685,7 +685,7 @@ type ResultsChunk struct {
 
 func (x *ResultsChunk) Reset() {
 	*x = ResultsChunk{}
-	mi := &file_proto_monitoring_proto_msgTypes[7]
+	mi := &file_monitoring_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +697,7 @@ func (x *ResultsChunk) String() string {
 func (*ResultsChunk) ProtoMessage() {}
 
 func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[7]
+	mi := &file_monitoring_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +710,7 @@ func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsChunk.ProtoReflect.Descriptor instead.
 func (*ResultsChunk) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{7}
+	return file_monitoring_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ResultsChunk) GetData() []byte {
@@ -772,7 +772,7 @@ type SweepCompletionStatus struct {
 
 func (x *SweepCompletionStatus) Reset() {
 	*x = SweepCompletionStatus{}
-	mi := &file_proto_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -784,7 +784,7 @@ func (x *SweepCompletionStatus) String() string {
 func (*SweepCompletionStatus) ProtoMessage() {}
 
 func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -797,7 +797,7 @@ func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepCompletionStatus.ProtoReflect.Descriptor instead.
 func (*SweepCompletionStatus) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{8}
+	return file_monitoring_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SweepCompletionStatus) GetStatus() SweepCompletionStatus_Status {
@@ -891,7 +891,7 @@ type SweepScannerStats struct {
 
 func (x *SweepScannerStats) Reset() {
 	*x = SweepScannerStats{}
-	mi := &file_proto_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -903,7 +903,7 @@ func (x *SweepScannerStats) String() string {
 func (*SweepScannerStats) ProtoMessage() {}
 
 func (x *SweepScannerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -916,7 +916,7 @@ func (x *SweepScannerStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepScannerStats.ProtoReflect.Descriptor instead.
 func (*SweepScannerStats) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{9}
+	return file_monitoring_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SweepScannerStats) GetPacketsSent() uint64 {
@@ -1010,18 +1010,19 @@ type GatewayStatusRequest struct {
 	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway receiving this status
 	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`       // Agent sending this status
 	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                     // Partition identifier
-	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`       // Host IP where agent is running
-	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`  // KV store identifier this agent is using
-	TenantId      string                  `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`       // Tenant UUID for multi-tenant routing
-	TenantSlug    string                  `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
+	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                            // Partition identifier
+	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`              // Host IP where agent is running
+	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`         // KV store identifier this agent is using
+	TenantId      string                  `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`              // Tenant UUID for multi-tenant routing
+	TenantSlug    string                  `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`        // Tenant slug for NATS subject prefixing
+	ConfigSource  string                  `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GatewayStatusRequest) Reset() {
 	*x = GatewayStatusRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1033,7 +1034,7 @@ func (x *GatewayStatusRequest) String() string {
 func (*GatewayStatusRequest) ProtoMessage() {}
 
 func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1047,7 @@ func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusRequest.ProtoReflect.Descriptor instead.
 func (*GatewayStatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{10}
+	return file_monitoring_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GatewayStatusRequest) GetServices() []*GatewayServiceStatus {
@@ -1112,6 +1113,13 @@ func (x *GatewayStatusRequest) GetTenantSlug() string {
 	return ""
 }
 
+func (x *GatewayStatusRequest) GetConfigSource() string {
+	if x != nil {
+		return x.ConfigSource
+	}
+	return ""
+}
+
 // GatewayStatusResponse is the response from the gateway after receiving status.
 type GatewayStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1122,7 +1130,7 @@ type GatewayStatusResponse struct {
 
 func (x *GatewayStatusResponse) Reset() {
 	*x = GatewayStatusResponse{}
-	mi := &file_proto_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1134,7 +1142,7 @@ func (x *GatewayStatusResponse) String() string {
 func (*GatewayStatusResponse) ProtoMessage() {}
 
 func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1147,7 +1155,7 @@ func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusResponse.ProtoReflect.Descriptor instead.
 func (*GatewayStatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{11}
+	return file_monitoring_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GatewayStatusResponse) GetReceived() bool {
@@ -1166,19 +1174,20 @@ type GatewayStatusChunk struct {
 	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
 	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
-	IsFinal       bool                    `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`             // Whether this is the last chunk
-	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`    // Order of this chunk
-	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"` // Total number of chunks
-	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`     // KV store identifier this agent is using
-	TenantId      string                  `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`          // Tenant UUID for multi-tenant routing
-	TenantSlug    string                  `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`    // Tenant slug for NATS subject prefixing
+	IsFinal       bool                    `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`                // Whether this is the last chunk
+	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`       // Order of this chunk
+	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`    // Total number of chunks
+	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`        // KV store identifier this agent is using
+	TenantId      string                  `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`             // Tenant UUID for multi-tenant routing
+	TenantSlug    string                  `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`       // Tenant slug for NATS subject prefixing
+	ConfigSource  string                  `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GatewayStatusChunk) Reset() {
 	*x = GatewayStatusChunk{}
-	mi := &file_proto_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1190,7 +1199,7 @@ func (x *GatewayStatusChunk) String() string {
 func (*GatewayStatusChunk) ProtoMessage() {}
 
 func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1203,7 +1212,7 @@ func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
 func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{12}
+	return file_monitoring_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
@@ -1290,6 +1299,13 @@ func (x *GatewayStatusChunk) GetTenantSlug() string {
 	return ""
 }
 
+func (x *GatewayStatusChunk) GetConfigSource() string {
+	if x != nil {
+		return x.ConfigSource
+	}
+	return ""
+}
+
 // GatewayServiceStatus represents a single service status pushed by an agent.
 type GatewayServiceStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1311,7 +1327,7 @@ type GatewayServiceStatus struct {
 
 func (x *GatewayServiceStatus) Reset() {
 	*x = GatewayServiceStatus{}
-	mi := &file_proto_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1323,7 +1339,7 @@ func (x *GatewayServiceStatus) String() string {
 func (*GatewayServiceStatus) ProtoMessage() {}
 
 func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1336,7 +1352,7 @@ func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
 func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{13}
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GatewayServiceStatus) GetServiceName() string {
@@ -1435,13 +1451,14 @@ type AgentHelloRequest struct {
 	Partition     string                 `protobuf:"bytes,7,opt,name=partition,proto3" json:"partition,omitempty"`                                                                     // Partition/site identifier
 	ConfigVersion string                 `protobuf:"bytes,8,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`                                        // Current config version hash (for config sync)
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
+	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AgentHelloRequest) Reset() {
 	*x = AgentHelloRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1453,7 +1470,7 @@ func (x *AgentHelloRequest) String() string {
 func (*AgentHelloRequest) ProtoMessage() {}
 
 func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1466,7 +1483,7 @@ func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloRequest.ProtoReflect.Descriptor instead.
 func (*AgentHelloRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{14}
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AgentHelloRequest) GetAgentId() string {
@@ -1532,6 +1549,13 @@ func (x *AgentHelloRequest) GetLabels() map[string]string {
 	return nil
 }
 
+func (x *AgentHelloRequest) GetConfigSource() string {
+	if x != nil {
+		return x.ConfigSource
+	}
+	return ""
+}
+
 // AgentHelloResponse is returned by the gateway after validating the agent.
 type AgentHelloResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
@@ -1550,7 +1574,7 @@ type AgentHelloResponse struct {
 
 func (x *AgentHelloResponse) Reset() {
 	*x = AgentHelloResponse{}
-	mi := &file_proto_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1562,7 +1586,7 @@ func (x *AgentHelloResponse) String() string {
 func (*AgentHelloResponse) ProtoMessage() {}
 
 func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1575,7 +1599,7 @@ func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloResponse.ProtoReflect.Descriptor instead.
 func (*AgentHelloResponse) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{15}
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AgentHelloResponse) GetAccepted() bool {
@@ -1652,7 +1676,7 @@ type AgentConfigRequest struct {
 
 func (x *AgentConfigRequest) Reset() {
 	*x = AgentConfigRequest{}
-	mi := &file_proto_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1688,7 @@ func (x *AgentConfigRequest) String() string {
 func (*AgentConfigRequest) ProtoMessage() {}
 
 func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1701,7 @@ func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigRequest.ProtoReflect.Descriptor instead.
 func (*AgentConfigRequest) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{16}
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AgentConfigRequest) GetAgentId() string {
@@ -1715,7 +1739,7 @@ type AgentConfigResponse struct {
 
 func (x *AgentConfigResponse) Reset() {
 	*x = AgentConfigResponse{}
-	mi := &file_proto_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1727,7 +1751,7 @@ func (x *AgentConfigResponse) String() string {
 func (*AgentConfigResponse) ProtoMessage() {}
 
 func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1740,7 +1764,7 @@ func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigResponse.ProtoReflect.Descriptor instead.
 func (*AgentConfigResponse) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{17}
+	return file_monitoring_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AgentConfigResponse) GetNotModified() bool {
@@ -1832,7 +1856,7 @@ type SysmonConfig struct {
 
 func (x *SysmonConfig) Reset() {
 	*x = SysmonConfig{}
-	mi := &file_proto_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1844,7 +1868,7 @@ func (x *SysmonConfig) String() string {
 func (*SysmonConfig) ProtoMessage() {}
 
 func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1857,7 +1881,7 @@ func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SysmonConfig.ProtoReflect.Descriptor instead.
 func (*SysmonConfig) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{18}
+	return file_monitoring_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SysmonConfig) GetEnabled() bool {
@@ -1966,7 +1990,7 @@ type AgentCheckConfig struct {
 
 func (x *AgentCheckConfig) Reset() {
 	*x = AgentCheckConfig{}
-	mi := &file_proto_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1978,7 +2002,7 @@ func (x *AgentCheckConfig) String() string {
 func (*AgentCheckConfig) ProtoMessage() {}
 
 func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1991,7 +2015,7 @@ func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
 func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
-	return file_proto_monitoring_proto_rawDescGZIP(), []int{19}
+	return file_monitoring_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AgentCheckConfig) GetCheckId() string {
@@ -2071,11 +2095,11 @@ func (x *AgentCheckConfig) GetSettings() map[string]string {
 	return nil
 }
 
-var File_proto_monitoring_proto protoreflect.FileDescriptor
+var File_monitoring_proto protoreflect.FileDescriptor
 
-const file_proto_monitoring_proto_rawDesc = "" +
+const file_monitoring_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/monitoring.proto\x12\n" +
+	"\x10monitoring.proto\x12\n" +
 	"monitoring\"0\n" +
 	"\x13DeviceStatusRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\"\xbd\x01\n" +
@@ -2172,7 +2196,7 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	"\x15port_exhaustion_count\x18\n" +
 	" \x01(\x04R\x13portExhaustionCount\x120\n" +
 	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
-	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xc5\x02\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xea\x02\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -2184,9 +2208,11 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\x12\x1b\n" +
 	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
 	"\vtenant_slug\x18\t \x01(\tR\n" +
-	"tenantSlug\"3\n" +
+	"tenantSlug\x12#\n" +
+	"\rconfig_source\x18\n" +
+	" \x01(\tR\fconfigSource\"3\n" +
 	"\x15GatewayStatusResponse\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\xa2\x03\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\xc7\x03\n" +
 	"\x12GatewayStatusChunk\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -2203,7 +2229,8 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	" \x01(\tR\tkvStoreId\x12\x1b\n" +
 	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
 	"\vtenant_slug\x18\f \x01(\tR\n" +
-	"tenantSlug\"\x87\x03\n" +
+	"tenantSlug\x12#\n" +
+	"\rconfig_source\x18\r \x01(\tR\fconfigSource\"\x87\x03\n" +
 	"\x14GatewayServiceStatus\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
@@ -2219,7 +2246,7 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	" \x01(\tR\tkvStoreId\x12\x1b\n" +
 	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
 	"\vtenant_slug\x18\f \x01(\tR\n" +
-	"tenantSlug\"\xef\x02\n" +
+	"tenantSlug\"\x94\x03\n" +
 	"\x11AgentHelloRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -2229,7 +2256,9 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	"\x04arch\x18\x06 \x01(\tR\x04arch\x12\x1c\n" +
 	"\tpartition\x18\a \x01(\tR\tpartition\x12%\n" +
 	"\x0econfig_version\x18\b \x01(\tR\rconfigVersion\x12A\n" +
-	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x1a9\n" +
+	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x12#\n" +
+	"\rconfig_source\x18\n" +
+	" \x01(\tR\fconfigSource\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc2\x02\n" +
@@ -2313,20 +2342,20 @@ const file_proto_monitoring_proto_rawDesc = "" +
 	"\fStreamStatus\x12\x1e.monitoring.GatewayStatusChunk\x1a!.monitoring.GatewayStatusResponse\"\x00(\x01B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
-	file_proto_monitoring_proto_rawDescOnce sync.Once
-	file_proto_monitoring_proto_rawDescData []byte
+	file_monitoring_proto_rawDescOnce sync.Once
+	file_monitoring_proto_rawDescData []byte
 )
 
-func file_proto_monitoring_proto_rawDescGZIP() []byte {
-	file_proto_monitoring_proto_rawDescOnce.Do(func() {
-		file_proto_monitoring_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_monitoring_proto_rawDesc), len(file_proto_monitoring_proto_rawDesc)))
+func file_monitoring_proto_rawDescGZIP() []byte {
+	file_monitoring_proto_rawDescOnce.Do(func() {
+		file_monitoring_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)))
 	})
-	return file_proto_monitoring_proto_rawDescData
+	return file_monitoring_proto_rawDescData
 }
 
-var file_proto_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
-var file_proto_monitoring_proto_goTypes = []any{
+var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_monitoring_proto_goTypes = []any{
 	(SweepCompletionStatus_Status)(0), // 0: monitoring.SweepCompletionStatus.Status
 	(*DeviceStatusRequest)(nil),       // 1: monitoring.DeviceStatusRequest
 	(*StatusRequest)(nil),             // 2: monitoring.StatusRequest
@@ -2352,7 +2381,7 @@ var file_proto_monitoring_proto_goTypes = []any{
 	nil,                               // 22: monitoring.SysmonConfig.ThresholdsEntry
 	nil,                               // 23: monitoring.AgentCheckConfig.SettingsEntry
 }
-var file_proto_monitoring_proto_depIdxs = []int32{
+var file_monitoring_proto_depIdxs = []int32{
 	9,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
 	9,  // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
 	7,  // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
@@ -2386,27 +2415,27 @@ var file_proto_monitoring_proto_depIdxs = []int32{
 	0,  // [0:12] is the sub-list for field type_name
 }
 
-func init() { file_proto_monitoring_proto_init() }
-func file_proto_monitoring_proto_init() {
-	if File_proto_monitoring_proto != nil {
+func init() { file_monitoring_proto_init() }
+func file_monitoring_proto_init() {
+	if File_monitoring_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_monitoring_proto_rawDesc), len(file_proto_monitoring_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
-		GoTypes:           file_proto_monitoring_proto_goTypes,
-		DependencyIndexes: file_proto_monitoring_proto_depIdxs,
-		EnumInfos:         file_proto_monitoring_proto_enumTypes,
-		MessageInfos:      file_proto_monitoring_proto_msgTypes,
+		GoTypes:           file_monitoring_proto_goTypes,
+		DependencyIndexes: file_monitoring_proto_depIdxs,
+		EnumInfos:         file_monitoring_proto_enumTypes,
+		MessageInfos:      file_monitoring_proto_msgTypes,
 	}.Build()
-	File_proto_monitoring_proto = out.File
-	file_proto_monitoring_proto_goTypes = nil
-	file_proto_monitoring_proto_depIdxs = nil
+	File_monitoring_proto = out.File
+	file_monitoring_proto_goTypes = nil
+	file_monitoring_proto_depIdxs = nil
 }

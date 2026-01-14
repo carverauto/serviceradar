@@ -29,6 +29,7 @@ pub struct AgentRow {
     pub created_time: DateTime<Utc>,
     pub modified_time: DateTime<Utc>,
     pub metadata: Option<serde_json::Value>,
+    pub config_source: Option<String>,
 }
 
 impl AgentRow {
@@ -52,6 +53,7 @@ impl AgentRow {
             "created_time": self.created_time,
             "modified_time": self.modified_time,
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "config_source": self.config_source,
         })
     }
 }

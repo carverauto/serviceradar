@@ -206,6 +206,7 @@ defmodule Monitoring.GatewayStatusRequest do
   field :kv_store_id, 7, type: :string, json_name: "kvStoreId"
   field :tenant_id, 8, type: :string, json_name: "tenantId"
   field :tenant_slug, 9, type: :string, json_name: "tenantSlug"
+  field :config_source, 10, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.GatewayStatusResponse do
@@ -239,6 +240,7 @@ defmodule Monitoring.GatewayStatusChunk do
   field :kv_store_id, 10, type: :string, json_name: "kvStoreId"
   field :tenant_id, 11, type: :string, json_name: "tenantId"
   field :tenant_slug, 12, type: :string, json_name: "tenantSlug"
+  field :config_source, 13, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.GatewayServiceStatus do
@@ -293,6 +295,7 @@ defmodule Monitoring.AgentHelloRequest do
   field :partition, 7, type: :string
   field :config_version, 8, type: :string, json_name: "configVersion"
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
+  field :config_source, 10, type: :string, json_name: "configSource"
 end
 
 defmodule Monitoring.AgentHelloResponse do

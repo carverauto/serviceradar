@@ -289,13 +289,13 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     update :gateway_sync do
       description "Sync agent metadata from the agent-gateway"
-      accept [:name, :capabilities, :host, :port, :spiffe_identity, :metadata, :version, :type_id]
+      accept [:name, :capabilities, :host, :port, :spiffe_identity, :metadata, :version, :type_id, :device_uid, :config_source]
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
     update :heartbeat do
       description "Update last_seen_time and health status (for connected agents)"
-      accept [:is_healthy, :capabilities]
+      accept [:is_healthy, :capabilities, :config_source]
 
       change set_attribute(:last_seen_time, &DateTime.utc_now/0)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
@@ -557,6 +557,12 @@ defmodule ServiceRadar.Infrastructure.Agent do
       default %{}
       public? true
       description "Additional metadata"
+    end
+
+    attribute :config_source, :atom do
+      public? true
+      constraints one_of: [:remote, :local, :cached, :default]
+      description "Source of sysmon config: remote (from backend), local (file override), cached, or default"
     end
 
     # Multi-tenancy

@@ -6,8 +6,8 @@ use crate::{
     models::AgentRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::ocsf_agents::dsl::{
-        capabilities as col_capabilities, created_time as col_created_time,
-        first_seen_time as col_first_seen_time, ip as col_ip,
+        capabilities as col_capabilities, config_source as col_config_source,
+        created_time as col_created_time, first_seen_time as col_first_seen_time, ip as col_ip,
         last_seen_time as col_last_seen_time, modified_time as col_modified_time,
         name as col_name, ocsf_agents, gateway_id as col_gateway_id, type_id as col_type_id,
         uid as col_uid, vendor_name as col_vendor_name, version as col_version,
@@ -153,6 +153,9 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
                 }
             }
         }
+        "config_source" => {
+            query = apply_text_filter!(query, filter, col_config_source)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for agents: '{other}'"
@@ -186,7 +189,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "uid" | "name" | "gateway_id" | "version" | "vendor_name" | "ip" => {
+        "uid" | "name" | "gateway_id" | "version" | "vendor_name" | "ip" | "config_source" => {
             collect_text_params(params, filter)
         }
         "type_id" => {

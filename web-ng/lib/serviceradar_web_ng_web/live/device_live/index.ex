@@ -7,7 +7,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.SysmonProfiles.{SysmonProfile, SysmonProfileAssignment}
 
   @default_limit 20
   @max_limit 100
@@ -30,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:icmp_error, nil)
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
+     |> assign(:sysmon_profiles_by_device, %{})
+     |> assign(:default_sysmon_profile, nil)
      |> assign(:limit, @default_limit)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
@@ -37,6 +41,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:total_matching_count, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:show_bulk_sysmon_modal, false)
+     |> assign(:bulk_sysmon_profile_id, nil)
+     |> assign(:available_sysmon_profiles, [])
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -57,12 +64,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {snmp_presence, sysmon_presence} =
       load_metric_presence(srql_module(), socket.assigns.devices, scope)
 
+    {sysmon_profiles_by_device, default_sysmon_profile} =
+      load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
+
     {:noreply,
      assign(socket,
        icmp_sparklines: icmp_sparklines,
        icmp_error: icmp_error,
        snmp_presence: snmp_presence,
-       sysmon_presence: sysmon_presence
+       sysmon_presence: sysmon_presence,
+       sysmon_profiles_by_device: sysmon_profiles_by_device,
+       default_sysmon_profile: default_sysmon_profile
      )}
   end
 
@@ -222,6 +234,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
            socket
            |> assign(:bulk_edit_form, to_form(params, as: :bulk))
            |> put_flash(:error, "Failed to apply tags: #{reason}")}
+      end
+    end
+  end
+
+  # Bulk sysmon profile assignment handlers
+  def handle_event("open_bulk_sysmon_modal", _params, socket) do
+    scope = socket.assigns.current_scope
+    profiles = load_sysmon_profiles(scope)
+
+    {:noreply,
+     socket
+     |> assign(:show_bulk_sysmon_modal, true)
+     |> assign(:available_sysmon_profiles, profiles)
+     |> assign(:bulk_sysmon_profile_id, nil)}
+  end
+
+  def handle_event("close_bulk_sysmon_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_bulk_sysmon_modal, false)
+     |> assign(:bulk_sysmon_profile_id, nil)}
+  end
+
+  def handle_event("select_bulk_sysmon_profile", %{"profile_id" => profile_id}, socket) do
+    {:noreply, assign(socket, :bulk_sysmon_profile_id, profile_id)}
+  end
+
+  def handle_event("apply_bulk_sysmon_profile", _params, socket) do
+    profile_id = socket.assigns.bulk_sysmon_profile_id
+
+    if is_nil(profile_id) or profile_id == "" do
+      {:noreply, put_flash(socket, :error, "Please select a profile")}
+    else
+      case apply_sysmon_profile_to_devices(socket, profile_id) do
+        {:ok, count} ->
+          {:noreply,
+           socket
+           |> assign(:show_bulk_sysmon_modal, false)
+           |> assign(:bulk_sysmon_profile_id, nil)
+           |> assign(:selected_devices, MapSet.new())
+           |> assign(:select_all_matching, false)
+           |> assign(:total_matching_count, nil)
+           |> put_flash(:info, "Assigned sysmon profile to #{count} device(s)")}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to assign profile: #{reason}")}
       end
     end
   end
@@ -433,6 +491,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </button>
           </div>
           <div class="flex items-center gap-2">
+            <.ui_button variant="ghost" size="sm" phx-click="open_bulk_sysmon_modal">
+              <.icon name="hero-cpu-chip" class="size-4" /> Assign Profile
+            </.ui_button>
             <.ui_button variant="primary" size="sm" phx-click="open_bulk_edit_modal">
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
             </.ui_button>
@@ -486,6 +547,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   >
                     Metrics
                   </th>
+                  <th
+                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
+                    title="Sysmon monitoring profile"
+                  >
+                    Sysmon Profile
+                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Gateway</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
@@ -493,7 +560,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="12" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="13" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -508,6 +575,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
+                  <% sysmon_profile =
+                    if is_binary(device_uid), do: Map.get(@sysmon_profiles_by_device, device_uid), else: nil %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -555,6 +624,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       />
                     </td>
                     <td class="text-xs">
+                      <.sysmon_profile_badge
+                        profile={sysmon_profile}
+                        default_profile={@default_sysmon_profile}
+                      />
+                    </td>
+                    <td class="text-xs">
                       <.risk_level_badge risk_level={Map.get(row, "risk_level")} />
                     </td>
                     <td class="font-mono text-xs">{Map.get(row, "gateway_id") || "—"}</td>
@@ -584,6 +659,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
         form={@bulk_edit_form}
+        selected_count={@effective_count}
+      />
+      <!-- Bulk Sysmon Profile Assignment Modal -->
+      <.bulk_sysmon_modal
+        :if={@show_bulk_sysmon_modal}
+        profiles={@available_sysmon_profiles}
+        selected_profile_id={@bulk_sysmon_profile_id}
         selected_count={@effective_count}
       />
     </Layouts.app>
@@ -639,6 +721,82 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </div>
       <form method="dialog" class="modal-backdrop">
         <button phx-click="close_bulk_edit_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Bulk Sysmon Profile Modal Component
+  attr :profiles, :list, required: true
+  attr :selected_profile_id, :string, default: nil
+  attr :selected_count, :integer, required: true
+
+  defp bulk_sysmon_modal(assigns) do
+    ~H"""
+    <dialog id="bulk_sysmon_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_bulk_sysmon_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Assign Sysmon Profile</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Assign a sysmon monitoring profile to {@selected_count} selected device(s).
+        </p>
+
+        <div class="form-control w-full">
+          <label class="label">
+            <span class="label-text font-medium">Select Profile</span>
+          </label>
+          <div class="space-y-2">
+            <%= for profile <- @profiles do %>
+              <label class={[
+                "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
+                if(@selected_profile_id == profile.id, do: "border-primary bg-primary/10", else: "border-base-200 hover:bg-base-100")
+              ]}>
+                <input
+                  type="radio"
+                  name="sysmon_profile"
+                  class="radio radio-primary radio-sm"
+                  checked={@selected_profile_id == profile.id}
+                  phx-click="select_bulk_sysmon_profile"
+                  phx-value-profile_id={profile.id}
+                />
+                <div class="flex-1">
+                  <div class="font-medium text-sm">{profile.name}</div>
+                  <div class="text-xs text-base-content/60">
+                    Interval: {profile.interval_seconds}s
+                    <%= if profile.is_default do %>
+                      <span class="badge badge-ghost badge-xs ml-2">Default</span>
+                    <% end %>
+                  </div>
+                </div>
+              </label>
+            <% end %>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4">
+          <button type="button" phx-click="close_bulk_sysmon_modal" class="btn btn-ghost">
+            Cancel
+          </button>
+          <button
+            type="button"
+            phx-click="apply_bulk_sysmon_profile"
+            class="btn btn-primary"
+            disabled={is_nil(@selected_profile_id)}
+          >
+            Assign Profile
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_bulk_sysmon_modal">close</button>
       </form>
     </dialog>
     """
@@ -837,6 +995,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </span>
     </div>
     <span :if={not @has_snmp and not @has_sysmon} class="text-base-content/40">—</span>
+    """
+  end
+
+  attr :profile, :any, default: nil
+  attr :default_profile, :any, default: nil
+
+  def sysmon_profile_badge(assigns) do
+    {label, is_direct} =
+      cond do
+        is_map(assigns.profile) ->
+          {assigns.profile.name, true}
+
+        is_map(assigns.default_profile) ->
+          {assigns.default_profile.name, false}
+
+        true ->
+          {nil, false}
+      end
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:is_direct, is_direct)
+
+    ~H"""
+    <div :if={@label} class="flex items-center gap-1">
+      <span class={[
+        "text-xs truncate max-w-[8rem]",
+        if(@is_direct, do: "font-medium text-base-content", else: "text-base-content/60")
+      ]}>
+        {@label}
+      </span>
+      <span
+        :if={not @is_direct}
+        class="badge badge-ghost badge-xs"
+        title="Using default profile"
+      >
+        Default
+      </span>
+    </div>
+    <span :if={not @label} class="text-base-content/40">—</span>
     """
   end
 
@@ -1275,5 +1474,131 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp has_any_filter?(srql) do
     query = Map.get(srql || %{}, :query, "") || ""
     String.trim(query) != ""
+  end
+
+  # Sysmon profile helpers
+  defp load_sysmon_profiles(scope) do
+    SysmonProfile
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.sort([:name])
+    |> Ash.read!(scope: scope)
+  rescue
+    _ -> []
+  end
+
+  defp apply_sysmon_profile_to_devices(socket, profile_id) do
+    scope = socket.assigns.current_scope
+
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and
+          socket.assigns.total_matching_count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        case get_selected_uids(socket) do
+          [] ->
+            {:error, "No devices selected"}
+
+          uids ->
+            create_sysmon_assignments(scope, uids, profile_id)
+        end
+    end
+  end
+
+  defp create_sysmon_assignments(scope, device_uids, profile_id) do
+    # First, remove any existing device-specific assignments for these devices
+    existing_query =
+      SysmonProfileAssignment
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(device_uid in ^device_uids)
+
+    # Delete existing assignments
+    case Ash.read(existing_query, scope: scope) do
+      {:ok, existing} ->
+        Enum.each(existing, fn assignment ->
+          Ash.destroy!(assignment, scope: scope)
+        end)
+
+      _ ->
+        :ok
+    end
+
+    # Create new assignments for each device
+    results =
+      Enum.map(device_uids, fn device_uid ->
+        SysmonProfileAssignment
+        |> Ash.Changeset.for_create(:create, %{
+          sysmon_profile_id: profile_id,
+          device_uid: device_uid,
+          priority: 100
+        })
+        |> Ash.create(scope: scope)
+      end)
+
+    success_count = Enum.count(results, fn
+      {:ok, _} -> true
+      _ -> false
+    end)
+
+    if success_count > 0 do
+      {:ok, success_count}
+    else
+      {:error, "Failed to create assignments"}
+    end
+  end
+
+  defp load_sysmon_profiles_for_devices(scope, devices) do
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row -> Map.get(row, "uid") || Map.get(row, "id") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      {%{}, nil}
+    else
+      # Load direct device assignments
+      assignments =
+        SysmonProfileAssignment
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(device_uid in ^device_uids)
+        |> Ash.Query.load(:sysmon_profile)
+        |> Ash.read(scope: scope)
+        |> case do
+          {:ok, assignments} -> assignments
+          _ -> []
+        end
+
+      # Build map of device_uid -> profile
+      profiles_by_device =
+        Enum.reduce(assignments, %{}, fn assignment, acc ->
+          if assignment.device_uid && assignment.sysmon_profile do
+            Map.put(acc, assignment.device_uid, assignment.sysmon_profile)
+          else
+            acc
+          end
+        end)
+
+      # Load default profile
+      default_profile =
+        SysmonProfile
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.filter(is_default == true)
+        |> Ash.Query.limit(1)
+        |> Ash.read(scope: scope)
+        |> case do
+          {:ok, [profile | _]} -> profile
+          _ -> nil
+        end
+
+      {profiles_by_device, default_profile}
+    end
+  rescue
+    _ -> {%{}, nil}
   end
 end

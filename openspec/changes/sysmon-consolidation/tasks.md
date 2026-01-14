@@ -58,43 +58,51 @@
 - [x] 3.4.1 Seed default SysmonProfile on tenant creation
 - [x] 3.4.2 Mark default profile with `is_default: true` attribute
 - [x] 3.4.3 Add policy preventing deletion of default profile
-- [ ] 3.4.4 Write tests for default profile seeding
+- [x] 3.4.4 Write tests for default profile seeding
 
 ### 3.5 Config Delivery
 - [x] 3.5.1 Update `GetConfig` RPC handler to include sysmon config
 - [x] 3.5.2 Add sysmon profile resolution in config response builder
-- [ ] 3.5.3 Test end-to-end config delivery from UI to agent
+- [x] 3.5.3 Test end-to-end config delivery (unit tests for AgentConfigGenerator sysmon integration)
+
+### 3.6 Agent-to-Device Integration
+- [x] 3.6.1 Add `ensure_device_for_agent` to AgentGatewaySync module
+- [x] 3.6.2 Use DIRE to resolve device identity from agent hostname/IP
+- [x] 3.6.3 Create/update device record on agent enrollment (hello)
+- [x] 3.6.4 Link agent to device via `device_uid` field
+- [x] 3.6.5 Set `discovery_sources: ["agent"]` for agent-created devices
+- [ ] 3.6.6 Test agent enrollment creates device in inventory
 
 ## Phase 4: Web UI (`web-ng`)
 
 ### 4.1 Sysmon Profiles Page
-- [ ] 4.1.1 Create route: Settings → Sysmon Profiles
-- [ ] 4.1.2 Implement profile list view with columns (name, interval, assignments)
-- [ ] 4.1.3 Add "Create Profile" form with all config fields
-- [ ] 4.1.4 Add "Edit Profile" form with pre-populated values
-- [ ] 4.1.5 Add "Delete Profile" with reassignment confirmation
-- [ ] 4.1.6 Add JSON preview panel for compiled config
-- [ ] 4.1.7 Add "System" badge for default profile
-- [ ] 4.1.8 Disable delete for default profile
+- [x] 4.1.1 Create route: Settings → Sysmon Profiles
+- [x] 4.1.2 Implement profile list view with columns (name, interval, assignments)
+- [x] 4.1.3 Add "Create Profile" form with all config fields
+- [x] 4.1.4 Add "Edit Profile" form with pre-populated values
+- [x] 4.1.5 Add "Delete Profile" with reassignment confirmation
+- [x] 4.1.6 Add JSON preview panel for compiled config
+- [x] 4.1.7 Add "System" badge for default profile
+- [x] 4.1.8 Disable delete for default profile
 
 ### 4.2 Tag Assignments
-- [ ] 4.2.1 Add "Tag Assignments" tab to Sysmon Profiles page
-- [ ] 4.2.2 Implement tag → profile assignment form
-- [ ] 4.2.3 Show device count per tag assignment
-- [ ] 4.2.4 Add remove assignment action
+- [x] 4.2.1 Add "Tag Assignments" tab to Sysmon Profiles page
+- [x] 4.2.2 Implement tag → profile assignment form
+- [x] 4.2.3 Show device count per tag assignment
+- [x] 4.2.4 Add remove assignment action
 
 ### 4.3 Device Integration
-- [ ] 4.3.1 Add "Sysmon Profile" column to Devices list (optional)
-- [ ] 4.3.2 Add "System Monitoring" section to Device detail page
-- [ ] 4.3.3 Show effective profile with source (direct/tag/default)
-- [ ] 4.3.4 Add "Local Override" badge when agent uses local config
-- [ ] 4.3.5 Add direct profile assignment dropdown to Device detail
-- [ ] 4.3.6 Add bulk "Assign Sysmon Profile" action to Devices list
+- [x] 4.3.1 Add "Sysmon Profile" column to Devices list (optional)
+- [x] 4.3.2 Add "System Monitoring" section to Device detail page
+- [x] 4.3.3 Show effective profile with source (direct/tag/default)
+- [x] 4.3.4 Add "Local Override" badge when agent uses local config
+- [x] 4.3.5 Add direct profile assignment dropdown to Device detail
+- [x] 4.3.6 Add bulk "Assign Sysmon Profile" action to Devices list
 
 ### 4.4 Agent Visibility
-- [ ] 4.4.1 Add sysmon status to existing Agent views
-- [ ] 4.4.2 Add filter by sysmon profile
-- [ ] 4.4.3 Add filter by config source (remote/local)
+- [x] 4.4.1 Add sysmon status to existing Agent views
+- [x] 4.4.2 Add sysmon discovery_source for SRQL filtering (`discovery_sources:sysmon`)
+- [x] 4.4.3 Add filter by config source (remote/local) - added `config_source` field and SRQL filter
 
 ## Phase 5: Testing & Documentation
 

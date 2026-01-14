@@ -23,6 +23,7 @@ diesel::table! {
         created_time -> Timestamptz,
         modified_time -> Timestamptz,
         metadata -> Nullable<Jsonb>,
+        config_source -> Nullable<Text>,
     }
 }
 

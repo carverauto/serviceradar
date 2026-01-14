@@ -49,6 +49,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         active: String.starts_with?(path, "/settings/networks")
       },
       %{
+        label: "Sysmon",
+        navigate: ~p"/settings/sysmon",
+        active: String.starts_with?(path, "/settings/sysmon")
+      },
+      %{
         label: "Events",
         navigate: ~p"/settings/rules",
         active: String.starts_with?(path, "/settings/rules")

@@ -171,6 +171,7 @@ message GatewayStatusRequest {
   string kv_store_id = 7;      // KV store identifier this agent is using
   string tenant_id = 8;        // Tenant UUID for multi-tenant routing
   string tenant_slug = 9;      // Tenant slug for NATS subject prefixing
+  string config_source = 10;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
@@ -192,6 +193,7 @@ message GatewayStatusChunk {
   string kv_store_id = 10;     // KV store identifier this agent is using
   string tenant_id = 11;       // Tenant UUID for multi-tenant routing
   string tenant_slug = 12;     // Tenant slug for NATS subject prefixing
+  string config_source = 13;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.
@@ -225,6 +227,7 @@ message AgentHelloRequest {
   string partition = 7;             // Partition/site identifier
   string config_version = 8;        // Current config version hash (for config sync)
   map<string, string> labels = 9;   // Optional labels/tags for grouping
+  string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.

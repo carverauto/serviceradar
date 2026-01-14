@@ -17,7 +17,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.1
-// source: proto/monitoring.proto
+// source: monitoring.proto
 
 package proto
 
@@ -212,7 +212,7 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "proto/monitoring.proto",
+	Metadata: "monitoring.proto",
 }
 
 const (
@@ -440,5 +440,5 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/monitoring.proto",
+	Metadata: "monitoring.proto",
 }

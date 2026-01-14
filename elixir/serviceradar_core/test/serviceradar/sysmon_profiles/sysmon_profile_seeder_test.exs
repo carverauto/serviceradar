@@ -26,7 +26,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
   end
 
   describe "seed_for_tenant/1" do
-    @tag :database
+    @tag :integration
     setup do
       tenant = ServiceRadar.TestSupport.create_tenant_schema!("sysmon-seeder")
 
@@ -37,7 +37,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
       {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
     end
 
-    @tag :database
+    @tag :integration
     test "creates default profile when none exists", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
       tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
 
@@ -67,7 +67,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
       assert profile.collect_processes == false
     end
 
-    @tag :database
+    @tag :integration
     test "does not create duplicate profile when called twice", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
       tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
 
@@ -92,7 +92,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
       assert length(profiles) == 1
     end
 
-    @tag :database
+    @tag :integration
     test "default profile has correct thresholds", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
       tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
 

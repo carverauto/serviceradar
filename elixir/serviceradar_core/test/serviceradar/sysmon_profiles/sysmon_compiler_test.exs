@@ -71,7 +71,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
   end
 
   describe "compile/4" do
-    @tag :database
+    @tag :integration
     setup do
       tenant = ServiceRadar.TestSupport.create_tenant_schema!("sysmon-compiler")
 
@@ -82,7 +82,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
     end
 
-    @tag :database
+    @tag :integration
     test "returns default config when no profile exists", %{tenant_id: tenant_id} do
       {:ok, config} = SysmonCompiler.compile(tenant_id, "default", nil, [])
 
@@ -91,7 +91,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["config_source"] == "default"
     end
 
-    @tag :database
+    @tag :integration
     test "returns profile config when default profile exists", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
       # Create a default profile
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})

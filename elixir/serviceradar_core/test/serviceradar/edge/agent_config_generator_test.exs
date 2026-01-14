@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
-  @moduletag :database
+  @moduletag :integration
 
   setup_all do
     tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-config")
