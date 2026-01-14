@@ -54,8 +54,8 @@ CNPG_USERNAME_VALUE="${CNPG_USERNAME:-serviceradar}"
 CNPG_SSL_MODE_VALUE="${CNPG_SSL_MODE:-${CNPG_SSLMODE:-verify-full}}"
 CNPG_CERT_DIR_VALUE="${CNPG_CERT_DIR:-/etc/serviceradar/certs}"
 CNPG_CA_FILE_VALUE="${CNPG_CA_FILE:-$CNPG_CERT_DIR_VALUE/root.pem}"
-CNPG_CERT_FILE_VALUE="${CNPG_CERT_FILE:-$CNPG_CERT_DIR_VALUE/db-event-writer.pem}"
-CNPG_KEY_FILE_VALUE="${CNPG_KEY_FILE:-$CNPG_CERT_DIR_VALUE/db-event-writer-key.pem}"
+CNPG_CERT_FILE_VALUE="${CNPG_CERT_FILE:-$CNPG_CERT_DIR_VALUE/cnpg-client.pem}"
+CNPG_KEY_FILE_VALUE="${CNPG_KEY_FILE:-$CNPG_CERT_DIR_VALUE/cnpg-client-key.pem}"
 
 # Wait for dependencies to be ready
 if [ -n "${WAIT_FOR_NATS:-}" ]; then

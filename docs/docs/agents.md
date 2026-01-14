@@ -69,6 +69,9 @@ binary:
 - `CNPG_USERNAME`/`CNPG_PASSWORD` or `CNPG_PASSWORD_FILE`
 - Optional TLS knobs: `CNPG_CERT_DIR`, `CNPG_CA_FILE`, `CNPG_CERT_FILE`,
   `CNPG_KEY_FILE`, and `CNPG_SSLMODE`
+- When CNPG requires client certs, db-event-writer must use the CNPG client
+  certificate bundle (`cnpg-client.pem`/`cnpg-client-key.pem`) instead of the
+  service certificate to avoid TLS handshake failures.
 - Advanced tuning: `CNPG_APP_NAME`, `CNPG_MAX_CONNS`, `CNPG_MIN_CONNS`,
   `CNPG_STATEMENT_TIMEOUT`, `CNPG_HEALTH_CHECK_PERIOD`, or
   repeated `--runtime-param key=value` flags (pass them via
