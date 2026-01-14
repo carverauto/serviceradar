@@ -94,6 +94,8 @@ helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
   --set global.imagePullPolicy="Always"
 ```
 
+Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
+
 **Chart URL:** `oci://ghcr.io/carverauto/charts/serviceradar`
 
 Notes:

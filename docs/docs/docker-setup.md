@@ -25,7 +25,12 @@ cd serviceradar
 Start the ServiceRadar stack for the first time:
 
 ```bash
-SERVICERADAR_VERSION=latest docker-compose up -d
+docker-compose up -d
+```
+
+Optional: pin to a specific release or commit tag for reproducible upgrades:
+```bash
+APP_TAG=v1.1.0 docker-compose up -d
 ```
 
 **Important**: On first startup, ServiceRadar will:
@@ -102,8 +107,8 @@ events are required.
 Create a `.env` file in the ServiceRadar directory:
 
 ```bash
-# ServiceRadar Version
-SERVICERADAR_VERSION=latest
+# ServiceRadar image tag (optional; defaults to latest)
+APP_TAG=latest
 
 # Logging Level
 LOG_LEVEL=info
@@ -160,7 +165,7 @@ watcher snapshots:
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
   -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
-  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
+  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest} \
   nats --server tls://nats:4222 \
        --tlsca /etc/serviceradar/certs/root.pem \
        --tlscert /etc/serviceradar/certs/gateway.pem \
@@ -599,7 +604,7 @@ https://example.com {
 ### Version Upgrades
 
 1. **Backup current installation**
-2. **Update the Compose image tag** (the stack uses `APP_TAG`):
+2. **Optional: pin the Compose image tag** (the stack defaults to `latest` when `APP_TAG` is unset):
    ```bash
    export APP_TAG=v1.1.0
    ```
@@ -621,7 +626,7 @@ Verification (optional): confirm your gateway KV entry still contains your check
 ```bash
 docker run --rm --network serviceradar_serviceradar-net \
   -v "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_cert-data:/etc/serviceradar/certs" \
-  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-v1.0.65} \
+  ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest} \
   nats --server tls://nats:4222 \
        --tlsca /etc/serviceradar/certs/root.pem \
        --tlscert /etc/serviceradar/certs/gateway.pem \

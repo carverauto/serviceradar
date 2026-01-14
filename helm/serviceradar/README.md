@@ -21,8 +21,15 @@ helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar
 
 ```bash
 helm upgrade --install serviceradar ./helm/serviceradar \
+  -n serviceradar --create-namespace
+```
+
+Optional dev overrides to follow mutable tags on restart:
+```bash
+helm upgrade --install serviceradar ./helm/serviceradar \
   -n serviceradar --create-namespace \
-  --set global.imageTag="v1.0.78"
+  --set global.imageTag="latest" \
+  --set global.imagePullPolicy="Always"
 ```
 
 ## Architecture

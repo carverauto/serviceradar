@@ -113,6 +113,10 @@ build: ## Build the full workspace with Bazel (remote)
 push_all: ## Build and push all OCI images to GHCR via Bazel
 	@bazel run --config=remote --stamp //docker/images:push_all
 
+.PHONY: check-dev-image-tags
+check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)
+	@scripts/check-dev-image-tags.sh
+
 .PHONY: demo-staging-canary
 demo-staging-canary: ## Configure demo-staging ArgoCD app for canary tags (web=latest, others pinned)
 	@./scripts/demo-staging-canary.py --app serviceradar-demo-staging --base-tag v1.0.75 --web-tag latest
