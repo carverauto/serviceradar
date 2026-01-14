@@ -131,7 +131,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
         match_via_interfaces(target_query, tenant_schema, device_uid, actor)
       else
         # Device targeting - check if device matches directly
-        combined_query = "#{target_query} uid:#{device_uid}"
+        combined_query = String.trim(target_query) <> " uid:" <> device_uid
         execute_device_match(combined_query, tenant_schema, actor)
       end
     end

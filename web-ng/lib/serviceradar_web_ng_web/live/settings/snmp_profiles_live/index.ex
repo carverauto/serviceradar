@@ -460,6 +460,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     scope = socket.assigns.current_scope
     profile_id = socket.assigns.selected_profile.id
 
+    # When editing, remove blank password/community fields from params
+    # to avoid accidentally clearing existing encrypted credentials.
+    params =
+      if socket.assigns.editing_target do
+        sensitive_fields = ["community", "auth_password", "priv_password"]
+
+        Map.reject(params, fn {key, value} ->
+          key in sensitive_fields and value == ""
+        end)
+      else
+        params
+      end
+
     target_form =
       if socket.assigns.editing_target do
         Form.for_update(socket.assigns.editing_target, :update,
@@ -529,7 +542,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     port =
       case port do
         p when is_integer(p) -> p
-        p when is_binary(p) -> String.to_integer(p)
+
+        p when is_binary(p) ->
+          case Integer.parse(p) do
+            {int, _} -> int
+            :error -> 161
+          end
+
         _ -> 161
       end
 
@@ -573,20 +592,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     {:noreply, assign(socket, :target_oids, oids)}
   end
 
-  def handle_event("update_oid", %{"index" => index_str} = params, socket) do
+  def handle_event("update_oid", %{"index" => index_str, "field" => field} = params, socket) do
     index = String.to_integer(index_str)
     oids = socket.assigns.target_oids
+    current_oid = Enum.at(oids, index)
 
-    updated_oid =
-      Enum.at(oids, index)
-      |> Map.merge(%{
-        "oid" => Map.get(params, "oid", ""),
-        "name" => Map.get(params, "name", ""),
-        "data_type" => Map.get(params, "data_type", "gauge"),
-        "scale" => Map.get(params, "scale", "1.0"),
-        "delta" => Map.get(params, "delta", "false") == "true"
-      })
+    # Get the new value for the changed field
+    # - For text inputs (phx-blur): fresh value is in params["value"]
+    # - For select (phx-change): fresh value is in params["value"]
+    # - For checkbox (phx-click): toggled value is in params["delta"]
+    new_value =
+      case field do
+        "delta" -> Map.get(params, "delta", "false") == "true"
+        _ -> Map.get(params, "value", "")
+      end
 
+    updated_oid = Map.put(current_oid, field, new_value)
     updated_oids = List.replace_at(oids, index, updated_oid)
     {:noreply, assign(socket, :target_oids, updated_oids)}
   end
@@ -885,20 +906,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     {:noreply, assign(socket, :custom_template_oids, oids)}
   end
 
-  def handle_event("update_template_oid", %{"index" => index_str} = params, socket) do
+  def handle_event("update_template_oid", %{"index" => index_str, "field" => field} = params, socket) do
     index = String.to_integer(index_str)
     oids = socket.assigns.custom_template_oids
+    current_oid = Enum.at(oids, index)
 
-    updated_oid =
-      Enum.at(oids, index)
-      |> Map.merge(%{
-        "oid" => Map.get(params, "oid", ""),
-        "name" => Map.get(params, "name", ""),
-        "data_type" => Map.get(params, "data_type", "gauge"),
-        "scale" => Map.get(params, "scale", "1.0"),
-        "delta" => Map.get(params, "delta", "false") == "true"
-      })
+    # Get the new value for the changed field
+    # - For text inputs (phx-blur): fresh value is in params["value"]
+    # - For select (phx-change): fresh value is in params["value"]
+    # - For checkbox (phx-click): toggled value is in params["delta"]
+    new_value =
+      case field do
+        "delta" -> Map.get(params, "delta", "false") == "true"
+        _ -> Map.get(params, "value", "")
+      end
 
+    updated_oid = Map.put(current_oid, field, new_value)
     updated_oids = List.replace_at(oids, index, updated_oid)
     {:noreply, assign(socket, :custom_template_oids, updated_oids)}
   end
@@ -1939,11 +1962,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="input input-bordered input-sm w-full font-mono text-xs"
                         phx-blur="update_oid"
                         phx-value-index={idx}
-                        phx-value-oid={oid["oid"]}
-                        phx-value-name={oid["name"]}
-                        phx-value-data_type={oid["data_type"]}
-                        phx-value-scale={oid["scale"]}
-                        phx-value-delta={to_string(oid["delta"])}
+                        phx-value-field="oid"
                         name={"oid_#{idx}_oid"}
                       />
                       <span class="text-[10px] text-base-content/50">OID</span>
@@ -1956,11 +1975,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="input input-bordered input-sm w-full text-xs"
                         phx-blur="update_oid"
                         phx-value-index={idx}
-                        phx-value-oid={oid["oid"]}
-                        phx-value-name={oid["name"]}
-                        phx-value-data_type={oid["data_type"]}
-                        phx-value-scale={oid["scale"]}
-                        phx-value-delta={to_string(oid["delta"])}
+                        phx-value-field="name"
                         name={"oid_#{idx}_name"}
                       />
                       <span class="text-[10px] text-base-content/50">Name</span>
@@ -1970,10 +1985,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="select select-bordered select-sm w-full text-xs"
                         phx-change="update_oid"
                         phx-value-index={idx}
-                        phx-value-oid={oid["oid"]}
-                        phx-value-name={oid["name"]}
-                        phx-value-scale={oid["scale"]}
-                        phx-value-delta={to_string(oid["delta"])}
+                        phx-value-field="data_type"
                         name={"oid_#{idx}_data_type"}
                       >
                         <option value="gauge" selected={oid["data_type"] == "gauge"}>Gauge</option>
@@ -1995,10 +2007,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                           checked={oid["delta"] == true or oid["delta"] == "true"}
                           phx-click="update_oid"
                           phx-value-index={idx}
-                          phx-value-oid={oid["oid"]}
-                          phx-value-name={oid["name"]}
-                          phx-value-data_type={oid["data_type"]}
-                          phx-value-scale={oid["scale"]}
+                          phx-value-field="delta"
                           phx-value-delta={
                             to_string(!(oid["delta"] == true or oid["delta"] == "true"))
                           }
@@ -2436,10 +2445,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="input input-bordered input-sm w-full font-mono text-xs"
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
+                        phx-value-field="oid"
                         name="oid"
                       />
                     </div>
-                    
+
     <!-- Name -->
                     <div>
                       <label class="label py-0">
@@ -2452,10 +2462,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="input input-bordered input-sm w-full text-xs"
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
+                        phx-value-field="name"
                         name="name"
                       />
                     </div>
-                    
+
     <!-- Data Type -->
                     <div>
                       <label class="label py-0">
@@ -2465,6 +2476,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="select select-bordered select-sm w-full text-xs"
                         phx-change="update_template_oid"
                         phx-value-index={idx}
+                        phx-value-field="data_type"
                         name="data_type"
                       >
                         <%= for {value, label} <- @data_types do %>
@@ -2472,7 +2484,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         <% end %>
                       </select>
                     </div>
-                    
+
     <!-- Scale -->
                     <div>
                       <label class="label py-0">
@@ -2485,10 +2497,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="input input-bordered input-sm w-full text-xs"
                         phx-blur="update_template_oid"
                         phx-value-index={idx}
+                        phx-value-field="scale"
                         name="scale"
                       />
                     </div>
-                    
+
     <!-- Delta checkbox -->
                     <div class="col-span-2 flex items-center gap-2 mt-1">
                       <input
@@ -2497,6 +2510,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
                         class="checkbox checkbox-sm"
                         phx-click="update_template_oid"
                         phx-value-index={idx}
+                        phx-value-field="delta"
                         phx-value-delta={if oid["delta"], do: "false", else: "true"}
                         name="delta"
                       />
@@ -2715,22 +2729,28 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   defp map_srql_field(field), do: Map.get(@srql_field_mapping, field)
 
   # Apply filter based on SRQL operator
-  defp apply_field_filter(query, field, "eq", value) do
+  # Supports both UI operators (equals, contains) and legacy operators (eq, like)
+  defp apply_field_filter(query, field, op, value) when op in ["eq", "equals"] do
     Ash.Query.filter_input(query, %{field => %{eq: value}})
   end
 
-  defp apply_field_filter(query, field, "not_eq", value) do
+  defp apply_field_filter(query, field, op, value) when op in ["not_eq", "not_equals"] do
     Ash.Query.filter_input(query, %{field => %{not_eq: value}})
   end
 
+  defp apply_field_filter(query, field, "contains", value) do
+    Ash.Query.filter_input(query, %{field => %{contains: value}})
+  end
+
   defp apply_field_filter(query, field, "like", value) do
-    # SRQL "like" values contain % wildcards, strip them for Ash contains
+    # Legacy SRQL "like" values contain % wildcards, strip them for Ash contains
     stripped = value |> String.trim_leading("%") |> String.trim_trailing("%")
     Ash.Query.filter_input(query, %{field => %{contains: stripped}})
   end
 
-  defp apply_field_filter(query, _field, "not_like", _value) do
-    # Skip not_like - count will be an approximation
+  defp apply_field_filter(query, _field, op, _value) when op in ["not_like", "not_contains"] do
+    # Skip negative contains - count will be an approximation
+    # Ash doesn't have a direct not_contains filter
     query
   end
 

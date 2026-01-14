@@ -664,9 +664,14 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 		// Handle SNMPv3 auth
 		if t.V3Auth != nil {
 			target.Community = "" // Clear community for v3
-			// V3 auth is handled separately in the collector
-			// For now we store username as community (temporary workaround)
-			// TODO: Add proper v3 auth support to Target struct
+			target.V3Auth = &snmp.V3Auth{
+				Username:      t.V3Auth.Username,
+				SecurityLevel: protoToSNMPSecurityLevel(t.V3Auth.SecurityLevel),
+				AuthProtocol:  protoToSNMPAuthProtocol(t.V3Auth.AuthProtocol),
+				AuthPassword:  t.V3Auth.AuthPassword,
+				PrivProtocol:  protoToSNMPPrivProtocol(t.V3Auth.PrivProtocol),
+				PrivPassword:  t.V3Auth.PrivPassword,
+			}
 		}
 
 		for _, oid := range t.Oids {
@@ -721,4 +726,59 @@ func protoToSNMPDataType(dt proto.SNMPDataType) snmp.DataType {
 		return snmp.TypeGauge
 	}
 	return snmp.TypeGauge
+}
+
+// protoToSNMPSecurityLevel converts proto SNMPSecurityLevel to snmp.SecurityLevel.
+func protoToSNMPSecurityLevel(sl proto.SNMPSecurityLevel) snmp.SecurityLevel {
+	switch sl {
+	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_NO_AUTH_NO_PRIV:
+		return snmp.SecurityLevelNoAuthNoPriv
+	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_NO_PRIV:
+		return snmp.SecurityLevelAuthNoPriv
+	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV:
+		return snmp.SecurityLevelAuthPriv
+	case proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_UNSPECIFIED:
+		return snmp.SecurityLevelNoAuthNoPriv
+	}
+	return snmp.SecurityLevelNoAuthNoPriv
+}
+
+// protoToSNMPAuthProtocol converts proto SNMPAuthProtocol to snmp.AuthProtocol.
+func protoToSNMPAuthProtocol(ap proto.SNMPAuthProtocol) snmp.AuthProtocol {
+	switch ap {
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_MD5:
+		return snmp.AuthProtocolMD5
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA:
+		return snmp.AuthProtocolSHA
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA224:
+		return snmp.AuthProtocolSHA224
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA256:
+		return snmp.AuthProtocolSHA256
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA384:
+		return snmp.AuthProtocolSHA384
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA512:
+		return snmp.AuthProtocolSHA512
+	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_UNSPECIFIED:
+		return snmp.AuthProtocolMD5
+	}
+	return snmp.AuthProtocolMD5
+}
+
+// protoToSNMPPrivProtocol converts proto SNMPPrivProtocol to snmp.PrivProtocol.
+func protoToSNMPPrivProtocol(pp proto.SNMPPrivProtocol) snmp.PrivProtocol {
+	switch pp {
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_DES:
+		return snmp.PrivProtocolDES
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES:
+		return snmp.PrivProtocolAES
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192,
+		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES192C:
+		return snmp.PrivProtocolAES192
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256,
+		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C:
+		return snmp.PrivProtocolAES256
+	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED:
+		return snmp.PrivProtocolDES
+	}
+	return snmp.PrivProtocolDES
 }

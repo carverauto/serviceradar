@@ -36,12 +36,8 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} ->
-        # Unset each default profile using the dedicated action
-        Enum.each(profiles, fn profile ->
-          profile
-          |> Ash.Changeset.for_update(:unset_default, %{}, actor: actor, tenant: tenant)
-          |> Ash.update(actor: actor)
-        end)
+        # Unset all default profiles in a single bulk operation
+        Ash.bulk_update(profiles, :unset_default, %{}, actor: actor, tenant: tenant)
 
       {:error, error} ->
         # Log but don't fail - the system should continue and we'll have multiple defaults

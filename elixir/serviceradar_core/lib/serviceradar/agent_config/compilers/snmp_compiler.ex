@@ -78,11 +78,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # Resolve the profile for this agent/device
     profile = resolve_profile(tenant_schema, device_uid, agent_id, actor)
 
-    if profile do
+    if profile && profile.enabled do
       config = compile_profile(profile, tenant_schema, actor)
       {:ok, config}
     else
-      # Return disabled config if no profile found
+      # Return disabled config if no profile found or profile is disabled
       {:ok, disabled_config()}
     end
   rescue
