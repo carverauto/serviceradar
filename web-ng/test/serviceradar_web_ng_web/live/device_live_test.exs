@@ -28,4 +28,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "test-host"
     assert html =~ "in:devices"
   end
+
+  test "renders fallback sysmon label when profile data is missing", %{conn: conn} do
+    uid = "test-device-sysmon-missing-#{System.unique_integer([:positive])}"
+    {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "test-host",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z],
+        tenant_id: tenant_uuid
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    assert has_element?(view, "td span", "Unassigned")
+  end
 end

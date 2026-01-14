@@ -868,42 +868,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   attr :default_profile, :any, default: nil
 
   def sysmon_profile_badge(assigns) do
-    {label, is_direct} =
-      cond do
-        is_map(assigns.profile) ->
-          {assigns.profile.name, true}
+    profile_name = sysmon_profile_label(assigns.profile)
+    default_name = sysmon_profile_label(assigns.default_profile)
 
-        is_map(assigns.default_profile) ->
-          {assigns.default_profile.name, false}
+    {label, source} =
+      cond do
+        is_binary(profile_name) ->
+          {profile_name, :direct}
+
+        is_binary(default_name) ->
+          {default_name, :default}
 
         true ->
-          {nil, false}
+          {"Unassigned", :missing}
       end
 
     assigns =
       assigns
       |> assign(:label, label)
-      |> assign(:is_direct, is_direct)
+      |> assign(:source, source)
 
     ~H"""
-    <div :if={@label} class="flex items-center gap-1">
+    <div class="flex items-center gap-1">
       <span class={[
         "text-xs truncate max-w-[8rem]",
-        if(@is_direct, do: "font-medium text-base-content", else: "text-base-content/60")
+        if(@source == :direct, do: "font-medium text-base-content", else: "text-base-content/60")
       ]}>
         {@label}
       </span>
       <span
-        :if={not @is_direct}
+        :if={@source == :default}
         class="badge badge-ghost badge-xs"
         title="Using default profile"
       >
         Default
       </span>
     </div>
-    <span :if={not @label} class="text-base-content/40">—</span>
     """
   end
+
+  defp sysmon_profile_label(profile) when is_map(profile) do
+    case Map.get(profile, :name) || Map.get(profile, "name") do
+      name when is_binary(name) ->
+        name = String.trim(name)
+        if name == "", do: nil, else: name
+
+      _ ->
+        nil
+    end
+  end
+
+  defp sysmon_profile_label(_), do: nil
 
   defp tone_stroke("error"), do: "#ff5555"
   defp tone_stroke("warning"), do: "#ffb86c"
