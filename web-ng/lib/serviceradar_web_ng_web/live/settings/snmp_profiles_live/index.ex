@@ -15,6 +15,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias AshPhoenix.Form
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.SNMPProfiles.BuiltinTemplates
+  alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
+  alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -41,6 +45,13 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       |> assign(:target_form, nil)
       |> assign(:editing_target, nil)
       |> assign(:show_password, false)
+      |> assign(:test_connection_result, nil)
+      |> assign(:test_connection_loading, false)
+      # OID management state
+      |> assign(:target_oids, [])
+      |> assign(:show_template_browser, false)
+      |> assign(:template_search, "")
+      |> assign(:selected_vendor, "standard")
 
     {:ok, socket}
   end
@@ -63,6 +74,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:show_target_modal, false)
     |> assign(:target_form, nil)
     |> assign(:editing_target, nil)
+    |> assign(:target_oids, [])
+    |> assign(:show_template_browser, false)
   end
 
   defp apply_action(socket, :new_profile, _params) do
@@ -84,6 +97,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     |> assign(:show_target_modal, false)
     |> assign(:target_form, nil)
     |> assign(:editing_target, nil)
+    |> assign(:target_oids, [])
+    |> assign(:show_template_browser, false)
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -121,6 +136,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:show_target_modal, false)
         |> assign(:target_form, nil)
         |> assign(:editing_target, nil)
+        |> assign(:target_oids, [])
+        |> assign(:show_template_browser, false)
     end
   end
 
@@ -358,7 +375,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
      |> assign(:show_target_modal, true)
      |> assign(:target_form, to_form(target_form))
      |> assign(:editing_target, nil)
-     |> assign(:show_password, false)}
+     |> assign(:show_password, false)
+     |> assign(:target_oids, [])
+     |> assign(:show_template_browser, false)
+     |> assign(:test_connection_result, nil)
+     |> assign(:test_connection_loading, false)}
   end
 
   def handle_event("edit_target", %{"id" => id}, socket) do
@@ -372,12 +393,19 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         target_form =
           Form.for_update(target, :update, domain: ServiceRadar.SNMPProfiles, scope: scope)
 
+        # Load existing OIDs for this target
+        oids = load_target_oids(scope, target.id)
+
         {:noreply,
          socket
          |> assign(:show_target_modal, true)
          |> assign(:target_form, to_form(target_form))
          |> assign(:editing_target, target)
-         |> assign(:show_password, false)}
+         |> assign(:show_password, false)
+         |> assign(:target_oids, oids)
+         |> assign(:show_template_browser, false)
+         |> assign(:test_connection_result, nil)
+         |> assign(:test_connection_loading, false)}
     end
   end
 
@@ -387,7 +415,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
      |> assign(:show_target_modal, false)
      |> assign(:target_form, nil)
      |> assign(:editing_target, nil)
-     |> assign(:show_password, false)}
+     |> assign(:show_password, false)
+     |> assign(:target_oids, [])
+     |> assign(:show_template_browser, false)
+     |> assign(:test_connection_result, nil)
+     |> assign(:test_connection_loading, false)}
   end
 
   def handle_event("toggle_password_visibility", _params, socket) do
@@ -480,6 +512,316 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  def handle_event("test_connection", _params, socket) do
+    form = socket.assigns.target_form
+
+    # Get form values - handle both source formats
+    host = get_form_value(form, :host, "")
+    port = get_form_value(form, :port, 161)
+
+    # Convert port to integer if needed
+    port =
+      case port do
+        p when is_integer(p) -> p
+        p when is_binary(p) -> String.to_integer(p)
+        _ -> 161
+      end
+
+    # Validate we have a host
+    if host == "" or host == nil do
+      {:noreply,
+       assign(socket, :test_connection_result, %{
+         success: false,
+         message: "Please enter a host address first"
+       })}
+    else
+      # Set loading state
+      socket = assign(socket, :test_connection_loading, true)
+
+      # Send to self to do async work
+      send(self(), {:test_snmp_connection, host, port})
+
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_info({:test_snmp_connection, host, port}, socket) do
+    result = test_snmp_connectivity(host, port)
+
+    {:noreply,
+     socket
+     |> assign(:test_connection_loading, false)
+     |> assign(:test_connection_result, result)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Test SNMP connectivity by resolving the host and sending a UDP probe
+  # Note: SNMP uses UDP, so we can't use TCP connection tests
+  defp test_snmp_connectivity(host, port) do
+    # First, resolve the hostname to verify it exists
+    host_charlist = String.to_charlist(host)
+
+    case :inet.getaddr(host_charlist, :inet) do
+      {:ok, ip_addr} ->
+        # Host resolved successfully, now try UDP reachability test
+        test_udp_reachability(host, ip_addr, port)
+
+      {:error, :nxdomain} ->
+        %{
+          success: false,
+          message: "Host not found - check the hostname"
+        }
+
+      {:error, :einval} ->
+        %{
+          success: false,
+          message: "Invalid host address format"
+        }
+
+      {:error, reason} ->
+        %{
+          success: false,
+          message: "DNS resolution failed: #{inspect(reason)}"
+        }
+    end
+  rescue
+    e ->
+      %{
+        success: false,
+        message: "Error: #{Exception.message(e)}"
+      }
+  end
+
+  # Try to send a UDP packet and see if we get an ICMP unreachable
+  # This is a best-effort test since SNMP uses UDP
+  defp test_udp_reachability(host, ip_addr, port) do
+    case :gen_udp.open(0, [:binary, active: false]) do
+      {:ok, socket} ->
+        # Send a minimal SNMP GET request packet
+        # This is a simplified SNMPv1 GET for sysDescr.0 (.1.3.6.1.2.1.1.1.0)
+        snmp_packet = build_snmp_get_request()
+
+        :gen_udp.send(socket, ip_addr, port, snmp_packet)
+
+        # Wait briefly for a response (300ms timeout)
+        result =
+          case :gen_udp.recv(socket, 0, 3_000) do
+            {:ok, {_addr, _recv_port, _data}} ->
+              %{
+                success: true,
+                message: "SNMP agent responded at #{host}:#{port}"
+              }
+
+            {:error, :timeout} ->
+              # No response could mean firewall, wrong community, or host down
+              # Report as potentially reachable since UDP is connectionless
+              %{
+                success: true,
+                message: "Host #{host}:#{port} is reachable (no SNMP response - check community string)"
+              }
+
+            {:error, :econnrefused} ->
+              %{
+                success: false,
+                message: "ICMP port unreachable - no SNMP agent on #{host}:#{port}"
+              }
+
+            {:error, reason} ->
+              %{
+                success: false,
+                message: "UDP test failed: #{inspect(reason)}"
+              }
+          end
+
+        :gen_udp.close(socket)
+        result
+
+      {:error, reason} ->
+        %{
+          success: false,
+          message: "Failed to create test socket: #{inspect(reason)}"
+        }
+    end
+  end
+
+  # Build a minimal SNMPv1 GET request for sysDescr.0
+  # This is used just to elicit a response from the SNMP agent
+  defp build_snmp_get_request do
+    # SNMPv1 GET request structure (ASN.1 BER encoded)
+    # Request for .1.3.6.1.2.1.1.1.0 (sysDescr.0) with community "public"
+    <<
+      # SEQUENCE (total length 0x27 = 39 bytes)
+      0x30, 0x27,
+      # INTEGER - version (0 = SNMPv1)
+      0x02, 0x01, 0x00,
+      # OCTET STRING - community "public"
+      0x04, 0x06, "public",
+      # GetRequest-PDU (length 0x1A = 26 bytes)
+      0xA0, 0x1A,
+      # INTEGER - request-id
+      0x02, 0x04, 0x00, 0x00, 0x00, 0x01,
+      # INTEGER - error-status
+      0x02, 0x01, 0x00,
+      # INTEGER - error-index
+      0x02, 0x01, 0x00,
+      # SEQUENCE - variable-bindings (length 0x0C = 12 bytes)
+      0x30, 0x0C,
+      # SEQUENCE - single binding (length 0x0A = 10 bytes)
+      0x30, 0x0A,
+      # OID - .1.3.6.1.2.1.1.1.0 (sysDescr.0) - length 8
+      0x06, 0x08, 0x2B, 0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00,
+      # NULL value
+      0x05, 0x00
+    >>
+  end
+
+  # OID management event handlers
+
+  def handle_event("add_oid", _params, socket) do
+    new_oid = %{
+      "oid" => "",
+      "name" => "",
+      "data_type" => "gauge",
+      "scale" => "1.0",
+      "delta" => false,
+      "temp_id" => System.unique_integer([:positive])
+    }
+
+    oids = socket.assigns.target_oids ++ [new_oid]
+    {:noreply, assign(socket, :target_oids, oids)}
+  end
+
+  def handle_event("remove_oid", %{"index" => index_str}, socket) do
+    index = String.to_integer(index_str)
+    oids = List.delete_at(socket.assigns.target_oids, index)
+    {:noreply, assign(socket, :target_oids, oids)}
+  end
+
+  def handle_event("update_oid", %{"index" => index_str} = params, socket) do
+    index = String.to_integer(index_str)
+    oids = socket.assigns.target_oids
+
+    updated_oid =
+      Enum.at(oids, index)
+      |> Map.merge(%{
+        "oid" => Map.get(params, "oid", ""),
+        "name" => Map.get(params, "name", ""),
+        "data_type" => Map.get(params, "data_type", "gauge"),
+        "scale" => Map.get(params, "scale", "1.0"),
+        "delta" => Map.get(params, "delta", "false") == "true"
+      })
+
+    updated_oids = List.replace_at(oids, index, updated_oid)
+    {:noreply, assign(socket, :target_oids, updated_oids)}
+  end
+
+  def handle_event("open_template_browser", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_template_browser, true)
+     |> assign(:template_search, "")
+     |> assign(:selected_vendor, "standard")}
+  end
+
+  def handle_event("close_template_browser", _params, socket) do
+    {:noreply, assign(socket, :show_template_browser, false)}
+  end
+
+  def handle_event("select_vendor", %{"vendor" => vendor}, socket) do
+    {:noreply, assign(socket, :selected_vendor, vendor)}
+  end
+
+  def handle_event("search_templates", %{"search" => search}, socket) do
+    {:noreply, assign(socket, :template_search, search)}
+  end
+
+  def handle_event("add_template_oids", %{"template_id" => template_id}, socket) do
+    templates = BuiltinTemplates.all_templates()
+
+    case Enum.find(templates, &(&1.id == template_id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Template not found")}
+
+      template ->
+        # Convert template OIDs to our working format
+        new_oids =
+          Enum.map(template.oids, fn oid ->
+            %{
+              "oid" => oid.oid,
+              "name" => oid.name,
+              "data_type" => to_string(oid.data_type),
+              "scale" => to_string(oid.scale || 1.0),
+              "delta" => oid.delta || false,
+              "temp_id" => System.unique_integer([:positive])
+            }
+          end)
+
+        # Add to existing OIDs (avoiding duplicates by OID string)
+        existing_oid_strings = Enum.map(socket.assigns.target_oids, & &1["oid"])
+
+        unique_new_oids =
+          Enum.reject(new_oids, fn oid -> oid["oid"] in existing_oid_strings end)
+
+        updated_oids = socket.assigns.target_oids ++ unique_new_oids
+
+        {:noreply,
+         socket
+         |> assign(:target_oids, updated_oids)
+         |> assign(:show_template_browser, false)
+         |> put_flash(:info, "Added #{length(unique_new_oids)} OID(s) from #{template.name}")}
+    end
+  end
+
+  def handle_event("copy_template_to_custom", %{"template_id" => template_id}, socket) do
+    templates = BuiltinTemplates.all_templates()
+    scope = socket.assigns.current_scope
+
+    case Enum.find(templates, &(&1.id == template_id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Template not found")}
+
+      template ->
+        # Create a custom copy of the built-in template
+        # Convert OIDs to the expected format for SNMPOIDTemplate
+        oids =
+          Enum.map(template.oids, fn oid ->
+            %{
+              "oid" => oid.oid,
+              "name" => oid.name,
+              "data_type" => to_string(oid.data_type),
+              "scale" => oid.scale || 1.0,
+              "delta" => oid.delta || false
+            }
+          end)
+
+        attrs = %{
+          name: "#{template.name} (Copy)",
+          description: template.description,
+          vendor: "custom",
+          category: template.category,
+          oids: oids
+        }
+
+        case create_custom_template(scope, attrs) do
+          {:ok, custom_template} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Created custom template: #{custom_template.name}")}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to create custom template")}
+        end
+    end
+  end
+
+  defp create_custom_template(scope, attrs) do
+    SNMPOIDTemplate
+    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
+    |> Ash.create(scope: scope)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -510,6 +852,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         form={@target_form}
         editing_target={@editing_target}
         show_password={@show_password}
+        target_oids={@target_oids}
+        test_connection_result={@test_connection_result}
+        test_connection_loading={@test_connection_loading}
+      />
+
+      <!-- Template Browser Modal -->
+      <.template_browser_modal
+        :if={@show_template_browser}
+        search={@template_search}
+        selected_vendor={@selected_vendor}
       />
     </.settings_shell>
     """
@@ -1036,6 +1388,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   attr :form, :any, required: true
   attr :editing_target, :any, default: nil
   attr :show_password, :boolean, default: false
+  attr :target_oids, :list, default: []
+  attr :test_connection_result, :map, default: nil
+  attr :test_connection_loading, :boolean, default: false
 
   defp target_modal(assigns) do
     version = get_form_value(assigns.form, :version, "v2c")
@@ -1259,6 +1614,168 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
             <% end %>
           </div>
 
+          <!-- OIDs Section -->
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm font-semibold text-base-content/70">OIDs to Monitor</h4>
+              <div class="flex items-center gap-2">
+                <.ui_button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  phx-click="open_template_browser"
+                >
+                  <.icon name="hero-document-duplicate" class="size-4" /> Use Template
+                </.ui_button>
+                <.ui_button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  phx-click="add_oid"
+                >
+                  <.icon name="hero-plus" class="size-4" /> Add OID
+                </.ui_button>
+              </div>
+            </div>
+
+            <div :if={@target_oids == []} class="text-center py-6 text-base-content/60 bg-base-200/30 rounded-lg">
+              <.icon name="hero-variable" class="size-8 mx-auto mb-2 opacity-50" />
+              <p class="text-sm">No OIDs configured</p>
+              <p class="text-xs mt-1">Add OIDs manually or select from a template</p>
+            </div>
+
+            <div :if={@target_oids != []} class="space-y-3">
+              <%= for {oid, idx} <- Enum.with_index(@target_oids) do %>
+                <div class="flex items-start gap-2 p-3 bg-base-200/30 rounded-lg">
+                  <div class="flex-1 grid grid-cols-1 md:grid-cols-6 gap-2">
+                    <div class="md:col-span-2">
+                      <input
+                        type="text"
+                        value={oid["oid"]}
+                        placeholder=".1.3.6.1.2.1.1.1.0"
+                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        phx-blur="update_oid"
+                        phx-value-index={idx}
+                        phx-value-oid={oid["oid"]}
+                        phx-value-name={oid["name"]}
+                        phx-value-data_type={oid["data_type"]}
+                        phx-value-scale={oid["scale"]}
+                        phx-value-delta={to_string(oid["delta"])}
+                        name={"oid_#{idx}_oid"}
+                      />
+                      <span class="text-[10px] text-base-content/50">OID</span>
+                    </div>
+                    <div class="md:col-span-2">
+                      <input
+                        type="text"
+                        value={oid["name"]}
+                        placeholder="sysDescr"
+                        class="input input-bordered input-sm w-full text-xs"
+                        phx-blur="update_oid"
+                        phx-value-index={idx}
+                        phx-value-oid={oid["oid"]}
+                        phx-value-name={oid["name"]}
+                        phx-value-data_type={oid["data_type"]}
+                        phx-value-scale={oid["scale"]}
+                        phx-value-delta={to_string(oid["delta"])}
+                        name={"oid_#{idx}_name"}
+                      />
+                      <span class="text-[10px] text-base-content/50">Name</span>
+                    </div>
+                    <div>
+                      <select
+                        class="select select-bordered select-sm w-full text-xs"
+                        phx-change="update_oid"
+                        phx-value-index={idx}
+                        phx-value-oid={oid["oid"]}
+                        phx-value-name={oid["name"]}
+                        phx-value-scale={oid["scale"]}
+                        phx-value-delta={to_string(oid["delta"])}
+                        name={"oid_#{idx}_data_type"}
+                      >
+                        <option value="gauge" selected={oid["data_type"] == "gauge"}>Gauge</option>
+                        <option value="counter" selected={oid["data_type"] == "counter"}>Counter</option>
+                        <option value="string" selected={oid["data_type"] == "string"}>String</option>
+                        <option value="timeticks" selected={oid["data_type"] == "timeticks"}>Timeticks</option>
+                      </select>
+                      <span class="text-[10px] text-base-content/50">Type</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <label class="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          checked={oid["delta"] == true or oid["delta"] == "true"}
+                          phx-click="update_oid"
+                          phx-value-index={idx}
+                          phx-value-oid={oid["oid"]}
+                          phx-value-name={oid["name"]}
+                          phx-value-data_type={oid["data_type"]}
+                          phx-value-scale={oid["scale"]}
+                          phx-value-delta={to_string(!(oid["delta"] == true or oid["delta"] == "true"))}
+                        />
+                        <span class="text-xs">Delta</span>
+                      </label>
+                    </div>
+                  </div>
+                  <.ui_icon_button
+                    type="button"
+                    size="sm"
+                    phx-click="remove_oid"
+                    phx-value-index={idx}
+                    title="Remove OID"
+                  >
+                    <.icon name="hero-x-mark" class="size-4" />
+                  </.ui_icon_button>
+                </div>
+              <% end %>
+            </div>
+
+            <p class="text-xs text-base-content/50">
+              Configure which SNMP OIDs to poll from this target. Use templates for common device types.
+            </p>
+          </div>
+
+          <!-- Test Connection -->
+          <div class="space-y-3">
+            <div class="flex items-center gap-3">
+              <.ui_button
+                type="button"
+                variant="outline"
+                size="sm"
+                phx-click="test_connection"
+                disabled={@test_connection_loading}
+              >
+                <%= if @test_connection_loading do %>
+                  <span class="loading loading-spinner loading-xs mr-2"></span>
+                  Testing...
+                <% else %>
+                  <.icon name="hero-signal" class="size-4 mr-2" />
+                  Test Connection
+                <% end %>
+              </.ui_button>
+              <span class="text-xs text-base-content/50">
+                Verify connectivity to the SNMP agent
+              </span>
+            </div>
+
+            <!-- Test Result -->
+            <%= if @test_connection_result do %>
+              <div class={[
+                "flex items-center gap-2 p-3 rounded-lg text-sm",
+                @test_connection_result.success && "bg-success/10 text-success",
+                !@test_connection_result.success && "bg-error/10 text-error"
+              ]}>
+                <%= if @test_connection_result.success do %>
+                  <.icon name="hero-check-circle" class="size-5" />
+                <% else %>
+                  <.icon name="hero-x-circle" class="size-5" />
+                <% end %>
+                <span>{@test_connection_result.message}</span>
+              </div>
+            <% end %>
+          </div>
+
           <!-- Modal Actions -->
           <div class="modal-action">
             <.ui_button type="button" variant="ghost" phx-click="close_target_modal">
@@ -1272,6 +1789,140 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
       </div>
       <form method="dialog" class="modal-backdrop">
         <button type="button" phx-click="close_target_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Template Browser Modal
+  attr :search, :string, default: ""
+  attr :selected_vendor, :string, default: "standard"
+
+  defp template_browser_modal(assigns) do
+    templates = BuiltinTemplates.all_templates()
+    vendors = BuiltinTemplates.vendors()
+
+    # Filter templates by vendor and search
+    filtered_templates =
+      templates
+      |> Enum.filter(fn t ->
+        # Vendor match is case-insensitive
+        vendor_match = String.downcase(t.vendor) == String.downcase(assigns.selected_vendor)
+        search_match = assigns.search == "" or
+          String.contains?(String.downcase(t.name), String.downcase(assigns.search)) or
+          String.contains?(String.downcase(t.description || ""), String.downcase(assigns.search))
+        vendor_match and search_match
+      end)
+
+    assigns =
+      assigns
+      |> assign(:templates, filtered_templates)
+      |> assign(:vendors, vendors)
+
+    ~H"""
+    <dialog id="template_browser_modal" class="modal modal-open">
+      <div class="modal-box max-w-3xl max-h-[80vh]">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            type="button"
+            phx-click="close_template_browser"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="font-bold text-lg mb-4">OID Templates</h3>
+        <p class="text-sm text-base-content/60 mb-4">
+          Select a template to add pre-configured OIDs for common device types.
+        </p>
+
+        <!-- Search and Vendor Filter -->
+        <div class="flex flex-col md:flex-row gap-4 mb-4">
+          <div class="flex-1">
+            <input
+              type="text"
+              value={@search}
+              placeholder="Search templates..."
+              class="input input-bordered w-full"
+              phx-keyup="search_templates"
+              phx-value-search=""
+              name="search"
+            />
+          </div>
+        </div>
+
+        <!-- Vendor Tabs -->
+        <div class="tabs tabs-boxed mb-4">
+          <%= for vendor <- @vendors do %>
+            <button
+              type="button"
+              class={"tab #{if @selected_vendor == vendor.id, do: "tab-active", else: ""}"}
+              phx-click="select_vendor"
+              phx-value-vendor={vendor.id}
+            >
+              {vendor.name}
+            </button>
+          <% end %>
+        </div>
+
+        <!-- Templates List -->
+        <div class="overflow-y-auto max-h-[40vh] space-y-2">
+          <div :if={@templates == []} class="text-center py-8 text-base-content/60">
+            <.icon name="hero-document-magnifying-glass" class="size-10 mx-auto mb-2 opacity-50" />
+            <p>No templates found</p>
+          </div>
+
+          <%= for template <- @templates do %>
+            <div class="flex items-center justify-between p-3 bg-base-200/30 rounded-lg hover:bg-base-200/50">
+              <div class="flex-1">
+                <div class="font-medium text-sm">{template.name}</div>
+                <p :if={template.description} class="text-xs text-base-content/60 mt-0.5">
+                  {template.description}
+                </p>
+                <div class="flex items-center gap-2 mt-1">
+                  <.ui_badge variant="ghost" size="xs">
+                    {length(template.oids)} OID(s)
+                  </.ui_badge>
+                  <.ui_badge :if={template.category} variant="info" size="xs">
+                    {template.category}
+                  </.ui_badge>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <.ui_button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  phx-click="copy_template_to_custom"
+                  phx-value-template_id={template.id}
+                  title="Create editable copy"
+                >
+                  <.icon name="hero-document-duplicate" class="size-4" />
+                </.ui_button>
+                <.ui_button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  phx-click="add_template_oids"
+                  phx-value-template_id={template.id}
+                >
+                  <.icon name="hero-plus" class="size-4" /> Add
+                </.ui_button>
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="modal-action">
+          <.ui_button type="button" variant="ghost" phx-click="close_template_browser">
+            Close
+          </.ui_button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button type="button" phx-click="close_template_browser">close</button>
       </form>
     </dialog>
     """
@@ -1327,13 +1978,147 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
     end
   end
 
+  defp load_target_oids(scope, target_id) do
+    query =
+      SNMPOIDConfig
+      |> Ash.Query.filter(snmp_target_id == ^target_id)
+      |> Ash.Query.sort(:name)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, oids} ->
+        # Convert to map format for UI
+        Enum.map(oids, fn oid ->
+          %{
+            "id" => oid.id,
+            "oid" => oid.oid,
+            "name" => oid.name,
+            "data_type" => to_string(oid.data_type),
+            "scale" => to_string(oid.scale),
+            "delta" => oid.delta
+          }
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
 
-  defp count_target_devices(_scope, _target_query) do
-    # TODO: Implement interface counting from SRQL query
-    # For now, return nil to hide the count
-    nil
+  defp count_target_devices(scope, target_query) when is_binary(target_query) do
+    # Parse the SRQL query and count matching interfaces
+    case ServiceRadarSRQL.Native.parse_ast(target_query) do
+      {:ok, ast_json} ->
+        case Jason.decode(ast_json) do
+          {:ok, ast} ->
+            count_interfaces_from_ast(scope, ast)
+
+          {:error, _} ->
+            nil
+        end
+
+      {:error, _} ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp count_interfaces_from_ast(scope, ast) do
+    filters = extract_srql_filters(ast)
+
+    query =
+      Interface
+      |> Ash.Query.for_read(:read, %{})
+      |> apply_srql_filters(filters)
+
+    case Ash.count(query, scope: scope) do
+      {:ok, count} -> count
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp extract_srql_filters(%{"filters" => filters}) when is_list(filters) do
+    Enum.map(filters, fn filter ->
+      %{
+        field: Map.get(filter, "field"),
+        op: Map.get(filter, "op", "eq"),
+        value: Map.get(filter, "value")
+      }
+    end)
+  end
+
+  defp extract_srql_filters(_), do: []
+
+  defp apply_srql_filters(query, filters) do
+    Enum.reduce(filters, query, fn filter, q ->
+      apply_srql_filter(q, filter)
+    end)
+  end
+
+  defp apply_srql_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
+    # Map interface fields from SRQL to Ash attributes
+    mapped_field =
+      case field do
+        "if_name" -> :if_name
+        "name" -> :if_name
+        "if_descr" -> :if_descr
+        "description" -> :if_descr
+        "if_alias" -> :if_alias
+        "alias" -> :if_alias
+        "device_id" -> :device_id
+        "device_ip" -> :device_ip
+        "ip" -> :device_ip
+        "gateway_id" -> :gateway_id
+        "agent_id" -> :agent_id
+        "if_oper_status" -> :if_oper_status
+        "oper_status" -> :if_oper_status
+        "if_admin_status" -> :if_admin_status
+        "admin_status" -> :if_admin_status
+        "if_speed" -> :if_speed
+        "speed" -> :if_speed
+        "if_phys_address" -> :if_phys_address
+        "mac" -> :if_phys_address
+        _ -> nil
+      end
+
+    if mapped_field do
+      apply_field_filter(query, mapped_field, op, value)
+    else
+      query
+    end
+  rescue
+    _ -> query
+  end
+
+  defp apply_srql_filter(query, _), do: query
+
+  # Apply filter based on SRQL operator
+  defp apply_field_filter(query, field, "eq", value) do
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  end
+
+  defp apply_field_filter(query, field, "not_eq", value) do
+    Ash.Query.filter_input(query, %{field => %{not_eq: value}})
+  end
+
+  defp apply_field_filter(query, field, "like", value) do
+    # SRQL "like" values contain % wildcards, strip them for Ash contains
+    stripped = value |> String.trim_leading("%") |> String.trim_trailing("%")
+    Ash.Query.filter_input(query, %{field => %{contains: stripped}})
+  end
+
+  defp apply_field_filter(query, _field, "not_like", _value) do
+    # Skip not_like - count will be an approximation
+    query
+  end
+
+  defp apply_field_filter(query, field, _op, value) do
+    # Default to equality for unknown operators
+    Ash.Query.filter_input(query, %{field => %{eq: value}})
   end
 
   # Builder Helper Functions

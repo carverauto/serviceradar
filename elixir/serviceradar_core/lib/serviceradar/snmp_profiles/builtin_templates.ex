@@ -35,13 +35,48 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   end
 
   @doc """
+  Returns all built-in OID templates with generated IDs.
+  This is used by the UI to reference templates.
+  """
+  @spec all_templates() :: [map()]
+  def all_templates do
+    all()
+    |> Enum.map(fn template ->
+      # Generate a stable ID based on vendor and name
+      slug = template.name
+             |> String.downcase()
+             |> String.replace(~r/[^a-z0-9]+/, "-")
+             |> String.trim("-")
+      id = "#{String.downcase(template.vendor)}-#{slug}"
+      Map.put(template, :id, id)
+    end)
+  end
+
+  @doc """
+  Returns the list of supported vendors with display information.
+  """
+  @spec vendors() :: [map()]
+  def vendors do
+    [
+      %{id: "standard", name: "Standard"},
+      %{id: "cisco", name: "Cisco"},
+      %{id: "juniper", name: "Juniper"},
+      %{id: "arista", name: "Arista"}
+    ]
+  end
+
+  @doc """
   Returns templates for a specific vendor.
   """
   @spec for_vendor(String.t()) :: [map()]
   def for_vendor("Standard"), do: standard_templates()
+  def for_vendor("standard"), do: standard_templates()
   def for_vendor("Cisco"), do: cisco_templates()
+  def for_vendor("cisco"), do: cisco_templates()
   def for_vendor("Juniper"), do: juniper_templates()
+  def for_vendor("juniper"), do: juniper_templates()
   def for_vendor("Arista"), do: arista_templates()
+  def for_vendor("arista"), do: arista_templates()
   def for_vendor(_), do: []
 
   @doc """

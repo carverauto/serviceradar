@@ -167,6 +167,7 @@ func (s *SNMPAgentService) Start(ctx context.Context) error {
 	// Check if SNMP is enabled
 	if !config.Enabled {
 		s.logger.Info().Msg("SNMP is disabled in configuration")
+		s.started = true // Mark as started to prevent re-initialization
 		return nil
 	}
 

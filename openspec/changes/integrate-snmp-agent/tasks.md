@@ -15,7 +15,7 @@
 - [x] 2.5 Create SNMPProfiles domain at `lib/serviceradar/snmp_profiles.ex`
 - [x] 2.6 Add SRQL target_query and priority fields to SNMPProfile
 - [x] 2.7 Add credential encryption for community strings and SNMPv3 passwords (Cloak)
-- [ ] 2.8 Generate Ash migrations with `mix ash.codegen add_snmp_profiles`
+- [x] 2.8 Generate Ash migrations with `mix ash.codegen add_snmp_profiles`
 - [x] 2.9 Add tenant isolation (belongs_to Tenant, policies)
 
 ## 3. SNMP Config Compiler
@@ -48,8 +48,8 @@
 - [x] 5.4 Add Enabled field to SNMPConfig
 - [x] 5.5 Context cancellation handled via existing service
 - [x] 5.6 Thread-safety handled via existing service
-- [ ] 5.7 Update existing snmp_checker.go to use refactored collector
-- [ ] 5.8 Write/update collector unit tests
+- [x] 5.7 Update existing snmp_checker.go to use refactored collector
+- [x] 5.8 Write/update collector unit tests
 
 ## 6. Agent Integration
 
@@ -58,7 +58,7 @@
 - [x] 6.3 Initialize SNMPService on agent startup (if enabled)
 - [x] 6.4 Add GetSNMPStatus method
 - [x] 6.5 SNMP config refresh handled by SNMPAgentService
-- [ ] 6.6 Write integration tests
+- [x] 6.6 Write integration tests
 
 ## 7. UI - SNMP Profiles Page (Modal-Driven)
 
@@ -75,8 +75,8 @@
 - [x] 8.2 Connection tab: host, port, SNMP version selector
 - [x] 8.3 Auth tab (v1/v2c): community string with show/hide toggle
 - [x] 8.4 Auth tab (v3): username, security level, protocol selectors, passwords
-- [ ] 8.5 OIDs tab: template selector button + custom OID list
-- [ ] 8.6 Add/remove OID rows with data type, scale, delta options
+- [x] 8.5 OIDs tab: template selector button + custom OID list
+- [x] 8.6 Add/remove OID rows with data type, scale, delta options
 - [ ] 8.7 Test connection button with result feedback
 
 ## 9. OID Templates (Vendor-Based Library)
@@ -96,7 +96,7 @@
 - [x] 9.5 Define Arista templates:
   - [x] 9.5.1 environment: aristaEnvMonTempValue, aristaEnvMonFanState
 - [x] 9.6 Create SNMPOIDTemplate resource for user-created templates
-- [ ] 9.7 UI: Template browser modal (vendor tabs, search, preview)
+- [x] 9.7 UI: Template browser modal (vendor tabs, search, preview)
 - [ ] 9.8 UI: "Copy to Custom" action for built-in templates
 - [ ] 9.9 UI: Create/edit custom template modal
 
