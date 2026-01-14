@@ -126,14 +126,12 @@ defmodule ServiceRadar.SPIFFE.WorkloadAPI do
   end
 
   defp decode_private_key(der) when is_binary(der) do
-    try do
-      _ = :public_key.der_decode(:PrivateKeyInfo, der)
-      {:ok, {:PrivateKeyInfo, der}}
-    rescue
-      _ -> {:error, :invalid_private_key}
-    catch
-      _ -> {:error, :invalid_private_key}
-    end
+    _ = :public_key.der_decode(:PrivateKeyInfo, der)
+    {:ok, {:PrivateKeyInfo, der}}
+  rescue
+    _ -> {:error, :invalid_private_key}
+  catch
+    _ -> {:error, :invalid_private_key}
   end
 
   defp split_der_chain(<<>>, acc), do: Enum.reverse(acc)
@@ -175,12 +173,11 @@ defmodule ServiceRadar.SPIFFE.WorkloadAPI do
   end
 
   defp safe_disconnect(channel) do
-    try do
-      _ = GRPC.Stub.disconnect(channel)
-    rescue
-      _ -> :ok
-    catch
-      :exit, _ -> :ok
-    end
+    _ = GRPC.Stub.disconnect(channel)
+    :ok
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 end
