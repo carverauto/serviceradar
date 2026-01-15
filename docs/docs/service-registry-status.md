@@ -434,7 +434,6 @@ if s.edgeOnboarding != nil { ... }
 
 ## 📚 Related Documents
 
-- `docs/docs/onboarding-review-2025.md` - Gap analysis and recommendations
 - `docs/docs/service-registry-design.md` - Original technical design
 - `pkg/registry/service_models.go` - Data models
 - `pkg/registry/service_registry.go` - Core implementation

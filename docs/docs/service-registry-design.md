@@ -23,7 +23,7 @@ This document proposes extending the existing `pkg/registry` package to handle *
 - Cannot distinguish "never existed" from "stopped reporting"
 
 **Problem:**
-Per onboarding review (docs/onboarding-review-2025.md), lack of centralized service registry creates gaps:
+Lack of centralized service registry creates gaps:
 - No pre-registration of agents/checkers before first report
 - No historical record of registered services
 - Cannot track service lifecycle (pending → active → inactive)
@@ -960,7 +960,7 @@ func (r *ClusterSPIFFEIDReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 ### Phase 6: Migration & Cleanup (Week 4)
 - [ ] Backfill existing services from `services` stream
 - [ ] Update all documentation
-- [ ] Remove legacy gateway tracking code from edge onboarding
+- [ ] Remove gateway tracking code from edge onboarding
 - [ ] Performance tuning and optimization
 
 ---
@@ -1045,7 +1045,6 @@ By treating services as first-class citizens alongside devices, we create a robu
 
 ## References
 
-- `docs/onboarding-review-2025.md` - Gap analysis
 - `pkg/registry/` - Existing device registry
 - GH-1909: Edge onboarding: support agents and checkers
 - GH-1915 / serviceradar-57: Create common onboarding library

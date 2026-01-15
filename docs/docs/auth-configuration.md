@@ -5,7 +5,7 @@ title: Authentication Configuration
 
 # Authentication Configuration
 
-ServiceRadar supports user authentication to secure access to the monitoring dashboard and API. Web-NG owns the user-facing auth flows; core.json auth settings are legacy/internal and should not be exposed through the edge proxy.
+ServiceRadar supports user authentication to secure access to the monitoring dashboard and API. Web-NG owns the user-facing auth flows; core.json auth settings are internal and should not be exposed through the edge proxy.
 
 ## RS256 + JWKS (for edge proxies or external clients)
 
@@ -22,7 +22,7 @@ Add these fields under `auth` in `core.json`:
 }
 ```
 
-The core service will serve:
+The core-elx service will serve:
 - `/.well-known/openid-configuration` with a `jwks_uri` pointing to
 - `/auth/jwks.json` containing the RSA public key set
 
@@ -38,7 +38,7 @@ ServiceRadar's authentication system provides:
 
 ## Authentication Configuration
 
-Authentication is configured in the core service configuration file (`/etc/serviceradar/core.json`) under the `auth` section:
+Authentication is configured in the core-elx configuration file (`/etc/serviceradar/core.json`) under the `auth` section:
 
 ```json
 "auth": {
@@ -178,7 +178,7 @@ If web clients receive CORS errors:
 Currently, ServiceRadar does not provide a UI for viewing active sessions. If you need to force logout a user, you can:
 
 1. Change the `jwt_secret` (which will invalidate all existing tokens)
-2. Restart the core service
+2. Restart the core-elx service
 
 ## Next Steps
 

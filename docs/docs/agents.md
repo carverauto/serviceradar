@@ -487,7 +487,7 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
 
 - Agents still read `agents/<id>/checkers/sweep/sweep.json` from disk first, then apply any JSON overrides stored in the KV bucket via `pkg/config`. This preserves the existing knobs for intervals, timeout, and protocol selection.
 - Sync now streams the per-device target list into JetStream object storage through the `proto.DataService/UploadObject` RPC before updating KV. The pointer that lands in KV carries `storage: "data_service"`, the object key, and the SHA-256 digest so downloads can be verified.
-- When the agent sees the pointer metadata it layers the downloaded object _after_ file + KV overlays. If the DataService call fails (for example older clusters that only expose the legacy KV service) the agent logs a warning and falls back to the KV/file configuration with no sweep targets.
+- When the agent sees the pointer metadata it layers the downloaded object _after_ file + KV overlays. If the DataService call fails the agent logs a warning and falls back to the KV/file configuration with no sweep targets.
 - Atomicity: the object is uploaded first; only after `UploadObject` returns do we write the metadata pointer. A partially written pointer is therefore either the previous revision or a fully verified new blob.
 - Manual inspection:
   ```bash

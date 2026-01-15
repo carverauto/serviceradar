@@ -10,83 +10,35 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 ## Architecture Overview
 
 ```mermaid
-flowchart TB
-    subgraph External["External Access"]
-        User([User Browser])
+flowchart LR
+    User([User]) -->|HTTPS| Edge[Edge Proxy / Ingress]
+    Edge --> Web[Web-NG<br/>Phoenix + SRQL (Rustler)]
+    Web --> Core[core-elx<br/>REST :8090]
+
+    subgraph EdgeZone["Edge Network"]
+        Agent1[Agent]
+        AgentN[Agent]
     end
 
-    subgraph EdgeZone["Edge Zone (DMZ)"]
-        GA1[Go Agent<br/>Host 1]
-        GA2[Go Agent<br/>Host 2]
-        GAN[Go Agent<br/>Host N]
+    Agent1 -->|gRPC mTLS :50052| Gateway[Agent-Gateway]
+    AgentN -->|gRPC mTLS :50052| Gateway
+    Gateway --> Core
+
+    subgraph DataPlane["Data Plane"]
+        CNPG[(CNPG / TimescaleDB)]
+        NATS[NATS JetStream]
+        DATASVC[Datasvc (KV)]
     end
 
-    subgraph Cluster["Kubernetes Cluster (ERTS Cluster)"]
-        subgraph Ingress["Edge Layer"]
-            ING[Ingress Controller]
-            WEB[Web UI<br/>Phoenix :4000]
-        end
-
-        subgraph ControlPlane["Control Plane"]
-            CORE[core-elx<br/>REST :8090]
-            GATEWAY[Agent-Gateway<br/>gRPC :50052]
-        end
-
-        subgraph API["Query Layer"]
-            SRQL[SRQL Service<br/>:8080]
-        end
-
-        subgraph DataPlane["Data Plane"]
-            NATS[NATS JetStream<br/>:4222]
-            DATASVC[Datasvc<br/>KV Store]
-            CNPG[(TimescaleDB<br/>CloudNativePG)]
-        end
-
-        subgraph Collectors["Telemetry Collectors"]
-            OTEL[OTel Collector]
-            ZEN[Zen Rules Engine]
-            DBWRITER[DB Event Writer]
-        end
-
-        subgraph Identity["Identity & Security"]
-            SPIRE[SPIRE Server]
-            SPIREAGENT[SPIRE Agents<br/>DaemonSet]
-        end
-    end
-
-    %% User traffic flow
-    User -->|HTTPS| ING
-    ING --> WEB
-    ING -->|/api/*| WEB
-    ING -->|/api/query| WEB
-    WEB -->|SSR API| CORE
-    WEB -->|SRQL queries| SRQL
-
-    %% Edge agent flow - gRPC only, no ERTS
-    GA1 -->|gRPC mTLS :50052| GATEWAY
-    GA2 -->|gRPC mTLS :50052| GATEWAY
-    GAN -->|gRPC mTLS :50052| GATEWAY
-
-    %% Internal coordination
-    GATEWAY --> CORE
-
-    %% Data flow
-    CORE --> CNPG
-    SRQL --> CNPG
-    CORE <--> NATS
+    Core --> CNPG
+    Web --> CNPG
+    Core <--> NATS
     DATASVC <--> NATS
-    OTEL --> NATS
-    ZEN --> NATS
-    DBWRITER --> NATS
-    DBWRITER --> CNPG
-
-    %% Identity (simplified - all services use SPIRE)
-    SPIREAGENT -.->|workload certs| SPIRE
 ```
 
 **Traffic flow summary:**
 - **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
-- **Web-NG** serves `/`, `/api/*`, `/api/query`, and `/api/stream`
+- **Web-NG** serves `/`, `/api/*`, `/api/query`, and `/api/stream` and hosts SRQL via Rustler/NIF
 - **Core-elx, Web-NG, and Agent-Gateway** form the internal ERTS cluster over mTLS
 - **Edge agents** (Go binaries) connect via gRPC mTLS to the Agent-Gateway on port 50052
 - **NATS JetStream + Datasvc** provide platform messaging and KV storage for platform services
@@ -201,12 +153,12 @@ StatefulSet now embeds the upstream controller manager to reconcile
 deep dive into the manifests, controller configuration, and operational
 workflow see [SPIFFE / SPIRE Identity Platform](spiffe-identity.md).
 
-### SRQL Service (Query Engine)
+### SRQL (Query Engine)
 
-The SRQL microservice executes ServiceRadar Query Language requests:
+SRQL runs inside Web-NG via Rustler/NIFs and executes ServiceRadar Query Language requests:
 
 - Exposes `/api/query` (HTTP) and `/api/stream` (WebSocket) for bounded and streaming query execution
-- Runs as a Rust service (or embedded SRQL engine) that translates SRQL to Timescale-compatible SQL before dispatching the query
+- Translates SRQL to Timescale-compatible SQL before dispatching the query
 - Honors SRQL auth configuration (API key or core-issued JWTs) while relying on the edge proxy for TLS
 - Streams results back to the Web UI, which renders them in explorers and dashboards
 

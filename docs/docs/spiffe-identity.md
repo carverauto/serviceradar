@@ -94,10 +94,10 @@ runtime expectations:
 2. **KV overlay protection** – `pkg/config` strips `.security` blocks from KV
    overlays so the SPIFFE mode cannot be overwritten by remote configuration.
 3. **RBAC checks** – Datasvc and other control-plane services inspect the
-   SPIFFE URI from client certificates (SAN URI) instead of legacy CN values.
+   SPIFFE URI from client certificates (SAN URI) instead of CN values.
 
-As of this change, `serviceradar-core`, `serviceradar-agent-gateway`, `serviceradar-
-datasvc`, and the `serviceradar-agent` chart/manifests ship in SPIFFE mode.
+`serviceradar-core`, `serviceradar-agent-gateway`, `serviceradar-datasvc`, and
+the `serviceradar-agent` chart/manifests ship in SPIFFE mode.
 Mapper/sync/checkers are queued for migration.
 
 ## Operational Notes
