@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Plug.Conn
   import Phoenix.Controller
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.TenantResolver
 
@@ -60,7 +61,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       {:error, :invalid_token}
     else
       opts = tenant_opts(tenant)
-      subject_opts = Keyword.merge([authorize?: false], opts)
+      # Use platform actor for JWT validation - we're authenticating the user
+      actor = SystemActor.platform(:user_auth)
+      subject_opts = Keyword.merge([actor: actor], opts)
 
       # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
       # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
 
   @impl true
@@ -438,7 +439,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
       :nats_account_error,
       :nats_account_provisioned_at
     ])
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: SystemActor.platform(:nats_live))
     |> case do
       {:ok, nil} -> {:error, :not_found}
       {:ok, tenant} -> {:ok, tenant}
@@ -451,7 +452,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   defp clear_nats_account(tenant, actor) do
     tenant
     |> Ash.Changeset.for_update(:clear_nats_account, %{reason: "Cleared by admin"}, actor: actor)
-    |> Ash.update(authorize?: false)
+    |> Ash.update()
   end
 
   defp format_error(%Ash.Error.Invalid{errors: errors}) do
