@@ -111,7 +111,7 @@ sequenceDiagram
   ```json
   {
     "service_type": "grpc",
-    "service_name": "sysmon-osx",
+    "service_name": "sysmon",
     "details": "192.168.1.219:50110"
   }
   ```
@@ -165,7 +165,7 @@ sequenceDiagram
      `/etc/serviceradar/certs`.
 
 6. **Run the checker as a service**
-   - Package it with systemd or launchd (see `tools/sysmonosx` for examples).
+   - Package it with systemd or launchd.
    - Ensure the port in `details` is reachable from the agent host.
 
 ## Configuring the Pipeline
@@ -176,9 +176,9 @@ sequenceDiagram
 2. **Confirm agent connectivity** – `docker compose logs agent` or
    `journalctl -u serviceradar-agent` should show “Connecting to checker
    service” without errors.
-3. **Verify gateway reports** – `docker compose logs gateway | grep service_name`
+3. **Verify gateway reports** – `docker compose logs agent-gateway | grep service_name`
    should show the checker in each polling cycle.
-4. **Check core ingestion** – `docker compose logs core | grep checker` should
+4. **Check core ingestion** – `docker compose logs core-elx | grep checker` should
    include “checker device through device registry” warnings only if the checker
    omits host identity.
 

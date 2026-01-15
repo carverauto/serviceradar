@@ -9,14 +9,7 @@ ServiceRadar includes a Phoenix LiveView web interface (web-ng) that provides a 
 
 ## Web-NG (Current)
 
-The Phoenix `web-ng` UI runs on port 4000 and is configured via `/etc/serviceradar/web-ng.env`.
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-web-ng_1.0.21.deb
-sudo dpkg -i serviceradar-web-ng_1.0.21.deb
-```
-
-Use Caddy (default for Docker Compose) or your ingress proxy to terminate TLS and forward traffic to `http://127.0.0.1:4000`. Route `/api/*`, `/api/query`, and `/api/stream` to Web-NG.
+The Phoenix `web-ng` UI runs on port 4000 and is configured via `/etc/serviceradar/web-ng.env` in platform deployments. Use Caddy (default for Docker Compose) or your ingress proxy to terminate TLS and forward traffic to `http://127.0.0.1:4000`. Route `/api/*`, `/api/query`, and `/api/stream` to Web-NG.
 
 ## Overview
 

@@ -102,7 +102,7 @@ The stack automatically handles certificate generation and configuration:
 2. **cnpg** - PostgreSQL with mTLS + password auth
 3. **cert-permissions-fixer** - Sets proper certificate ownership (one-shot)
 4. **nats** - Message broker with mTLS
-5. **datasvc, core, gateway, agent** - Core services
+5. **datasvc, core-elx, agent-gateway, agent** - Core services
 6. **checkers, web-ng, etc.** - Additional services
 
 ## Test Your Setup
@@ -161,7 +161,7 @@ docker compose ps
 docker compose logs
 
 # View logs for specific service
-docker compose logs core
+docker compose logs core-elx
 
 # Follow logs in real-time
 docker compose logs -f
@@ -170,7 +170,7 @@ docker compose logs -f
 docker compose down
 
 # Restart a service
-docker compose restart core
+docker compose restart core-elx
 
 # Update to a specific version
 export APP_TAG=v1.0.77
@@ -221,7 +221,7 @@ On first startup, ServiceRadar generates:
 
 **Save your admin password** and delete the auto-generated password file:
 ```bash
-docker compose exec core rm /etc/serviceradar/certs/password.txt
+docker compose exec core-elx rm /etc/serviceradar/certs/password.txt
 ```
 
 ## Support

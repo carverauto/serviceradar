@@ -4,20 +4,20 @@ The device search planner fronts `/api/devices/search` and selects between the i
 
 ## Feature Flags
 
-Planner usage can be toggled independently in the core service and the web UI:
+Planner usage can be toggled independently in core-elx and the web UI:
 
 - **Core**: `features.use_device_search_planner` in the `serviceradar-config` ConfigMap (`core.json`, default `true`).  
   Edit the config map (`kubectl edit configmap serviceradar-config -n demo`) or update `k8s/demo/base/configmap.yaml` before redeploying. After changing the flag, restart the core deployment:  
   `kubectl rollout restart deployment/serviceradar-core -n demo`.
 - **Core enforcement**: `features.require_device_registry` (default `false`).  
-  When set to `true`, the API refuses to fall back to CNPG for `/api/devices` list/detail routes. Leave it disabled if you need the legacy CNPG-backed endpoints during incident response.
+  When set to `true`, the API refuses to fall back to CNPG for `/api/devices` list/detail routes. Leave it disabled if you need the direct CNPG-backed endpoints during incident response.
 - **Web UI**: The Phoenix web-ng UI reads the server-side behavior from core.  
   Restart the web-ng deployment after core flag changes if needed:
   ```bash
   kubectl rollout restart deployment/serviceradar-web-ng -n demo
   ```
 
-When either flag is disabled, the UI falls back to the legacy device list results and attaches diagnostics with `engine_reason: "feature_flag_disabled"`.
+When either flag is disabled, the UI falls back to the device list results and attaches diagnostics with `engine_reason: "feature_flag_disabled"`.
 
 ## Planner Diagnostics
 
@@ -77,7 +77,7 @@ Use these to confirm registry latency stays sub-millisecond and to identify unex
 2. **Validate**: Tail planner metrics (`kubectl logs deployment/serviceradar-core -n demo | grep search_planner`) and verify histograms appear in Prometheus.
 3. **Enable UI access**: Restart web-ng after the core flag is enabled.
 4. **Monitor**: Watch `search_planner_fallback_total` and SRQL latency. Sustained increases indicate unsupported SRQL patterns; inspect `engine_reason` diagnostics to pinpoint problem queries.
-5. **Rollback**: Set both flags to `false` and redeploy core/web-ng. The legacy `/api/devices` list path remains available as a safe fallback.
+5. **Rollback**: Set both flags to `false` and redeploy core/web-ng. The `/api/devices` list path remains available as a safe fallback.
 
 ## Troubleshooting
 

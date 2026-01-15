@@ -5,7 +5,7 @@ title: Edge Agents
 
 # Edge Agents
 
-Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with Gateways via gRPC with mTLS for secure, tenant-isolated monitoring.
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure, tenant-isolated monitoring.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ flowchart LR
     end
 
     subgraph Cluster["Kubernetes Cluster"]
-        GW[Gateway<br/>:50052]
+        GW[Agent-Gateway<br/>:50052]
         CORE[Core Service]
         REG[Agent Registry]
     end
@@ -44,7 +44,7 @@ Edge agents use a secure, isolated communication model:
 ### What Edge Agents CANNOT Do
 
 - Join the ERTS cluster (they are Go binaries, not Erlang nodes)
-- Execute RPC calls on Core or Gateway nodes
+- Execute RPC calls on Core or Agent-Gateway nodes
 - Access Horde registries or enumerate other tenants' agents
 - Connect to the database directly
 - Access internal APIs without proper mTLS certificates
@@ -145,7 +145,7 @@ sudo systemctl enable --now serviceradar-agent
 
 | Direction | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
-| Outbound | 50052 | TCP | gRPC to Gateway |
+| Outbound | 50052 | TCP | gRPC to Agent-Gateway |
 | Inbound | - | - | No inbound required |
 
 ### Core Network (Kubernetes Cluster)
@@ -172,7 +172,7 @@ Edge agents report health status via the gRPC connection:
 ```mermaid
 sequenceDiagram
     participant Agent as Go Agent
-    participant Gateway as Gateway
+    participant Gateway as Agent-Gateway
     participant Core as Core Service
     participant Registry as Agent Registry
 
