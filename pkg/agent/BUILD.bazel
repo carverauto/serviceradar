@@ -17,6 +17,7 @@ go_library(
         "registry.go",
         "server.go",
         "snmp_checker.go",
+        "snmp_service.go",
         "sweep_config_gateway.go",
         "sweep_service.go",
         "sysmon_service.go",
