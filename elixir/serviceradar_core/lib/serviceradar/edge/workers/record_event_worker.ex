@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
     max_attempts: 3,
     unique: [period: 60, keys: [:package_id, :event_type, :event_time]]
 
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Oban.Router
@@ -37,8 +38,10 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
       |> Map.get("tenant_schema")
       |> TenantSchemas.schema_for_tenant()
 
+    tenant_opts = TenantMode.tenant_opts(tenant_schema)
+
     case OnboardingEvent
-         |> Ash.Changeset.for_create(:record, attrs, actor: actor, tenant: tenant_schema)
+         |> Ash.Changeset.for_create(:record, attrs, [actor: actor] ++ tenant_opts)
          |> Ash.create() do
       {:ok, _event} -> :ok
       {:error, error} -> {:error, error}

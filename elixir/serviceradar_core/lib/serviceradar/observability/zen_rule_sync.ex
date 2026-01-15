@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.ZenRule
@@ -33,7 +34,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   @reconcile_delay_ms 5_000
   @reconcile_interval_ms :timer.minutes(5)
 
-  defstruct [:tenant_id, :tenant_schema, :actor]
+  defstruct [:tenant_id, :tenant_schema, :ash_opts]
 
   # ============================================================================
   # Public API
@@ -166,7 +167,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
     {:ok, %__MODULE__{
       tenant_id: tenant_id,
       tenant_schema: tenant_schema,
-      actor: SystemActor.for_tenant(tenant_id, :zen_rule_sync)
+      ash_opts: TenantMode.ash_opts(:zen_rule_sync, tenant_id, tenant_schema)
     }}
   end
 
@@ -194,11 +195,9 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   end
 
   defp reconcile_tenant(state) do
-    query =
-      ZenRule
-      |> Ash.Query.for_read(:active, %{}, tenant: state.tenant_schema)
+    query = Ash.Query.for_read(ZenRule, :active, %{})
 
-    case Ash.read(query, actor: state.actor) do
+    case Ash.read(query, state.ash_opts) do
       {:ok, rules} ->
         Enum.each(rules, &sync_rule_with_logging(&1, state))
 
@@ -244,25 +243,25 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       :ok
   end
 
-  # Internal sync with actor from GenServer state
+  # Internal sync with opts from GenServer state
   defp sync_rule_with_actor(%ZenRule{} = rule, state) do
-    sync_rule_impl(rule, state.tenant_schema, state.actor)
+    sync_rule_impl(rule, state.ash_opts)
   end
 
-  defp sync_rule_impl(%ZenRule{} = rule, tenant_schema) do
-    # Create actor for public API calls that don't have GenServer state
-    actor = SystemActor.for_tenant(rule.tenant_id, :zen_rule_sync)
-    sync_rule_impl(rule, tenant_schema, actor)
+  defp sync_rule_impl(%ZenRule{} = rule, tenant_schema) when is_binary(tenant_schema) do
+    # Create opts for public API calls that don't have GenServer state
+    opts = TenantMode.ash_opts(:zen_rule_sync, rule.tenant_id, tenant_schema)
+    sync_rule_impl(rule, opts)
   end
 
-  defp sync_rule_impl(%ZenRule{} = rule, tenant_schema, actor) do
+  defp sync_rule_impl(%ZenRule{} = rule, opts) when is_list(opts) do
     if rule.enabled do
       key = kv_key(rule)
 
       with {:ok, payload} <- Jason.encode(rule.compiled_jdm),
            :ok <- Client.put(key, payload),
            {:ok, _value, revision} <- Client.get_with_revision(key),
-           :ok <- update_kv_revision(rule, revision, tenant_schema, actor) do
+           :ok <- update_kv_revision(rule, revision, opts) do
         {:ok, revision}
       else
         {:error, %Jason.EncodeError{} = error} ->
@@ -279,13 +278,14 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
     end
   end
 
-  defp update_kv_revision(%ZenRule{} = rule, revision, tenant_schema, actor) do
+  defp update_kv_revision(%ZenRule{} = rule, revision, opts) do
     rule
-    |> Ash.Changeset.for_update(:set_kv_revision, %{kv_revision: revision},
-      tenant: tenant_schema,
-      context: %{skip_zen_sync: true}
+    |> Ash.Changeset.for_update(
+      :set_kv_revision,
+      %{kv_revision: revision},
+      Keyword.put(opts, :context, %{skip_zen_sync: true})
     )
-    |> Ash.update(actor: actor)
+    |> Ash.update()
     |> case do
       {:ok, _updated} -> :ok
       {:error, reason} -> {:error, reason}

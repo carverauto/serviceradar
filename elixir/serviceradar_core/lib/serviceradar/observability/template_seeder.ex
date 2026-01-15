@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.{
@@ -37,40 +38,45 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
 
   def seed_all do
     if repo_enabled?() do
-      # Tenant listing is cross-tenant, use platform actor
-      actor = SystemActor.platform(:template_seeder)
-      Tenant
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.select([:id, :slug])
-      |> Ash.read(actor: actor)
-      |> case do
-        {:ok, tenants} ->
-          Enum.each(tenants, &seed_for_tenant/1)
+      if TenantMode.tenant_aware?() do
+        # Tenant listing is cross-tenant, use platform actor (Control Plane only)
+        actor = SystemActor.platform(:template_seeder)
+        Tenant
+        |> Ash.Query.for_read(:read, %{})
+        |> Ash.Query.select([:id, :slug])
+        |> Ash.read(actor: actor)
+        |> case do
+          {:ok, tenants} ->
+            Enum.each(tenants, &seed_for_tenant/1)
 
-        {:error, reason} ->
-          Logger.warning("Template seed skipped: #{inspect(reason)}")
+          {:error, reason} ->
+            Logger.warning("Template seed skipped: #{inspect(reason)}")
+        end
+      else
+        # In tenant-unaware mode, seeding is done during tenant bootstrap
+        Logger.debug("Template seeding skipped in tenant-unaware mode")
       end
     end
   end
 
   def seed_for_tenant(%Tenant{} = tenant) do
     schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = SystemActor.for_tenant(tenant.id, :template_seeder)
+    opts = TenantMode.ash_opts(:template_seeder, tenant.id, schema)
 
-    ensure_zen_defaults(schema, actor)
-    ensure_defaults(LogPromotionRuleTemplate, default_promotion_templates(), schema, actor)
-    ensure_defaults(StatefulAlertRuleTemplate, default_stateful_templates(), schema, actor)
+    ensure_zen_defaults(opts)
+    ensure_defaults(LogPromotionRuleTemplate, default_promotion_templates(), opts)
+    ensure_defaults(StatefulAlertRuleTemplate, default_stateful_templates(), opts)
 
     :ok
   end
 
-  defp ensure_defaults(resource, defaults, schema, actor) do
+  defp ensure_defaults(resource, defaults, opts) do
     query =
       resource
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:name])
 
-    case Ash.read(query, actor: actor, tenant: schema) do
+    case Ash.read(query, opts) do
       {:ok, templates} ->
         existing =
           templates
@@ -78,7 +84,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
           |> MapSet.new()
 
         Enum.each(defaults, fn attrs ->
-          seed_template_if_missing(existing, attrs, resource, schema, actor)
+          seed_template_if_missing(existing, attrs, resource, opts)
         end)
 
       {:error, reason} ->
@@ -86,23 +92,23 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     end
   end
 
-  defp ensure_zen_defaults(schema, actor) do
+  defp ensure_zen_defaults(opts) do
     query =
       ZenRuleTemplate
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:id, :name, :subject])
 
-    case Ash.read(query, actor: actor, tenant: schema) do
+    case Ash.read(query, opts) do
       {:ok, templates} ->
         existing =
           templates
           |> Enum.map(&{&1.name, &1.subject})
           |> MapSet.new()
 
-        existing = rename_legacy_templates(templates, existing, schema, actor)
+        existing = rename_legacy_templates(templates, existing, opts)
 
         Enum.each(default_zen_templates(), fn attrs ->
-          seed_zen_template_if_missing(existing, attrs, schema, actor)
+          seed_zen_template_if_missing(existing, attrs, opts)
         end)
 
       {:error, reason} ->
@@ -110,87 +116,77 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     end
   end
 
-  defp seed_template_if_missing(existing, attrs, resource, schema, actor) do
+  defp seed_template_if_missing(existing, attrs, resource, opts) do
     if MapSet.member?(existing, attrs[:name]) do
       :ok
     else
-      create_template(resource, attrs, schema, actor)
+      create_template(resource, attrs, opts)
     end
   end
 
-  defp create_template(resource, attrs, schema, actor) do
-    changeset =
-      Ash.Changeset.for_create(resource, :create, attrs,
-        tenant: schema,
-        actor: actor
-      )
+  defp create_template(resource, attrs, opts) do
+    changeset = Ash.Changeset.for_create(resource, :create, attrs, opts)
 
-    case Ash.create(changeset, actor: actor) do
+    case Ash.create(changeset) do
       {:ok, _} -> :ok
       {:error, reason} ->
         Logger.warning("Failed to seed #{resource}: #{inspect(reason)}")
     end
   end
 
-  defp seed_zen_template_if_missing(existing, attrs, schema, actor) do
+  defp seed_zen_template_if_missing(existing, attrs, opts) do
     key = {attrs[:name], attrs[:subject]}
 
     if MapSet.member?(existing, key) do
       :ok
     else
-      create_zen_template(attrs, schema, actor)
+      create_zen_template(attrs, opts)
     end
   end
 
-  defp create_zen_template(attrs, schema, actor) do
-    changeset =
-      Ash.Changeset.for_create(ZenRuleTemplate, :create, attrs,
-        tenant: schema,
-        actor: actor
-      )
+  defp create_zen_template(attrs, opts) do
+    changeset = Ash.Changeset.for_create(ZenRuleTemplate, :create, attrs, opts)
 
-    case Ash.create(changeset, actor: actor) do
+    case Ash.create(changeset) do
       {:ok, _} -> :ok
       {:error, reason} ->
         Logger.warning("Failed to seed #{ZenRuleTemplate}: #{inspect(reason)}")
     end
   end
 
-  defp rename_legacy_templates(templates, existing, schema, actor) do
+  defp rename_legacy_templates(templates, existing, opts) do
     Enum.reduce(templates, existing, fn template, acc ->
-      maybe_rename_legacy_template(template, acc, schema, actor)
+      maybe_rename_legacy_template(template, acc, opts)
     end)
   end
 
-  defp maybe_rename_legacy_template(template, acc, schema, actor) do
+  defp maybe_rename_legacy_template(template, acc, opts) do
     case legacy_template_name(template.name) do
       nil -> acc
-      new_name -> rename_template_if_missing(template, new_name, acc, schema, actor)
+      new_name -> rename_template_if_missing(template, new_name, acc, opts)
     end
   end
 
-  defp rename_template_if_missing(template, new_name, existing, schema, actor) do
+  defp rename_template_if_missing(template, new_name, existing, opts) do
     key = {new_name, template.subject}
 
     if MapSet.member?(existing, key) do
       existing
     else
-      do_rename_template(template, new_name, key, existing, schema, actor)
+      do_rename_template(template, new_name, key, existing, opts)
     end
   end
 
-  defp do_rename_template(template, new_name, key, existing, schema, actor) do
-    changeset =
-      Ash.Changeset.for_update(template, :update, %{name: new_name},
-        tenant: schema,
-        actor: actor
-      )
+  defp do_rename_template(template, new_name, key, existing, opts) do
+    changeset = Ash.Changeset.for_update(template, :update, %{name: new_name}, opts)
 
-    case Ash.update(changeset, actor: actor) do
+    case Ash.update(changeset) do
       {:ok, _} ->
         MapSet.put(existing, key)
 
       {:error, reason} ->
+        schema = Keyword.get(opts, :tenant, "unknown")
+
         Logger.warning(
           "Failed to rename Zen template #{template.name} for #{schema}: #{inspect(reason)}"
         )

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Events.InternalLogPublisher
@@ -29,9 +30,9 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   defp load_package(event, tenant_schema) do
     # Extract tenant_id from the schema name (format: "tenant_<uuid>")
     tenant_id = extract_tenant_id_from_schema(tenant_schema)
-    actor = SystemActor.for_tenant(tenant_id, :onboarding_writer)
+    opts = TenantMode.ash_opts(:onboarding_writer, tenant_id, tenant_schema)
 
-    case Ash.get(OnboardingPackage, event.package_id, tenant: tenant_schema, actor: actor) do
+    case Ash.get(OnboardingPackage, event.package_id, opts) do
       {:ok, package} -> {:ok, package}
       {:error, reason} -> {:error, reason}
     end

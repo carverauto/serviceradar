@@ -10,6 +10,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.SysmonProfiles.SysmonProfile
@@ -22,20 +23,18 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   @spec seed_for_tenant(Tenant.t()) :: :ok | {:error, term()}
   def seed_for_tenant(%Tenant{} = tenant) do
     schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = SystemActor.for_tenant(tenant.id, :sysmon_profile_seeder)
+    opts = TenantMode.ash_opts(:sysmon_profile_seeder, tenant.id, schema)
 
-    ensure_default_profile(schema, actor, tenant.slug)
+    ensure_default_profile(opts, tenant.slug)
   end
 
-  defp ensure_default_profile(schema, actor, tenant_slug) do
-    query =
-      SysmonProfile
-      |> Ash.Query.for_read(:get_default, %{}, actor: actor, tenant: schema)
+  defp ensure_default_profile(opts, tenant_slug) do
+    query = Ash.Query.for_read(SysmonProfile, :get_default, %{})
 
-    case Ash.read_one(query, actor: actor) do
+    case Ash.read_one(query, opts) do
       {:ok, nil} ->
         # No default profile exists, create one
-        create_default_profile(schema, actor, tenant_slug)
+        create_default_profile(opts, tenant_slug)
 
       {:ok, _profile} ->
         # Default profile already exists
@@ -51,16 +50,11 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
     end
   end
 
-  defp create_default_profile(schema, actor, tenant_slug) do
+  defp create_default_profile(opts, tenant_slug) do
     attrs = default_profile_attrs()
+    changeset = Ash.Changeset.for_create(SysmonProfile, :create, attrs, opts)
 
-    changeset =
-      Ash.Changeset.for_create(SysmonProfile, :create, attrs,
-        tenant: schema,
-        actor: actor
-      )
-
-    case Ash.create(changeset, actor: actor) do
+    case Ash.create(changeset) do
       {:ok, profile} ->
         Logger.info("Created default sysmon profile for tenant: #{tenant_slug}")
         {:ok, profile}

@@ -27,6 +27,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.{EdgeSite, NatsLeafServer, TenantCA}
   alias ServiceRadar.Oban.Router
@@ -82,10 +83,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   # Private functions
 
   defp load_leaf_server(leaf_server_id, tenant_schema) do
-    # Use platform actor for initial resource discovery (tenant_id not yet known)
-    actor = SystemActor.platform(:provision_leaf)
+    # Use mode-conditional actor for initial resource discovery (tenant_id not yet known)
+    actor =
+      if TenantMode.tenant_aware?(),
+        do: SystemActor.platform(:provision_leaf),
+        else: SystemActor.system(:provision_leaf)
 
-    case Ash.get(NatsLeafServer, leaf_server_id, tenant: tenant_schema, actor: actor) do
+    tenant_opts = TenantMode.tenant_opts(tenant_schema)
+
+    case Ash.get(NatsLeafServer, leaf_server_id, [actor: actor] ++ tenant_opts) do
       {:ok, nil} -> {:error, :leaf_server_not_found}
       {:ok, server} -> {:ok, server}
       {:error, error} -> {:error, error}
@@ -93,10 +99,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   defp load_edge_site(edge_site_id, tenant_schema) do
-    # Use platform actor for initial resource discovery
-    actor = SystemActor.platform(:provision_leaf)
+    # Use mode-conditional actor for initial resource discovery
+    actor =
+      if TenantMode.tenant_aware?(),
+        do: SystemActor.platform(:provision_leaf),
+        else: SystemActor.system(:provision_leaf)
 
-    case Ash.get(EdgeSite, edge_site_id, tenant: tenant_schema, actor: actor) do
+    tenant_opts = TenantMode.tenant_opts(tenant_schema)
+
+    case Ash.get(EdgeSite, edge_site_id, [actor: actor] ++ tenant_opts) do
       {:ok, nil} -> {:error, :edge_site_not_found}
       {:ok, site} -> {:ok, site}
       {:error, error} -> {:error, error}
@@ -104,8 +115,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   defp load_tenant(tenant_id) do
-    # Tenant resource is cross-tenant, use platform actor
-    actor = SystemActor.platform(:provision_leaf)
+    # Tenant resource is in public schema, use mode-conditional actor
+    actor = TenantMode.system_actor(:provision_leaf, nil)
 
     case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -116,13 +127,12 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
 
   defp get_tenant_ca(tenant, tenant_schema) do
     tenant_id = tenant.id
-    actor = SystemActor.for_tenant(tenant_id, :provision_leaf)
+    opts = TenantMode.ash_opts(:provision_leaf, tenant_id, tenant_schema)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
-         |> Ash.Query.set_tenant(tenant_schema)
          |> Ash.Query.filter(tenant_id == ^tenant_id)
-         |> Ash.read_one(actor: actor) do
+         |> Ash.read_one(opts) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
       {:error, error} -> {:error, error}
@@ -212,7 +222,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
          config_checksum,
          tenant_schema
        ) do
-    actor = SystemActor.for_tenant(leaf_server.tenant_id, :provision_leaf)
+    opts = TenantMode.ash_opts(:provision_leaf, leaf_server.tenant_id, tenant_schema)
 
     leaf_server
     |> Ash.Changeset.for_update(:provision, %{
@@ -222,7 +232,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
       server_key_pem: server_certs.private_key_pem,
       ca_chain_pem: tenant_ca.certificate_pem,
       config_checksum: config_checksum
-    }, tenant: tenant_schema, actor: actor)
+    }, opts)
     |> Ash.update()
   end
 

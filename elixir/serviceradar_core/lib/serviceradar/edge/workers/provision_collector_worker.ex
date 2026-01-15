@@ -30,6 +30,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
@@ -162,14 +163,20 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   # Private helpers
 
   defp get_package(package_id, tenant_schema) do
-    # Use platform actor for initial resource discovery (tenant_id not yet known)
-    actor = SystemActor.platform(:provision_collector)
+    # Use mode-conditional actor for initial resource discovery (tenant_id not yet known)
+    # In tenant-unaware mode, we use SystemActor.system/1 since DB search_path handles schema
+    # In tenant-aware mode, we use SystemActor.platform/1 for cross-schema access
+    actor =
+      if TenantMode.tenant_aware?(),
+        do: SystemActor.platform(:provision_collector),
+        else: SystemActor.system(:provision_collector)
+
+    tenant_opts = TenantMode.tenant_opts(tenant_schema)
 
     case CollectorPackage
          |> Ash.Query.for_read(:read)
-         |> Ash.Query.set_tenant(tenant_schema)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.read_one(actor: actor) do
+         |> Ash.read_one([actor: actor] ++ tenant_opts) do
       {:ok, nil} -> {:error, :package_not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -185,16 +192,16 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp mark_provisioning(package, tenant_schema) do
-    actor = SystemActor.for_tenant(package.tenant_id, :provision_collector)
+    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
 
     package
-    |> Ash.Changeset.for_update(:provision, %{}, tenant: tenant_schema, actor: actor)
+    |> Ash.Changeset.for_update(:provision, %{}, opts)
     |> Ash.update()
   end
 
   defp get_tenant(tenant_id) do
-    # Tenant resource is cross-tenant, use platform actor
-    actor = SystemActor.platform(:provision_collector)
+    # Tenant resource is in public schema, use mode-conditional actor
+    actor = TenantMode.system_actor(:provision_collector, nil)
     seed_attr = seed_attribute()
     select_fields =
       case seed_attr do
@@ -323,7 +330,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp create_credential_record(package, user_creds, tenant_schema) do
-    actor = SystemActor.for_tenant(package.tenant_id, :provision_collector)
+    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
 
     NatsCredential
     |> Ash.Changeset.for_create(:create, %{
@@ -335,7 +342,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         site: package.site,
         hostname: package.hostname
       }
-    }, tenant: tenant_schema, actor: actor)
+    }, opts)
     |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
     |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.Changeset.change_attribute(:tenant_id, package.tenant_id)
@@ -343,13 +350,13 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp get_tenant_ca(tenant) do
-    actor = SystemActor.for_tenant(tenant.id, :provision_collector)
+    schema = TenantSchemas.schema_for_tenant(tenant)
+    opts = TenantMode.ash_opts(:provision_collector, tenant.id, schema)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
-         |> Ash.Query.set_tenant(tenant)
          |> Ash.Query.filter(tenant_id == ^tenant.id)
-         |> Ash.read_one(actor: actor) do
+         |> Ash.read_one(opts) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
       {:error, error} -> {:error, error}
@@ -406,10 +413,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
 
   defp mark_ready(package, credential_id, nats_creds_content, tls_certs, tenant_schema) do
-    actor = SystemActor.for_tenant(package.tenant_id, :provision_collector)
+    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
 
     package
-    |> Ash.Changeset.for_update(:ready, %{}, tenant: tenant_schema, actor: actor)
+    |> Ash.Changeset.for_update(:ready, %{}, opts)
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
     |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
     |> Ash.Changeset.set_argument(:tls_cert_pem, tls_certs.certificate_pem)
@@ -421,10 +428,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   defp mark_failed(package_id, tenant_schema, message) do
     case get_package(package_id, tenant_schema) do
       {:ok, package} ->
-        actor = SystemActor.for_tenant(package.tenant_id, :provision_collector)
+        opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
 
         package
-        |> Ash.Changeset.for_update(:fail, %{}, tenant: tenant_schema, actor: actor)
+        |> Ash.Changeset.for_update(:fail, %{}, opts)
         |> Ash.Changeset.set_argument(:error_message, message)
         |> Ash.update()
 

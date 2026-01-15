@@ -70,7 +70,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       HealthTracker.summary(tenant_id)
   """
 
-  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Events.HealthWriter
   alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub}
@@ -150,11 +150,11 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
             {:error, :tenant_schema_not_found}
 
           schema ->
-            actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+            opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
 
             HealthEvent
-            |> Ash.Changeset.for_create(:record, attrs, tenant: schema)
-            |> Ash.create(actor: actor)
+            |> Ash.Changeset.for_create(:record, attrs, opts)
+            |> Ash.create()
         end
 
       case result do
@@ -306,7 +306,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           {:error, :tenant_schema_not_found}
 
         schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
 
           HealthEvent
           |> Ash.Query.filter(
@@ -316,7 +316,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           )
           |> Ash.Query.sort(recorded_at: :desc)
           |> Ash.Query.limit(1)
-          |> Ash.read_one(actor: actor, tenant: schema)
+          |> Ash.read_one(opts)
       end
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
@@ -349,7 +349,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           {:error, :tenant_schema_not_found}
 
         schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
 
           HealthEvent
           |> Ash.Query.filter(
@@ -360,7 +360,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           )
           |> Ash.Query.sort(recorded_at: :desc)
           |> Ash.Query.limit(limit)
-          |> Ash.read(actor: actor, tenant: schema)
+          |> Ash.read(opts)
       end
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
@@ -386,12 +386,12 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           {:error, :tenant_schema_not_found}
 
         schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
 
           case HealthEvent
                |> Ash.Query.filter(tenant_id == ^tenant_id)
                |> Ash.Query.sort(recorded_at: :desc)
-               |> Ash.read(actor: actor, tenant: schema) do
+               |> Ash.read(opts) do
             {:ok, events} ->
               {:ok, build_summary(events)}
 
@@ -443,7 +443,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
           {:error, :tenant_schema_not_found}
 
         schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
 
           query =
             HealthEvent
@@ -458,7 +458,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
               query
             end
 
-          Ash.read(query, actor: actor, tenant: schema)
+          Ash.read(query, opts)
       end
     else
       {:error, reason} -> return_with_skip(:recent, "tenant", reason)

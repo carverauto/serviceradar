@@ -203,21 +203,43 @@ OnboardingPackages.list(filters, tenant_opts)
 
 ### 3.4 Update core-elx workers
 
-- [ ] **3.4.1 Audit all Oban workers for `tenant:` usage**
+- [x] **3.4.1 Audit all Oban workers for `tenant:` usage**
+  - Found 3 edge workers: `provision_collector_worker.ex`, `provision_leaf_worker.ex`, `record_event_worker.ex`
+  - Found 44 files total with `SystemActor.for_tenant` usage
 
-- [ ] **3.4.2 Update each worker**
-  - Remove `SystemActor.for_tenant()` patterns
-  - Use simple `SystemActor.system(:worker_name)`
+- [x] **3.4.2 Update edge workers (3 files)**
+  - `provision_collector_worker.ex` - updated all Ash calls to use `TenantMode.ash_opts/3`
+  - `provision_leaf_worker.ex` - updated all Ash calls to use `TenantMode.ash_opts/3`
+  - `record_event_worker.ex` - updated to use `TenantMode.tenant_opts/1`
 
 ### 3.5 Update core-elx GenServers
 
-- [ ] **3.5.1 TenantRegistryLoader**
-  - Remove or simplify - no need to load all tenant slugs
-  - In tenant instance, there's only "self"
+- [x] **3.5.1 Observability seeders (4 files)**
+  - `template_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
+  - `rule_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
+  - `zen_rule_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
+  - `sysmon_profile_seeder.ex` - updated to use TenantMode.ash_opts
 
-- [ ] **3.5.2 Other GenServers**
-  - Audit for cross-tenant patterns
-  - Remove or simplify
+- [x] **3.5.2 Observability sync/writers (3 files)**
+  - `zen_rule_sync.ex` - updated GenServer state to use ash_opts instead of actor
+  - `onboarding_writer.ex` - updated to use TenantMode.ash_opts
+
+- [x] **3.5.3 Infrastructure GenServers (1 file)**
+  - `state_monitor.ex` - updated GenServer state to use ash_opts
+
+- [ ] **3.5.4 Remaining GenServers (~30 files)**
+  - `health_tracker.ex`, `health_event.ex`
+  - `stateful_alert_engine.ex`, `stateful_alert_cleanup_worker.ex`
+  - `sync_log_writer.ex`, `log_promotion.ex`
+  - `config_server.ex`, `results_router.ex`
+  - `snmp_compiler.ex`, `sysmon_compiler.ex`, `sweep_compiler.ex`
+  - `agent_gateway_sync.ex`
+  - `sync_ingestor_queue.ex`, `integration_source.ex`, `sync_config_generator.ex`
+  - `platform_service_certificates.ex`
+  - Edge resources: `nats_leaf_server.ex`, `onboarding_packages.ex`, `collector_package.ex`, `edge_site.ex`
+  - `actors/device.ex`
+  - `changes/set_as_default.ex` (snmp_profiles, sysmon_profiles)
+  - `changes/create_version_history.ex`
 
 ---
 

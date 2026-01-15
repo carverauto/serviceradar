@@ -32,6 +32,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
 
@@ -45,7 +46,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   defstruct [
     :tenant_id,
     :tenant_schema,
-    :actor,
+    :ash_opts,
     :check_interval,
     :gateway_timeout,
     :agent_timeout,
@@ -159,7 +160,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     state = %__MODULE__{
       tenant_id: tenant_id,
       tenant_schema: tenant_schema,
-      actor: SystemActor.for_tenant(tenant_id, :state_monitor),
+      ash_opts: TenantMode.ash_opts(:state_monitor, tenant_id, tenant_schema),
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
@@ -280,7 +281,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:healthy, :degraded] and
         (is_nil(last_seen) or last_seen < ^timeout_threshold)
     )
-    |> Ash.read(actor: state.actor, tenant: state.tenant_schema)
+    |> Ash.read(state.ash_opts)
   end
 
   defp handle_stale_gateway(gateway, state) do
@@ -294,8 +295,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       gateway
-      |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"})
-      |> Ash.update(actor: state.actor, tenant: state.tenant_schema)
+      |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"}, state.ash_opts)
+      |> Ash.update()
 
     case result do
       {:ok, _updated_gateway} ->
@@ -339,7 +340,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:connected, :degraded] and
         (is_nil(last_seen_time) or last_seen_time < ^timeout_threshold)
     )
-    |> Ash.read(actor: state.actor, tenant: state.tenant_schema)
+    |> Ash.read(state.ash_opts)
   end
 
   defp handle_stale_agent(agent, state) do
@@ -350,8 +351,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       agent
-      |> Ash.Changeset.for_update(:lose_connection, %{})
-      |> Ash.update(actor: state.actor, tenant: state.tenant_schema)
+      |> Ash.Changeset.for_update(:lose_connection, %{}, state.ash_opts)
+      |> Ash.update()
 
     case result do
       {:ok, _updated_agent} ->
@@ -393,7 +394,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status == :active and
         consecutive_failures >= ^threshold
     )
-    |> Ash.read(actor: state.actor, tenant: state.tenant_schema)
+    |> Ash.read(state.ash_opts)
   end
 
   defp handle_failing_checker(checker, state) do
@@ -405,8 +406,8 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       checker
-      |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"})
-      |> Ash.update(actor: state.actor, tenant: state.tenant_schema)
+      |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"}, state.ash_opts)
+      |> Ash.update()
 
     case result do
       {:ok, _updated_checker} ->
