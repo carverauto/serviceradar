@@ -20,6 +20,7 @@ defmodule ServiceRadar.Infrastructure.NatsServiceAccount do
 
   postgres do
     table("nats_service_accounts")
+    schema("public")
     repo(ServiceRadar.Repo)
   end
 

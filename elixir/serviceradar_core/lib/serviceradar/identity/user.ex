@@ -99,6 +99,7 @@ defmodule ServiceRadar.Identity.User do
       accept [:email, :display_name, :tenant_id, :role]
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
+      change ServiceRadar.Identity.Changes.CreateTenantMembership
       primary? true
     end
 
@@ -121,6 +122,7 @@ defmodule ServiceRadar.Identity.User do
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
+      change ServiceRadar.Identity.Changes.CreateTenantMembership
       change AshAuthentication.Strategy.MagicLink.SignInChange
 
       change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
@@ -169,6 +171,7 @@ defmodule ServiceRadar.Identity.User do
 
       change ServiceRadar.Identity.Changes.AssignDefaultTenant
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
+      change ServiceRadar.Identity.Changes.CreateTenantMembership
 
       argument :password, :string do
         allow_nil? false

@@ -33,6 +33,7 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
 
   postgres do
     table "nats_platform_tokens"
+    schema "public"
     repo ServiceRadar.Repo
   end
 

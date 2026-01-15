@@ -392,7 +392,6 @@ go_deps.from_file(go_mod = "//:go.mod")
 use_repo(
     go_deps,
     "com_github_atotto_clipboard",
-    "com_github_cenkalti_backoff_v5",
     "com_github_charmbracelet_bubbles",
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
@@ -411,16 +410,8 @@ use_repo(
     "com_github_stretchr_testify",
     "com_github_swaggo_swag",
     "io_k8s_api",
-    "io_k8s_apiextensions_apiserver",
     "io_k8s_apimachinery",
-    "io_k8s_client_go",
-    "io_k8s_klog_v2",
-    "io_k8s_kube_openapi",
     "io_k8s_sigs_controller_runtime",
-    "io_k8s_sigs_json",
-    "io_k8s_sigs_structured_merge_diff_v4",
-    "io_k8s_sigs_yaml",
-    "io_k8s_utils",
     "io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc",
     "io_opentelemetry_go_otel",
     "io_opentelemetry_go_otel_exporters_otlp_otlplog_otlploggrpc",
@@ -719,49 +710,8 @@ register_toolchains(
 
 # --- npm dependency ingestion ------------------------------------------------
 
-npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
-npm.npm_translate_lock(
-    name = "npm",
-    bins = {
-        "next": ["next=./dist/bin/next"],
-    },
-    dev = True,
-    lifecycle_hooks_exclude = [
-        "unrs-resolver@1.7.2",
-    ],
-    npmrc = "//web:.npmrc",
-    pnpm_lock = "//web:pnpm-lock.yaml",
-    root_package = "web",
-)
-use_repo(npm, "npm")
-
-# Expose select npm package repositories required for Next.js build tooling.
-use_repo(
-    npm,
-    "npm__at_microlink_react-json-view__1.26.2_687510291__links",
-    "npm__at_tanstack_react-query__5.81.5_react_19.2.3__links",
-    "npm__at_types_d3-hierarchy__3.1.7__links",
-    "npm__at_types_dagre__0.7.53__links",
-    "npm__d3-hierarchy__3.1.2__links",
-    "npm__dagre__0.8.5__links",
-    "npm__lodash__4.17.21__links",
-    "npm__lucide-react__0.476.0_react_19.2.3__links",
-    "npm__next-runtime-env__3.3.0_260211570__links",
-    "npm__next__16.0.10_1589835397__links",
-    "npm__react-dom__19.2.3_react_19.2.3__links",
-    "npm__react__19.2.3__links",
-    "npm__reactflow__11.11.4_687510291__links",
-    "npm__recharts-scale__0.4.5__links",
-    "npm__recharts__2.15.3_1113999364__links",
-    "npm__use-debounce__10.0.5_react_19.2.3__links",
-)
-
-rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
-rules_ts_ext.deps()
-use_repo(rules_ts_ext, "npm_typescript")
-
-# TODO(bazel-migration): add npm package visibility/hoisting configuration and
-# integrate additional js tooling once Bazel targets exist.
+# TODO(bazel-migration): Re-enable npm translation once a Bazel-managed JS app
+# (with a lockfile) is reintroduced.
 
 # --- External binary artifacts ----------------------------------------------
 

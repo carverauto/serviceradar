@@ -8,7 +8,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddSnmpProfiles do
   use Ecto.Migration
 
   def up do
-    create table(:sysmon_profiles, primary_key: false, prefix: prefix()) do
+    create_if_not_exists table(:sysmon_profiles, primary_key: false, prefix: prefix()) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
       add :tenant_id, :uuid, null: false
       add :name, :text, null: false
@@ -35,7 +35,7 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddSnmpProfiles do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:sysmon_profiles, [:tenant_id, :name],
+    create_if_not_exists unique_index(:sysmon_profiles, [:tenant_id, :name],
              name: "sysmon_profiles_unique_name_per_tenant_index"
            )
 
@@ -164,13 +164,13 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddSnmpProfiles do
            )
 
     alter table(:ocsf_agents, prefix: prefix()) do
-      add :config_source, :text
+      add_if_not_exists :config_source, :text
     end
   end
 
   def down do
     alter table(:ocsf_agents, prefix: prefix()) do
-      remove :config_source
+      remove_if_exists :config_source
     end
 
     drop_if_exists unique_index(:snmp_profiles, [:tenant_id, :name],
