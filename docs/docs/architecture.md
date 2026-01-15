@@ -12,28 +12,28 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 ```mermaid
 flowchart TB
     subgraph EdgeZone["Edge Network"]
-        Agent[serviceradar-agent]
-        Collectors[Collectors + Checkers]
-        Leaf[NATS Leaf (optional)]
+        Agent["serviceradar-agent"]
+        Collectors["Collectors + Checkers"]
+        Leaf["NATS Leaf optional"]
         Agent --> Collectors
     end
 
     subgraph Core["Core Platform (ERTS Cluster)"]
-        Caddy[Caddy Edge Proxy]
+        Caddy["Caddy Edge Proxy"]
         Web["web-ng (Phoenix + SRQL Rustler/NIF)"]
-        CoreElx[core-elx]
-        Gateway[serviceradar-agent-gateway]
-        Zen[serviceradar-zen]
-        DBWriter[serviceradar-db-event-writer]
+        CoreElx["core-elx"]
+        Gateway["serviceradar-agent-gateway"]
+        Zen["serviceradar-zen"]
+        DBWriter["serviceradar-db-event-writer"]
         Caddy --> Web
         Web <--> CoreElx
         CoreElx <--> Gateway
     end
 
     subgraph DataPlane["Data Plane"]
-        CNPG[(CNPG / TimescaleDB)]
-        NATS[NATS JetStream]
-        DATASVC[Datasvc (KV)]
+        CNPG["CNPG TimescaleDB"]
+        NATS["NATS JetStream"]
+        DATASVC["Datasvc KV"]
     end
 
     User([User]) -->|HTTPS| Caddy
