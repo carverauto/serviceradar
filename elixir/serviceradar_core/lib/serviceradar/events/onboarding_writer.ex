@@ -4,7 +4,6 @@ defmodule ServiceRadar.Events.OnboardingWriter do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Events.InternalLogPublisher
@@ -12,11 +11,9 @@ defmodule ServiceRadar.Events.OnboardingWriter do
 
   require Logger
 
-  @spec write(OnboardingEvent.t(), String.t() | nil) :: :ok | {:error, term()}
-  def write(_event, nil), do: {:error, :missing_tenant_schema}
-
-  def write(%OnboardingEvent{} = event, tenant_schema) do
-    with {:ok, package} <- load_package(event, tenant_schema),
+  @spec write(OnboardingEvent.t()) :: :ok | {:error, term()}
+  def write(%OnboardingEvent{} = event) do
+    with {:ok, package} <- load_package(event),
          {:ok, tenant_id} <- fetch_tenant_id(package) do
       payload = build_event_attrs(event, package, tenant_id)
       InternalLogPublisher.publish("onboarding", payload, tenant_id: tenant_id)
@@ -27,19 +24,15 @@ defmodule ServiceRadar.Events.OnboardingWriter do
       {:error, e}
   end
 
-  defp load_package(event, tenant_schema) do
-    # Extract tenant_id from the schema name (format: "tenant_<uuid>")
-    tenant_id = extract_tenant_id_from_schema(tenant_schema)
-    opts = TenantMode.ash_opts(:onboarding_writer, tenant_id, tenant_schema)
+  defp load_package(event) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:onboarding_writer)
 
-    case Ash.get(OnboardingPackage, event.package_id, opts) do
+    case Ash.get(OnboardingPackage, event.package_id, actor: actor) do
       {:ok, package} -> {:ok, package}
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp extract_tenant_id_from_schema("tenant_" <> uuid), do: uuid
-  defp extract_tenant_id_from_schema(_), do: nil
 
   defp fetch_tenant_id(%OnboardingPackage{tenant_id: tenant_id}) when is_binary(tenant_id) do
     {:ok, tenant_id}

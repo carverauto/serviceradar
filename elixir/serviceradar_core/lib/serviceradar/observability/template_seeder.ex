@@ -9,8 +9,6 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.{
     LogPromotionRuleTemplate,
@@ -38,30 +36,21 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
 
   def seed_all do
     if repo_enabled?() do
-      if TenantMode.tenant_aware?() do
-        # Tenant listing is cross-tenant, use platform actor (Control Plane only)
-        actor = SystemActor.platform(:template_seeder)
-        Tenant
-        |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.select([:id, :slug])
-        |> Ash.read(actor: actor)
-        |> case do
-          {:ok, tenants} ->
-            Enum.each(tenants, &seed_for_tenant/1)
-
-          {:error, reason} ->
-            Logger.warning("Template seed skipped: #{inspect(reason)}")
-        end
-      else
-        # In tenant-unaware mode, seeding is done during tenant bootstrap
-        Logger.debug("Template seeding skipped in tenant-unaware mode")
-      end
+      # DB connection's search_path determines the schema
+      # Seed templates for the current tenant schema
+      seed_for_current_tenant()
     end
   end
 
-  def seed_for_tenant(%Tenant{} = tenant) do
-    schema = TenantSchemas.schema_for_tenant(tenant)
-    opts = TenantMode.ash_opts(:template_seeder, tenant.id, schema)
+  def seed_for_tenant(%Tenant{} = _tenant) do
+    # DB connection's search_path determines the schema
+    seed_for_current_tenant()
+  end
+
+  defp seed_for_current_tenant do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:template_seeder)
+    opts = [actor: actor]
 
     ensure_zen_defaults(opts)
     ensure_defaults(LogPromotionRuleTemplate, default_promotion_templates(), opts)

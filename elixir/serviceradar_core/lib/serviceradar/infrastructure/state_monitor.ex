@@ -32,7 +32,6 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Infrastructure.{Agent, Checker, Gateway}
 
@@ -45,8 +44,6 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
   defstruct [
     :tenant_id,
-    :tenant_schema,
-    :ash_opts,
     :check_interval,
     :gateway_timeout,
     :agent_timeout,
@@ -152,15 +149,12 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
   @impl true
   def init(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
-    tenant_schema = Keyword.get(opts, :tenant_schema, tenant_id)
 
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     merged_opts = Keyword.merge(config, opts)
 
     state = %__MODULE__{
       tenant_id: tenant_id,
-      tenant_schema: tenant_schema,
-      ash_opts: TenantMode.ash_opts(:state_monitor, tenant_id, tenant_schema),
       check_interval: Keyword.get(merged_opts, :check_interval, @default_check_interval),
       gateway_timeout: Keyword.get(merged_opts, :gateway_timeout, @default_gateway_timeout),
       agent_timeout: Keyword.get(merged_opts, :agent_timeout, @default_agent_timeout),
@@ -224,11 +218,14 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     start_time = System.monotonic_time(:millisecond)
 
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:state_monitor)
+
     # Run checks in parallel
     tasks = [
-      Task.async(fn -> check_gateways(state) end),
-      Task.async(fn -> check_agents(state) end),
-      Task.async(fn -> check_checkers(state) end)
+      Task.async(fn -> check_gateways(state, actor) end),
+      Task.async(fn -> check_agents(state, actor) end),
+      Task.async(fn -> check_checkers(state, actor) end)
     ]
 
     results = Task.await_many(tasks, :timer.seconds(30))
@@ -252,13 +249,13 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     )
   end
 
-  defp check_gateways(state) do
+  defp check_gateways(state, actor) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.gateway_timeout, :millisecond)
 
-    case list_stale_gateways(timeout_threshold, state) do
+    case list_stale_gateways(timeout_threshold, actor) do
       {:ok, gateways} ->
         Enum.each(gateways, fn gateway ->
-          handle_stale_gateway(gateway, state)
+          handle_stale_gateway(gateway, state, actor)
         end)
 
         length(gateways)
@@ -273,7 +270,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     end
   end
 
-  defp list_stale_gateways(timeout_threshold, state) do
+  defp list_stale_gateways(timeout_threshold, actor) do
     require Ash.Query
 
     Gateway
@@ -281,10 +278,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:healthy, :degraded] and
         (is_nil(last_seen) or last_seen < ^timeout_threshold)
     )
-    |> Ash.read(state.ash_opts)
+    |> Ash.read(actor: actor)
   end
 
-  defp handle_stale_gateway(gateway, state) do
+  defp handle_stale_gateway(gateway, state, actor) do
     Logger.info("Gateway heartbeat timeout, transitioning to degraded/offline",
       tenant_id: state.tenant_id,
       gateway_id: gateway.id
@@ -295,7 +292,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       gateway
-      |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"}, state.ash_opts)
+      |> Ash.Changeset.for_update(action, %{reason: "heartbeat_timeout"}, actor: actor)
       |> Ash.update()
 
     case result do
@@ -311,13 +308,13 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     end
   end
 
-  defp check_agents(state) do
+  defp check_agents(state, actor) do
     timeout_threshold = DateTime.add(DateTime.utc_now(), -state.agent_timeout, :millisecond)
 
-    case list_stale_agents(timeout_threshold, state) do
+    case list_stale_agents(timeout_threshold, actor) do
       {:ok, agents} ->
         Enum.each(agents, fn agent ->
-          handle_stale_agent(agent, state)
+          handle_stale_agent(agent, state, actor)
         end)
 
         length(agents)
@@ -332,7 +329,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     end
   end
 
-  defp list_stale_agents(timeout_threshold, state) do
+  defp list_stale_agents(timeout_threshold, actor) do
     require Ash.Query
 
     Agent
@@ -340,10 +337,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status in [:connected, :degraded] and
         (is_nil(last_seen_time) or last_seen_time < ^timeout_threshold)
     )
-    |> Ash.read(state.ash_opts)
+    |> Ash.read(actor: actor)
   end
 
-  defp handle_stale_agent(agent, state) do
+  defp handle_stale_agent(agent, state, actor) do
     Logger.info("Agent heartbeat timeout, transitioning to disconnected",
       tenant_id: state.tenant_id,
       agent_uid: agent.uid
@@ -351,7 +348,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       agent
-      |> Ash.Changeset.for_update(:lose_connection, %{}, state.ash_opts)
+      |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
       |> Ash.update()
 
     case result do
@@ -367,11 +364,11 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     end
   end
 
-  defp check_checkers(state) do
-    case list_failing_checkers(state.checker_failure_threshold, state) do
+  defp check_checkers(state, actor) do
+    case list_failing_checkers(state.checker_failure_threshold, actor) do
       {:ok, checkers} ->
         Enum.each(checkers, fn checker ->
-          handle_failing_checker(checker, state)
+          handle_failing_checker(checker, state, actor)
         end)
 
         length(checkers)
@@ -386,7 +383,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
     end
   end
 
-  defp list_failing_checkers(threshold, state) do
+  defp list_failing_checkers(threshold, actor) do
     require Ash.Query
 
     Checker
@@ -394,10 +391,10 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
       status == :active and
         consecutive_failures >= ^threshold
     )
-    |> Ash.read(state.ash_opts)
+    |> Ash.read(actor: actor)
   end
 
-  defp handle_failing_checker(checker, state) do
+  defp handle_failing_checker(checker, state, actor) do
     Logger.info("Checker has consecutive failures, marking as failing",
       tenant_id: state.tenant_id,
       checker_id: checker.id,
@@ -406,7 +403,7 @@ defmodule ServiceRadar.Infrastructure.StateMonitor do
 
     result =
       checker
-      |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"}, state.ash_opts)
+      |> Ash.Changeset.for_update(:mark_failing, %{reason: "consecutive_failures"}, actor: actor)
       |> Ash.update()
 
     case result do

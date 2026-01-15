@@ -30,8 +30,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Edge.TenantCA
@@ -53,48 +51,35 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   """
   @spec enqueue(Ecto.UUID.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(package_id, opts \\ []) do
-    tenant_schema = tenant_schema_from_opts(opts)
-
-    args =
-      %{"package_id" => package_id}
-      |> maybe_put_arg("tenant_schema", tenant_schema)
-
     job_opts =
       []
       |> maybe_add_scheduled_at(opts[:scheduled_at])
       |> maybe_add_priority(opts[:priority])
 
-    args
+    %{"package_id" => package_id}
     |> new(job_opts)
     |> Router.insert()
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"package_id" => package_id} = args, attempt: attempt, max_attempts: max}) do
+  def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
     Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
 
-    tenant_schema = tenant_schema_from_args(args)
-
-    with {:ok, tenant_schema} <- require_tenant_schema(tenant_schema, package_id),
-         {:ok, package} <- get_package(package_id, tenant_schema),
+    with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
-         {:ok, _package} <- mark_provisioning(package, tenant_schema),
+         {:ok, _package} <- mark_provisioning(package),
          {:ok, tenant} <- get_tenant(package.tenant_id),
          :ok <- validate_tenant_nats_ready(tenant),
          {:ok, account_seed} <- get_account_seed(tenant),
          {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
          {:ok, tenant_ca} <- get_tenant_ca(tenant),
          {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, package),
-         {:ok, credential} <- create_credential_record(package, user_creds, tenant_schema),
+         {:ok, credential} <- create_credential_record(package, user_creds),
          {:ok, _package} <-
-           mark_ready(package, credential.id, user_creds.creds_file_content, tls_certs, tenant_schema) do
+           mark_ready(package, credential.id, user_creds.creds_file_content, tls_certs) do
       Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
-      {:error, :tenant_schema_not_found} ->
-        Logger.error("Tenant schema not found for collector package #{package_id}, discarding job")
-        {:discard, :tenant_schema_not_found}
-
       {:error, :package_not_found} ->
         Logger.error("Collector package #{package_id} not found, discarding job")
         {:discard, :package_not_found}
@@ -105,7 +90,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
       {:error, :tenant_not_found} ->
         Logger.error("Tenant not found for package #{package_id}, discarding job")
-        mark_failed(package_id, tenant_schema, "Tenant not found")
+        mark_failed(package_id, "Tenant not found")
         {:discard, :tenant_not_found}
 
       {:error, :tenant_nats_not_ready} ->
@@ -114,24 +99,24 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
       {:error, :account_seed_not_found} ->
         Logger.error("Tenant account seed not found for package #{package_id}")
-        mark_failed(package_id, tenant_schema, "Tenant NATS account seed not configured")
+        mark_failed(package_id, "Tenant NATS account seed not configured")
         {:discard, :account_seed_not_found}
 
       {:error, :tenant_ca_not_found} ->
         Logger.error("Tenant CA not found for package #{package_id}")
-        mark_failed(package_id, tenant_schema, "Tenant certificate authority not configured")
+        mark_failed(package_id, "Tenant certificate authority not configured")
         {:discard, :tenant_ca_not_found}
 
       {:error, :tenant_ca_key_decrypt_failed} ->
         Logger.error("Failed to decrypt tenant CA key for package #{package_id}")
-        mark_failed(package_id, tenant_schema, "Failed to decrypt tenant CA key")
+        mark_failed(package_id, "Failed to decrypt tenant CA key")
         {:discard, :tenant_ca_key_decrypt_failed}
 
       {:error, {:tls_cert_generation_failed, reason}} = error ->
         Logger.error("TLS certificate generation failed for package #{package_id}: #{inspect(reason)}")
 
         if attempt >= max do
-          mark_failed(package_id, tenant_schema, "TLS certificate generation failed: #{inspect(reason)}")
+          mark_failed(package_id, "TLS certificate generation failed: #{inspect(reason)}")
         end
 
         error
@@ -140,7 +125,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         Logger.error("gRPC error provisioning credentials for package #{package_id}: #{message}")
 
         if attempt >= max do
-          mark_failed(package_id, tenant_schema, message)
+          mark_failed(package_id, message)
         end
 
         error
@@ -153,7 +138,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         Logger.error("Error provisioning credentials for package #{package_id}: #{inspect(reason)}")
 
         if attempt >= max do
-          mark_failed(package_id, tenant_schema, inspect(reason))
+          mark_failed(package_id, inspect(reason))
         end
 
         error
@@ -162,21 +147,14 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   # Private helpers
 
-  defp get_package(package_id, tenant_schema) do
-    # Use mode-conditional actor for initial resource discovery (tenant_id not yet known)
-    # In tenant-unaware mode, we use SystemActor.system/1 since DB search_path handles schema
-    # In tenant-aware mode, we use SystemActor.platform/1 for cross-schema access
-    actor =
-      if TenantMode.tenant_aware?(),
-        do: SystemActor.platform(:provision_collector),
-        else: SystemActor.system(:provision_collector)
-
-    tenant_opts = TenantMode.tenant_opts(tenant_schema)
+  defp get_package(package_id) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
 
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
-         |> Ash.read_one([actor: actor] ++ tenant_opts) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :package_not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -191,17 +169,18 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
-  defp mark_provisioning(package, tenant_schema) do
-    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
+  defp mark_provisioning(package) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
 
     package
-    |> Ash.Changeset.for_update(:provision, %{}, opts)
+    |> Ash.Changeset.for_update(:provision, %{}, actor: actor)
     |> Ash.update()
   end
 
   defp get_tenant(tenant_id) do
-    # Tenant resource is in public schema, use mode-conditional actor
-    actor = TenantMode.system_actor(:provision_collector, nil)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
     seed_attr = seed_attribute()
     select_fields =
       case seed_attr do
@@ -329,8 +308,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
-  defp create_credential_record(package, user_creds, tenant_schema) do
-    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
+  defp create_credential_record(package, user_creds) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
 
     NatsCredential
     |> Ash.Changeset.for_create(:create, %{
@@ -342,7 +322,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         site: package.site,
         hostname: package.hostname
       }
-    }, opts)
+    }, actor: actor)
     |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
     |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
     |> Ash.Changeset.change_attribute(:tenant_id, package.tenant_id)
@@ -350,13 +330,13 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp get_tenant_ca(tenant) do
-    schema = TenantSchemas.schema_for_tenant(tenant)
-    opts = TenantMode.ash_opts(:provision_collector, tenant.id, schema)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
          |> Ash.Query.filter(tenant_id == ^tenant.id)
-         |> Ash.read_one(opts) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
       {:error, error} -> {:error, error}
@@ -412,11 +392,12 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
 
-  defp mark_ready(package, credential_id, nats_creds_content, tls_certs, tenant_schema) do
-    opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
+  defp mark_ready(package, credential_id, nats_creds_content, tls_certs) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_collector)
 
     package
-    |> Ash.Changeset.for_update(:ready, %{}, opts)
+    |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
     |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
     |> Ash.Changeset.set_argument(:tls_cert_pem, tls_certs.certificate_pem)
@@ -425,13 +406,14 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.update()
   end
 
-  defp mark_failed(package_id, tenant_schema, message) do
-    case get_package(package_id, tenant_schema) do
+  defp mark_failed(package_id, message) do
+    case get_package(package_id) do
       {:ok, package} ->
-        opts = TenantMode.ash_opts(:provision_collector, package.tenant_id, tenant_schema)
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:provision_collector)
 
         package
-        |> Ash.Changeset.for_update(:fail, %{}, opts)
+        |> Ash.Changeset.for_update(:fail, %{}, actor: actor)
         |> Ash.Changeset.set_argument(:error_message, message)
         |> Ash.update()
 
@@ -445,42 +427,4 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   defp maybe_add_priority(opts, nil), do: opts
   defp maybe_add_priority(opts, priority), do: Keyword.put(opts, :priority, priority)
-
-  defp maybe_put_arg(args, _key, nil), do: args
-  defp maybe_put_arg(args, key, value), do: Map.put(args, key, value)
-
-  defp tenant_schema_from_opts(opts) do
-    cond do
-      schema = Keyword.get(opts, :tenant_schema) ->
-        schema
-
-      tenant = Keyword.get(opts, :tenant) ->
-        TenantSchemas.schema_for_tenant(tenant)
-
-      tenant_id = Keyword.get(opts, :tenant_id) ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      true ->
-        nil
-    end
-  end
-
-  defp tenant_schema_from_args(args) do
-    cond do
-      schema = Map.get(args, "tenant_schema") ->
-        schema
-
-      tenant = Map.get(args, "tenant") ->
-        TenantSchemas.schema_for_tenant(tenant)
-
-      tenant_id = Map.get(args, "tenant_id") ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      true ->
-        nil
-    end
-  end
-
-  defp require_tenant_schema(nil, _package_id), do: {:error, :tenant_schema_not_found}
-  defp require_tenant_schema(schema, _package_id), do: {:ok, schema}
 end

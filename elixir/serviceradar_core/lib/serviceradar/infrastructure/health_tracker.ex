@@ -70,8 +70,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       HealthTracker.summary(tenant_id)
   """
 
-  alias ServiceRadar.Cluster.TenantMode
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.HealthWriter
   alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub}
 
@@ -131,7 +130,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       node = Keyword.get(opts, :node, to_string(node()))
       metadata = Keyword.get(opts, :metadata, %{})
       broadcast = Keyword.get(opts, :broadcast, true)
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
       attrs = %{
         entity_type: entity_type,
@@ -145,17 +146,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       }
 
       result =
-        case tenant_schema do
-          nil ->
-            {:error, :tenant_schema_not_found}
-
-          schema ->
-            opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
-
-            HealthEvent
-            |> Ash.Changeset.for_create(:record, attrs, opts)
-            |> Ash.create()
-        end
+        HealthEvent
+        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+        |> Ash.create()
 
       case result do
         {:ok, event} ->
@@ -299,25 +292,18 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     require Ash.Query
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
-
-        schema ->
-          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
-
-          HealthEvent
-          |> Ash.Query.filter(
-            entity_type == ^entity_type and
-              entity_id == ^entity_id and
-              tenant_id == ^tenant_id
-          )
-          |> Ash.Query.sort(recorded_at: :desc)
-          |> Ash.Query.limit(1)
-          |> Ash.read_one(opts)
-      end
+      HealthEvent
+      |> Ash.Query.filter(
+        entity_type == ^entity_type and
+          entity_id == ^entity_id and
+          tenant_id == ^tenant_id
+      )
+      |> Ash.Query.sort(recorded_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one(actor: actor)
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
     end
@@ -340,28 +326,21 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
-
       require Ash.Query
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-        schema ->
-          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
-
-          HealthEvent
-          |> Ash.Query.filter(
-            entity_type == ^entity_type and
-              entity_id == ^entity_id and
-              tenant_id == ^tenant_id and
-              recorded_at >= ^since
-          )
-          |> Ash.Query.sort(recorded_at: :desc)
-          |> Ash.Query.limit(limit)
-          |> Ash.read(opts)
-      end
+      HealthEvent
+      |> Ash.Query.filter(
+        entity_type == ^entity_type and
+          entity_id == ^entity_id and
+          tenant_id == ^tenant_id and
+          recorded_at >= ^since
+      )
+      |> Ash.Query.sort(recorded_at: :desc)
+      |> Ash.Query.limit(limit)
+      |> Ash.read(actor: actor)
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
     end
@@ -377,27 +356,20 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     require Ash.Query
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
       # Get the most recent event for each entity
       # This is a simplified approach - for production, use a materialized view
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      case HealthEvent
+           |> Ash.Query.filter(tenant_id == ^tenant_id)
+           |> Ash.Query.sort(recorded_at: :desc)
+           |> Ash.read(actor: actor) do
+        {:ok, events} ->
+          {:ok, build_summary(events)}
 
-        schema ->
-          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
-
-          case HealthEvent
-               |> Ash.Query.filter(tenant_id == ^tenant_id)
-               |> Ash.Query.sort(recorded_at: :desc)
-               |> Ash.read(opts) do
-            {:ok, events} ->
-              {:ok, build_summary(events)}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:error, reason} -> return_with_skip(:summary, "tenant", reason)
@@ -434,41 +406,28 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     entity_type = Keyword.get(opts, :entity_type)
 
     with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
-
       require Ash.Query
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-        schema ->
-          opts = TenantMode.ash_opts(:health_tracker, tenant_id, schema)
+      query =
+        HealthEvent
+        |> Ash.Query.filter(tenant_id == ^tenant_id)
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(limit)
 
-          query =
-            HealthEvent
-            |> Ash.Query.filter(tenant_id == ^tenant_id)
-            |> Ash.Query.sort(recorded_at: :desc)
-            |> Ash.Query.limit(limit)
+      query =
+        if entity_type do
+          Ash.Query.filter(query, entity_type == ^entity_type)
+        else
+          query
+        end
 
-          query =
-            if entity_type do
-              Ash.Query.filter(query, entity_type == ^entity_type)
-            else
-              query
-            end
-
-          Ash.read(query, opts)
-      end
+      Ash.read(query, actor: actor)
     else
       {:error, reason} -> return_with_skip(:recent, "tenant", reason)
     end
-  end
-
-  defp safe_schema_for_tenant(tenant_id) do
-    TenantSchemas.schema_for_tenant(tenant_id)
-  rescue
-    ArgumentError -> nil
   end
 
   defp return_with_skip(entity_type, entity_id, reason) do

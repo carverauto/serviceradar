@@ -45,7 +45,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   @impl true
   def init(state) do
     table = :ets.new(:stateful_alert_rule_state, [:set, :private])
-    state = Map.merge(state, %{table: table, rules: [], rules_loaded_at: nil})
+    # Simple actor - DB connection's search_path determines the schema
+    ash_opts = [actor: SystemActor.system(:alert_engine)]
+    state = Map.merge(state, %{table: table, rules: [], rules_loaded_at: nil, ash_opts: ash_opts})
 
     load_state_snapshots(state)
 
@@ -137,12 +139,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp load_rules(state) do
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     rules =
       StatefulAlertRule
-      |> Ash.Query.for_read(:active, %{}, tenant: state.schema)
-      |> Ash.read(actor: actor)
+      |> Ash.Query.for_read(:active, %{})
+      |> Ash.read(state.ash_opts)
       |> unwrap_page()
 
     updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
@@ -158,11 +158,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp unwrap_page(_), do: []
 
   defp load_state_snapshots(state) do
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     StatefulAlertRuleState
-    |> Ash.Query.for_read(:read, %{}, tenant: state.schema)
-    |> Ash.read(actor: actor)
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.read(state.ash_opts)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -396,10 +394,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       tenant_id: state.tenant_id
     }
 
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     StatefulAlertRuleState
-    |> Ash.Changeset.for_create(:upsert, params, tenant: state.schema, actor: actor)
+    |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
     |> Ash.create()
     |> case do
       {:ok, _} -> :ok
@@ -415,11 +411,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     if is_nil(tenant_id) do
       {:error, :missing_tenant_id}
     else
-      schema = tenant_schema(rule, tenant_id)
       event = build_event(rule, snapshot, record, now, tenant_id)
+      # DB connection's search_path determines the schema
+      actor = SystemActor.system(:alert_engine)
 
-      with {:ok, ocsf_event} <- record_event(event, schema, tenant_id) do
-        case AlertGenerator.from_event(ocsf_event, tenant: schema, alert: rule.alert) do
+      with {:ok, ocsf_event} <- record_event(event, actor, tenant_id) do
+        case AlertGenerator.from_event(ocsf_event, actor: actor, alert: rule.alert) do
           {:ok, %Alert{} = alert} ->
             record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
             {:ok, alert.id}
@@ -434,37 +431,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp record_event(attrs, schema, tenant_id) do
-    actor = SystemActor.for_tenant(tenant_id, :alert_engine)
-
+  defp record_event(attrs, actor, tenant_id) do
+    # DB connection's search_path determines the schema
     OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, tenant: schema, actor: actor)
+    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
     |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
     |> Ash.create()
   end
 
   defp resolve_alert(alert_id, rule, snapshot, now) when is_binary(alert_id) do
-    tenant_id = snapshot.tenant_id
-    schema = tenant_schema(rule, tenant_id)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    case schema do
-      nil -> :ok
-      _ -> resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now)
-    end
-  end
-
-  defp resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
-
-  defp resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now) do
-    actor = SystemActor.for_tenant(tenant_id, :alert_engine)
-
-    case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
+    case Alert.get_by_id(alert_id, actor: actor) do
       {:ok, alert} ->
         alert
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"},
-          tenant: schema,
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
         |> Ash.update()
         |> case do
           {:ok, _} ->
@@ -481,41 +463,34 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp send_renotify(alert_id, _rule, snapshot, now) when is_binary(alert_id) do
-    tenant_id = snapshot.tenant_id
-    schema = tenant_schema(nil, tenant_id)
+  defp resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
 
-    if is_nil(schema) do
-      {:error, :missing_tenant_schema}
-    else
-      actor = SystemActor.for_tenant(tenant_id, :alert_engine)
+  defp send_renotify(alert_id, _rule, _snapshot, now) when is_binary(alert_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-      case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
-        {:ok, alert} ->
-          alert_key = %WebhookNotifier.Alert{
-            level: severity_to_level(alert.severity),
-            title: alert.title,
-            message: alert.description,
-            timestamp: DateTime.to_iso8601(now),
-            gateway_id: "core",
-            service_name: nil,
-            details: alert.metadata || %{}
-          }
+    case Alert.get_by_id(alert_id, actor: actor) do
+      {:ok, alert} ->
+        alert_key = %WebhookNotifier.Alert{
+          level: severity_to_level(alert.severity),
+          title: alert.title,
+          message: alert.description,
+          timestamp: DateTime.to_iso8601(now),
+          gateway_id: "core",
+          service_name: nil,
+          details: alert.metadata || %{}
+        }
 
-          _ = WebhookNotifier.send_alert(alert_key)
+        _ = WebhookNotifier.send_alert(alert_key)
 
-          alert
-          |> Ash.Changeset.for_update(:record_notification, %{},
-            tenant: schema,
-            actor: actor
-          )
-          |> Ash.update()
+        alert
+        |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
+        |> Ash.update()
 
-          :ok
+        :ok
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -615,32 +590,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp record_history(rule, snapshot, event_type, now, alert_id, details) do
-    schema = tenant_schema(rule, snapshot.tenant_id)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    if is_nil(schema) do
-      :error
-    else
-      actor = SystemActor.for_tenant(snapshot.tenant_id, :alert_engine)
+    params = %{
+      event_time: now,
+      rule_id: rule.id,
+      group_key: snapshot.group_key,
+      event_type: event_type,
+      alert_id: alert_id,
+      details: details,
+      tenant_id: snapshot.tenant_id
+    }
 
-      params = %{
-        event_time: now,
-        rule_id: rule.id,
-        group_key: snapshot.group_key,
-        event_type: event_type,
-        alert_id: alert_id,
-        details: details,
-        tenant_id: snapshot.tenant_id
-      }
-
-      StatefulAlertRuleHistory
-      |> Ash.Changeset.for_create(:record, params, tenant: schema, actor: actor)
-      |> Ash.create()
-      |> case do
-        {:ok, _} -> :ok
-        {:error, reason} ->
-          Logger.warning("Failed to record rule history: #{inspect(reason)}")
-          :error
-      end
+    StatefulAlertRuleHistory
+    |> Ash.Changeset.for_create(:record, params, actor: actor)
+    |> Ash.create()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning("Failed to record rule history: #{inspect(reason)}")
+        :error
     end
   end
 
@@ -936,12 +906,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Enum.reduce(%{}, fn {key, value}, acc ->
       Map.put(acc, to_string(key), value)
     end)
-  end
-
-  defp tenant_schema(_rule, nil), do: nil
-
-  defp tenant_schema(_rule, tenant_id) do
-    ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(tenant_id)
   end
 
   defp add_seconds(%DateTime{} = dt, seconds) when is_integer(seconds) do

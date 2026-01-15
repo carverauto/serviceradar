@@ -27,22 +27,17 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.{EdgeSite, NatsLeafServer, TenantCA}
   alias ServiceRadar.Oban.Router
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id} = args}) do
+  def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}) do
     Logger.info("Provisioning NATS leaf server: #{leaf_server_id}")
 
-    tenant_schema = tenant_schema_from_args(args)
-
-    with {:ok, tenant_schema} <- require_tenant_schema(tenant_schema, leaf_server_id),
-         {:ok, leaf_server} <- load_leaf_server(leaf_server_id, tenant_schema),
-         {:ok, edge_site} <- load_edge_site(leaf_server.edge_site_id, tenant_schema),
+    with {:ok, leaf_server} <- load_leaf_server(leaf_server_id),
+         {:ok, edge_site} <- load_edge_site(leaf_server.edge_site_id),
          {:ok, tenant} <- load_tenant(leaf_server.tenant_id),
-         {:ok, tenant_ca} <- get_tenant_ca(tenant, tenant_schema),
+         {:ok, tenant_ca} <- get_tenant_ca(tenant),
          {:ok, leaf_certs} <- generate_leaf_certificates(tenant_ca, tenant, edge_site),
          {:ok, server_certs} <- generate_server_certificates(tenant_ca, tenant, edge_site),
          {:ok, config_checksum} <- compute_config_checksum(leaf_server, leaf_certs, server_certs),
@@ -52,16 +47,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
              leaf_certs,
              server_certs,
              tenant_ca,
-             config_checksum,
-             tenant_schema
+             config_checksum
            ) do
       Logger.info("Successfully provisioned NATS leaf server: #{leaf_server_id}")
       :ok
     else
-      {:error, :tenant_schema_not_found} ->
-        Logger.error("Tenant schema not found for leaf server #{leaf_server_id}")
-        {:discard, :tenant_schema_not_found}
-
       {:error, reason} = error ->
         Logger.error("Failed to provision leaf server #{leaf_server_id}: #{inspect(reason)}")
         error
@@ -71,43 +61,30 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   @doc """
   Enqueues a provisioning job for the given NatsLeafServer.
   """
-  def enqueue(leaf_server_id, opts \\ []) when is_binary(leaf_server_id) do
-    tenant_schema = tenant_schema_from_opts(opts)
-
+  def enqueue(leaf_server_id, _opts \\ []) when is_binary(leaf_server_id) do
     %{"leaf_server_id" => leaf_server_id}
-    |> maybe_put_arg("tenant_schema", tenant_schema)
     |> __MODULE__.new()
     |> Router.insert()
   end
 
   # Private functions
 
-  defp load_leaf_server(leaf_server_id, tenant_schema) do
-    # Use mode-conditional actor for initial resource discovery (tenant_id not yet known)
-    actor =
-      if TenantMode.tenant_aware?(),
-        do: SystemActor.platform(:provision_leaf),
-        else: SystemActor.system(:provision_leaf)
+  defp load_leaf_server(leaf_server_id) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_leaf)
 
-    tenant_opts = TenantMode.tenant_opts(tenant_schema)
-
-    case Ash.get(NatsLeafServer, leaf_server_id, [actor: actor] ++ tenant_opts) do
+    case Ash.get(NatsLeafServer, leaf_server_id, actor: actor) do
       {:ok, nil} -> {:error, :leaf_server_not_found}
       {:ok, server} -> {:ok, server}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp load_edge_site(edge_site_id, tenant_schema) do
-    # Use mode-conditional actor for initial resource discovery
-    actor =
-      if TenantMode.tenant_aware?(),
-        do: SystemActor.platform(:provision_leaf),
-        else: SystemActor.system(:provision_leaf)
+  defp load_edge_site(edge_site_id) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_leaf)
 
-    tenant_opts = TenantMode.tenant_opts(tenant_schema)
-
-    case Ash.get(EdgeSite, edge_site_id, [actor: actor] ++ tenant_opts) do
+    case Ash.get(EdgeSite, edge_site_id, actor: actor) do
       {:ok, nil} -> {:error, :edge_site_not_found}
       {:ok, site} -> {:ok, site}
       {:error, error} -> {:error, error}
@@ -115,8 +92,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   defp load_tenant(tenant_id) do
-    # Tenant resource is in public schema, use mode-conditional actor
-    actor = TenantMode.system_actor(:provision_leaf, nil)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_leaf)
 
     case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -125,14 +102,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     end
   end
 
-  defp get_tenant_ca(tenant, tenant_schema) do
+  defp get_tenant_ca(tenant) do
     tenant_id = tenant.id
-    opts = TenantMode.ash_opts(:provision_leaf, tenant_id, tenant_schema)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_leaf)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
          |> Ash.Query.filter(tenant_id == ^tenant_id)
-         |> Ash.read_one(opts) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
       {:error, error} -> {:error, error}
@@ -219,10 +197,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
          leaf_certs,
          server_certs,
          tenant_ca,
-         config_checksum,
-         tenant_schema
+         config_checksum
        ) do
-    opts = TenantMode.ash_opts(:provision_leaf, leaf_server.tenant_id, tenant_schema)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:provision_leaf)
 
     leaf_server
     |> Ash.Changeset.for_update(:provision, %{
@@ -232,45 +210,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
       server_key_pem: server_certs.private_key_pem,
       ca_chain_pem: tenant_ca.certificate_pem,
       config_checksum: config_checksum
-    }, opts)
+    }, actor: actor)
     |> Ash.update()
   end
-
-  defp maybe_put_arg(args, _key, nil), do: args
-  defp maybe_put_arg(args, key, value), do: Map.put(args, key, value)
-
-  defp tenant_schema_from_opts(opts) do
-    cond do
-      schema = Keyword.get(opts, :tenant_schema) ->
-        schema
-
-      tenant = Keyword.get(opts, :tenant) ->
-        TenantSchemas.schema_for_tenant(tenant)
-
-      tenant_id = Keyword.get(opts, :tenant_id) ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      true ->
-        nil
-    end
-  end
-
-  defp tenant_schema_from_args(args) do
-    cond do
-      schema = Map.get(args, "tenant_schema") ->
-        schema
-
-      tenant = Map.get(args, "tenant") ->
-        TenantSchemas.schema_for_tenant(tenant)
-
-      tenant_id = Map.get(args, "tenant_id") ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      true ->
-        nil
-    end
-  end
-
-  defp require_tenant_schema(nil, _leaf_server_id), do: {:error, :tenant_schema_not_found}
-  defp require_tenant_schema(schema, _leaf_server_id), do: {:ok, schema}
 end

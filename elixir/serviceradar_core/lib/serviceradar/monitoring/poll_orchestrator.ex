@@ -64,7 +64,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.GatewayProcess
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.Monitoring.PollJob
@@ -384,11 +384,14 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     require Ash.Query
 
     try do
+      # DB connection's search_path determines the schema
+      actor = SystemActor.system(:poll_orchestrator)
+
       checks =
         ServiceRadar.Monitoring.ServiceCheck
         |> Ash.Query.filter(schedule_id == ^schedule.id)
         |> Ash.Query.filter(enabled == true)
-        |> Ash.read!(tenant: TenantSchemas.schema_for_tenant(schedule.tenant_id))
+        |> Ash.read!(actor: actor)
         |> Enum.map(&check_to_map/1)
 
       {:ok, checks}

@@ -8,7 +8,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestor
 
@@ -277,9 +276,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_status(updates, tenant_id, actor, ingest_result) do
     sync_service_id = extract_sync_service_id(updates)
 
-    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
+    with_sync_service(sync_service_id, tenant_id, actor, fn source ->
       {action, action_attrs} = build_sync_finish(ingest_result, length(updates))
-      update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, "status")
+      update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
     end)
   rescue
     error ->
@@ -289,9 +288,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp record_sync_start(updates, tenant_id, actor) do
     sync_service_id = extract_sync_service_id(updates)
 
-    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
+    with_sync_service(sync_service_id, tenant_id, actor, fn source ->
       action_attrs = %{device_count: length(updates)}
-      update_sync_source(source, tenant_schema, actor, :sync_start, action_attrs, sync_service_id, "start")
+      update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
     end)
   rescue
     error ->
@@ -300,15 +299,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp with_sync_service(nil, _tenant_id, _actor, _fun), do: :ok
 
-  defp with_sync_service(sync_service_id, tenant_id, actor, fun) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-
-    case IntegrationSource.get_by_id(sync_service_id,
-           tenant: tenant_schema,
-           actor: actor
-         ) do
+  defp with_sync_service(sync_service_id, _tenant_id, actor, fun) do
+    # DB connection's search_path determines the schema
+    case IntegrationSource.get_by_id(sync_service_id, actor: actor) do
       {:ok, source} ->
-        fun.(source, tenant_schema)
+        fun.(source)
 
       {:error, reason} ->
         Logger.debug(
@@ -317,10 +312,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, label) do
+  defp update_sync_source(source, actor, action, action_attrs, sync_service_id, label) do
+    # DB connection's search_path determines the schema
     source
     |> Ash.Changeset.for_update(action, action_attrs)
-    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> Ash.update(actor: actor)
     |> case do
       {:ok, _} ->
         Logger.debug("Recorded sync #{label} for IntegrationSource #{sync_service_id}")
@@ -380,8 +376,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp decode_results(_message), do: {:error, :unsupported_payload}
 
-  defp system_actor(tenant_id) do
-    SystemActor.for_tenant(tenant_id, :sync_ingestor)
+  defp system_actor(_tenant_id) do
+    # Simple actor - DB connection's search_path determines the schema
+    SystemActor.system(:sync_ingestor)
   end
 
   defp sync_ingestor do

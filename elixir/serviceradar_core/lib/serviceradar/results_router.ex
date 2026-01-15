@@ -86,7 +86,8 @@ defmodule ServiceRadar.ResultsRouter do
     if is_binary(tenant_id) and tenant_id != "" do
       with {:ok, payload} <- decode_payload(status[:message]),
            {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
-        actor = SystemActor.for_tenant(tenant_id, :sweep_ingestor)
+        # Simple actor - DB connection's search_path determines the schema
+        actor = SystemActor.system(:sweep_ingestor)
 
         opts =
           [

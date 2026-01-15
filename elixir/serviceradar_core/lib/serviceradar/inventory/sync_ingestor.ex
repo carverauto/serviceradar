@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
   alias ServiceRadar.Repo
 
@@ -19,14 +19,16 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   @spec ingest_updates([map()], String.t(), keyword()) :: :ok | {:error, term()}
   def ingest_updates(updates, tenant_id, opts \\ []) do
-    actor = Keyword.get(opts, :actor, system_actor(tenant_id))
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor, SystemActor.system(:sync_ingestor))
 
     updates = List.wrap(updates)
     total_count = length(updates)
     batch_concurrency = batch_concurrency()
 
-    Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}")
+    Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}",
+      tenant_id: tenant_id
+    )
     start_time = System.monotonic_time(:millisecond)
 
     batches =
@@ -39,21 +41,21 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result =
       batches
       |> Task.async_stream(
-      fn {batch, batch_num} ->
-        batch_start = System.monotonic_time(:millisecond)
-        ingest_batch(batch, tenant_schema, actor)
-        batch_elapsed = System.monotonic_time(:millisecond) - batch_start
+        fn {batch, batch_num} ->
+          batch_start = System.monotonic_time(:millisecond)
+          ingest_batch(batch, actor)
+          batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
-        Logger.debug(
-          "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
-        )
+          Logger.debug(
+            "SyncIngestor: Batch #{batch_num}/#{total_batches} (#{length(batch)} devices) completed in #{batch_elapsed}ms"
+          )
 
-        :ok
-      end,
-      max_concurrency: batch_concurrency,
-      timeout: :infinity,
-      ordered: false
-    )
+          :ok
+        end,
+        max_concurrency: batch_concurrency,
+        timeout: :infinity,
+        ordered: false
+      )
       |> Enum.reduce_while(:ok, fn
         {:ok, :ok}, _acc ->
           {:cont, :ok}
@@ -72,7 +74,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     result
   end
 
-  defp ingest_batch(updates, tenant_schema, _actor) do
+  defp ingest_batch(updates, _actor) do
     # Step 1: Normalize all updates
     normalized_updates = Enum.map(updates, &normalize_update/1)
 
@@ -80,14 +82,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     all_identifiers = extract_all_identifiers(normalized_updates)
 
     # Step 3: Bulk lookup existing device identifiers
-    existing_mappings = bulk_lookup_identifiers(all_identifiers, tenant_schema)
+    # DB connection's search_path determines the schema
+    existing_mappings = bulk_lookup_identifiers(all_identifiers)
 
     # Step 4: Bulk lookup existing devices by IP for IP-only devices
     ip_only_updates = Enum.filter(normalized_updates, fn u ->
       ids = IdentityReconciler.extract_strong_identifiers(u)
       not IdentityReconciler.has_strong_identifier?(ids) and ids.ip != ""
     end)
-    ip_to_device = bulk_lookup_by_ip(ip_only_updates, tenant_schema)
+    ip_to_device = bulk_lookup_by_ip(ip_only_updates)
 
     # Step 5: Resolve device IDs (using cached lookups)
     resolved_updates =
@@ -105,7 +108,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       if Enum.empty?(device_records) do
         :ok
       else
-        bulk_upsert_devices(device_records, tenant_schema)
+        bulk_upsert_devices(device_records)
       end
 
     # Step 8: Bulk upsert device identifiers
@@ -114,7 +117,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       if Enum.empty?(identifier_records) do
         :ok
       else
-        bulk_upsert_identifiers(identifier_records, tenant_schema)
+        bulk_upsert_identifiers(identifier_records)
       end
 
     case {device_result, identifier_result} do
@@ -145,9 +148,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
 
   # Bulk lookup device identifiers - single query for all identifiers
-  defp bulk_lookup_identifiers([], _tenant_schema), do: %{}
+  # DB connection's search_path determines the schema
+  defp bulk_lookup_identifiers([]), do: %{}
 
-  defp bulk_lookup_identifiers(identifiers, tenant_schema) do
+  defp bulk_lookup_identifiers(identifiers) do
     # Build OR conditions for all identifiers
     conditions = Enum.map(identifiers, fn {type, value, partition} ->
       dynamic(
@@ -168,7 +172,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
       )
 
-    Repo.all(query, prefix: tenant_schema)
+    Repo.all(query)
     |> Enum.reduce(%{}, fn {type, value, partition, device_id}, acc ->
       type_atom =
         case type do
@@ -191,9 +195,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   # Bulk lookup devices by IP
-  defp bulk_lookup_by_ip([], _tenant_schema), do: %{}
+  # DB connection's search_path determines the schema
+  defp bulk_lookup_by_ip([]), do: %{}
 
-  defp bulk_lookup_by_ip(updates, tenant_schema) do
+  defp bulk_lookup_by_ip(updates) do
     ips = updates
           |> Enum.map(fn u -> u.ip end)
           |> Enum.filter(&(&1 != nil and &1 != ""))
@@ -208,7 +213,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
           select: {d.ip, d.uid}
         )
 
-      Repo.all(query, prefix: tenant_schema)
+      Repo.all(query)
       |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
       |> Map.new()
     end
@@ -283,7 +288,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> Map.values()
   end
 
-  defp bulk_upsert_devices(records, tenant_schema) do
+  # DB connection's search_path determines the schema
+  defp bulk_upsert_devices(records) do
     update_query =
       from(d in Device,
         update: [
@@ -308,7 +314,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     Repo.insert_all(
       Device,
       records,
-      prefix: tenant_schema,
       on_conflict: update_query,
       conflict_target: [:uid]
     )
@@ -348,7 +353,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   # Bulk upsert identifiers
-  defp bulk_upsert_identifiers(records, tenant_schema) do
+  # DB connection's search_path determines the schema
+  defp bulk_upsert_identifiers(records) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     insert_records =
@@ -363,7 +369,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,
-        prefix: tenant_schema,
         on_conflict: {:replace, [:device_id, :last_seen]},
         conflict_target: [:identifier_type, :identifier_value, :partition]
       )
@@ -462,14 +467,5 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       true -> true
       _ -> false
     end
-  end
-
-  defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
   end
 end

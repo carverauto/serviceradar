@@ -26,9 +26,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
@@ -158,22 +158,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load service checks assigned to this agent from the database
-  defp load_agent_checks(agent_id, tenant_id) do
-    actor = %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  defp load_agent_checks(agent_id, _tenant_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:agent_config_generator)
 
     # Query for enabled checks assigned to this agent
     checks =
       ServiceCheck
-      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id},
-        actor: actor,
-        tenant: tenant_schema
-      )
+      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
       |> Ash.read!()
 

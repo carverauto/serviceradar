@@ -5,22 +5,8 @@ defmodule ServiceRadar.Repo do
   Uses AshPostgres for Ash resource persistence. The database connection
   is configured via the :serviceradar_core application config.
 
-  ## Tenant Modes
-
-  The repository supports two tenant isolation modes controlled by
-  `TENANT_AWARE_MODE` environment variable:
-
-  ### Tenant-Aware Mode (default, TENANT_AWARE_MODE=true)
-
-  - Uses `TenantSchemas.list_schemas()` to enumerate all tenant schemas
-  - Ash operations require explicit `tenant:` parameter
-  - Suitable for Control Plane that manages multiple tenants
-
-  ### Tenant-Unaware Mode (TENANT_AWARE_MODE=false)
-
-  - Tenant is implicit from database connection's `search_path`
-  - Ash operations don't need `tenant:` parameter
-  - Suitable for tenant instances with scoped CNPG credentials
+  Tenant isolation is handled by the database connection's `search_path`,
+  set by CNPG scoped credentials. The application code is tenant-unaware.
 
   ## Inherited Ecto.Repo Functions
 
@@ -29,8 +15,6 @@ defmodule ServiceRadar.Repo do
   """
   use AshPostgres.Repo,
     otp_app: :serviceradar_core
-
-  alias ServiceRadar.Cluster.TenantMode
 
   def installed_extensions do
     # Extensions available in the database
@@ -44,16 +28,12 @@ defmodule ServiceRadar.Repo do
   @doc """
   Returns all tenant schemas for migrations and cross-tenant operations.
 
-  In tenant-aware mode, returns all tenant schemas from the database.
-  In tenant-unaware mode, returns an empty list (there's only "self").
+  In tenant instance deployments, the schema is set by DB connection's
+  search_path so there's no need to enumerate tenants.
   """
   def all_tenants do
-    if TenantMode.tenant_aware?() do
-      ServiceRadar.Cluster.TenantSchemas.list_schemas()
-    else
-      # In tenant-unaware mode, the schema is set by DB connection
-      # There's no need to enumerate tenants for migrations
-      []
-    end
+    # Schema is set by DB connection's search_path (CNPG credentials)
+    # No need to enumerate tenants
+    []
   end
 end

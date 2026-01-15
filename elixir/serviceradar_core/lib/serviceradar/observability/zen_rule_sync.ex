@@ -26,7 +26,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.ZenRule
@@ -157,17 +156,17 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   @impl true
   def init(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
-    tenant_schema = Keyword.get(opts, :tenant_schema, tenant_id)
 
     Logger.info("ZenRuleSync starting", tenant_id: tenant_id)
 
     # Schedule first reconciliation
     Process.send_after(self(), :reconcile, @reconcile_delay_ms)
 
+    # DB connection's search_path determines the schema
     {:ok, %__MODULE__{
       tenant_id: tenant_id,
-      tenant_schema: tenant_schema,
-      ash_opts: TenantMode.ash_opts(:zen_rule_sync, tenant_id, tenant_schema)
+      tenant_schema: tenant_id,
+      ash_opts: [actor: SystemActor.system(:zen_rule_sync)]
     }}
   end
 
@@ -250,7 +249,8 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp sync_rule_impl(%ZenRule{} = rule, tenant_schema) when is_binary(tenant_schema) do
     # Create opts for public API calls that don't have GenServer state
-    opts = TenantMode.ash_opts(:zen_rule_sync, rule.tenant_id, tenant_schema)
+    # DB connection's search_path determines the schema
+    opts = [actor: SystemActor.system(:zen_rule_sync)]
     sync_rule_impl(rule, opts)
   end
 

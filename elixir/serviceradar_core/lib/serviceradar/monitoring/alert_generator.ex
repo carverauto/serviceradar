@@ -28,7 +28,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       )
   """
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.{Alert, WebhookNotifier}
 
   require Logger
@@ -423,27 +423,21 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   # Private functions
 
   defp create_alert_and_notify(attrs, opts) do
-    tenant_id = Map.get(attrs, :tenant_id) || Keyword.get(opts, :tenant_id)
-    tenant_schema = Keyword.get(opts, :tenant) || tenant_schema_for(tenant_id)
-    actor = Keyword.get(opts, :actor) || system_actor(tenant_id)
+    # DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)
 
     # Create the alert in the database
-    if is_nil(tenant_schema) do
-      Logger.warning("Skipping alert creation; tenant schema missing", tenant_id: tenant_id)
-      {:error, :missing_tenant_schema}
-    else
-      case Alert
-           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor, tenant: tenant_schema)
-           |> Ash.create() do
-        {:ok, alert} ->
-          # Also send webhook notification
-          send_webhook_notification(alert, opts)
-          {:ok, alert}
+    case Alert
+         |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
+         |> Ash.create() do
+      {:ok, alert} ->
+        # Also send webhook notification
+        send_webhook_notification(alert, opts)
+        {:ok, alert}
 
-        {:error, error} ->
-          Logger.error("Failed to create alert: #{inspect(error)}")
-          {:error, error}
-      end
+      {:error, error} ->
+        Logger.error("Failed to create alert: #{inspect(error)}")
+        {:error, error}
     end
   end
 
@@ -600,20 +594,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp atom_key("severity"), do: :severity
   defp atom_key("metadata"), do: :metadata
   defp atom_key(_), do: nil
-
-  defp tenant_schema_for(nil), do: nil
-  defp tenant_schema_for(tenant_id), do: TenantSchemas.schema_for_tenant(tenant_id)
-
-  defp system_actor(nil), do: nil
-
-  defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "core@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-  end
 
   defp get_hostname do
     case :inet.gethostname() do

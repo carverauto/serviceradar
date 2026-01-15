@@ -91,18 +91,19 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   end
 
   defp cleanup_tenant(tenant_id, cutoff) do
-    actor = SystemActor.for_tenant(tenant_id, :alert_cleanup)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_cleanup)
 
     query =
       StatefulAlertRuleState
       |> Ash.Query.filter(expr(is_nil(last_seen_at) or last_seen_at < ^cutoff))
 
-    case Ash.read(query, tenant: tenant_id, actor: actor) do
+    case Ash.read(query, actor: actor) do
       {:ok, %Ash.Page.Keyset{results: results}} ->
-        destroy_states(results, tenant_id, actor)
+        destroy_states(results, actor, tenant_id)
 
       {:ok, results} when is_list(results) ->
-        destroy_states(results, tenant_id, actor)
+        destroy_states(results, actor, tenant_id)
 
       {:error, reason} ->
         Logger.warning("Failed to load stale rule state",
@@ -114,9 +115,9 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
     end
   end
 
-  defp destroy_states(states, tenant_id, actor) do
+  defp destroy_states(states, actor, tenant_id) do
     Enum.reduce(states, 0, fn state, count ->
-      case Ash.destroy(state, tenant: tenant_id, actor: actor) do
+      case Ash.destroy(state, actor: actor) do
         {:ok, _} ->
           count + 1
 

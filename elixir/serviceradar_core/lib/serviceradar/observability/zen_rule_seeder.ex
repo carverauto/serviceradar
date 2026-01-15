@@ -9,8 +9,6 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.ZenRule
 
@@ -34,30 +32,21 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   def seed_all do
     if repo_enabled?() do
-      if TenantMode.tenant_aware?() do
-        # Tenant listing is cross-tenant, use platform actor (Control Plane only)
-        actor = SystemActor.platform(:zen_rule_seeder)
-        Tenant
-        |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.select([:id, :slug])
-        |> Ash.read(actor: actor)
-        |> case do
-          {:ok, tenants} ->
-            Enum.each(tenants, &seed_for_tenant/1)
-
-          {:error, reason} ->
-            Logger.warning("Zen rule seed skipped: #{inspect(reason)}")
-        end
-      else
-        # In tenant-unaware mode, seeding is done during tenant bootstrap
-        Logger.debug("Zen rule seeding skipped in tenant-unaware mode")
-      end
+      # DB connection's search_path determines the schema
+      # Seed rules for the current tenant schema
+      seed_for_current_tenant()
     end
   end
 
-  def seed_for_tenant(%Tenant{} = tenant) do
-    schema = TenantSchemas.schema_for_tenant(tenant)
-    opts = TenantMode.ash_opts(:zen_rule_seeder, tenant.id, schema)
+  def seed_for_tenant(%Tenant{} = _tenant) do
+    # DB connection's search_path determines the schema
+    seed_for_current_tenant()
+  end
+
+  defp seed_for_current_tenant do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:zen_rule_seeder)
+    opts = [actor: actor]
 
     ensure_defaults(default_zen_rules(), opts)
 

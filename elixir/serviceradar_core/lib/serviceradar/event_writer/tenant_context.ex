@@ -2,14 +2,16 @@ defmodule ServiceRadar.EventWriter.TenantContext do
   @moduledoc """
   Resolves tenant identity for EventWriter processing.
 
-  Provides tenant slug, UUID, and schema resolution for event processing.
+  Provides tenant slug and UUID resolution for event processing.
   The pipeline sets the tenant slug from NATS subject prefixes, and this
-  module resolves it to the appropriate schema and UUID for database operations.
+  module resolves it to the UUID for database operations.
+
+  Note: Schema resolution is no longer needed since the database connection's
+  search_path is set by CNPG credentials.
   """
 
   alias ServiceRadar.Cluster.TenantGuard
   alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Cluster.TenantSchemas
 
   @doc """
   Returns the current tenant slug from process context.
@@ -17,20 +19,6 @@ defmodule ServiceRadar.EventWriter.TenantContext do
   @spec current_tenant() :: String.t() | atom() | nil
   def current_tenant do
     TenantGuard.get_process_tenant()
-  end
-
-  @doc """
-  Returns the current tenant's database schema name.
-
-  Resolves the tenant slug to its PostgreSQL schema (e.g., "tenant_acme_corp").
-  """
-  @spec current_schema() :: String.t() | nil
-  def current_schema do
-    case current_tenant() do
-      nil -> nil
-      slug when is_binary(slug) -> TenantSchemas.schema_for(slug)
-      _ -> nil
-    end
   end
 
   @doc """

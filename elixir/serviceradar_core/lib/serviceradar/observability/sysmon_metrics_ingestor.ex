@@ -6,7 +6,6 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
 
   alias ServiceRadar.Observability.{
@@ -18,15 +17,14 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   }
 
   @spec ingest(map(), map(), String.t()) :: :ok | {:error, term()}
-  def ingest(payload, status, tenant_id) when is_map(payload) and is_map(status) do
-    actor = SystemActor.for_tenant(tenant_id, :sysmon_metrics_ingestor)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def ingest(payload, status, _tenant_id) when is_map(payload) and is_map(status) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:sysmon_metrics_ingestor)
 
-    with {:ok, schema} <- require_tenant_schema(tenant_schema),
-         {:ok, sample} <- extract_sample(payload),
-         {:ok, context} <- build_context(sample, status, schema, actor) do
+    with {:ok, sample} <- extract_sample(payload),
+         {:ok, context} <- build_context(sample, status, actor) do
       metrics = build_metrics(sample, context)
-      persist_metrics(metrics, schema, actor)
+      persist_metrics(metrics, actor)
     end
   end
 
@@ -62,13 +60,13 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     end
   end
 
-  defp build_context(sample, status, tenant_schema, actor) do
+  defp build_context(sample, status, actor) do
     gateway_id = status[:gateway_id]
     agent_id = status[:agent_id] || fetch_string(sample, "agent_id")
     partition = status[:partition] || fetch_string(sample, "partition")
     host_id = fetch_string(sample, "host_id")
     timestamp = parse_timestamp(fetch_value(sample, "timestamp"))
-    device_id = resolve_device_id(tenant_schema, agent_id, actor)
+    device_id = resolve_device_id(agent_id, actor)
 
     if is_binary(gateway_id) and gateway_id != "" do
       {:ok,
@@ -85,11 +83,12 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     end
   end
 
-  defp resolve_device_id(_tenant_schema, nil, _actor), do: nil
-  defp resolve_device_id(_tenant_schema, "", _actor), do: nil
+  defp resolve_device_id(nil, _actor), do: nil
+  defp resolve_device_id("", _actor), do: nil
 
-  defp resolve_device_id(tenant_schema, agent_id, actor) do
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
+  defp resolve_device_id(agent_id, actor) do
+    # DB connection's search_path determines the schema
+    case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, agent} ->
         agent.device_uid
 
@@ -204,13 +203,14 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     |> Enum.reverse()
   end
 
-  defp persist_metrics(metrics, tenant_schema, actor) do
+  defp persist_metrics(metrics, actor) do
+    # DB connection's search_path determines the schema
     results = [
-      insert_bulk(metrics.cpu, CpuMetric, tenant_schema, actor),
-      insert_bulk(metrics.cpu_clusters, CpuClusterMetric, tenant_schema, actor),
-      insert_bulk(metrics.memory, MemoryMetric, tenant_schema, actor),
-      insert_bulk(metrics.disks, DiskMetric, tenant_schema, actor),
-      insert_bulk(metrics.processes, ProcessMetric, tenant_schema, actor)
+      insert_bulk(metrics.cpu, CpuMetric, actor),
+      insert_bulk(metrics.cpu_clusters, CpuClusterMetric, actor),
+      insert_bulk(metrics.memory, MemoryMetric, actor),
+      insert_bulk(metrics.disks, DiskMetric, actor),
+      insert_bulk(metrics.processes, ProcessMetric, actor)
     ]
 
     case Enum.find(results, &match?({:error, _}, &1)) do
@@ -219,11 +219,10 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     end
   end
 
-  defp insert_bulk([], _resource, _tenant_schema, _actor), do: :ok
+  defp insert_bulk([], _resource, _actor), do: :ok
 
-  defp insert_bulk(records, resource, tenant_schema, actor) do
+  defp insert_bulk(records, resource, actor) do
     case Ash.bulk_create(records, resource, :create,
-           tenant: tenant_schema,
            actor: actor,
            return_errors?: true,
            stop_on_error?: false
@@ -336,7 +335,4 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp usage_percent(_used, _total), do: nil
-
-  defp require_tenant_schema(nil), do: {:error, :tenant_schema_not_found}
-  defp require_tenant_schema(schema), do: {:ok, schema}
 end

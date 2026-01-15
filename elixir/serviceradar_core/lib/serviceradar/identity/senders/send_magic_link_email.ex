@@ -9,7 +9,6 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   import Swoosh.Email
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
 
   require Ash.Query
@@ -217,18 +216,30 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
     # Platform actor for authentication routing (before tenant is confirmed)
     actor = SystemActor.platform(:magic_link_sender)
 
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, tenants} when is_list(tenants) ->
-        Enum.find(tenants, fn tenant ->
-          TenantSchemas.schema_for_tenant(tenant) == schema
-        end)
+    # Extract tenant slug from schema name (format: tenant_<slug>)
+    slug =
+      case schema do
+        "tenant_" <> slug -> slug
+        _ -> nil
+      end
 
-      _ ->
-        nil
+    if slug do
+      fetch_tenant_by_slug(slug)
+    else
+      # Fallback: query tenants and match by slug
+      Tenant
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.select([:id, :slug, :is_platform_tenant])
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, tenants} when is_list(tenants) ->
+          Enum.find(tenants, fn tenant ->
+            "tenant_#{tenant.slug}" == schema
+          end)
+
+        _ ->
+          nil
+      end
     end
   end
 

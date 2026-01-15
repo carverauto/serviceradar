@@ -325,8 +325,8 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     if is_nil(tenant_id) or tenant_id == "" do
       {:error, :tenant_id_missing}
     else
-      # Tenant-scoped actor since we're querying within a specific tenant
-      actor = SystemActor.for_tenant(tenant_id, :health_event)
+      # DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_event)
 
       __MODULE__
       |> Ash.Query.filter(

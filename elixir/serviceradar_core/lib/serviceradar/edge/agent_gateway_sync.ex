@@ -12,7 +12,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.{Device, IdentityReconciler}
@@ -48,13 +47,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}
-  def component_type_for_component_id(component_id, tenant_id) do
-    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def component_type_for_component_id(component_id, _tenant_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
 
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(
         expr(component_id == ^component_id and status in [:issued, :delivered, :activated])
       )
@@ -75,17 +74,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @spec upsert_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def upsert_agent(agent_id, tenant_id, attrs) do
-    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def upsert_agent(agent_id, _tenant_id, attrs) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
-        update_agent(agent, tenant_schema, attrs, actor)
+        update_agent(agent, attrs, actor)
 
       {:error, reason} ->
         if not_found_error?(reason) do
-          create_agent(agent_id, tenant_schema, attrs, actor)
+          create_agent(agent_id, attrs, actor)
         else
           Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
           {:error, reason}
@@ -94,17 +93,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   @spec heartbeat_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def heartbeat_agent(agent_id, tenant_id, attrs) do
-    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def heartbeat_agent(agent_id, _tenant_id, attrs) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
 
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{} = agent} ->
-        heartbeat_agent_record(agent, tenant_schema, attrs, actor)
+        heartbeat_agent_record(agent, attrs, actor)
 
       {:error, reason} ->
         if not_found_error?(reason) do
-          create_agent(agent_id, tenant_schema, attrs, actor)
+          create_agent(agent_id, attrs, actor)
         else
           Logger.warning("Failed to lookup agent #{agent_id}: #{inspect(reason)}")
           {:error, reason}
@@ -124,9 +123,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
   @spec ensure_device_for_agent(String.t(), String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  def ensure_device_for_agent(agent_id, tenant_id, attrs) do
-    actor = SystemActor.for_tenant(tenant_id, :gateway_sync)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def ensure_device_for_agent(agent_id, _tenant_id, attrs) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:gateway_sync)
 
     # Build device update from agent metadata
     device_update = build_device_update_from_agent(attrs)
@@ -135,10 +134,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     case IdentityReconciler.resolve_device_id(device_update, actor: actor) do
       {:ok, device_uid} ->
         # Create or update the device record
-        case upsert_device_for_agent(device_uid, agent_id, attrs, tenant_schema, actor) do
+        case upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
           :ok ->
             # Link the agent to the device
-            link_agent_to_device(agent_id, device_uid, tenant_schema, actor)
+            link_agent_to_device(agent_id, device_uid, actor)
             {:ok, device_uid}
 
           {:error, reason} ->
@@ -172,7 +171,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     }
   end
 
-  defp upsert_device_for_agent(device_uid, agent_id, attrs, tenant_schema, actor) do
+  defp upsert_device_for_agent(device_uid, agent_id, attrs, actor) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     hostname = Map.get(attrs, :hostname)
@@ -191,10 +190,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     os_info = if map_size(os_info) == 0, do: nil, else: os_info
 
     # Check if device exists
-    case Device.get_by_uid(device_uid, tenant: tenant_schema, actor: actor) do
+    case Device.get_by_uid(device_uid, actor: actor) do
       {:ok, device} ->
         # Update existing device
-        update_existing_device_for_agent(device, agent_id, attrs, capabilities, tenant_schema, actor, now)
+        update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
 
       {:error, reason} ->
         if not_found_error?(reason) do
@@ -209,14 +208,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             capabilities: capabilities
           }
 
-          create_device_for_agent(device_context, tenant_schema, actor, now)
+          create_device_for_agent(device_context, actor, now)
         else
           {:error, reason}
         end
     end
   end
 
-  defp create_device_for_agent(device_context, tenant_schema, actor, now) do
+  defp create_device_for_agent(device_context, actor, now) do
     %{
       device_uid: device_uid,
       agent_id: agent_id,
@@ -250,9 +249,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:zone, partition)
       |> compact_attrs()
 
+    # DB connection's search_path determines the schema
     Device
     |> Ash.Changeset.for_create(:create, create_attrs)
-    |> Ash.create(tenant: tenant_schema, actor: actor)
+    |> Ash.create(actor: actor)
     |> case do
       {:ok, _device} ->
         Logger.info("Created device #{device_uid} for agent #{agent_id}")
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, tenant_schema, actor, now) do
+  defp update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now) do
     hostname = Map.get(attrs, :hostname)
     source_ip = Map.get(attrs, :source_ip) || Map.get(attrs, :host)
 
@@ -284,9 +284,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:ip, source_ip)
       |> compact_attrs()
 
+    # DB connection's search_path determines the schema
     device
     |> Ash.Changeset.for_update(:update, update_attrs)
-    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->
         Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
@@ -317,12 +318,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp build_discovery_sources(_), do: ["agent"]
 
-  defp link_agent_to_device(agent_id, device_uid, tenant_schema, actor) do
-    case Agent.get_by_uid(agent_id, tenant: tenant_schema, actor: actor) do
+  defp link_agent_to_device(agent_id, device_uid, actor) do
+    # DB connection's search_path determines the schema
+    case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, %Agent{device_uid: existing_uid} = agent} when existing_uid != device_uid ->
         agent
         |> Ash.Changeset.for_update(:gateway_sync, %{device_uid: device_uid})
-        |> Ash.update(tenant: tenant_schema, actor: actor)
+        |> Ash.update(actor: actor)
         |> case do
           {:ok, _} ->
             Logger.debug("Linked agent #{agent_id} to device #{device_uid}")
@@ -347,7 +349,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp update_agent(agent, tenant_schema, attrs, actor) do
+  defp update_agent(agent, attrs, actor) do
     update_attrs =
       attrs
       |> Map.take([
@@ -362,27 +364,27 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       ])
       |> compact_attrs()
 
+    # DB connection's search_path determines the schema
     result =
       if map_size(update_attrs) > 0 do
         agent
         |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
-        |> Ash.update(tenant: tenant_schema, actor: actor)
+        |> Ash.update(actor: actor)
       else
         {:ok, agent}
       end
 
     case result do
-      {:ok, updated} -> heartbeat_agent_record(updated, tenant_schema, attrs, actor)
+      {:ok, updated} -> heartbeat_agent_record(updated, attrs, actor)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp create_agent(agent_id, tenant_schema, attrs, actor) do
+  defp create_agent(agent_id, attrs, actor) do
     create_attrs =
       attrs
       |> Map.put_new(:type_id, 4)
       |> Map.put(:uid, agent_id)
-      |> Map.put(:tenant_id, actor.tenant_id)
       |> Map.take([
         :uid,
         :name,
@@ -398,29 +400,30 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :host,
         :port,
         :spiffe_identity,
-        :metadata,
-        :tenant_id
+        :metadata
       ])
       |> compact_attrs()
 
+    # DB connection's search_path determines the schema
     Agent
     |> Ash.Changeset.for_create(:register_connected, create_attrs)
-    |> Ash.create(tenant: tenant_schema, actor: actor)
+    |> Ash.create(actor: actor)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp heartbeat_agent_record(agent, tenant_schema, attrs, actor) do
+  defp heartbeat_agent_record(agent, attrs, actor) do
     heartbeat_attrs =
       attrs
       |> Map.take([:capabilities, :is_healthy, :config_source])
       |> compact_attrs()
 
+    # DB connection's search_path determines the schema
     agent
     |> Ash.Changeset.for_update(:heartbeat, heartbeat_attrs)
-    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> Ash.update(actor: actor)
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}

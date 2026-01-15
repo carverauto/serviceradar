@@ -54,7 +54,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
@@ -70,16 +69,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   @impl true
-  def compile(tenant_id, _partition, agent_id, opts \\ []) do
-    actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :snmp_compiler)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def compile(_tenant_id, _partition, _agent_id, opts \\ []) do
+    # In tenant-unaware mode, actor is simple system actor
+    # DB connection's search_path determines the schema
+    actor = opts[:actor] || SystemActor.system(:snmp_compiler)
     device_uid = opts[:device_uid]
 
     # Resolve the profile for this agent/device
-    profile = resolve_profile(tenant_schema, device_uid, agent_id, actor)
+    profile = resolve_profile(device_uid, actor)
 
     if profile && profile.enabled do
-      config = compile_profile(profile, tenant_schema, actor)
+      config = compile_profile(profile, actor)
       {:ok, config}
     else
       # Return disabled config if no profile found or profile is disabled
@@ -114,18 +114,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   Returns the matching SNMPProfile or nil if no profile matches.
   """
-  @spec resolve_profile(String.t(), String.t() | nil, String.t() | nil, map()) ::
-          SNMPProfile.t() | nil
-  def resolve_profile(tenant_schema, device_uid, _agent_id, actor) do
-    try_srql_targeting(tenant_schema, device_uid, actor) ||
-      get_default_profile(tenant_schema, actor)
+  @spec resolve_profile(String.t() | nil, map()) :: SNMPProfile.t() | nil
+  def resolve_profile(device_uid, actor) do
+    try_srql_targeting(device_uid, actor) ||
+      get_default_profile(actor)
   end
 
   # Try to find a matching profile via SRQL targeting
-  defp try_srql_targeting(_tenant_schema, nil, _actor), do: nil
+  defp try_srql_targeting(nil, _actor), do: nil
 
-  defp try_srql_targeting(tenant_schema, device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(tenant_schema, device_uid, actor) do
+  defp try_srql_targeting(device_uid, actor) do
+    case SrqlTargetResolver.resolve_for_device(nil, device_uid, actor) do
       {:ok, profile} ->
         profile
 
@@ -138,14 +137,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   @doc """
   Compiles a profile to the agent config format with all targets and OIDs.
   """
-  @spec compile_profile(SNMPProfile.t(), String.t(), map()) :: map()
-  def compile_profile(profile, tenant_schema, actor) do
+  @spec compile_profile(SNMPProfile.t(), map()) :: map()
+  def compile_profile(profile, actor) do
     # Load targets with their OID configs
-    targets = load_profile_targets(profile.id, tenant_schema, actor)
+    targets = load_profile_targets(profile.id, actor)
 
     compiled_targets =
       Enum.map(targets, fn target ->
-        compile_target(target, tenant_schema, actor)
+        compile_target(target, actor)
       end)
 
     %{
@@ -157,8 +156,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Compile a single SNMP target with its OIDs
-  defp compile_target(target, tenant_schema, actor) do
-    oids = load_target_oids(target.id, tenant_schema, actor)
+  defp compile_target(target, actor) do
+    oids = load_target_oids(target.id, actor)
 
     compiled_oids =
       Enum.map(oids, fn oid ->
@@ -249,12 +248,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp format_priv_protocol(_), do: nil
 
   # Load all targets for a profile
-  defp load_profile_targets(profile_id, tenant_schema, actor) do
+  defp load_profile_targets(profile_id, actor) do
     query =
       SNMPTarget
       |> Ash.Query.filter(snmp_profile_id == ^profile_id)
       |> Ash.Query.load(:snmp_profile)
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
 
     case Ash.read(query, actor: actor) do
       {:ok, targets} -> targets
@@ -263,11 +261,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Load all OIDs for a target
-  defp load_target_oids(target_id, tenant_schema, actor) do
+  defp load_target_oids(target_id, actor) do
     query =
       SNMPOIDConfig
       |> Ash.Query.filter(snmp_target_id == ^target_id)
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
 
     case Ash.read(query, actor: actor) do
       {:ok, oids} -> oids
@@ -289,10 +286,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Get the default profile for the tenant
-  defp get_default_profile(tenant_schema, actor) do
+  defp get_default_profile(actor) do
     query =
       SNMPProfile
-      |> Ash.Query.for_read(:get_default, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:get_default, %{})
 
     case Ash.read_one(query, actor: actor) do
       {:ok, profile} -> profile

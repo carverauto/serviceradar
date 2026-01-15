@@ -48,11 +48,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
       {:ok, 0}
   end
 
-  defp load_rules(tenant_id, schema) do
-    actor = SystemActor.for_tenant(tenant_id, :log_promotion)
+  defp load_rules(_tenant_id, _schema) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:log_promotion)
 
     LogPromotionRule
-    |> Ash.Query.for_read(:active, %{}, tenant: schema)
+    |> Ash.Query.for_read(:active, %{})
     |> Ash.read(actor: actor)
     |> unwrap_page()
   rescue

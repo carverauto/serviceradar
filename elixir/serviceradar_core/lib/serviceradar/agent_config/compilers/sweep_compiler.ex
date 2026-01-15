@@ -37,7 +37,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
 
@@ -50,12 +49,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   @impl true
-  def compile(tenant_id, partition, agent_id, opts \\ []) do
-    actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :sweep_compiler)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def compile(_tenant_id, partition, agent_id, opts \\ []) do
+    # In tenant-unaware mode, actor is simple system actor
+    # DB connection's search_path determines the schema
+    actor = opts[:actor] || SystemActor.system(:sweep_compiler)
 
     # Load sweep groups for this partition/agent
-    groups = load_sweep_groups(tenant_schema, partition, agent_id, actor)
+    groups = load_sweep_groups(partition, agent_id, actor)
 
     # Load profiles that might be referenced
     profile_ids =
@@ -64,13 +64,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    profiles = load_profiles(tenant_schema, profile_ids, actor)
+    profiles = load_profiles(profile_ids, actor)
     profile_map = Map.new(profiles, &{&1.id, &1})
 
     # Compile each group
     compiled_groups =
       groups
-      |> Enum.map(&compile_group(&1, profile_map, tenant_schema, actor))
+      |> Enum.map(&compile_group(&1, profile_map, actor))
       |> Enum.reject(&is_nil/1)
 
     # Compute config hash for change detection
@@ -125,13 +125,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> String.slice(0, 16)
   end
 
-  defp load_sweep_groups(tenant_schema, partition, agent_id, actor) do
+  defp load_sweep_groups(partition, agent_id, actor) do
     query =
       SweepGroup
-      |> Ash.Query.for_read(:for_agent_partition, %{partition: partition, agent_id: agent_id},
-        actor: actor,
-        tenant: tenant_schema
-      )
+      |> Ash.Query.for_read(:for_agent_partition, %{partition: partition, agent_id: agent_id})
 
     case Ash.read(query, actor: actor) do
       {:ok, groups} ->
@@ -143,12 +140,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp load_profiles(_tenant_schema, profile_ids, _actor) when profile_ids == [], do: []
+  defp load_profiles(profile_ids, _actor) when profile_ids == [], do: []
 
-  defp load_profiles(tenant_schema, profile_ids, actor) do
+  defp load_profiles(profile_ids, actor) do
     query =
       SweepProfile
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
       |> Ash.Query.filter(id in ^profile_ids)
 
     case Ash.read(query, actor: actor) do
@@ -161,7 +157,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, tenant_schema, actor) do
+  defp compile_group(group, profile_map, actor) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -169,7 +165,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     schedule = compile_schedule(group)
 
     # Build targets from criteria and static targets
-    targets = compile_targets(group, tenant_schema, actor)
+    targets = compile_targets(group, actor)
 
     # Merge ports from profile and group overrides
     ports = merge_ports(profile, group)
@@ -209,14 +205,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, tenant_schema, actor) do
+  defp compile_targets(group, actor) do
     # Start with static targets
     static_targets = group.static_targets || []
 
     # Get targets from device criteria if defined
     criteria_targets =
       if map_size(group.target_criteria || %{}) > 0 do
-        get_targets_from_criteria(group.target_criteria, tenant_schema, actor)
+        get_targets_from_criteria(group.target_criteria, actor)
       else
         []
       end
@@ -226,14 +222,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> Enum.uniq()
   end
 
-  defp get_targets_from_criteria(criteria, tenant_schema, actor) do
+  defp get_targets_from_criteria(criteria, actor) do
     # Split criteria into Ash-supported filters and those needing in-memory filtering
     {ash_filters, unsupported_criteria} = TargetCriteria.to_ash_filter_with_fallback(criteria)
 
     # Build query with Ash filters applied at database level
     query =
       Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> apply_ash_filters(ash_filters)
 
     case Ash.read(query, actor: actor) do

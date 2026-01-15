@@ -32,7 +32,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
@@ -58,8 +58,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @spec ingest_results([map()], String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def ingest_results(results, execution_id, tenant_id, opts \\ []) do
-    actor = Keyword.get(opts, :actor, system_actor(tenant_id))
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor, SystemActor.system(:sweep_results_ingestor))
     sweep_group_id = Keyword.get(opts, :sweep_group_id)
     agent_id = Keyword.get(opts, :agent_id)
     config_version = Keyword.get(opts, :config_version)
@@ -71,7 +71,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Logger.info("SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}")
 
     # Ensure execution record exists (creates one if missing)
-    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, actor) do
+    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_id, actor) do
       :ok ->
         :ok
 
@@ -99,14 +99,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       devices_created: 0
     }
 
-    # Extract tenant_id for PubSub broadcasts
-    broadcast_tenant_id = extract_tenant_id_from_schema(tenant_schema)
-
     result =
       Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
         batch_start = System.monotonic_time(:millisecond)
 
-        case process_batch(batch, execution_id, tenant_id, tenant_schema, actor) do
+        case process_batch(batch, execution_id, tenant_id, actor) do
           {:ok, batch_stats} ->
             batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -117,7 +114,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             merged_stats = merge_stats(acc_stats, batch_stats)
 
             # Broadcast progress after each batch for real-time UI updates
-            SweepPubSub.broadcast_progress(broadcast_tenant_id, execution_id, %{
+            SweepPubSub.broadcast_progress(tenant_id, execution_id, %{
               batch_num: batch_num,
               total_batches: total_batches,
               hosts_processed: merged_stats.hosts_total,
@@ -142,8 +139,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           sweep_group_id,
           final_stats,
           scanner_metrics,
-          broadcast_tenant_id,
-          tenant_schema,
+          tenant_id,
           actor
         )
 
@@ -174,11 +170,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   # Private functions
 
-  defp process_batch(results, execution_id, tenant_id, tenant_schema, actor) do
+  defp process_batch(results, execution_id, tenant_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
     # Step 2: Batch lookup existing devices by IP
+    # DB connection's search_path determines the schema
     device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
 
     # Step 3: Find IPs without existing devices
@@ -186,7 +183,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     unknown_ips = ips -- known_ips
 
     # Step 4: Create device records for unknown hosts
-    created_devices = create_unknown_devices(unknown_ips, results, tenant_schema)
+    created_devices = create_unknown_devices(unknown_ips, results)
 
     # Step 5: Merge known and created devices
     all_devices = Map.merge(device_map, created_devices)
@@ -195,10 +192,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     {host_results, stats} = build_host_results(results, execution_id, tenant_id, all_devices)
 
     # Step 7: Bulk insert host results
-    case bulk_insert_host_results(host_results, tenant_schema) do
+    case bulk_insert_host_results(host_results) do
       :ok ->
         # Step 8: Update device availability
-        update_device_availability(results, all_devices, tenant_schema)
+        update_device_availability(results, all_devices)
 
         final_stats =
           stats
@@ -216,9 +213,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     result["host_ip"] || result["hostIp"] || result["ip"]
   end
 
-  defp create_unknown_devices([], _results, _tenant_schema), do: %{}
+  defp create_unknown_devices([], _results), do: %{}
 
-  defp create_unknown_devices(unknown_ips, results, tenant_schema) do
+  defp create_unknown_devices(unknown_ips, results) do
     # Build lookup of result data by IP
     result_by_ip =
       results
@@ -229,7 +226,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     device_records = build_unknown_device_records(unknown_ips, result_by_ip, timestamp)
-    insert_unknown_device_records(device_records, tenant_schema, timestamp)
+    insert_unknown_device_records(device_records, timestamp)
   end
 
   defp generate_device_uid(ip) do
@@ -259,11 +256,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end)
   end
 
-  defp insert_unknown_device_records([], _tenant_schema, _timestamp), do: %{}
+  defp insert_unknown_device_records([], _timestamp), do: %{}
 
-  defp insert_unknown_device_records(device_records, tenant_schema, timestamp) do
+  defp insert_unknown_device_records(device_records, timestamp) do
+    # DB connection's search_path determines the schema
     case Repo.insert_all(
-           {tenant_schema <> ".ocsf_devices", Device},
+           Device,
            device_records,
            on_conflict: {:replace, [:last_seen_time, :is_available, :modified_time]},
            conflict_target: :uid,
@@ -389,12 +387,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     %{"icmp" => icmp, "tcp" => tcp}
   end
 
-  defp bulk_insert_host_results([], _tenant_schema), do: :ok
+  defp bulk_insert_host_results([]), do: :ok
 
-  defp bulk_insert_host_results(records, tenant_schema) do
-    # Insert directly to table
+  defp bulk_insert_host_results(records) do
+    # DB connection's search_path determines the schema
     case Repo.insert_all(
-           {tenant_schema <> ".sweep_host_results", SweepHostResult},
+           SweepHostResult,
            records,
            on_conflict: :nothing,
            returning: false
@@ -409,7 +407,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, e}
   end
 
-  defp update_device_availability(results, device_map, tenant_schema) do
+  defp update_device_availability(results, device_map) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
     available_ips = result_ips_for_status(results, true)
@@ -418,10 +416,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     available_uids = device_uids_for_ips(available_ips, device_map)
     unavailable_uids = device_uids_for_ips(unavailable_ips, device_map)
 
-    update_device_statuses(available_uids, true, tenant_schema, timestamp)
-    update_device_statuses(unavailable_uids, false, tenant_schema, timestamp)
+    # DB connection's search_path determines the schema
+    update_device_statuses(available_uids, true, timestamp)
+    update_device_statuses(unavailable_uids, false, timestamp)
 
-    maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids), tenant_schema)
+    maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
     :ok
   end
@@ -441,10 +440,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp update_device_statuses([], _available, _tenant_schema, _timestamp), do: :ok
+  defp update_device_statuses([], _available, _timestamp), do: :ok
 
-  defp update_device_statuses(device_uids, true, tenant_schema, timestamp) do
-    from(d in {tenant_schema <> ".ocsf_devices", Device},
+  defp update_device_statuses(device_uids, true, timestamp) do
+    # DB connection's search_path determines the schema
+    from(d in Device,
       where: d.uid in ^device_uids
     )
     |> Repo.update_all(
@@ -456,8 +456,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     )
   end
 
-  defp update_device_statuses(device_uids, false, tenant_schema, timestamp) do
-    from(d in {tenant_schema <> ".ocsf_devices", Device},
+  defp update_device_statuses(device_uids, false, timestamp) do
+    # DB connection's search_path determines the schema
+    from(d in Device,
       where: d.uid in ^device_uids
     )
     |> Repo.update_all(
@@ -468,40 +469,35 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     )
   end
 
-  defp maybe_add_sweep_source([], _tenant_schema), do: :ok
-  defp maybe_add_sweep_source(device_uids, tenant_schema) do
-    add_sweep_to_discovery_sources(device_uids, tenant_schema)
+  defp maybe_add_sweep_source([]), do: :ok
+  defp maybe_add_sweep_source(device_uids) do
+    add_sweep_to_discovery_sources(device_uids)
   end
 
-  defp add_sweep_to_discovery_sources(device_uids, tenant_schema) do
-    if is_binary(tenant_schema) and String.match?(tenant_schema, ~r/^tenant_[a-z0-9_]+$/) do
-      sql = """
-      UPDATE #{tenant_schema}.ocsf_devices
-      SET discovery_sources = array_append(
-        COALESCE(discovery_sources, ARRAY[]::text[]),
-        'sweep'
-      )
-      WHERE uid = ANY($1)
-      AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
-      """
+  defp add_sweep_to_discovery_sources(device_uids) do
+    # DB connection's search_path determines the schema
+    # Use unqualified table name since search_path is set by CNPG credentials
+    sql = """
+    UPDATE ocsf_devices
+    SET discovery_sources = array_append(
+      COALESCE(discovery_sources, ARRAY[]::text[]),
+      'sweep'
+    )
+    WHERE uid = ANY($1)
+    AND NOT ('sweep' = ANY(COALESCE(discovery_sources, ARRAY[]::text[])))
+    """
 
-      _ = Repo.query(sql, [device_uids])
-      :ok
-    else
-      Logger.error("SweepResultsIngestor: invalid tenant schema for SQL update",
-        tenant_schema: inspect(tenant_schema)
-      )
-
-      :ok
-    end
+    _ = Repo.query(sql, [device_uids])
+    :ok
   end
 
-  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, tenant_id, tenant_schema, _actor) do
+  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, tenant_id, _actor) do
     timestamp = DateTime.utc_now()
 
+    # DB connection's search_path determines the schema
     # Calculate duration if we can fetch started_at
     started_at_result =
-      from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+      from(e in SweepGroupExecution,
         where: e.id == ^execution_id,
         select: e.started_at
       )
@@ -531,7 +527,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         update_fields
       end
 
-    from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+    from(e in SweepGroupExecution,
       where: e.id == ^execution_id
     )
     |> Repo.update_all(set: update_fields)
@@ -551,10 +547,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     SweepPubSub.broadcast_completed(tenant_id, execution, stats)
   end
 
-  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_schema, _actor) do
+  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_id, _actor) do
+    # DB connection's search_path determines the schema
     # Check if execution exists
     existing =
-      from(e in {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+      from(e in SweepGroupExecution,
         where: e.id == ^execution_id,
         select: e.id
       )
@@ -566,7 +563,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     else
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
-        create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_schema)
+        create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_id)
       else
         Logger.warning("SweepResultsIngestor: Cannot create execution - no sweep_group_id provided")
         :ok
@@ -574,11 +571,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_schema) do
+  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_id) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # Extract tenant_id from schema name (format: "tenant_<uuid>")
-    tenant_id = extract_tenant_id_from_schema(tenant_schema)
 
     record = %{
       id: execution_id,
@@ -595,8 +589,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       updated_at: timestamp
     }
 
+    # DB connection's search_path determines the schema
     case Repo.insert_all(
-           {tenant_schema <> ".sweep_group_executions", SweepGroupExecution},
+           SweepGroupExecution,
            [record],
            on_conflict: :nothing,
            returning: false
@@ -636,20 +631,5 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       devices_updated: stats1.devices_updated + Map.get(stats2, :devices_updated, 0),
       devices_created: stats1.devices_created + Map.get(stats2, :devices_created, 0)
     }
-  end
-
-  defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      role: :super_admin,
-      tenant_id: tenant_id
-    }
-  end
-
-  defp extract_tenant_id_from_schema(tenant_schema) do
-    case String.split(tenant_schema, "tenant_") do
-      [_, uuid] -> uuid
-      _ -> nil
-    end
   end
 end
