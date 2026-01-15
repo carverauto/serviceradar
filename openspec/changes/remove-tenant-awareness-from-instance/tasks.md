@@ -14,27 +14,29 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
 
 ### 1.1 Create CNPG user provisioning in Control Plane
 
-- [ ] **1.1.1 Add CNPG user creation to tenant provisioning flow**
-  - Control Plane creates PostgreSQL user: `tenant_{slug}_app`
-  - Grant: USAGE on tenant schema, ALL on tables/sequences
-  - Set: `search_path` to tenant schema
-  - Store: credentials in K8s secret
+- [x] **1.1.1 Add CNPG user creation to tenant provisioning flow**
+  - Created `CNPG.Provisioner` module for PostgreSQL user/schema management
+  - Created `CreateCnpgUserWorker` Oban worker for async provisioning
+  - Creates PostgreSQL user: `tenant_{slug}_app`
+  - Grants: USAGE on tenant schema, ALL on tables/sequences
+  - Sets: `search_path` to tenant schema
+  - Stores: credentials in K8s secret via `K8s.SecretManager`
 
-- [ ] **1.1.2 Create migration to add CNPG fields to Tenant resource**
-  ```elixir
-  attribute :cnpg_username, :string
-  attribute :cnpg_password_secret_ref, :string  # K8s secret reference
-  attribute :cnpg_schema, :string
-  ```
+- [x] **1.1.2 Create migration to add CNPG fields to Tenant resource**
+  - Added `cnpg_username` and `cnpg_password_secret_ref` to Tenant resource
+  - Created migration `20260115100000_add_cnpg_user_fields.exs`
+  - Updated `set_cnpg_ready` action to accept new fields
 
-- [ ] **1.1.3 Update CreateAccountWorker to also create CNPG user**
-  - After NATS account creation, create CNPG user
-  - Store secret in K8s: `serviceradar-tenant-{slug}-cnpg-creds`
+- [x] **1.1.3 Wire up tenant provisioning to create CNPG user**
+  - Updated `TenantController.create/2` to enqueue `CreateCnpgUserWorker`
+  - CNPG provisioning runs in parallel with NATS provisioning
+  - Added `cnpg_provisioning` queue to Oban config
 
-- [ ] **1.1.4 Update tenant-workload-operator to inject CNPG credentials**
-  - Read CNPG secret for tenant
-  - Set `CNPG_*` environment variables on tenant pods
-  - Set `search_path` in connection URL
+- [x] **1.1.4 Update tenant-workload-operator to inject CNPG credentials**
+  - Added `TemplateCNPGCreds` struct with `enabled` and `envPrefix` fields
+  - Updated `TenantWorkloadTemplate` CRD to include `cnpgCreds` field
+  - Injects DB credentials as env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SCHEMA`, `DB_URL`
+  - Uses `secretKeyRef` to reference K8s secret created by Control Plane
 
 ### 1.2 Test CNPG isolation
 
@@ -48,101 +50,156 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
 
 ### 2.1 Audit current multitenancy configuration
 
-- [ ] **2.1.1 List all resources with `multitenancy` blocks**
-  - Expected: Most resources in Identity, Edge, Inventory domains
+- [x] **2.1.1 List all resources with `multitenancy` blocks**
+  - Found 59 resources with `strategy :context` (schema-isolated)
+  - Found 1 resource with `strategy :attribute` + `global? true` (TenantMembership)
+  - Found 4 resources with no multitenancy (Tenant, NatsOperator, NatsPlatformToken, NatsServiceAccount)
 
-- [ ] **2.1.2 List all resources with `tenant_id` attributes**
-  - Determine which are actually needed vs redundant
+- [x] **2.1.2 List all resources with `tenant_id` attributes**
+  - Found 47 resources with explicit `tenant_id` attributes
+  - Most are redundant when using schema-based isolation
 
-- [ ] **2.1.3 Identify resources that should stay in public schema**
-  - These need special handling (move to Control Plane or replicate)
+- [x] **2.1.3 Identify resources that should stay in public schema**
+  - Tenant, TenantMembership, NatsOperator, NatsPlatformToken, NatsServiceAccount
+  - These are Control Plane resources
 
 ### 2.2 Create feature flag for gradual migration
 
-- [ ] **2.2.1 Add `TENANT_AWARE_MODE` environment variable**
-  - Default: `true` (current behavior)
-  - When `false`: skip tenant context
+- [x] **2.2.1 Add `TENANT_AWARE_MODE` environment variable**
+  - Created `ServiceRadar.Cluster.TenantMode` module
+  - Provides `tenant_aware?/0`, `tenant_opts/1`, `with_tenant/2` helpers
+  - Added `system_actor/2` and `ash_opts/3` convenience functions
+  - Updated `runtime.exs` to read `TENANT_AWARE_MODE` env var
 
-- [ ] **2.2.2 Update Repo configuration**
-  ```elixir
-  # When TENANT_AWARE_MODE=false, don't set dynamic schema
-  def tenant_schema do
-    if tenant_aware_mode?() do
-      # Current behavior
-    else
-      nil  # Use connection's search_path
-    end
-  end
-  ```
+- [x] **2.2.2 Update Repo configuration**
+  - Updated `ServiceRadar.Repo.all_tenants/0` to check tenant mode
+  - In tenant-aware mode: returns all tenant schemas
+  - In tenant-unaware mode: returns empty list (tenant is implicit)
+
+- [x] **2.2.3 Add SystemActor.system/1 for tenant-unaware mode**
+  - Added `system/1` function for simple system actors without tenant_id
+  - Updated module docs to explain when to use each pattern
 
 ### 2.3 Remove multitenancy from resources (behind flag)
 
-- [ ] **2.3.1 Update ServiceRadar.Inventory domain resources**
-  - Device, Agent, Gateway, Interface, etc.
-  - Remove `multitenancy` block
-  - Remove `tenant_id` attribute (if redundant)
+**Decision: Keep multitenancy DSL in resources**
 
-- [ ] **2.3.2 Update ServiceRadar.Edge domain resources**
-  - EdgeSite, CollectorPackage, OnboardingPackage, etc.
+After analysis, we determined that Ash resource definitions don't need to change:
+- `multitenancy strategy: :context` tells AshPostgres to use schema prefix when `tenant:` is passed
+- When `tenant:` is NOT passed, no prefix is set and PostgreSQL uses the connection's `search_path`
+- In tenant-unaware mode, the CNPG credentials set `search_path` to the tenant schema
 
-- [ ] **2.3.3 Update ServiceRadar.Identity domain resources**
-  - User, ApiToken, etc.
-  - Note: Tenant, TenantMembership move to Control Plane
+The actual work is in Phase 3: stop passing `tenant:` parameter when in tenant-unaware mode.
 
-- [ ] **2.3.4 Update ServiceRadar.Monitoring domain resources**
-  - Alert rules, alert states, etc.
+- [x] **2.3.1 Verify approach works with Ash**
+  - Resources with `strategy :context` don't require `tenant:` parameter by default
+  - When no tenant is passed, queries use connection's `search_path`
+  - This means Phase 3 code changes are sufficient
 
-- [ ] **2.3.5 Generate migrations to drop tenant_id columns**
-  - Only for columns that are purely redundant
+- [x] **2.3.2 Document resources that need special handling**
+  - Public schema resources (Tenant, TenantMembership, NatsOperator, etc.) stay unchanged
+  - These are Control Plane resources and don't exist in tenant instances
+
+- [N/A] **2.3.3-2.3.5 - Skipped**
+  - No changes needed to Ash resource definitions
+  - `tenant_id` attributes can be removed later as cleanup task
 
 ---
 
 ## Phase 3: Remove tenant: Parameter from Code
 
+**Migration Guide**: See `migration-guide.md` for patterns and examples.
+
 ### 3.1 Update web-ng controllers
 
-- [ ] **3.1.1 api/collector_controller.ex**
-  - Remove `tenant:` from all Ash calls
-  - Remove `find_package_across_tenants()` entirely
-  - Simplify `require_tenant()` - tenant is implicit
+- [x] **3.1.1 api/collector_controller.ex** (EXAMPLE FILE)
+  - Updated all Ash calls to use `TenantMode.ash_opts/3`
+  - Updated `find_package_across_tenants()` to handle both modes
+  - Platform operations use mode-conditional actors
+  - Pattern: `opts = TenantMode.ash_opts(:component, tenant_id, schema)`
 
-- [ ] **3.1.2 api/device_controller.ex**
-  - Remove `tenant:` parameters
-  - Simplify actor creation
+- [x] **3.1.2 api/edge_controller.ex**
+  - Updated all Ash calls to use `TenantMode` helpers
+  - Updated `find_package_across_tenants()` with mode check
 
-- [ ] **3.1.3 api/edge_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.3 api/enroll_controller.ex**
+  - Updated `mark_enrolled()` and `find_package_across_tenants()`
+  - Uses mode-conditional actors
 
-- [ ] **3.1.4 api/nats_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.4 api/nats_controller.ex** (Control Plane only)
+  - No changes needed - manages NatsOperator/NatsPlatformToken in public schema
 
-- [ ] **3.1.5 api/enroll_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.5 auth_controller.ex**
+  - Updated JWT token generation to use `TenantMode.tenant_opts/1`
 
-- [ ] **3.1.6 All other API controllers**
-  - Audit and update
+- [x] **3.1.6 tenant_controller.ex** (Control Plane only)
+  - No changes needed - handles multi-tenant switching (Control Plane feature)
+  - `tenant: nil` is intentional for TenantMembership (attribute-based multitenancy)
 
 ### 3.2 Update web-ng LiveViews
 
-- [ ] **3.2.1 Audit all LiveViews for `tenant:` usage**
-  - Use grep: `tenant:` in `web-ng/lib/serviceradar_web_ng_web/live/`
+**Audit Complete**: Found 16 LiveView files with ~50+ `tenant:` usages.
 
-- [ ] **3.2.2 Update each LiveView**
-  - Remove `tenant:` from `Ash.read!`, `Ash.create!`, etc.
-  - Simplify scope/actor handling
+**Files requiring updates**:
+- [ ] `device_live/index.ex` - 2 occurrences (create_single_device)
+- [ ] `device_live/show.ex` - 4 occurrences
+- [ ] `admin/edge_package_live/index.ex` - 12 occurrences (OnboardingPackages helper calls)
+- [ ] `admin/integration_live/index.ex` - 7 occurrences
+- [ ] `admin/collector_live/index.ex` - 4 occurrences
+- [ ] `admin/edge_sites_live/index.ex` - 1 occurrence
+- [ ] `admin/edge_sites_live/show.ex` - 2 occurrences
+- [ ] `admin/job_live/index.ex` - struct field only (no changes needed)
+- [ ] `admin/job_live/show.ex` - struct field only (no changes needed)
+- [ ] `agent_live/index.ex` - struct field only (no changes needed)
+- [ ] `agent_live/show.ex` - 1 occurrence
+- [ ] `analytics_live/index.ex` - helper function (schema_for_scope)
+- [ ] `log_live/index.ex` - helper function (schema_for_scope)
+- [ ] `settings/rules_live/index.ex` - 1 occurrence
+- [ ] `settings/cluster_live/index.ex` - struct field only (no changes needed)
+- [ ] `infrastructure_live/index.ex` - struct field only (no changes needed)
+
+**Pattern to apply** (same as controllers):
+```elixir
+# Before
+actor = SystemActor.for_tenant(tenant_id, :component)
+Ash.read(query, tenant: schema, actor: actor)
+
+# After
+opts = TenantMode.ash_opts(:component, tenant_id, schema)
+Ash.read(query, opts)
+```
+
+**Helper module pattern** (OnboardingPackages, etc.):
+```elixir
+# Before
+OnboardingPackages.list(filters, tenant: tenant)
+
+# After
+tenant_opts = TenantMode.tenant_opts(schema)
+OnboardingPackages.list(filters, tenant_opts)
+```
 
 ### 3.3 Update web-ng plugs and auth
 
-- [ ] **3.3.1 plugs/api_auth.ex**
-  - Remove `TenantSchemas` usage
-  - Simplify - no tenant context needed
+- [x] **3.3.1 plugs/api_auth.ex**
+  - Updated `find_api_token()` with TenantMode check (cross-tenant vs single-schema)
+  - Updated `record_token_usage()` to use `TenantMode.ash_opts/3`
+  - Updated `validate_ash_jwt()` to use mode-conditional actors
+  - Removed redundant private `tenant_opts/1` helper
 
-- [ ] **3.3.2 plugs/tenant_context.ex**
-  - Simplify or remove - tenant is implicit
+- [x] **3.3.2 plugs/tenant_context.ex**
+  - Updated `load_tenant()` to use `TenantMode.system_actor/2`
+  - Tenant resource is in public schema, no tenant: parameter needed
 
-- [ ] **3.3.3 accounts/scope.ex**
-  - Remove tenant_id tracking
-  - Simplify `Scope` struct
+- [x] **3.3.3 accounts/scope.ex**
+  - Updated `for_user()` to use `TenantMode.system_actor/2`
+  - Updated `fetch_tenant_by_id()` to use mode-conditional actor
+  - Removed `tenant: nil` (no longer needed with mode-conditional actors)
+
+- [x] **3.3.4 user_auth.ex**
+  - Updated `verify_token()` to use `TenantMode.tenant_opts/1`
+  - Updated actor to use `TenantMode.system_actor/2`
+  - Removed redundant private `tenant_opts/1` helper
 
 ### 3.4 Update core-elx workers
 

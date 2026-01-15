@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
@@ -51,8 +52,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       end
 
     with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
-      packages = Ash.read!(query, actor: actor, tenant: tenant)
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      opts = TenantMode.ash_opts(:collector_controller, tenant.id, schema)
+      packages = Ash.read!(query, opts)
       json(conn, Enum.map(packages, &package_to_json/1))
     end
   end
@@ -84,12 +86,13 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           edge_site_id: params["edge_site_id"]
         }
 
-        actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+        schema = TenantSchemas.schema_for_tenant(tenant)
+        opts = TenantMode.ash_opts(:collector_controller, tenant.id, schema)
 
         case CollectorPackage
              |> Ash.Changeset.for_create(:create, attrs)
              |> Ash.Changeset.force_change_attribute(:tenant_id, tenant.id)
-             |> Ash.create(actor: actor, tenant: tenant) do
+             |> Ash.create(opts) do
           {:ok, package} ->
             conn
             |> put_status(:created)
@@ -115,12 +118,13 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   """
   def show(conn, %{"id" => id}) do
     with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      opts = TenantMode.ash_opts(:collector_controller, tenant.id, schema)
 
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.read_one(actor: actor, tenant: tenant) do
+           |> Ash.read_one(opts) do
         {:ok, nil} -> {:error, :not_found}
         {:ok, package} -> json(conn, package_to_json(package))
         {:error, error} -> {:error, error}
@@ -192,12 +196,13 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     reason = params["reason"]
 
     with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      opts = TenantMode.ash_opts(:collector_controller, tenant.id, schema)
 
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.read_one(actor: actor, tenant: tenant) do
+           |> Ash.read_one(opts) do
         {:ok, nil} ->
           {:error, :not_found}
 
@@ -205,7 +210,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           case package
                |> Ash.Changeset.for_update(:revoke)
                |> Ash.Changeset.set_argument(:reason, reason)
-               |> Ash.update(actor: actor, tenant: tenant) do
+               |> Ash.update(opts) do
             {:ok, updated_package} ->
               json(conn, package_to_json(updated_package))
 
@@ -250,8 +255,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
       end
 
     with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
-      credentials = Ash.read!(query, actor: actor, tenant: tenant)
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      opts = TenantMode.ash_opts(:collector_controller, tenant.id, schema)
+      credentials = Ash.read!(query, opts)
       json(conn, Enum.map(credentials, &credential_to_json/1))
     end
   end
@@ -326,13 +332,21 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp get_package(package_id, tenant_schema) do
-    actor = SystemActor.platform(:collector_controller)
+    # Use platform actor in tenant-aware mode, system actor in tenant-unaware mode
+    actor =
+      if TenantMode.tenant_aware?() do
+        SystemActor.platform(:collector_controller)
+      else
+        SystemActor.system(:collector_controller)
+      end
+
+    opts = [actor: actor] ++ TenantMode.tenant_opts(tenant_schema)
 
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
          |> Ash.Query.load(:edge_site)
-         |> Ash.read_one(actor: actor, tenant: tenant_schema) do
+         |> Ash.read_one(opts) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -418,12 +432,20 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
 
   defp mark_downloaded(package, source_ip, tenant_schema) do
-    actor = SystemActor.platform(:collector_controller)
+    # Use platform actor in tenant-aware mode, system actor in tenant-unaware mode
+    actor =
+      if TenantMode.tenant_aware?() do
+        SystemActor.platform(:collector_controller)
+      else
+        SystemActor.system(:collector_controller)
+      end
+
+    opts = [actor: actor] ++ TenantMode.tenant_opts(tenant_schema)
 
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
-    |> Ash.update(actor: actor, tenant: tenant_schema)
+    |> Ash.update(opts)
   end
 
   defp generate_collector_config(package) do
@@ -605,24 +627,46 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp find_package_across_tenants(package_id) do
-    actor = SystemActor.platform(:collector_controller)
+    if TenantMode.tenant_aware?() do
+      # Tenant-aware mode: search across all tenant schemas (Control Plane only)
+      actor = SystemActor.platform(:collector_controller)
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      TenantSchemas.list_schemas()
+      |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+        case CollectorPackage
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(id == ^package_id)
+             |> Ash.read_one(actor: actor, tenant: schema) do
+          {:ok, nil} ->
+            {:cont, {:error, :not_found}}
+
+          {:ok, package} ->
+            {:halt, {:ok, package, schema}}
+
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end)
+    else
+      # Tenant-unaware mode: search only current schema (tenant instance)
+      # Schema is implicit from DB connection's search_path
+      actor = SystemActor.system(:collector_controller)
+
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(actor: actor, tenant: schema) do
+           |> Ash.read_one(actor: actor) do
         {:ok, nil} ->
-          {:cont, {:error, :not_found}}
+          {:error, :not_found}
 
         {:ok, package} ->
-          {:halt, {:ok, package, schema}}
+          # Return nil schema since it's implicit in tenant-unaware mode
+          {:ok, package, nil}
 
         {:error, error} ->
-          {:halt, {:error, error}}
+          {:error, error}
       end
-    end)
+    end
   end
 
   defp format_datetime(nil), do: nil

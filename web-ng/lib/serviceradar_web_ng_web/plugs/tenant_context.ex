@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
   import Plug.Conn
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
 
   @behaviour Plug
 
@@ -124,8 +125,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
 
   defp load_tenant(tenant_id) do
     # Use Ash to load the tenant
+    # Tenant resource is in public schema, no tenant: parameter needed
     require Ash.Query
-    actor = SystemActor.platform(:tenant_context)
+    actor = TenantMode.system_actor(:tenant_context, nil)
 
     ServiceRadar.Identity.Tenant
     |> Ash.Query.filter(id == ^tenant_id)

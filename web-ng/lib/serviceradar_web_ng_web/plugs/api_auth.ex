@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   alias Ash.PlugHelpers
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.ControlPlaneJWT
@@ -112,9 +113,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     if is_nil(tenant) do
       {:error, :no_tenant}
     else
-      opts = tenant_opts(tenant)
-      # Use platform actor for JWT validation - we're authenticating the user
-      actor = SystemActor.platform(:api_auth)
+      opts = TenantMode.tenant_opts(tenant)
+      # Use mode-conditional actor for JWT validation
+      actor = TenantMode.system_actor(:api_auth, nil)
       subject_opts = Keyword.merge([actor: actor], opts)
 
       # Bearer tokens are Ash JWT tokens
@@ -238,12 +239,15 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
     # Record usage asynchronously to not block the request
     Task.start(fn ->
+      # In tenant-aware mode, resolve tenant and pass explicit tenant context
+      # In tenant-unaware mode, tenant is implicit from DB search_path
       tenant = resolve_tenant_context(api_token.tenant_id)
-      actor = SystemActor.platform(:api_auth)
+      schema = if tenant, do: TenantSchemas.schema_for_tenant(tenant), else: nil
+      opts = TenantMode.ash_opts(:api_auth, api_token.tenant_id, schema)
 
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update(actor: actor, tenant: tenant)
+      |> Ash.update(opts)
     end)
   end
 
@@ -272,33 +276,45 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp find_api_token(token_hash, token_prefix) do
     require Ash.Query
-    # Platform actor for cross-tenant API token search during authentication
-    actor = SystemActor.platform(:api_auth)
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
-      query =
-        ServiceRadar.Identity.ApiToken
-        |> Ash.Query.filter(
-          token_prefix == ^token_prefix and
-            token_hash == ^token_hash and
-            enabled == true and
-            is_nil(revoked_at) and
-            (is_nil(expires_at) or expires_at > ^DateTime.utc_now())
-        )
-        |> Ash.Query.load(:user)
+    query =
+      ServiceRadar.Identity.ApiToken
+      |> Ash.Query.filter(
+        token_prefix == ^token_prefix and
+          token_hash == ^token_hash and
+          enabled == true and
+          is_nil(revoked_at) and
+          (is_nil(expires_at) or expires_at > ^DateTime.utc_now())
+      )
+      |> Ash.Query.load(:user)
 
-      case Ash.read(query, actor: actor, tenant: schema) do
-        {:ok, [api_token | _]} ->
-          {:halt, {:ok, api_token}}
+    if TenantMode.tenant_aware?() do
+      # Tenant-aware mode: search across all tenant schemas (Control Plane)
+      actor = SystemActor.platform(:api_auth)
 
-        {:ok, []} ->
-          {:cont, {:error, :not_found}}
+      TenantSchemas.list_schemas()
+      |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+        case Ash.read(query, actor: actor, tenant: schema) do
+          {:ok, [api_token | _]} ->
+            {:halt, {:ok, api_token}}
 
-        {:error, _} ->
-          {:cont, {:error, :not_found}}
+          {:ok, []} ->
+            {:cont, {:error, :not_found}}
+
+          {:error, _} ->
+            {:cont, {:error, :not_found}}
+        end
+      end)
+    else
+      # Tenant-unaware mode: search current schema only (tenant instance)
+      actor = SystemActor.system(:api_auth)
+
+      case Ash.read(query, actor: actor) do
+        {:ok, [api_token | _]} -> {:ok, api_token}
+        {:ok, []} -> {:error, :not_found}
+        {:error, _} -> {:error, :not_found}
       end
-    end)
+    end
   end
 
   defp assign_scope(conn, %Scope{user: user} = scope, tenant_id) do
@@ -393,7 +409,4 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
     do: TenantSchemas.schema_for_id(tenant_id)
-
-  defp tenant_opts(nil), do: []
-  defp tenant_opts(tenant), do: [tenant: tenant]
 end

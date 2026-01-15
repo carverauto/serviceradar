@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Phoenix.Controller
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.TenantResolver
 
@@ -60,9 +61,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     if is_nil(tenant) do
       {:error, :invalid_token}
     else
-      opts = tenant_opts(tenant)
-      # Use platform actor for JWT validation - we're authenticating the user
-      actor = SystemActor.platform(:user_auth)
+      opts = TenantMode.tenant_opts(tenant)
+      # Use mode-conditional actor for JWT validation
+      actor = TenantMode.system_actor(:user_auth, nil)
       subject_opts = Keyword.merge([actor: actor], opts)
 
       # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
@@ -258,9 +259,6 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
     do: TenantResolver.schema_for_tenant_id(tenant_id)
-
-  defp tenant_opts(nil), do: []
-  defp tenant_opts(tenant), do: [tenant: tenant]
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to analytics

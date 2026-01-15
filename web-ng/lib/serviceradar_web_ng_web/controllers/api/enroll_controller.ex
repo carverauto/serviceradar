@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
@@ -182,12 +183,20 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp mark_enrolled(package, source_ip, tenant_schema) do
-    actor = SystemActor.platform(:enroll_controller)
+    # Use platform actor in tenant-aware mode, system actor in tenant-unaware mode
+    actor =
+      if TenantMode.tenant_aware?() do
+        SystemActor.platform(:enroll_controller)
+      else
+        SystemActor.system(:enroll_controller)
+      end
+
+    opts = [actor: actor] ++ TenantMode.tenant_opts(tenant_schema)
 
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:source_ip, source_ip)
-    |> Ash.update(actor: actor, tenant: tenant_schema)
+    |> Ash.update(opts)
   end
 
   defp build_enrollment_response(package, nats_creds) do
@@ -237,24 +246,46 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp find_package_across_tenants(package_id) do
-    actor = SystemActor.platform(:enroll_controller)
+    if TenantMode.tenant_aware?() do
+      # Tenant-aware mode: search across all tenant schemas (Control Plane only)
+      actor = SystemActor.platform(:enroll_controller)
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      TenantSchemas.list_schemas()
+      |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+        case CollectorPackage
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(id == ^package_id)
+             |> Ash.read_one(actor: actor, tenant: schema) do
+          {:ok, nil} ->
+            {:cont, {:error, :not_found}}
+
+          {:ok, package} ->
+            {:halt, {:ok, package, schema}}
+
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end)
+    else
+      # Tenant-unaware mode: search only current schema (tenant instance)
+      # Schema is implicit from DB connection's search_path
+      actor = SystemActor.system(:enroll_controller)
+
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(actor: actor, tenant: schema) do
+           |> Ash.read_one(actor: actor) do
         {:ok, nil} ->
-          {:cont, {:error, :not_found}}
+          {:error, :not_found}
 
         {:ok, package} ->
-          {:halt, {:ok, package, schema}}
+          # Return nil schema since it's implicit in tenant-unaware mode
+          {:ok, package, nil}
 
         {:error, error} ->
-          {:halt, {:error, error}}
+          {:error, error}
       end
-    end)
+    end
   end
 
   defp add_collector_defaults(config, :flowgger) do

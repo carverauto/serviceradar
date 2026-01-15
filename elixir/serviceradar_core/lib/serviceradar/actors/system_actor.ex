@@ -137,6 +137,46 @@ defmodule ServiceRadar.Actors.SystemActor do
   end
 
   @doc """
+  Creates a system actor for tenant-unaware mode.
+
+  In tenant-unaware mode, the tenant is implicit from the database connection's
+  `search_path`, so we don't need to include `tenant_id` in the actor.
+
+  The actor will have:
+  - `role: :system` - Recognized by authorization policies
+  - No `tenant_id` - Tenant isolation is enforced by DB connection
+
+  ## Parameters
+
+  - `component` - Atom identifying the system component (e.g., `:state_monitor`, `:sweep_compiler`)
+
+  ## Examples
+
+      iex> SystemActor.system(:state_monitor)
+      %{
+        id: "system:state_monitor",
+        email: "state-monitor@system.serviceradar",
+        role: :system
+      }
+
+  ## When to Use
+
+  Use `system/1` when `TENANT_AWARE_MODE=false` and the tenant context
+  is provided by database credentials (schema-scoped CNPG users).
+
+  Use `for_tenant/2` when `TENANT_AWARE_MODE=true` and the tenant must
+  be explicitly passed to Ash operations.
+  """
+  @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}
+  def system(component) when is_atom(component) do
+    %{
+      id: "system:#{component}",
+      email: "#{component_to_email(component)}@system.serviceradar",
+      role: :system
+    }
+  end
+
+  @doc """
   Checks if the given actor is a system actor.
 
   ## Examples

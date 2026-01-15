@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
@@ -53,7 +54,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     filters = build_filters(params)
 
     with {:ok, tenant} <- require_tenant(conn) do
-      packages = OnboardingPackages.list(filters, tenant: tenant)
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      tenant_opts = TenantMode.tenant_opts(schema)
+      packages = OnboardingPackages.list(filters, tenant_opts)
       json(conn, Enum.map(packages, &package_to_json/1))
     end
   end
@@ -86,13 +89,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     }
 
     with {:ok, tenant} <- require_tenant(conn) do
-      opts = [
-        join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
-        download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
-        actor: actor,
-        source_ip: source_ip,
-        tenant: tenant
-      ]
+      schema = TenantSchemas.schema_for_tenant(tenant)
+
+      opts =
+        [
+          join_token_ttl_seconds: params["join_token_ttl_seconds"] || 86_400,
+          download_token_ttl_seconds: params["download_token_ttl_seconds"] || 86_400,
+          actor: actor,
+          source_ip: source_ip
+        ] ++ TenantMode.tenant_opts(schema)
 
       case OnboardingPackages.create(attrs, opts) do
         {:ok, result} ->
@@ -118,7 +123,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   """
   def show(conn, %{"id" => id}) do
     with {:ok, tenant} <- require_tenant(conn) do
-      case OnboardingPackages.get(id, tenant: tenant) do
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      tenant_opts = TenantMode.tenant_opts(schema)
+
+      case OnboardingPackages.get(id, tenant_opts) do
         {:ok, package} ->
           json(conn, package_to_json(package))
 
@@ -138,7 +146,10 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     source_ip = get_client_ip(conn)
 
     with {:ok, tenant} <- require_tenant(conn) do
-      case OnboardingPackages.delete(id, actor: actor, source_ip: source_ip, tenant: tenant) do
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      opts = [actor: actor, source_ip: source_ip] ++ TenantMode.tenant_opts(schema)
+
+      case OnboardingPackages.delete(id, opts) do
         {:ok, _package} ->
           send_resp(conn, :no_content, "")
 
@@ -164,9 +175,12 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   defp events_list(conn, package_id, limit) do
     # First verify package exists
     with {:ok, tenant} <- require_tenant(conn) do
-      case OnboardingPackages.get(package_id, tenant: tenant) do
+      schema = TenantSchemas.schema_for_tenant(tenant)
+      tenant_opts = TenantMode.tenant_opts(schema)
+
+      case OnboardingPackages.get(package_id, tenant_opts) do
         {:ok, _package} ->
-          events = OnboardingEvents.list_for_package(package_id, limit: limit, tenant: tenant)
+          events = OnboardingEvents.list_for_package(package_id, [limit: limit] ++ tenant_opts)
           json(conn, Enum.map(events, &event_to_json/1))
 
         {:error, :not_found} ->
@@ -213,11 +227,9 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp deliver_package(id, download_token, tenant_schema, source_ip, actor) do
-    case OnboardingPackages.deliver(id, download_token,
-           actor: actor,
-           source_ip: source_ip,
-           tenant: tenant_schema
-         ) do
+    opts = [actor: actor, source_ip: source_ip] ++ TenantMode.tenant_opts(tenant_schema)
+
+    case OnboardingPackages.deliver(id, download_token, opts) do
       {:ok, result} ->
         {:ok,
          %{
@@ -335,12 +347,13 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     reason = params["reason"]
 
     with {:ok, tenant} <- require_tenant(conn) do
-      case OnboardingPackages.revoke(id,
-             actor: actor,
-             source_ip: source_ip,
-             reason: reason,
-             tenant: tenant
-           ) do
+      schema = TenantSchemas.schema_for_tenant(tenant)
+
+      opts =
+        [actor: actor, source_ip: source_ip, reason: reason] ++
+          TenantMode.tenant_opts(schema)
+
+      case OnboardingPackages.revoke(id, opts) do
         {:ok, package} ->
           json(conn, package_to_json(package))
 
@@ -479,7 +492,14 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   defp load_tenant(nil), do: {:error, :unauthorized}
 
   defp load_tenant(tenant_id) do
-    actor = SystemActor.platform(:edge_controller)
+    # Use platform actor in tenant-aware mode, system actor in tenant-unaware mode
+    actor =
+      if TenantMode.tenant_aware?() do
+        SystemActor.platform(:edge_controller)
+      else
+        SystemActor.system(:edge_controller)
+      end
+
     case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> {:ok, tenant}
       _ -> {:error, :unauthorized}
@@ -502,25 +522,46 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp find_package_across_tenants(package_id) do
-    # Platform-level operation to find package across all tenants
-    actor = SystemActor.platform(:edge_controller)
+    if TenantMode.tenant_aware?() do
+      # Tenant-aware mode: search across all tenant schemas (Control Plane only)
+      actor = SystemActor.platform(:edge_controller)
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      TenantSchemas.list_schemas()
+      |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+        case OnboardingPackage
+             |> Ash.Query.for_read(:read)
+             |> Ash.Query.filter(id == ^package_id)
+             |> Ash.read_one(tenant: schema, actor: actor) do
+          {:ok, nil} ->
+            {:cont, {:error, :not_found}}
+
+          {:ok, package} ->
+            {:halt, {:ok, package, schema}}
+
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end)
+    else
+      # Tenant-unaware mode: search only current schema (tenant instance)
+      # Schema is implicit from DB connection's search_path
+      actor = SystemActor.system(:edge_controller)
+
       case OnboardingPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(tenant: schema, actor: actor) do
+           |> Ash.read_one(actor: actor) do
         {:ok, nil} ->
-          {:cont, {:error, :not_found}}
+          {:error, :not_found}
 
         {:ok, package} ->
-          {:halt, {:ok, package, schema}}
+          # Return nil schema since it's implicit in tenant-unaware mode
+          {:ok, package, nil}
 
         {:error, error} ->
-          {:halt, {:error, error}}
+          {:error, error}
       end
-    end)
+    end
   end
 
   defp package_to_json(package) do
