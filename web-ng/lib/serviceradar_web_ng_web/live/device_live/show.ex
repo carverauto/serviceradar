@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.SysmonProfiles.SysmonProfile
@@ -195,13 +196,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :device_form, to_form(params, as: :device))}
   end
 
-  def handle_event("save_device", %{"device" => _params}, socket) do
-    # TODO: Implement actual device update via Ash
-    # For now, show a flash message indicating the feature is in progress
-    {:noreply,
-     socket
-     |> assign(:editing, false)
-     |> put_flash(:info, "Device update functionality coming soon.")}
+  def handle_event("save_device", %{"device" => params}, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    case update_device(scope, device_uid, params) do
+      {:ok, _device} ->
+        {:noreply,
+         socket
+         |> assign(:editing, false)
+         |> put_flash(:info, "Device updated successfully.")
+         |> push_patch(to: ~p"/devices/#{device_uid}")}
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, format_ash_error(error))}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to update device: #{inspect(reason)}")}
+    end
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -2264,4 +2280,92 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp membership_admin?(_, _), do: false
+
+  # Update device via Ash
+  defp update_device(scope, device_uid, params) do
+    tenant_id = Scope.tenant_id(scope)
+
+    if is_nil(tenant_id) do
+      {:error, :no_tenant}
+    else
+      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+      actor = build_device_actor(scope)
+
+      # Parse tags from newline-separated string to map
+      attrs = %{
+        hostname: params["hostname"],
+        ip: params["ip"],
+        vendor_name: params["vendor_name"],
+        model: params["model"],
+        tags: parse_tags_input(params["tags"])
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Map.new()
+
+      # First get the device, then update it
+      case Device.get_by_uid(device_uid, actor: actor, tenant: tenant_schema) do
+        {:ok, device} ->
+          device
+          |> Ash.Changeset.for_update(:update, attrs)
+          |> Ash.update(actor: actor, tenant: tenant_schema)
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp build_device_actor(scope) do
+    case scope do
+      %{user: user} when not is_nil(user) ->
+        %{
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          tenant_id: Scope.tenant_id(scope)
+        }
+
+      _ ->
+        %{
+          id: "system",
+          email: "system@serviceradar",
+          role: :admin,
+          tenant_id: Scope.tenant_id(scope)
+        }
+    end
+  end
+
+  defp parse_tags_input(nil), do: %{}
+  defp parse_tags_input(""), do: %{}
+
+  defp parse_tags_input(tags_string) when is_binary(tags_string) do
+    tags_string
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reduce(%{}, fn line, acc ->
+      case String.split(line, "=", parts: 2) do
+        [key, value] -> Map.put(acc, String.trim(key), String.trim(value))
+        [key] -> Map.put(acc, String.trim(key), nil)
+      end
+    end)
+  end
+
+  defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", &format_single_ash_error/1)
+  end
+
+  defp format_ash_error(error), do: inspect(error)
+
+  defp format_single_ash_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
+    do: "#{field}: #{msg}"
+
+  defp format_single_ash_error(%Ash.Error.Changes.Required{field: field}),
+    do: "#{field} is required"
+
+  defp format_single_ash_error(%{message: msg}) when is_binary(msg),
+    do: msg
+
+  defp format_single_ash_error(err),
+    do: inspect(err)
 end
