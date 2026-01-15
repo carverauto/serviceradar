@@ -4,7 +4,20 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   Checks for authentication in the following order:
   1. `Authorization: Bearer <token>` header (JWT or session token)
+     - First tries AshAuthentication JWT (user session tokens)
+     - Falls back to Control Plane JWT (tokens issued by SaaS Control Plane)
   2. `X-API-Key: <key>` header (Ash API token or legacy static key)
+
+  ## Control Plane JWT
+
+  The plug also supports JWTs issued by the ServiceRadar Control Plane for
+  authenticating requests from the SaaS management layer or system components.
+  These tokens contain tenant_id, role, and optionally component claims.
+
+  Configure the Control Plane public key:
+
+      config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT,
+        public_key_env: "CONTROL_PLANE_PUBLIC_KEY"
 
   ## Ash API Tokens
 
@@ -29,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Auth.ControlPlaneJWT
   alias ServiceRadar.Identity.Tenant
 
   def init(opts), do: opts
@@ -81,10 +95,22 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
+    # First try AshAuthentication JWT (user session tokens)
+    case validate_ash_jwt(conn, token) do
+      {:ok, conn} ->
+        {:ok, conn}
+
+      {:error, _} ->
+        # Fall back to Control Plane JWT (tokens from SaaS management layer)
+        validate_control_plane_jwt(conn, token)
+    end
+  end
+
+  defp validate_ash_jwt(conn, token) do
     tenant = token_tenant(token)
 
     if is_nil(tenant) do
-      {:error, :unauthorized}
+      {:error, :no_tenant}
     else
       opts = tenant_opts(tenant)
       # Use platform actor for JWT validation - we're authenticating the user
@@ -102,15 +128,58 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
             scope = Scope.for_user(user, active_tenant_id: tenant_id)
             {:ok, assign_scope(conn, scope, tenant_id)}
           else
-            _ -> {:error, :unauthorized}
+            _ -> {:error, :invalid_subject}
           end
 
-        {:error, _reason} ->
-          {:error, :unauthorized}
+        {:error, reason} ->
+          {:error, reason}
 
         :error ->
-          {:error, :unauthorized}
+          {:error, :verification_failed}
       end
+    end
+  end
+
+  defp validate_control_plane_jwt(conn, token) do
+    case ControlPlaneJWT.verify_and_decode(token) do
+      {:ok, claims} ->
+        # Build actor from Control Plane JWT claims
+        actor = ControlPlaneJWT.build_actor(claims)
+        tenant_id = claims.tenant_id
+
+        # Resolve tenant context for Ash operations
+        tenant_context = resolve_tenant_context(tenant_id)
+
+        if tenant_context do
+          # Create a scope for Control Plane authenticated requests
+          scope = %Scope{
+            user: nil,
+            active_tenant: tenant_context,
+            tenant_memberships: []
+          }
+
+          conn =
+            conn
+            |> assign(:current_scope, scope)
+            |> assign(:ash_actor, actor)
+            |> assign(:control_plane_jwt, true)
+            |> assign(:control_plane_claims, claims)
+            |> PlugHelpers.set_actor(actor)
+            |> PlugHelpers.set_tenant(tenant_context)
+
+          {:ok, conn}
+        else
+          Logger.warning("Control Plane JWT valid but tenant not found: #{tenant_id}")
+          {:error, :tenant_not_found}
+        end
+
+      {:error, :public_key_not_configured} ->
+        # Control Plane JWT not configured - this is expected in OSS deployments
+        {:error, :unauthorized}
+
+      {:error, reason} ->
+        Logger.debug("Control Plane JWT validation failed: #{inspect(reason)}")
+        {:error, :unauthorized}
     end
   end
 

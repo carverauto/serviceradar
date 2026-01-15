@@ -76,7 +76,10 @@ natsCreds:
   system: ""
   operator: ""
 tenantWorkloadOperator:
-  enabled: true
+  # Disabled by default for OSS single-tenant deployments.
+  # Enable only for SaaS multi-tenant deployments with Control Plane.
+  # The tenant-workload-operator is managed by serviceradar-web in SaaS mode.
+  enabled: false
   replicas: 1
   resyncInterval: "5m"
   gatewayReplicas: 1

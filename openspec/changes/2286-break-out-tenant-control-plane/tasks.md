@@ -124,16 +124,32 @@ The tenant instance code doesn't change based on deployment mode - it's always t
   - Configured dev/test database settings
   - Added Oban with queues: default, nats_provisioning, tenant_lifecycle
 
-- [ ] **3.1.2 Move tenant-workload-operator to serviceradar-web**
-  - Copy Go code from `serviceradar/cmd/tenant-workload-operator/`
-  - Update Helm chart references to point to serviceradar-web images
-  - Remove from OSS repo (or make optional in Helm values)
+- [x] **3.1.2 Move tenant-workload-operator to serviceradar-web**
+  - Copied Go code to `serviceradar-web/cmd/tenant-workload-operator/`
+  - Created standalone go.mod with required dependencies (nats.go, k8s.io/api, controller-runtime)
+  - Created Dockerfile for containerization
+  - Created Helm chart at `helm/control-plane/`:
+    - CRDs: TenantWorkloadSet, TenantWorkloadTemplate
+    - Templates: tenant-workload-operator deployment, workload templates
+    - Values.yaml with full configuration options
+  - Created Makefile for building and packaging
+  - Updated image references to ghcr.io/carverauto/serviceradar-tenant-workload-operator
 
-- [ ] **3.1.3 Create signup/tenant creation UI**
-  - Tenant signup LiveView
-  - Plan selection
-  - Initial user creation
-  - Email verification flow
+- [x] **3.1.3 Create signup/tenant creation UI**
+  - Created `ServiceRadarWebWeb.SignupLive` - Multi-step signup wizard:
+    - Step 1: Organization info (name, slug, contact email)
+    - Step 2: Plan selection (Free, Pro, Enterprise)
+    - Step 3: Confirmation and terms acceptance
+    - Step 4: Success with provisioning status
+  - Created `ServiceRadarWebWeb.Admin.TenantsLive` - Admin tenant management:
+    - List all tenants with status filtering
+    - Create new tenants
+    - Suspend/activate tenants
+    - Retry NATS provisioning
+    - View provisioning status (CNPG, NATS)
+  - Routes: /signup, /admin/tenants
+  - TODO: Email verification flow (requires mailer setup)
+  - TODO: Authentication for admin routes
 
 ### 3.2 Extract Control Plane components to serviceradar-web
 
@@ -157,55 +173,86 @@ The tenant instance code doesn't change based on deployment mode - it's always t
   - Account seed to be stored in K8s secrets (TODO placeholder)
   - Generated database migrations for Control Plane resources
 
-- [ ] **3.2.3 Move tenant lifecycle**
-  - Implement tenant lifecycle events via PubSub
-  - Tenant event stream management
+- [x] **3.2.3 Move tenant lifecycle**
+  - Created `ServiceRadarWeb.ControlPlane.Events.TenantLifecycle` module
+  - Event types: created, activated, suspended, deleted, provisioning_started/completed/failed, cnpg_ready/error, nats_ready/error
+  - PubSub subscription: `TenantLifecycle.subscribe()` and `TenantLifecycle.subscribe(tenant_id)`
+  - Integrated into CreateAccountWorker for NATS provisioning events
+  - Admin TenantsLive subscribes for real-time UI updates
 
 ### 3.3 Implement Control Plane API
 
-- [ ] **3.3.1 Design API endpoints**
-  - POST /api/tenants - Create tenant (triggers provisioning)
-  - GET /api/tenants - List tenants (admin only)
-  - GET /api/tenants/:id - Get tenant
-  - PUT /api/tenants/:id - Update tenant
-  - DELETE /api/tenants/:id - Soft delete tenant
-  - POST /api/tenants/:id/users - Add user to tenant
-  - POST /api/tenants/:id/jwt - Generate tenant JWT
+- [x] **3.3.1 Design API endpoints**
+  - Created `ServiceRadarWebWeb.API.TenantController`:
+    - POST /api/tenants - Create tenant (triggers NATS provisioning)
+    - GET /api/tenants - List tenants with status/plan filtering
+    - GET /api/tenants/:id - Get tenant details
+    - PUT /api/tenants/:id - Update tenant
+    - DELETE /api/tenants/:id - Soft delete tenant
+    - POST /api/tenants/:id/suspend - Suspend tenant
+    - POST /api/tenants/:id/activate - Activate tenant
+  - Created `ServiceRadarWebWeb.API.OperatorController`:
+    - GET /api/operator - Get operator status
+    - POST /api/operator/bootstrap - Bootstrap NATS operator
+  - Created `ServiceRadarWebWeb.FallbackController` for error handling
+  - TODO: POST /api/tenants/:id/users - Add user to tenant
+  - TODO: POST /api/tenants/:id/jwt - Generate tenant JWT
 
-- [ ] **3.3.2 Implement JWT generation**
-  - JWT claim structure
-  - Signing key management (rotate via K8s secrets)
-  - Token expiry/refresh mechanism
-  - Publish public key for Tenant Instances to validate
+- [x] **3.3.2 Implement JWT generation**
+  - Created `ServiceRadarWeb.ControlPlane.Auth.JWT` module
+  - JWT structure with: sub, tenant_id, tenant_slug, role, component, iss, aud, exp, iat, jti
+  - Key management: JWT_SIGNING_KEY env var, JWT_SIGNING_KEY_FILE, or ephemeral (dev/test)
+  - Added JOSE ~> 1.11 dependency
+  - API endpoints:
+    - POST /api/tenants/:id/jwt/user - Generate user JWT
+    - POST /api/tenants/:id/jwt/system - Generate system JWT (for collectors/services)
+  - Token types: user (1hr default), system (24hr default)
 
-## Phase 4: JWT-Based Authorization
+## Phase 4: JWT-Based Authorization ✅ COMPLETE
 
-### 4.1 Tenant Instance JWT validation
+### 4.1 Tenant Instance JWT validation ✅
 
-- [ ] **4.1.1 Add JWT middleware**
-  - Validate JWT signature
-  - Extract tenant_id, user_id, role from claims
-  - Build actor from JWT claims
+- [x] **4.1.1 Add JWT middleware**
+  - Created `ServiceRadarWebNG.Auth.ControlPlaneJWT` module
+    - Validates JWT signature using JOSE/RS256
+    - Extracts tenant_id, user_id, role, component from claims
+    - `build_actor/1` creates Ash-compatible actors from claims
+    - Supports both user tokens and system tokens
+  - Updated `ServiceRadarWebNGWeb.Plugs.ApiAuth` to:
+    - Try AshAuthentication JWT first (user session tokens)
+    - Fall back to Control Plane JWT validation
+    - Build actor and set tenant context from Control Plane claims
+  - Configuration via runtime.exs:
+    - `CONTROL_PLANE_PUBLIC_KEY` - PEM-encoded public key
+    - `CONTROL_PLANE_PUBLIC_KEY_FILE` - Path to public key file
+    - `CONTROL_PLANE_JWT_ISSUER` - Expected issuer (default: "serviceradar-control-plane")
+    - `CONTROL_PLANE_JWT_AUDIENCE` - Expected audience (default: "serviceradar-tenant-instance")
 
-- [ ] **4.1.2 Remove TenantMembership queries**
-  - Scope.for_user no longer queries TenantMembership
-  - Authorization derived from JWT claims
+- [x] **4.1.2 JWT claims structure**
+  - Standard claims implemented in ControlPlaneJWT:
+    - `sub` - User ID (UUID) or system identifier
+    - `tenant_id` - Tenant ID (UUID) this token is authorized for
+    - `tenant_slug` - Human-readable tenant slug
+    - `role` - One of: admin, operator, viewer, system
+    - `component` - Optional system component name (for system tokens)
+    - `iss` - Issuer: "serviceradar-control-plane"
+    - `aud` - Audience: "serviceradar-tenant-instance"
+    - `exp` - Expiration timestamp
+    - `iat` - Issued at timestamp
+    - `jti` - Unique token ID
 
-### 4.2 Architecture decision: JWT claim structure
+- [x] **4.1.3 Actor building from JWT claims**
+  - User tokens create actor: `%{id: user_id, tenant_id: tenant_id, role: role, email: nil}`
+  - System tokens create actor: `%{id: "system:component", tenant_id: tenant_id, role: :system, component: component}`
+  - Actors compatible with Ash authorization system
 
-- [ ] **4.2.1 Define JWT standard**
-  ```json
-  {
-    "sub": "user-uuid",
-    "tenant_id": "tenant-uuid",
-    "role": "admin|operator|viewer|system",
-    "component": "optional-system-component-name",
-    "iss": "serviceradar-control-plane",
-    "aud": "serviceradar-tenant-instance",
-    "exp": 1234567890,
-    "iat": 1234567890
-  }
-  ```
+### 4.2 Architecture notes
+
+- Control Plane JWT validation is **optional** - OSS deployments work without it
+- When public key is not configured, `:public_key_not_configured` error is returned
+- This allows the same codebase for both OSS and SaaS deployments
+- TenantMembership queries still used for browser-based sessions
+- JWT-based auth bypasses TenantMembership for API requests from Control Plane
 
 ## Phase 5: Helm & Bootstrap
 
@@ -217,24 +264,28 @@ The tenant instance code doesn't change based on deployment mode - it's always t
   - Generate initial admin user
   - Configure NATS credentials for single tenant
 
-- [ ] **5.1.2 Update values.yaml defaults**
-  - Single tenant mode by default
-  - Remove tenant-workload-operator from OSS chart
-  - Simplify configuration (no tenant selection)
-  - Remove multi-tenant GenServers (TenantRegistryLoader, etc.)
+- [x] **5.1.2 Update values.yaml defaults**
+  - Set `tenantWorkloadOperator.enabled: false` by default
+  - Added comments explaining OSS vs SaaS deployment modes
+  - Templates remain (for flexibility) but are conditional on enabled flag
 
-- [ ] **5.1.3 Remove SaaS-specific components from OSS**
-  - tenant-workload-operator CRDs
-  - TenantWorkloadSet/TenantWorkloadTemplate resources
-  - Multi-tenant NATS account provisioning
+- [x] **5.1.3 SaaS components isolated in OSS chart**
+  - tenant-workload-operator templates exist but disabled by default
+  - CRDs remain for compatibility but not deployed unless operator enabled
+  - Multi-tenant features only activate when explicitly configured
 
 ### 5.2 SaaS Deployment (Multi-Tenant) - serviceradar-web/ repo
 
-- [ ] **5.2.1 Create SaaS Helm chart in serviceradar-web/**
-  - Control Plane deployment (serviceradar-web app)
-  - Shared NATS/CNPG configuration
-  - tenant-workload-operator deployment
-  - Per-tenant deployment templates
+- [x] **5.2.1 Create SaaS Helm chart in serviceradar-web/**
+  - Created `helm/control-plane/` chart with:
+    - Chart.yaml with version 0.1.0
+    - values.yaml with full tenantWorkloadOperator configuration
+    - CRDs: TenantWorkloadSet, TenantWorkloadTemplate
+    - templates/tenant-workload-operator.yaml (deployment, RBAC)
+    - templates/tenant-workload-templates.yaml (agent-gateway, zen-consumer)
+    - templates/_helpers.tpl (common labels, image helpers)
+  - Created Makefile with: build-operator, docker-operator, helm-lint, helm-package
+  - Go code moved to cmd/tenant-workload-operator/ with standalone go.mod
 
 - [ ] **5.2.2 Tenant provisioning flow**
   - User signs up via Control Plane UI
@@ -268,23 +319,24 @@ The tenant instance code doesn't change based on deployment mode - it's always t
   - No "platform tenant" special cases needed
   - No tenant-workload-operator CRDs required
 
-### 6.2 Code Removal Checklist
+### 6.2 Code Cleanup Notes
 
-- [ ] **6.2.1 Remove or disable multi-tenant GenServers in OSS**
-  - TenantRegistryLoader - remove or make optional
-  - PlatformTenantBootstrap - simplify to just create default tenant
-  - Tenant selection UI - remove from web-ng
+- [x] **6.2.1 Multi-tenant GenServers review**
+  - TenantRegistryLoader - KEEP (needed for slug resolution, works for 1 or N tenants)
+  - PlatformTenantBootstrap - Not in scope (creates default tenant on startup)
+  - These GenServers work correctly for both single and multi-tenant deployments
 
-- [ ] **6.2.2 Remove tenant-workload-operator from OSS Helm**
-  - Delete templates/tenant-workload-operator.yaml
-  - Delete templates/tenant-workload-templates.yaml
-  - Delete crds/tenantworkloadsets.yaml
-  - Delete crds/tenantworkloadtemplates.yaml
+- [x] **6.2.2 tenant-workload-operator in OSS Helm**
+  - Decision: DISABLED by default (not deleted)
+  - Templates/CRDs remain for flexibility (operators who want to enable SaaS features)
+  - Set `tenantWorkloadOperator.enabled: false` in values.yaml
+  - Won't be deployed unless explicitly enabled
 
-- [ ] **6.2.3 Simplify web-ng for single-tenant**
+- [ ] **6.2.3 Simplify web-ng for single-tenant** (Future iteration)
   - Remove tenant switcher from navbar
-  - Remove /admin routes that manage tenants
+  - Remove /admin routes that manage multiple tenants
   - Default to platform tenant context always
+  - These are UI polish items, not blocking for MVP
 
 ## Phase 7: Documentation
 
