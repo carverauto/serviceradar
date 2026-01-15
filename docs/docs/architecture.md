@@ -11,42 +11,34 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 
 ```mermaid
 flowchart TB
-    subgraph EdgeZone["Edge Network"]
-        Agent["serviceradar-agent"]
-        Collectors["Collectors + Checkers"]
+    subgraph Edge["Edge"]
+        Agent["Agent with collectors"]
         Leaf["NATS Leaf optional"]
-        Agent --> Collectors
     end
 
-    subgraph Core["Core Platform (ERTS Cluster)"]
-        Caddy["Caddy Edge Proxy"]
-        Web["web-ng (Phoenix + SRQL Rustler/NIF)"]
+    subgraph Core["Core Platform"]
+        Caddy["Caddy edge proxy"]
+        Web["web-ng with SRQL"]
+        Gateway["agent-gateway"]
         CoreElx["core-elx"]
-        Gateway["serviceradar-agent-gateway"]
-        Zen["serviceradar-zen"]
-        DBWriter["serviceradar-db-event-writer"]
-        Caddy --> Web
-        Web <--> CoreElx
-        CoreElx <--> Gateway
+        Zen["zen"]
+        DBWriter["db-event-writer"]
     end
 
-    subgraph DataPlane["Data Plane"]
+    subgraph Data["Data Plane"]
         CNPG["CNPG TimescaleDB"]
         NATS["NATS JetStream"]
-        DATASVC["Datasvc KV"]
     end
 
-    User([User]) -->|HTTPS| Caddy
-    Agent -->|gRPC mTLS :50052| Gateway
-    Collectors -->|gRPC mTLS| Gateway
-    Leaf -.->|Leaf link| NATS
+    User([User]) --> Caddy --> Web
+    Agent -->|gRPC mTLS| Gateway --> CoreElx
+    Leaf -.-> NATS
 
     Web --> CNPG
     CoreElx --> CNPG
     DBWriter --> CNPG
     CoreElx <--> NATS
     Zen <--> NATS
-    DATASVC <--> NATS
 ```
 
 **Traffic flow summary:**
@@ -93,139 +85,37 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 
 ## Key Components
 
-### Agent (Monitored Host)
+### Edge
 
-The Agent runs on each host you want to monitor and is responsible for:
+- **Agent** runs on monitored hosts with embedded collectors and sync.
+- **Agent-Gateway** is the edge ingress, receiving gRPC status/results and forwarding to core-elx.
+- **Optional NATS leaf** extends JetStream to the edge when needed.
 
-- Collecting service status information (process status, port availability, etc.)
-- Running embedded checkers (SNMP, sweeps, sysmon, discovery, sync, and mapper)
-- Pushing status and collection results to the Agent-Gateway over gRPC
-- Running with minimal privileges for security
+### Core Platform
 
-**Technical Details:**
-- Written in Go for performance and minimal dependencies
-- Uses gRPC for efficient, language-agnostic communication
-- Fetches configuration via gRPC from the control plane
-- Can run on constrained hardware with minimal resource usage
+- **web-ng** serves the UI and embeds SRQL via Rustler/NIF.
+- **core-elx** handles control-plane APIs, DIRE, and routing.
+- **zen** evaluates rule pipelines.
+- **db-event-writer** persists high-volume events to CNPG.
 
-### Agent-Gateway (Edge Ingress)
+### Data Plane
 
-The Agent-Gateway coordinates edge ingestion and is responsible for:
+- **CNPG / TimescaleDB** stores telemetry, inventory, and analytics data.
+- **NATS JetStream** provides messaging and stream persistence.
+- **Datasvc (KV)** exposes configuration and object storage for platform consumers.
 
-- Accepting agent connections for status updates and collection results
-- Forwarding payloads to core-elx for ingestion and routing
-- Supporting unary status pushes and streaming/chunked payloads
-- Acting as the edge ingress for agent and collector traffic
+### Security and Identity
 
-**Technical Details:**
-- Runs on port 50052 for gRPC communications
-- Stateless design allows multiple Gateways for high availability
-- Supports PushStatus and StreamStatus ingestion modes
-
-### Core Service (core-elx)
-
-The core-elx service is the central component that:
-
-- Receives and processes reports from Agent-Gateway
-- Provides an internal control-plane API on port 8090
-- Triggers alerts and routes internal events
-- Stores monitoring data and inventory changes
-- Manages webhook notifications and platform coordination
-
-**Technical Details:**
-- Provides a RESTful API on port 8090 for internal services
-- Participates in the ERTS cluster with Web-NG and Agent-Gateway
-
-### Zen Rules Engine (serviceradar-zen)
-
-The Zen rules engine evaluates rule sets and streams decisions through the platform:
-
-- Consumes rule inputs from NATS JetStream
-- Executes rule logic and emits events for downstream processing
-- Works alongside core-elx for alert routing and automation
-
-### DB Event Writer (serviceradar-db-event-writer)
-
-The DB event writer persists high-volume events into CNPG:
-
-- Reads event streams from NATS JetStream
-- Writes logs, events, and telemetry rollups into CNPG/Timescale
-- Scales independently of core-elx
-
-### Data Plane (CNPG + NATS)
-
-- **CNPG / TimescaleDB** stores telemetry, inventory, and analytics data
-- **NATS JetStream** provides messaging and stream persistence for platform services
-- **Datasvc (KV)** exposes configuration and object storage for platform consumers
-
-### Web UI (web-ng)
-
-The Web UI provides a modern dashboard interface that:
-
-- Visualizes the status of monitored services
-- Displays historical performance data
-- Provides configuration management
-- Calls core-elx APIs via the edge proxy and serves SRQL queries in-process
-
-**Technical Details:**
-- Built with Phoenix LiveView for server-rendered, stateful dashboards
-- Exposed through the cluster ingress to `serviceradar-web-ng` (port 4000)
-- Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
-- Supports responsive design for mobile and desktop
-
-### Edge Proxy (Caddy / Ingress)
-
-The edge proxy terminates TLS and routes user traffic:
-
-- Routes `/` and `/api/*` to `serviceradar-web-ng`
-- Preserves WebSocket headers for LiveView and SRQL streaming
-- Uses Caddy in Docker Compose and your ingress controller in Kubernetes
-
-### SPIFFE Identity Plane
-
-Core-elx, Agent-Gateway, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
-stack that ships with the demo kustomization and Helm chart. The SPIRE server
-StatefulSet now embeds the upstream controller manager to reconcile
-`ClusterSPIFFEID` resources and keep workload certificates synchronized. For a
-deep dive into the manifests, controller configuration, and operational
-workflow see [SPIFFE / SPIRE Identity Platform](spiffe-identity.md).
-
-### SRQL (Query Engine)
-
-SRQL runs inside Web-NG via Rustler/NIFs and executes ServiceRadar Query Language requests:
-
-- Exposes `/api/query` (HTTP) and `/api/stream` (WebSocket) for bounded and streaming query execution
-- Translates SRQL to Timescale-compatible SQL before dispatching the query
-- Honors SRQL auth configuration (API key or core-issued JWTs) while relying on the edge proxy for TLS
-- Streams results back to the Web UI, which renders them in explorers and dashboards
+- **Caddy / Ingress** terminates TLS and routes `/` and `/api/*` to web-ng.
+- **SPIFFE** issues workload identities for mTLS across services.
 
 ## Device Identity Canonicalization
 
-Modern environments discover the same device from multiple angles - Armis inventory pushes metadata, KV sweep configurations create synthetic device IDs per partition, and Gateways learn about live status through TCP/ICMP sweeps. Because the Timescale hypertables are append-only, every new IP address or partition shuffle historically produced a brand-new `device_id`. That broke history stitching and created duplicate monitors whenever DHCP reassigned an address.
-
-To fix this, the Device Registry now picks a canonical identity per real-world device and keeps all telemetry flowing into that record:
-
-- **Canonical selection**: When Armis or NetBox provide a strong identifier, the registry prefers the most recent `_tp_time` entry for that identifier and treats it as the source of truth (the canonical `device_id`).
-- **Sweep normalization**: Any sweep-only alias (`partition:ip`) is merged into the canonical record so Gateway results land on the device the UI already knows about.
-- **Metadata hints**: `_merged_into` markers are written on non-canonical rows so downstream consumers can recognise historical merges.
-
-**Note:** KV is NOT used for device identity resolution. CNPG (PostgreSQL) is the authoritative source for identity via the `device_identifiers` table. The IdentityEngine in `pkg/registry` uses strong identifiers (Armis ID, MAC, etc.) to generate deterministic `sr:` UUIDs and stores mappings in CNPG with an in-memory cache for performance.
-
-### Monitoring identity lookups
-
-The core lookup path emits OpenTelemetry metrics so operators can see how identity resolution behaves in real time:
-
-- `identitymap_lookup_latency_seconds` (labels: `resolved_via=db|miss|error`, `found=true|false`) measures end-to-end latency for resolving canonical devices via CNPG.
-
-Feed these metrics into the OTEL collector (`cmd/otel`) to populate Prometheus dashboards.
+The Device Registry reconciles identities from sync, sweeps, and external inventory sources into a canonical device record. CNPG is the source of truth for identifiers and merges.
 
 ## Security Architecture
 
-ServiceRadar implements multiple layers of security:
-
-### mTLS Security
-
-For network communication between components, ServiceRadar supports mutual TLS (mTLS):
+ServiceRadar uses mTLS across internal services and JWTs for user/API access. SPIFFE/SPIRE issues workload identities and Caddy/Ingress terminates external TLS.
 
 ```mermaid
 graph TB
@@ -307,53 +197,7 @@ For deployment specifics, pair this section with the [Authentication Configurati
 
 ## Deployment Models
 
-ServiceRadar supports multiple deployment models:
-
-### Standard Deployment
-
-All components installed on separate machines for optimal security and reliability:
-
-```mermaid
-graph LR
-    Browser[Browser] --> WebServer[Web Server<br/>Web UI + core-elx]
-    WebServer --> GatewayServer[Agent-Gateway]
-    GatewayServer --> AgentServer1[Host 1<br/>Agent]
-    GatewayServer --> AgentServer2[Host 2<br/>Agent]
-    GatewayServer --> AgentServerN[Host N<br/>Agent]
-```
-
-### Minimal Deployment
-
-For smaller environments, components can be co-located:
-
-```mermaid
-graph LR
-    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + core-elx + Agent-Gateway]
-    CombinedServer --> AgentServer1[Host 1<br/>Agent]
-    CombinedServer --> AgentServer2[Host 2<br/>Agent]
-```
-
-### High Availability Deployment
-
-For mission-critical environments:
-
-```mermaid
-graph TD
-    LB[Load Balancer] --> WebServer1[Web Server 1<br/>Web UI]
-    LB --> WebServer2[Web Server 2<br/>Web UI]
-    WebServer1 --> CoreServer1[core-elx Server 1]
-    WebServer2 --> CoreServer1
-    WebServer1 --> CoreServer2[core-elx Server 2]
-    WebServer2 --> CoreServer2
-    CoreServer1 --> Gateway1[Agent-Gateway 1]
-    CoreServer2 --> Gateway1
-    CoreServer1 --> Gateway2[Agent-Gateway 2]
-    CoreServer2 --> Gateway2
-    Gateway1 --> Agent1[Agent 1]
-    Gateway1 --> Agent2[Agent 2]
-    Gateway2 --> Agent1
-    Gateway2 --> Agent2
-```
+ServiceRadar supports Kubernetes and Docker Compose. Agents run at the edge; the core platform runs in the cluster.
 
 ## Network Requirements
 
