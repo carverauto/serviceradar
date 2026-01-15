@@ -16,9 +16,9 @@ flowchart TB
     end
 
     subgraph EdgeZone["Edge Zone (DMZ)"]
-        GA1[Go Agent<br/>Host 1 :50051]
-        GA2[Go Agent<br/>Host 2 :50051]
-        GAN[Go Agent<br/>Host N :50051]
+        GA1[Go Agent<br/>Host 1]
+        GA2[Go Agent<br/>Host 2]
+        GAN[Go Agent<br/>Host N]
     end
 
     subgraph Cluster["Kubernetes Cluster (ERTS Cluster)"]
@@ -27,14 +27,13 @@ flowchart TB
             WEB[Web UI<br/>Phoenix :4000]
         end
 
-        subgraph API["API Layer"]
-            CORE[Core Service<br/>REST :8090 / gRPC :50052]
-            SRQL[SRQL Service<br/>:8080]
+        subgraph ControlPlane["Control Plane"]
+            CORE[core-elx<br/>REST :8090]
+            GATEWAY[Agent-Gateway<br/>gRPC :50052]
         end
 
-        subgraph Monitoring["Monitoring Layer"]
-            GATEWAY[Gateway<br/>:50052]
-            AGENT[In-Cluster Agent<br/>:50051]
+        subgraph API["Query Layer"]
+            SRQL[SRQL Service<br/>:8080]
         end
 
         subgraph DataPlane["Data Plane"]
@@ -68,9 +67,8 @@ flowchart TB
     GA2 -->|gRPC mTLS :50052| GATEWAY
     GAN -->|gRPC mTLS :50052| GATEWAY
 
-    %% Internal monitoring
+    %% Internal coordination
     GATEWAY --> CORE
-    GATEWAY <--> AGENT
 
     %% Data flow
     CORE --> CNPG
@@ -88,9 +86,11 @@ flowchart TB
 
 **Traffic flow summary:**
 - **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
-- **Web-NG** serves `/api/*`, `/api/query`, and `/api/stream`
-- **Edge agents** (Go binaries) connect via gRPC mTLS to the Gateway on port 50052
-- **NATS JetStream** provides pub/sub messaging and KV storage for all services
+- **Web-NG** serves `/`, `/api/*`, `/api/query`, and `/api/stream`
+- **Core-elx, Web-NG, and Agent-Gateway** form the internal ERTS cluster over mTLS
+- **Edge agents** (Go binaries) connect via gRPC mTLS to the Agent-Gateway on port 50052
+- **NATS JetStream + Datasvc** provide platform messaging and KV storage for platform services
+- **Edge config delivery** uses gRPC from Agent-Gateway and does not require KV
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
 
 ### Edge Agent Architecture
@@ -101,14 +101,14 @@ Edge agents are **Go binaries** that run on monitored hosts outside the Kubernet
 |----------|-------|
 | **Runtime** | Go binary (not Erlang/BEAM) |
 | **Protocol** | gRPC with mTLS only |
-| **Port** | 50052 (outbound to Gateway) |
-| **Identity** | Tenant-specific X.509 certificates |
+| **Port** | 50052 (outbound to Agent-Gateway) |
+| **Identity** | Workload-scoped X.509 certificates |
 | **ERTS Access** | None (cannot join ERTS cluster) |
 
 **Security boundaries:**
 - Edge agents **cannot** join the ERTS cluster (they are not Erlang nodes)
-- Edge agents **cannot** execute RPC calls on Core or Gateway nodes
-- Edge agents **cannot** access Horde registries or enumerate other tenants' agents
+- Edge agents **cannot** execute RPC calls on Core or Agent-Gateway nodes
+- Edge agents **cannot** access Horde registries or enumerate cluster members
 - Edge agents **cannot** connect to the database directly
 
 For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For security properties, see [Security Architecture](./security-architecture.md).
@@ -132,49 +132,45 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 The Agent runs on each host you want to monitor and is responsible for:
 
 - Collecting service status information (process status, port availability, etc.)
-- Exposing a gRPC service on port 50051 for Gateways to query
-- Supporting various checker types (process, port, SNMP, etc.)
+- Running embedded checkers (SNMP, sweeps, sysmon, discovery, sync, and mapper)
+- Pushing status and collection results to the Agent-Gateway over gRPC
 - Running with minimal privileges for security
 
 **Technical Details:**
 - Written in Go for performance and minimal dependencies
 - Uses gRPC for efficient, language-agnostic communication
-- Supports dynamic loading of checker plugins
+- Fetches configuration via gRPC from the control plane
 - Can run on constrained hardware with minimal resource usage
 
-### Gateway (Monitoring Coordinator)
+### Agent-Gateway (Edge Ingress)
 
-The Gateway coordinates monitoring activities and is responsible for:
+The Agent-Gateway coordinates edge ingestion and is responsible for:
 
-- Querying multiple Agents at configurable intervals
-- Aggregating status data from Agents
-- Reporting status to the Core Service
-- Dispatching check work to Agents and Checkers
-- Supporting network sweeps and discovery
+- Accepting agent connections for status updates and collection results
+- Forwarding payloads to core-elx for ingestion and routing
+- Supporting unary status pushes and streaming/chunked payloads
+- Acting as the edge ingress for agent traffic
 
 **Technical Details:**
 - Runs on port 50052 for gRPC communications
 - Stateless design allows multiple Gateways for high availability
-- Configurable polling intervals for different check types
-- Supports both pull-based (query) and push-based (events) monitoring
+- Supports PushStatus and StreamStatus ingestion modes
 
-### Core Service (API & Processing)
+### Core Service (core-elx)
 
-The Core Service is the central component that:
+The core-elx service is the central component that:
 
-- Receives and processes reports from Gateways
+- Receives and processes reports from Agent-Gateway
 - Provides an internal control-plane API on port 8090
-- Triggers alerts based on configurable thresholds
-- Stores historical monitoring data
-- Manages webhook notifications
+- Triggers alerts and routes internal events
+- Stores monitoring data and inventory changes
+- Manages webhook notifications and platform coordination
 
 **Technical Details:**
-- Exposes a gRPC service on port 50052 for Gateway connections
 - Provides a RESTful API on port 8090 for internal services
-- Uses role-based security model
-- Implements webhook templating for flexible notifications
+- Participates in the ERTS cluster with Web-NG and Agent-Gateway
 
-### Web UI (User Interface)
+### Web UI (web-ng)
 
 The Web UI provides a modern dashboard interface that:
 
@@ -198,7 +194,7 @@ The edge proxy terminates TLS and routes user traffic:
 
 ### SPIFFE Identity Plane
 
-Core, Gateway, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
+Core-elx, Agent-Gateway, Datasvc, and Agent rely on SPIFFE identities issued by the SPIRE
 stack that ships with the demo kustomization and Helm chart. The SPIRE server
 StatefulSet now embeds the upstream controller manager to reconcile
 `ClusterSPIFFEID` resources and keep workload certificates synchronized. For a
@@ -244,44 +240,25 @@ For network communication between components, ServiceRadar supports mutual TLS (
 
 ```mermaid
 graph TB
-subgraph "Agent Node"
-AG[Agent<br/>Role: Server<br/>:50051]
-SNMPCheck[SNMP Checker<br/>:50054]
-DuskCheck[Dusk Checker<br/>:50052]
-SweepCheck[Network Sweep]
+    subgraph "Edge Node"
+        AG[Agent<br/>gRPC Client]
+    end
 
-        AG --> SNMPCheck
-        AG --> DuskCheck
-        AG --> SweepCheck
+    subgraph "Agent-Gateway"
+        GW[Agent-Gateway<br/>gRPC Server]
     end
-    
-    subgraph "Gateway Service"
-        GW[Gateway<br/>Role: Client+Server<br/>:50052]
-    end
-    
+
     subgraph "Core Service"
-        CL[Core Service<br/>Role: Server<br/>:50052]
-        DB[(Database)]
+        CL[core-elx<br/>Ingestion + API]
+        DB[(CNPG)]
         API[HTTP API<br/>:8090]
-        
+
         CL --> DB
         CL --> API
     end
-    
-    %% Client connections from Gateway
-    GW -->|mTLS Client| AG
-    GW -->|mTLS Client| CL
-    
-    %% Server connections to Gateway
-    HC1[Health Checks] -->|mTLS Client| GW
-    
-    classDef server fill:#e1f5fe,stroke:#01579b
-    classDef client fill:#f3e5f5,stroke:#4a148c
-    classDef dual fill:#fff3e0,stroke:#e65100
-    
-    class AG,CL server
-    class PL dual
-    class SNMPCheck,DuskCheck,SweepCheck client
+
+    AG -->|mTLS gRPC| GW
+    GW -->|mTLS gRPC| CL
 ```
 
 ### Web UI Authentication Flow
@@ -349,7 +326,7 @@ All components installed on separate machines for optimal security and reliabili
 
 ```mermaid
 graph LR
-    Browser[Browser] --> WebServer[Web Server<br/>Web UI + Core]
+    Browser[Browser] --> WebServer[Web Server<br/>Web UI + core-elx]
     WebServer --> GatewayServer[Agent-Gateway]
     GatewayServer --> AgentServer1[Host 1<br/>Agent]
     GatewayServer --> AgentServer2[Host 2<br/>Agent]
@@ -362,7 +339,7 @@ For smaller environments, components can be co-located:
 
 ```mermaid
 graph LR
-    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + Core + Gateway]
+    Browser[Browser] --> CombinedServer[Combined Server<br/>Web UI + core-elx + Agent-Gateway]
     CombinedServer --> AgentServer1[Host 1<br/>Agent]
     CombinedServer --> AgentServer2[Host 2<br/>Agent]
 ```
@@ -375,9 +352,9 @@ For mission-critical environments:
 graph TD
     LB[Load Balancer] --> WebServer1[Web Server 1<br/>Web UI]
     LB --> WebServer2[Web Server 2<br/>Web UI]
-    WebServer1 --> CoreServer1[Core Server 1]
+    WebServer1 --> CoreServer1[core-elx Server 1]
     WebServer2 --> CoreServer1
-    WebServer1 --> CoreServer2[Core Server 2]
+    WebServer1 --> CoreServer2[core-elx Server 2]
     WebServer2 --> CoreServer2
     CoreServer1 --> Gateway1[Agent-Gateway 1]
     CoreServer2 --> Gateway1
@@ -397,10 +374,8 @@ ServiceRadar uses the following network ports:
 
 | Component | Port | Protocol | Purpose |
 |-----------|------|----------|---------|
-| Agent | 50051 | gRPC/TCP | Service status queries |
 | Agent-Gateway | 50052 | gRPC/TCP | Agent push ingestion (including sync results) |
-| Core | 50052 | gRPC/TCP | Core gRPC API |
-| Core | 8090 | HTTP/TCP | API (internal) |
+| core-elx | 8090 | HTTP/TCP | API (internal) |
 | Web UI | 80/443 | HTTP(S)/TCP | User interface |
 | SNMP Checker | 50054 | gRPC/TCP | SNMP status queries |
 | Dusk Checker | 50052 | gRPC/TCP | Dusk node monitoring |

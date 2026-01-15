@@ -5,567 +5,90 @@ title: Installation Guide
 
 # Installation Guide
 
-ServiceRadar components are distributed as Debian packages for Ubuntu/Debian systems and RPM packages for RHEL/Oracle Linux systems. Below are the recommended installation steps for different deployment scenarios.
+ServiceRadar platform services (core-elx, agent-gateway, web-ng, datasvc, nats, cnpg) are deployed with Kubernetes or Docker Compose. Standalone installs are supported for edge agents and checkers only.
 
-## Debian/Ubuntu Installation
+## Platform Deployment (Recommended)
 
-### Standard Setup (Recommended)
-
-Install these components on your monitored host:
+### Docker Compose
 
 ```bash
-# Download and install agent and gateway components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
+git clone https://github.com/carverauto/serviceradar.git
+cd serviceradar
+cp .env.example .env
+docker compose up -d
 
-sudo dpkg -i serviceradar-agent_1.0.52.deb serviceradar-agent-gateway_1.0.52.deb
+# Get your admin password
+docker compose logs config-updater | grep "Password:"
 ```
 
-On a separate machine (recommended) or the same host for the core service:
+Access ServiceRadar at http://localhost (Caddy). The API is available at http://localhost/api (via proxy) or http://localhost:8090.
+
+### Kubernetes / Helm
 
 ```bash
-# Download and install core service
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core_1.0.52.deb
-sudo dpkg -i serviceradar-core_1.0.52.deb
+helm upgrade --install serviceradar oci://ghcr.io/carverauto/charts/serviceradar \
+  --version 1.0.75 \
+  -n serviceradar --create-namespace \
+  --set global.imageTag="v1.0.75"
 ```
 
-To install the web UI (dashboard):
+## Edge Deployment (Standalone)
+
+Use the installation script or packages to install agents and checkers on monitored hosts.
+
+### Install Script (Agent + Optional Checkers)
 
 ```bash
-# Download and install web UI
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng_1.0.52.deb
-sudo dpkg -i serviceradar-web-ng_1.0.52.deb
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --agent --non-interactive
+
+# With optional checkers
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.52/install-serviceradar.sh | bash -s -- --agent --non-interactive --checkers=rperf,snmp
 ```
 
-### Optional Components
-
-#### NATS JetStream for KV Store (Optional)
-
-ServiceRadar can use NATS JetStream as a key-value (KV) store for dynamic configuration management,
-enabling real-time updates without service restarts.
-
-##### Installing NATS with ServiceRadar
-
-The `serviceradar-nats` package provides everything needed for NATS JetStream including the NATS server binary,
-configuration files, systemd service, and appropriate directory setup:
+### Manual Package Install (Agent + Checkers)
 
 ```bash
-# Download and install the serviceradar-nats package (Debian/Ubuntu)
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-nats_1.0.52.deb
-sudo dpkg -i serviceradar-nats_1.0.52.deb
+# Agent
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb
+sudo dpkg -i serviceradar-agent_1.0.52.deb
+
+# Optional checkers
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-snmp-checker_1.0.52.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.52.deb
 ```
 
-The serviceradar-nats package automatically:
-* Installs the NATS Server binary in `/usr/bin/nats-server`
-* Creates a configuration file at `/etc/nats/nats-server.conf` with mTLS enabled
-* Sets up a hardened systemd service (`serviceradar-nats.service`) to manage the NATS Server
-* Creates necessary directories (`/var/lib/nats/jetstream` for JetStream data, `/var/log/nats` for logs)
-* Creates and configures the nats user with appropriate permissions
-* Configures the nats user to access ServiceRadar certificates if available
+## Optional Checkers
 
-Verify the NATS Server is running:
-
-```bash
-sudo systemctl status serviceradar-nats
-```
-
-##### Install ServiceRadar Data Service Service
-
-To enable the KV/Object store functionality in ServiceRadar, install the `serviceradar-datasvc` package:
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-datasvc_1.0.52.deb
-sudo dpkg -i serviceradar-datasvc_1.0.52.deb
-```
-
-#### SNMP Monitoring
-
-For collecting and visualizing metrics from network devices:
+### SNMP Monitoring
 
 ```bash
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-snmp-checker_1.0.52.deb
 sudo dpkg -i serviceradar-snmp-checker_1.0.52.deb
 ```
 
-#### rperf Network Performance Monitoring
-
-For monitoring network throughput and reliability:
+### rperf Network Performance Monitoring
 
 ```bash
 # Debian/Ubuntu
 curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.52/serviceradar-rperf_1.0.52.deb
 curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.52/serviceradar-rperf-checker_1.0.52.deb
 sudo dpkg -i serviceradar-rperf_1.0.52.deb serviceradar-rperf-checker_1.0.52.deb
-
-# RHEL/Oracle Linux
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.52/serviceradar-rperf-1.0.52.el9.x86_64.rpm
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.52/serviceradar-rperf-checker-1.0.52.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-rperf-1.0.52.el9.x86_64.rpm ./serviceradar-rperf-checker-1.0.52.el9.x86_64.rpm
 ```
 
-- Server: Install serviceradar-rperf on a reflector host.
-- Client: Install serviceradar-rperf-checker on the Agent host for testing.
-
-Update the "Firewall Configuration" section:
-
-# Additional rules for rperf
-```bash
-sudo ufw allow 5199/tcp  # rperf server control port
-sudo ufw allow 5200:5210/tcp  # rperf data ports (if using port pool)
-sudo ufw allow from 192.168.2.23 to any port 5199 proto udp # rperf server control port (UDP)
-sudo ufw allow from 192.168.2.23 to any port 5200:5210 proto udp # rperf data ports (UDP)
-sudo ufw allow 50081/tcp  # rperf-grpc client
-```
-
-#### Dusk Node Monitoring
-
-For specialized monitoring of [Dusk Network](https://dusk.network/) nodes:
+### Dusk Node Monitoring
 
 ```bash
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-dusk-checker_1.0.52.deb
 sudo dpkg -i serviceradar-dusk-checker_1.0.52.deb
 ```
 
-### Distributed Setup
+## Firewall Notes
 
-For larger deployments, install components on separate hosts:
-
-1. **On monitored hosts** (install only the agent):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent_1.0.52.deb
-sudo dpkg -i serviceradar-agent_1.0.52.deb
-```
-
-2. **On monitoring host** (install the gateway):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway_1.0.52.deb
-sudo dpkg -i serviceradar-agent-gateway_1.0.52.deb
-```
-
-3. **On core host** (install the core service):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core_1.0.52.deb
-sudo dpkg -i serviceradar-core_1.0.52.deb
-```
-
-### Verification
-
-After installation, verify the services are running:
-
-```bash
-# Check agent status
-systemctl status serviceradar-agent
-
-# Check gateway status
-systemctl status serviceradar-agent-gateway
-
-# Check core status
-systemctl status serviceradar-core
-
-# Check NATS Server status
-systemctl status nats
-
-# Check Data Service service status
-systemctl status serviceradar-datasvc
-```
-
-### Firewall Configuration
-
-If you're using UFW (Ubuntu's Uncomplicated Firewall), add these rules:
-
-```bash
-# On agent hosts
-sudo ufw allow 50051/tcp  # For agent gRPC server
-sudo ufw allow 50080/tcp  # For SNMP (gateway) checker (if applicable)
-sudo ufw allow 50081/tcp  # For RPerf checker (if applicable)
-sudo ufw allow 50082/tcp  # For Dusk checker (if applicable)
-
-# On core host
-sudo ufw allow 50052/tcp  # For gateway connections
-sudo ufw allow 8090/tcp   # For API (internal use)
-
-# If running web UI
-sudo ufw allow 80/tcp     # For web interface
-
-# If using NATS JetStream for KV store
-sudo ufw allow 50054/tcp  # For serviceradar-datasvc gRPC service
-```
-
-> **Security Note:** By default, NATS Server is configured to listen only on 127.0.0.1 (localhost), so port 4222 does not need to be opened in the firewall. The Web-NG service (port 4000) is also not exposed externally as Caddy (port 80) proxies requests to it.
-
-### SELinux Configuration (if enabled)
-
-If you have SELinux enabled on your Debian/Ubuntu system:
-
-```bash
-# Allow HTTP connections (for Caddy)
-sudo setsebool -P httpd_can_network_connect 1
-
-# Configure port types
-sudo semanage port -a -t http_port_t -p tcp 8090 || sudo semanage port -m -t http_port_t -p tcp 8090
-sudo semanage port -a -t unreserved_port_t -p tcp 50054 || sudo semanage port -m -t unreserved_port_t -p tcp 50054
-```
-
-## RHEL/Oracle Linux Installation
-
-This guide covers the installation and configuration of ServiceRadar components on Oracle Linux and RHEL-based systems.
-
-### Prerequisites
-
-Before installing ServiceRadar, ensure your system meets the following requirements:
-
-#### System Requirements
-- Oracle Linux 9 / RHEL 9 or compatible distribution
-- System user with sudo or root access
-- Minimum 2GB RAM
-- Minimum 10GB disk space
-
-#### Required Packages
-The following packages will be automatically installed as dependencies, but you can install them manually if needed:
-
-```bash
-# Install EPEL repository
-sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-
-# Enable CodeReady Builder repository (Oracle Linux only)
-sudo dnf config-manager --set-enabled ol9_codeready_builder
-
-# Note: Node.js and the legacy web package are only required for the deprecated Next.js UI.
-# The Phoenix web-ng UI does not require them.
-```
-
-### Standard Setup (Recommended)
-
-#### 1. Download the RPM packages
-
-Download the latest ServiceRadar RPM packages from the releases page:
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
-```
-
-#### 2. Install Core Service
-
-The core service provides the central API and database for ServiceRadar:
-
-```bash
-sudo dnf install -y ./serviceradar-core-1.0.52-1.el9.x86_64.rpm
-```
-
-#### 3. Install Web UI
-
-The web UI provides a dashboard interface:
-
-```bash
-sudo dnf install -y ./serviceradar-web-ng-1.0.52-1.el9.x86_64.rpm
-```
-
-#### 4. Install Agent and Gateway
-
-On each monitored host:
-
-```bash
-sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
-```
-
-### Distributed Setup
-
-For larger deployments, install components on separate hosts:
-
-1. **On monitored hosts** (install only the agent):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-agent-1.0.52-1.el9.x86_64.rpm
-```
-
-2. **On monitoring host** (install the gateway):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-agent-gateway-1.0.52-1.el9.x86_64.rpm
-```
-
-3. **On core host** (install the core service):
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-core-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-core-1.0.52-1.el9.x86_64.rpm
-```
-
-### Optional Components
-
-#### Install NATS Server for KV Store (Optional)
-
-If you plan to use NATS JetStream as a KV store for dynamic configuration:
-
-##### Step 1: Install the NATS Server with `serviceradar-nats`
-
-The `serviceradar-nats` package provides the necessary configuration files, systemd service, and directory setup to enable
-NATS Server to start automatically with mTLS enabled.
-
-```bash
-# Download and install the serviceradar-nats package
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-nats-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-nats-1.0.52-1.el9.x86_64.rpm
-```
-
-The serviceradar-nats package automatically:
-* Installs the NATS Server binary in `/usr/bin/nats-server`
-* Creates a configuration file at `/etc/nats/nats-server.conf` with mTLS enabled
-* Sets up a hardened systemd service (nats.service) to manage the NATS Server
-* Creates necessary directories (`/var/lib/nats/jetstream` for JetStream data, `/var/log/nats` for logs)
-* Configures permissions for the nats user
-
-Verify the NATS Server is running:
-
-```bash
-sudo systemctl status nats
-```
-
-##### Install ServiceRadar KV Service
-
-To enable the KV store functionality:
-
-```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-datasvc-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-datasvc-1.0.52-1.el9.x86_64.rpm
-```
-
-> **Security Note:** By default, the NATS Server is configured to listen only on the loopback interface (127.0.0.1) for security, preventing external network access. ServiceRadar's KV service communicates with NATS Server locally, so you don't need to open port 4222 in your firewall unless NATS Server needs to be accessed from other hosts. This configuration significantly enhances the security of your deployment.
-
-#### SNMP Monitoring and Dusk Node Monitoring
-
-For specialized monitoring capabilities:
-
-```bash
-# SNMP Checker for network device monitoring
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-snmp-checker-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-snmp-checker-1.0.52-1.el9.x86_64.rpm
-
-# Dusk Node Checker for Dusk Network monitoring
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-dusk-checker-1.0.52-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-dusk-checker-1.0.52-1.el9.x86_64.rpm
-```
-
-### Post-Installation Configuration
-
-#### Firewall Configuration
-
-The installation process should automatically configure the firewall, but you can verify or manually configure it:
-
-```bash
-# Check firewall status
-sudo firewall-cmd --list-all
-
-# If needed, manually open required ports
-sudo firewall-cmd --permanent --add-port=80/tcp      # Web UI
-sudo firewall-cmd --permanent --add-port=8090/tcp    # Core API
-sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
-sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
-sudo firewall-cmd --permanent --add-port=50053/tcp   # Gateway
-sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-datasvc
-sudo firewall-cmd --reload
-```
-
-> **Security Note:** Port 4222 (NATS) is not included in the firewall rules as the NATS Server is configured to listen only on 127.0.0.1 (localhost) by default. Port 4000 (Web-NG) is also not exposed externally as Caddy (port 80) proxies requests to it.
-
-#### SELinux Configuration
-
-The installation should configure SELinux automatically. If you encounter issues, you can verify or manually configure it:
-
-```bash
-# Check SELinux status
-getenforce
-
-# Allow HTTP connections (for Caddy)
-sudo setsebool -P httpd_can_network_connect 1
-
-# Configure port types
-sudo semanage port -a -t http_port_t -p tcp 8090 || sudo semanage port -m -t http_port_t -p tcp 8090
-sudo semanage port -a -t unreserved_port_t -p tcp 50054 || sudo semanage port -m -t unreserved_port_t -p tcp 50054
-sudo semanage port -a -t unreserved_port_t -p tcp 4222 || sudo semanage port -m -t unreserved_port_t -p tcp 4222
-```
-
-### Verify Services
-
-Check that all services are running correctly:
-
-```bash
-# Check core service
-sudo systemctl status serviceradar-core
-
-# Check web UI service
-sudo systemctl status serviceradar-web-ng
-
-# Check reverse proxy (optional)
-sudo systemctl status caddy
-
-# Check agent (on monitored host)
-sudo systemctl status serviceradar-agent
-
-# Check gateway (on monitored host)
-sudo systemctl status serviceradar-agent-gateway
-
-# Check NATS Server (if installed)
-sudo systemctl status nats
-
-# Check KV service (if installed)
-sudo systemctl status serviceradar-datasvc
-```
-
-### Accessing the Dashboard
-
-After installation, you can access the ServiceRadar dashboard at:
-
-```
-http://your-server-ip/
-```
-
-## Troubleshooting
-
-### Service Won't Start
-
-If a service fails to start, check the logs:
-
-```bash
-# Check core service logs
-sudo journalctl -xeu serviceradar-core
-
-# Check web UI logs
-sudo journalctl -xeu serviceradar-web-ng
-
-# Check reverse proxy logs (optional)
-sudo journalctl -xeu caddy
-
-# Check NATS Server logs (if installed)
-sudo cat /var/log/nats/nats.log
-```
-
-### Web UI Issues (Web-NG)
-
-If the web UI service fails to start, confirm the release files and env configuration:
-
-```bash
-sudo systemctl status serviceradar-web-ng
-sudo journalctl -xeu serviceradar-web-ng
-```
-
-### SELinux Issues (RHEL/Oracle Linux)
-
-If you encounter SELinux-related issues:
-
-```bash
-# View SELinux denials
-sudo ausearch -m avc --start recent
-
-# Temporarily set SELinux to permissive mode for testing
-sudo setenforce 0
-
-# Create a custom policy module
-sudo ausearch -m avc -c caddy 2>&1 | audit2allow -M serviceradar-caddy
-sudo semodule -i serviceradar-caddy.pp
-```
-
-### Caddy Connection Issues
-
-If Caddy can't connect to the backend services:
-
-```bash
-# Test direct connection to API
-curl http://localhost:8090/api/status
-
-# Test direct connection to Web-NG
-curl http://localhost:4000
-
-# Check API key
-sudo cat /etc/serviceradar/api.env
-
-# Ensure proper permissions on API key file
-sudo chmod 644 /etc/serviceradar/api.env
-sudo chown serviceradar:serviceradar /etc/serviceradar/api.env
-```
-
-### NATS Connection Issues
-
-If the `serviceradar-datasvc` service cannot connect to NATS:
-
-```bash
-# Check NATS Server logs
-sudo cat /var/log/nats/nats.log
-
-# Test NATS connection
-nats server check --server nats://localhost:4222
-
-# Verify certificates are in place
-ls -la /etc/serviceradar/certs/
-```
-
-### Uninstallation
-
-If needed, you can uninstall ServiceRadar components:
-
-#### Debian/Ubuntu:
-```bash
-sudo apt remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
-sudo apt remove -y serviceradar-nats serviceradar-datasvc
-sudo apt remove -y nats-server
-```
-
-#### RHEL/Oracle Linux:
-```bash
-sudo dnf remove -y serviceradar-core serviceradar-web-ng serviceradar-agent serviceradar-agent-gateway
-sudo dnf remove -y serviceradar-nats serviceradar-datasvc
-sudo dnf remove -y nats-server
-```
-
-## System Monitoring (Sysmon)
-
-The ServiceRadar agent includes **embedded system monitoring** that collects host metrics (CPU, memory, disk, network, processes) without requiring a separate checker process.
-
-### Automatic Enablement
-
-System monitoring starts automatically when the agent starts. By default, it collects:
-- CPU usage (every 10 seconds)
-- Memory usage (every 10 seconds)
-- Root filesystem disk usage (every 10 seconds)
-
-### Configuration Options
-
-You can configure sysmon in two ways:
-
-1. **Centralized (Recommended)**: Create profiles in the web UI at **Settings > Sysmon Profiles** and assign them to devices or tags. See [Sysmon Profiles](./sysmon-profiles.md).
-
-2. **Local Config File**: Deploy a `sysmon.json` file to the agent's config directory for automation-driven or air-gapped deployments. See [Sysmon Local Configuration](./sysmon-local-config.md).
-
-### Configuration File Locations
-
-| Platform | Config Path | Cache Path |
-|----------|-------------|------------|
-| Linux | `/etc/serviceradar/sysmon.json` | `/var/lib/serviceradar/cache/sysmon-config.json` |
-| macOS | `/usr/local/etc/serviceradar/sysmon.json` | `/usr/local/var/serviceradar/cache/sysmon-config.json` |
-
-### Migrating from Standalone Checkers
-
-If you were previously using the standalone `sysmon` (Rust) or `sysmon-osx` (Go) checkers, these are now deprecated. To migrate:
-
-1. Remove the standalone checker from your agent's checker configuration
-2. (Optional) Create a `sysmon.json` file or configure a profile in the UI
-3. Restart the agent
-
-The embedded sysmon produces identical metrics, so no backend changes are required.
+- Edge agents require outbound access to the Agent-Gateway gRPC port (default 50052).
+- Optional checkers may require additional ports depending on their protocol.
 
 ## Next Steps
 
-After installation, proceed to:
-
-1. [Configuration Basics](./configuration.md) to configure your components
-2. [TLS Security](./tls-security.md) to secure communications between components
-3. [Sysmon Profiles](./sysmon-profiles.md) to configure system monitoring
+- [Architecture](./architecture.md)
+- [TLS Security](./tls-security.md)
+- [Edge Agents](./edge-agents.md)
