@@ -10,11 +10,12 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 
 | Component    | Purpose                                                                                      | Default Deployment |
 |--------------|----------------------------------------------------------------------------------------------|--------------------|
-| Core API     | core-elx control plane for ingestion, APIs, and notifications.                                | `deploy/serviceradar-core` |
-| Agent        | Runs checkers and the embedded sync integrations; forwards status to the gateway.            | `deploy/serviceradar-agent` |
-| Registry     | Stores canonical device inventory and service relationships.                                 | `statefulset/serviceradar-registry` |
-| Data Service | Provides dynamic configuration (KV) and Object Store via NATS JetStream.                     | `statefulset/serviceradar-datasvc` |
-| Web UI       | Serves dashboards and embeds SRQL explorers.                                                 | `deploy/serviceradar-web-ng` |
+| Core API     | core-elx control plane for ingestion, APIs, and notifications.                               | `deploy/serviceradar-core` |
+| Agent-Gateway | Edge ingress for agent and collector traffic.                                                | `deploy/serviceradar-agent-gateway` |
+| Web UI       | Serves dashboards and embeds SRQL inside web-ng.                                             | `deploy/serviceradar-web-ng` |
+| Data Service | Provides dynamic configuration (KV) and object storage via NATS JetStream.                   | `statefulset/serviceradar-datasvc` |
+| Zen          | Rule engine for alerting and automation.                                                     | `deploy/serviceradar-zen` |
+| DB Writer    | Persists high-volume events into CNPG.                                                       | `deploy/serviceradar-db-event-writer` |
 
 Each deployment surfaces the `serviceradar.io/component` label; use it to filter logs and metrics when debugging clustered issues.
 
@@ -22,12 +23,12 @@ Each deployment surfaces the `serviceradar.io/component` label; use it to filter
 
 - **CNPG / Timescale**: CloudNativePG cluster that stores registry state plus every telemetry hypertable (events, logs, OTEL metrics/traces). The demo namespace creates it via `cnpg-cluster.yaml` and exposes the RW service at `cnpg-rw.<namespace>.svc`.
 - **Faker**: Generates synthetic Armis datasets for demos and developer testing. Deployed as `deploy/serviceradar-faker` and backed by `pvc/serviceradar-faker-data`.
-- **Ingress**: The ingress service exposes HTTPS endpoints for the web UI and API; mutual TLS is enforced between internal components via `serviceradar-ca`.
+- **Edge proxy**: Caddy (Compose) or Ingress (Kubernetes) exposes HTTPS endpoints for the web UI and API; mutual TLS is enforced between internal components via `serviceradar-ca`.
 
 ## Observability Hooks
 
 - **Logs**: All pods write to STDOUT/STDERR; aggregate with `kubectl logs -n demo -l serviceradar.io/component=<name>`.
-- **Metrics**: Gateways scrape Sysmon VM exporters every 60 seconds; ensure the jobs stay within the five-minute hostfreq retention window.
+- **Metrics**: Ensure sysmon exporters are scraped within the five-minute hostfreq retention window.
 - **Tracing**: Distributed traces flow through the OTLP gateway (`service/serviceradar-otel`) and land in CNPG/Timescale for correlation with SRQL queries.
 
 ## Operational Tips

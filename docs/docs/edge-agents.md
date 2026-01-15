@@ -5,7 +5,7 @@ title: Edge Agents
 
 # Edge Agents
 
-Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure, tenant-isolated monitoring.
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure monitoring.
 
 ## Architecture
 
@@ -19,8 +19,7 @@ flowchart LR
 
     subgraph Cluster["Kubernetes Cluster"]
         GW[Agent-Gateway<br/>:50052]
-        CORE[Core Service]
-        REG[Agent Registry]
+        CORE[core-elx]
     end
 
     GA1 -->|gRPC mTLS :50052| GW
@@ -37,7 +36,7 @@ Edge agents use a secure, isolated communication model:
 | Property | Implementation |
 |----------|----------------|
 | **Transport** | gRPC with mTLS (TLS 1.3) |
-| **Identity** | Tenant-specific X.509 certificates |
+| **Identity** | Workload-scoped X.509 certificates |
 | **Isolation** | No ERTS/Erlang distribution access |
 | **Authorization** | SPIFFE ID verification |
 
@@ -45,7 +44,7 @@ Edge agents use a secure, isolated communication model:
 
 - Join the ERTS cluster (they are Go binaries, not Erlang nodes)
 - Execute RPC calls on Core or Agent-Gateway nodes
-- Access Horde registries or enumerate other tenants' agents
+- Access Horde registries or enumerate cluster members
 - Connect to the database directly
 - Access internal APIs without proper mTLS certificates
 
@@ -65,79 +64,9 @@ spiffe://serviceradar.local/agent/<tenant_slug>/<partition_id>/<agent_id>
 
 ## Deployment
 
-### 1. Generate Agent Configuration
-
-Use the onboarding API to generate configuration for a new edge agent:
-
-```bash
-curl -X POST https://core.example.com/api/v2/agents \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "uid": "agent-edge-01",
-    "name": "Edge Agent 1",
-    "host": "192.168.1.100",
-    "port": 50051,
-    "partition_id": "us-west-2"
-  }'
-```
-
-### 2. Download Agent Binary
-
-Download the Go agent binary for your platform:
-
-```bash
-# Linux AMD64
-curl -LO https://releases.serviceradar.io/agent/latest/serviceradar-agent-linux-amd64
-
-# Linux ARM64
-curl -LO https://releases.serviceradar.io/agent/latest/serviceradar-agent-linux-arm64
-
-chmod +x serviceradar-agent-*
-```
-
-### 3. Configure Agent
-
-Create the agent configuration file (`/etc/serviceradar/agent.json`):
-
-```json
-{
-  "agent_id": "agent-edge-01",
-  "listen_addr": ":50051",
-  "gateway_addr": "agent-gateway.example.com:50052",
-  "tls": {
-    "cert_file": "/etc/serviceradar/certs/svid.pem",
-    "key_file": "/etc/serviceradar/certs/svid-key.pem",
-    "ca_file": "/etc/serviceradar/certs/bundle.pem"
-  },
-  "checkers": [
-    {"type": "icmp", "enabled": true},
-    {"type": "tcp", "enabled": true},
-    {"type": "http", "enabled": true}
-  ]
-}
-```
-
-### 4. Install Certificates
-
-Copy the tenant-specific certificates to the agent:
-
-```bash
-mkdir -p /etc/serviceradar/certs
-# Copy svid.pem, svid-key.pem, and bundle.pem from onboarding package
-```
-
-### 5. Start Agent
-
-```bash
-# Run directly
-./serviceradar-agent -config /etc/serviceradar/agent.json
-
-# Or install as systemd service
-sudo cp serviceradar-agent /usr/local/bin/
-sudo cp serviceradar-agent.service /etc/systemd/system/
-sudo systemctl enable --now serviceradar-agent
-```
+Use the edge onboarding flow to generate an agent package and configuration. See:
+- [Edge Onboarding](./edge-onboarding.md)
+- [Installation Guide](./installation.md)
 
 ## Firewall Requirements
 
@@ -167,38 +96,7 @@ These ports should NOT be exposed to edge networks:
 
 ## Health Monitoring
 
-Edge agents report health status via the gRPC connection:
-
-```mermaid
-sequenceDiagram
-    participant Agent as Go Agent
-    participant Gateway as Agent-Gateway
-    participant Core as Core Service
-    participant Registry as Agent Registry
-
-    Agent->>Gateway: gRPC Connect (mTLS)
-    Gateway->>Core: PATCH /api/v2/agents/:uid (establish_connection)
-    Core->>Registry: Update agent status
-
-    loop Every 30s
-        Agent->>Gateway: Heartbeat
-        Gateway->>Core: PATCH /api/v2/agents/:uid (heartbeat)
-    end
-
-    Agent--xGateway: Connection Lost
-    Gateway->>Core: PATCH /api/v2/agents/:uid (lose_connection)
-    Core->>Registry: Mark agent disconnected
-```
-
-### Agent States
-
-| State | Description | is_healthy |
-|-------|-------------|------------|
-| `connecting` | Initial connection in progress | true |
-| `connected` | Healthy, active connection | true |
-| `degraded` | Connected but experiencing issues | false |
-| `disconnected` | Lost connection, will retry | - |
-| `unavailable` | Manually marked unavailable | false |
+Agents report health status via the gRPC connection to the Agent-Gateway. Use core-elx and gateway logs to verify connectivity.
 
 ## Troubleshooting
 
@@ -231,23 +129,4 @@ openssl x509 -in svid.pem -noout -subject
 
 ### Registry Issues
 
-```bash
-# Check if agent is registered (from Core)
-curl https://core.example.com/api/v2/agents/agent-edge-01 \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-## Multi-Tenant Isolation
-
-Edge agents are strictly isolated by tenant:
-
-1. **Certificate-based Identity**: Tenant slug embedded in certificate CN
-2. **Registry Isolation**: AgentRegistry queries are scoped by tenant_id
-3. **Database Isolation**: schema-based multitenancy enforces tenant boundaries
-
-An agent from Tenant A **cannot**:
-- See or enumerate agents from Tenant B
-- Send check results for Tenant B's services
-- Access Tenant B's polling schedules or jobs
-
-For detailed security validation, see the [Security Architecture](./security-architecture.md) documentation.
+Use core-elx API logs and the gateway logs to confirm the agent is registered and sending heartbeats.
