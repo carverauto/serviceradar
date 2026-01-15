@@ -52,11 +52,11 @@ The `auth` section of `core.json` configures authentication and authorization:
 To prevent privilege escalation via email changes, RBAC role mapping supports stable, provider-scoped identities. Keys can be:
 - `provider:subject` (preferred, e.g., `google:11223344556677889900`)
 - `provider:email` (lowercased, e.g., `github:admin@company.com`)
-- legacy `username-or-email` (lowercased) for backward compatibility
+- `username-or-email` (lowercased) for backward compatibility
 
 Local users can be scoped as `local:username` (e.g., `local:admin`).
 
-The Core service resolves roles in this order: `provider:subject` → `provider:email` → legacy `username-or-email`.
+The core-elx service resolves roles in this order: `provider:subject` → `provider:email` → `username-or-email`.
 
 ### Permissions (`role_permissions`)
 
@@ -76,7 +76,7 @@ The API server automatically attaches the route-protection middleware for all `/
 ## API Authentication
 
 All `/api` routes are protected by authentication. Clients authenticate using either:
-- `Authorization: Bearer <JWT>` issued by the Core service, or
+- `Authorization: Bearer <JWT>` issued by core-elx, or
 - Optional API key via `X-API-Key` when configured. See `AUTH_ENABLED` and `API_KEY` environment variables for development modes.
 
 See `./auth-configuration.md` for login flows and CORS settings.
@@ -93,4 +93,3 @@ See `./auth-configuration.md` for login flows and CORS settings.
 - Map identities under `auth.rbac.user_roles` using `provider:subject` when available.
 - Grant least-privilege with `auth.rbac.role_permissions`.
 - Protect admin endpoints via `auth.rbac.route_protection`.
-

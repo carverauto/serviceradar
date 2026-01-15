@@ -3,7 +3,7 @@
 ## One Command Setup - RECOMMENDED
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 Uses pre-built images from GitHub Container Registry (GHCR). Fast, consistent, and production-ready.
@@ -11,7 +11,7 @@ Uses pre-built images from GitHub Container Registry (GHCR). Fast, consistent, a
 ## Development (Local Build)
 
 ```bash
-docker-compose -f docker-compose.dev.yml up
+docker compose -f docker-compose.dev.yml up
 ```
 
 Builds images locally from source. Best for development and testing changes.
@@ -24,17 +24,17 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
 ## What happens with one command:
 - ✅ Generate mTLS certificates automatically
 - ✅ Pull/Build Docker images  
-- ✅ Start the ServiceRadar core stack (CNPG, NATS, web, API)
+- ✅ Start the ServiceRadar core stack (CNPG, NATS, web-ng, core-elx, agent-gateway)
 - ✅ Set up networking and persistent volumes
 
 ## Alternative Commands
 
 ```bash
 # Production deployment with pre-built images (default)
-docker-compose up
+docker compose up
 
 # Development with local builds  
-docker-compose -f docker-compose.dev.yml up
+docker compose -f docker-compose.dev.yml up
 
 # Using Makefile (uses pre-built images)
 make -f Makefile.docker start
@@ -58,14 +58,14 @@ make -f Makefile.docker test
 
 ## Access Services
 
-- **Web UI**: http://localhost:8090
-- **Core API**: http://localhost:8090/swagger  
+- **Web UI**: http://localhost (Caddy)
+- **Core API**: http://localhost/api (via proxy) or http://localhost:8090
 - **Metrics**: http://localhost:9090/metrics
 
 ## Stop Services
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ## Environment Variables (Optional)
@@ -82,6 +82,6 @@ All values have sensible defaults, so the `.env` file is optional.
 ## What's Running?
 
 - **cert-generator**: One-time container that generates mTLS certificates
-- **core**: ServiceRadar API and business logic
+- **core-elx**: ServiceRadar control plane and business logic
 
-For full documentation, see [docker/README.md](docker/README.md).
+For full documentation, see [README-Docker.md](README-Docker.md).

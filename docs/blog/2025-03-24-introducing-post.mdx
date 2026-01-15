@@ -22,10 +22,10 @@ Our project is driven by a few core goals:
 - **Scalability**: Support everything from small setups to large, distributed deployments with ease.
 
 At its heart, ServiceRadar consists of four key components:
-1. **Agent**: Runs on your monitored hosts, collecting service status via gRPC.
-2. **Gateway**: Coordinates monitoring across agents and networks.
-3. **Core Service**: Processes data, powers the API, and triggers alerts.
-4. **Web UI**: Delivers a sleek, modern dashboard for visualizing your infrastructure.
+1. **Agent**: Runs on your monitored hosts, collecting and streaming results via gRPC.
+2. **Agent-Gateway**: Receives agent streams and forwards them to the core control plane.
+3. **Core Service (core-elx)**: Processes data, powers the API, and triggers alerts.
+4. **Web UI (web-ng)**: Delivers a sleek, modern dashboard for visualizing your infrastructure.
 
 Want to know more? Check out our [Architecture documentation](https://docs.serviceradar.io/docs/architecture) for a detailed breakdown.
 
@@ -34,10 +34,10 @@ Want to know more? Check out our [Architecture documentation](https://docs.servi
 ServiceRadar isn’t just another monitoring tool—it’s a cloud-native solution designed with contemporary principles in mind. Here’s what sets it apart:
 
 ### Cloud-Native Design
-ServiceRadar embraces a distributed, stateless architecture that thrives in cloud environments. Whether you’re running it on a single host or across a fleet of servers, its components communicate efficiently via gRPC, and the Web UI leverages Next.js for a fast, server-side rendered experience. This flexibility means you can deploy it where it makes sense for your setup—be it a minimal all-in-one install or a high-availability cluster.
+ServiceRadar embraces a distributed, stateless architecture that thrives in cloud environments. Whether you’re running it on a single host or across a fleet of servers, its components communicate efficiently via gRPC, and the Web UI leverages Phoenix LiveView for a fast, server-rendered experience. This flexibility means you can deploy it where it makes sense for your setup—be it a minimal all-in-one install or a high-availability cluster.
 
 ### Zero-Trust Security
-Security isn’t an afterthought—it’s baked into ServiceRadar’s DNA. We implement zero-trust principles through mutual TLS (mTLS) authentication between components, ensuring that every connection is verified and encrypted. The Web UI talks to the Core Service via a secure API key, and Nginx acts as a reverse proxy to keep things locked down. Curious about the details? Our [TLS Security guide](https://docs.serviceradar.io/docs/tls-security) walks you through it.
+Security isn’t an afterthought—it’s baked into ServiceRadar’s DNA. We implement zero-trust principles through mutual TLS (mTLS) authentication between components, ensuring that every connection is verified and encrypted. The Web UI talks to the core control plane through the edge proxy, and Caddy/Ingress terminates TLS and routes requests. Curious about the details? Our [TLS Security guide](https://docs.serviceradar.io/docs/tls-security) walks you through it.
 
 ### Zero-Touch Deployment (The Vision)
 Our ultimate goal is to make ServiceRadar as hands-off as possible. We’re working toward a zero-touch configuration deployment system—imagine spinning up a new agent or gateway with minimal manual setup. While we’re not fully there yet, features like automatic API key generation and pre-configured Debian/RHEL packages are steps in that direction. Stay tuned as we refine this process to streamline your experience even further.

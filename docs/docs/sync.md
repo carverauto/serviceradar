@@ -24,15 +24,15 @@ The embedded sync runtime:
 
 ```mermaid
 graph TD
-    UI[Web UI<br/>Integrations] --> Core[(Core / Ash)]
-    Core -->|GetConfig| Gateway[Agent-Gateway]
+    UI["Web UI Integrations"] --> Core["Core (Ash)"]
+    Core -->|GetConfig| Gateway["Agent-Gateway"]
 
-    Agent[Agent + Embedded Sync] -->|Hello + GetConfig| Gateway
-    Agent -->|StreamStatus (ResultsChunk payloads)| Gateway
+    Agent["Agent + Embedded Sync"] -->|Hello, GetConfig| Gateway
+    Agent -->|StreamStatus chunks| Gateway
 
     Gateway --> Core
-    Core --> DIRE[DIRE]
-    DIRE --> Inventory[(Device Inventory)]
+    Core --> DIRE["DIRE"]
+    DIRE --> Inventory["Device Inventory"]
 ```
 
 ## Configuration Delivery

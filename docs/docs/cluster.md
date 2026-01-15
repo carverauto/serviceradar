@@ -10,7 +10,7 @@ The ServiceRadar demo cluster bundles the core platform services into a single K
 
 | Component    | Purpose                                                                                      | Default Deployment |
 |--------------|----------------------------------------------------------------------------------------------|--------------------|
-| Core API     | Accepts gateway reports, exposes the public API, and fans out notifications.                 | `deploy/serviceradar-core` |
+| Core API     | core-elx control plane for ingestion, APIs, and notifications.                                | `deploy/serviceradar-core` |
 | Agent        | Runs checkers and the embedded sync integrations; forwards status to the gateway.            | `deploy/serviceradar-agent` |
 | Registry     | Stores canonical device inventory and service relationships.                                 | `statefulset/serviceradar-registry` |
 | Data Service | Provides dynamic configuration (KV) and Object Store via NATS JetStream.                     | `statefulset/serviceradar-datasvc` |

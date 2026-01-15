@@ -4,7 +4,7 @@ title: Discovery Guide
 
 # Discovery Guide
 
-ServiceRadar discovery jobs keep the registry aligned with real-world infrastructure by walking networks, inventory services, and cataloging dependencies. Use discovery to seed the registry before enabling continuous polling.
+ServiceRadar discovery jobs keep the registry aligned with real-world infrastructure by walking networks, inventory services, and cataloging dependencies. Use discovery to seed the registry before enabling continuous collection.
 
 ## Mapper Service Overview
 
@@ -34,7 +34,7 @@ For Docker deployments, edit `docker/compose/mapper.docker.json` and restart the
 
 - **Mapper SNMP Discovery** - Mapper-driven SNMP walks that populate inventory, interface, and topology data. Tune jobs in `/etc/serviceradar/mapper.json` and monitor results with SRQL on `device_updates` and `discovered_interfaces`.
 - **Inventory Imports** - External sources such as NetBox or CMDB exports. Feed them through the embedded sync runtime (agent) and let DIRE reconcile devices into the canonical inventory.
-- **Sweep Jobs (Legacy)** - Pull-based sweeps are deprecated in the push-first architecture. New discovery flows should use sync and Mapper outputs instead.
+- **Sweep Jobs** - Use sync and Mapper outputs for sweep-style coverage and reconciliation.
 
 ## Creating Jobs
 

@@ -66,10 +66,10 @@ For detailed installation options and component-specific deployments, see [INSTA
 
 ServiceRadar (SR) uses a distributed architecture with four main components:
 
-1. **Agent** - Runs on monitored hosts, provides service status through gRPC
-2. **Gateway** - Orchestrates monitoring activities, can run anywhere in your network
-3. **Core Service** - Receives reports from gateways, provides API, and sends alerts
-4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
+1. **Agent** - Runs on monitored hosts, collects data, and pushes results to the gateway over gRPC
+2. **Agent-Gateway** - Receives agent streams and forwards them to core-elx
+3. **Core Service (core-elx)** - Control plane for DIRE, ingestion, APIs, and alerts
+4. **Web UI (web-ng)** - Phoenix LiveView dashboard served through the edge proxy
 
 ## Kubernetes / Helm Deployment
 
@@ -135,9 +135,9 @@ ServiceRadar provides a complete Docker Compose stack with mTLS security, automa
 ### Services Included
 
 - **Database** - PostgreSQL with TimescaleDB (metrics) and Apache AGE (graph topology)
-- **Core API** - Main ServiceRadar API and business logic
+- **Core API** - core-elx control plane and business logic
 - **Web UI** - Phoenix LiveView dashboard served through the Caddy edge proxy
-- **Agent & Gateway** - Distributed monitoring services
+- **Agent & Agent-Gateway** - Edge ingestion and monitoring services
 - **Observability** - OTEL collector, syslog (flowgger), SNMP traps
 - **Network Discovery** - SNMP/LLDP network mapping
 
@@ -145,8 +145,8 @@ ServiceRadar provides a complete Docker Compose stack with mTLS security, automa
 
 ```bash
 docker compose ps                    # View service status
-docker compose logs -f core          # Follow logs for a service
-docker compose restart core          # Restart a service
+docker compose logs -f core-elx      # Follow logs for a service
+docker compose restart core-elx      # Restart a service
 docker compose down                  # Stop all services
 ```
 
