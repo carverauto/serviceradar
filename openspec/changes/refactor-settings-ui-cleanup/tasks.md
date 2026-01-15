@@ -36,12 +36,12 @@
 - [x] 6.2 Add Armis API credentials form fields (api_key, api_secret)
 - [x] 6.3 Add SNMP credentials form fields (version, community)
 - [x] 6.4 Add Netbox API credentials form fields (url, token, verify_ssl)
-- [ ] 6.5 Conditionally show network blacklist field
-- [ ] 6.6 Remove/deprecate nmap integration source option
+- [x] 6.5 Conditionally show network blacklist field
+- [x] 6.6 Remove/deprecate nmap integration source option (replaced with Netbox in UI)
 
 ## 7. Device UI Enhancements
 - [x] 7.1 Add total count to pagination display
-- [ ] 7.2 Implement improved pagination controls (page numbers)
+- [x] 7.2 Implement improved pagination controls (page numbers)
 - [x] 7.3 Add "Add Device" button to devices view
 - [x] 7.4 Create "Add Device" modal/form
 - [x] 7.5 Add "Import Devices" button

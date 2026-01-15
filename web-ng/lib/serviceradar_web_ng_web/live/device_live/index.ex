@@ -35,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:default_sysmon_profile, nil)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
+     |> assign(:current_page, 1)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
@@ -81,6 +82,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     # Load total count for pagination display
     total_device_count = get_total_matching_count(scope, query)
 
+    # Track current page from URL params (default to 1 if not present or no cursor)
+    current_page = parse_page_param(params)
+
     {:noreply,
      assign(socket,
        icmp_sparklines: icmp_sparklines,
@@ -89,7 +93,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        sysmon_presence: sysmon_presence,
        sysmon_profiles_by_device: sysmon_profiles_by_device,
        default_sysmon_profile: default_sysmon_profile,
-       total_device_count: total_device_count
+       total_device_count: total_device_count,
+       current_page: current_page
      )}
   end
 
@@ -741,6 +746,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               limit={@limit}
               result_count={length(@devices)}
               total_count={@total_device_count}
+              current_page={@current_page}
             />
           </div>
         </.ui_panel>
@@ -1704,6 +1710,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       _ ->
         nil
+    end
+  end
+
+  defp parse_page_param(params) do
+    case params["page"] do
+      nil -> 1
+      "" -> 1
+      page when is_binary(page) ->
+        case Integer.parse(page) do
+          {n, _} when n > 0 -> n
+          _ -> 1
+        end
+      page when is_integer(page) and page > 0 -> page
+      _ -> 1
     end
   end
 

@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 <option value="armis" selected={@filter_type == "armis"}>Armis</option>
                 <option value="snmp" selected={@filter_type == "snmp"}>SNMP</option>
                 <option value="syslog" selected={@filter_type == "syslog"}>Syslog</option>
-                <option value="nmap" selected={@filter_type == "nmap"}>Nmap</option>
+                <option value="netbox" selected={@filter_type == "netbox"}>Netbox</option>
                 <option value="custom" selected={@filter_type == "custom"}>Custom</option>
               </select>
               <select
@@ -656,7 +656,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 {"Armis", :armis},
                 {"SNMP", :snmp},
                 {"Syslog", :syslog},
-                {"Nmap", :nmap},
+                {"Netbox", :netbox},
                 {"Custom", :custom}
               ]}
             />
@@ -787,25 +787,27 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </button>
           </div>
 
-          <div class="divider text-xs text-base-content/60">Network Settings</div>
+          <%= if shows_network_blacklist?(@form[:source_type].value) do %>
+            <div class="divider text-xs text-base-content/60">Network Settings</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Network Blacklist</span>
-            </label>
-            <textarea
-              name="network_blacklist_text"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
-              phx-blur="update_network_blacklist"
-            ><%= @form_network_blacklist %></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                One CIDR per line - networks to exclude from discovery
-              </span>
-            </label>
-          </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Network Blacklist</span>
+              </label>
+              <textarea
+                name="network_blacklist_text"
+                class="textarea textarea-bordered w-full font-mono text-sm"
+                rows="3"
+                placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+                phx-blur="update_network_blacklist"
+              ><%= @form_network_blacklist %></textarea>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  One CIDR per line - networks to exclude from discovery
+                </span>
+              </label>
+            </div>
+          <% end %>
 
           <div class="modal-action">
             <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
@@ -976,25 +978,27 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </button>
           </div>
 
-          <div class="divider text-xs text-base-content/60">Network Settings</div>
+          <%= if shows_network_blacklist?(@selected_source && @selected_source.source_type) do %>
+            <div class="divider text-xs text-base-content/60">Network Settings</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Network Blacklist</span>
-            </label>
-            <textarea
-              name="network_blacklist_text"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
-              phx-blur="update_network_blacklist"
-            ><%= @form_network_blacklist %></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                One CIDR per line - networks to exclude from discovery
-              </span>
-            </label>
-          </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Network Blacklist</span>
+              </label>
+              <textarea
+                name="network_blacklist_text"
+                class="textarea textarea-bordered w-full font-mono text-sm"
+                rows="3"
+                placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+                phx-blur="update_network_blacklist"
+              ><%= @form_network_blacklist %></textarea>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  One CIDR per line - networks to exclude from discovery
+                </span>
+              </label>
+            </div>
+          <% end %>
 
           <div class="modal-action">
             <button type="button" class="btn" phx-click="close_edit_modal">Cancel</button>
@@ -1148,6 +1152,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         :armis -> "info"
         :snmp -> "success"
         :syslog -> "warning"
+        :netbox -> "info"
         :nmap -> "error"
         :custom -> "ghost"
         _ -> "ghost"
@@ -1450,6 +1455,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp parse_network_blacklist(_), do: []
 
+  # Source types that support network blacklist (discovery-based integrations)
+  defp shows_network_blacklist?(:armis), do: true
+  defp shows_network_blacklist?(:netbox), do: true
+  defp shows_network_blacklist?(:nmap), do: true
+  defp shows_network_blacklist?(:custom), do: true
+  defp shows_network_blacklist?("armis"), do: true
+  defp shows_network_blacklist?("netbox"), do: true
+  defp shows_network_blacklist?("nmap"), do: true
+  defp shows_network_blacklist?("custom"), do: true
+  defp shows_network_blacklist?(_), do: false
+
   defp get_tenant_id(socket) do
     case socket.assigns[:current_scope] do
       %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
@@ -1674,6 +1690,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
+  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
 end

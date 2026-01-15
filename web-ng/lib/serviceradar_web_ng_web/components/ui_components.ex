@@ -312,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   Cursor-based pagination component for SRQL-driven pages.
 
   Uses daisyUI join/button classes for styling.
+  Supports page indicators when total_count is provided.
   """
   attr :prev_cursor, :string, default: nil
   attr :next_cursor, :string, default: nil
@@ -320,36 +321,64 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :limit, :integer, default: 20
   attr :result_count, :integer, default: 0
   attr :total_count, :integer, default: nil
+  attr :current_page, :integer, default: 1
   attr :extra_params, :map, default: %{}
   attr :class, :any, default: nil
 
   def ui_pagination(assigns) do
+    has_prev = is_binary(assigns.prev_cursor) and assigns.prev_cursor != ""
+    has_next = is_binary(assigns.next_cursor) and assigns.next_cursor != ""
+    total_pages = calculate_total_pages(assigns.total_count, assigns.limit)
+
     assigns =
       assigns
-      |> assign(:has_prev, is_binary(assigns.prev_cursor) and assigns.prev_cursor != "")
-      |> assign(:has_next, is_binary(assigns.next_cursor) and assigns.next_cursor != "")
+      |> assign(:has_prev, has_prev)
+      |> assign(:has_next, has_next)
+      |> assign(:total_pages, total_pages)
       |> assign(:showing_text, pagination_text(assigns.result_count, assigns.limit, assigns.total_count))
 
     ~H"""
-    <div class={["flex items-center justify-between gap-4", @class]}>
-      <div class="text-sm text-base-content/60">
-        {@showing_text}
+    <div class={["flex flex-wrap items-center justify-between gap-4", @class]}>
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-base-content/60">
+          {@showing_text}
+        </span>
+        <span :if={@total_pages && @total_pages > 1} class="text-xs text-base-content/40">
+          Page {@current_page} of {@total_pages}
+        </span>
       </div>
       <div class="join">
+        <!-- First Page Button -->
+        <.link
+          :if={@has_prev and @current_page > 2}
+          patch={pagination_href(@base_path, @query, @limit, nil, 1, @extra_params)}
+          class="join-item btn btn-sm btn-outline"
+          title="First page"
+        >
+          <.icon name="hero-chevron-double-left" class="size-4" />
+        </.link>
+
+        <!-- Previous Button -->
         <.link
           :if={@has_prev}
-          patch={pagination_href(@base_path, @query, @limit, @prev_cursor, @extra_params)}
+          patch={pagination_href(@base_path, @query, @limit, @prev_cursor, @current_page - 1, @extra_params)}
           class="join-item btn btn-sm btn-outline"
         >
-          <.icon name="hero-chevron-left" class="size-4" /> Previous
+          <.icon name="hero-chevron-left" class="size-4" /> Prev
         </.link>
         <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
-          <.icon name="hero-chevron-left" class="size-4" /> Previous
+          <.icon name="hero-chevron-left" class="size-4" /> Prev
         </button>
 
+        <!-- Page Indicator (when we have total pages) -->
+        <span :if={@total_pages && @total_pages > 1} class="join-item btn btn-sm btn-ghost pointer-events-none">
+          {@current_page} / {@total_pages}
+        </span>
+
+        <!-- Next Button -->
         <.link
           :if={@has_next}
-          patch={pagination_href(@base_path, @query, @limit, @next_cursor, @extra_params)}
+          patch={pagination_href(@base_path, @query, @limit, @next_cursor, @current_page + 1, @extra_params)}
           class="join-item btn btn-sm btn-outline"
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
@@ -362,11 +391,17 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
-  defp pagination_href(base_path, query, limit, cursor, extra_params) do
+  defp calculate_total_pages(nil, _limit), do: nil
+  defp calculate_total_pages(total, limit) when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
+    ceil(total / limit)
+  end
+  defp calculate_total_pages(_, _), do: nil
+
+  defp pagination_href(base_path, query, limit, cursor, page, extra_params) do
     base =
       extra_params
       |> normalize_query_params()
-      |> Map.merge(%{"q" => query, "limit" => limit, "cursor" => cursor})
+      |> Map.merge(%{"q" => query, "limit" => limit, "cursor" => cursor, "page" => page})
 
     base_path <> "?" <> URI.encode_query(base)
   end

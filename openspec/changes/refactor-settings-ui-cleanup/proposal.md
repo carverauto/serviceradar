@@ -55,7 +55,7 @@ The Settings UI has accumulated navigation bugs, broken forms, and structural in
 - RBAC builder/editor (#2293) - separate proposal due to complexity
 - SRQL search filter fixes (#2254) - tracked in existing `fix-services-page-srql` change
 
-## Status: Nearly Complete
+## Status: Complete
 
 ### Completed
 - Navigation & Layout Fixes (SNMP, Sysmon pages) ✅
@@ -69,11 +69,9 @@ The Settings UI has accumulated navigation bugs, broken forms, and structural in
 - Device edit with RBAC protection (#2292) ✅
 - Netbox API credentials form fields ✅
 - CSV import with LiveView uploads and preview ✅
-
-### Remaining (Nice-to-have)
-- Page number pagination controls
-- Network blacklist field conditional display
-- Remove/deprecate nmap integration source
+- Page number pagination controls ✅
+- Network blacklist field conditional display ✅
+- Replace nmap with Netbox in integration source options ✅
 
 ### Closed Issues
 - #2289 - sysmon settings ui broken
