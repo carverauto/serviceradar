@@ -352,6 +352,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
+    params = transform_profile_params(params)
 
     ash_form =
       socket.assigns.ash_form
@@ -392,6 +393,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("validate_profile", %{"form" => params}, socket) do
+    params = transform_profile_params(params)
+
     ash_form =
       socket.assigns.ash_form
       |> Form.validate(params)
@@ -638,6 +641,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/networks">
         <.settings_nav current_path="/settings/networks" />
+        <.network_nav current_path="/settings/networks" />
 
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -2325,6 +2329,38 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
       _ ->
         params
+    end
+  end
+
+  # Transform comma-separated ports string to array of integers for Ash
+  defp transform_profile_params(params) do
+    params
+    |> transform_ports_to_array()
+  end
+
+  defp transform_ports_to_array(params) do
+    case Map.get(params, "ports") do
+      nil -> params
+      "" -> Map.put(params, "ports", [])
+      value when is_binary(value) ->
+        ports =
+          value
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.flat_map(&parse_port/1)
+
+        Map.put(params, "ports", ports)
+
+      value when is_list(value) -> params
+      _ -> params
+    end
+  end
+
+  defp parse_port(port_str) do
+    case Integer.parse(port_str) do
+      {port, _} when port > 0 and port <= 65_535 -> [port]
+      _ -> []
     end
   end
 end

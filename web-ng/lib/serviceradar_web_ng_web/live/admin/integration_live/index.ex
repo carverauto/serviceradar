@@ -475,7 +475,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 <option value="armis" selected={@filter_type == "armis"}>Armis</option>
                 <option value="snmp" selected={@filter_type == "snmp"}>SNMP</option>
                 <option value="syslog" selected={@filter_type == "syslog"}>Syslog</option>
-                <option value="nmap" selected={@filter_type == "nmap"}>Nmap</option>
+                <option value="netbox" selected={@filter_type == "netbox"}>Netbox</option>
                 <option value="custom" selected={@filter_type == "custom"}>Custom</option>
               </select>
               <select
@@ -656,7 +656,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 {"Armis", :armis},
                 {"SNMP", :snmp},
                 {"Syslog", :syslog},
-                {"Nmap", :nmap},
+                {"Netbox", :netbox},
                 {"Custom", :custom}
               ]}
             />
@@ -723,22 +723,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Credentials (JSON)</span>
-            </label>
-            <textarea
-              name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder='{"api_key": "your-api-key", "api_secret": "your-secret"}'
-            ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                Credentials will be encrypted at rest
-              </span>
-            </label>
-          </div>
+          <.dynamic_credentials_fields
+            form={@form}
+            source_type={@form[:source_type].value || :armis}
+            mode={:create}
+          />
 
           <div class="divider text-xs text-base-content/60">Queries</div>
 
@@ -798,25 +787,27 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </button>
           </div>
 
-          <div class="divider text-xs text-base-content/60">Network Settings</div>
+          <%= if shows_network_blacklist?(@form[:source_type].value) do %>
+            <div class="divider text-xs text-base-content/60">Network Settings</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Network Blacklist</span>
-            </label>
-            <textarea
-              name="network_blacklist_text"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
-              phx-blur="update_network_blacklist"
-            ><%= @form_network_blacklist %></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                One CIDR per line - networks to exclude from discovery
-              </span>
-            </label>
-          </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Network Blacklist</span>
+              </label>
+              <textarea
+                name="network_blacklist_text"
+                class="textarea textarea-bordered w-full font-mono text-sm"
+                rows="3"
+                placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+                phx-blur="update_network_blacklist"
+              ><%= @form_network_blacklist %></textarea>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  One CIDR per line - networks to exclude from discovery
+                </span>
+              </label>
+            </div>
+          <% end %>
 
           <div class="modal-action">
             <button type="button" class="btn" phx-click="close_create_modal">Cancel</button>
@@ -923,22 +914,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">New Credentials (JSON, leave empty to keep existing)</span>
-            </label>
-            <textarea
-              name="credentials_json"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder='{"api_key": "your-api-key", "api_secret": "your-secret"}'
-            ></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                Credentials will be encrypted at rest
-              </span>
-            </label>
-          </div>
+          <.dynamic_credentials_fields
+            form={@form}
+            source_type={@selected_source && @selected_source.source_type || :armis}
+            mode={:edit}
+          />
 
           <div class="divider text-xs text-base-content/60">Queries</div>
 
@@ -998,25 +978,27 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </button>
           </div>
 
-          <div class="divider text-xs text-base-content/60">Network Settings</div>
+          <%= if shows_network_blacklist?(@selected_source && @selected_source.source_type) do %>
+            <div class="divider text-xs text-base-content/60">Network Settings</div>
 
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text">Network Blacklist</span>
-            </label>
-            <textarea
-              name="network_blacklist_text"
-              class="textarea textarea-bordered w-full font-mono text-sm"
-              rows="3"
-              placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
-              phx-blur="update_network_blacklist"
-            ><%= @form_network_blacklist %></textarea>
-            <label class="label">
-              <span class="label-text-alt text-base-content/60">
-                One CIDR per line - networks to exclude from discovery
-              </span>
-            </label>
-          </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Network Blacklist</span>
+              </label>
+              <textarea
+                name="network_blacklist_text"
+                class="textarea textarea-bordered w-full font-mono text-sm"
+                rows="3"
+                placeholder="10.0.0.0/8&#10;172.16.0.0/12&#10;192.168.0.0/16"
+                phx-blur="update_network_blacklist"
+              ><%= @form_network_blacklist %></textarea>
+              <label class="label">
+                <span class="label-text-alt text-base-content/60">
+                  One CIDR per line - networks to exclude from discovery
+                </span>
+              </label>
+            </div>
+          <% end %>
 
           <div class="modal-action">
             <button type="button" class="btn" phx-click="close_edit_modal">Cancel</button>
@@ -1170,6 +1152,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         :armis -> "info"
         :snmp -> "success"
         :syslog -> "warning"
+        :netbox -> "info"
         :nmap -> "error"
         :custom -> "ghost"
         _ -> "ghost"
@@ -1374,10 +1357,64 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     end
   end
 
-  # Note: queries_json is not parsed here - queries are built from form_queries assign
+  # Parse credentials from either structured fields or JSON
+  # Structured fields take precedence over JSON
   defp parse_credentials_json(params) do
-    parse_json_field(params, "credentials_json", "credentials")
+    cond do
+      # Armis: api_key + api_secret
+      has_cred_field?(params, "cred_api_key") or has_cred_field?(params, "cred_api_secret") ->
+        creds = %{}
+        creds = maybe_add_cred(creds, "api_key", params["cred_api_key"])
+        creds = maybe_add_cred(creds, "api_secret", params["cred_api_secret"])
+
+        if map_size(creds) > 0 do
+          Map.put(params, "credentials", creds)
+        else
+          params
+        end
+
+      # SNMP: version + community
+      has_cred_field?(params, "cred_snmp_version") or has_cred_field?(params, "cred_community") ->
+        creds = %{}
+        creds = maybe_add_cred(creds, "version", params["cred_snmp_version"])
+        creds = maybe_add_cred(creds, "community", params["cred_community"])
+
+        if map_size(creds) > 0 do
+          Map.put(params, "credentials", creds)
+        else
+          params
+        end
+
+      # Netbox: url + token + verify_ssl
+      has_cred_field?(params, "cred_netbox_url") or has_cred_field?(params, "cred_netbox_token") ->
+        creds = %{}
+        creds = maybe_add_cred(creds, "url", params["cred_netbox_url"])
+        creds = maybe_add_cred(creds, "token", params["cred_netbox_token"])
+        creds = maybe_add_cred(creds, "verify_ssl", params["cred_netbox_verify_ssl"] == "true")
+
+        if map_size(creds) > 0 do
+          Map.put(params, "credentials", creds)
+        else
+          params
+        end
+
+      # Fallback to JSON parsing for custom/other types
+      true ->
+        parse_json_field(params, "credentials_json", "credentials")
+    end
   end
+
+  defp has_cred_field?(params, key) do
+    case Map.get(params, key) do
+      nil -> false
+      "" -> false
+      _ -> true
+    end
+  end
+
+  defp maybe_add_cred(creds, _key, nil), do: creds
+  defp maybe_add_cred(creds, _key, ""), do: creds
+  defp maybe_add_cred(creds, key, value), do: Map.put(creds, key, value)
 
   defp parse_json_field(params, json_key, target_key) do
     case Map.get(params, json_key) do
@@ -1417,6 +1454,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp parse_network_blacklist(_), do: []
+
+  # Source types that support network blacklist (discovery-based integrations)
+  defp shows_network_blacklist?(:armis), do: true
+  defp shows_network_blacklist?(:netbox), do: true
+  defp shows_network_blacklist?(:nmap), do: true
+  defp shows_network_blacklist?(:custom), do: true
+  defp shows_network_blacklist?("armis"), do: true
+  defp shows_network_blacklist?("netbox"), do: true
+  defp shows_network_blacklist?("nmap"), do: true
+  defp shows_network_blacklist?("custom"), do: true
+  defp shows_network_blacklist?(_), do: false
 
   defp get_tenant_id(socket) do
     case socket.assigns[:current_scope] do
@@ -1482,4 +1530,167 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       _ -> nil
     end
   end
+
+  # Dynamic credential fields based on source type
+  attr :form, :any, required: true
+  attr :source_type, :atom, required: true
+  attr :mode, :atom, default: :create
+
+  defp dynamic_credentials_fields(assigns) do
+    ~H"""
+    <%= case @source_type do %>
+      <% :armis -> %>
+        <div class="space-y-3">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="text"
+              name="cred_api_key"
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder="Enter your Armis API key"
+            />
+          </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">API Secret</span>
+            </label>
+            <input
+              type="password"
+              name="cred_api_secret"
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Armis API secret"}
+            />
+          </div>
+          <label class="label">
+            <span class="label-text-alt text-base-content/60">
+              Credentials will be encrypted at rest
+            </span>
+          </label>
+        </div>
+
+      <% :snmp -> %>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">SNMP Version</span>
+              </label>
+              <select name="cred_snmp_version" class="select select-bordered w-full">
+                <option value="v2c">SNMPv2c</option>
+                <option value="v3">SNMPv3</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">Community String</span>
+              </label>
+              <input
+                type="password"
+                name="cred_community"
+                class="input input-bordered w-full font-mono text-sm"
+                placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"}
+              />
+            </div>
+          </div>
+          <label class="label">
+            <span class="label-text-alt text-base-content/60">
+              For SNMPv3, use the SNMP Profiles section under Network settings
+            </span>
+          </label>
+        </div>
+
+      <% :netbox -> %>
+        <div class="space-y-3">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Netbox URL</span>
+            </label>
+            <input
+              type="url"
+              name="cred_netbox_url"
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder="https://netbox.example.com"
+            />
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                Full URL to your Netbox instance (including https://)
+              </span>
+            </label>
+          </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">API Token</span>
+            </label>
+            <input
+              type="password"
+              name="cred_netbox_token"
+              class="input input-bordered w-full font-mono text-sm"
+              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Netbox API token"}
+            />
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                Generate a token in Netbox: Admin → API Tokens
+              </span>
+            </label>
+          </div>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Verify SSL</span>
+            </label>
+            <select name="cred_netbox_verify_ssl" class="select select-bordered w-full">
+              <option value="true">Yes (recommended)</option>
+              <option value="false">No (for self-signed certs)</option>
+            </select>
+          </div>
+        </div>
+
+      <% :custom -> %>
+        <div class="space-y-3">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Credentials (JSON)</span>
+            </label>
+            <textarea
+              name="credentials_json"
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="3"
+              placeholder='{"api_key": "your-key", "api_secret": "your-secret"}'
+            ></textarea>
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
+              </span>
+            </label>
+          </div>
+        </div>
+
+      <% _ -> %>
+        <div class="space-y-3">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">Credentials (JSON)</span>
+            </label>
+            <textarea
+              name="credentials_json"
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="3"
+              placeholder={credential_placeholder(@source_type)}
+            ></textarea>
+            <label class="label">
+              <span class="label-text-alt text-base-content/60">
+                {if @mode == :edit, do: "Leave empty to keep existing credentials. ", else: ""}Credentials will be encrypted at rest
+              </span>
+            </label>
+          </div>
+        </div>
+    <% end %>
+    """
+  end
+
+  defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
+  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+  defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
+  defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
 end
