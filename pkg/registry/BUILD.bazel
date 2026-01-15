@@ -15,7 +15,6 @@ go_library(
         "//pkg/logger",
         "//pkg/models",
         "//proto",
-        "@com_github_cenkalti_backoff_v5//:backoff",
         "@com_github_google_uuid//:uuid",
         "@com_github_rs_zerolog//:zerolog",
         "@io_opentelemetry_go_otel//:go_default_library",

@@ -42,6 +42,7 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
 
   postgres do
     table "nats_operators"
+    schema "public"
     repo ServiceRadar.Repo
   end
 

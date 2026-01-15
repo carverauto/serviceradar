@@ -19,6 +19,7 @@ defmodule ServiceRadar.Identity.TenantMembership do
 
   postgres do
     table "tenant_memberships"
+    schema "public"
     repo ServiceRadar.Repo
   end
 

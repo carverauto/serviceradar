@@ -31,6 +31,7 @@ defmodule ServiceRadar.Identity.Tenant do
 
   postgres do
     table("tenants")
+    schema("public")
     repo(ServiceRadar.Repo)
 
     custom_indexes do
