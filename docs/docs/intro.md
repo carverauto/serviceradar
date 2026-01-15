@@ -11,19 +11,13 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 
 ServiceRadar offers:
 - Real-time monitoring of internal services
-- Cloud-based alerting capabilities
-- Continuous monitoring during network or power outages
 - Distributed architecture for scalability and reliability
 - SNMP integration for network device monitoring
-- Specialized monitoring for specific node types (e.g., Dusk Network)
-- Secure communication with mTLS support
+- Secure communication with mTLS
 - Modern web UI with dashboard visualization
 - SRQL key:value query language for unified analytics across devices, events, and telemetry
-- User authentication with local login support
-- JWT-based session management
-- KV Store for dynamic configuration
+- User authentication with JWT-based sessions
 - External system integration via embedded sync runtime (agent)
-- API key authentication for internal communications
 
 :::tip What you'll need
 - Linux-based system (Ubuntu/Debian recommended)
@@ -36,13 +30,12 @@ ServiceRadar offers:
 
 ServiceRadar consists of several main components:
 
-1. **Agent** - Runs on monitored hosts, provides service status through gRPC
-2. **Gateway** - Orchestrates monitoring activities, can run anywhere in your network
-3. **Core Service** - Receives reports from gateways, provides API, and sends alerts
-4. **Web UI** - Provides a modern dashboard interface with Caddy as a reverse proxy
-5. **KV Store** - Provides dynamic configuration capabilities using NATS JetStream
-6. **Embedded Sync Runtime** - Integrates with external inventory and security systems via the agent
-7. **SRQL Service** - OCaml query engine behind `/api/query` for unified analytics across devices, events, and telemetry
+1. **Agent** - Runs on monitored hosts, collects data, and pushes results over gRPC
+2. **Agent-Gateway** - Edge ingress for agent and collector traffic
+3. **Core Service (core-elx)** - Control plane for DIRE, ingestion, APIs, and alerts
+4. **Web UI (web-ng)** - Phoenix LiveView dashboard with SRQL embedded via Rustler/NIF
+5. **CNPG + TimescaleDB** - System of record for telemetry and inventory
+6. **NATS JetStream** - Messaging backbone for platform services
 
 For a detailed explanation of the architecture, please see the [Architecture](./architecture.md) page.
 
@@ -53,10 +46,9 @@ ServiceRadar is designed with security in mind:
 1. **mTLS Authentication** - Secure communication between components using mutual TLS
 2. **User Authentication** - Local user login with bcrypt password hashing
 3. **JWT Session Management** - Secure, expirable tokens for web sessions
-4. **API Key Authentication** - Secure API access for the web interface
-5. **Role-Based Access** - Different components have different security roles
-6. **CORS Configuration** - Control which domains can access your API
-7. **Caddy Reverse Proxy** - Secure web access with configurable firewall rules
+4. **Role-Based Access** - Different components have different security roles
+5. **CORS Configuration** - Control which domains can access your API
+6. **Caddy Reverse Proxy** - Secure web access with configurable firewall rules
 
 For more details, see the [TLS Security](./tls-security.md) and [Authentication Configuration](./auth-configuration.md) documentation.
 
@@ -69,7 +61,7 @@ Navigate through our documentation to get ServiceRadar up and running:
 - **[Device Configuration](./device-configuration.md)** - Configure network devices for SNMP, Syslog, and trap collection
 
 ### Manual Installation
-1. **[Installation Guide](./installation.md)** - Install ServiceRadar components manually
+1. **[Installation Guide](./installation.md)** - Install edge agents and optional checkers
 2. **[Configuration Basics](./configuration.md)** - Configure your ServiceRadar deployment
 3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
 4. **[Authentication Configuration](./auth-configuration.md)** - Set up user authentication
