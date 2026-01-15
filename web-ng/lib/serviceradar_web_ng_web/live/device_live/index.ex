@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
@@ -192,16 +193,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
 
       devices when is_list(devices) and devices != [] ->
-        # TODO: Actually create devices via Ash
-        # For now, show success message with count
-        count = length(devices)
+        scope = socket.assigns.current_scope
 
-        {:noreply,
-         socket
-         |> assign(:show_import_modal, false)
-         |> assign(:csv_preview, nil)
-         |> assign(:csv_errors, [])
-         |> put_flash(:info, "CSV import functionality coming soon. #{count} device(s) would be imported.")}
+        case import_devices(scope, devices) do
+          {:ok, {created, skipped}} ->
+            {:noreply,
+             socket
+             |> assign(:show_import_modal, false)
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, [])
+             |> put_flash(:info, import_success_message(created, skipped))
+             |> push_patch(to: ~p"/devices")}
+
+          {:error, errors} when is_list(errors) ->
+            {:noreply, assign(socket, :csv_errors, errors)}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, :csv_errors, ["Import failed: #{inspect(reason)}"])}
+        end
 
       _ ->
         {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
@@ -212,14 +221,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, assign(socket, :add_device_form, to_form(params, as: :device))}
   end
 
-  def handle_event("save_device", %{"device" => _params}, socket) do
-    # For now, just close the modal and show a flash message
-    # Full implementation would create the device via Ash
-    {:noreply,
-     socket
-     |> assign(:show_add_device_modal, false)
-     |> assign(:add_device_form, to_form(%{}, as: :device))
-     |> put_flash(:info, "Device creation not yet implemented. Use Network Discovery to add devices.")}
+  def handle_event("save_device", %{"device" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    case create_device(scope, params) do
+      {:ok, device} ->
+        {:noreply,
+         socket
+         |> assign(:show_add_device_modal, false)
+         |> assign(:add_device_form, to_form(%{}, as: :device))
+         |> put_flash(:info, "Device '#{device.hostname || device.ip}' created successfully.")
+         |> push_patch(to: ~p"/devices")}
+
+      {:error, %Ash.Error.Invalid{} = error} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, format_device_error(error))}
+
+      {:error, :already_exists} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "A device with this IP address already exists.")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to create device: #{inspect(reason)}")}
+    end
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -1911,4 +1939,203 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
+
+  # Device creation helpers
+
+  defp import_success_message(created, skipped) when skipped > 0 and created > 0 do
+    "Created #{created} device(s). #{skipped} device(s) skipped (already exist)."
+  end
+
+  defp import_success_message(_created, skipped) when skipped > 0 do
+    "All #{skipped} device(s) already exist."
+  end
+
+  defp import_success_message(created, _skipped) do
+    "Created #{created} device(s) successfully."
+  end
+
+  defp import_devices(scope, devices) do
+    tenant_id = Scope.tenant_id(scope)
+
+    if is_nil(tenant_id) do
+      {:error, :no_tenant}
+    else
+      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+      actor = build_device_actor(scope)
+      do_import_devices(devices, actor, tenant_schema)
+    end
+  end
+
+  defp do_import_devices(devices, actor, tenant_schema) do
+    {created, skipped, errors} =
+      Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
+        process_device_import(device_data, actor, tenant_schema, acc)
+      end)
+
+    if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
+  end
+
+  defp process_device_import(device_data, actor, tenant_schema, {created, skipped, errors}) do
+    case create_single_device(device_data, actor, tenant_schema) do
+      {:ok, _device} ->
+        {created + 1, skipped, errors}
+
+      {:error, :already_exists} ->
+        {created, skipped + 1, errors}
+
+      {:error, reason} ->
+        error_msg = "Row #{created + skipped + 1}: #{format_create_error(reason)}"
+        {created, skipped, [error_msg | errors]}
+    end
+  end
+
+  defp create_device(scope, params) do
+    tenant_id = Scope.tenant_id(scope)
+
+    if is_nil(tenant_id) do
+      {:error, :no_tenant}
+    else
+      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
+      actor = build_device_actor(scope)
+
+      # Build device data from form params
+      device_data = %{
+        hostname: params["hostname"],
+        ip: params["ip"],
+        type: params["type"],
+        tags: parse_form_tags(params["tags"])
+      }
+
+      create_single_device(device_data, actor, tenant_schema)
+    end
+  end
+
+  defp create_single_device(device_data, actor, tenant_schema) do
+    # Generate a UID based on IP (or use a UUID)
+    uid = generate_device_uid(device_data.ip)
+
+    # First check if device already exists
+    case Device.get_by_uid(uid, actor: actor, tenant: tenant_schema) do
+      {:ok, _existing} ->
+        {:error, :already_exists}
+
+      {:error, %Ash.Error.Query.NotFound{}} ->
+        # Device doesn't exist, create it
+        now = DateTime.utc_now()
+
+        attrs = %{
+          uid: uid,
+          hostname: device_data.hostname,
+          ip: device_data.ip,
+          name: device_data.hostname || device_data.ip,
+          type: device_data[:type],
+          type_id: parse_type_id(device_data[:type]),
+          tags: normalize_tags(device_data[:tags]),
+          discovery_sources: ["manual"],
+          first_seen_time: now,
+          last_seen_time: now,
+          created_time: now
+        }
+        |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+        |> Map.new()
+
+        Device
+        |> Ash.Changeset.for_create(:create, attrs)
+        |> Ash.create(actor: actor, tenant: tenant_schema)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp generate_device_uid(ip) when is_binary(ip) do
+    # Generate a deterministic UID based on IP
+    # This allows for upsert behavior on re-import
+    :crypto.hash(:sha256, "manual:#{ip}")
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 32)
+  end
+
+  defp generate_device_uid(_), do: Ash.UUID.generate()
+
+  defp parse_type_id(nil), do: 0
+  defp parse_type_id(""), do: 0
+  defp parse_type_id("server"), do: 1
+  defp parse_type_id("Server"), do: 1
+  defp parse_type_id("desktop"), do: 2
+  defp parse_type_id("Desktop"), do: 2
+  defp parse_type_id("laptop"), do: 3
+  defp parse_type_id("Laptop"), do: 3
+  defp parse_type_id("switch"), do: 10
+  defp parse_type_id("Switch"), do: 10
+  defp parse_type_id("router"), do: 12
+  defp parse_type_id("Router"), do: 12
+  defp parse_type_id("firewall"), do: 9
+  defp parse_type_id("Firewall"), do: 9
+  defp parse_type_id(_), do: 0
+
+  defp normalize_tags(nil), do: %{}
+  defp normalize_tags(tags) when is_map(tags), do: tags
+  defp normalize_tags(tags) when is_list(tags) do
+    Enum.reduce(tags, %{}, fn tag, acc ->
+      case String.split(tag, "=", parts: 2) do
+        [key, value] -> Map.put(acc, String.trim(key), String.trim(value))
+        [key] -> Map.put(acc, String.trim(key), nil)
+      end
+    end)
+  end
+  defp normalize_tags(_), do: %{}
+
+  defp parse_form_tags(nil), do: []
+  defp parse_form_tags(""), do: []
+  defp parse_form_tags(tags_string) when is_binary(tags_string) do
+    tags_string
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp build_device_actor(scope) do
+    case scope do
+      %{user: user} when not is_nil(user) ->
+        %{
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          tenant_id: Scope.tenant_id(scope)
+        }
+
+      _ ->
+        %{
+          id: "system",
+          email: "system@serviceradar",
+          role: :admin,
+          tenant_id: Scope.tenant_id(scope)
+        }
+    end
+  end
+
+  defp format_device_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", &format_single_device_error/1)
+  end
+
+  defp format_device_error(error), do: inspect(error)
+
+  defp format_create_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.map_join(errors, ", ", &format_single_device_error/1)
+  end
+
+  defp format_create_error(error), do: inspect(error)
+
+  defp format_single_device_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
+    do: "#{field}: #{msg}"
+
+  defp format_single_device_error(%Ash.Error.Changes.Required{field: field}),
+    do: "#{field} is required"
+
+  defp format_single_device_error(%{message: msg}) when is_binary(msg),
+    do: msg
+
+  defp format_single_device_error(err),
+    do: inspect(err)
 end
