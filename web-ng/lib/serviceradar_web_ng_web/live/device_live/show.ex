@@ -209,9 +209,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_tags_for_edit(nil), do: ""
   defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
   defp format_tags_for_edit(tags) when is_map(tags) do
-    tags
-    |> Enum.map(fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
-    |> Enum.join("\n")
+    Enum.map_join(tags, "\n", fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
   end
   defp format_tags_for_edit(_), do: ""
 

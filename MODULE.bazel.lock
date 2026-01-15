@@ -1750,7 +1750,7 @@
         "bzlTransitiveDigest": "qATCXoRXiE4t2IhaFrGaKqtvL9i+mgfVSeAFstpB2/Q=",
         "usagesDigest": "Rt1wyIqgIFVokH27M6/Ua5LToertR25hW6g+sk1Q6UE=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "bd91a177b3ec627409ffb67061e6ab6f87da53c15d4e2295223f66a1a3b2c49e",
+          "@@//Cargo.lock": "0dfedbc922892ae50d745600a89375f6a5ae5731722588b91db3e214ec64e00e",
           "@@//Cargo.toml": "fe78e82b86c7a6077cf98cd7311e4e3a4564b4c3af8dd09b9d285a173239eb73",
           "@@//cmd/checkers/rperf-client/Cargo.toml": "a0c791977332d5ab34a589b105b63f9723372480bdc7d789fa1eed70e239ce35",
           "@@//cmd/consumers/zen/Cargo.toml": "13b21f7d75c3ca22aeb560efa80fc6c1317596ec59060c2139dc81bb0f1aaaec",

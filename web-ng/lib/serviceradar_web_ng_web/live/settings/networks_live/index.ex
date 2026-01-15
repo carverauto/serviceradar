@@ -2348,18 +2348,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           |> String.split(",")
           |> Enum.map(&String.trim/1)
           |> Enum.reject(&(&1 == ""))
-          |> Enum.map(fn port_str ->
-            case Integer.parse(port_str) do
-              {port, _} when port > 0 and port <= 65535 -> port
-              _ -> nil
-            end
-          end)
-          |> Enum.reject(&is_nil/1)
+          |> Enum.flat_map(&parse_port/1)
 
         Map.put(params, "ports", ports)
 
       value when is_list(value) -> params
       _ -> params
+    end
+  end
+
+  defp parse_port(port_str) do
+    case Integer.parse(port_str) do
+      {port, _} when port > 0 and port <= 65_535 -> [port]
+      _ -> []
     end
   end
 end

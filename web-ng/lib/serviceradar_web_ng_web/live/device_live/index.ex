@@ -191,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       nil ->
         {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
 
-      devices when is_list(devices) and length(devices) > 0 ->
+      devices when is_list(devices) and devices != [] ->
         # TODO: Actually create devices via Ash
         # For now, show success message with count
         count = length(devices)
