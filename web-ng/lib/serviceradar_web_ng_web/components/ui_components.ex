@@ -319,6 +319,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :query, :string, default: ""
   attr :limit, :integer, default: 20
   attr :result_count, :integer, default: 0
+  attr :total_count, :integer, default: nil
   attr :extra_params, :map, default: %{}
   attr :class, :any, default: nil
 
@@ -327,7 +328,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       assigns
       |> assign(:has_prev, is_binary(assigns.prev_cursor) and assigns.prev_cursor != "")
       |> assign(:has_next, is_binary(assigns.next_cursor) and assigns.next_cursor != "")
-      |> assign(:showing_text, pagination_text(assigns.result_count, assigns.limit))
+      |> assign(:showing_text, pagination_text(assigns.result_count, assigns.limit, assigns.total_count))
 
     ~H"""
     <div class={["flex items-center justify-between gap-4", @class]}>
@@ -382,9 +383,25 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp normalize_query_params(_), do: %{}
 
-  defp pagination_text(count, _limit) when is_integer(count) and count > 0 do
+  defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
+    "Showing #{count} of #{format_number(total)} result#{if total != 1, do: "s", else: ""}"
+  end
+
+  defp pagination_text(count, _limit, _total) when is_integer(count) and count > 0 do
     "Showing #{count} result#{if count != 1, do: "s", else: ""}"
   end
 
-  defp pagination_text(_, _), do: "No results"
+  defp pagination_text(_, _, _), do: "No results"
+
+  defp format_number(n) when is_integer(n) and n >= 1000 do
+    n
+    |> Integer.to_string()
+    |> String.to_charlist()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.join(",")
+    |> String.reverse()
+  end
+
+  defp format_number(n), do: Integer.to_string(n)
 end

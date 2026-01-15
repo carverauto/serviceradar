@@ -34,12 +34,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:sysmon_profiles_by_device, %{})
      |> assign(:default_sysmon_profile, nil)
      |> assign(:limit, @default_limit)
+     |> assign(:total_device_count, nil)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     # Device management modals
+     |> assign(:show_add_device_modal, false)
+     |> assign(:show_import_modal, false)
+     |> assign(:add_device_form, to_form(%{}, as: :device))
+     # CSV import
+     |> assign(:csv_preview, nil)
+     |> assign(:csv_errors, [])
+     |> assign(:import_status, nil)
+     |> allow_upload(:csv_file,
+       accept: ~w(.csv),
+       max_entries: 1,
+       max_file_size: 5_000_000
+     )
      |> SRQLPage.init("devices", default_limit: @default_limit)}
   end
 
@@ -53,6 +67,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       )
 
     scope = Map.get(socket.assigns, :current_scope)
+    query = Map.get(socket.assigns.srql || %{}, :query, "")
 
     {icmp_sparklines, icmp_error} =
       load_icmp_sparklines(srql_module(), socket.assigns.devices, scope)
@@ -63,6 +78,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {sysmon_profiles_by_device, default_sysmon_profile} =
       load_sysmon_profiles_for_devices(scope, socket.assigns.devices)
 
+    # Load total count for pagination display
+    total_device_count = get_total_matching_count(scope, query)
+
     {:noreply,
      assign(socket,
        icmp_sparklines: icmp_sparklines,
@@ -70,7 +88,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        snmp_presence: snmp_presence,
        sysmon_presence: sysmon_presence,
        sysmon_profiles_by_device: sysmon_profiles_by_device,
-       default_sysmon_profile: default_sysmon_profile
+       default_sysmon_profile: default_sysmon_profile,
+       total_device_count: total_device_count
      )}
   end
 
@@ -97,6 +116,105 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("srql_builder_run", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/devices")}
+  end
+
+  # Device management modal handlers
+  def handle_event("open_add_device_modal", _params, socket) do
+    {:noreply, assign(socket, :show_add_device_modal, true)}
+  end
+
+  def handle_event("close_add_device_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_add_device_modal, false)
+     |> assign(:add_device_form, to_form(%{}, as: :device))}
+  end
+
+  def handle_event("open_import_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_import_modal, true)
+     |> assign(:csv_preview, nil)
+     |> assign(:csv_errors, [])
+     |> assign(:import_status, nil)}
+  end
+
+  def handle_event("close_import_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_import_modal, false)
+     |> assign(:csv_preview, nil)
+     |> assign(:csv_errors, [])
+     |> assign(:import_status, nil)}
+  end
+
+  def handle_event("validate_csv", _params, socket) do
+    # LiveView upload validation happens automatically
+    {:noreply, socket}
+  end
+
+  def handle_event("preview_csv", _params, socket) do
+    # Parse uploaded CSV and show preview
+    case uploaded_entries(socket, :csv_file) do
+      [] ->
+        {:noreply, assign(socket, :csv_errors, ["No file selected"])}
+
+      [entry | _] ->
+        result =
+          consume_uploaded_entry(socket, entry, fn %{path: path} ->
+            parse_csv_file(path)
+          end)
+
+        case result do
+          {:ok, devices} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, devices)
+             |> assign(:csv_errors, [])}
+
+          {:error, errors} ->
+            {:noreply,
+             socket
+             |> assign(:csv_preview, nil)
+             |> assign(:csv_errors, errors)}
+        end
+    end
+  end
+
+  def handle_event("import_csv", _params, socket) do
+    case socket.assigns.csv_preview do
+      nil ->
+        {:noreply, assign(socket, :csv_errors, ["No CSV data to import. Preview first."])}
+
+      devices when is_list(devices) and length(devices) > 0 ->
+        # TODO: Actually create devices via Ash
+        # For now, show success message with count
+        count = length(devices)
+
+        {:noreply,
+         socket
+         |> assign(:show_import_modal, false)
+         |> assign(:csv_preview, nil)
+         |> assign(:csv_errors, [])
+         |> put_flash(:info, "CSV import functionality coming soon. #{count} device(s) would be imported.")}
+
+      _ ->
+        {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
+    end
+  end
+
+  def handle_event("validate_device", %{"device" => params}, socket) do
+    {:noreply, assign(socket, :add_device_form, to_form(params, as: :device))}
+  end
+
+  def handle_event("save_device", %{"device" => _params}, socket) do
+    # For now, just close the modal and show a flash message
+    # Full implementation would create the device via Ash
+    {:noreply,
+     socket
+     |> assign(:show_add_device_modal, false)
+     |> assign(:add_device_form, to_form(%{}, as: :device))
+     |> put_flash(:info, "Device creation not yet implemented. Use Network Discovery to add devices.")}
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
@@ -379,6 +497,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
+        <!-- Header with Action Buttons -->
+        <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold text-base-content">Devices</h1>
+            <p class="text-sm text-base-content/60">
+              Manage and monitor your network devices
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <.ui_button phx-click="open_add_device_modal" variant="primary" size="sm">
+              <.icon name="hero-plus" class="size-4" /> Add Device
+            </.ui_button>
+            <.ui_button phx-click="open_import_modal" variant="outline" size="sm">
+              <.icon name="hero-arrow-up-tray" class="size-4" /> Import CSV
+            </.ui_button>
+            <.link navigate={~p"/settings/networks"}>
+              <.ui_button variant="ghost" size="sm">
+                <.icon name="hero-signal" class="size-4" /> Network Discovery
+              </.ui_button>
+            </.link>
+          </div>
+        </div>
+
         <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
@@ -599,11 +740,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               query={Map.get(@srql, :query, "")}
               limit={@limit}
               result_count={length(@devices)}
+              total_count={@total_device_count}
             />
           </div>
         </.ui_panel>
       </div>
       
+    <!-- Add Device Modal -->
+      <.add_device_modal :if={@show_add_device_modal} form={@add_device_form} />
+
+      <!-- Import CSV Modal -->
+      <.import_csv_modal
+        :if={@show_import_modal}
+        uploads={@uploads}
+        csv_preview={@csv_preview}
+        csv_errors={@csv_errors}
+      />
+
     <!-- Bulk Edit Modal -->
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
@@ -613,6 +766,284 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     </Layouts.app>
     """
   end
+
+  # Add Device Modal Component
+  attr :form, :any, required: true
+
+  defp add_device_modal(assigns) do
+    ~H"""
+    <dialog id="add_device_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_add_device_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Add Device</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Add a new device to your inventory. For automatic discovery, use Network Sweeps.
+        </p>
+
+        <.form for={@form} id="add-device-form" phx-change="validate_device" phx-submit="save_device" class="space-y-4">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Hostname</span>
+            </label>
+            <input
+              type="text"
+              name="device[hostname]"
+              value={@form[:hostname].value}
+              class="input input-bordered"
+              placeholder="server01.example.com"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">IP Address</span>
+            </label>
+            <input
+              type="text"
+              name="device[ip]"
+              value={@form[:ip].value}
+              class="input input-bordered"
+              placeholder="192.168.1.100"
+            />
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Device Type</span>
+            </label>
+            <select name="device[type]" class="select select-bordered">
+              <option value="">Select type...</option>
+              <option value="server">Server</option>
+              <option value="workstation">Workstation</option>
+              <option value="router">Router</option>
+              <option value="switch">Switch</option>
+              <option value="firewall">Firewall</option>
+              <option value="printer">Printer</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Tags</span>
+              <span class="label-text-alt text-base-content/50">Optional, one per line</span>
+            </label>
+            <textarea
+              name="device[tags]"
+              class="textarea textarea-bordered h-20"
+              placeholder="env=production&#10;team=infrastructure"
+            >{@form[:tags].value}</textarea>
+          </div>
+
+          <div class="modal-action">
+            <button type="button" class="btn btn-ghost" phx-click="close_add_device_modal">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-plus" class="size-4" /> Add Device
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_add_device_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  # Import CSV Modal Component
+  attr :uploads, :any, required: true
+  attr :csv_preview, :any, default: nil
+  attr :csv_errors, :list, default: []
+
+  defp import_csv_modal(assigns) do
+    ~H"""
+    <dialog id="import_csv_modal" class="modal modal-open">
+      <div class="modal-box max-w-3xl">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_import_modal"
+          >
+            x
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Import Devices from CSV</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Upload a CSV file to bulk import devices into your inventory.
+        </p>
+
+        <!-- Error Display -->
+        <div :if={@csv_errors != []} class="alert alert-error my-4">
+          <.icon name="hero-exclamation-circle" class="size-5" />
+          <div>
+            <div class="font-semibold">Import Error</div>
+            <ul class="text-sm list-disc list-inside">
+              <%= for error <- @csv_errors do %>
+                <li>{error}</li>
+              <% end %>
+            </ul>
+          </div>
+        </div>
+
+        <!-- CSV Format Guide (collapsed when preview is shown) -->
+        <div :if={is_nil(@csv_preview)} class="my-4 p-4 bg-base-200/50 rounded-lg">
+          <h4 class="font-medium text-sm mb-2">CSV Format</h4>
+          <p class="text-xs text-base-content/70 mb-3">
+            Your CSV file should include the following columns:
+          </p>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Required</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody class="text-xs">
+                <tr>
+                  <td class="font-mono">hostname</td>
+                  <td><span class="badge badge-xs badge-success">Yes</span></td>
+                  <td>Device hostname</td>
+                </tr>
+                <tr>
+                  <td class="font-mono">ip</td>
+                  <td><span class="badge badge-xs badge-success">Yes</span></td>
+                  <td>IP address</td>
+                </tr>
+                <tr>
+                  <td class="font-mono">type</td>
+                  <td><span class="badge badge-xs badge-ghost">No</span></td>
+                  <td>Device type (server, workstation, router, etc.)</td>
+                </tr>
+                <tr>
+                  <td class="font-mono">tags</td>
+                  <td><span class="badge badge-xs badge-ghost">No</span></td>
+                  <td>Pipe-separated tags (env=prod|team=ops)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- File Upload -->
+        <.form for={%{}} phx-change="validate_csv" phx-submit="preview_csv" class="space-y-4">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text font-medium">Upload CSV File</span>
+              <span class="label-text-alt text-base-content/50">Max 5MB</span>
+            </label>
+            <.live_file_input upload={@uploads.csv_file} class="file-input file-input-bordered w-full" />
+            <%= for entry <- @uploads.csv_file.entries do %>
+              <div class="mt-2 flex items-center gap-2 text-sm">
+                <.icon name="hero-document-text" class="size-4 text-primary" />
+                <span>{entry.client_name}</span>
+                <span class="text-base-content/50">({Float.round(entry.client_size / 1024, 1)} KB)</span>
+                <%= for err <- upload_errors(@uploads.csv_file, entry) do %>
+                  <span class="text-error text-xs">{error_to_string(err)}</span>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+
+          <div :if={is_nil(@csv_preview)} class="flex justify-end">
+            <button type="submit" class="btn btn-outline btn-sm" disabled={@uploads.csv_file.entries == []}>
+              <.icon name="hero-eye" class="size-4" /> Preview
+            </button>
+          </div>
+        </.form>
+
+        <!-- Preview Table -->
+        <div :if={is_list(@csv_preview) and @csv_preview != []} class="mt-4">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-medium text-sm">
+              Preview ({length(@csv_preview)} device(s))
+            </h4>
+            <span class="badge badge-success badge-sm">Ready to import</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 border border-base-200 rounded-lg">
+            <table class="table table-xs table-pin-rows">
+              <thead>
+                <tr class="bg-base-200">
+                  <th>Hostname</th>
+                  <th>IP</th>
+                  <th>Type</th>
+                  <th>Tags</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for device <- Enum.take(@csv_preview, 20) do %>
+                  <tr class="hover:bg-base-200/50">
+                    <td class="font-mono text-xs">{device.hostname}</td>
+                    <td class="font-mono text-xs">{device.ip}</td>
+                    <td class="text-xs">{device.type}</td>
+                    <td class="text-xs">{Enum.join(device.tags || [], ", ")}</td>
+                  </tr>
+                <% end %>
+                <%= if length(@csv_preview) > 20 do %>
+                  <tr>
+                    <td colspan="4" class="text-center text-xs text-base-content/50 py-2">
+                      ... and {length(@csv_preview) - 20} more
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mt-4 flex items-center gap-2 text-xs text-base-content/60">
+          <.icon name="hero-arrow-down-tray" class="size-4" />
+          <a
+            href="data:text/csv;charset=utf-8,hostname,ip,type,tags%0Aserver01.example.com,192.168.1.10,server,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,"
+            class="link link-hover"
+            download="devices-template.csv"
+          >
+            Download CSV template
+          </a>
+        </div>
+
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" phx-click="close_import_modal">
+            Cancel
+          </button>
+          <button
+            :if={is_list(@csv_preview) and @csv_preview != []}
+            type="button"
+            class="btn btn-primary"
+            phx-click="import_csv"
+          >
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Import {length(@csv_preview)} Device(s)
+          </button>
+          <.link :if={is_nil(@csv_preview)} navigate={~p"/settings/networks"}>
+            <button type="button" class="btn btn-outline">
+              <.icon name="hero-signal" class="size-4" /> Use Network Discovery
+            </button>
+          </.link>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_import_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  defp error_to_string(:too_large), do: "File is too large (max 5MB)"
+  defp error_to_string(:not_accepted), do: "Invalid file type (only .csv allowed)"
+  defp error_to_string(:too_many_files), do: "Only one file allowed"
+  defp error_to_string(err), do: inspect(err)
 
   # Bulk Edit Modal Component
   attr :form, :any, required: true
@@ -1377,5 +1808,87 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {%{}, default_profile}
   rescue
     _ -> {%{}, nil}
+  end
+
+  # CSV Import helpers
+  defp parse_csv_file(path) do
+    try do
+      content = File.read!(path)
+      lines = String.split(content, ~r/\r?\n/, trim: true)
+
+      case lines do
+        [] ->
+          {:error, ["CSV file is empty"]}
+
+        [header | data_lines] ->
+          headers = parse_csv_line(header)
+          required = ["hostname", "ip"]
+          missing = required -- Enum.map(headers, &String.downcase/1)
+
+          if missing != [] do
+            {:error, ["Missing required columns: #{Enum.join(missing, ", ")}"]}
+          else
+            header_map = headers |> Enum.with_index() |> Map.new()
+            devices = Enum.map(data_lines, &parse_device_row(&1, header_map))
+            valid_devices = Enum.filter(devices, &(&1 != nil))
+
+            if valid_devices == [] do
+              {:error, ["No valid device rows found in CSV"]}
+            else
+              {:ok, valid_devices}
+            end
+          end
+      end
+    rescue
+      e ->
+        {:error, ["Failed to parse CSV: #{inspect(e)}"]}
+    end
+  end
+
+  defp parse_csv_line(line) do
+    # Simple CSV parsing - handles basic quoted fields
+    line
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.map(&String.trim(&1, "\""))
+  end
+
+  defp parse_device_row(line, header_map) do
+    values = parse_csv_line(line)
+
+    hostname = get_csv_value(values, header_map, "hostname")
+    ip = get_csv_value(values, header_map, "ip")
+
+    if hostname && hostname != "" && ip && ip != "" do
+      %{
+        hostname: hostname,
+        ip: ip,
+        type: get_csv_value(values, header_map, "type") || "",
+        tags: parse_tags(get_csv_value(values, header_map, "tags"))
+      }
+    else
+      nil
+    end
+  end
+
+  defp get_csv_value(values, header_map, column) do
+    # Try both lowercase and original case
+    index =
+      Map.get(header_map, column) ||
+        Map.get(header_map, String.capitalize(column)) ||
+        Map.get(header_map, String.upcase(column))
+
+    if index, do: Enum.at(values, index), else: nil
+  end
+
+  defp parse_tags(nil), do: []
+  defp parse_tags(""), do: []
+
+  defp parse_tags(tags_string) do
+    # Tags can be pipe-separated (env=prod|team=ops)
+    tags_string
+    |> String.split("|")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
   end
 end

@@ -48,7 +48,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:healthcheck_summary, nil)
      |> assign(:sweep_results, nil)
      |> assign(:limit, @default_limit)
-     |> assign(:srql, srql)}
+     |> assign(:srql, srql)
+     # Edit mode
+     |> assign(:editing, false)
+     |> assign(:device_form, to_form(%{}, as: :device))}
   end
 
   @impl true
@@ -156,7 +159,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      )}
   end
 
+  def handle_event("toggle_edit", _params, socket) do
+    if socket.assigns.editing do
+      # Cancel editing - reset form
+      {:noreply,
+       socket
+       |> assign(:editing, false)
+       |> assign(:device_form, to_form(%{}, as: :device))}
+    else
+      # Start editing - populate form with current device data
+      device_row = List.first(Enum.filter(socket.assigns.results, &is_map/1))
+
+      form_data =
+        if device_row do
+          %{
+            "hostname" => Map.get(device_row, "hostname", ""),
+            "ip" => Map.get(device_row, "ip", ""),
+            "type" => Map.get(device_row, "type", ""),
+            "vendor_name" => Map.get(device_row, "vendor_name", ""),
+            "model" => Map.get(device_row, "model", ""),
+            "tags" => format_tags_for_edit(Map.get(device_row, "tags"))
+          }
+        else
+          %{}
+        end
+
+      {:noreply,
+       socket
+       |> assign(:editing, true)
+       |> assign(:device_form, to_form(form_data, as: :device))}
+    end
+  end
+
+  def handle_event("validate_device", %{"device" => params}, socket) do
+    {:noreply, assign(socket, :device_form, to_form(params, as: :device))}
+  end
+
+  def handle_event("save_device", %{"device" => _params}, socket) do
+    # TODO: Implement actual device update via Ash
+    # For now, show a flash message indicating the feature is in progress
+    {:noreply,
+     socket
+     |> assign(:editing, false)
+     |> put_flash(:info, "Device update functionality coming soon.")}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp format_tags_for_edit(nil), do: ""
+  defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
+  defp format_tags_for_edit(tags) when is_map(tags) do
+    tags
+    |> Enum.map(fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
+    |> Enum.join("\n")
+  end
+  defp format_tags_for_edit(_), do: ""
 
   @impl true
   def render(assigns) do
@@ -165,6 +222,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     assigns =
       assigns
       |> assign(:device_row, device_row)
+      |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(
         :metric_sections_to_render,
         Enum.filter(assigns.metric_sections, fn section ->
@@ -181,6 +239,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <span class="font-mono text-xs">{@device_uid}</span>
           </:subtitle>
           <:actions>
+            <.ui_button :if={@can_edit and not @editing} phx-click="toggle_edit" variant="outline" size="sm">
+              <.icon name="hero-pencil" class="size-4" /> Edit
+            </.ui_button>
             <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
           </:actions>
         </.header>
@@ -190,8 +251,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             No device row returned for this query.
           </div>
 
+          <!-- View Mode -->
           <div
-            :if={is_map(@device_row)}
+            :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
           >
             <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
@@ -203,6 +265,132 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Gateway" value={Map.get(@device_row, "gateway_id")} mono />
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
+          </div>
+
+          <!-- Edit Mode -->
+          <div
+            :if={is_map(@device_row) and @editing}
+            class="rounded-xl border border-primary/30 bg-base-100 shadow-sm"
+          >
+            <div class="px-4 py-3 border-b border-base-200 bg-primary/5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <.icon name="hero-pencil-square" class="size-4 text-primary" />
+                <span class="text-sm font-semibold">Edit Device Details</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <.ui_button phx-click="toggle_edit" variant="ghost" size="xs">
+                  Cancel
+                </.ui_button>
+                <.ui_button type="submit" form="device-edit-form" variant="primary" size="xs">
+                  <.icon name="hero-check" class="size-3" /> Save
+                </.ui_button>
+              </div>
+            </div>
+
+            <.form
+              for={@device_form}
+              id="device-edit-form"
+              phx-change="validate_device"
+              phx-submit="save_device"
+              class="p-4"
+            >
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Hostname</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="device[hostname]"
+                    value={@device_form[:hostname].value}
+                    class="input input-bordered input-sm"
+                    phx-debounce="300"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">IP Address</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="device[ip]"
+                    value={@device_form[:ip].value}
+                    class="input input-bordered input-sm font-mono"
+                    phx-debounce="300"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Type</span>
+                  </label>
+                  <select name="device[type]" class="select select-bordered select-sm">
+                    <option value="">Select type...</option>
+                    <option value="server" selected={@device_form[:type].value == "server"}>Server</option>
+                    <option value="workstation" selected={@device_form[:type].value == "workstation"}>Workstation</option>
+                    <option value="router" selected={@device_form[:type].value == "router"}>Router</option>
+                    <option value="switch" selected={@device_form[:type].value == "switch"}>Switch</option>
+                    <option value="firewall" selected={@device_form[:type].value == "firewall"}>Firewall</option>
+                    <option value="printer" selected={@device_form[:type].value == "printer"}>Printer</option>
+                    <option value="other" selected={@device_form[:type].value == "other"}>Other</option>
+                  </select>
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Vendor</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="device[vendor_name]"
+                    value={@device_form[:vendor_name].value}
+                    class="input input-bordered input-sm"
+                    phx-debounce="300"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Model</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="device[model]"
+                    value={@device_form[:model].value}
+                    class="input input-bordered input-sm"
+                    phx-debounce="300"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label py-1">
+                    <span class="label-text text-xs font-medium">Gateway</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={Map.get(@device_row, "gateway_id", "")}
+                    class="input input-bordered input-sm font-mono bg-base-200"
+                    disabled
+                  />
+                  <label class="label py-0">
+                    <span class="label-text-alt text-xs text-base-content/50">Read-only</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-control mt-4">
+                <label class="label py-1">
+                  <span class="label-text text-xs font-medium">Tags</span>
+                  <span class="label-text-alt text-xs text-base-content/50">One per line (key or key=value)</span>
+                </label>
+                <textarea
+                  name="device[tags]"
+                  class="textarea textarea-bordered textarea-sm h-20"
+                  phx-debounce="300"
+                >{@device_form[:tags].value}</textarea>
+              </div>
+            </.form>
           </div>
 
           <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
@@ -2060,4 +2248,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, _} -> []
     end
   end
+
+  # RBAC helper - check if user can edit devices
+  defp can_edit_device?(%Scope{user: %{role: role}} = scope) do
+    admin_role?(role) || membership_admin?(scope.active_tenant, scope.tenant_memberships)
+  end
+
+  defp can_edit_device?(_), do: false
+
+  defp admin_role?(role), do: role in [:admin, :super_admin]
+
+  defp membership_admin?(%{id: tenant_id}, memberships) do
+    Enum.any?(memberships || [], fn membership ->
+      to_string(membership.tenant_id) == to_string(tenant_id) and
+        membership.role in [:admin, :owner]
+    end)
+  end
+
+  defp membership_admin?(_, _), do: false
 end
