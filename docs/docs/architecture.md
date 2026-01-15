@@ -10,19 +10,25 @@ ServiceRadar uses a distributed, multi-layered architecture designed for flexibi
 ## Architecture Overview
 
 ```mermaid
-flowchart LR
-    User([User]) -->|HTTPS| Edge[Edge Proxy / Ingress]
-    Edge --> Web[Web-NG<br/>Phoenix + SRQL (Rustler)]
-    Web --> Core[core-elx<br/>REST :8090]
-
+flowchart TB
     subgraph EdgeZone["Edge Network"]
-        Agent1[Agent]
-        AgentN[Agent]
+        Agent[serviceradar-agent]
+        Collectors[Collectors + Checkers]
+        Leaf[NATS Leaf (optional)]
+        Agent --> Collectors
     end
 
-    Agent1 -->|gRPC mTLS :50052| Gateway[Agent-Gateway]
-    AgentN -->|gRPC mTLS :50052| Gateway
-    Gateway --> Core
+    subgraph Core["Core Platform (ERTS Cluster)"]
+        Caddy[Caddy Edge Proxy]
+        Web["web-ng (Phoenix + SRQL Rustler/NIF)"]
+        CoreElx[core-elx]
+        Gateway[serviceradar-agent-gateway]
+        Zen[serviceradar-zen]
+        DBWriter[serviceradar-db-event-writer]
+        Caddy --> Web
+        Web <--> CoreElx
+        CoreElx <--> Gateway
+    end
 
     subgraph DataPlane["Data Plane"]
         CNPG[(CNPG / TimescaleDB)]
@@ -30,19 +36,27 @@ flowchart LR
         DATASVC[Datasvc (KV)]
     end
 
-    Core --> CNPG
+    User([User]) -->|HTTPS| Caddy
+    Agent -->|gRPC mTLS :50052| Gateway
+    Collectors -->|gRPC mTLS| Gateway
+    Leaf -.->|Leaf link| NATS
+
     Web --> CNPG
-    Core <--> NATS
+    CoreElx --> CNPG
+    DBWriter --> CNPG
+    CoreElx <--> NATS
+    Zen <--> NATS
     DATASVC <--> NATS
 ```
 
 **Traffic flow summary:**
-- **User requests** -> Ingress -> Web UI (static/SSR) and Core (API)
+- **User requests** -> Caddy/Ingress -> Web-NG
 - **Web-NG** serves `/`, `/api/*`, `/api/query`, and `/api/stream` and hosts SRQL via Rustler/NIF
 - **Core-elx, Web-NG, and Agent-Gateway** form the internal ERTS cluster over mTLS
 - **Edge agents** (Go binaries) connect via gRPC mTLS to the Agent-Gateway on port 50052
+- **Edge deployments** run the agent with collectors/checkers and optionally a NATS leaf server
 - **NATS JetStream + Datasvc** provide platform messaging and KV storage for platform services
-- **Edge config delivery** uses gRPC from Agent-Gateway and does not require KV
+- **CNPG/Timescale** is the system of record for telemetry and inventory
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
 
 ### Edge Agent Architecture
@@ -67,11 +81,11 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 
 ### Cluster requirements
 
-- **Ingress**: Required for the web UI and API. Default host/class/TLS come from `helm/serviceradar/values.yaml` (`ingress.enabled=true`, `host=demo.serviceradar.cloud`, `className=nginx`, `tls.secretName=serviceradar-prod-tls`, `tls.clusterIssuer=carverauto-issuer`). If you use nginx, mirror the demo annotations (`nginx.ingress.kubernetes.io/proxy-body-size: 100m`, `proxy-buffer-size: 128k`, `proxy-buffers-number: 4`, `proxy-busy-buffers-size: 256k`, `proxy-read-timeout: 86400`, `proxy-send-timeout: 86400`, `proxy-connect-timeout: 60`) to keep SRQL streams and large asset uploads stable (`k8s/demo/prod/ingress.yaml`).
+- **Ingress / edge proxy**: Docker Compose uses Caddy. Kubernetes uses your ingress controller (configured in `helm/serviceradar/values.yaml`). Ensure WebSocket support and large body sizes so LiveView and SRQL streams remain stable.
 
 - **Persistent storage (~150GiB/node baseline)**: CNPG consumes the majority (3x100Gi PVCs from `k8s/demo/base/spire/cnpg-cluster.yaml`). JetStream adds 30Gi (`k8s/demo/base/serviceradar-nats.yaml`), OTEL 10Gi (`k8s/demo/base/serviceradar-otel.yaml`), and several 5Gi claims for Core, Datasvc, Mapper, Zen, DB event writer, plus 1Gi claims for Faker/Flowgger/Cert jobs. Spread the CNPG replicas across at least three nodes with SSD-class volumes; the extra PVCs lift per-node needs to roughly 150Gi of usable capacity when co-scheduled with CNPG.
 
-- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Gateway 0.5 CPU / 2Gi (if deployed), Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; SRQL 0.1 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
+- **CPU / memory (requested)**: Core 1 CPU / 4Gi, Agent-Gateway 0.5 CPU / 2Gi, Web 0.2 CPU / 512Mi; Datasvc 0.5 CPU / 128Mi; NATS 1 CPU / 8Gi; OTEL 0.2 CPU / 256Mi. The steady-state floor is ~4 vCPU and ~16 GiB for the core path, before adding optional sync/checker pods or horizontal scaling.
 
 - **Identity plane**: SPIRE server (StatefulSet) and daemonset agents must be running; services expect the workload socket at `/run/spire/sockets/agent.sock` and SPIFFE IDs derived from `spire.trustDomain` in `values.yaml`.
 
@@ -101,7 +115,7 @@ The Agent-Gateway coordinates edge ingestion and is responsible for:
 - Accepting agent connections for status updates and collection results
 - Forwarding payloads to core-elx for ingestion and routing
 - Supporting unary status pushes and streaming/chunked payloads
-- Acting as the edge ingress for agent traffic
+- Acting as the edge ingress for agent and collector traffic
 
 **Technical Details:**
 - Runs on port 50052 for gRPC communications
@@ -122,6 +136,28 @@ The core-elx service is the central component that:
 - Provides a RESTful API on port 8090 for internal services
 - Participates in the ERTS cluster with Web-NG and Agent-Gateway
 
+### Zen Rules Engine (serviceradar-zen)
+
+The Zen rules engine evaluates rule sets and streams decisions through the platform:
+
+- Consumes rule inputs from NATS JetStream
+- Executes rule logic and emits events for downstream processing
+- Works alongside core-elx for alert routing and automation
+
+### DB Event Writer (serviceradar-db-event-writer)
+
+The DB event writer persists high-volume events into CNPG:
+
+- Reads event streams from NATS JetStream
+- Writes logs, events, and telemetry rollups into CNPG/Timescale
+- Scales independently of core-elx
+
+### Data Plane (CNPG + NATS)
+
+- **CNPG / TimescaleDB** stores telemetry, inventory, and analytics data
+- **NATS JetStream** provides messaging and stream persistence for platform services
+- **Datasvc (KV)** exposes configuration and object storage for platform consumers
+
 ### Web UI (web-ng)
 
 The Web UI provides a modern dashboard interface that:
@@ -129,7 +165,7 @@ The Web UI provides a modern dashboard interface that:
 - Visualizes the status of monitored services
 - Displays historical performance data
 - Provides configuration management
-- Calls Core APIs directly via the edge proxy and serves SRQL queries
+- Calls core-elx APIs via the edge proxy and serves SRQL queries in-process
 
 **Technical Details:**
 - Built with Phoenix LiveView for server-rendered, stateful dashboards
@@ -137,12 +173,13 @@ The Web UI provides a modern dashboard interface that:
 - Exchanges JWTs directly with the Core API; the edge proxy only terminates TLS
 - Supports responsive design for mobile and desktop
 
-### Edge Proxy (Ingress/Caddy)
+### Edge Proxy (Caddy / Ingress)
 
 The edge proxy terminates TLS and routes user traffic:
 
 - Routes `/` and `/api/*` to `serviceradar-web-ng`
 - Preserves WebSocket headers for LiveView and SRQL streaming
+- Uses Caddy in Docker Compose and your ingress controller in Kubernetes
 
 ### SPIFFE Identity Plane
 
@@ -223,7 +260,7 @@ sequenceDiagram
     participant Edge as Edge Proxy
     participant WebUI as Web UI (Phoenix)
     participant Core as Core API
-    participant SRQL as SRQL Engine
+    participant SRQL as SRQL (Web-NG)
 
     User->>Edge: HTTPS request
     Edge->>WebUI: Route / or /api/query
@@ -235,7 +272,7 @@ sequenceDiagram
     WebUI-->>User: Response data
     User->>Edge: /api/query with JWT
     Edge->>WebUI: Forward SRQL request
-    WebUI->>SRQL: Execute query
+    WebUI->>SRQL: Execute query (in-process)
     SRQL-->>WebUI: Query results
     WebUI-->>User: Response
 ```
@@ -255,15 +292,15 @@ Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs 
 
 ```mermaid
 graph TD
-    UI[Integrations UI] --> Core[(Core / Ash)]
-    Core -->|GetConfig| Gateway[Agent-Gateway]
+    UI["Integrations UI"] --> Core["Core (Ash)"]
+    Core -->|GetConfig| Gateway["Agent-Gateway"]
 
-    AgentSync[Agent + Embedded Sync] -->|Hello + GetConfig| Gateway
-    AgentSync -->|StreamStatus (chunked results)| Gateway
+    AgentSync["Agent + Embedded Sync"] -->|Hello, GetConfig| Gateway
+    AgentSync -->|StreamStatus chunks| Gateway
 
     Gateway --> Core
-    Core --> DIRE[DIRE]
-    DIRE --> Inventory[(Inventory)]
+    Core --> DIRE["DIRE"]
+    DIRE --> Inventory["Inventory (CNPG)"]
 ```
 
 For deployment specifics, pair this section with the [Authentication Configuration](./auth-configuration.md) and [TLS Security](./tls-security.md) guides.
