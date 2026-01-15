@@ -16,7 +16,11 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   growing application requirements.
   """
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
+
+  require Ash.Query
 
   defstruct user: nil, active_tenant: nil, tenant_memberships: []
 
@@ -49,14 +53,8 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
 
     user_with_data = %{user_with_tenant | memberships: memberships}
 
-    # Determine active tenant: from opts, or user's default tenant
-    active_tenant =
-      if active_tenant_id do
-        find_tenant_by_id(user_with_data.memberships, active_tenant_id) ||
-          user_with_data.tenant
-      else
-        user_with_data.tenant
-      end
+    # Determine active tenant: from opts, membership, or user's default tenant.
+    active_tenant = resolve_active_tenant(user_with_data, active_tenant_id)
 
     %__MODULE__{
       user: user_with_data,
@@ -66,8 +64,15 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   end
 
   # Also accept map-like users (for backwards compatibility during transition)
-  def for_user(%{id: _, email: _} = user, _opts) do
-    %__MODULE__{user: user, active_tenant: nil, tenant_memberships: []}
+  def for_user(%{id: _, email: _} = user, opts) do
+    active_tenant_id =
+      Keyword.get(opts, :active_tenant_id) ||
+        Map.get(user, :tenant_id) ||
+        Map.get(user, "tenant_id")
+
+    active_tenant = fetch_tenant_by_id(active_tenant_id)
+
+    %__MODULE__{user: user, active_tenant: active_tenant, tenant_memberships: []}
   end
 
   def for_user(nil, _opts), do: %__MODULE__{user: nil, active_tenant: nil, tenant_memberships: []}
@@ -112,6 +117,33 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   end
 
   def platform_admin?(_), do: false
+
+  defp resolve_active_tenant(user_with_data, active_tenant_id) do
+    membership_tenant =
+      if active_tenant_id do
+        find_tenant_by_id(user_with_data.memberships, active_tenant_id)
+      end
+
+    membership_tenant ||
+      user_with_data.tenant ||
+      fetch_tenant_by_id(active_tenant_id || user_with_data.tenant_id)
+  end
+
+  defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
+    actor = SystemActor.platform(:scope)
+
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^tenant_id)
+    |> Ash.Query.select([:id, :slug, :name, :is_platform_tenant])
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %Tenant{} = tenant} -> tenant
+      _ -> nil
+    end
+  end
+
+  defp fetch_tenant_by_id(_), do: nil
 
   defp find_tenant_by_id(memberships, tenant_id) when is_list(memberships) do
     Enum.find_value(memberships, fn membership ->

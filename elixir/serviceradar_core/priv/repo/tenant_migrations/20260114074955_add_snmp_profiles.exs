@@ -164,13 +164,13 @@ defmodule ServiceRadar.Repo.TenantMigrations.AddSnmpProfiles do
            )
 
     alter table(:ocsf_agents, prefix: prefix()) do
-      add :config_source, :text
+      add_if_not_exists :config_source, :text
     end
   end
 
   def down do
     alter table(:ocsf_agents, prefix: prefix()) do
-      remove :config_source
+      remove_if_exists :config_source
     end
 
     drop_if_exists unique_index(:snmp_profiles, [:tenant_id, :name],
