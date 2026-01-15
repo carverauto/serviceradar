@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.NatsOperator
@@ -633,8 +634,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         query
       end
 
+    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+
     sites =
-      case Ash.read(query, tenant: tenant_id, authorize?: false) do
+      case Ash.read(query, tenant: tenant_id, actor: actor) do
         {:ok, sites} -> sites
         {:error, _} -> []
       end
@@ -643,11 +646,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   defp load_operator_status(socket) do
+    # NatsOperator is a platform-level resource
+    actor = SystemActor.platform(:edge_sites_live)
+
     operator =
       case NatsOperator
            |> Ash.Query.for_read(:get_current)
            |> Ash.Query.limit(1)
-           |> Ash.read_one(authorize?: false) do
+           |> Ash.read_one(actor: actor) do
         {:ok, operator} -> operator
         {:error, _} -> nil
       end
@@ -680,8 +686,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         query
       end
 
+    # Tenant is a platform-level resource
+    actor = SystemActor.platform(:edge_sites_live)
+
     tenants =
-      case Ash.read(query, authorize?: false) do
+      case Ash.read(query, actor: actor) do
         {:ok, tenants} -> tenants
         {:error, _} -> []
       end
@@ -692,6 +701,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   # Actions
 
   defp create_site(tenant_id, name, slug, nats_leaf_url) do
+    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+
     attrs = %{name: name}
     attrs = if slug && slug != "", do: Map.put(attrs, :slug, slug), else: attrs
 
@@ -703,7 +714,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
     EdgeSite
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
   end
 
   defp reprovision_tenant(tenant_id) do
@@ -714,10 +725,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   defp get_tenant(tenant_id) do
+    actor = SystemActor.platform(:edge_sites_live)
+
     case Tenant
          |> Ash.Query.for_read(:for_nats_provisioning)
          |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}

@@ -56,26 +56,9 @@ The recommended reverse proxy is Caddy. For Docker Compose, use `docker/compose/
 }
 ```
 
-You can customize this file for your specific domain or enable automatic HTTPS.
-
 ## Auth and Sessions
 
 Web-NG issues JWTs and validates them on `/api/*`. SRQL endpoints (`/api/query`, `/api/stream`) reuse the same auth path. For RS256 + JWKS configuration, see [Authentication Configuration](./auth-configuration.md).
-
-## Custom Domain and SSL
-
-To configure a custom domain with SSL:
-
-1. Update the Caddyfile with your domain name
-2. Restart Caddy
-
-Example configuration with SSL:
-
-```caddy
-https://your-domain.com {
-  reverse_proxy 127.0.0.1:4000
-}
-```
 
 ## Troubleshooting
 

@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   while maintaining backwards compatibility with existing callers.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Identity.Tenant
@@ -42,7 +43,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     # Convert string statuses to atoms if present
     filters = normalize_filters(filters)
     tenant = require_tenant!(opts)
-    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
+    opts = [actor: system_actor(tenant), tenant: tenant]
 
     AshPackages.list!(filters, opts)
   end
@@ -57,7 +58,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   def get(id, opts) when is_binary(id) do
     tenant = require_tenant!(opts)
-    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
+    opts = [actor: system_actor(tenant), tenant: tenant]
     AshPackages.get(id, opts)
   end
 
@@ -69,7 +70,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   @spec get!(String.t(), keyword()) :: OnboardingPackage.t()
   def get!(id, opts \\ []) do
     tenant = require_tenant!(opts)
-    opts = [actor: system_actor(), authorize?: false, tenant: tenant]
+    opts = [actor: system_actor(tenant), tenant: tenant]
     AshPackages.get!(id, opts)
   end
 
@@ -98,8 +99,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, actor || system_actor())
-      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:actor, actor || system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshPackages.create(attrs, opts_with_actor)
@@ -157,8 +157,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, actor || system_actor())
-      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:actor, actor || system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshPackages.create_with_tenant_cert(attrs, opts_with_actor)
@@ -188,8 +187,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, actor || system_actor())
-      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:actor, actor || system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshPackages.deliver(package_id, download_token, opts_with_actor)
@@ -205,8 +203,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, actor || system_actor())
-      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:actor, actor || system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshPackages.revoke(package_id, opts_with_actor)
@@ -222,8 +219,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, actor || system_actor())
-      |> Keyword.put(:authorize?, false)
+      |> Keyword.put(:actor, actor || system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshPackages.delete(package_id, opts_with_actor)
@@ -271,13 +267,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   defp to_atom_if_string(value) when is_binary(value), do: String.to_existing_atom(value)
   defp to_atom_if_string(value), do: value
 
-  defp system_actor do
-    %{
-      id: "00000000-0000-0000-0000-000000000000",
-      email: "system@serviceradar.local",
-      role: :super_admin
-    }
+  defp system_actor(tenant) do
+    tenant_id = extract_tenant_id(tenant)
+    SystemActor.for_tenant(tenant_id, :onboarding_packages)
   end
+
+  defp extract_tenant_id(%Tenant{id: id}), do: id
+  defp extract_tenant_id(<<"tenant_", _::binary>> = schema), do: String.replace_prefix(schema, "tenant_", "")
+  defp extract_tenant_id(id) when is_binary(id), do: id
 
   defp require_tenant!(opts) do
     case Keyword.fetch(opts, :tenant) do
@@ -291,7 +288,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
 
   defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
-    case Ash.get(Tenant, tenant_id, authorize?: false) do
+    # Use platform actor for tenant lookup (Tenant is a global resource)
+    actor = SystemActor.platform(:onboarding_packages)
+    case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> tenant
       _ -> raise ArgumentError, "tenant not found for onboarding packages"
     end

@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             actor: %{tenant_id: scope.tenant_id, role: :admin}
           )
 
-        case Ash.update(changeset, authorize?: false) do
+        case Ash.update(changeset) do
           {:ok, _} ->
             {:noreply,
              socket

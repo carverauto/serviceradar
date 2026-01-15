@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
 
   import Plug.Conn
 
+  alias ServiceRadar.Actors.SystemActor
+
   @behaviour Plug
 
   @impl true
@@ -123,9 +125,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.TenantContext do
   defp load_tenant(tenant_id) do
     # Use Ash to load the tenant
     require Ash.Query
+    actor = SystemActor.platform(:tenant_context)
 
     ServiceRadar.Identity.Tenant
     |> Ash.Query.filter(id == ^tenant_id)
-    |> Ash.read_one(authorize?: false)
+    |> Ash.read_one(actor: actor)
   end
 end
