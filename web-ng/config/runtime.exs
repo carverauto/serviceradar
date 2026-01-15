@@ -385,6 +385,33 @@ if config_env() == :prod do
 
   config :serviceradar_web_ng, :token_signing_secret, token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"
+
+  # Control Plane JWT configuration
+  # Used to validate JWTs issued by the SaaS Control Plane for multi-tenant deployments.
+  # In OSS/single-tenant deployments, this can be left unconfigured.
+  control_plane_public_key = System.get_env("CONTROL_PLANE_PUBLIC_KEY")
+  control_plane_public_key_file = System.get_env("CONTROL_PLANE_PUBLIC_KEY_FILE")
+
+  control_plane_jwt_config =
+    cond do
+      control_plane_public_key ->
+        [public_key: control_plane_public_key]
+
+      control_plane_public_key_file ->
+        [public_key_file: control_plane_public_key_file]
+
+      true ->
+        []
+    end
+
+  if control_plane_jwt_config != [] do
+    control_plane_jwt_config =
+      control_plane_jwt_config
+      |> Keyword.put(:issuer, System.get_env("CONTROL_PLANE_JWT_ISSUER", "serviceradar-control-plane"))
+      |> Keyword.put(:audience, System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-tenant-instance"))
+
+    config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
+  end
   config :serviceradar_web_ng, :tenant_base_domain, tenant_base_domain
 
   default_tenant_id =

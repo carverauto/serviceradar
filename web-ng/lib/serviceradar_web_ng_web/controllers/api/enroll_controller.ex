@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
@@ -181,10 +182,12 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp mark_enrolled(package, source_ip, tenant_schema) do
+    actor = SystemActor.platform(:enroll_controller)
+
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:source_ip, source_ip)
-    |> Ash.update(authorize?: false, tenant: tenant_schema)
+    |> Ash.update(actor: actor, tenant: tenant_schema)
   end
 
   defp build_enrollment_response(package, nats_creds) do
@@ -234,12 +237,14 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp find_package_across_tenants(package_id) do
+    actor = SystemActor.platform(:enroll_controller)
+
     TenantSchemas.list_schemas()
     |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(tenant: schema, authorize?: false) do
+           |> Ash.read_one(actor: actor, tenant: schema) do
         {:ok, nil} ->
           {:cont, {:error, :not_found}}
 

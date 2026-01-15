@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   the main request. Use `record_sync/3` for synchronous recording when needed.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Identity.Tenant
@@ -34,7 +35,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put(:actor, system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshEvents.list_for_package!(package_id, opts_with_actor)
@@ -87,7 +88,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
 
     opts_with_actor =
       opts
-      |> Keyword.put_new(:actor_user, system_actor())
+      |> Keyword.put_new(:actor_user, system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshEvents.record_sync(package_id, event_type, opts_with_actor)
@@ -115,7 +116,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
 
     opts_with_actor =
       opts
-      |> Keyword.put(:actor, system_actor())
+      |> Keyword.put(:actor, system_actor(tenant))
       |> Keyword.put(:tenant, tenant)
 
     AshEvents.recent!(opts_with_actor)
@@ -123,13 +124,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
 
   # Private helpers
 
-  defp system_actor do
-    %{
-      id: "00000000-0000-0000-0000-000000000000",
-      email: "system@serviceradar.local",
-      role: :super_admin
-    }
+  defp system_actor(tenant) do
+    tenant_id = extract_tenant_id(tenant)
+    SystemActor.for_tenant(tenant_id, :onboarding_events)
   end
+
+  defp extract_tenant_id(%Tenant{id: id}), do: id
+  defp extract_tenant_id(<<"tenant_", _::binary>> = schema), do: String.replace_prefix(schema, "tenant_", "")
+  defp extract_tenant_id(id) when is_binary(id), do: id
 
   defp require_tenant!(opts) do
     case Keyword.fetch(opts, :tenant) do
@@ -143,7 +145,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
 
   defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
-    case Ash.get(Tenant, tenant_id, authorize?: false) do
+    # Use platform actor for tenant lookup (Tenant is a global resource)
+    actor = SystemActor.platform(:onboarding_events)
+    case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> tenant
       _ -> raise ArgumentError, "tenant not found for onboarding events"
     end

@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
@@ -992,7 +993,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp load_tenant(tenant_id) do
-    case Ash.get(Tenant, tenant_id, authorize?: false) do
+    actor = SystemActor.platform(:edge_package_live)
+    case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> tenant
       _ -> nil
     end

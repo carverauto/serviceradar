@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.NatsOperator
   alias ServiceRadar.Identity.Tenant
 
@@ -320,11 +321,14 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
   # Data loading
 
   defp load_operator_status(socket) do
+    # NatsOperator is a platform-level resource
+    actor = SystemActor.platform(:nats_live)
+
     operator =
       case NatsOperator
            |> Ash.Query.for_read(:get_current)
            |> Ash.Query.limit(1)
-           |> Ash.read_one(authorize?: false) do
+           |> Ash.read_one(actor: actor) do
         {:ok, operator} -> operator
         {:error, _} -> nil
       end
@@ -334,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
 
   defp load_tenant_accounts(socket) do
     filter_status = socket.assigns[:filter_status]
+    actor = SystemActor.platform(:nats_live)
 
     query =
       Tenant
@@ -358,7 +363,7 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
       end
 
     tenants =
-      case Ash.read(query, authorize?: false) do
+      case Ash.read(query, actor: actor) do
         {:ok, tenants} -> tenants
         {:error, _} -> []
       end
@@ -376,10 +381,12 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
   end
 
   defp get_tenant(tenant_id) do
+    actor = SystemActor.platform(:nats_live)
+
     case Tenant
          |> Ash.Query.for_read(:for_nats_provisioning)
          |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}

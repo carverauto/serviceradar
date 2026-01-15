@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingPackages
@@ -215,8 +216,7 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     case OnboardingPackages.deliver(id, download_token,
            actor: actor,
            source_ip: source_ip,
-           tenant: tenant_schema,
-           authorize?: false
+           tenant: tenant_schema
          ) do
       {:ok, result} ->
         {:ok,
@@ -479,7 +479,8 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   defp load_tenant(nil), do: {:error, :unauthorized}
 
   defp load_tenant(tenant_id) do
-    case Ash.get(Tenant, tenant_id, authorize?: false) do
+    actor = SystemActor.platform(:edge_controller)
+    case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> {:ok, tenant}
       _ -> {:error, :unauthorized}
     end
@@ -501,12 +502,15 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
   end
 
   defp find_package_across_tenants(package_id) do
+    # Platform-level operation to find package across all tenants
+    actor = SystemActor.platform(:edge_controller)
+
     TenantSchemas.list_schemas()
     |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
       case OnboardingPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(tenant: schema, authorize?: false) do
+           |> Ash.read_one(tenant: schema, actor: actor) do
         {:ok, nil} ->
           {:cont, {:error, :not_found}}
 

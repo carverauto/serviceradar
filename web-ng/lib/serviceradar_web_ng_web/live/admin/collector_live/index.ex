@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
@@ -765,11 +766,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   # Data loading
 
   defp load_tenant_status(socket, tenant_id) do
+    # Tenant is a platform-level resource
+    actor = SystemActor.platform(:collector_live)
+
     case Tenant
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.Query.select([:nats_account_status, :nats_account_public_key])
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, tenant} when not is_nil(tenant) ->
         socket
         |> assign(:tenant_status, tenant.nats_account_status)
@@ -785,6 +789,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   defp load_packages(socket, tenant_id) do
     filter_status = socket.assigns[:filter_status]
     filter_type = socket.assigns[:filter_type]
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
 
     query =
       CollectorPackage
@@ -810,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       end
 
     packages =
-      case Ash.read(query, tenant: tenant_id, authorize?: false) do
+      case Ash.read(query, tenant: tenant_id, actor: actor) do
         {:ok, packages} -> packages
         {:error, _} -> []
       end
@@ -819,12 +824,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   defp load_credentials(socket, tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
+
     credentials =
       case NatsCredential
            |> Ash.Query.for_read(:read)
            |> Ash.Query.sort(inserted_at: :desc)
            |> Ash.Query.limit(20)
-           |> Ash.read(tenant: tenant_id, authorize?: false) do
+           |> Ash.read(tenant: tenant_id, actor: actor) do
         {:ok, creds} -> creds
         {:error, _} -> []
       end
@@ -833,12 +840,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   defp load_edge_sites(socket, tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
+
     sites =
       case EdgeSite
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(status == :active)
            |> Ash.Query.sort(name: :asc)
-           |> Ash.read(tenant: tenant_id, authorize?: false) do
+           |> Ash.read(tenant: tenant_id, actor: actor) do
         {:ok, sites} -> sites
         {:error, _} -> []
       end
@@ -850,6 +859,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   defp create_package(tenant_id, collector_type, site, hostname, edge_site_id) do
     alias ServiceRadarWebNG.Edge.EnrollmentToken
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
 
     type_atom = String.to_existing_atom(collector_type)
 
@@ -875,7 +885,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       |> Ash.Changeset.set_argument(:token_expires_at, token_expires_at)
       |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
 
-    case Ash.create(changeset, authorize?: false) do
+    case Ash.create(changeset, actor: actor) do
       {:ok, package} ->
         # Generate the final enrollment token with actual package ID and SAME secret
         {final_token, ^token_hash, ^secret} = EnrollmentToken.generate(package.id, secret: secret)
@@ -887,10 +897,12 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   defp get_package(id, tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
+
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^id)
-         |> Ash.read_one(tenant: tenant_id, authorize?: false) do
+         |> Ash.read_one(tenant: tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -898,12 +910,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   end
 
   defp revoke_package(id, tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :collector_live)
+
     case get_package(id, tenant_id) do
       {:ok, package} ->
         package
         |> Ash.Changeset.for_update(:revoke)
         |> Ash.Changeset.set_argument(:reason, "Revoked from admin UI")
-        |> Ash.update(authorize?: false)
+        |> Ash.update(actor: actor)
 
       error ->
         error

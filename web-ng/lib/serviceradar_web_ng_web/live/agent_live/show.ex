@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.ServiceCheck
 
   require Logger
@@ -220,9 +221,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         _ -> nil
       end
 
+    actor = SystemActor.for_tenant(tenant_id, :agent_live)
+
     case ServiceCheck
          |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
-         |> Ash.read(tenant: tenant_id, authorize?: false) do
+         |> Ash.read(tenant: tenant_id, actor: actor) do
       {:ok, checks} -> checks
       {:error, _} -> []
     end

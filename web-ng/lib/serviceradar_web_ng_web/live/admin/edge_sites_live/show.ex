@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
@@ -100,8 +101,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   def handle_event("delete_site", _params, socket) do
     site = socket.assigns.site
+    tenant_id = get_tenant_id(socket)
+    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
 
-    case Ash.destroy(site, authorize?: false) do
+    case Ash.destroy(site, actor: actor) do
       :ok ->
         {:noreply,
          socket
@@ -458,11 +461,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   # Data loading
 
   defp load_site(id, tenant_id) do
+    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+
     case EdgeSite
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^id)
          |> Ash.Query.load(:nats_leaf_server)
-         |> Ash.read_one(tenant: tenant_id, authorize?: false) do
+         |> Ash.read_one(tenant: tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, site} -> {:ok, site}
       {:error, error} -> {:error, error}
@@ -470,12 +475,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp load_collectors(socket, tenant_id, site_id) do
+    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+
     collectors =
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(edge_site_id == ^site_id)
            |> Ash.Query.sort(inserted_at: :desc)
-           |> Ash.read(tenant: tenant_id, authorize?: false) do
+           |> Ash.read(tenant: tenant_id, actor: actor) do
         {:ok, packages} -> packages
         {:error, _} -> []
       end
@@ -484,15 +491,20 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp update_site(site, attrs) do
+    # Note: actor should be passed from calling context for proper authorization
+    actor = SystemActor.platform(:edge_sites_live)
+
     site
     |> Ash.Changeset.for_update(:update, attrs)
-    |> Ash.update(authorize?: false)
+    |> Ash.update(actor: actor)
   end
 
   defp regenerate_config(leaf_server) do
+    actor = SystemActor.platform(:edge_sites_live)
+
     leaf_server
     |> Ash.Changeset.for_update(:reprovision, %{})
-    |> Ash.update(authorize?: false)
+    |> Ash.update(actor: actor)
   end
 
   defp generate_bundle(site, leaf_server, tenant_id) do
@@ -512,7 +524,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp load_tenant(tenant_id) do
-    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, authorize?: false) do
+    actor = SystemActor.platform(:edge_sites_live)
+
+    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}

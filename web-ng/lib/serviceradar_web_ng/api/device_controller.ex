@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   """
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
 
   require Ash.Query
@@ -32,7 +33,9 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   def show(conn, %{"uid" => uid}) do
     case parse_uid(uid) do
       {:ok, parsed_uid} ->
-        case Device.get_by_uid(parsed_uid, authorize?: false) do
+        actor = SystemActor.platform(:device_controller)
+
+        case Device.get_by_uid(parsed_uid, actor: actor) do
           {:ok, device} ->
             json(conn, %{"data" => device_to_map(device)})
 
@@ -154,6 +157,8 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   defp parse_optional_datetime(_), do: {:error, "invalid datetime value"}
 
   defp list_devices_for_export(opts) do
+    actor = SystemActor.platform(:device_controller)
+
     Device
     |> Ash.Query.sort(last_seen_time: :desc)
     |> Ash.Query.limit(opts.limit)
@@ -161,7 +166,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     |> maybe_filter_type_id(opts.type_id)
     |> maybe_filter_first_seen_after(opts.first_seen_after)
     |> maybe_filter_last_seen_after(opts.last_seen_after)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: actor)
   end
 
   defp maybe_filter_type_id(query, nil), do: query
@@ -228,6 +233,8 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
   end
 
   defp list_devices(opts) do
+    actor = SystemActor.platform(:device_controller)
+
     Device
     |> Ash.Query.sort(last_seen_time: :desc)
     |> Ash.Query.limit(opts.limit)
@@ -236,7 +243,7 @@ defmodule ServiceRadarWebNG.Api.DeviceController do
     |> maybe_filter_status(opts.status)
     |> maybe_filter_gateway_id(opts.gateway_id)
     |> maybe_filter_device_type(opts.device_type)
-    |> Ash.read!(authorize?: false)
+    |> Ash.read!(actor: actor)
   end
 
   defp parse_index_params(params) when is_map(params) do

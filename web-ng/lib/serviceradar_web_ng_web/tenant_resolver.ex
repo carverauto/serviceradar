@@ -1,18 +1,13 @@
 defmodule ServiceRadarWebNGWeb.TenantResolver do
   @moduledoc false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
 
   require Ash.Query
 
-  @system_actor %{
-    id: "00000000-0000-0000-0000-000000000000",
-    email: "system@serviceradar.local",
-    role: :super_admin
-  }
-
-  def system_actor, do: @system_actor
+  defp system_actor, do: SystemActor.platform(:tenant_resolver)
 
   def tenant_base_domain do
     Application.get_env(:serviceradar_web_ng, :tenant_base_domain)

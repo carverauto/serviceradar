@@ -38,8 +38,12 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
     require Ash.Query
     active_tenant_id = Keyword.get(opts, :active_tenant_id)
 
+    # Use platform actor for scope building - this is a cross-tenant operation
+    # that needs to load user relationships and memberships
+    actor = SystemActor.platform(:scope)
+
     # Load tenant separately - Tenant is a global resource, no tenant context needed
-    user_with_tenant = Ash.load!(user, [:tenant], authorize?: false, tenant: nil)
+    user_with_tenant = Ash.load!(user, [:tenant], actor: actor, tenant: nil)
 
     # Load memberships separately by querying TenantMembership directly.
     # TenantMembership uses attribute-based multitenancy (tenant_id column),
@@ -49,7 +53,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
       ServiceRadar.Identity.TenantMembership
       |> Ash.Query.filter(user_id == ^user.id)
       |> Ash.Query.load(:tenant)
-      |> Ash.read!(authorize?: false)
+      |> Ash.read!(actor: actor)
 
     user_with_data = %{user_with_tenant | memberships: memberships}
 
