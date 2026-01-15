@@ -1116,10 +1116,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <.settings_shell current_path="/settings/snmp">
-      <.settings_nav current_path="/settings/snmp" />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <.settings_shell current_path="/settings/snmp">
+        <.settings_nav current_path="/settings/snmp" />
+        <.network_nav current_path="/settings/snmp" />
 
-      <div class="space-y-4">
+        <div class="space-y-4">
         <!-- Content based on form state -->
         <%= if @show_form in [:new_profile, :edit_profile] do %>
           <.profile_form
@@ -1156,14 +1158,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         custom_templates={@custom_templates}
       />
       
-    <!-- Custom Template Modal -->
-      <.custom_template_modal
-        :if={@show_custom_template_modal}
-        form={@custom_template_form}
-        oids={@custom_template_oids}
-        editing={@editing_custom_template}
-      />
-    </.settings_shell>
+      <!-- Custom Template Modal -->
+        <.custom_template_modal
+          :if={@show_custom_template_modal}
+          form={@custom_template_form}
+          oids={@custom_template_oids}
+          editing={@editing_custom_template}
+        />
+      </.settings_shell>
+    </Layouts.app>
     """
   end
 

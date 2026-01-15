@@ -110,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   @impl true
   def handle_event("validate_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
+    params = transform_array_fields(params)
     target_query = Map.get(params, "target_query")
     device_count = count_target_devices(scope, target_query)
     ash_form = socket.assigns.ash_form |> Form.validate(params)
@@ -133,6 +134,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   end
 
   def handle_event("save_profile", %{"form" => params}, socket) do
+    params = transform_array_fields(params)
     ash_form = socket.assigns.ash_form |> Form.validate(params)
     scope = socket.assigns.current_scope
 
@@ -355,6 +357,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <.settings_shell current_path="/settings/sysmon">
         <.settings_nav current_path="/settings/sysmon" />
+        <.agents_nav current_path="/settings/sysmon" />
 
         <div class="space-y-4">
           <!-- Content based on form state -->
@@ -1288,6 +1291,31 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
       |> assign(:target_device_count, device_count)
     else
       socket
+    end
+  end
+
+  # Transform comma-separated string fields to arrays for Ash
+  defp transform_array_fields(params) do
+    params
+    |> transform_csv_to_array("disk_paths")
+    |> transform_csv_to_array("disk_exclude_paths")
+  end
+
+  defp transform_csv_to_array(params, field) do
+    case Map.get(params, field) do
+      nil -> params
+      "" -> Map.put(params, field, [])
+      value when is_binary(value) ->
+        array =
+          value
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+
+        Map.put(params, field, array)
+
+      value when is_list(value) -> params
+      _ -> params
     end
   end
 end

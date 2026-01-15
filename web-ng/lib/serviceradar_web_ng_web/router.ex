@@ -300,6 +300,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile
       live "/settings/snmp/:id/edit", Settings.SNMPProfilesLive.Index, :edit_profile
 
+      # Agent deployment
+      live "/settings/agents/deploy", Settings.AgentsLive.Deploy, :index
+
       # Zen Rule Editor - visual JDM editor for rule logic
       live "/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new
       live "/settings/rules/zen/:id", Settings.ZenRuleEditorLive, :edit

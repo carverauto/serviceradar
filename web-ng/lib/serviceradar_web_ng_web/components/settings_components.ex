@@ -44,19 +44,18 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             String.starts_with?(path, "/admin/cluster")
       },
       %{
-        label: "Networks",
+        label: "Network",
         navigate: ~p"/settings/networks",
-        active: String.starts_with?(path, "/settings/networks")
+        active:
+          String.starts_with?(path, "/settings/networks") or
+            String.starts_with?(path, "/settings/snmp")
       },
       %{
-        label: "Sysmon",
+        label: "Agents",
         navigate: ~p"/settings/sysmon",
-        active: String.starts_with?(path, "/settings/sysmon")
-      },
-      %{
-        label: "SNMP",
-        navigate: ~p"/settings/snmp",
-        active: String.starts_with?(path, "/settings/snmp")
+        active:
+          String.starts_with?(path, "/settings/sysmon") or
+            String.starts_with?(path, "/settings/agents")
       },
       %{
         label: "Events",
@@ -85,6 +84,69 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     ]
   end
 
+  # Network section sub-navigation
+  attr :current_path, :string, required: true
+  attr :class, :any, default: nil
+
+  def network_nav(assigns) do
+    assigns = assign(assigns, :tabs, network_tabs(assigns.current_path))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def network_tabs(current_path) do
+    path = current_path || ""
+
+    [
+      %{
+        label: "Sweep Profiles",
+        navigate: ~p"/settings/networks",
+        active: String.starts_with?(path, "/settings/networks")
+      },
+      %{
+        label: "SNMP",
+        navigate: ~p"/settings/snmp",
+        active: String.starts_with?(path, "/settings/snmp")
+      }
+    ]
+  end
+
+  # Agents section sub-navigation
+  attr :current_path, :string, required: true
+  attr :class, :any, default: nil
+
+  def agents_nav(assigns) do
+    assigns = assign(assigns, :tabs, agents_tabs(assigns.current_path))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2 mb-4", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def agents_tabs(current_path) do
+    path = current_path || ""
+
+    [
+      %{
+        label: "Sysmon",
+        navigate: ~p"/settings/sysmon",
+        active: String.starts_with?(path, "/settings/sysmon")
+      },
+      %{
+        label: "Deploy",
+        navigate: ~p"/settings/agents/deploy",
+        active: String.starts_with?(path, "/settings/agents/deploy")
+      }
+    ]
+  end
+
+  # Edge Ops section sub-navigation
   attr :current_path, :string, required: true
   attr :class, :any, default: nil
 
@@ -103,19 +165,19 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     [
       %{
-        label: "Collectors",
-        navigate: ~p"/admin/collectors",
-        active: String.starts_with?(path, "/admin/collectors")
-      },
-      %{
-        label: "Sites & NATS",
+        label: "Edge Sites",
         navigate: ~p"/admin/edge-sites",
         active:
           String.starts_with?(path, "/admin/edge-sites") or
             String.starts_with?(path, "/admin/nats")
       },
       %{
-        label: "Onboarding",
+        label: "Data Collectors",
+        navigate: ~p"/admin/collectors",
+        active: String.starts_with?(path, "/admin/collectors")
+      },
+      %{
+        label: "Components",
         navigate: ~p"/admin/edge-packages",
         active: String.starts_with?(path, "/admin/edge-packages")
       }
