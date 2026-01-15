@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
@@ -1220,10 +1221,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp list_partitions(tenant_id) do
     schema = tenant_schema(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :integration_live)
 
     Partition
     |> Ash.Query.for_read(:enabled)
-    |> Ash.read!(tenant: schema, authorize?: false)
+    |> Ash.read!(tenant: schema, actor: actor)
   rescue
     _ -> []
   end
@@ -1242,11 +1244,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp list_agents(tenant_id) do
     schema = tenant_schema(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :integration_live)
 
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort([:name, :uid])
-    |> Ash.read(tenant: schema, authorize?: false)
+    |> Ash.read(tenant: schema, actor: actor)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -1271,7 +1274,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp list_sources(tenant_id, filters \\ %{}) do
     schema = tenant_schema(tenant_id)
-    opts = [tenant: schema, authorize?: false]
+    actor = SystemActor.for_tenant(tenant_id, :integration_live)
+    opts = [tenant: schema, actor: actor]
 
     case Map.get(filters, :source_type) do
       nil ->
@@ -1294,11 +1298,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp sync_agent_available?(tenant_id) do
     schema = tenant_schema(tenant_id)
+    actor = SystemActor.for_tenant(tenant_id, :integration_live)
 
     Agent
     |> Ash.Query.for_read(:connected)
     |> Ash.Query.limit(1)
-    |> Ash.read(tenant: schema, authorize?: false)
+    |> Ash.read(tenant: schema, actor: actor)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
@@ -1317,7 +1322,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp get_source(id, tenant_id) do
     schema = tenant_schema(tenant_id)
-    IntegrationSource.get_by_id(id, tenant: schema, authorize?: false)
+    actor = SystemActor.for_tenant(tenant_id, :integration_live)
+    IntegrationSource.get_by_id(id, tenant: schema, actor: actor)
   end
 
   defp build_create_form(tenant_id, actor) do

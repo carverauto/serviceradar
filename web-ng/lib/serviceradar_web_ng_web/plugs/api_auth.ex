@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   require Logger
 
   alias Ash.PlugHelpers
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Identity.Tenant
@@ -86,7 +87,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       {:error, :unauthorized}
     else
       opts = tenant_opts(tenant)
-      subject_opts = Keyword.merge([authorize?: false], opts)
+      # Use platform actor for JWT validation - we're authenticating the user
+      actor = SystemActor.platform(:api_auth)
+      subject_opts = Keyword.merge([actor: actor], opts)
 
       # Bearer tokens are Ash JWT tokens
       # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
@@ -167,10 +170,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     # Record usage asynchronously to not block the request
     Task.start(fn ->
       tenant = resolve_tenant_context(api_token.tenant_id)
+      actor = SystemActor.platform(:api_auth)
 
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update(authorize?: false, tenant: tenant)
+      |> Ash.update(actor: actor, tenant: tenant)
     end)
   end
 
@@ -199,6 +203,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   defp find_api_token(token_hash, token_prefix) do
     require Ash.Query
+    # Platform actor for cross-tenant API token search during authentication
+    actor = SystemActor.platform(:api_auth)
 
     TenantSchemas.list_schemas()
     |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
@@ -213,7 +219,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
         )
         |> Ash.Query.load(:user)
 
-      case Ash.read(query, authorize?: false, tenant: schema) do
+      case Ash.read(query, actor: actor, tenant: schema) do
         {:ok, [api_token | _]} ->
           {:halt, {:ok, api_token}}
 
@@ -270,7 +276,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   defp resolve_tenant_context(%Tenant{} = tenant), do: tenant
 
   defp resolve_tenant_context(tenant_id) when is_binary(tenant_id) do
-    case Ash.get(Tenant, tenant_id, authorize?: false) do
+    actor = SystemActor.platform(:api_auth)
+    case Ash.get(Tenant, tenant_id, actor: actor) do
       {:ok, %Tenant{} = tenant} -> tenant
       _ -> nil
     end

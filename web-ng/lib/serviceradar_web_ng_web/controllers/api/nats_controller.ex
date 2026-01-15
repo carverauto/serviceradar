@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Api.NatsController do
 
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.NatsOperator
   alias ServiceRadar.Infrastructure.NatsPlatformToken
   alias ServiceRadar.NATS.AccountClient
@@ -30,12 +31,14 @@ defmodule ServiceRadarWebNG.Api.NatsController do
     expires_in_seconds = params["expires_in_seconds"] || 86_400
     expires_at = DateTime.add(DateTime.utc_now(), expires_in_seconds, :second)
 
+    actor = SystemActor.platform(:nats_controller)
+
     case NatsPlatformToken
          |> Ash.Changeset.for_create(:generate, %{
            purpose: :nats_bootstrap,
            expires_at: expires_at
          })
-         |> Ash.create(authorize?: false) do
+         |> Ash.create(actor: actor) do
       {:ok, token_record} ->
         conn
         |> put_status(:created)
@@ -135,13 +138,15 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   def tenants(conn, params) do
     limit = parse_int(params["limit"]) || 50
 
+    actor = SystemActor.platform(:nats_controller)
+
     tenants =
       ServiceRadar.Identity.Tenant
       |> Ash.Query.for_read(:for_nats_provisioning)
       |> Ash.Query.select([:id, :slug, :name, :nats_account_status, :nats_account_public_key])
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(limit)
-      |> Ash.read!(authorize?: false)
+      |> Ash.read!(actor: actor)
 
     json(conn, Enum.map(tenants, &tenant_to_json/1))
   end
@@ -218,6 +223,8 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   defp maybe_add_seed(opts, seed), do: Keyword.put(opts, :existing_operator_seed, seed)
 
   defp create_operator_record(name, result) do
+    actor = SystemActor.platform(:nats_controller)
+
     NatsOperator
     |> Ash.Changeset.for_create(:bootstrap, %{
       name: name,
@@ -225,14 +232,16 @@ defmodule ServiceRadarWebNG.Api.NatsController do
       operator_jwt: result.operator_jwt,
       system_account_public_key: result.system_account_public_key
     })
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
   end
 
   defp get_current_operator do
+    actor = SystemActor.platform(:nats_controller)
+
     case NatsOperator
          |> Ash.Query.for_read(:get_current)
          |> Ash.Query.limit(1)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, operator} -> {:ok, operator}
       {:error, error} -> {:error, error}
@@ -240,10 +249,12 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   end
 
   defp get_tenant(tenant_id) do
+    actor = SystemActor.platform(:nats_controller)
+
     case ServiceRadar.Identity.Tenant
          |> Ash.Query.for_read(:for_nats_provisioning)
          |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.read_one(authorize?: false) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}

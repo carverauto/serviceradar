@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
 
   @impl true
@@ -169,7 +170,7 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
              password_confirmation: password_confirmation
            }
          })
-         |> Ash.create(authorize?: false) do
+         |> Ash.create(actor: SystemActor.platform(:registration)) do
       {:ok, _tenant} ->
         # Registration successful - redirect to sign in
         socket =

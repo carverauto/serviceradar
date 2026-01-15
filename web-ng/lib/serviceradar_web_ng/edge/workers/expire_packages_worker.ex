@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
   import Ash.Expr
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.Workers.RecordEventWorker
 
@@ -37,16 +38,20 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
     now = DateTime.utc_now()
 
     # Find packages that are still in "issued" state but tokens have expired
+    # NOTE: This is a platform-level operation that queries across tenants.
+    # In SaaS mode, this worker should move to the Control Plane.
+    actor = SystemActor.platform(:expire_packages_worker)
+
     expired_packages =
       OnboardingPackage
       |> Ash.Query.filter(expr(status == :issued))
       |> Ash.Query.filter(expr(download_token_expires_at < ^now))
       |> Ash.Query.filter(expr(join_token_expires_at < ^now))
-      |> Ash.read!(actor: system_actor(), authorize?: false)
+      |> Ash.read!(actor: actor)
 
     expired_count =
       Enum.reduce(expired_packages, 0, fn package, count ->
-        case expire_package(package) do
+        case expire_package(package, actor) do
           {:ok, _} -> count + 1
           {:error, _} -> count
         end
@@ -55,9 +60,9 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
     {:ok, %{expired: expired_count, checked: length(expired_packages)}}
   end
 
-  defp expire_package(package) do
+  defp expire_package(package, actor) do
     case OnboardingPackage
-         |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
+         |> Ash.Changeset.for_update(:expire, %{}, actor: actor)
          |> Ash.update(package) do
       {:ok, updated} ->
         # Record expiration event asynchronously
@@ -71,13 +76,5 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
       error ->
         error
     end
-  end
-
-  defp system_actor do
-    %{
-      id: "00000000-0000-0000-0000-000000000000",
-      email: "system@serviceradar.local",
-      role: :super_admin
-    }
   end
 end
