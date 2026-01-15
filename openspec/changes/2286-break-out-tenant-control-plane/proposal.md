@@ -3,22 +3,38 @@
 ## Why
 The current architecture conflates the SaaS control plane with the tenant runtime, leading to complexity in `core-elx` where it possesses "super power" access over the entire database. This violates strict tenant isolation boundaries and complicates the codebase with mixed multi-tenant logic.
 
+### North Star Goal
+**The OSS `serviceradar/` repo must always be deployable as a clean, working single-tenant system via `helm install` or `docker compose up` with zero Control Plane dependencies.**
+
 By breaking out the control plane, we ensure that:
-1.  **Strict Isolation:** Every tenant gets their own `core-elx` and `web-ng` logical (or physical) instance.
-2.  **Reduced Complexity:** `core-elx` no longer needs complex multi-tenant policies to protect data; it only sees its own tenant's data.
-3.  **Security:** Tenants connect to shared resources (NATS, CNPG) using restricted credentials (JWTs) that only allow access to their specific scope.
-4.  **Parity:** The OSS version effectively becomes a "single tenant" deployment of this architecture, simplifying the mental model.
+1.  **Clean OSS Experience:** `helm install serviceradar` gives you a fully working single-tenant system, no SaaS code involved.
+2.  **Strict Isolation:** In SaaS mode, every tenant gets their own `core-elx` and `web-ng` instance managed by the Control Plane.
+3.  **Reduced Complexity:** `core-elx` no longer needs complex multi-tenant policies; it only sees its own tenant's data.
+4.  **Security:** Tenants connect to shared resources (NATS, CNPG) using restricted credentials (JWTs) that only allow access to their specific scope.
+5.  **Independent Development:** Control Plane (`serviceradar-web/`) can be developed, tested, and deployed completely separately from the OSS stack.
 
 ## What Changes
 
-### Architecture Split
-- **Control Plane**: A new or refactored service responsibility that manages tenant lifecycles, global NATS accounts, and CNPG database provisioning. It does *not* handle tenant runtime traffic.
-- **Tenant Instance**: A dedicated set of services (`core-elx`, `web-ng`) for *each* tenant.
-    - Connects to NATS with a tenant-specific JWT.
-    - Connects to CNPG with tenant-specific credentials restricted to its schema.
-- **Shared Infrastructure**:
-    - **NATS**: Utilizes Account/User JWTs to enforce isolation.
-    - **CNPG**: Hosting multiple tenant schemas, but access is strictly gatekept by database roles/users.
+### Architecture: Identical Deployments
+
+**Key insight**: A Tenant Instance is the same deployment whether OSS or SaaS-managed. The Control Plane only provisions and scales - it doesn't change the tenant code.
+
+- **Tenant Instance** (`serviceradar/` OSS repo): The standard deployment.
+    - `core-elx`, `web-ng`, checkers, agents
+    - Connects to NATS with its credentials
+    - Connects to CNPG with its credentials (restricted to its schema)
+    - **Identical** whether single-tenant OSS or one of many in SaaS
+
+- **Control Plane** (`serviceradar-web/` private repo): Orchestrator for horizontal scaling.
+    - Creates CNPG users + schemas
+    - Creates NATS accounts
+    - Deploys/scales Tenant Instances (via tenant-workload-operator)
+    - Signup UI, billing, tenant management
+    - Does *not* modify tenant instance code
+
+- **Shared Infrastructure** (SaaS only):
+    - **NATS**: Single cluster, tenant isolation via Account/User JWTs
+    - **CNPG**: Single cluster, tenant isolation via PostgreSQL users/schemas
 
 ### Identity & Membership (Control Plane)
 - **Centralized Authority**: `Tenant`, `User`, and `TenantMembership` resources move exclusively to the **Control Plane**.
@@ -54,19 +70,92 @@ To ensure the OSS/Standalone version remains easy to deploy (zero-touch), we wil
     3.  **Configure Runtime**: Inject the generated Tenant ID and Keys into the `web-ng` and `core-elx` configuration, effectively "pinning" them to this single tenant.
 - **Outcome**: The user runs `helm install`, and the system boots up fully configured as a single-tenant instance of the multi-tenant architecture.
 
-### Implementation Plan (Draft)
+### Deep Dive Findings (Completed)
 
-1.  **Deep Dive Analysis**:
-    - Scan `core-elx` and `web-ng` for all `multitenancy` configurations.
-    - Map out the "God Mode" code paths in `core-elx` that currently manage all tenants.
-2.  **Prototype Isolation**:
-    - Create a POC where `core-elx` is started with restricted CNPG credentials.
-    - Verify NATS JWT authentication for a single tenant.
-3.  **Refactor Ash Resources**:
-    - Update `Ash.Resource` definitions to assume they are running *within* a tenant context, removing global visibility where possible.
-4.  **Control Plane Implementation**:
-    - Define the API for the Control Plane (Create Tenant -> Provision DB User -> Issue NATS JWT -> Spin up/Configure Tenant Stack).
+#### authorize?: false Usage in Production Code
+
+The deep dive identified **30+ locations** in web-ng production code using `authorize?: false`:
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| Context modules (Inventory, Infrastructure) | 2 | Hardcoded system_actor + authorize?: false fallback |
+| Scope/Auth (TenantResolver, Scope, Plugs) | 6 | Cross-tenant queries for tenant resolution |
+| Edge modules (Onboarding*) | 4 | Tenant lookup and package operations |
+| LiveView modules | 15+ | Ad-hoc authorization bypasses |
+| API controllers | 10+ | Device, NATS, Edge, Collector APIs |
+
+#### Duplicate system_actor Definitions
+
+web-ng has **6 different system_actor definitions** that don't use the core's `ServiceRadar.Actors.SystemActor`:
+- `inventory.ex:124-129`
+- `infrastructure.ex:139-145`
+- `tenant_resolver.ex:9-15` (module attribute)
+- `edge/onboarding_packages.ex:274-280`
+- `edge/onboarding_events.ex:126-132`
+- `edge/workers/expire_packages_worker.ex:76-82`
+
+#### God Mode GenServers
+
+These components iterate ALL tenants and require Control Plane access:
+- `TenantRegistryLoader` - Loads all tenant slugs for routing
+- `PlatformTenantBootstrap` - Creates/validates platform tenant
+- `OperatorBootstrap` - Sets up NATS operator infrastructure
+- Various seeders (template, rule, zen_rule, sysmon_profile)
+
+#### Identity Architecture Complexity
+
+Current state:
+| Resource | Schema | Strategy | Notes |
+|----------|--------|----------|-------|
+| Tenant | public | None (global) | Control Plane resource |
+| TenantMembership | public | attribute + global?: true | **Hybrid** - queries from tenant code |
+| User | tenant_* | context (schema-based) | Per-tenant user isolation |
+
+**Problem**: Users are schema-isolated but memberships are in public schema. This creates cross-tenant queries during authentication.
+
+### Implementation Plan
+
+**Phase 1: Code Cleanup** (Can start immediately)
+1. Remove all `authorize?: false` from web-ng production code
+2. Consolidate system_actor definitions to use `ServiceRadar.Actors.SystemActor`
+3. Make tenant context required (no nil fallbacks)
+
+**Phase 2: Control Plane Separation**
+1. Create `serviceradar-saas` repository
+2. Move tenant-workload-operator
+3. Extract tenant lifecycle management (TenantRegistryLoader, PlatformTenantBootstrap)
+4. Move NATS provisioning (OperatorBootstrap, CreateAccountWorker)
+
+**Phase 3: JWT-Based Authorization**
+1. Define JWT claim structure for tenant context
+2. Implement JWT generation in Control Plane
+3. Update Tenant Instance to derive authorization from JWT claims
+4. Remove TenantMembership queries from web-ng
+
+**Phase 4: Helm/Deployment**
+1. Create OSS single-tenant Helm chart (simplified)
+2. Create SaaS multi-tenant Helm chart with Control Plane
+3. Platform bootstrap job for OSS deployments
 
 ## Open Questions
-- How do we handle "Platform Admin" features that need to see across tenants? (Likely a separate aggregation service or specific Control Plane API, rather than a "super user" in a tenant app).
-- Resource overhead of running separate `core-elx`/`web-ng` processes per tenant vs. logical separation within the VM. (Proposal leans towards logical separation enforced by strict strict credentials/middleware, or full physical separation if resources allow).
+
+### Resolved
+- **Q**: Where are the "God Mode" code paths?
+  **A**: Identified in TenantRegistryLoader, PlatformTenantBootstrap, OperatorBootstrap, various seeders, and 30+ authorize?: false locations in web-ng.
+
+- **Q**: What needs to move to Control Plane?
+  **A**: Tenant/TenantMembership management, NATS provisioning, tenant lifecycle events, platform bootstrap logic.
+
+### Remaining
+1. **User Identity Across Tenants**: With users in per-tenant schemas, how do we handle:
+   - Magic link email for user who exists in multiple tenants?
+   - User switching between tenants in UI?
+
+   **Proposed Answer**: Control Plane maintains global user registry, issues tenant-specific JWTs. Tenant Instance trusts JWT claims.
+
+2. **Platform Admin Access**: How do platform admins view metrics across tenants?
+   **Proposed Answer**: Control Plane API with aggregation endpoints, not "super user" in tenant app.
+
+3. **Session/JWT Management**: Token expiry, refresh mechanism, long-running operations?
+
+4. **Migration Path**: How do existing SaaS customers transition?
