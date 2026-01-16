@@ -19,27 +19,26 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id}
+    {:ok, tenant_slug: tenant.tenant_slug}
   end
 
-  setup %{tenant_id: tenant_id} do
+  setup %{tenant_slug: tenant_slug} do
     unique_id = :erlang.unique_integer([:positive])
 
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
-      role: :super_admin,
-      tenant_id: tenant_id
+      role: :super_admin
     }
 
     agent_uid = "test-agent-#{unique_id}"
 
-    {:ok, tenant_id: tenant_id, actor: actor, agent_uid: agent_uid, unique_id: unique_id}
+    {:ok, tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id}
   end
 
-  describe "generate_config/2" do
-    test "returns empty config when no checks exist", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+  describe "generate_config/1" do
+    test "returns empty config when no checks exist", %{agent_uid: agent_uid} do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       assert config.checks == []
       assert config.heartbeat_interval_sec == 30
@@ -48,7 +47,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.config_timestamp > 0
     end
 
-    test "generates config with checks", %{tenant_id: tenant_id, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "generates config with checks", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Create a service check for this agent (enabled by default)
       {:ok, _check} =
         ServiceCheck
@@ -60,10 +59,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           interval_seconds: 60,
           timeout_seconds: 10,
           agent_uid: agent_uid
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug)
         |> Ash.create()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       assert length(config.checks) == 1
       [check] = config.checks
@@ -76,7 +75,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert check.enabled == true
     end
 
-    test "excludes disabled checks", %{tenant_id: tenant_id, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "excludes disabled checks", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Create enabled check (enabled by default)
       {:ok, _enabled} =
         ServiceCheck
@@ -86,7 +85,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           target: "10.0.0.1",
           port: 22,
           agent_uid: agent_uid
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug)
         |> Ash.create()
 
       # Create check then disable it
@@ -98,16 +97,16 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           target: "10.0.0.2",
           port: 22,
           agent_uid: agent_uid
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug)
         |> Ash.create()
 
       # Disable the check
       {:ok, _} =
         disabled_check
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Only enabled check should be included
       assert length(config.checks) == 1
@@ -115,26 +114,26 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
-  describe "get_config_if_changed/3" do
-    test "returns :not_modified when version matches", %{tenant_id: tenant_id, agent_uid: agent_uid} do
+  describe "get_config_if_changed/2" do
+    test "returns :not_modified when version matches", %{agent_uid: agent_uid} do
       # First, get the config to obtain the version
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Request with the same version
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, tenant_id, config.config_version)
+      result = AgentConfigGenerator.get_config_if_changed(agent_uid, config.config_version)
 
       assert result == :not_modified
     end
 
-    test "returns config when version differs", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, tenant_id, "v-old-version")
+    test "returns config when version differs", %{agent_uid: agent_uid} do
+      result = AgentConfigGenerator.get_config_if_changed(agent_uid, "v-old-version")
 
       assert {:ok, config} = result
       assert config.config_version != "v-old-version"
     end
 
-    test "returns config when version is empty", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      result = AgentConfigGenerator.get_config_if_changed(agent_uid, tenant_id, "")
+    test "returns config when version is empty", %{agent_uid: agent_uid} do
+      result = AgentConfigGenerator.get_config_if_changed(agent_uid, "")
 
       assert {:ok, _config} = result
     end
@@ -197,17 +196,17 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   end
 
   describe "version hash stability" do
-    test "same config produces same version hash", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+    test "same config produces same version hash", %{agent_uid: agent_uid} do
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Version hash should be deterministic
       assert config1.config_version == config2.config_version
     end
 
-    test "different checks produce different version hash", %{tenant_id: tenant_id, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "different checks produce different version hash", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Get initial config
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Add a check (enabled by default)
       {:ok, _check} =
@@ -217,11 +216,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           check_type: :ping,
           target: "10.0.0.100",
           agent_uid: agent_uid
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug)
         |> Ash.create()
 
       # Get config again
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Version should be different now
       assert config1.config_version != config2.config_version
@@ -229,8 +228,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   end
 
   describe "sysmon config" do
-    test "includes default sysmon config when no profile exists", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+    test "includes default sysmon config when no profile exists", %{agent_uid: agent_uid} do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Should have sysmon_config field with default values
       assert config.sysmon_config != nil
@@ -246,8 +245,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.sysmon_config.config_source == "default"
     end
 
-    test "sysmon config affects version hash", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+    test "sysmon config affects version hash", %{agent_uid: agent_uid} do
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Create a custom sysmon profile (this would normally be done through the seeder/UI)
       # For now, we just verify that the config includes sysmon and has a version
@@ -255,12 +254,12 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert String.starts_with?(config1.config_version, "v")
 
       # Same config should produce same hash
-      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
       assert config1.config_version == config2.config_version
     end
 
-    test "sysmon_config is proto-compatible struct", %{tenant_id: tenant_id, agent_uid: agent_uid} do
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, tenant_id)
+    test "sysmon_config is proto-compatible struct", %{agent_uid: agent_uid} do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
       # Verify it's the proto struct
       assert is_struct(config.sysmon_config, Monitoring.SysmonConfig)

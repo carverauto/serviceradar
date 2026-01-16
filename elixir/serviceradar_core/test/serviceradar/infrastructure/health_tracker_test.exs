@@ -23,18 +23,17 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+    {:ok, tenant_slug: tenant.tenant_slug}
   end
 
-  setup %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
+  setup %{tenant_slug: tenant_slug} do
     unique_id = :erlang.unique_integer([:positive])
 
-    {:ok, tenant_id: tenant_id, tenant_slug: tenant_slug, unique_id: unique_id}
+    {:ok, tenant_slug: tenant_slug, unique_id: unique_id}
   end
 
   describe "record_state_change/4" do
     test "creates a HealthEvent record for agent state transition", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug,
       unique_id: unique_id
     } do
@@ -54,12 +53,10 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       assert event.new_state == :degraded
       assert event.reason == :high_latency
       assert event.metadata["latency_ms"] == 500
-      assert event.tenant_id == tenant_id
       assert event.recorded_at != nil
     end
 
     test "creates a HealthEvent for gateway heartbeat timeout", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug,
       unique_id: unique_id
     } do
@@ -76,11 +73,9 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       assert event.entity_id == entity_id
       assert event.new_state == :degraded
       assert event.reason == :heartbeat_timeout
-      assert event.tenant_id == tenant_id
     end
 
     test "creates a HealthEvent for checker state change", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug,
       unique_id: unique_id
     } do
@@ -97,7 +92,6 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       assert event.entity_type == :checker
       assert event.new_state == :failing
       assert event.metadata["failure_count"] == 3
-      assert event.tenant_id == tenant_id
     end
 
     test "persisted event is queryable via timeline", %{
@@ -159,12 +153,11 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
   describe "PubSub emission" do
     test "broadcasts health event on state change", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug,
       unique_id: unique_id
     } do
       entity_id = "agent-pubsub-#{unique_id}"
-      topic = HealthPubSub.topic(tenant_id)
+      topic = HealthPubSub.topic()
 
       # Subscribe to the topic
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, topic)
@@ -184,12 +177,11 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
 
     test "does not broadcast when broadcast: false", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug,
       unique_id: unique_id
     } do
       entity_id = "agent-no-broadcast-#{unique_id}"
-      topic = HealthPubSub.topic(tenant_id)
+      topic = HealthPubSub.topic()
 
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, topic)
 

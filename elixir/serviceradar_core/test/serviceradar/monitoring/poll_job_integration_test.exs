@@ -6,7 +6,6 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   - PollJob resources can be created with proper state
   - State machine transitions work correctly
   - PollJob tracks execution progress
-  - Multi-tenant isolation works for poll jobs
   """
 
   use ExUnit.Case, async: false
@@ -16,26 +15,13 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
   @moduletag :database
 
-  setup_all do
-    tenant_a = ServiceRadar.TestSupport.create_tenant_schema!("poll-job-a")
-    tenant_b = ServiceRadar.TestSupport.create_tenant_schema!("poll-job-b")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_a.tenant_slug)
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant_b.tenant_slug)
-    end)
-
-    {:ok, tenant_a_id: tenant_a.tenant_id, tenant_b_id: tenant_b.tenant_id}
-  end
-
-  setup %{tenant_a_id: tenant_a_id} do
+  setup do
     unique_id = :erlang.unique_integer([:positive])
 
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
-      role: :super_admin,
-      tenant_id: tenant_a_id
+      role: :super_admin
     }
 
     # Create a valid polling schedule for the tests
@@ -45,11 +31,10 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         name: "Test Schedule #{unique_id}",
         schedule_type: :interval,
         interval_seconds: 60
-      }, tenant: tenant_a_id, authorize?: false)
+      }, authorize?: false)
       |> Ash.create()
 
     {:ok,
-     tenant_id: tenant_a_id,
      actor: actor,
      unique_id: unique_id,
      schedule_id: schedule.id,
@@ -57,7 +42,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   end
 
   describe "PollJob lifecycle" do
-    test "creates job in pending state", %{tenant_id: tenant_id, schedule_id: schedule_id, unique_id: _unique_id} do
+    test "creates job in pending state", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
@@ -67,19 +52,15 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           check_ids: [Ash.UUID.generate(), Ash.UUID.generate(), Ash.UUID.generate()],
           priority: 1,
           timeout_seconds: 60
-        }, tenant: tenant_id, authorize?: false)
+        }, authorize?: false)
         |> Ash.create()
 
       assert job.status == :pending
       assert job.schedule_id == schedule_id
       assert job.check_count == 3
-      assert job.tenant_id == tenant_id
     end
 
-    test "transitions pending -> dispatching -> running -> completed", %{
-      tenant_id: tenant_id,
-      schedule_id: schedule_id
-    } do
+    test "transitions pending -> dispatching -> running -> completed", %{schedule_id: schedule_id} do
       # Create job
       {:ok, job} =
         PollJob
@@ -87,7 +68,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Transition Test",
           check_count: 2
-        }, tenant: tenant_id, authorize?: false)
+        }, authorize?: false)
         |> Ash.create()
 
       assert job.status == :pending
@@ -129,14 +110,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert completed.duration_ms > 0
     end
 
-    test "can transition to failed from dispatching", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can transition to failed from dispatching", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Fail Dispatch Test",
           check_count: 1
-        }, tenant: tenant_id, authorize?: false)
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, dispatching} =
@@ -157,14 +138,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert failed.error_code == "NO_GATEWAY"
     end
 
-    test "can transition to failed from running", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can transition to failed from running", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Fail Running Test",
           check_count: 1
-        }, tenant: tenant_id, authorize?: false)
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, dispatching} =
@@ -189,14 +170,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert failed.error_message == "Agent connection lost"
     end
 
-    test "can transition to timeout from running", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can transition to timeout from running", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Timeout Test",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, dispatching} =
@@ -218,14 +199,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert timed_out.error_message == "Job execution timed out"
     end
 
-    test "can cancel pending job", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can cancel pending job", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Cancel Test",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, cancelled} =
@@ -237,14 +218,14 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert cancelled.error_message == "User requested cancellation"
     end
 
-    test "can retry failed job", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can retry failed job", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Retry Test",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
 
       # Run through to failure
@@ -279,15 +260,15 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
   end
 
   describe "PollJob queries" do
-    setup %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    setup %{schedule_id: schedule_id} do
       # Create jobs in different states
       {:ok, pending_job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Pending Query Job",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, running_job} =
@@ -295,8 +276,8 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Running Query Job",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
 
       {:ok, running_job} =
@@ -312,102 +293,45 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       {:ok, pending_job: pending_job, running_job: running_job}
     end
 
-    test "pending query returns only pending jobs", %{pending_job: pending, running_job: running, tenant_id: tenant_id} do
+    test "pending query returns only pending jobs", %{pending_job: pending, running_job: running} do
       jobs =
         PollJob
-        |> Ash.Query.for_read(:pending, %{}, tenant: tenant_id)
+        |> Ash.Query.for_read(:pending, %{})
         |> Ash.read!(authorize?: false)
 
       assert Enum.any?(jobs, &(&1.id == pending.id))
       refute Enum.any?(jobs, &(&1.id == running.id))
     end
 
-    test "running query returns only running jobs", %{pending_job: pending, running_job: running, tenant_id: tenant_id} do
+    test "running query returns only running jobs", %{pending_job: pending, running_job: running} do
       jobs =
         PollJob
-        |> Ash.Query.for_read(:running, %{}, tenant: tenant_id)
+        |> Ash.Query.for_read(:running, %{})
         |> Ash.read!(authorize?: false)
 
       assert Enum.any?(jobs, &(&1.id == running.id))
       refute Enum.any?(jobs, &(&1.id == pending.id))
     end
 
-    test "by_schedule returns jobs for a schedule", %{schedule_id: schedule_id, pending_job: pending, tenant_id: tenant_id} do
+    test "by_schedule returns jobs for a schedule", %{schedule_id: schedule_id, pending_job: pending} do
       jobs =
         PollJob
-        |> Ash.Query.for_read(:by_schedule, %{schedule_id: schedule_id}, tenant: tenant_id)
+        |> Ash.Query.for_read(:by_schedule, %{schedule_id: schedule_id})
         |> Ash.read!(authorize?: false)
 
       assert Enum.any?(jobs, &(&1.id == pending.id))
     end
   end
 
-  describe "multi-tenant isolation" do
-    test "jobs are isolated by tenant", %{
-      tenant_id: tenant_a_id,
-      schedule_id: schedule_a_id,
-      unique_id: unique_id,
-      tenant_b_id: tenant_b_id
-    } do
-      # Create a schedule in tenant B
-      {:ok, schedule_b} =
-        PollingSchedule
-        |> Ash.Changeset.for_create(:create, %{
-          name: "Tenant B Schedule #{unique_id}",
-          schedule_type: :interval,
-          interval_seconds: 60
-        }, tenant: tenant_b_id, authorize?: false)
-        |> Ash.create()
-
-      # Create job in tenant A
-      {:ok, job_a} =
-        PollJob
-        |> Ash.Changeset.for_create(:create, %{
-          schedule_id: schedule_a_id,
-          schedule_name: "Tenant A Job",
-          check_count: 1
-        }, tenant: tenant_a_id, authorize?: false)
-        |> Ash.create()
-
-      # Create job in tenant B
-      {:ok, job_b} =
-        PollJob
-        |> Ash.Changeset.for_create(:create, %{
-          schedule_id: schedule_b.id,
-          schedule_name: "Tenant B Job",
-          check_count: 1
-        }, tenant: tenant_b_id, authorize?: false)
-        |> Ash.create()
-
-      # Query tenant A - should only see tenant A's job
-      jobs_a =
-        PollJob
-        |> Ash.Query.for_read(:read, %{}, tenant: tenant_a_id)
-        |> Ash.read!(authorize?: false)
-
-      assert Enum.any?(jobs_a, &(&1.id == job_a.id))
-      refute Enum.any?(jobs_a, &(&1.id == job_b.id))
-
-      # Query tenant B - should only see tenant B's job
-      jobs_b =
-        PollJob
-        |> Ash.Query.for_read(:read, %{}, tenant: tenant_b_id)
-        |> Ash.read!(authorize?: false)
-
-      assert Enum.any?(jobs_b, &(&1.id == job_b.id))
-      refute Enum.any?(jobs_b, &(&1.id == job_a.id))
-    end
-  end
-
   describe "calculations" do
-    test "is_terminal calculation works", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "is_terminal calculation works", %{schedule_id: schedule_id} do
       {:ok, job} =
         PollJob
         |> Ash.Changeset.for_create(:create, %{
           schedule_id: schedule_id,
           schedule_name: "Terminal Test",
-          check_count: 1,
-          }, tenant: tenant_id, authorize?: false)
+          check_count: 1
+        }, authorize?: false)
         |> Ash.create()
         |> then(fn {:ok, job} ->
           Ash.load(job, [:is_terminal], authorize?: false)
@@ -439,7 +363,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       assert completed.is_terminal == true
     end
 
-    test "can_retry calculation works", %{tenant_id: tenant_id, schedule_id: schedule_id} do
+    test "can_retry calculation works", %{schedule_id: schedule_id} do
       # Default max_retries is 3, so we can test with that
       {:ok, job} =
         PollJob
@@ -447,7 +371,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Can Retry Test",
           check_count: 1
-        }, tenant: tenant_id, authorize?: false)
+        }, authorize?: false)
         |> Ash.create()
 
       # Fail the job

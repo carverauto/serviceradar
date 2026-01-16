@@ -16,8 +16,6 @@ defmodule ServiceRadar.Actors.DeviceTest do
   alias ServiceRadar.Actors.Device
   alias ServiceRadar.Actors.DeviceRegistry
 
-  @moduletag :database
-
   setup do
     unique_id = :erlang.unique_integer([:positive])
     device_id = "device-#{unique_id}"
@@ -246,7 +244,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.flush_events/1" do
     test "clears event buffer", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       Device.record_event(pid, :event1, %{})
       Device.record_event(pid, :event2, %{})
@@ -261,7 +259,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.touch/1" do
     test "updates last_seen timestamp", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       before = Device.get_state(pid).last_seen
       Process.sleep(50)
@@ -273,63 +271,55 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
   end
 
-  describe "DeviceRegistry.stop/2" do
+  describe "DeviceRegistry.stop/1" do
     test "stops device actor", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
       assert Process.alive?(pid)
 
-      :ok = DeviceRegistry.stop(ctx.tenant_id, ctx.device_id)
+      :ok = DeviceRegistry.stop(ctx.device_id)
       Process.sleep(50)
 
       refute Process.alive?(pid)
     end
 
-    test "returns :not_found for non-existent device", ctx do
-      result = DeviceRegistry.stop(ctx.tenant_id, "nonexistent")
+    test "returns :not_found for non-existent device", _ctx do
+      result = DeviceRegistry.stop("nonexistent")
       assert result == :not_found
     end
   end
 
-  # Note: In tenant-unaware architecture, each tenant instance runs its own
-  # ERTS cluster with isolated resources. Tenant isolation is handled by
-  # infrastructure (separate deployments, databases, NATS credentials),
-  # not by in-process tenant_id routing.
-  #
-  # The legacy API functions that accept tenant_id still work but ignore
-  # the tenant_id parameter - all operations go to the singleton ProcessRegistry.
-
   describe "convenience functions" do
-    test "DeviceRegistry.update_identity/3 starts actor if needed", ctx do
+    test "DeviceRegistry.update_identity/2 starts actor if needed", ctx do
       # Device doesn't exist yet
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
       # Update identity (should start actor)
-      :ok = DeviceRegistry.update_identity(ctx.tenant_id, ctx.device_id, %{
+      :ok = DeviceRegistry.update_identity(ctx.device_id, %{
         hostname: "lazy-start-host"
       })
 
       # Now it should exist
-      {:ok, pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
       identity = Device.get_identity(pid)
       assert identity.hostname == "lazy-start-host"
     end
 
-    test "DeviceRegistry.record_event/4 starts actor if needed", ctx do
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+    test "DeviceRegistry.record_event/3 starts actor if needed", ctx do
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
-      :ok = DeviceRegistry.record_event(ctx.tenant_id, ctx.device_id, :test, %{})
+      :ok = DeviceRegistry.record_event(ctx.device_id, :test, %{})
 
-      {:ok, _pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, _pid} = DeviceRegistry.lookup(ctx.device_id)
     end
 
-    test "DeviceRegistry.record_health_check/3 starts actor if needed", ctx do
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+    test "DeviceRegistry.record_health_check/2 starts actor if needed", ctx do
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
-      :ok = DeviceRegistry.record_health_check(ctx.tenant_id, ctx.device_id, %{
+      :ok = DeviceRegistry.record_health_check(ctx.device_id, %{
         available: true
       })
 
-      {:ok, pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
       health = Device.get_health(pid)
       assert health.status == :healthy
     end

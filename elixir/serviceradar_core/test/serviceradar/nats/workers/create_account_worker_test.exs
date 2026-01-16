@@ -11,71 +11,41 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorkerTest do
 
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
 
-  describe "new/2 job creation" do
-    test "creates valid job changeset with tenant_id" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id})
+  describe "new/1 job creation" do
+    test "creates valid job changeset" do
+      changeset = CreateAccountWorker.new(%{})
 
       assert changeset.valid?
-      assert changeset.changes.args == %{"tenant_id" => tenant_id}
+      assert changeset.changes.args == %{}
     end
 
     test "job uses nats_accounts queue" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id})
+      changeset = CreateAccountWorker.new(%{})
 
       # Queue can be either atom or string depending on Oban version
       assert changeset.changes.queue in [:nats_accounts, "nats_accounts"]
     end
 
     test "job has max_attempts of 5" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id})
+      changeset = CreateAccountWorker.new(%{})
 
       assert changeset.changes.max_attempts == 5
     end
 
     test "creates job with scheduled_at option" do
-      tenant_id = Ash.UUID.generate()
       scheduled = DateTime.add(DateTime.utc_now(), 60, :second)
 
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id}, scheduled_at: scheduled)
+      changeset = CreateAccountWorker.new(%{}, scheduled_at: scheduled)
 
       assert changeset.valid?
       assert changeset.changes.scheduled_at == scheduled
     end
 
     test "creates job with priority option" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id}, priority: 1)
+      changeset = CreateAccountWorker.new(%{}, priority: 1)
 
       assert changeset.valid?
       assert changeset.changes.priority == 1
-    end
-
-    test "job has uniqueness configured" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id})
-
-      # Worker is configured with unique: [period: 60, keys: [:tenant_id]]
-      assert changeset.changes.unique != nil
-    end
-  end
-
-  describe "job args structure" do
-    test "args contain tenant_id as string key" do
-      tenant_id = Ash.UUID.generate()
-
-      changeset = CreateAccountWorker.new(%{"tenant_id" => tenant_id})
-
-      # Oban serializes args to JSON, so keys should be strings
-      assert Map.has_key?(changeset.changes.args, "tenant_id")
-      assert changeset.changes.args["tenant_id"] == tenant_id
     end
   end
 
@@ -97,6 +67,12 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorkerTest do
       functions = CreateAccountWorker.__info__(:functions)
       function_names = Enum.map(functions, fn {name, _arity} -> name end)
       assert :new in function_names
+    end
+
+    test "defines enqueue function" do
+      functions = CreateAccountWorker.__info__(:functions)
+      function_names = Enum.map(functions, fn {name, _arity} -> name end)
+      assert :enqueue in function_names
     end
   end
 end

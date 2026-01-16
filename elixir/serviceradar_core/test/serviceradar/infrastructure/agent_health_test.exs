@@ -341,7 +341,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
   end
 
   describe "health monitoring scenarios" do
-    test "complete degradation and recovery cycle", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "complete degradation and recovery cycle", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # 1. Create new agent
       {:ok, agent} =
         Agent
@@ -350,7 +350,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Cycle Test Agent",
           host: "192.168.1.40",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.status == :connecting
@@ -410,7 +410,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert final.is_healthy == true
     end
 
-    test "disconnection and reconnection cycle", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "disconnection and reconnection cycle", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create connected agent
       {:ok, agent} =
         Agent
@@ -419,7 +419,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Disconnect Test Agent",
           host: "192.168.1.41",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.status == :connected

@@ -19,10 +19,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id}
+    {:ok, tenant_slug: tenant.tenant_slug}
   end
 
-  setup %{tenant_id: tenant_id} do
+  setup %{tenant_slug: tenant_slug} do
     # Generate unique IDs to prevent test pollution
     unique_id = :erlang.unique_integer([:positive])
 
@@ -30,15 +30,14 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
-      role: :super_admin,
-      tenant_id: tenant_id
+      role: :super_admin
     }
 
-    {:ok, tenant_id: tenant_id, actor: actor, unique_id: unique_id}
+    {:ok, tenant_slug: tenant_slug, actor: actor, unique_id: unique_id}
   end
 
   describe "register/1" do
-    test "creates agent in connecting state", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "creates agent in connecting state", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-#{unique_id}"
 
       {:ok, agent} =
@@ -49,7 +48,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.100",
           port: 50_051,
           capabilities: ["icmp", "tcp", "http"]
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.uid == agent_uid
@@ -58,12 +57,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.port == 50_051
       assert agent.is_healthy == true
       assert "icmp" in agent.capabilities
-      assert agent.tenant_id == tenant_id
       assert agent.first_seen_time != nil
       assert agent.last_seen_time != nil
     end
 
-    test "creates agent with SPIFFE identity", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "creates agent with SPIFFE identity", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-spiffe-#{unique_id}"
       spiffe_id = "spiffe://serviceradar.local/agent/test-tenant/default/#{agent_uid}"
 
@@ -75,7 +73,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "10.0.0.50",
           port: 50_051,
           spiffe_identity: spiffe_id
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.spiffe_identity == spiffe_id
@@ -83,7 +81,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "register_connected/1" do
-    test "creates agent directly in connected state", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "creates agent directly in connected state", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-connected-#{unique_id}"
 
       {:ok, agent} =
@@ -93,7 +91,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Pre-connected Agent",
           host: "192.168.1.101",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.status == :connected
@@ -101,7 +99,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     end
 
     test "upserts existing agent without resetting first_seen_time", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       unique_id: unique_id
     } do
@@ -114,7 +112,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Initial Agent",
           host: "192.168.1.101",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, updated} =
@@ -124,7 +122,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Updated Agent",
           host: "192.168.1.200",
           port: 50_052
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert updated.uid == agent.uid
@@ -138,7 +136,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "state machine transitions" do
-    setup %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    setup %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-sm-#{unique_id}"
 
       {:ok, agent} =
@@ -148,7 +146,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "State Machine Test Agent",
           host: "192.168.1.102",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, agent: agent}
@@ -255,7 +253,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "heartbeat/1" do
-    test "updates last_seen_time", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "updates last_seen_time", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-hb-#{unique_id}"
 
       {:ok, agent} =
@@ -265,7 +263,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Heartbeat Test Agent",
           host: "192.168.1.103",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       original_last_seen = agent.last_seen_time
@@ -283,7 +281,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert updated.last_seen_time != nil
     end
 
-    test "can update capabilities", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "can update capabilities", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       agent_uid = "agent-hb-caps-#{unique_id}"
 
       {:ok, agent} =
@@ -294,7 +292,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.104",
           port: 50_051,
           capabilities: ["icmp"]
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, updated} =
@@ -308,7 +306,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "queries" do
-    setup %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    setup %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create multiple agents in different states (without gateway FK constraint)
       {:ok, connected_agent} =
         Agent
@@ -318,7 +316,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.110",
           port: 50_051,
           capabilities: ["icmp", "tcp"]
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, connecting_agent} =
@@ -328,7 +326,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Connecting Query Agent",
           host: "192.168.1.111",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok,
@@ -337,10 +335,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       }
     end
 
-    test "connected returns only connected and healthy agents", %{connected_agent: agent, connecting_agent: _connecting, actor: actor, tenant_id: tenant_id} do
+    test "connected returns only connected and healthy agents", %{connected_agent: agent, connecting_agent: _connecting, actor: actor, tenant_slug: tenant_slug} do
       agents =
         Agent
-        |> Ash.Query.for_read(:connected, %{}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:connected, %{}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       assert Enum.all?(agents, &(&1.status == :connected))
@@ -348,24 +346,24 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_capability returns agents with specific capability", %{connected_agent: agent, actor: actor, tenant_id: tenant_id} do
+    test "by_capability returns agents with specific capability", %{connected_agent: agent, actor: actor, tenant_slug: tenant_slug} do
       agents =
         Agent
-        |> Ash.Query.for_read(:by_capability, %{capability: "tcp"}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:by_capability, %{capability: "tcp"}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_status returns agents in specific status", %{connected_agent: connected, connecting_agent: connecting, actor: actor, tenant_id: tenant_id} do
+    test "by_status returns agents in specific status", %{connected_agent: connected, connecting_agent: connecting, actor: actor, tenant_slug: tenant_slug} do
       connected_agents =
         Agent
-        |> Ash.Query.for_read(:by_status, %{status: :connected}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:by_status, %{status: :connected}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       connecting_agents =
         Agent
-        |> Ash.Query.for_read(:by_status, %{status: :connecting}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:by_status, %{status: :connecting}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       assert Enum.any?(connected_agents, &(&1.uid == connected.uid))

@@ -256,11 +256,11 @@ defmodule ServiceRadar.AgentRegistryTest do
     end
   end
 
-  describe "count/1" do
-    test "registered agents are countable", %{tenant_a_id: tenant_id, unique_id: unique_id} do
+  describe "count/0" do
+    test "registered agents are countable", %{unique_id: unique_id} do
       agent_id = "agent-count-#{unique_id}"
 
-      {:ok, _} = AgentRegistry.register_agent(tenant_id, agent_id, %{
+      {:ok, _} = AgentRegistry.register_agent(agent_id, %{
         grpc_host: "192.168.1.100",
         grpc_port: 50_051
       })
@@ -269,11 +269,11 @@ defmodule ServiceRadar.AgentRegistryTest do
       Process.sleep(50)
 
       # Verify agent can be found via lookup
-      entries = AgentRegistry.lookup(tenant_id, agent_id)
+      entries = AgentRegistry.lookup(agent_id)
       assert length(entries) == 1
 
-      # And via find_agents_for_tenant
-      agents = AgentRegistry.find_agents_for_tenant(tenant_id)
+      # And via find_agents
+      agents = AgentRegistry.find_agents()
       assert Enum.any?(agents, &(&1[:agent_id] == agent_id))
     end
   end
