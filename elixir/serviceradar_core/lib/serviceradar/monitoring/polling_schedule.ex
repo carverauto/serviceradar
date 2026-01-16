@@ -329,7 +329,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -474,13 +473,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       default %{}
       public? true
       description "Additional metadata"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this schedule belongs to"
     end
 
     create_timestamp :created_at

@@ -200,7 +200,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

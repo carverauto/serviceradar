@@ -103,25 +103,21 @@ defmodule ServiceRadar.Observability.Log do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read access: Must be authenticated AND in same tenant
+    # Read access: Must be authenticated
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create logs: Operators/admins, enforces tenant from context
+    # Create logs: Operators/admins
     policy action(:create) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -208,13 +204,6 @@ defmodule ServiceRadar.Observability.Log do
       default %{}
       public? true
       description "Resource attributes"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this log belongs to"
     end
 
     # Timestamps

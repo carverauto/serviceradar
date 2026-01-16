@@ -75,7 +75,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
       argument :snmp_target_id, :uuid, allow_nil?: false
 
       change manage_relationship(:snmp_target_id, :snmp_target, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do
@@ -94,7 +93,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
       argument :snmp_target_id, :uuid, allow_nil?: false
 
       change manage_relationship(:snmp_target_id, :snmp_target, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
     end
   end
 

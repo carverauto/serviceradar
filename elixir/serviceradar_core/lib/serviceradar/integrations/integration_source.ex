@@ -297,7 +297,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

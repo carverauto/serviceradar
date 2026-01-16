@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.ZenRuleTemplate do
   @moduledoc """
-  Tenant-scoped templates for Zen rule builder presets.
+  Templates for Zen rule builder presets.
   """
 
   use Ash.Resource,
@@ -61,7 +61,7 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
   end
 
   identities do
-    identity :unique_name, [:tenant_id, :subject, :name]
+    identity :unique_name, [:subject, :name]
   end
 
   policies do
@@ -75,22 +75,18 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action([:create, :update, :destroy]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -141,11 +137,6 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
       allow_nil? false
       default "default-agent"
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :inserted_at

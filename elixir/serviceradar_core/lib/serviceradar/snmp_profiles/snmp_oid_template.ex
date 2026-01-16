@@ -80,7 +80,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
         :oids
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change fn changeset, _context ->
         # Custom templates are never builtin
         Ash.Changeset.force_change_attribute(changeset, :is_builtin, false)

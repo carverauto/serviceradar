@@ -54,8 +54,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
         :log_level,
         :log_version,
         :unmapped,
-        :raw_data,
-        :tenant_id
+        :raw_data
       ]
 
       change fn changeset, _context ->
@@ -80,22 +79,18 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:record) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -225,11 +220,6 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
 
     attribute :raw_data, :string do
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :created_at

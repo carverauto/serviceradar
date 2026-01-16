@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   @moduledoc """
-  Tenant-scoped templates for log promotion rule presets.
+  Templates for log promotion rule presets.
   """
 
   use Ash.Resource,
@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   end
 
   identities do
-    identity :unique_name, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 
   policies do
@@ -65,22 +65,18 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action([:create, :update, :destroy]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -113,11 +109,6 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
     attribute :event, :map do
       default %{}
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :inserted_at

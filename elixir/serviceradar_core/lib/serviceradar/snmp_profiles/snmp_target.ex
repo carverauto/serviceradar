@@ -85,7 +85,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
 
       change manage_relationship(:snmp_profile_id, :snmp_profile, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
     end
 

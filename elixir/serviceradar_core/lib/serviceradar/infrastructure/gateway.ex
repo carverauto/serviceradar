@@ -188,26 +188,17 @@ defmodule ServiceRadar.Infrastructure.Gateway do
         :partition_id
       ]
 
-      change fn changeset, context ->
+      change fn changeset, _context ->
         now = DateTime.utc_now()
-        actor = context.actor
-        tenant_id = if is_map(actor), do: Map.get(actor, :tenant_id)
+        partition_id = Ash.Changeset.get_attribute(changeset, :partition_id)
 
-        if is_nil(tenant_id) do
-          changeset
-          |> Ash.Changeset.add_error(field: :tenant_id, message: "tenant_id is required")
-        else
-          partition_id = Ash.Changeset.get_attribute(changeset, :partition_id)
-
-          changeset
-          |> Ash.Changeset.change_attribute(:tenant_id, tenant_id)
-          |> Ash.Changeset.change_attribute(:partition_id, partition_id)
-          |> Ash.Changeset.change_attribute(:first_registered, now)
-          |> Ash.Changeset.change_attribute(:first_seen, now)
-          |> Ash.Changeset.change_attribute(:last_seen, now)
-          |> Ash.Changeset.change_attribute(:status, :healthy)
-          |> Ash.Changeset.change_attribute(:is_healthy, true)
-        end
+        changeset
+        |> Ash.Changeset.change_attribute(:partition_id, partition_id)
+        |> Ash.Changeset.change_attribute(:first_registered, now)
+        |> Ash.Changeset.change_attribute(:first_seen, now)
+        |> Ash.Changeset.change_attribute(:last_seen, now)
+        |> Ash.Changeset.change_attribute(:status, :healthy)
+        |> Ash.Changeset.change_attribute(:is_healthy, true)
       end
 
       change ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
@@ -351,24 +342,27 @@ defmodule ServiceRadar.Infrastructure.Gateway do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant isolation: users can only see gateways in their tenant
+    # Read access
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Registration: tenant_id is injected by the action change, so authorize via actor context.
+    # Registration
     policy action(:register) do
-      authorize_if expr(not is_nil(^actor(:tenant_id)))
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Allow updates for gateways in user's tenant
+    # Allow updates
     policy action_type(:update) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -450,13 +444,6 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     attribute :updated_at, :utc_datetime do
       public? true
       description "Last update time"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this gateway belongs to"
     end
 
     # Partition assignment

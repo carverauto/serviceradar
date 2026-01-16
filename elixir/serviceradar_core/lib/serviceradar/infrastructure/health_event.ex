@@ -205,7 +205,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

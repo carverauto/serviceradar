@@ -101,7 +101,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :priority
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
     end
 

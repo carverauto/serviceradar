@@ -62,7 +62,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
         :enabled
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do

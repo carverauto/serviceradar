@@ -35,7 +35,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.PubSub
 
   postgres do
@@ -155,24 +154,19 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         |> Ash.Changeset.change_attribute(:download_token_expires_at, token_expires_at)
       end
 
-      change fn changeset, _context ->
+      change fn changeset, context ->
         # Enqueue provisioning job and broadcast after creation
         Ash.Changeset.after_action(changeset, fn _changeset, package ->
           # Broadcast creation event
           __MODULE__.broadcast_created(package)
 
-          # Enqueue async provisioning
-          case TenantSchemas.schema_for_id(package.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, package}
-                {:error, reason} -> {:error, reason}
-              end
+          # Enqueue async provisioning - get tenant_schema from context
+          tenant_schema = context.tenant
+          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
+                 tenant_schema: tenant_schema
+               ) do
+            {:ok, _job} -> {:ok, package}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -281,12 +275,12 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       end
 
       # After revoking the package, revoke the NATS credential and broadcast
-      change fn changeset, _context ->
+      change fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn changeset, package ->
-          # Revoke associated NATS credential
+          # Revoke associated NATS credential - get tenant_schema from context
           if package.nats_credential_id do
-            tenant_schema = TenantSchemas.schema_for_tenant(package.tenant_id)
-            actor = SystemActor.for_tenant(package.tenant_id, :collector_package)
+            tenant_schema = context.tenant
+            actor = SystemActor.platform(:collector_package)
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
                    tenant: tenant_schema,
                    actor: actor
@@ -326,30 +320,23 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
     # Tenant admins can manage their tenant's packages
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:create) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:revoke) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this package belongs to"
-    end
 
     attribute :collector_type, :atom do
       allow_nil? false
@@ -483,11 +470,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
       source_attribute :nats_credential_id
       allow_nil? true
@@ -509,7 +491,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   identities do
-    identity :unique_user_name_per_tenant, [:tenant_id, :user_name]
+    identity :unique_user_name, [:user_name]
   end
 
   # PubSub broadcast helpers - delegates to ServiceRadar.Edge.PubSub

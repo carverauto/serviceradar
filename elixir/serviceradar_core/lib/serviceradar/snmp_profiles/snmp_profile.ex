@@ -79,7 +79,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
         :priority
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
     end
 

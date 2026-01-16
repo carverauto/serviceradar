@@ -73,11 +73,6 @@ defmodule ServiceRadar.Edge.TenantCA do
       filter expr(status == :active)
     end
 
-    read :by_tenant do
-      argument :tenant_id, :uuid, allow_nil?: false
-      filter expr(tenant_id == ^arg(:tenant_id))
-    end
-
     read :by_spki do
       argument :spki_sha256, :string, allow_nil?: false
       filter expr(spki_sha256 == ^arg(:spki_sha256) and status == :active)
@@ -85,9 +80,8 @@ defmodule ServiceRadar.Edge.TenantCA do
     end
 
     create :create do
-      description "Create a new tenant CA (internal use)"
+      description "Create a new CA (internal use)"
       accept [
-        :tenant_id,
         :certificate_pem,
         :private_key_pem,
         :spki_sha256,
@@ -100,15 +94,10 @@ defmodule ServiceRadar.Edge.TenantCA do
 
     create :generate do
       description """
-      Generate a new intermediate CA for a tenant.
+      Generate a new intermediate CA.
 
       Signs the CA certificate using the platform root CA.
       """
-
-      argument :tenant_id, :uuid do
-        allow_nil? false
-        description "Tenant to generate CA for"
-      end
 
       argument :validity_years, :integer do
         default 10
@@ -116,16 +105,11 @@ defmodule ServiceRadar.Edge.TenantCA do
       end
 
       change fn changeset, _context ->
-        tenant_id = Ash.Changeset.get_argument(changeset, :tenant_id)
         validity_years = Ash.Changeset.get_argument(changeset, :validity_years)
 
-        case ServiceRadar.Edge.TenantCA.Generator.generate_tenant_ca(
-               tenant_id,
-               validity_years
-             ) do
+        case ServiceRadar.Edge.TenantCA.Generator.generate_ca(validity_years) do
           {:ok, ca_data} ->
             changeset
-            |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
             |> Ash.Changeset.force_change_attribute(:certificate_pem, ca_data.certificate_pem)
             |> Ash.Changeset.force_change_attribute(:private_key_pem, ca_data.private_key_pem)
             |> Ash.Changeset.force_change_attribute(:spki_sha256, ca_data.spki_sha256)
@@ -136,13 +120,13 @@ defmodule ServiceRadar.Edge.TenantCA do
             |> Ash.Changeset.force_change_attribute(:status, :active)
 
           {:error, reason} ->
-            Ash.Changeset.add_error(changeset, field: :tenant_id, message: "CA generation failed: #{inspect(reason)}")
+            Ash.Changeset.add_error(changeset, field: :validity_years, message: "CA generation failed: #{inspect(reason)}")
         end
       end
     end
 
     update :revoke do
-      description "Revoke a tenant CA (invalidates all edge certs)"
+      description "Revoke a CA (invalidates all edge certs)"
       # Non-atomic: uses function to set revocation_reason from argument
       require_atomic? false
       argument :reason, :string
@@ -196,17 +180,10 @@ defmodule ServiceRadar.Edge.TenantCA do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this CA belongs to"
-    end
 
     attribute :certificate_pem, :string do
       allow_nil? false
@@ -280,10 +257,6 @@ defmodule ServiceRadar.Edge.TenantCA do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      public? true
-    end
   end
 
   calculations do
@@ -299,8 +272,8 @@ defmodule ServiceRadar.Edge.TenantCA do
   end
 
   identities do
-    identity :unique_active_tenant_ca, [:tenant_id, :status] do
-      # Only allow one active CA per tenant
+    identity :unique_active_ca, [:status] do
+      # Only allow one active CA
       where expr(status == :active)
     end
   end

@@ -42,7 +42,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
         :source_ids
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.AgentConfig.Changes.ComputeConfigHash
       change ServiceRadar.AgentConfig.Changes.IncrementVersion
     end

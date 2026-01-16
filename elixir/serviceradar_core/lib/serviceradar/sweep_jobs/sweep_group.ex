@@ -77,7 +77,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :profile_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
 
       validate fn changeset, _context ->

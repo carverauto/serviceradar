@@ -178,7 +178,6 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

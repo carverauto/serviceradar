@@ -71,7 +71,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :device_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     create :bulk_create do
@@ -89,7 +88,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :device_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     read :by_execution do

@@ -239,8 +239,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
         :host,
         :port,
         :spiffe_identity,
-        :metadata,
-        :tenant_id
+        :metadata
       ]
 
       upsert? true
@@ -431,23 +430,26 @@ defmodule ServiceRadar.Infrastructure.Agent do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant isolation: users can only see agents in their tenant
+    # Read access
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Allow create/update for agents in user's tenant
+    # Allow create/update
     policy action_type(:create) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:update) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -578,12 +580,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
       description "Source of sysmon config: remote (from backend), local (file override), cached, or default"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this agent belongs to"
-    end
   end
 
   relationships do

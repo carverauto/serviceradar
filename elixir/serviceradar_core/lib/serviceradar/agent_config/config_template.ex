@@ -35,7 +35,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
         :enabled
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do

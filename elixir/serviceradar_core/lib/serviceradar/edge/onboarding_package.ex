@@ -121,13 +121,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         :downstream_spiffe_id
       ]
 
-      # Set tenant_id from multitenancy context
-      change fn changeset, _context ->
-        case changeset.tenant do
-          nil -> changeset
-          tenant_id -> Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
-        end
-      end
     end
 
     update :update_tokens do
@@ -232,7 +225,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -401,13 +393,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :notes, :string do
       public? true
       description "Admin notes"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this package belongs to"
     end
 
     create_timestamp :created_at

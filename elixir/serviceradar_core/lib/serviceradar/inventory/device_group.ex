@@ -140,7 +140,6 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do

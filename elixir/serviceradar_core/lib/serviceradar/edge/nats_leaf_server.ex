@@ -39,7 +39,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
 
@@ -83,23 +82,18 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     create :create do
       description "Create NATS leaf server for an edge site"
-      accept [:edge_site_id, :tenant_id, :upstream_url, :local_listen]
+      accept [:edge_site_id, :upstream_url, :local_listen]
 
       # Trigger provisioning after creation
-      change fn changeset, _context ->
+      change fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue async provisioning
-          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ProvisionLeafWorker.enqueue(leaf_server.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, leaf_server}
-                {:error, reason} -> {:error, reason}
-              end
+          # Enqueue async provisioning - get tenant_schema from context
+          tenant_schema = context.tenant
+          case ProvisionLeafWorker.enqueue(leaf_server.id,
+                 tenant_schema: tenant_schema
+               ) do
+            {:ok, _job} -> {:ok, leaf_server}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -143,9 +137,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change set_attribute(:connected_at, &DateTime.utc_now/0)
 
       # Also update the parent EdgeSite status
-      change fn changeset, _context ->
+      change fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :active)
+          update_edge_site_status(leaf_server, :active, context.tenant)
           {:ok, leaf_server}
         end)
       end
@@ -160,9 +154,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
 
       # Also update the parent EdgeSite status
-      change fn changeset, _context ->
+      change fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :offline)
+          update_edge_site_status(leaf_server, :offline, context.tenant)
           {:ok, leaf_server}
         end)
       end
@@ -174,20 +168,15 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       require_atomic? false
       accept []
 
-      change fn changeset, _context ->
+      change fn changeset, context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue provisioning job
-          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ProvisionLeafWorker.enqueue(leaf_server.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, leaf_server}
-                {:error, reason} -> {:error, reason}
-              end
+          # Enqueue provisioning job - get tenant_schema from context
+          tenant_schema = context.tenant
+          case ProvisionLeafWorker.enqueue(leaf_server.id,
+                 tenant_schema: tenant_schema
+               ) do
+            {:ok, _job} -> {:ok, leaf_server}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -207,7 +196,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     # Tenant admins can read their tenant's servers
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Create is done internally
@@ -222,22 +211,15 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     # Reprovision requires tenant admin
     policy action(:reprovision) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this server belongs to"
-    end
 
     attribute :edge_site_id, :uuid do
       allow_nil? false
@@ -338,11 +320,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
       source_attribute :edge_site_id
       allow_nil? false
@@ -447,28 +424,22 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  defp update_edge_site_status(leaf_server, new_status) do
+  defp update_edge_site_status(leaf_server, new_status, tenant_schema) do
     action =
       case new_status do
         :active -> :activate
         :offline -> :go_offline
       end
 
-    case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-      nil ->
+    actor = SystemActor.platform(:nats_leaf_server)
+    case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, actor: actor) do
+      {:ok, site} when site.status != new_status ->
+        site
+        |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
+        |> Ash.update(actor: actor)
+
+      _ ->
         :ok
-
-      tenant_schema ->
-        actor = SystemActor.for_tenant(leaf_server.tenant_id, :nats_leaf_server)
-        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, actor: actor) do
-          {:ok, site} when site.status != new_status ->
-            site
-            |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
-            |> Ash.update(actor: actor)
-
-          _ ->
-            :ok
-        end
     end
   end
 end

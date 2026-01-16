@@ -138,30 +138,23 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
     # Tenant admins can manage their tenant's credentials
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:create) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:revoke) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this credential belongs to"
-    end
 
     attribute :user_name, :string do
       allow_nil? false
@@ -240,11 +233,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :onboarding_package, ServiceRadar.Edge.OnboardingPackage do
       source_attribute :onboarding_package_id
       allow_nil? true

@@ -59,7 +59,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
 
       accept [:sweep_group_id, :agent_id, :config_version]
 
-      change ServiceRadar.Changes.AssignTenantId
       change set_attribute(:status, :running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
     end

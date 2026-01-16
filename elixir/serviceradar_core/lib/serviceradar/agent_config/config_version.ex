@@ -43,7 +43,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
         :change_reason
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     read :for_instance do
