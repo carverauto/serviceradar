@@ -570,7 +570,7 @@ func generatePlatformAccount(
 	accountName string,
 	systemAccountPublicKey string,
 	userName string,
-) (*accounts.TenantAccountResult, string, error) {
+) (*accounts.AccountResult, string, error) {
 	if strings.TrimSpace(operatorName) == "" {
 		operatorName = defaultNATSOperatorName
 	}
@@ -595,7 +595,7 @@ func generatePlatformAccount(
 		{From: "netflow.>", To: "netflow.>"},
 	}
 
-	account, err := signer.CreateTenantAccount(accountName, nil, mappings, nil)
+	account, err := signer.CreateAccount(accountName, nil, mappings, nil)
 	if err != nil {
 		return nil, "", err
 	}

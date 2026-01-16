@@ -69,18 +69,18 @@ func authorizedContext() context.Context {
 	return peer.NewContext(context.Background(), p)
 }
 
-func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
+func TestNATSAccountServer_CreateAccount(t *testing.T) {
 	server := newTestNATSAccountServer(t)
 	ctx := authorizedContext()
 
 	t.Run("success", func(t *testing.T) {
-		req := &proto.CreateTenantAccountRequest{
-			TenantSlug: "acme-corp",
+		req := &proto.CreateAccountRequest{
+			AccountName: "acme-corp",
 		}
 
-		resp, err := server.CreateTenantAccount(ctx, req)
+		resp, err := server.CreateAccount(ctx, req)
 		if err != nil {
-			t.Fatalf("CreateTenantAccount failed: %v", err)
+			t.Fatalf("CreateAccount failed: %v", err)
 		}
 
 		if resp.AccountPublicKey == "" {
@@ -103,17 +103,17 @@ func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
 	})
 
 	t.Run("with limits", func(t *testing.T) {
-		req := &proto.CreateTenantAccountRequest{
-			TenantSlug: "limited-tenant",
+		req := &proto.CreateAccountRequest{
+			AccountName: "limited-tenant",
 			Limits: &proto.AccountLimits{
 				MaxConnections:   100,
 				MaxSubscriptions: 1000,
 			},
 		}
 
-		resp, err := server.CreateTenantAccount(ctx, req)
+		resp, err := server.CreateAccount(ctx, req)
 		if err != nil {
-			t.Fatalf("CreateTenantAccount with limits failed: %v", err)
+			t.Fatalf("CreateAccount with limits failed: %v", err)
 		}
 
 		if resp.AccountPublicKey == "" {
@@ -122,16 +122,16 @@ func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
 	})
 
 	t.Run("with subject mappings", func(t *testing.T) {
-		req := &proto.CreateTenantAccountRequest{
-			TenantSlug: "mapped-tenant",
+		req := &proto.CreateAccountRequest{
+			AccountName: "mapped-tenant",
 			SubjectMappings: []*proto.SubjectMapping{
 				{From: "events.>", To: "mapped.events.>"},
 			},
 		}
 
-		resp, err := server.CreateTenantAccount(ctx, req)
+		resp, err := server.CreateAccount(ctx, req)
 		if err != nil {
-			t.Fatalf("CreateTenantAccount with mappings failed: %v", err)
+			t.Fatalf("CreateAccount with mappings failed: %v", err)
 		}
 
 		if resp.AccountPublicKey == "" {
@@ -139,14 +139,14 @@ func TestNATSAccountServer_CreateTenantAccount(t *testing.T) {
 		}
 	})
 
-	t.Run("empty tenant slug", func(t *testing.T) {
-		req := &proto.CreateTenantAccountRequest{
-			TenantSlug: "",
+	t.Run("empty account name", func(t *testing.T) {
+		req := &proto.CreateAccountRequest{
+			AccountName: "",
 		}
 
-		_, err := server.CreateTenantAccount(ctx, req)
+		_, err := server.CreateAccount(ctx, req)
 		if err == nil {
-			t.Fatal("Expected error for empty tenant slug")
+			t.Fatal("Expected error for empty account name")
 		}
 
 		st, ok := status.FromError(err)
@@ -164,8 +164,8 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 	ctx := authorizedContext()
 
 	// First create an account to get a valid seed
-	createResp, err := server.CreateTenantAccount(ctx, &proto.CreateTenantAccountRequest{
-		TenantSlug: "test-tenant",
+	createResp, err := server.CreateAccount(ctx, &proto.CreateAccountRequest{
+		AccountName: "test-tenant",
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test account: %v", err)
@@ -173,7 +173,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("success with collector type", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			TenantSlug:     "test-tenant",
+			AccountName:     "test-tenant",
 			AccountSeed:    createResp.AccountSeed,
 			UserName:       "collector-1",
 			CredentialType: proto.UserCredentialType_USER_CREDENTIAL_TYPE_COLLECTOR,
@@ -205,7 +205,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("with expiration", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			TenantSlug:        "test-tenant",
+			AccountName:        "test-tenant",
 			AccountSeed:       createResp.AccountSeed,
 			UserName:          "expiring-user",
 			CredentialType:    proto.UserCredentialType_USER_CREDENTIAL_TYPE_SERVICE,
@@ -222,16 +222,16 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 		}
 	})
 
-	t.Run("empty tenant slug", func(t *testing.T) {
+	t.Run("empty account name", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			TenantSlug:  "",
+			AccountName:  "",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "test-user",
 		}
 
 		_, err := server.GenerateUserCredentials(ctx, req)
 		if err == nil {
-			t.Fatal("Expected error for empty tenant slug")
+			t.Fatal("Expected error for empty account name")
 		}
 
 		st, _ := status.FromError(err)
@@ -242,7 +242,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			TenantSlug:  "test-tenant",
+			AccountName:  "test-tenant",
 			AccountSeed: "",
 			UserName:    "test-user",
 		}
@@ -260,7 +260,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty user name", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			TenantSlug:  "test-tenant",
+			AccountName:  "test-tenant",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "",
 		}
@@ -282,8 +282,8 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 	ctx := authorizedContext()
 
 	// First create an account to get a valid seed
-	createResp, err := server.CreateTenantAccount(ctx, &proto.CreateTenantAccountRequest{
-		TenantSlug: "resign-tenant",
+	createResp, err := server.CreateAccount(ctx, &proto.CreateAccountRequest{
+		AccountName: "resign-tenant",
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test account: %v", err)
@@ -291,7 +291,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			TenantSlug:  "resign-tenant",
+			AccountName:  "resign-tenant",
 			AccountSeed: createResp.AccountSeed,
 		}
 
@@ -313,7 +313,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 	t.Run("with revocations", func(t *testing.T) {
 		// First generate a user to revoke
 		userResp, err := server.GenerateUserCredentials(ctx, &proto.GenerateUserCredentialsRequest{
-			TenantSlug:  "resign-tenant",
+			AccountName:  "resign-tenant",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "revoke-me",
 		})
@@ -322,7 +322,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 		}
 
 		req := &proto.SignAccountJWTRequest{
-			TenantSlug:      "resign-tenant",
+			AccountName:      "resign-tenant",
 			AccountSeed:     createResp.AccountSeed,
 			RevokedUserKeys: []string{userResp.UserPublicKey},
 		}
@@ -339,7 +339,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("with updated limits", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			TenantSlug:  "resign-tenant",
+			AccountName:  "resign-tenant",
 			AccountSeed: createResp.AccountSeed,
 			Limits: &proto.AccountLimits{
 				MaxConnections: 200,
@@ -356,15 +356,15 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 		}
 	})
 
-	t.Run("empty tenant slug", func(t *testing.T) {
+	t.Run("empty account name", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			TenantSlug:  "",
+			AccountName:  "",
 			AccountSeed: createResp.AccountSeed,
 		}
 
 		_, err := server.SignAccountJWT(ctx, req)
 		if err == nil {
-			t.Fatal("Expected error for empty tenant slug")
+			t.Fatal("Expected error for empty account name")
 		}
 
 		st, _ := status.FromError(err)
@@ -375,7 +375,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			TenantSlug:  "resign-tenant",
+			AccountName:  "resign-tenant",
 			AccountSeed: "",
 		}
 

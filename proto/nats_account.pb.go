@@ -43,7 +43,7 @@ const (
 	UserCredentialType_USER_CREDENTIAL_TYPE_UNSPECIFIED UserCredentialType = 0
 	UserCredentialType_USER_CREDENTIAL_TYPE_COLLECTOR   UserCredentialType = 1 // For edge collectors (flowgger, trapd, etc.)
 	UserCredentialType_USER_CREDENTIAL_TYPE_SERVICE     UserCredentialType = 2 // For internal services
-	UserCredentialType_USER_CREDENTIAL_TYPE_ADMIN       UserCredentialType = 3 // For tenant admin access (limited)
+	UserCredentialType_USER_CREDENTIAL_TYPE_ADMIN       UserCredentialType = 3 // For admin access (limited)
 )
 
 // Enum value maps for UserCredentialType.
@@ -182,11 +182,11 @@ func (x *AccountLimits) GetAllowWildcardExports() bool {
 	return false
 }
 
-// SubjectMapping defines how subjects are transformed for tenant isolation.
+// SubjectMapping defines how subjects are transformed for namespace isolation.
 type SubjectMapping struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	From          string                 `protobuf:"bytes,1,opt,name=from,proto3" json:"from,omitempty"` // Source subject pattern (e.g., "logs.snmp")
-	To            string                 `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`     // Destination subject pattern (e.g., "{{tenant}}.logs.snmp")
+	To            string                 `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`     // Destination subject pattern (e.g., "{{namespace}}.logs.snmp")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -357,10 +357,10 @@ func (x *StreamImport) GetName() string {
 	return ""
 }
 
-// CreateTenantAccountRequest is the request to create a new tenant NATS account.
-type CreateTenantAccountRequest struct {
+// CreateAccountRequest is the request to create a new NATS account.
+type CreateAccountRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	TenantSlug      string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`                // Unique tenant identifier (e.g., "acme-corp")
+	AccountName     string                 `protobuf:"bytes,1,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`             // Unique account identifier (e.g., "acme-corp")
 	Limits          *AccountLimits         `protobuf:"bytes,2,opt,name=limits,proto3" json:"limits,omitempty"`                                          // Optional resource limits
 	SubjectMappings []*SubjectMapping      `protobuf:"bytes,3,rep,name=subject_mappings,json=subjectMappings,proto3" json:"subject_mappings,omitempty"` // Optional custom subject mappings
 	Exports         []*StreamExport        `protobuf:"bytes,4,rep,name=exports,proto3" json:"exports,omitempty"`                                        // Optional stream exports (defaults applied server-side)
@@ -368,20 +368,20 @@ type CreateTenantAccountRequest struct {
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *CreateTenantAccountRequest) Reset() {
-	*x = CreateTenantAccountRequest{}
+func (x *CreateAccountRequest) Reset() {
+	*x = CreateAccountRequest{}
 	mi := &file_nats_account_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateTenantAccountRequest) String() string {
+func (x *CreateAccountRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateTenantAccountRequest) ProtoMessage() {}
+func (*CreateAccountRequest) ProtoMessage() {}
 
-func (x *CreateTenantAccountRequest) ProtoReflect() protoreflect.Message {
+func (x *CreateAccountRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_nats_account_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -393,42 +393,42 @@ func (x *CreateTenantAccountRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateTenantAccountRequest.ProtoReflect.Descriptor instead.
-func (*CreateTenantAccountRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateAccountRequest.ProtoReflect.Descriptor instead.
+func (*CreateAccountRequest) Descriptor() ([]byte, []int) {
 	return file_nats_account_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *CreateTenantAccountRequest) GetTenantSlug() string {
+func (x *CreateAccountRequest) GetAccountName() string {
 	if x != nil {
-		return x.TenantSlug
+		return x.AccountName
 	}
 	return ""
 }
 
-func (x *CreateTenantAccountRequest) GetLimits() *AccountLimits {
+func (x *CreateAccountRequest) GetLimits() *AccountLimits {
 	if x != nil {
 		return x.Limits
 	}
 	return nil
 }
 
-func (x *CreateTenantAccountRequest) GetSubjectMappings() []*SubjectMapping {
+func (x *CreateAccountRequest) GetSubjectMappings() []*SubjectMapping {
 	if x != nil {
 		return x.SubjectMappings
 	}
 	return nil
 }
 
-func (x *CreateTenantAccountRequest) GetExports() []*StreamExport {
+func (x *CreateAccountRequest) GetExports() []*StreamExport {
 	if x != nil {
 		return x.Exports
 	}
 	return nil
 }
 
-// CreateTenantAccountResponse returns the generated account credentials.
+// CreateAccountResponse returns the generated account credentials.
 // The account_seed should be stored encrypted by the caller (Elixir/AshCloak).
-type CreateTenantAccountResponse struct {
+type CreateAccountResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	AccountPublicKey string                 `protobuf:"bytes,1,opt,name=account_public_key,json=accountPublicKey,proto3" json:"account_public_key,omitempty"` // The account's public NKey (starts with 'A')
 	AccountSeed      string                 `protobuf:"bytes,2,opt,name=account_seed,json=accountSeed,proto3" json:"account_seed,omitempty"`                  // The account's private seed (starts with 'SA') - STORE ENCRYPTED
@@ -437,20 +437,20 @@ type CreateTenantAccountResponse struct {
 	sizeCache        protoimpl.SizeCache
 }
 
-func (x *CreateTenantAccountResponse) Reset() {
-	*x = CreateTenantAccountResponse{}
+func (x *CreateAccountResponse) Reset() {
+	*x = CreateAccountResponse{}
 	mi := &file_nats_account_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateTenantAccountResponse) String() string {
+func (x *CreateAccountResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateTenantAccountResponse) ProtoMessage() {}
+func (*CreateAccountResponse) ProtoMessage() {}
 
-func (x *CreateTenantAccountResponse) ProtoReflect() protoreflect.Message {
+func (x *CreateAccountResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_nats_account_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -462,26 +462,26 @@ func (x *CreateTenantAccountResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateTenantAccountResponse.ProtoReflect.Descriptor instead.
-func (*CreateTenantAccountResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateAccountResponse.ProtoReflect.Descriptor instead.
+func (*CreateAccountResponse) Descriptor() ([]byte, []int) {
 	return file_nats_account_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *CreateTenantAccountResponse) GetAccountPublicKey() string {
+func (x *CreateAccountResponse) GetAccountPublicKey() string {
 	if x != nil {
 		return x.AccountPublicKey
 	}
 	return ""
 }
 
-func (x *CreateTenantAccountResponse) GetAccountSeed() string {
+func (x *CreateAccountResponse) GetAccountSeed() string {
 	if x != nil {
 		return x.AccountSeed
 	}
 	return ""
 }
 
-func (x *CreateTenantAccountResponse) GetAccountJwt() string {
+func (x *CreateAccountResponse) GetAccountJwt() string {
 	if x != nil {
 		return x.AccountJwt
 	}
@@ -576,7 +576,7 @@ func (x *UserPermissions) GetMaxResponses() int32 {
 // GenerateUserCredentialsRequest is the request to create user credentials.
 type GenerateUserCredentialsRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	TenantSlug        string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`                                            // Tenant the user belongs to
+	AccountName       string                 `protobuf:"bytes,1,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`                                         // Account the user belongs to
 	AccountSeed       string                 `protobuf:"bytes,2,opt,name=account_seed,json=accountSeed,proto3" json:"account_seed,omitempty"`                                         // Account's private seed for signing (from Elixir storage)
 	UserName          string                 `protobuf:"bytes,3,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`                                                  // Human-readable user identifier
 	CredentialType    UserCredentialType     `protobuf:"varint,4,opt,name=credential_type,json=credentialType,proto3,enum=proto.UserCredentialType" json:"credential_type,omitempty"` // Type of credentials to generate
@@ -616,9 +616,9 @@ func (*GenerateUserCredentialsRequest) Descriptor() ([]byte, []int) {
 	return file_nats_account_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *GenerateUserCredentialsRequest) GetTenantSlug() string {
+func (x *GenerateUserCredentialsRequest) GetAccountName() string {
 	if x != nil {
-		return x.TenantSlug
+		return x.AccountName
 	}
 	return ""
 }
@@ -730,13 +730,13 @@ func (x *GenerateUserCredentialsResponse) GetExpiresAtUnix() int64 {
 // SignAccountJWTRequest is used to regenerate an account JWT with updated claims.
 type SignAccountJWTRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	TenantSlug      string                 `protobuf:"bytes,1,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`                  // Tenant identifier (used as account name)
+	AccountName     string                 `protobuf:"bytes,1,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`               // Account identifier (used as account name)
 	AccountSeed     string                 `protobuf:"bytes,2,opt,name=account_seed,json=accountSeed,proto3" json:"account_seed,omitempty"`               // Account's private seed (from Elixir storage)
 	Limits          *AccountLimits         `protobuf:"bytes,3,opt,name=limits,proto3" json:"limits,omitempty"`                                            // Current resource limits
 	SubjectMappings []*SubjectMapping      `protobuf:"bytes,4,rep,name=subject_mappings,json=subjectMappings,proto3" json:"subject_mappings,omitempty"`   // Current subject mappings
 	RevokedUserKeys []string               `protobuf:"bytes,5,rep,name=revoked_user_keys,json=revokedUserKeys,proto3" json:"revoked_user_keys,omitempty"` // Public keys of revoked users
 	Exports         []*StreamExport        `protobuf:"bytes,6,rep,name=exports,proto3" json:"exports,omitempty"`                                          // Optional stream exports (defaults applied server-side)
-	Imports         []*StreamImport        `protobuf:"bytes,7,rep,name=imports,proto3" json:"imports,omitempty"`                                          // Stream imports from tenant accounts
+	Imports         []*StreamImport        `protobuf:"bytes,7,rep,name=imports,proto3" json:"imports,omitempty"`                                          // Stream imports from other accounts
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -771,9 +771,9 @@ func (*SignAccountJWTRequest) Descriptor() ([]byte, []int) {
 	return file_nats_account_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *SignAccountJWTRequest) GetTenantSlug() string {
+func (x *SignAccountJWTRequest) GetAccountName() string {
 	if x != nil {
-		return x.TenantSlug
+		return x.AccountName
 	}
 	return ""
 }
@@ -1257,14 +1257,13 @@ const file_nats_account_proto_rawDesc = "" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12,\n" +
 	"\x12account_public_key\x18\x02 \x01(\tR\x10accountPublicKey\x12#\n" +
 	"\rlocal_subject\x18\x03 \x01(\tR\flocalSubject\x12\x12\n" +
-	"\x04name\x18\x04 \x01(\tR\x04name\"\xdc\x01\n" +
-	"\x1aCreateTenantAccountRequest\x12\x1f\n" +
-	"\vtenant_slug\x18\x01 \x01(\tR\n" +
-	"tenantSlug\x12,\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\"\xd8\x01\n" +
+	"\x14CreateAccountRequest\x12!\n" +
+	"\faccount_name\x18\x01 \x01(\tR\vaccountName\x12,\n" +
 	"\x06limits\x18\x02 \x01(\v2\x14.proto.AccountLimitsR\x06limits\x12@\n" +
 	"\x10subject_mappings\x18\x03 \x03(\v2\x15.proto.SubjectMappingR\x0fsubjectMappings\x12-\n" +
-	"\aexports\x18\x04 \x03(\v2\x13.proto.StreamExportR\aexports\"\x8f\x01\n" +
-	"\x1bCreateTenantAccountResponse\x12,\n" +
+	"\aexports\x18\x04 \x03(\v2\x13.proto.StreamExportR\aexports\"\x89\x01\n" +
+	"\x15CreateAccountResponse\x12,\n" +
 	"\x12account_public_key\x18\x01 \x01(\tR\x10accountPublicKey\x12!\n" +
 	"\faccount_seed\x18\x02 \x01(\tR\vaccountSeed\x12\x1f\n" +
 	"\vaccount_jwt\x18\x03 \x01(\tR\n" +
@@ -1275,10 +1274,9 @@ const file_nats_account_proto_rawDesc = "" +
 	"\x0fsubscribe_allow\x18\x03 \x03(\tR\x0esubscribeAllow\x12%\n" +
 	"\x0esubscribe_deny\x18\x04 \x03(\tR\rsubscribeDeny\x12'\n" +
 	"\x0fallow_responses\x18\x05 \x01(\bR\x0eallowResponses\x12#\n" +
-	"\rmax_responses\x18\x06 \x01(\x05R\fmaxResponses\"\xae\x02\n" +
-	"\x1eGenerateUserCredentialsRequest\x12\x1f\n" +
-	"\vtenant_slug\x18\x01 \x01(\tR\n" +
-	"tenantSlug\x12!\n" +
+	"\rmax_responses\x18\x06 \x01(\x05R\fmaxResponses\"\xb0\x02\n" +
+	"\x1eGenerateUserCredentialsRequest\x12!\n" +
+	"\faccount_name\x18\x01 \x01(\tR\vaccountName\x12!\n" +
 	"\faccount_seed\x18\x02 \x01(\tR\vaccountSeed\x12\x1b\n" +
 	"\tuser_name\x18\x03 \x01(\tR\buserName\x12B\n" +
 	"\x0fcredential_type\x18\x04 \x01(\x0e2\x19.proto.UserCredentialTypeR\x0ecredentialType\x128\n" +
@@ -1288,10 +1286,9 @@ const file_nats_account_proto_rawDesc = "" +
 	"\x0fuser_public_key\x18\x01 \x01(\tR\ruserPublicKey\x12\x19\n" +
 	"\buser_jwt\x18\x02 \x01(\tR\auserJwt\x12,\n" +
 	"\x12creds_file_content\x18\x03 \x01(\tR\x10credsFileContent\x12&\n" +
-	"\x0fexpires_at_unix\x18\x04 \x01(\x03R\rexpiresAtUnix\"\xd5\x02\n" +
-	"\x15SignAccountJWTRequest\x12\x1f\n" +
-	"\vtenant_slug\x18\x01 \x01(\tR\n" +
-	"tenantSlug\x12!\n" +
+	"\x0fexpires_at_unix\x18\x04 \x01(\x03R\rexpiresAtUnix\"\xd7\x02\n" +
+	"\x15SignAccountJWTRequest\x12!\n" +
+	"\faccount_name\x18\x01 \x01(\tR\vaccountName\x12!\n" +
 	"\faccount_seed\x18\x02 \x01(\tR\vaccountSeed\x12,\n" +
 	"\x06limits\x18\x03 \x01(\v2\x14.proto.AccountLimitsR\x06limits\x12@\n" +
 	"\x10subject_mappings\x18\x04 \x03(\v2\x15.proto.SubjectMappingR\x0fsubjectMappings\x12*\n" +
@@ -1330,11 +1327,11 @@ const file_nats_account_proto_rawDesc = "" +
 	" USER_CREDENTIAL_TYPE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eUSER_CREDENTIAL_TYPE_COLLECTOR\x10\x01\x12 \n" +
 	"\x1cUSER_CREDENTIAL_TYPE_SERVICE\x10\x02\x12\x1e\n" +
-	"\x1aUSER_CREDENTIAL_TYPE_ADMIN\x10\x032\xb0\x04\n" +
+	"\x1aUSER_CREDENTIAL_TYPE_ADMIN\x10\x032\x9e\x04\n" +
 	"\x12NATSAccountService\x12X\n" +
 	"\x11BootstrapOperator\x12\x1f.proto.BootstrapOperatorRequest\x1a .proto.BootstrapOperatorResponse\"\x00\x12R\n" +
-	"\x0fGetOperatorInfo\x12\x1d.proto.GetOperatorInfoRequest\x1a\x1e.proto.GetOperatorInfoResponse\"\x00\x12^\n" +
-	"\x13CreateTenantAccount\x12!.proto.CreateTenantAccountRequest\x1a\".proto.CreateTenantAccountResponse\"\x00\x12j\n" +
+	"\x0fGetOperatorInfo\x12\x1d.proto.GetOperatorInfoRequest\x1a\x1e.proto.GetOperatorInfoResponse\"\x00\x12L\n" +
+	"\rCreateAccount\x12\x1b.proto.CreateAccountRequest\x1a\x1c.proto.CreateAccountResponse\"\x00\x12j\n" +
 	"\x17GenerateUserCredentials\x12%.proto.GenerateUserCredentialsRequest\x1a&.proto.GenerateUserCredentialsResponse\"\x00\x12O\n" +
 	"\x0eSignAccountJWT\x12\x1c.proto.SignAccountJWTRequest\x1a\x1d.proto.SignAccountJWTResponse\"\x00\x12O\n" +
 	"\x0ePushAccountJWT\x12\x1c.proto.PushAccountJWTRequest\x1a\x1d.proto.PushAccountJWTResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
@@ -1359,8 +1356,8 @@ var file_nats_account_proto_goTypes = []any{
 	(*SubjectMapping)(nil),                  // 2: proto.SubjectMapping
 	(*StreamExport)(nil),                    // 3: proto.StreamExport
 	(*StreamImport)(nil),                    // 4: proto.StreamImport
-	(*CreateTenantAccountRequest)(nil),      // 5: proto.CreateTenantAccountRequest
-	(*CreateTenantAccountResponse)(nil),     // 6: proto.CreateTenantAccountResponse
+	(*CreateAccountRequest)(nil),            // 5: proto.CreateAccountRequest
+	(*CreateAccountResponse)(nil),           // 6: proto.CreateAccountResponse
 	(*UserPermissions)(nil),                 // 7: proto.UserPermissions
 	(*GenerateUserCredentialsRequest)(nil),  // 8: proto.GenerateUserCredentialsRequest
 	(*GenerateUserCredentialsResponse)(nil), // 9: proto.GenerateUserCredentialsResponse
@@ -1374,9 +1371,9 @@ var file_nats_account_proto_goTypes = []any{
 	(*PushAccountJWTResponse)(nil),          // 17: proto.PushAccountJWTResponse
 }
 var file_nats_account_proto_depIdxs = []int32{
-	1,  // 0: proto.CreateTenantAccountRequest.limits:type_name -> proto.AccountLimits
-	2,  // 1: proto.CreateTenantAccountRequest.subject_mappings:type_name -> proto.SubjectMapping
-	3,  // 2: proto.CreateTenantAccountRequest.exports:type_name -> proto.StreamExport
+	1,  // 0: proto.CreateAccountRequest.limits:type_name -> proto.AccountLimits
+	2,  // 1: proto.CreateAccountRequest.subject_mappings:type_name -> proto.SubjectMapping
+	3,  // 2: proto.CreateAccountRequest.exports:type_name -> proto.StreamExport
 	0,  // 3: proto.GenerateUserCredentialsRequest.credential_type:type_name -> proto.UserCredentialType
 	7,  // 4: proto.GenerateUserCredentialsRequest.permissions:type_name -> proto.UserPermissions
 	1,  // 5: proto.SignAccountJWTRequest.limits:type_name -> proto.AccountLimits
@@ -1385,13 +1382,13 @@ var file_nats_account_proto_depIdxs = []int32{
 	4,  // 8: proto.SignAccountJWTRequest.imports:type_name -> proto.StreamImport
 	12, // 9: proto.NATSAccountService.BootstrapOperator:input_type -> proto.BootstrapOperatorRequest
 	14, // 10: proto.NATSAccountService.GetOperatorInfo:input_type -> proto.GetOperatorInfoRequest
-	5,  // 11: proto.NATSAccountService.CreateTenantAccount:input_type -> proto.CreateTenantAccountRequest
+	5,  // 11: proto.NATSAccountService.CreateAccount:input_type -> proto.CreateAccountRequest
 	8,  // 12: proto.NATSAccountService.GenerateUserCredentials:input_type -> proto.GenerateUserCredentialsRequest
 	10, // 13: proto.NATSAccountService.SignAccountJWT:input_type -> proto.SignAccountJWTRequest
 	16, // 14: proto.NATSAccountService.PushAccountJWT:input_type -> proto.PushAccountJWTRequest
 	13, // 15: proto.NATSAccountService.BootstrapOperator:output_type -> proto.BootstrapOperatorResponse
 	15, // 16: proto.NATSAccountService.GetOperatorInfo:output_type -> proto.GetOperatorInfoResponse
-	6,  // 17: proto.NATSAccountService.CreateTenantAccount:output_type -> proto.CreateTenantAccountResponse
+	6,  // 17: proto.NATSAccountService.CreateAccount:output_type -> proto.CreateAccountResponse
 	9,  // 18: proto.NATSAccountService.GenerateUserCredentials:output_type -> proto.GenerateUserCredentialsResponse
 	11, // 19: proto.NATSAccountService.SignAccountJWT:output_type -> proto.SignAccountJWTResponse
 	17, // 20: proto.NATSAccountService.PushAccountJWT:output_type -> proto.PushAccountJWTResponse

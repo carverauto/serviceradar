@@ -183,7 +183,7 @@ func TestGenerateUserCredentials_ServiceType(t *testing.T) {
 		t.Fatalf("jwt.DecodeUserClaims() error = %v", err)
 	}
 
-	// Verify service permissions (broader tenant scope)
+	// Verify service permissions (broader namespace scope)
 	pubAllow := claims.Pub.Allow
 	if !contains(pubAllow, "test-tenant.>") {
 		t.Error("Service should have 'test-tenant.>' publish permission")

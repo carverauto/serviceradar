@@ -195,7 +195,6 @@ type EdgeTemplate struct {
 // CollectorPackage represents a collector deployment package with NATS credentials.
 type CollectorPackage struct {
 	PackageID              string                 `json:"package_id"`
-	TenantID               string                 `json:"tenant_id"`
 	CollectorType          CollectorType          `json:"collector_type"`
 	UserName               string                 `json:"user_name"`
 	Site                   string                 `json:"site,omitempty"`
@@ -218,7 +217,6 @@ type CollectorPackage struct {
 // NatsCredential represents a NATS user credential issued to a collector.
 type NatsCredential struct {
 	CredentialID   string        `json:"credential_id"`
-	TenantID       string        `json:"tenant_id"`
 	UserName       string        `json:"user_name"`
 	UserPublicKey  string        `json:"user_public_key"`
 	CredentialType string        `json:"credential_type"` // collector, service, admin

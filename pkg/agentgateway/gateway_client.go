@@ -427,8 +427,6 @@ func (g *GatewayClient) Hello(ctx context.Context, req *proto.AgentHelloRequest)
 	g.logger.Info().
 		Str("agent_id", resp.AgentId).
 		Str("gateway_id", resp.GatewayId).
-		Str("tenant_id", resp.TenantId).
-		Str("tenant_slug", resp.TenantSlug).
 		Int32("heartbeat_interval_sec", resp.HeartbeatIntervalSec).
 		Bool("config_outdated", resp.ConfigOutdated).
 		Msg("Agent enrolled with gateway")

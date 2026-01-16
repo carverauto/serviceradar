@@ -51,10 +51,10 @@ type UserCredentials struct {
 	ExpiresAt        time.Time `json:"expires_at,omitempty"`
 }
 
-// GenerateUserCredentials creates NATS credentials for a user in a tenant's account.
-// The accountSeed is the tenant's account private key (passed from Elixir storage).
+// GenerateUserCredentials creates NATS credentials for a user in an account.
+// The accountSeed is the account private key (passed from Elixir storage).
 func GenerateUserCredentials(
-	tenantSlug string,
+	namespace string,
 	accountSeed string,
 	userName string,
 	credType UserCredentialType,
@@ -94,7 +94,7 @@ func GenerateUserCredentials(
 	claims.IssuerAccount = accountPublicKey
 
 	// Apply permissions based on credential type
-	applyUserPermissions(claims, tenantSlug, credType, permissions)
+	applyUserPermissions(claims, namespace, credType, permissions)
 
 	// Set expiration if specified
 	var expiresAt time.Time
@@ -123,14 +123,14 @@ func GenerateUserCredentials(
 // applyUserPermissions sets permissions on user claims based on credential type.
 func applyUserPermissions(
 	claims *jwt.UserClaims,
-	tenantSlug string,
+	namespace string,
 	credType UserCredentialType,
 	custom *UserPermissions,
 ) {
 	// Start with type-based defaults
 	switch credType {
 	case CredentialTypeCollector:
-		// Collectors can publish to their tenant's subjects (mapped by account)
+		// Collectors can publish to subjects (mapped by account to namespace-prefixed)
 		// and subscribe to responses
 		claims.Pub.Allow.Add("logs.>")
 		claims.Pub.Allow.Add("otel.traces.>")
@@ -144,9 +144,9 @@ func applyUserPermissions(
 		}
 
 	case CredentialTypeService:
-		// Internal services have broader permissions within tenant scope
-		claims.Pub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
-		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
+		// Internal services have broader permissions within namespace scope
+		claims.Pub.Allow.Add(fmt.Sprintf("%s.>", namespace))
+		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", namespace))
 		claims.Sub.Allow.Add("_INBOX.>")
 		claims.Resp = &jwt.ResponsePermission{
 			MaxMsgs: 100,
@@ -154,11 +154,11 @@ func applyUserPermissions(
 		}
 
 	case CredentialTypeAdmin:
-		// Admin can read from tenant subjects but not publish
-		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", tenantSlug))
+		// Admin can read from namespace subjects but not publish
+		claims.Sub.Allow.Add(fmt.Sprintf("%s.>", namespace))
 		claims.Sub.Allow.Add("_INBOX.>")
 		// Limited publish for admin operations
-		claims.Pub.Allow.Add(fmt.Sprintf("%s.admin.>", tenantSlug))
+		claims.Pub.Allow.Add(fmt.Sprintf("%s.admin.>", namespace))
 	}
 
 	// Override with custom permissions if provided
