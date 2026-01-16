@@ -110,8 +110,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     get "/nats/tenants", NatsController, :tenants
     post "/nats/tenants/:id/reprovision", NatsController, :reprovision
 
-    # Tenant workload credentials (operator)
-    post "/tenant-workloads/:id/credentials", TenantWorkloadController, :credentials
+    # Workload credentials (operator) - tenant is implicit from instance config
+    post "/workloads/credentials", TenantWorkloadController, :credentials
 
     # Collector package management (tenant admin)
     get "/collectors", CollectorController, :index
@@ -313,7 +313,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
 
     post "/users/update-password", UserSessionController, :update_password
-    post "/tenants/switch/:tenant_id", TenantController, :switch
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -349,17 +348,16 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  # Set the Ash actor and tenant from the current user for policy enforcement
+  # Set the Ash actor from the current user for policy enforcement
   # Includes partition context from request header or session
+  # Tenant context is set by ResolveTenant plug (single-tenant instance)
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
-      %Scope{user: user} = scope when not is_nil(user) ->
+      %Scope{user: user} when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
-        tenant_id = Scope.tenant_id(scope)
 
         actor = %{
           id: user.id,
-          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -370,19 +368,6 @@ defmodule ServiceRadarWebNGWeb.Router do
         |> assign(:ash_actor, actor)
         |> assign(:current_partition_id, partition_id)
         |> Ash.PlugHelpers.set_actor(actor)
-        |> maybe_set_tenant(tenant_id)
-
-      _ ->
-        conn
-    end
-  end
-
-  defp maybe_set_tenant(conn, nil), do: conn
-
-  defp maybe_set_tenant(conn, tenant_id) do
-    case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
-      tenant_schema when is_binary(tenant_schema) ->
-        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
 
       _ ->
         conn

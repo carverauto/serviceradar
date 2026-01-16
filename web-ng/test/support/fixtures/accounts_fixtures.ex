@@ -12,12 +12,11 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello_world_123!"
-  def test_tenant_id, do: ServiceRadarWebNG.DataCase.test_tenant_id()
 
+  # In a tenant instance, tenant context is implicit from PostgreSQL search_path
   def valid_user_attributes(attrs \\ %{}) do
     Enum.into(attrs, %{
-      email: unique_user_email(),
-      tenant_id: test_tenant_id()
+      email: unique_user_email()
     })
   end
 
@@ -78,9 +77,8 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
     # since the Ash change_password action requires current_password
     hashed = Bcrypt.hash_pwd_salt(valid_user_password())
 
-    tenant_schema =
-      ServiceRadar.Cluster.TenantSchemas.schema_for_id(user.tenant_id) ||
-        raise "Missing tenant schema for #{inspect(user.tenant_id)}"
+    # In a tenant instance, tenant schema comes from config
+    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     {1, nil} =
       ServiceRadarWebNG.Repo.update_all(

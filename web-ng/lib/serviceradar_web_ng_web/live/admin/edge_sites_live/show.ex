@@ -521,10 +521,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp load_tenant(actor) do
-    # Get tenant_id from the actor (user)
-    tenant_id = actor.tenant_id
-
-    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
+    # In tenant instance UI, we load the tenant from the user's scope
+    # The tenant is implicitly scoped via PostgreSQL search_path
+    case ServiceRadar.Identity.Tenant
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.limit(1)
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}

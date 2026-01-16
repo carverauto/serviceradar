@@ -695,25 +695,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     }
   end
 
-  defp load_job_counts(scope) do
-    job_scope = job_scope_opts(scope)
-    total = JobCatalog.list_all_jobs(job_scope) |> length()
+  # In a tenant instance, all jobs are visible (no tenant filtering needed)
+  defp load_job_counts(_scope) do
+    total = JobCatalog.list_all_jobs() |> length()
     %{total: total}
   end
-
-  defp job_scope_opts(scope) do
-    scope = scope || %{}
-    tenant_id = Scope.tenant_id(scope)
-    platform_admin? = can_view_platform_jobs?(scope)
-
-    [tenant_id: tenant_id, platform_admin?: platform_admin?]
-  end
-
-  defp can_view_platform_jobs?(%{active_tenant: tenant}), do: platform_tenant?(tenant)
-  defp can_view_platform_jobs?(_), do: false
-
-  defp platform_tenant?(%{is_platform_tenant: true}), do: true
-  defp platform_tenant?(_), do: false
 
   defp load_initial_gateways_cache do
     [Node.self() | Node.list()]

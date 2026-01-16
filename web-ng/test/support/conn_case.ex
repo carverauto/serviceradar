@@ -66,24 +66,20 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, _opts \\ []) do
+    # In a tenant instance, tenant is implicit from PostgreSQL search_path
     tenant_schema =
       case Map.fetch(user.__metadata__, :tenant) do
         {:ok, tenant} when is_binary(tenant) -> tenant
-        _ -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(user.tenant_id)
+        _ -> ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
       end
 
-    # Generate an Ash JWT token for the user
+    # Generate an Ash JWT token for the user (no tenant_id in claims)
     {:ok, token, _claims} =
-      AshAuthentication.Jwt.token_for_user(
-        user,
-        %{"tenant_id" => user.tenant_id},
-        tenant: tenant_schema
-      )
+      AshAuthentication.Jwt.token_for_user(user, %{}, tenant: tenant_schema)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
     |> Plug.Conn.put_session("user_token", token)
-    |> Plug.Conn.put_session("active_tenant_id", user.tenant_id)
     |> Plug.Conn.put_session("tenant", tenant_schema)
     |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
@@ -119,19 +115,16 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_api_user(conn, user, _opts \\ []) do
+    # In a tenant instance, tenant is implicit from PostgreSQL search_path
     tenant_schema =
       case Map.fetch(user.__metadata__, :tenant) do
         {:ok, tenant} when is_binary(tenant) -> tenant
-        _ -> ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(user.tenant_id)
+        _ -> ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
       end
 
-    # Generate an Ash JWT token for the user
+    # Generate an Ash JWT token for the user (no tenant_id in claims)
     {:ok, token, _claims} =
-      AshAuthentication.Jwt.token_for_user(
-        user,
-        %{"tenant_id" => user.tenant_id},
-        tenant: tenant_schema
-      )
+      AshAuthentication.Jwt.token_for_user(user, %{}, tenant: tenant_schema)
 
     conn
     |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")

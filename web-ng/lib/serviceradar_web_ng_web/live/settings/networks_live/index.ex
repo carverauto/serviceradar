@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
-  alias ServiceRadarWebNG.Accounts.Scope
 
   alias ServiceRadar.SweepJobs.{
     CriteriaQuery,
@@ -100,13 +99,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
-    tenant_id = Scope.tenant_id(scope)
 
     if connected?(socket) do
-      # Subscribe to tenant-specific sweep updates
-      if tenant_id do
-        SweepPubSub.subscribe(tenant_id)
-      end
+      # Subscribe to sweep updates for this instance
+      SweepPubSub.subscribe()
 
       # Refresh active scans periodically (fallback for any missed events)
       :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)

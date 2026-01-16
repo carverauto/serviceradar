@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.PartitionContext do
 
       %{
         id: user.id,
-        tenant_id: user.tenant_id,
         role: :admin,
         partition_id: "uuid-here"  # Added by this plug
       }
@@ -132,7 +131,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.PartitionContext do
   def build_actor_with_partition(user, partition_id \\ nil) do
     base_actor = %{
       id: user.id,
-      tenant_id: user.tenant_id,
       role: user.role,
       email: user.email
     }

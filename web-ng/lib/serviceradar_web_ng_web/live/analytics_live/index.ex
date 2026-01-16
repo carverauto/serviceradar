@@ -191,11 +191,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     safe_schema_for_tenant(active_tenant)
   end
 
-  defp schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
+  defp schema_for_scope(_) do
+    # For tenant instance UI, use the configured default tenant schema
+    ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
   end
-
-  defp schema_for_scope(_), do: nil
 
   defp safe_schema_for_tenant(tenant) do
     TenantSchemas.schema_for_tenant(tenant)

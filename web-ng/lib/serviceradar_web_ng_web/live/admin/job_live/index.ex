@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Jobs.JobCatalog
 
   @default_per_page 20
@@ -133,11 +132,9 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
     # Only admins can trigger jobs
     if can_trigger_jobs?(scope) do
-      job_scope = job_scope_opts(socket)
-
       with {:ok, id} <- decode_job_id(encoded_id),
-           {:ok, job} <- JobCatalog.get_job(id, job_scope),
-           {:ok, _oban_job} <- JobCatalog.trigger_job(job, job_scope) do
+           {:ok, job} <- JobCatalog.get_job(id),
+           {:ok, _oban_job} <- JobCatalog.trigger_job(job) do
         {:noreply,
          socket
          |> put_flash(:info, "Job '#{job.name}' triggered successfully")
@@ -534,8 +531,6 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   end
 
   defp load_jobs(socket) do
-    job_scope = job_scope_opts(socket)
-
     filters = [
       source: socket.assigns.filter_source,
       search: socket.assigns.search,
@@ -545,8 +540,8 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
       per_page: socket.assigns.per_page
     ]
 
-    {jobs, filtered_count} = JobCatalog.list_jobs(filters, job_scope)
-    all_jobs = JobCatalog.list_all_jobs(job_scope)
+    {jobs, filtered_count} = JobCatalog.list_jobs(filters)
+    all_jobs = JobCatalog.list_all_jobs()
 
     cron_count = Enum.count(all_jobs, &(&1.source == :cron_plugin))
     ash_oban_count = Enum.count(all_jobs, &(&1.source == :ash_oban))
@@ -572,71 +567,26 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
     |> assign(:can_trigger, can_trigger)
   end
 
-  defp job_scope_opts(socket) do
-    scope = socket.assigns.current_scope || %{}
-    tenant_id = Scope.tenant_id(scope)
-    # Platform tenant users can view all platform jobs
-    # Other tenants only see tenant-scoped AshOban jobs
-    platform_admin? = can_view_platform_jobs?(scope)
-
-    [tenant_id: tenant_id, platform_admin?: platform_admin?]
-  end
-
-  # Platform tenant users can view platform-level jobs regardless of role
-  defp can_view_platform_jobs?(%{active_tenant: tenant}) do
-    platform_tenant?(tenant)
-  end
-
-  defp can_view_platform_jobs?(_), do: false
-
-  # Admin users can trigger jobs manually
-  defp can_trigger_jobs?(%{
-         user: %{role: role},
-         active_tenant: tenant,
-         tenant_memberships: memberships
-       }) do
-    platform_tenant?(tenant) && tenant_admin?(role, tenant, memberships)
+  # In a tenant instance, admin users can trigger jobs
+  defp can_trigger_jobs?(%{user: %{role: role}}) do
+    role in [:admin, :super_admin]
   end
 
   defp can_trigger_jobs?(_), do: false
 
-  defp admin_role?(role), do: role in [:admin, :super_admin]
-
-  defp platform_tenant?(%{is_platform_tenant: true}), do: true
-  defp platform_tenant?(_), do: false
-
-  defp show_oban_web?(%{
-         user: %{role: role},
-         active_tenant: tenant,
-         tenant_memberships: memberships
-       }) do
-    platform_tenant?(tenant) || tenant_admin?(role, tenant, memberships)
+  # In a tenant instance, all authenticated users can see Oban Web
+  defp show_oban_web?(%{user: %{role: role}}) do
+    role in [:admin, :super_admin]
   end
 
   defp show_oban_web?(_), do: false
 
-  defp show_leader_info?(%{
-         user: %{role: role},
-         active_tenant: tenant,
-         tenant_memberships: memberships
-       }) do
-    platform_tenant?(tenant) && tenant_admin?(role, tenant, memberships)
+  # In a tenant instance, admin users can see leader info
+  defp show_leader_info?(%{user: %{role: role}}) do
+    role in [:admin, :super_admin]
   end
 
   defp show_leader_info?(_), do: false
-
-  defp tenant_admin?(role, tenant, memberships) do
-    admin_role?(role) || membership_admin?(tenant, memberships)
-  end
-
-  defp membership_admin?(%{id: tenant_id}, memberships) do
-    Enum.any?(memberships || [], fn membership ->
-      to_string(membership.tenant_id) == to_string(tenant_id) and
-        membership.role in [:admin, :owner]
-    end)
-  end
-
-  defp membership_admin?(_, _), do: false
 
   defp schedule_refresh(socket) do
     interval_ms = socket.assigns.refresh_interval * 1000

@@ -12,14 +12,18 @@ defmodule ServiceRadarWebNG.DataCase do
   PostgreSQL, you can even run database tests asynchronously
   by setting `use ServiceRadarWebNG.DataCase, async: true`, although
   this option is not recommended for other databases.
+
+  ## Tenant Instance Model
+
+  In a tenant instance, the tenant schema is determined by PostgreSQL search_path
+  set via CNPG credentials. For tests, we use the default tenant schema from config.
   """
 
   use ExUnit.CaseTemplate
 
-  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
+  alias ServiceRadar.Cluster.TenantSchemas
 
-  # Default test tenant ID - must match the UUID format
-  @test_tenant_id "00000000-0000-0000-0000-000000000099"
+  # Default test tenant slug for schema setup
   @test_tenant_slug "test-tenant"
 
   using do
@@ -35,7 +39,7 @@ defmodule ServiceRadarWebNG.DataCase do
 
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
-    ServiceRadarWebNG.DataCase.ensure_test_tenant()
+    ServiceRadarWebNG.DataCase.ensure_test_schema()
     :ok
   end
 
@@ -49,53 +53,33 @@ defmodule ServiceRadarWebNG.DataCase do
   end
 
   @doc """
-  Ensures the test tenant exists in the database.
-  Creates it if it doesn't exist.
+  Ensures the test tenant schema exists for isolated testing.
   """
-  def ensure_test_tenant do
-    tenant_id = test_tenant_id()
-    {:ok, tenant_uuid} = Ecto.UUID.dump(tenant_id)
-
-    # Check if tenant already exists
-    case ServiceRadar.Repo.get_by(ServiceRadar.Identity.Tenant, id: tenant_id) do
-      nil ->
-        # Create test tenant directly via SQL to avoid Ash authorization
-        now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-        ServiceRadar.Repo.insert_all(
-          "tenants",
-          [
-            %{
-              id: tenant_uuid,
-              name: "Test Tenant",
-              slug: @test_tenant_slug,
-              status: "active",
-              plan: "enterprise",
-              max_devices: 1000,
-              max_users: 100,
-              settings: %{},
-              inserted_at: now,
-              updated_at: now
-            }
-          ],
-          on_conflict: :nothing
-        )
-
-      _tenant ->
-        :ok
-    end
-
-    TenantRegistry.register_slug(@test_tenant_slug, tenant_id)
-
+  def ensure_test_schema do
+    # In a tenant instance, we just need to ensure the schema exists
     if not TenantSchemas.schema_exists?(@test_tenant_slug) do
       {:ok, _schema} = TenantSchemas.create_schema(@test_tenant_slug)
     end
+
+    :ok
   end
 
   @doc """
-  Returns the test tenant ID.
+  Returns the test tenant slug for schema operations.
   """
-  def test_tenant_id, do: @test_tenant_id
+  def test_tenant_slug, do: @test_tenant_slug
+
+  @doc """
+  DEPRECATED: Returns the test tenant ID.
+
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path,
+  not by tenant_id in records. This function is kept temporarily for legacy
+  tests that still use raw SQL inserts with tenant_id columns.
+
+  New tests should use Ash fixtures which don't require tenant_id.
+  """
+  @deprecated "Use Ash fixtures instead of raw SQL inserts with tenant_id"
+  def test_tenant_id, do: "00000000-0000-0000-0000-000000000099"
 
   @doc """
   A helper that transforms changeset errors into a map of messages.

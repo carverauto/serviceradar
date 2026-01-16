@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Infrastructure.HealthPubSub
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 20
@@ -15,12 +14,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      tenant_id = Scope.tenant_id(socket.assigns[:current_scope])
-
-      if is_binary(tenant_id) and tenant_id != "" do
-        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic(tenant_id))
-        Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic(tenant_id))
-      end
+      # Tenant instance - subscribe to instance-wide topics
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
     end
 
     {:ok,

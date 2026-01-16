@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
 
   - Authorization failures (policy denials)
   - Suspicious access patterns (multiple failures)
-  - Cross-tenant access attempts (should never succeed)
   - Partition isolation violations
 
   ## Log Format
@@ -20,7 +19,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
         event_type: "authorization_failure",
         actor_id: "user-uuid",
         actor_email: "user@example.com",
-        tenant_id: "tenant-uuid",
         resource: "ServiceRadar.Infrastructure.Gateway",
         action: :read,
         request_path: "/api/v2/gateways",
@@ -70,7 +68,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
     event = %{
       event_type: "authorization_failure",
       actor_id: Keyword.get(opts, :actor_id, "unknown"),
-      tenant_id: Keyword.get(opts, :tenant_id, "unknown"),
       resource: extract_resource(error),
       action: extract_action(error),
       timestamp: DateTime.utc_now(),
@@ -103,29 +100,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
     )
   end
 
-  @doc """
-  Log a potential cross-tenant access attempt.
-
-  This is a high-severity event that should trigger immediate investigation.
-  """
-  def log_cross_tenant_attempt(actor_id, actor_tenant, resource_tenant, resource, action) do
-    event = %{
-      event_type: "cross_tenant_attempt",
-      actor_id: actor_id,
-      actor_tenant_id: actor_tenant,
-      resource_tenant_id: resource_tenant,
-      resource: resource,
-      action: action,
-      timestamp: DateTime.utc_now(),
-      severity: :critical
-    }
-
-    Logger.error(fn -> format_event(event) end,
-      event_type: :security_audit,
-      severity: :critical
-    )
-  end
-
   # Private functions
 
   defp build_event_from_conn(conn, error, opts) do
@@ -135,7 +109,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
       event_type: "authorization_failure",
       actor_id: get_actor_id(actor),
       actor_email: get_actor_email(actor),
-      tenant_id: get_tenant_id(actor),
       partition_id: conn.assigns[:current_partition_id],
       resource: extract_resource(error),
       action: Keyword.get(opts, :action) || extract_action(error),
@@ -156,7 +129,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
       event_type: "authorization_failure",
       actor_id: get_actor_id(actor),
       actor_email: get_actor_email(actor),
-      tenant_id: get_tenant_id(actor),
       partition_id: socket.assigns[:current_partition_id],
       resource: extract_resource(error),
       action: Keyword.get(opts, :action) || extract_action(error),
@@ -175,10 +147,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
   defp get_actor_email(%{email: email}), do: email
   defp get_actor_email(%{user: %{email: email}}), do: email
   defp get_actor_email(_), do: nil
-
-  defp get_tenant_id(%{tenant_id: tenant_id}), do: tenant_id
-  defp get_tenant_id(%{user: %{tenant_id: tenant_id}}), do: tenant_id
-  defp get_tenant_id(_), do: nil
 
   defp get_client_ip(conn) do
     case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
@@ -212,13 +180,6 @@ defmodule ServiceRadarWebNGWeb.AuthorizationAudit do
       "resource=#{event[:resource]}",
       "action=#{event[:action]}"
     ]
-
-    parts =
-      if event[:tenant_id] do
-        parts ++ ["tenant=#{event.tenant_id}"]
-      else
-        parts
-      end
 
     parts =
       if event[:request_path] do

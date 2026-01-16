@@ -48,13 +48,15 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   @doc """
   Returns a system actor that bypasses all authorization.
   Used for creating test fixtures without policy restrictions.
+
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path,
+  not by actor tenant_id.
   """
   def system_actor do
     %{
       id: "00000000-0000-0000-0000-000000000000",
       email: "system@serviceradar.test",
-      role: :super_admin,
-      tenant_id: nil
+      role: :super_admin
     }
   end
 
@@ -63,62 +65,55 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates an admin actor for the given tenant.
-  """
-  def admin_actor(tenant) when is_struct(tenant, Tenant) do
-    admin_actor(tenant.id)
-  end
+  Creates an admin actor.
 
-  def admin_actor(tenant_id) when is_binary(tenant_id) do
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
+  The actor only needs id, email, and role.
+  """
+  def admin_actor(_tenant \\ nil) do
     %{
       id: Ecto.UUID.generate(),
       email: "admin-#{System.unique_integer([:positive])}@test.local",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
   end
 
   @doc """
-  Creates an operator actor for the given tenant.
-  """
-  def operator_actor(tenant) when is_struct(tenant, Tenant) do
-    operator_actor(tenant.id)
-  end
+  Creates an operator actor.
 
-  def operator_actor(tenant_id) when is_binary(tenant_id) do
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
+  """
+  def operator_actor(_tenant \\ nil) do
     %{
       id: Ecto.UUID.generate(),
       email: "operator-#{System.unique_integer([:positive])}@test.local",
-      role: :operator,
-      tenant_id: tenant_id
+      role: :operator
     }
   end
 
   @doc """
-  Creates a viewer actor for the given tenant.
-  """
-  def viewer_actor(tenant) when is_struct(tenant, Tenant) do
-    viewer_actor(tenant.id)
-  end
+  Creates a viewer actor.
 
-  def viewer_actor(tenant_id) when is_binary(tenant_id) do
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
+  """
+  def viewer_actor(_tenant \\ nil) do
     %{
       id: Ecto.UUID.generate(),
       email: "viewer-#{System.unique_integer([:positive])}@test.local",
-      role: :viewer,
-      tenant_id: tenant_id
+      role: :viewer
     }
   end
 
   @doc """
   Creates an actor map from a User struct.
+
+  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
   """
   def actor_for_user(%User{} = user) do
     %{
       id: user.id,
       email: user.email,
-      role: user.role || :viewer,
-      tenant_id: user.tenant_id
+      role: user.role || :viewer
     }
   end
 
@@ -338,6 +333,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   def agent_fixture(%Gateway{} = gateway, attrs) do
     unique = System.unique_integer([:positive])
+    # In a tenant instance, tenant schema is determined by config
+    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     defaults = %{
       uid: "agent-#{unique}",
@@ -352,7 +349,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
       authorize?: false,
-      tenant: gateway.tenant_id
+      tenant: tenant_schema
     )
     |> Ash.create!()
   end
@@ -364,6 +361,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   def checker_fixture(%Agent{} = agent, attrs) do
     unique = System.unique_integer([:positive])
+    # In a tenant instance, tenant schema is determined by config
+    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     defaults = %{
       name: "Checker #{unique}",
@@ -378,7 +377,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
       authorize?: false,
-      tenant: agent.tenant_id
+      tenant: tenant_schema
     )
     |> Ash.create!()
   end

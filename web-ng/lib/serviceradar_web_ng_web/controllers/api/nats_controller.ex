@@ -6,7 +6,6 @@ defmodule ServiceRadarWebNG.Api.NatsController do
   - Platform NATS server bootstrap (operator setup)
   - Bootstrap token generation
   - NATS operator status
-  - Tenant NATS account management
   """
 
   use ServiceRadarWebNGWeb, :controller
@@ -129,68 +128,6 @@ defmodule ServiceRadarWebNG.Api.NatsController do
     end
   end
 
-  @doc """
-  GET /api/admin/nats/tenants
-
-  Lists all tenant NATS accounts.
-  Requires super_admin role.
-  """
-  def tenants(conn, params) do
-    limit = parse_int(params["limit"]) || 50
-
-    actor = SystemActor.platform(:nats_controller)
-
-    tenants =
-      ServiceRadar.Identity.Tenant
-      |> Ash.Query.for_read(:for_nats_provisioning)
-      |> Ash.Query.select([:id, :slug, :name, :nats_account_status, :nats_account_public_key])
-      |> Ash.Query.sort(inserted_at: :desc)
-      |> Ash.Query.limit(limit)
-      |> Ash.read!(actor: actor)
-
-    json(conn, Enum.map(tenants, &tenant_to_json/1))
-  end
-
-  @doc """
-  POST /api/admin/nats/tenants/:id/reprovision
-
-  Retries provisioning for a failed tenant NATS account.
-  """
-  def reprovision(conn, %{"id" => tenant_id}) do
-    with {:ok, tenant} <- get_tenant(tenant_id),
-         :ok <- validate_reprovisionable(tenant),
-         {:ok, _job} <- ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(tenant_id) do
-      json(conn, %{
-        tenant_id: tenant_id,
-        status: "provisioning",
-        message: "Reprovisioning job enqueued"
-      })
-    else
-      {:error, :not_found} ->
-        {:error, :not_found}
-
-      {:error, :not_reprovisionable, status} ->
-        conn
-        |> put_status(:conflict)
-        |> json(%{
-          error: "Tenant NATS account is not in failed or pending state",
-          current_status: to_string(status)
-        })
-
-      {:error, reason} ->
-        conn
-        |> put_status(:internal_server_error)
-        |> json(%{error: "Failed to enqueue reprovisioning: #{inspect(reason)}"})
-    end
-  end
-
-  defp validate_reprovisionable(%{nats_account_status: status})
-       when status in [:failed, :pending, :error],
-       do: :ok
-
-  defp validate_reprovisionable(%{nats_account_status: status}),
-    do: {:error, :not_reprovisionable, status}
-
   # Private helpers
 
   defp validate_bootstrap_token(nil, _source_ip), do: {:error, :token_required}
@@ -248,29 +185,6 @@ defmodule ServiceRadarWebNG.Api.NatsController do
     end
   end
 
-  defp get_tenant(tenant_id) do
-    actor = SystemActor.platform(:nats_controller)
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.for_read(:for_nats_provisioning)
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, tenant} -> {:ok, tenant}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp tenant_to_json(tenant) do
-    %{
-      id: tenant.id,
-      slug: tenant.slug,
-      name: tenant.name,
-      nats_account_status: to_string(tenant.nats_account_status),
-      nats_account_public_key: tenant.nats_account_public_key
-    }
-  end
-
   defp get_client_ip(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
@@ -290,15 +204,5 @@ defmodule ServiceRadarWebNG.Api.NatsController do
 
   defp format_datetime(%DateTime{} = dt) do
     DateTime.to_iso8601(dt)
-  end
-
-  defp parse_int(nil), do: nil
-  defp parse_int(""), do: nil
-
-  defp parse_int(str) when is_binary(str) do
-    case Integer.parse(str) do
-      {n, _} when n > 0 -> n
-      _ -> nil
-    end
   end
 end

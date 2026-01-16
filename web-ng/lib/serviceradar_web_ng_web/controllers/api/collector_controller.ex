@@ -91,9 +91,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         actor = SystemActor.platform(:collector_controller)
         opts = [actor: actor, tenant: schema]
 
+        # Tenant is implicit from PostgreSQL search_path (tenant schema)
         case CollectorPackage
              |> Ash.Changeset.for_create(:create, attrs)
-             |> Ash.Changeset.force_change_attribute(:tenant_id, tenant.id)
              |> Ash.create(opts) do
           {:ok, package} ->
             conn
@@ -271,12 +271,11 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   @doc """
   GET /api/admin/nats/account
 
-  Gets the current tenant's NATS account status.
+  Gets the current instance's NATS account status.
   """
   def account_status(conn, _params) do
     with {:ok, tenant} <- require_tenant(conn) do
       json(conn, %{
-        tenant_id: tenant.id,
         slug: tenant.slug,
         nats_account_status: to_string(tenant.nats_account_status),
         nats_account_public_key: tenant.nats_account_public_key,

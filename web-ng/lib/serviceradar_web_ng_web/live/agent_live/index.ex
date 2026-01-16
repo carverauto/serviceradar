@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   # Load all live agents from the registry
   # Tenant scoping is implicit via PostgreSQL search_path
   defp load_live_agents do
-    ServiceRadar.AgentRegistry.list_all_agents()
+    ServiceRadar.AgentRegistry.find_agents()
     |> Enum.map(fn agent ->
       %{
         agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),

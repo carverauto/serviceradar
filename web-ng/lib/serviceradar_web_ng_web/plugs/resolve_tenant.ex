@@ -1,64 +1,36 @@
 defmodule ServiceRadarWebNGWeb.Plugs.ResolveTenant do
   @moduledoc """
-  Sets tenant context for Ash queries in single-tenant instance deployments.
+  Optional plug for setting Ash tenant context in single-tenant instance deployments.
 
-  In single-tenant mode, the tenant is determined by configuration (:default_tenant_id).
-  This plug ensures the Ash tenant context is set for all requests.
+  This is a tenant instance UI - each instance serves ONE tenant. The tenant
+  is typically implicit from the PostgreSQL search_path set by infrastructure.
+
+  This plug only sets Ash tenant context if :default_tenant_schema is explicitly
+  configured. In most deployments, this configuration is not needed since the
+  database connection already has the correct search_path.
+
+  ## Configuration
+
+  If you need to explicitly set the Ash tenant schema:
+
+      config :serviceradar_web_ng, :default_tenant_schema, "tenant_abc123"
+
+  Otherwise, leave unconfigured and the database search_path will be used.
   """
-
-  import Plug.Conn
 
   alias ServiceRadarWebNGWeb.TenantResolver
 
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    conn
-    |> maybe_set_from_session()
-    |> maybe_set_from_default()
-  end
-
-  defp maybe_set_from_session(conn) do
-    if Ash.PlugHelpers.get_tenant(conn) do
-      conn
-    else
-      resolve_tenant_from_session(conn)
-    end
-  end
-
-  defp resolve_tenant_from_session(conn) do
-    with nil <- get_session(conn, "tenant"),
-         tenant_id when is_binary(tenant_id) <- get_session(conn, "active_tenant_id"),
-         schema when is_binary(schema) <- TenantResolver.schema_for_tenant_id(tenant_id) do
-      conn
-      |> put_session("tenant", schema)
-      |> Ash.PlugHelpers.set_tenant(schema)
-    else
-      tenant_schema when is_binary(tenant_schema) ->
-        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
-
-      _ ->
-        conn
-    end
-  end
-
-  defp maybe_set_from_default(conn) do
-    case Ash.PlugHelpers.get_tenant(conn) do
+    case TenantResolver.default_tenant_schema() do
       nil ->
-        default_schema = TenantResolver.default_tenant_schema()
-        default_tenant_id = TenantResolver.default_tenant_id()
-
-        if default_schema do
-          conn
-          |> put_session("tenant", default_schema)
-          |> put_session("active_tenant_id", default_tenant_id)
-          |> Ash.PlugHelpers.set_tenant(default_schema)
-        else
-          conn
-        end
-
-      _ ->
+        # No explicit tenant schema configured - rely on database search_path
         conn
+
+      tenant_schema ->
+        # Explicitly set Ash tenant context
+        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
     end
   end
 end

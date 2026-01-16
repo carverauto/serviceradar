@@ -4,12 +4,15 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   Delegates to ServiceRadar.Edge.OnboardingPackages Ash-based implementation
   while maintaining backwards compatibility with existing callers.
+
+  This is a single-tenant instance - tenant context is implicit from the
+  PostgreSQL search_path set by infrastructure.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Identity.Tenant
+  alias ServiceRadarWebNGWeb.TenantResolver
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -40,10 +43,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec list(filter(), keyword()) :: [OnboardingPackage.t()]
   def list(filters \\ %{}, opts \\ []) do
-    # Convert string statuses to atoms if present
     filters = normalize_filters(filters)
-    tenant = require_tenant!(opts)
-    opts = [actor: system_actor(tenant), tenant: tenant]
+    opts = build_opts(opts)
 
     AshPackages.list!(filters, opts)
   end
@@ -57,8 +58,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   def get(id, opts \\ [])
 
   def get(id, opts) when is_binary(id) do
-    tenant = require_tenant!(opts)
-    opts = [actor: system_actor(tenant), tenant: tenant]
+    opts = build_opts(opts)
     AshPackages.get(id, opts)
   end
 
@@ -69,8 +69,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec get!(String.t(), keyword()) :: OnboardingPackage.t()
   def get!(id, opts \\ []) do
-    tenant = require_tenant!(opts)
-    opts = [actor: system_actor(tenant), tenant: tenant]
+    opts = build_opts(opts)
     AshPackages.get!(id, opts)
   end
 
@@ -94,30 +93,22 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
            %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, actor || system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshPackages.create(attrs, opts_with_actor)
+    opts = build_opts(opts)
+    AshPackages.create(attrs, opts)
   end
 
   @doc """
-  Creates an edge onboarding package with automatic tenant certificate generation.
+  Creates an edge onboarding package with automatic platform certificate generation.
 
   This is the preferred method for production deployments. It automatically:
-  1. Gets or generates the tenant's intermediate CA (on first use)
-  2. Generates a component certificate signed by the tenant CA
+  1. Gets or generates the platform's intermediate CA (on first use)
+  2. Generates a component certificate signed by the platform CA
   3. Includes the encrypted certificate bundle in the package
 
   The certificate CN follows the format: `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
 
   ## Options
 
-    * `:tenant` - Tenant ID (required)
     * `:partition_id` - Network partition identifier (default: "default")
     * `:cert_validity_days` - Component certificate validity (default: 365)
     * `:join_token_ttl_seconds` - TTL for join token (default: 86400)
@@ -141,26 +132,18 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   ## Examples
 
-      iex> create_with_tenant_cert(
+      iex> create_with_platform_cert(
       ...>   %{label: "prod-gateway-01", component_type: :gateway},
-      ...>   tenant: "tenant-uuid",
       ...>   actor: current_user
       ...> )
       {:ok, %{package: %OnboardingPackage{}, certificate_data: %{...}}}
 
   """
-  @spec create_with_tenant_cert(map(), keyword()) ::
+  @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def create_with_tenant_cert(attrs, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, actor || system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshPackages.create_with_tenant_cert(attrs, opts_with_actor)
+  def create_with_platform_cert(attrs, opts \\ []) do
+    opts = build_opts(opts)
+    AshPackages.create_with_platform_cert(attrs, opts)
   end
 
   @doc """
@@ -182,15 +165,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
            %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, actor || system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshPackages.deliver(package_id, download_token, opts_with_actor)
+    opts = build_opts(opts)
+    AshPackages.deliver(package_id, download_token, opts)
   end
 
   @doc """
@@ -198,15 +174,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec revoke(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def revoke(package_id, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, actor || system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshPackages.revoke(package_id, opts_with_actor)
+    opts = build_opts(opts)
+    AshPackages.revoke(package_id, opts)
   end
 
   @doc """
@@ -214,15 +183,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   """
   @spec delete(String.t(), keyword()) :: {:ok, OnboardingPackage.t()} | {:error, atom()}
   def delete(package_id, opts \\ []) do
-    actor = Keyword.get(opts, :actor)
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, actor || system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshPackages.delete(package_id, opts_with_actor)
+    opts = build_opts(opts)
+    AshPackages.delete(package_id, opts)
   end
 
   @doc """
@@ -243,6 +205,20 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   end
 
   # Private helpers
+
+  defp build_opts(opts) do
+    tenant_schema = TenantResolver.default_tenant_schema()
+
+    unless tenant_schema do
+      raise ArgumentError, "no default tenant configured for this instance"
+    end
+
+    actor = Keyword.get(opts, :actor) || system_actor()
+
+    opts
+    |> Keyword.put(:actor, actor)
+    |> Keyword.put(:tenant, tenant_schema)
+  end
 
   defp normalize_filters(filters) do
     filters
@@ -267,36 +243,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   defp to_atom_if_string(value) when is_binary(value), do: String.to_existing_atom(value)
   defp to_atom_if_string(value), do: value
 
-  defp system_actor(tenant) do
-    tenant_id = extract_tenant_id(tenant)
-    SystemActor.for_tenant(tenant_id, :onboarding_packages)
-  end
-
-  defp extract_tenant_id(%Tenant{id: id}), do: id
-  defp extract_tenant_id(<<"tenant_", _::binary>> = schema), do: String.replace_prefix(schema, "tenant_", "")
-  defp extract_tenant_id(id) when is_binary(id), do: id
-
-  defp require_tenant!(opts) do
-    case Keyword.fetch(opts, :tenant) do
-      {:ok, tenant} -> normalize_tenant!(tenant)
-      :error -> raise ArgumentError, "tenant is required for onboarding packages"
-    end
-  end
-
-  defp normalize_tenant!(%Tenant{} = tenant), do: tenant
-
-  defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
-
-  defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
-    # Use platform actor for tenant lookup (Tenant is a global resource)
-    actor = SystemActor.platform(:onboarding_packages)
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> raise ArgumentError, "tenant not found for onboarding packages"
-    end
-  end
-
-  defp normalize_tenant!(_tenant) do
-    raise ArgumentError, "invalid tenant for onboarding packages"
+  defp system_actor do
+    SystemActor.system(:onboarding_packages)
   end
 end

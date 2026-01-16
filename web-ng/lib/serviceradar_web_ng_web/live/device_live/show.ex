@@ -2248,14 +2248,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp admin_role?(role), do: role in [:admin, :super_admin]
 
-  defp membership_admin?(%{id: tenant_id}, memberships) do
+  # In a tenant-unaware instance, if user has a membership they're a member of THE tenant.
+  # Just check if any membership has admin/owner role.
+  defp membership_admin?(_tenant, memberships) do
     Enum.any?(memberships || [], fn membership ->
-      to_string(membership.tenant_id) == to_string(tenant_id) and
-        membership.role in [:admin, :owner]
+      membership.role in [:admin, :owner]
     end)
   end
-
-  defp membership_admin?(_, _), do: false
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do

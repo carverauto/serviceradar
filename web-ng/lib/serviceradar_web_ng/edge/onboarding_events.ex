@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   Delegates to ServiceRadar.Edge.OnboardingEvents Ash-based implementation
   while maintaining backwards compatibility with existing callers.
 
+  This is a single-tenant instance - tenant context is implicit from the
+  PostgreSQL search_path set by infrastructure.
+
   ## Async Recording
 
   By default, events are recorded asynchronously via Oban to avoid blocking
@@ -14,7 +17,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
   alias ServiceRadar.Edge.OnboardingEvent
-  alias ServiceRadar.Identity.Tenant
+  alias ServiceRadarWebNGWeb.TenantResolver
 
   @doc """
   Lists events for a specific package, ordered by time descending.
@@ -31,14 +34,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec list_for_package(String.t(), keyword()) :: [OnboardingEvent.t()]
   def list_for_package(package_id, opts \\ []) do
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshEvents.list_for_package!(package_id, opts_with_actor)
+    opts = build_opts(opts)
+    AshEvents.list_for_package!(package_id, opts)
   end
 
   @doc """
@@ -62,9 +59,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @spec record(String.t(), String.t() | atom(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
-    tenant = require_tenant!(opts)
-    opts_with_tenant = Keyword.put(opts, :tenant, tenant)
-    AshEvents.record(package_id, event_type, opts_with_tenant)
+    opts = build_opts(opts)
+    AshEvents.record(package_id, event_type, opts)
   end
 
   @doc """
@@ -84,14 +80,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   @spec record_sync(String.t(), String.t() | atom(), keyword()) ::
           {:ok, OnboardingEvent.t()} | {:error, Ash.Error.t()}
   def record_sync(package_id, event_type, opts \\ []) do
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put_new(:actor_user, system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshEvents.record_sync(package_id, event_type, opts_with_actor)
+    opts = build_opts(opts)
+    AshEvents.record_sync(package_id, event_type, opts)
   end
 
   @doc """
@@ -100,9 +90,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec record!(String.t(), String.t() | atom(), keyword()) :: :ok
   def record!(package_id, event_type, opts \\ []) do
-    tenant = require_tenant!(opts)
-    opts_with_tenant = Keyword.put(opts, :tenant, tenant)
-    AshEvents.record!(package_id, event_type, opts_with_tenant)
+    opts = build_opts(opts)
+    AshEvents.record!(package_id, event_type, opts)
   end
 
   @doc """
@@ -112,48 +101,28 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   """
   @spec recent(keyword()) :: [OnboardingEvent.t()]
   def recent(opts \\ []) do
-    tenant = require_tenant!(opts)
-
-    opts_with_actor =
-      opts
-      |> Keyword.put(:actor, system_actor(tenant))
-      |> Keyword.put(:tenant, tenant)
-
-    AshEvents.recent!(opts_with_actor)
+    opts = build_opts(opts)
+    AshEvents.recent!(opts)
   end
 
   # Private helpers
 
-  defp system_actor(tenant) do
-    tenant_id = extract_tenant_id(tenant)
-    SystemActor.for_tenant(tenant_id, :onboarding_events)
-  end
+  defp build_opts(opts) do
+    tenant_schema = TenantResolver.default_tenant_schema()
 
-  defp extract_tenant_id(%Tenant{id: id}), do: id
-  defp extract_tenant_id(<<"tenant_", _::binary>> = schema), do: String.replace_prefix(schema, "tenant_", "")
-  defp extract_tenant_id(id) when is_binary(id), do: id
-
-  defp require_tenant!(opts) do
-    case Keyword.fetch(opts, :tenant) do
-      {:ok, tenant} -> normalize_tenant!(tenant)
-      :error -> raise ArgumentError, "tenant is required for onboarding events"
+    unless tenant_schema do
+      raise ArgumentError, "no default tenant configured for this instance"
     end
+
+    actor = Keyword.get(opts, :actor) || system_actor()
+
+    opts
+    |> Keyword.put(:actor, actor)
+    |> Keyword.put_new(:actor_user, actor)
+    |> Keyword.put(:tenant, tenant_schema)
   end
 
-  defp normalize_tenant!(%Tenant{} = tenant), do: tenant
-
-  defp normalize_tenant!(<<"tenant_", _::binary>> = tenant), do: tenant
-
-  defp normalize_tenant!(tenant_id) when is_binary(tenant_id) do
-    # Use platform actor for tenant lookup (Tenant is a global resource)
-    actor = SystemActor.platform(:onboarding_events)
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> raise ArgumentError, "tenant not found for onboarding events"
-    end
-  end
-
-  defp normalize_tenant!(_tenant) do
-    raise ArgumentError, "invalid tenant for onboarding events"
+  defp system_actor do
+    SystemActor.system(:onboarding_events)
   end
 end

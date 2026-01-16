@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias Phoenix.LiveView.JS
+  alias ServiceRadarWebNGWeb.TenantResolver
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
@@ -1648,9 +1648,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Load duration stats from the continuous aggregation for full 24h data
-  defp load_duration_stats_from_cagg(scope) do
+  defp load_duration_stats_from_cagg(_scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
-    schema = schema_for_scope(scope)
+    schema = default_schema()
 
     if is_nil(schema) do
       log_schema_warning_once(
@@ -1717,22 +1717,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp load_sparklines(_, _), do: %{}
 
-  defp schema_for_scope(nil), do: nil
-
-  defp schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
-  defp schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
-  end
-
-  defp schema_for_scope(_), do: nil
-
-  defp safe_schema_for_tenant(tenant) do
-    TenantSchemas.schema_for_tenant(tenant)
-  rescue
-    ArgumentError -> nil
+  # In single-tenant mode, use the configured default tenant schema
+  defp default_schema do
+    TenantResolver.default_tenant_schema()
   end
 
   defp log_schema_warning_once(key, message) do
@@ -1758,9 +1745,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Enum.uniq()
   end
 
-  defp fetch_sparklines(metric_names, scope) do
+  defp fetch_sparklines(metric_names, _scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
-    schema = schema_for_scope(scope)
+    schema = default_schema()
 
     if is_nil(schema) do
       log_schema_warning_once(
