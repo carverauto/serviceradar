@@ -44,7 +44,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
           {:ok, 0}
 
         {:ok, count} ->
-          _ = maybe_evaluate_stateful_rules(events, tenant_id)
+          _ = maybe_evaluate_stateful_rules(events)
           maybe_create_alerts(promotions)
           Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
           {:ok, count}
@@ -286,14 +286,13 @@ defmodule ServiceRadar.Observability.LogPromotion do
     end
   end
 
-  defp maybe_evaluate_stateful_rules([], _tenant_id), do: :ok
+  defp maybe_evaluate_stateful_rules([]), do: :ok
 
-  defp maybe_evaluate_stateful_rules(events, tenant_id) do
-    # DB connection's search_path determines the schema
-    case StatefulAlertEngine.evaluate_events(events, tenant_id, nil) do
+  defp maybe_evaluate_stateful_rules(events) do
+    case StatefulAlertEngine.evaluate_events(events) do
       :ok -> :ok
       {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}", tenant_id: tenant_id)
+        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
         :ok
     end
   end

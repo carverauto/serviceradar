@@ -334,28 +334,26 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     end
   end
 
-  defp resolve_gateway_pid(gateway, schedule) do
+  defp resolve_gateway_pid(gateway, _schedule) do
     case gateway[:pid] do
       pid when is_pid(pid) ->
         pid
 
       _ ->
-        resolve_gateway_pid_from_registry(gateway, schedule.tenant_id)
+        resolve_gateway_pid_from_registry(gateway)
     end
   end
 
-  defp resolve_gateway_pid_from_registry(gateway, tenant_id) do
+  defp resolve_gateway_pid_from_registry(gateway) do
     gid = gateway[:gateway_id] || gateway[:id]
 
-    case {tenant_id, gid} do
-      {t, g} when not is_nil(t) and not is_nil(g) ->
-        case GatewayRegistry.lookup(t, g) do
-          [{pid, _meta}] when is_pid(pid) -> pid
-          _ -> nil
-        end
-
-      _ ->
-        nil
+    if gid do
+      case GatewayRegistry.lookup(gid) do
+        [{pid, _meta}] when is_pid(pid) -> pid
+        _ -> nil
+      end
+    else
+      nil
     end
   end
 

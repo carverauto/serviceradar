@@ -19,28 +19,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @rules_cache_ms :timer.seconds(60)
 
-  @spec evaluate_logs([map()], String.t(), any()) :: :ok | {:error, term()}
-  def evaluate_logs(rows, tenant_id, _schema \\ nil) when is_list(rows) do
-    # DB connection's search_path determines the schema
-    with {:ok, _} <- ensure_started(tenant_id) do
-      call(tenant_id, {:evaluate_logs, rows})
+  @spec evaluate_logs([map()]) :: :ok | {:error, term()}
+  def evaluate_logs(rows) when is_list(rows) do
+    with {:ok, _} <- ensure_started() do
+      call({:evaluate_logs, rows})
     end
   end
 
-  @spec evaluate_events([map()], String.t(), any()) :: :ok | {:error, term()}
-  def evaluate_events(events, tenant_id, _schema \\ nil) when is_list(events) do
-    # DB connection's search_path determines the schema
-    with {:ok, _} <- ensure_started(tenant_id) do
-      call(tenant_id, {:evaluate_events, events})
+  @spec evaluate_events([map()]) :: :ok | {:error, term()}
+  def evaluate_events(events) when is_list(events) do
+    with {:ok, _} <- ensure_started() do
+      call({:evaluate_events, events})
     end
   end
 
-  def start_link(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-
-    GenServer.start_link(__MODULE__, %{tenant_id: tenant_id},
-      name: via_tuple(tenant_id)
-    )
+  def start_link(_opts \\ []) do
+    GenServer.start_link(__MODULE__, %{}, name: via_tuple())
   end
 
   @impl true
@@ -81,20 +75,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {:reply, {:error, error}, state}
   end
 
-  defp call(tenant_id, message) do
-    GenServer.call(via_tuple(tenant_id), message, :timer.seconds(15))
+  defp call(message) do
+    GenServer.call(via_tuple(), message, :timer.seconds(15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
   end
 
-  defp ensure_started(tenant_id) do
-    # DB connection's search_path determines the schema
-    case lookup_engine(tenant_id) do
+  defp ensure_started do
+    case lookup_engine() do
       nil ->
         child_spec = %{
-          id: {:stateful_alert_engine, tenant_id},
-          start: {__MODULE__, :start_link, [[tenant_id: tenant_id]]},
+          id: :stateful_alert_engine,
+          start: {__MODULE__, :start_link, [[]]},
           restart: :permanent,
           type: :worker
         }
@@ -110,15 +103,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp lookup_engine(tenant_id) do
-    case ProcessRegistry.lookup({:stateful_alert_engine, tenant_id}) do
+  defp lookup_engine do
+    case ProcessRegistry.lookup(:stateful_alert_engine) do
       [{pid, _}] -> pid
       _ -> nil
     end
   end
 
-  defp via_tuple(tenant_id) do
-    ProcessRegistry.via({:stateful_alert_engine, tenant_id})
+  defp via_tuple do
+    ProcessRegistry.via(:stateful_alert_engine)
   end
 
   defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do
@@ -388,7 +381,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       last_notification_at: snapshot.last_notification_at,
       cooldown_until: snapshot.cooldown_until,
       alert_id: snapshot.alert_id,
-      tenant_id: state.tenant_id
+      tenant_id: snapshot.tenant_id
     }
 
     StatefulAlertRuleState

@@ -193,23 +193,11 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp maybe_evaluate_stateful_rules([]), do: :ok
 
   defp maybe_evaluate_stateful_rules(rows) do
-    # DB connection's search_path determines the schema
-    tenant_id =
-      case rows do
-        [%{tenant_id: tenant_id} | _] -> tenant_id
-        _ -> TenantContext.current_tenant_id()
-      end
-
-    if is_nil(tenant_id) do
-      Logger.warning("Skipping stateful alert evaluation; missing tenant_id")
-      :ok
-    else
-      case StatefulAlertEngine.evaluate_events(rows, tenant_id, nil) do
-        :ok -> :ok
-        {:error, reason} ->
-          Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
-          :ok
-      end
+    case StatefulAlertEngine.evaluate_events(rows) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
+        :ok
     end
   end
 end
