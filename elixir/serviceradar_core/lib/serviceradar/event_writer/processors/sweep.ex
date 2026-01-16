@@ -45,7 +45,6 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
@@ -60,13 +59,12 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   @impl true
   def process_batch(messages) do
     # DB connection's search_path determines the schema
-    tenant_id = TenantContext.current_tenant()
     rows = build_rows(messages)
 
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      insert_sweep_rows(rows, messages, tenant_id)
+      insert_sweep_rows(rows, messages)
     end
   rescue
     e ->
@@ -80,7 +78,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_sweep_rows(rows, messages, tenant_id) do
+  defp insert_sweep_rows(rows, messages) do
     # DB connection's search_path determines the schema
     case ServiceRadar.Repo.insert_all(
            table_name(),
@@ -90,14 +88,14 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
          ) do
       {count, _} ->
         # Also update device inventory via SweepResultsIngestor
-        process_inventory_updates(messages, tenant_id)
+        process_inventory_updates(messages)
         {:ok, count}
     end
   end
 
   # Process inventory updates for sweep results
   # DB connection's search_path determines the schema
-  defp process_inventory_updates(messages, _tenant_id) do
+  defp process_inventory_updates(messages) do
     # Parse messages and group by execution_id
     parsed_results =
       messages
@@ -222,11 +220,10 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    tenant_id = TenantContext.current_tenant_id()
-
+    # DB connection's search_path determines the schema
     case Jason.decode(data) do
       {:ok, json} ->
-        parse_sweep_result(json, metadata, tenant_id)
+        parse_sweep_result(json, metadata)
 
       {:error, _} ->
         Logger.debug("Failed to parse sweep message as JSON")

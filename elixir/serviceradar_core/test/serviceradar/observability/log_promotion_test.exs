@@ -22,7 +22,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    schema = TenantSchemas.schema_for_id(tenant.tenant_id)
+    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
     {:ok, tenant: tenant, schema: schema}
   end
 

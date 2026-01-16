@@ -38,7 +38,6 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.EventWriter.TenantContext
 
   require Logger
 
@@ -73,11 +72,10 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    tenant_id = TenantContext.current_tenant_id()
-
+    # DB connection's search_path determines the schema
     case Jason.decode(data) do
       {:ok, json} ->
-        parse_netflow(json, metadata, tenant_id)
+        parse_netflow(json, metadata)
 
       {:error, _} ->
         Logger.debug("Failed to parse netflow message as JSON")
@@ -106,7 +104,8 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     end
   end
 
-  defp parse_netflow(json, nats_metadata, tenant_id) do
+  # DB connection's search_path determines the schema
+  defp parse_netflow(json, nats_metadata) do
     time = FieldParser.parse_timestamp(json["timestamp"])
     activity_id = OCSF.activity_network_traffic()
 
@@ -220,9 +219,6 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
       # Raw data
       raw_data: nil,
-
-      # Multi-tenancy
-      tenant_id: tenant_id,
 
       # Gateway/Agent tracking
       gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),

@@ -592,27 +592,8 @@ defmodule ServiceRadar.Identity.Tenant do
   end
 
   relationships do
-    # Memberships for role-based access
-    has_many :memberships, ServiceRadar.Identity.TenantMembership do
-      source_attribute(:id)
-      destination_attribute(:tenant_id)
-      public?(true)
-    end
-
-    # Per-tenant certificate authorities for edge isolation
-    has_many :certificate_authorities, ServiceRadar.Edge.TenantCA do
-      source_attribute(:id)
-      destination_attribute(:tenant_id)
-      public?(true)
-    end
-
-    # Active CA for this tenant (used for generating new edge certs)
-    has_one :active_ca, ServiceRadar.Edge.TenantCA do
-      source_attribute(:id)
-      destination_attribute(:tenant_id)
-      filter(expr(status == :active))
-      public?(true)
-    end
+    # In tenant-unaware architecture, relationships to schema-isolated resources
+    # are not needed since each instance only serves one tenant
   end
 
   calculations do

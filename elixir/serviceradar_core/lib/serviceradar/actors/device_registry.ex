@@ -5,8 +5,10 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   Provides discovery and management of device actors.
   Device actors are started on-demand when first accessed via `get_or_start/2`.
 
-  In the tenant-unaware architecture, tenant isolation is handled by
-  infrastructure (separate deployments, databases, NATS credentials).
+  ## Tenant Isolation
+
+  Each tenant deployment is isolated at the infrastructure level.
+  DB connection's search_path determines the schema.
 
   ## Usage
 
@@ -73,12 +75,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def get_or_start(tenant_id, device_id, opts)
-      when is_binary(tenant_id) and is_binary(device_id) and is_list(opts) do
-    get_or_start(device_id, opts)
-  end
-
   @doc """
   Looks up an existing device actor.
 
@@ -99,11 +95,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def lookup(_tenant_id, device_id) when is_binary(device_id) do
-    lookup(device_id)
-  end
-
   @doc """
   Lists all active device actors.
 
@@ -118,11 +109,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     |> Enum.filter(fn %{pid: pid} -> Process.alive?(pid) end)
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def list_devices(_tenant_id) do
-    list_devices()
-  end
-
   @doc """
   Lists device actors for a specific partition.
   """
@@ -132,22 +118,12 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def list_devices_for_partition(_tenant_id, partition_id) do
-    list_devices_for_partition(partition_id)
-  end
-
   @doc """
   Counts active device actors.
   """
   @spec count() :: non_neg_integer()
   def count do
     ProcessRegistry.count_by_type(:device)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def count(_tenant_id) do
-    count()
   end
 
   @doc """
@@ -165,11 +141,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
       :not_found ->
         :not_found
     end
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def stop(_tenant_id, device_id) when is_binary(device_id) do
-    stop(device_id)
   end
 
   @doc """
@@ -191,11 +162,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     :ok
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def stop_all(_tenant_id) do
-    stop_all()
-  end
-
   @doc """
   Gets device state if actor is running, nil otherwise.
 
@@ -209,11 +175,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def get_state_if_running(_tenant_id, device_id) do
-    get_state_if_running(device_id)
-  end
-
   @doc """
   Gets device health if actor is running, nil otherwise.
   """
@@ -223,11 +184,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
       {:ok, pid} -> Device.get_health(pid)
       :not_found -> nil
     end
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def get_health_if_running(_tenant_id, device_id) do
-    get_health_if_running(device_id)
   end
 
   @doc """
@@ -245,11 +201,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     :ok
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def broadcast(_tenant_id, message) do
-    broadcast(message)
-  end
-
   @doc """
   Updates identity for a device, starting the actor if needed.
   """
@@ -259,11 +210,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
       {:ok, pid} -> Device.update_identity(pid, identity_updates)
       {:error, _} = error -> error
     end
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def update_identity(_tenant_id, device_id, identity_updates) do
-    update_identity(device_id, identity_updates)
   end
 
   @doc """
@@ -281,11 +227,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def record_event(_tenant_id, device_id, event_type, event_data) do
-    record_event(device_id, event_type, event_data)
-  end
-
   @doc """
   Records a health check result for a device, starting the actor if needed.
   """
@@ -299,11 +240,6 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
       {:error, _} = error ->
         error
     end
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def record_health_check(_tenant_id, device_id, check_result) do
-    record_health_check(device_id, check_result)
   end
 
   # ===========================================================================

@@ -46,7 +46,6 @@ defmodule ServiceRadar.Edge.TenantResolver do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.TenantCA.Generator, as: TenantCAGenerator
 
   @type tenant_info :: %{
@@ -110,15 +109,11 @@ defmodule ServiceRadar.Edge.TenantResolver do
   def resolve_from_cert_with_issuer(cert_der, opts) when is_binary(cert_der) do
     with {:ok, resolved} <- resolve_from_cert_only(cert_der),
          {:ok, issuer_spki} <- issuer_spki_sha256(opts),
-         {:ok, tenant_ca} <- lookup_tenant_ca_by_spki(issuer_spki, resolved.tenant_slug),
-         {:ok, tenant} <- ensure_tenant_loaded(tenant_ca),
-         :ok <- validate_tenant_slug(resolved.tenant_slug, tenant.slug) do
+         {:ok, tenant_ca} <- lookup_tenant_ca_by_spki(issuer_spki) do
       {:ok,
        resolved
-       |> Map.put(:tenant_id, tenant.id)
        |> Map.put(:tenant_ca_id, tenant_ca.id)
-       |> Map.put(:issuer_spki_sha256, issuer_spki)
-       |> Map.put(:tenant_slug, tenant.slug)}
+       |> Map.put(:issuer_spki_sha256, issuer_spki)}
     end
   end
 
@@ -284,31 +279,19 @@ defmodule ServiceRadar.Edge.TenantResolver do
     end
   end
 
-  defp lookup_tenant_ca_by_spki(spki_sha256, tenant_slug) do
-    tenant_schema = TenantSchemas.schema_for(tenant_slug)
+  defp lookup_tenant_ca_by_spki(spki_sha256) do
     # Use platform actor for TenantCA lookup during authentication
     actor = SystemActor.platform(:tenant_resolver)
 
     ServiceRadar.Edge.TenantCA
     |> Ash.Query.for_read(:by_spki, %{spki_sha256: spki_sha256})
-    |> Ash.Query.set_tenant(tenant_schema)
-    |> Ash.read_one(actor: actor, load: [:tenant])
+    |> Ash.read_one(actor: actor)
     |> case do
       {:ok, %ServiceRadar.Edge.TenantCA{} = tenant_ca} -> {:ok, tenant_ca}
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:error, _reason} = error -> error
     end
   end
-
-  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{tenant: %ServiceRadar.Identity.Tenant{} = tenant}) do
-    {:ok, tenant}
-  end
-
-  defp ensure_tenant_loaded(%ServiceRadar.Edge.TenantCA{}), do: {:error, :tenant_ca_not_found}
-
-  defp validate_tenant_slug(tenant_slug, tenant_slug), do: :ok
-
-  defp validate_tenant_slug(_, _), do: {:error, :tenant_slug_mismatch}
 
   defp extract_cn({:OTPCertificate, tbs_cert, _, _}) do
     subject = elem(tbs_cert, 6)

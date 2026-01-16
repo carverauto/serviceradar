@@ -43,7 +43,8 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :gateway_id, :domain, :status, :registered_at, :entity_type]
+  # DB connection's search_path determines the schema
+  defstruct [:partition_id, :gateway_id, :domain, :status, :registered_at, :entity_type]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -51,14 +52,12 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
 
   @impl true
   def init(opts) do
-    tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
     entity_type = Keyword.get(opts, :entity_type, :gateway)
     gateway_id = Keyword.get(opts, :gateway_id, generate_entity_id(entity_type))
     domain = Keyword.get(opts, :domain, "default")
 
     state = %__MODULE__{
-      tenant_id: tenant_id,
       partition_id: partition_id,
       gateway_id: gateway_id,
       domain: domain,
@@ -73,7 +72,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
     case register_gateway(state) do
       {:ok, _pid} ->
         Logger.info(
-          "#{entity_label} registered: tenant=#{tenant_id} partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
+          "#{entity_label} registered: partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
         )
 
         schedule_heartbeat()
@@ -117,7 +116,6 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   @impl true
   def handle_call(:get_info, _from, state) do
     info = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
       node: Node.self(),
@@ -241,12 +239,6 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
         diff = DateTime.diff(DateTime.utc_now(), last_heartbeat, :millisecond)
         diff > @stale_threshold
     end
-  end
-
-  # Get default tenant ID from environment or config
-  defp default_tenant_id do
-    System.get_env("GATEWAY_TENANT_ID") ||
-      Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 
   # Generate a unique entity ID based on type

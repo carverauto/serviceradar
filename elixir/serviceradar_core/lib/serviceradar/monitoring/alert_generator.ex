@@ -62,7 +62,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:device_uid` - Device the service runs on
   - `:agent_uid` - Agent managing the gateway
   - `:error` - Error message/details
-  - `:tenant_id` - Tenant ID (required)
   - `:details` - Additional details map
   """
   @spec service_down(keyword()) :: {:ok, Alert.t()} | {:error, term()}
@@ -78,8 +77,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       service_check_id: Keyword.get(opts, :service_check_id),
       device_uid: Keyword.get(opts, :device_uid),
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -106,8 +104,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       service_check_id: Keyword.get(opts, :service_check_id),
       device_uid: Keyword.get(opts, :device_uid),
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -121,7 +118,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:device_uid` - Device UID (required)
   - `:last_seen_at` - When the device was last seen
   - `:ip` - Device IP address
-  - `:tenant_id` - Tenant ID (required)
   - `:details` - Additional details
   """
   @spec device_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
@@ -135,8 +131,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :device,
       source_id: device_uid,
       device_uid: device_uid,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -150,7 +145,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:gateway_id` - Gateway ID (required)
   - `:agent_uid` - Agent UID
   - `:partition` - Partition the gateway belongs to
-  - `:tenant_id` - Tenant ID (required)
   """
   @spec gateway_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def gateway_offline(opts) do
@@ -163,8 +157,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :gateway,
       source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -187,8 +180,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :gateway,
       source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -208,8 +200,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :agent,
       source_id: agent_uid,
       agent_uid: agent_uid,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -225,7 +216,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:threshold_value` - Threshold that was violated (required)
   - `:comparison` - How value compared (:greater_than, :less_than, etc.)
   - `:device_uid` - Device the metric belongs to
-  - `:tenant_id` - Tenant ID (required)
   """
   @spec threshold_violation(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def threshold_violation(opts) do
@@ -253,8 +243,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metric_value: metric_value,
       threshold_value: threshold,
       comparison: comparison,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -287,8 +276,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         source_id: event_id_string(event),
         event_id: Map.get(event, :id),
         event_time: Map.get(event, :time),
-        metadata: event_alert_metadata(event, alert_config),
-        tenant_id: Map.get(event, :tenant_id)
+        metadata: event_alert_metadata(event, alert_config)
       }
 
       create_alert_and_notify(attrs, opts)

@@ -8,11 +8,12 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
 
   This ensures every tenant has at least one super_admin who can manage
   the tenant's users and settings.
+
+  In single-tenant deployments, the database search_path determines
+  which schema to query for existing users.
   """
 
   use Ash.Resource.Change
-
-  alias ServiceRadar.Cluster.TenantSchemas
 
   require Logger
 
@@ -45,7 +46,7 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
       # No tenant yet, can't check - leave default
       changeset
     else
-      if first_user_for_tenant?(tenant_id) do
+      if first_user_for_tenant?() do
         Logger.info("Assigning super_admin role to first user for tenant #{tenant_id}")
         Ash.Changeset.force_change_attribute(changeset, :role, :super_admin)
       else
@@ -54,19 +55,14 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
     end
   end
 
-  defp first_user_for_tenant?(tenant_id) do
-    schema = TenantSchemas.schema_for_id(tenant_id)
-
-    if is_nil(schema) do
-      # Can't determine schema, assume not first user for safety
-      false
-    else
-      count = count_users_in_tenant(schema)
-      count == 0
-    end
+  # Check if this is the first user in the current schema.
+  # The database connection's search_path determines which schema to query.
+  defp first_user_for_tenant? do
+    count = count_users_in_current_schema()
+    count == 0
   end
 
-  defp count_users_in_tenant(schema) do
+  defp count_users_in_current_schema do
     import Ecto.Query
 
     query =
@@ -74,7 +70,8 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
         select: count(u.id)
       )
 
-    case ServiceRadar.Repo.one(query, prefix: schema) do
+    # No prefix needed - search_path determines the schema
+    case ServiceRadar.Repo.one(query) do
       nil -> 0
       count -> count
     end

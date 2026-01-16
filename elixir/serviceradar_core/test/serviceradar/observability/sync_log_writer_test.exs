@@ -21,7 +21,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
       TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    schema = TenantSchemas.schema_for_id(tenant.tenant_id)
+    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
     actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
 
     {:ok, tenant: tenant, schema: schema, actor: actor}

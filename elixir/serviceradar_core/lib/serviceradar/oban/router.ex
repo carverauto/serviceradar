@@ -67,12 +67,6 @@ defmodule ServiceRadar.Oban.Router do
       tenant = Map.get(args, :tenant) ->
         TenantSchemas.schema_for_tenant(tenant)
 
-      tenant_id = Map.get(args, "tenant_id") ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      tenant_id = Map.get(args, :tenant_id) ->
-        TenantSchemas.schema_for_id(tenant_id)
-
       true ->
         nil
     end

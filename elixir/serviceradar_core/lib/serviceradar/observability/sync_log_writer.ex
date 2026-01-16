@@ -19,24 +19,17 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
     write_log(source, :finished, opts)
   end
 
-  defp write_log(%IntegrationSource{tenant_id: nil}, _stage, _opts) do
-    {:error, :missing_tenant_id}
-  end
-
-  defp write_log(%IntegrationSource{tenant_id: tenant_id} = source, stage, opts) do
-    tenant_id_str = to_string(tenant_id)
-
+  defp write_log(%IntegrationSource{} = source, stage, opts) do
     # Simple actor - DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_log_writer)
     attrs = build_log_attrs(source, stage, opts)
 
     Log
     |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id_str)
     |> Ash.create()
     |> case do
       {:ok, log} ->
-        LogPromotion.promote([log], tenant_id_str)
+        LogPromotion.promote([log])
         :ok
 
       {:error, reason} ->

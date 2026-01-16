@@ -1,83 +1,37 @@
 defmodule ServiceRadar.Cluster.TenantSchemas do
   @moduledoc """
-  Manages PostgreSQL schemas for per-tenant data isolation (SOC2 compliance).
+  Manages PostgreSQL schemas for tenant data isolation.
 
-  This module provides physical data isolation at the database level using
-  PostgreSQL schemas. Each tenant gets their own schema, ensuring:
-
-  - Physical data separation for SOC2 compliance
-  - Easy per-tenant backup/restore
-  - Clear audit boundaries
-  - Native PostgreSQL schema permissions
+  This module provides schema management for tenant-isolated deployments.
+  In single-tenant mode, each deployment has its own database with the
+  schema determined by CNPG search_path credentials.
 
   ## Architecture
 
-  ```
-  PostgreSQL Database
-  ├── public schema (shared)
-  │   ├── tenants
-  │   ├── users
-  │   └── platform tables...
-  │
-  ├── tenant_acme_corp schema
-  │   ├── devices
-  │   ├── services
-  │   └── tenant-specific tables...
-  │
-  └── tenant_xyz_inc schema
-      ├── devices
-      ├── services
-      └── tenant-specific tables...
-  ```
+  Each tenant deployment uses a dedicated PostgreSQL schema (e.g., `tenant_acme_corp`)
+  which is configured via the database connection's `search_path`. This provides:
 
-  ## Ash Integration
+  - Physical data separation
+  - Easy backup/restore per deployment
+  - Clear audit boundaries
 
-  For schema-isolated resources, use `strategy :context`:
+  ## Schema Naming
 
-  ```elixir
-  defmodule ServiceRadar.Inventory.Device do
-    use Ash.Resource,
-      data_layer: AshPostgres.DataLayer
-
-    postgres do
-      table "devices"
-      repo ServiceRadar.Repo
-    end
-
-    multitenancy do
-      strategy :context  # Uses tenant_<slug> schema
-    end
-  end
-  ```
-
-  For shared resources, use `strategy :attribute`:
-
-  ```elixir
-  defmodule ServiceRadar.Identity.Tenant do
-    multitenancy do
-      strategy :attribute
-      attribute :id
-      global? true
-    end
-  end
-  ```
+  Tenant schemas follow the pattern `tenant_<slug>` where the slug is sanitized
+  to contain only lowercase alphanumeric characters and underscores.
 
   ## Migration Strategy
 
   - Public schema migrations: `priv/repo/migrations/`
   - Tenant schema migrations: `priv/repo/tenant_migrations/`
 
-  core-elx runs these migrations on startup and fails fast if any migration
-  cannot be applied.
+  Migrations are run on startup via `StartupMigrations`.
   """
 
   alias Ecto.Adapters.SQL
   alias Postgrex.Error, as: PostgrexError
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Repo
 
-  require Ash.Query
   require Logger
 
   @tenant_prefix "tenant_"
@@ -187,18 +141,26 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   end
 
   @doc """
-  Returns the schema name for a tenant struct or slug.
+  Returns the schema name for a tenant struct, map, or slug.
 
-  Accepts `ServiceRadar.Identity.Tenant`, maps, or raw slugs.
+  Accepts structs with a `:slug` field, maps with a `:slug` key,
+  raw slug strings, or already-prefixed schema names.
+
+  ## Examples
+
+      iex> schema_for_tenant(%{slug: "acme-corp"})
+      "tenant_acme_corp"
+
+      iex> schema_for_tenant("acme-corp")
+      "tenant_acme_corp"
+
+      iex> schema_for_tenant("tenant_acme_corp")
+      "tenant_acme_corp"
   """
-  @spec schema_for_tenant(Tenant.t() | map() | String.t() | nil) :: String.t() | nil
+  @spec schema_for_tenant(map() | String.t() | nil) :: String.t() | nil
   def schema_for_tenant(nil), do: nil
 
-  def schema_for_tenant(%Tenant{slug: slug}) when is_binary(slug) do
-    schema_for(slug)
-  end
-
-  def schema_for_tenant(%Tenant{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
+  def schema_for_tenant(%{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
     schema_for(slug)
   end
 
@@ -206,54 +168,12 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     schema_for(slug)
   end
 
-  def schema_for_tenant(%{slug: %Ash.CiString{string: slug}}) when is_binary(slug) do
-    schema_for(slug)
-  end
-
   def schema_for_tenant(tenant_slug) when is_binary(tenant_slug) do
-    cond do
-      String.starts_with?(tenant_slug, @tenant_prefix) ->
-        tenant_slug
-
-      uuid_string?(tenant_slug) ->
-        case schema_for_id(tenant_slug) do
-          nil -> raise ArgumentError, "Unknown tenant schema for #{inspect(tenant_slug)}"
-          schema -> schema
-        end
-
-      true ->
-        schema_for(tenant_slug)
+    if String.starts_with?(tenant_slug, @tenant_prefix) do
+      tenant_slug
+    else
+      schema_for(tenant_slug)
     end
-  end
-
-  @doc """
-  Resolves a tenant schema name from a tenant UUID.
-
-  Looks up the tenant slug from the database.
-  """
-  @spec schema_for_id(String.t()) :: String.t() | nil
-  def schema_for_id(tenant_id) when is_binary(tenant_id) do
-    case lookup_slug_for_tenant_id(tenant_id) do
-      {:ok, slug} ->
-        schema_for(slug)
-
-      :error ->
-        nil
-    end
-  end
-
-  defp lookup_slug_for_tenant_id(tenant_id) do
-    actor = SystemActor.platform(:tenant_schemas)
-
-    case Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(actor: actor) do
-      {:ok, [tenant | _]} -> {:ok, to_string(tenant.slug)}
-      _ -> :error
-    end
-  rescue
-    _ -> :error
   end
 
   @doc """
@@ -468,12 +388,5 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
     end
 
     SQL.query!(Repo, "DROP SCHEMA IF EXISTS #{schema_name} CASCADE")
-  end
-
-  defp uuid_string?(value) do
-    Regex.match?(
-      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-      value
-    )
   end
 end

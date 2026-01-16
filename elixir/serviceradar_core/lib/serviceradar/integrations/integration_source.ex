@@ -512,35 +512,24 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Infrastructure.Agent
 
   defp validate_agent_availability(changeset, _context) do
-    tenant_schema = changeset.tenant
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:integration_source)
 
-    if is_nil(tenant_schema) do
-      Ash.Changeset.add_error(changeset,
-        field: :agent_id,
-        message: "tenant context is required"
-      )
-    else
-      tenant_id = TenantSchemas.tenant_id_from_schema(tenant_schema)
-      # Tenant-scoped actor for validation within the tenant
-      actor = SystemActor.for_tenant(tenant_id, :integration_source)
-
-      Agent
-      |> Ash.Query.for_read(:connected)
-      |> Ash.Query.limit(1)
-      |> Ash.read(tenant: tenant_schema, actor: actor)
-      |> case do
-        {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
-        {:ok, results} when is_list(results) and results != [] -> changeset
-        _ ->
-          Ash.Changeset.add_error(changeset,
-            field: :agent_id,
-            message: "install and register an agent before adding integrations"
-          )
-      end
+    Agent
+    |> Ash.Query.for_read(:connected)
+    |> Ash.Query.limit(1)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, %Ash.Page.Keyset{results: results}} when results != [] -> changeset
+      {:ok, results} when is_list(results) and results != [] -> changeset
+      _ ->
+        Ash.Changeset.add_error(changeset,
+          field: :agent_id,
+          message: "install and register an agent before adding integrations"
+        )
     end
   rescue
     _ ->

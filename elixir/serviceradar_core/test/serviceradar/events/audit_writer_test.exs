@@ -25,10 +25,10 @@ defmodule ServiceRadar.Events.AuditWriterTest do
       TestSupport.drop_tenant_schema!(tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant_id}
+    {:ok, tenant_id: tenant_id, tenant_slug: tenant_slug}
   end
 
-  test "writes audit events with UUID fields", %{tenant_id: tenant_id} do
+  test "writes audit events with UUID fields", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
     resource_id = Ecto.UUID.generate()
 
     assert :ok =
@@ -42,7 +42,7 @@ defmodule ServiceRadar.Events.AuditWriterTest do
                details: %{endpoint: "https://example.net"}
              )
 
-    schema = TenantSchemas.schema_for_id(to_string(tenant_id))
+    schema = TenantSchemas.schema_for_tenant(tenant_slug)
 
     assert %Postgrex.Result{rows: [[count]]} =
              Ecto.Adapters.SQL.query!(

@@ -1,22 +1,25 @@
 defmodule ServiceRadar.Cluster.TenantGuardTest do
   use ExUnit.Case, async: true
 
+  # DB connection's search_path determines the schema
+  # This module validates inter-process communication using markers like :instance or :platform
+
   alias ServiceRadar.Cluster.TenantGuard
   alias ServiceRadar.Cluster.TenantViolation
 
-  @tenant_id_1 "tenant-abc-123"
-  @tenant_id_2 "tenant-xyz-789"
+  @marker_1 :instance
+  @marker_2 :other_instance
 
   describe "set_process_tenant/1 and get_process_tenant/0" do
-    test "sets and gets tenant for current process" do
+    test "sets and gets marker for current process" do
       assert TenantGuard.get_process_tenant() == nil
 
-      :ok = TenantGuard.set_process_tenant(@tenant_id_1)
+      :ok = TenantGuard.set_process_tenant(@marker_1)
 
-      assert TenantGuard.get_process_tenant() == @tenant_id_1
+      assert TenantGuard.get_process_tenant() == @marker_1
     end
 
-    test "supports atom tenants for platform/admin" do
+    test "supports atom markers for platform/admin" do
       :ok = TenantGuard.set_process_tenant(:platform)
 
       assert TenantGuard.get_process_tenant() == :platform
@@ -24,30 +27,30 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
   end
 
   describe "guard_tenant!/2" do
-    test "allows access when caller tenant matches expected tenant" do
-      # Start a process with a specific tenant
+    test "allows access when caller marker matches expected marker" do
+      # Start a process with a specific marker
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
           end
         end)
 
-      # Give process time to set tenant
+      # Give process time to set marker
       Process.sleep(10)
 
       # Should not raise
-      assert :ok = TenantGuard.guard_tenant!(@tenant_id_1, {caller_pid, make_ref()})
+      assert :ok = TenantGuard.guard_tenant!(@marker_1, {caller_pid, make_ref()})
 
       send(caller_pid, :done)
     end
 
-    test "raises TenantViolation when tenants don't match" do
+    test "raises TenantViolation when markers don't match" do
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
@@ -56,14 +59,14 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      assert_raise TenantViolation, ~r/Cross-tenant access denied/, fn ->
-        TenantGuard.guard_tenant!(@tenant_id_2, {caller_pid, make_ref()})
+      assert_raise TenantViolation, ~r/Cross-process access denied/, fn ->
+        TenantGuard.guard_tenant!(@marker_2, {caller_pid, make_ref()})
       end
 
       send(caller_pid, :done)
     end
 
-    test "allows platform tenant to access any tenant" do
+    test "allows platform marker to access any marker" do
       caller_pid =
         spawn(fn ->
           TenantGuard.set_process_tenant(:platform)
@@ -75,14 +78,14 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      # Platform can access any tenant
-      assert :ok = TenantGuard.guard_tenant!(@tenant_id_1, {caller_pid, make_ref()})
-      assert :ok = TenantGuard.guard_tenant!(@tenant_id_2, {caller_pid, make_ref()})
+      # Platform can access any marker
+      assert :ok = TenantGuard.guard_tenant!(@marker_1, {caller_pid, make_ref()})
+      assert :ok = TenantGuard.guard_tenant!(@marker_2, {caller_pid, make_ref()})
 
       send(caller_pid, :done)
     end
 
-    test "allows super_admin tenant to access any tenant" do
+    test "allows super_admin marker to access any marker" do
       caller_pid =
         spawn(fn ->
           TenantGuard.set_process_tenant(:super_admin)
@@ -94,15 +97,15 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      assert :ok = TenantGuard.guard_tenant!(@tenant_id_1, {caller_pid, make_ref()})
+      assert :ok = TenantGuard.guard_tenant!(@marker_1, {caller_pid, make_ref()})
 
       send(caller_pid, :done)
     end
 
-    test "allows any tenant to access platform processes" do
+    test "allows any marker to access platform processes" do
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
@@ -111,7 +114,7 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      # Any tenant can access :platform processes
+      # Any marker can access :platform processes
       assert :ok = TenantGuard.guard_tenant!(:platform, {caller_pid, make_ref()})
 
       send(caller_pid, :done)
@@ -119,26 +122,26 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
   end
 
   describe "guard_tenant!/1 (single arg)" do
-    test "validates current process tenant" do
-      TenantGuard.set_process_tenant(@tenant_id_1)
+    test "validates current process marker" do
+      TenantGuard.set_process_tenant(@marker_1)
 
-      assert :ok = TenantGuard.guard_tenant!(@tenant_id_1)
+      assert :ok = TenantGuard.guard_tenant!(@marker_1)
     end
 
-    test "raises when current process tenant doesn't match" do
-      TenantGuard.set_process_tenant(@tenant_id_1)
+    test "raises when current process marker doesn't match" do
+      TenantGuard.set_process_tenant(@marker_1)
 
       assert_raise TenantViolation, fn ->
-        TenantGuard.guard_tenant!(@tenant_id_2)
+        TenantGuard.guard_tenant!(@marker_2)
       end
     end
   end
 
   describe "validate_tenant/2" do
-    test "returns :ok when tenants match" do
+    test "returns :ok when markers match" do
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
@@ -147,15 +150,15 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      assert :ok = TenantGuard.validate_tenant(@tenant_id_1, caller_pid)
+      assert :ok = TenantGuard.validate_tenant(@marker_1, caller_pid)
 
       send(caller_pid, :done)
     end
 
-    test "returns error when tenants don't match" do
+    test "returns error when markers don't match" do
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
@@ -164,17 +167,17 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      assert {:error, :tenant_mismatch} = TenantGuard.validate_tenant(@tenant_id_2, caller_pid)
+      assert {:error, :marker_mismatch} = TenantGuard.validate_tenant(@marker_2, caller_pid)
 
       send(caller_pid, :done)
     end
   end
 
   describe "resolve_caller_tenant/1" do
-    test "resolves tenant from local process dictionary" do
+    test "resolves marker from local process dictionary" do
       caller_pid =
         spawn(fn ->
-          TenantGuard.set_process_tenant(@tenant_id_1)
+          TenantGuard.set_process_tenant(@marker_1)
 
           receive do
             :done -> :ok
@@ -183,12 +186,12 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
 
       Process.sleep(10)
 
-      assert TenantGuard.resolve_caller_tenant(caller_pid) == @tenant_id_1
+      assert TenantGuard.resolve_caller_tenant(caller_pid) == @marker_1
 
       send(caller_pid, :done)
     end
 
-    test "returns nil for process without tenant set" do
+    test "returns nil for process without marker set" do
       caller_pid =
         spawn(fn ->
           receive do
@@ -202,34 +205,19 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
     end
   end
 
-  describe "ash_opts/2" do
-    test "adds tenant to options" do
-      opts = TenantGuard.ash_opts(@tenant_id_1)
-
-      assert opts[:tenant] == @tenant_id_1
-    end
-
-    test "merges with existing options" do
-      opts = TenantGuard.ash_opts(@tenant_id_1, authorize?: false)
-
-      assert opts[:tenant] == @tenant_id_1
-      assert opts[:authorize?] == false
-    end
-  end
-
   describe "TenantViolation exception" do
     test "formats message correctly" do
       exception = %TenantViolation{
-        message: "Cross-tenant access denied",
-        expected: @tenant_id_1,
-        actual: @tenant_id_2
+        message: "Cross-process access denied",
+        expected: @marker_1,
+        actual: @marker_2
       }
 
       message = Exception.message(exception)
 
-      assert message =~ "Cross-tenant access denied"
-      assert message =~ @tenant_id_1
-      assert message =~ @tenant_id_2
+      assert message =~ "Cross-process access denied"
+      assert message =~ inspect(@marker_1)
+      assert message =~ inspect(@marker_2)
     end
   end
 
@@ -243,36 +231,36 @@ defmodule ServiceRadar.Cluster.TenantGuardTest do
       end
 
       def init(opts) do
-        tenant_id = Keyword.fetch!(opts, :tenant_id)
-        set_process_tenant(tenant_id)
-        {:ok, %{tenant_id: tenant_id}}
+        marker = Keyword.fetch!(opts, :marker)
+        set_process_tenant(marker)
+        {:ok, %{marker: marker}}
       end
 
       def handle_call(:get_data, from, state) do
-        guard_tenant!(state.tenant_id, from)
+        guard_tenant!(state.marker, from)
         {:reply, {:ok, :data}, state}
       end
     end
 
     test "guard_tenant! works in GenServer callback" do
-      {:ok, server} = TestServer.start_link(tenant_id: @tenant_id_1)
+      {:ok, server} = TestServer.start_link(marker: @marker_1)
 
-      # Set caller tenant to match
-      TenantGuard.set_process_tenant(@tenant_id_1)
+      # Set caller marker to match
+      TenantGuard.set_process_tenant(@marker_1)
 
       assert {:ok, :data} = GenServer.call(server, :get_data)
 
       GenServer.stop(server)
     end
 
-    test "guard_tenant! raises in GenServer when tenant mismatch" do
+    test "guard_tenant! raises in GenServer when marker mismatch" do
       # Trap exits so the GenServer crash doesn't kill us
       Process.flag(:trap_exit, true)
 
-      {:ok, server} = TestServer.start_link(tenant_id: @tenant_id_1)
+      {:ok, server} = TestServer.start_link(marker: @marker_1)
 
-      # Set caller tenant to different tenant
-      TenantGuard.set_process_tenant(@tenant_id_2)
+      # Set caller marker to different marker
+      TenantGuard.set_process_tenant(@marker_2)
 
       # The exception is raised in the GenServer and propagates as an exit
       result =

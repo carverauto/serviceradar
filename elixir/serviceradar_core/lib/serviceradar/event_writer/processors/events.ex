@@ -9,7 +9,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger
@@ -35,11 +34,10 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    tenant_id = TenantContext.current_tenant_id()
-
+    # DB connection's search_path determines the schema
     case Jason.decode(data) do
       {:ok, json} ->
-        parse_event(json, metadata, data, tenant_id)
+        parse_event(json, metadata, data)
 
       {:error, _} ->
         Logger.debug("Failed to parse events message as JSON")
@@ -69,7 +67,8 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     end
   end
 
-  defp parse_event(json, metadata, raw_data, tenant_id) when is_map(json) do
+  # DB connection's search_path determines the schema
+  defp parse_event(json, metadata, raw_data) when is_map(json) do
     case required_event_fields(json) do
       {:ok,
        %{
@@ -111,7 +110,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
           log_version: parse_string(json["log_version"]),
           unmapped: jsonb_or_empty_map(json["unmapped"]),
           raw_data: parse_string_or(json["raw_data"], raw_data),
-          tenant_id: tenant_id,
           created_at: DateTime.utc_now()
         }
 
@@ -124,7 +122,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     end
   end
 
-  defp parse_event(_json, _metadata, _raw_data, _tenant_id), do: nil
+  defp parse_event(_json, _metadata, _raw_data), do: nil
 
   defp required_event_fields(json) do
     with {:ok, id} <- fetch_required_string(json, "id"),

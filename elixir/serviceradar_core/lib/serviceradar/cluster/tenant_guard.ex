@@ -74,56 +74,61 @@ defmodule ServiceRadar.Cluster.TenantGuard do
   end
 
   @doc """
-  Sets the tenant for the current process.
+  Sets the process marker for the current process.
 
-  Call this in GenServer.init/1 to establish the process's tenant identity.
+  Call this in GenServer.init/1 to establish the process's identity.
+  Typically use `:instance` for tenant-serving processes or `:platform` for core services.
+
+  # DB connection's search_path determines the schema
   """
-  @spec set_process_tenant(String.t() | atom()) :: :ok
-  def set_process_tenant(tenant_id) do
-    Process.put(:serviceradar_tenant, tenant_id)
+  @spec set_process_tenant(atom()) :: :ok
+  def set_process_tenant(marker) do
+    Process.put(:serviceradar_tenant, marker)
     :ok
   end
 
   @doc """
-  Gets the tenant for the current process.
+  Gets the process marker for the current process.
   """
-  @spec get_process_tenant() :: String.t() | atom() | nil
+  @spec get_process_tenant() :: atom() | nil
   def get_process_tenant do
     Process.get(:serviceradar_tenant)
   end
 
   @doc """
-  Guards that the caller's tenant matches the expected tenant.
+  Guards that the caller's process marker matches the expected marker.
 
   Raises `ServiceRadar.Cluster.TenantViolation` if mismatch.
 
   ## Parameters
 
-    - `expected_tenant` - The tenant ID this process belongs to
+    - `expected_marker` - The process marker this process belongs to (e.g., `:instance`, `:platform`)
     - `from` - The `{pid, ref}` tuple from GenServer callbacks
 
   ## Bypass Conditions
 
   Access is allowed if:
-  - Caller tenant matches expected tenant
-  - Caller tenant is `:platform` (core services)
-  - Caller tenant is `:super_admin`
-  - Expected tenant is `:platform` (platform-wide process)
-  """
-  @spec guard_tenant!(String.t() | atom(), {pid(), reference()}) :: :ok
-  def guard_tenant!(expected_tenant, {caller_pid, _ref}) do
-    caller_tenant = resolve_caller_tenant(caller_pid)
+  - Caller marker matches expected marker
+  - Caller marker is `:platform` (core services)
+  - Caller marker is `:super_admin`
+  - Expected marker is `:platform` (platform-wide process)
 
-    unless authorized?(caller_tenant, expected_tenant) do
+  # DB connection's search_path determines the schema
+  """
+  @spec guard_tenant!(atom(), {pid(), reference()}) :: :ok
+  def guard_tenant!(expected_marker, {caller_pid, _ref}) do
+    caller_marker = resolve_caller_tenant(caller_pid)
+
+    unless authorized?(caller_marker, expected_marker) do
       Logger.warning(
-        "Tenant violation: caller=#{inspect(caller_tenant)}, " <>
-          "expected=#{inspect(expected_tenant)}, caller_pid=#{inspect(caller_pid)}"
+        "Process marker violation: caller=#{inspect(caller_marker)}, " <>
+          "expected=#{inspect(expected_marker)}, caller_pid=#{inspect(caller_pid)}"
       )
 
       raise ServiceRadar.Cluster.TenantViolation,
-        message: "Cross-tenant access denied",
-        expected: expected_tenant,
-        actual: caller_tenant,
+        message: "Cross-process access denied",
+        expected: expected_marker,
+        actual: caller_marker,
         caller_pid: caller_pid
     end
 
@@ -131,92 +136,83 @@ defmodule ServiceRadar.Cluster.TenantGuard do
   end
 
   @doc """
-  Guards that the current process's tenant matches the expected tenant.
+  Guards that the current process's marker matches the expected marker.
 
   Use this when you don't have the `from` tuple (e.g., in handle_cast).
-  Falls back to extracting tenant from the calling process.
+  Falls back to extracting marker from the calling process.
   """
-  @spec guard_tenant!(String.t() | atom()) :: :ok
-  def guard_tenant!(expected_tenant) do
+  @spec guard_tenant!(atom()) :: :ok
+  def guard_tenant!(expected_marker) do
     caller_pid = self()
-    caller_tenant = resolve_caller_tenant(caller_pid)
+    caller_marker = resolve_caller_tenant(caller_pid)
 
-    unless authorized?(caller_tenant, expected_tenant) do
+    unless authorized?(caller_marker, expected_marker) do
       Logger.warning(
-        "Tenant violation: caller=#{inspect(caller_tenant)}, " <>
-          "expected=#{inspect(expected_tenant)}"
+        "Process marker violation: caller=#{inspect(caller_marker)}, " <>
+          "expected=#{inspect(expected_marker)}"
       )
 
       raise ServiceRadar.Cluster.TenantViolation,
-        message: "Cross-tenant access denied",
-        expected: expected_tenant,
-        actual: caller_tenant
+        message: "Cross-process access denied",
+        expected: expected_marker,
+        actual: caller_marker
     end
 
     :ok
   end
 
   @doc """
-  Validates tenant access without raising.
+  Validates process marker access without raising.
 
-  Returns `:ok` or `{:error, :tenant_mismatch}`.
+  Returns `:ok` or `{:error, :marker_mismatch}`.
   """
-  @spec validate_tenant(String.t() | atom(), pid()) :: :ok | {:error, :tenant_mismatch}
-  def validate_tenant(expected_tenant, caller_pid) do
-    caller_tenant = resolve_caller_tenant(caller_pid)
+  @spec validate_tenant(atom(), pid()) :: :ok | {:error, :marker_mismatch}
+  def validate_tenant(expected_marker, caller_pid) do
+    caller_marker = resolve_caller_tenant(caller_pid)
 
-    if authorized?(caller_tenant, expected_tenant) do
+    if authorized?(caller_marker, expected_marker) do
       :ok
     else
-      {:error, :tenant_mismatch}
+      {:error, :marker_mismatch}
     end
   end
 
   @doc """
-  Extracts tenant from a PID's process dictionary or node.
+  Extracts process marker from a PID's process dictionary or node.
   """
-  @spec resolve_caller_tenant(pid()) :: String.t() | atom() | nil
+  @spec resolve_caller_tenant(pid()) :: atom() | nil
   def resolve_caller_tenant(pid) do
     if node(pid) == node() do
       # Local process - check process dictionary
-      get_tenant_from_process(pid)
+      get_marker_from_process(pid)
     else
       # Remote process - extract from node name
-      get_tenant_from_node(node(pid))
+      get_marker_from_node(node(pid))
     end
-  end
-
-  @doc """
-  Creates an Ash context with the tenant set.
-
-  Use this when making Ash calls from a tenant-aware process.
-  """
-  @spec ash_opts(String.t() | atom(), keyword()) :: keyword()
-  def ash_opts(tenant_id, opts \\ []) do
-    Keyword.put(opts, :tenant, tenant_id)
   end
 
   # ============================================================================
   # Private Functions
   # ============================================================================
+  # DB connection's search_path determines the schema
 
-  defp authorized?(caller_tenant, expected_tenant) do
+  defp authorized?(caller_marker, expected_marker) do
     cond do
-      # Same tenant - allowed
-      caller_tenant == expected_tenant ->
+      # Same marker - allowed
+      caller_marker == expected_marker ->
         true
 
       # Platform/admin callers can access anything
-      caller_tenant in [@platform_tenant, @super_admin_tenant] ->
+      caller_marker in [@platform_tenant, @super_admin_tenant] ->
         true
 
       # Platform processes are accessible by anyone
-      expected_tenant == @platform_tenant ->
+      expected_marker == @platform_tenant ->
         true
 
       # Nil caller with nil expected (legacy/unset) - allowed with warning
-      is_nil(caller_tenant) and is_nil(expected_tenant) ->
-        Logger.debug("TenantGuard: both caller and expected tenant are nil")
+      is_nil(caller_marker) and is_nil(expected_marker) ->
+        Logger.debug("TenantGuard: both caller and expected marker are nil")
         true
 
       # All other cases - denied
@@ -225,7 +221,7 @@ defmodule ServiceRadar.Cluster.TenantGuard do
     end
   end
 
-  defp get_tenant_from_process(pid) do
+  defp get_marker_from_process(pid) do
     case Process.info(pid, :dictionary) do
       {:dictionary, dict} ->
         Keyword.get(dict, :serviceradar_tenant)
@@ -239,26 +235,26 @@ defmodule ServiceRadar.Cluster.TenantGuard do
     _ -> nil
   end
 
-  defp get_tenant_from_node(node_name) do
+  defp get_marker_from_node(node_name) do
     # Node name format options:
-    # 1. gateway-001@partition-1.acme-corp.serviceradar (tenant in hostname)
-    # 2. gateway-001@10.0.0.1 (no tenant info, use certificate)
+    # 1. gateway-001@partition-1.instance.serviceradar (marker in hostname)
+    # 2. gateway-001@10.0.0.1 (no marker info, use certificate)
 
     node_str = Atom.to_string(node_name)
 
-    case parse_tenant_from_node_name(node_str) do
-      {:ok, tenant} -> tenant
+    case parse_marker_from_node_name(node_str) do
+      {:ok, marker} -> marker
       :error -> nil
     end
   end
 
-  defp parse_tenant_from_node_name(node_str) do
-    # Try to parse: name@component.partition.tenant.serviceradar
+  defp parse_marker_from_node_name(node_str) do
+    # Try to parse: name@component.partition.marker.serviceradar
     case String.split(node_str, "@") do
       [_name, host] ->
         case String.split(host, ".") do
-          [_component, _partition, tenant, "serviceradar"] ->
-            {:ok, tenant}
+          [_component, _partition, marker, "serviceradar"] ->
+            {:ok, String.to_atom(marker)}
 
           _ ->
             :error

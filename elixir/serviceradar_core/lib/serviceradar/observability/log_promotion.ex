@@ -70,7 +70,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     Enum.flat_map(rows, &match_rules(&1, rules))
   end
 
-  defp insert_events([], _opts \\ []), do: {:ok, 0}
+  defp insert_events([]), do: {:ok, 0}
 
   defp insert_events(events) do
     # DB connection's search_path determines the schema

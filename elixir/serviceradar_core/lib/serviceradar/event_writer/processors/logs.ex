@@ -18,7 +18,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Common.V1.{AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.Observability.LogPromotion
 
   require Logger
@@ -294,8 +293,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp maybe_promote_logs(rows) do
     # DB connection's search_path determines the schema
-    # LogPromotion still needs tenant_id from context for rule lookups
-    _ = LogPromotion.promote(rows, TenantContext.current_tenant_id())
+    _ = LogPromotion.promote(rows)
     :ok
   end
 

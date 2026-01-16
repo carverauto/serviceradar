@@ -2,6 +2,8 @@ defmodule ServiceRadar.Actors.SystemActor do
   @moduledoc """
   Generates system actors for background operations.
 
+  # DB connection's search_path determines the schema - no tenant_id needed at instance level.
+
   System actors allow background processes (GenServers, Oban workers, seeders)
   to perform Ash operations while maintaining authorization policy enforcement.
 
