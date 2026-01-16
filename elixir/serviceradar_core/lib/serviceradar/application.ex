@@ -8,15 +8,14 @@ defmodule ServiceRadar.Application do
   - Cluster supervisor (libcluster + Horde)
   - ProcessRegistry (singleton Horde registry + DynamicSupervisor)
 
-  ## Tenant Isolation
+  ## Instance Isolation
 
-  In the tenant-unaware architecture, each tenant instance runs its own
-  ERTS cluster with isolated resources. Tenant isolation is handled by
-  infrastructure (separate deployments, databases, NATS credentials),
-  not by in-process tenant_id routing.
+  Each instance runs its own ERTS cluster with isolated resources.
+  Isolation is handled by infrastructure (separate deployments, databases,
+  NATS credentials).
 
   ProcessRegistry provides a singleton Horde registry for cross-node
-  process discovery within a single tenant instance.
+  process discovery within a single instance.
 
   This application can run standalone or as a dependency of
   serviceradar_web or serviceradar_agent_gateway.

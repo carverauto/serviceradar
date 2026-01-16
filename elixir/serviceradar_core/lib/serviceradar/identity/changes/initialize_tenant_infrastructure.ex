@@ -51,14 +51,14 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
   """
   @spec initialize_tenant(struct()) :: {:ok, struct()} | {:error, term()}
   def initialize_tenant(tenant) do
-    tenant_id = tenant.id
+    # DB connection's search_path determines the schema
     tenant_slug = to_string(tenant.slug)
 
-    Logger.info("Initializing infrastructure for tenant: #{tenant_slug} (#{tenant_id})")
+    Logger.info("Initializing infrastructure for tenant: #{tenant_slug}")
 
     with {:ok, _schema} <- TenantSchemas.create_schema(tenant_slug) do
       # Enqueue NATS account creation job for tenant isolation
-      case CreateAccountWorker.enqueue(tenant_id) do
+      case CreateAccountWorker.enqueue() do
         {:ok, _job} ->
           Logger.debug("Enqueued NATS account creation for tenant: #{tenant_slug}")
 

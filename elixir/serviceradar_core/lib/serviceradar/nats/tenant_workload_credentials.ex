@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
   @moduledoc """
   Issues NATS credentials for tenant-scoped workloads (zen consumers).
+
+  # DB connection's search_path determines the schema
   """
 
   require Ash.Query
@@ -10,15 +12,15 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
 
   @zen_user_prefix "zen-consumer"
 
-  @spec issue_zen_credentials(String.t()) :: {:ok, map()} | {:error, term()}
-  def issue_zen_credentials(tenant_id) when is_binary(tenant_id) do
-    with {:ok, tenant} <- get_tenant(tenant_id),
+  @spec issue_zen_credentials() :: {:ok, map()} | {:error, term()}
+  def issue_zen_credentials do
+    # DB connection's search_path determines the schema
+    with {:ok, tenant} <- get_tenant(),
          :ok <- validate_tenant_nats_ready(tenant),
          {:ok, account_seed} <- decrypt_account_seed(tenant),
          {:ok, creds} <- generate_user_credentials(tenant, account_seed) do
       {:ok,
        %{
-         tenant_id: tenant.id,
          tenant_slug: to_string(tenant.slug),
          user_name: user_name(tenant.slug),
          user_public_key: creds.user_public_key,
@@ -28,13 +30,14 @@ defmodule ServiceRadar.NATS.TenantWorkloadCredentials do
     end
   end
 
-  defp get_tenant(tenant_id) do
-    actor = SystemActor.platform(:tenant_workload_credentials)
+  defp get_tenant do
+    # DB connection's search_path determines the schema - get the single tenant
+    actor = SystemActor.system(:tenant_workload_credentials)
     Tenant
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^tenant_id)
     # Avoid AshCloak decrypt attempts on nullable contact fields.
     |> Ash.Query.unload([:contact_email, :contact_name])
+    |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :tenant_not_found}

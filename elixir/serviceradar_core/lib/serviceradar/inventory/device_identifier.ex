@@ -165,8 +165,8 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Read access for authenticated users in same tenant
-    # Note: device_identifiers doesn't have tenant_id; schema isolation handles tenancy.
+    # Read access for authenticated users
+    # DB connection's search_path determines the schema.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end

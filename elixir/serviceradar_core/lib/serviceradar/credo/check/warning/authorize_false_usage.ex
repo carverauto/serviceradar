@@ -18,9 +18,9 @@ if Code.ensure_loaded?(Credo.Check) do
 
     Instead of `authorize?: false`, use `ServiceRadar.Actors.SystemActor`:
 
-        # For tenant-scoped operations
-        actor = SystemActor.for_tenant(tenant_id, :my_component)
-        Resource |> Ash.read(actor: actor, tenant: tenant_schema)
+        # For instance-scoped operations (DB search_path determines schema)
+        actor = SystemActor.system(:my_component)
+        Resource |> Ash.read(actor: actor)
 
         # For platform-wide operations (bootstrap, tenant management)
         actor = SystemActor.platform(:my_component)

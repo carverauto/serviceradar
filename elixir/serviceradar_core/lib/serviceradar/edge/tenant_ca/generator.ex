@@ -67,6 +67,8 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   The CA is signed by the platform root CA and can be used to sign
   edge component certificates for this tenant only.
 
+  DB connection's search_path determines the schema - tenant_slug is used for certificate CN.
+
   ## Options
 
   - `validity_years` - CA validity in years (default: 10)
@@ -76,8 +78,8 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   `{:ok, ca_data}` or `{:error, reason}`
   """
   @spec generate_tenant_ca(String.t(), integer()) :: {:ok, ca_data()} | {:error, term()}
-  def generate_tenant_ca(tenant_id, validity_years \\ 10) do
-    with {:ok, tenant} <- load_tenant(tenant_id),
+  def generate_tenant_ca(tenant_slug, validity_years \\ 10) do
+    with {:ok, tenant} <- load_tenant_by_slug(tenant_slug),
          {:ok, {root_cert, root_key}} <- load_root_ca(),
          {:ok, ca_key} <- generate_key(),
          {:ok, serial} <- generate_serial(),
@@ -149,9 +151,11 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   @doc """
   Generates an edge component certificate signed by the tenant's CA.
 
+  DB connection's search_path determines the schema.
+
   ## Parameters
 
-  - `tenant_ca` - The TenantCA record (with decrypted private key)
+  - `tenant_ca` - Map with :certificate_pem, :private_key_pem, and :tenant_slug
   - `component_id` - Unique identifier for the component
   - `component_type` - :gateway, :agent, :checker, or :sync
   - `partition_id` - Network partition identifier
@@ -176,16 +180,17 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
   def generate_component_cert(tenant_ca, component_id, component_type, partition_id, opts \\ []) do
     validity_days = Keyword.get(opts, :validity_days, 365)
     extra_dns = Keyword.get(opts, :dns_names, [])
+    tenant_slug = tenant_ca.tenant_slug || tenant_ca[:tenant_slug]
 
-    with {:ok, tenant} <- load_tenant(tenant_ca.tenant_id),
+    with {:ok, tenant_slug} <- validate_tenant_slug(tenant_slug),
          {:ok, ca_cert} <- decode_pem_cert(tenant_ca.certificate_pem),
          {:ok, ca_key} <- decode_pem_key(tenant_ca.private_key_pem),
          {:ok, component_key} <- generate_key(),
          {:ok, serial} <- generate_serial(),
          {:ok, {not_before, not_after}} <- validity_period_days(validity_days) do
       # Build CN and SPIFFE ID
-      subject_cn = "#{component_id}.#{partition_id}.#{tenant.slug}.serviceradar"
-      spiffe_id = "spiffe://serviceradar.local/#{component_type}/#{tenant.slug}/#{partition_id}/#{component_id}"
+      subject_cn = "#{component_id}.#{partition_id}.#{tenant_slug}.serviceradar"
+      spiffe_id = "spiffe://serviceradar.local/#{component_type}/#{tenant_slug}/#{partition_id}/#{component_id}"
 
       subject = build_subject(subject_cn)
       issuer = extract_subject(ca_cert)
@@ -276,14 +281,21 @@ defmodule ServiceRadar.Edge.TenantCA.Generator do
 
   # Private functions
 
-  defp load_tenant(tenant_id) do
-    # Tenant is cross-tenant, use platform actor
-    actor = SystemActor.platform(:tenant_ca_generator)
-    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
+  defp load_tenant_by_slug(tenant_slug) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:tenant_ca_generator)
+    case Ash.get(ServiceRadar.Identity.Tenant, %{slug: tenant_slug},
+           action: :by_slug,
+           actor: actor
+         ) do
       {:ok, tenant} -> {:ok, tenant}
       {:error, _} -> {:error, :tenant_not_found}
     end
   end
+
+  defp validate_tenant_slug(nil), do: {:error, :tenant_slug_required}
+  defp validate_tenant_slug(""), do: {:error, :tenant_slug_required}
+  defp validate_tenant_slug(slug) when is_binary(slug), do: {:ok, slug}
 
   defp load_root_ca do
     config = Application.get_env(:serviceradar_core, :root_ca, [])

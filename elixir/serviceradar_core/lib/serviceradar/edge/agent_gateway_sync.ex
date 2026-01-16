@@ -17,20 +17,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.{Device, IdentityReconciler}
 
   @doc """
-  Returns the platform tenant ID and slug.
+  Returns the platform tenant slug.
 
   Called via RPC from agent-gateway to discover tenant configuration
   without requiring manual environment variable setup.
 
-  Returns `{:ok, %{tenant_id: uuid, tenant_slug: slug}}` or `{:error, :not_ready}`.
+  DB connection's search_path determines the schema - each tenant gets their own deployment.
+
+  Returns `{:ok, %{tenant_slug: slug}}` or `{:error, :not_ready}`.
   """
   @spec get_platform_tenant_info() :: {:ok, map()} | {:error, :not_ready}
   def get_platform_tenant_info do
-    tenant_id = Application.get_env(:serviceradar_core, :platform_tenant_id)
     tenant_slug = Application.get_env(:serviceradar_core, :platform_tenant_slug, "platform")
 
-    if tenant_id && tenant_id != "" do
-      {:ok, %{tenant_id: tenant_id, tenant_slug: tenant_slug}}
+    if tenant_slug && tenant_slug != "" do
+      {:ok, %{tenant_slug: tenant_slug}}
     else
       {:error, :not_ready}
     end

@@ -65,15 +65,16 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
     Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
 
+    # DB connection's search_path determines the schema
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
          {:ok, _package} <- mark_provisioning(package),
-         {:ok, tenant} <- get_tenant(package.tenant_id),
+         {:ok, tenant} <- get_tenant(),
          :ok <- validate_tenant_nats_ready(tenant),
          {:ok, account_seed} <- get_account_seed(tenant),
          {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
-         {:ok, tenant_ca} <- get_tenant_ca(tenant),
-         {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, package),
+         {:ok, tenant_ca} <- get_tenant_ca(),
+         {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, tenant, package),
          {:ok, credential} <- create_credential_record(package, user_creds),
          {:ok, _package} <-
            mark_ready(package, credential.id, user_creds.creds_file_content, tls_certs) do
@@ -178,8 +179,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.update()
   end
 
-  defp get_tenant(tenant_id) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp get_tenant do
+    # DB connection's search_path determines the schema - get the single tenant
     actor = SystemActor.system(:provision_collector)
     seed_attr = seed_attribute()
     select_fields =
@@ -193,8 +194,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
     case Tenant
          |> Ash.Query.for_read(:read)
-         |> Ash.Query.filter(id == ^tenant_id)
          |> Ash.Query.select(select_fields)
+         |> Ash.Query.limit(1)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
@@ -309,7 +310,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp create_credential_record(package, user_creds) do
-    # Simple actor - DB connection's search_path determines the schema
+    # DB connection's search_path determines the schema
     actor = SystemActor.system(:provision_collector)
 
     NatsCredential
@@ -325,17 +326,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     }, actor: actor)
     |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
     |> Ash.Changeset.set_argument(:onboarding_package_id, nil)
-    |> Ash.Changeset.change_attribute(:tenant_id, package.tenant_id)
     |> Ash.create()
   end
 
-  defp get_tenant_ca(tenant) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp get_tenant_ca do
+    # DB connection's search_path determines the schema - get the active CA
     actor = SystemActor.system(:provision_collector)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
-         |> Ash.Query.filter(tenant_id == ^tenant.id)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
@@ -343,10 +342,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     end
   end
 
-  defp generate_tls_certificates(tenant_ca, package) do
+  defp generate_tls_certificates(tenant_ca, tenant, package) do
     # Decrypt the tenant CA's private key and generate component cert
     with {:ok, private_key_pem} <- decrypt_private_key(tenant_ca),
-         ca_data <- build_ca_data(tenant_ca, private_key_pem),
+         ca_data <- build_ca_data(tenant_ca, tenant, private_key_pem),
          {:ok, cert_data} <- generate_component_cert(ca_data, package) do
       {:ok, cert_data}
     else
@@ -366,9 +365,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   defp decrypt_private_key(_tenant_ca), do: {:error, :tenant_ca_key_decrypt_failed}
 
-  defp build_ca_data(tenant_ca, private_key_pem) do
+  defp build_ca_data(tenant_ca, tenant, private_key_pem) do
     %{
-      tenant_id: tenant_ca.tenant_id,
+      tenant_slug: tenant.slug,
       certificate_pem: tenant_ca.certificate_pem,
       private_key_pem: private_key_pem
     }

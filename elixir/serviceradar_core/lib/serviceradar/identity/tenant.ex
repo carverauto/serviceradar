@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Identity.Tenant do
   @moduledoc """
-  Represents a tenant (organization) in the multi-tenant system.
+  Represents a tenant (organization) in the system.
 
-  Tenants own users, devices, gateways, and all other tenant-scoped resources.
-  Each tenant has isolated data with configurable plan limits.
+  Each tenant gets their own deployment instance with isolated data
+  and configurable plan limits.
 
   ## Statuses
 
@@ -260,13 +260,12 @@ defmodule ServiceRadar.Identity.Tenant do
         actor = SystemActor.platform(:tenant_ca_generator)
 
         # Check for existing active CA
-        tenant_uuid = tenant.id
-
+        # DB connection's search_path determines the schema
         existing_ca =
           ServiceRadar.Edge.TenantCA
           |> Ash.Query.for_read(:read)
           |> Ash.Query.set_tenant(tenant)
-          |> Ash.Query.filter(tenant_id: tenant_uuid, status: :active)
+          |> Ash.Query.filter(status: :active)
           |> Ash.read_one!(actor: actor)
 
         cond do
@@ -286,7 +285,7 @@ defmodule ServiceRadar.Identity.Tenant do
 
             Ash.create(ServiceRadar.Edge.TenantCA, %{},
               action: :generate,
-              arguments: %{tenant_id: tenant.id, validity_years: validity_years},
+              arguments: %{validity_years: validity_years},
               tenant: tenant,
               actor: actor
             )
@@ -295,7 +294,7 @@ defmodule ServiceRadar.Identity.Tenant do
             # Generate new CA
             Ash.create(ServiceRadar.Edge.TenantCA, %{},
               action: :generate,
-              arguments: %{tenant_id: tenant.id, validity_years: validity_years},
+              arguments: %{validity_years: validity_years},
               tenant: tenant,
               actor: actor
             )
@@ -335,13 +334,13 @@ defmodule ServiceRadar.Identity.Tenant do
           # Platform actor for tenant registration (bootstrap operation)
           actor = SystemActor.platform(:tenant_registration)
 
+          # DB connection's search_path determines the schema
           user_params = %{
             email: owner_params["email"] || owner_params[:email],
             password: owner_params["password"] || owner_params[:password],
             password_confirmation:
               owner_params["password_confirmation"] || owner_params[:password_confirmation],
             display_name: owner_params["display_name"] || owner_params[:display_name],
-            tenant_id: tenant.id,
             role: if(first_user?, do: :super_admin, else: :admin)
           }
 
@@ -356,7 +355,6 @@ defmodule ServiceRadar.Identity.Tenant do
                    ServiceRadar.Identity.TenantMembership,
                    %{
                      user_id: user.id,
-                     tenant_id: tenant.id,
                      role: :owner
                    },
                    actor: actor
@@ -401,14 +399,14 @@ defmodule ServiceRadar.Identity.Tenant do
     |> Ash.read_one(actor: actor)
   end
 
-  defp ensure_platform_owner(true, %{id: tenant_id} = platform_tenant, user, actor)
-       when is_binary(tenant_id) do
+  defp ensure_platform_owner(true, %{id: id} = platform_tenant, user, actor)
+       when is_binary(id) do
+    # DB connection's search_path determines the schema
     with {:ok, _} <-
            Ash.create(
              ServiceRadar.Identity.TenantMembership,
              %{
                user_id: user.id,
-               tenant_id: tenant_id,
                role: :owner
              },
              actor: actor
@@ -439,14 +437,14 @@ defmodule ServiceRadar.Identity.Tenant do
       authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
-    # Regular users can only read their own tenant
+    # Regular users can read tenants (DB search_path scopes to their tenant)
     policy action_type(:read) do
-      authorize_if(expr(id == ^actor(:tenant_id)))
+      authorize_if(always())
     end
 
-    # Tenant admins can update their own tenant (limited fields)
+    # Tenant admins can update (DB search_path scopes to their tenant)
     policy action(:update) do
-      authorize_if(expr(id == ^actor(:tenant_id) and ^actor(:role) == :admin))
+      authorize_if(actor_attribute_equals(:role, :admin))
     end
 
     # Only super_admins can generate/regenerate tenant CAs

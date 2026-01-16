@@ -34,10 +34,11 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}) do
     Logger.info("Provisioning NATS leaf server: #{leaf_server_id}")
 
+    # DB connection's search_path determines the schema
     with {:ok, leaf_server} <- load_leaf_server(leaf_server_id),
          {:ok, edge_site} <- load_edge_site(leaf_server.edge_site_id),
-         {:ok, tenant} <- load_tenant(leaf_server.tenant_id),
-         {:ok, tenant_ca} <- get_tenant_ca(tenant),
+         {:ok, tenant} <- load_tenant(),
+         {:ok, tenant_ca} <- get_tenant_ca(),
          {:ok, leaf_certs} <- generate_leaf_certificates(tenant_ca, tenant, edge_site),
          {:ok, server_certs} <- generate_server_certificates(tenant_ca, tenant, edge_site),
          {:ok, config_checksum} <- compute_config_checksum(leaf_server, leaf_certs, server_certs),
@@ -91,25 +92,26 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     end
   end
 
-  defp load_tenant(tenant_id) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp load_tenant do
+    # DB connection's search_path determines the schema - get the single tenant
     actor = SystemActor.system(:provision_leaf)
 
-    case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
+    case ServiceRadar.Identity.Tenant
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.limit(1)
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
       {:ok, tenant} -> {:ok, tenant}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp get_tenant_ca(tenant) do
-    tenant_id = tenant.id
-    # Simple actor - DB connection's search_path determines the schema
+  defp get_tenant_ca do
+    # DB connection's search_path determines the schema - get the active CA
     actor = SystemActor.system(:provision_leaf)
 
     case TenantCA
          |> Ash.Query.for_read(:active)
-         |> Ash.Query.filter(tenant_id == ^tenant_id)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :tenant_ca_not_found}
       {:ok, ca} -> {:ok, ca}
@@ -122,7 +124,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     case ServiceRadar.Vault.decrypt(tenant_ca.private_key_pem) do
       {:ok, private_key_pem} ->
         ca_data = %{
-          tenant_id: tenant_ca.tenant_id,
+          tenant_slug: tenant.slug,
           certificate_pem: tenant_ca.certificate_pem,
           private_key_pem: private_key_pem
         }
@@ -152,7 +154,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
     case ServiceRadar.Vault.decrypt(tenant_ca.private_key_pem) do
       {:ok, private_key_pem} ->
         ca_data = %{
-          tenant_id: tenant_ca.tenant_id,
+          tenant_slug: tenant.slug,
           certificate_pem: tenant_ca.certificate_pem,
           private_key_pem: private_key_pem
         }

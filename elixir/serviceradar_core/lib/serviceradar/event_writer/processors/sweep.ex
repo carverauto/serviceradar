@@ -232,8 +232,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   # Private functions
-
-  defp parse_sweep_result(json, nats_metadata, tenant_id) do
+  # DB connection's search_path determines the schema
+  defp parse_sweep_result(json, nats_metadata) do
     time = FieldParser.parse_timestamp(FieldParser.get_field(json, "last_sweep_time", "lastSweepTime"))
     activity_id = OCSF.activity_network_scan()
     icmp_available = FieldParser.get_field(json, "icmp_available", "icmpAvailable") || false
@@ -335,9 +335,6 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
       # Raw data
       raw_data: nil,
-
-      # Multi-tenancy
-      tenant_id: tenant_id,
 
       # Gateway/Agent tracking
       gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId"),

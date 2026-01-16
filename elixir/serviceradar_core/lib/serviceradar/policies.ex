@@ -2,19 +2,12 @@ defmodule ServiceRadar.Policies do
   @moduledoc """
   Base policy macros and checks for ServiceRadar authorization.
 
-  Provides reusable policy patterns for RBAC and multi-tenancy.
+  Provides reusable policy patterns for RBAC.
 
-  ## Multi-Tenancy Model
+  ## Instance Isolation
 
-  ServiceRadar uses PostgreSQL schema-based multi-tenancy for most resources:
-  - Each tenant has its own schema (e.g., `tenant_abc123`)
-  - The DB connection's search_path determines the active schema
-  - Most resources use `multitenancy strategy: :context` (schema-isolated)
-
-  Some resources in the public schema use attribute-based tenancy:
-  - `tenants`, `tenant_memberships`, `nats_platform_tokens`, etc.
-  - These use `multitenancy strategy: :attribute` with `global?: true`
-  - They need explicit `tenant_matches()` checks in policies
+  Each tenant deployment is fully isolated:
+  - DB connection's search_path determines the schema
 
   ## Roles
 
@@ -25,7 +18,6 @@ defmodule ServiceRadar.Policies do
 
   ## Usage
 
-      # For schema-isolated resources (most resources)
       defmodule MyApp.MyResource do
         use Ash.Resource, ...
 
@@ -36,27 +28,9 @@ defmodule ServiceRadar.Policies do
             authorize_if is_super_admin()
           end
 
-          # No tenant_matches needed - schema isolation handles it
+          # DB connection's search_path determines the schema
           policy action_type(:read) do
             authorize_if is_viewer()
-          end
-        end
-      end
-
-      # For public schema resources with global?: true
-      defmodule MyApp.PublicResource do
-        use Ash.Resource, ...
-
-        policies do
-          import ServiceRadar.Policies
-
-          bypass always() do
-            authorize_if is_super_admin()
-          end
-
-          # Explicit tenant check needed for public schema resources
-          policy action_type(:read) do
-            authorize_if tenant_matches()
           end
         end
       end
@@ -64,7 +38,7 @@ defmodule ServiceRadar.Policies do
 
   @doc """
   Check if the actor has super_admin role.
-  Super admins bypass all tenant restrictions.
+  Super admins bypass all restrictions.
   """
   defmacro is_super_admin do
     quote do
@@ -100,26 +74,6 @@ defmodule ServiceRadar.Policies do
   end
 
   @doc """
-  Check if the resource's tenant_id matches the actor's tenant_id.
-
-  This macro is only needed for public schema resources that use attribute-based
-  multi-tenancy (with `global?: true`). Most resources use PostgreSQL schema
-  isolation and don't need this check.
-
-  ## When to Use
-
-  Only use for resources in the public schema, such as:
-  - `tenants` - Tenant records
-  - `tenant_memberships` - User-tenant associations
-  - `nats_platform_tokens` - Platform NATS tokens
-  """
-  defmacro tenant_matches do
-    quote do
-      expr(tenant_id == ^actor(:tenant_id))
-    end
-  end
-
-  @doc """
   Check if actor is accessing their own record.
   Useful for user self-management policies.
   """
@@ -137,7 +91,7 @@ defmodule ServiceRadar.Policies do
   Check if the resource's partition_id matches the actor's partition context.
 
   If the actor has no partition_id set, access is allowed to all partitions
-  within their tenant (backward compatible behavior).
+  (backward compatible behavior).
 
   If the actor has a partition_id set, access is restricted to resources
   in that specific partition.
@@ -153,33 +107,6 @@ defmodule ServiceRadar.Policies do
       expr(
         is_nil(^actor(:partition_id)) or
           partition_id == ^actor(:partition_id)
-      )
-    end
-  end
-
-  @doc """
-  Combined check for tenant AND partition isolation.
-
-  Ensures the resource belongs to the actor's tenant AND is either:
-  - In the actor's specified partition, or
-  - Accessible because the actor has no partition restriction
-
-  This macro is only needed for public schema resources that use attribute-based
-  multi-tenancy (with `global?: true`). Most resources use PostgreSQL schema
-  isolation for tenant isolation and only need partition checks.
-
-  ## Usage
-
-      # For public schema resources with partition support
-      policy action_type(:read) do
-        authorize_if tenant_and_partition_match()
-      end
-  """
-  defmacro tenant_and_partition_match do
-    quote do
-      expr(
-        tenant_id == ^actor(:tenant_id) and
-          (is_nil(^actor(:partition_id)) or partition_id == ^actor(:partition_id))
       )
     end
   end

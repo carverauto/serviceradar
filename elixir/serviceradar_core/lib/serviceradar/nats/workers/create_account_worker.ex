@@ -1,6 +1,8 @@
 defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   @moduledoc """
-  Oban worker for asynchronously creating NATS accounts for tenants.
+  Oban worker for asynchronously creating NATS accounts for the tenant.
+
+  # DB connection's search_path determines the schema
 
   This worker is triggered when a new tenant is created. It calls datasvc
   to generate the NATS account credentials and stores them encrypted
@@ -13,11 +15,11 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
   ## Usage
 
-      # Enqueue account creation for a tenant
-      {:ok, _job} = CreateAccountWorker.enqueue(tenant_id)
+      # Enqueue account creation for the tenant
+      {:ok, _job} = CreateAccountWorker.enqueue()
 
       # Enqueue with options
-      {:ok, _job} = CreateAccountWorker.enqueue(tenant_id,
+      {:ok, _job} = CreateAccountWorker.enqueue(
         scheduled_at: DateTime.add(DateTime.utc_now(), 60, :second)
       )
   """
@@ -25,7 +27,7 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   use Oban.Worker,
     queue: :nats_accounts,
     max_attempts: 5,
-    unique: [period: 60, keys: [:tenant_id]]
+    unique: [period: 60]
 
   require Ash.Query
   require Logger
@@ -52,7 +54,9 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   ]
 
   @doc """
-  Enqueue a NATS account creation job for a tenant.
+  Enqueue a NATS account creation job for the tenant.
+
+  # DB connection's search_path determines the schema
 
   ## Options
 
@@ -61,20 +65,18 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
   ## Examples
 
-      {:ok, job} = CreateAccountWorker.enqueue(tenant_id)
-      {:ok, job} = CreateAccountWorker.enqueue(tenant_id, scheduled_at: ~U[2025-01-01 00:00:00Z])
+      {:ok, job} = CreateAccountWorker.enqueue()
+      {:ok, job} = CreateAccountWorker.enqueue(scheduled_at: ~U[2025-01-01 00:00:00Z])
   """
-  @spec enqueue(Ecto.UUID.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue(tenant_id, opts \\ []) do
+  @spec enqueue(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(opts \\ []) do
     if oban_running?() do
-      args = %{"tenant_id" => tenant_id}
-
       job_opts =
         []
         |> maybe_add_scheduled_at(opts[:scheduled_at])
         |> maybe_add_priority(opts[:priority])
 
-      args
+      %{}
       |> new(job_opts)
       |> Oban.insert()
     else
@@ -83,60 +85,58 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   @impl Oban.Worker
-  def perform(
-        %Oban.Job{args: %{"tenant_id" => tenant_id}, attempt: attempt, max_attempts: max} =
-          job
-      ) do
-    Logger.info("Creating NATS account for tenant #{tenant_id} (attempt #{attempt}/#{max})")
+  def perform(%Oban.Job{attempt: attempt, max_attempts: max} = job) do
+    # DB connection's search_path determines the schema
+    Logger.info("Creating NATS account for tenant (attempt #{attempt}/#{max})")
 
-    with {:ok, tenant} <- get_tenant(tenant_id),
+    with {:ok, tenant} <- get_tenant(),
          :ok <- validate_tenant_status(tenant),
          {:ok, tenant} <- mark_pending(tenant),
          {:ok, result} <- create_nats_account(tenant),
          {:ok, tenant} <- store_account_credentials(tenant, result),
          :ok <- push_jwt_to_resolver(result),
          :ok <- maybe_update_platform_imports(tenant) do
-      Logger.info("Successfully created NATS account for tenant #{tenant_id}")
+      Logger.info("Successfully created NATS account for tenant #{tenant.slug}")
       :ok
     else
       {:error, :tenant_not_found} ->
-        Logger.error("Tenant #{tenant_id} not found, discarding job")
+        Logger.error("Tenant not found, discarding job")
         {:discard, :tenant_not_found}
 
       {:error, :tenant_deleted} ->
-        Logger.info("Tenant #{tenant_id} is deleted, discarding job")
+        Logger.info("Tenant is deleted, discarding job")
         {:discard, :tenant_deleted}
 
       {:error, :account_already_ready} ->
-        Logger.info("NATS account already ready for tenant #{tenant_id}")
+        Logger.info("NATS account already ready for tenant")
         :ok
 
       {:error, {:grpc_error, message}} = error ->
-        Logger.error("gRPC error creating NATS account for tenant #{tenant_id}: #{message}")
+        Logger.error("gRPC error creating NATS account: #{message}")
 
         if attempt >= max do
-          mark_error(tenant_id, message)
-          record_final_failure(job, tenant_id, message)
+          mark_error(message)
+          record_final_failure(job, message)
         end
 
         error
 
       {:error, :not_connected} = error ->
-        Logger.warning("datasvc not connected, will retry for tenant #{tenant_id}")
+        Logger.warning("datasvc not connected, will retry")
 
         if attempt >= max do
-          mark_error(tenant_id, "datasvc not connected")
-          record_final_failure(job, tenant_id, :not_connected)
+          mark_error("datasvc not connected")
+          record_final_failure(job, :not_connected)
         end
 
         error
 
       {:error, reason} = error ->
-        Logger.error("Error creating NATS account for tenant #{tenant_id}: #{inspect(reason)}")
+        Logger.error("Error creating NATS account: #{inspect(reason)}")
 
         if attempt >= max do
-          mark_error(tenant_id, inspect(reason))
-          record_final_failure(job, tenant_id, reason)
+          mark_error(inspect(reason))
+          record_final_failure(job, reason)
         end
 
         error
@@ -145,17 +145,17 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
 
   # Private helpers
 
-  defp get_tenant(tenant_id) do
-    # Tenant resource is cross-tenant, use platform actor
-    actor = SystemActor.platform(:nats_account_worker)
+  defp get_tenant do
+    # DB connection's search_path determines the schema - get the single tenant
+    actor = SystemActor.system(:nats_account_worker)
 
     # Use Ash.Query.select to only load fields we need.
     # This prevents AshCloak from attempting to decrypt encrypted fields
     # (contact_email, contact_name) which may be NULL.
     Tenant
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^tenant_id)
     |> Ash.Query.select(@tenant_select_fields)
+    |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
     |> case do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -178,7 +178,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp mark_pending(tenant) do
-    actor = SystemActor.platform(:nats_account_worker)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:nats_account_worker)
 
     tenant
     |> Ash.Changeset.for_update(:set_nats_account_pending, %{}, actor: actor)
@@ -209,7 +210,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
       "Storing credentials: public_key=#{inspect(result.account_public_key)}, seed=present, jwt=present"
     )
 
-    actor = SystemActor.platform(:nats_account_worker)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:nats_account_worker)
 
     tenant
     |> Ash.Changeset.for_update(
@@ -222,10 +224,11 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     |> Ash.update()
   end
 
-  defp mark_error(tenant_id, message) do
-    case get_tenant(tenant_id) do
+  defp mark_error(message) do
+    # DB connection's search_path determines the schema
+    case get_tenant() do
       {:ok, tenant} ->
-        actor = SystemActor.platform(:nats_account_worker)
+        actor = SystemActor.system(:nats_account_worker)
 
         tenant
         |> Ash.Changeset.for_update(:set_nats_account_error, %{error_message: message},
@@ -247,7 +250,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
     _ -> false
   end
 
-  defp record_final_failure(%Oban.Job{} = job, tenant_id, reason) do
+  defp record_final_failure(%Oban.Job{} = job, reason) do
+    # DB connection's search_path determines the schema
     if job.attempt >= job.max_attempts do
       message =
         "NATS account provisioning failed after #{job.attempt}/#{job.max_attempts} attempts"
@@ -260,7 +264,6 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
       }
 
       case JobWriter.write_failure(
-             tenant_id: tenant_id,
              job_name: "nats.account.create",
              job_id: to_string(job.id),
              queue: job.queue,
@@ -391,7 +394,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp get_platform_tenant do
-    actor = SystemActor.platform(:nats_account_worker)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:nats_account_worker)
     seed_attr = seed_attribute()
     select_fields =
       case seed_attr do
@@ -478,7 +482,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp load_import_tenants do
-    actor = SystemActor.platform(:nats_account_worker)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:nats_account_worker)
 
     Tenant
     |> Ash.Query.for_read(:read)
@@ -510,7 +515,8 @@ defmodule ServiceRadar.NATS.Workers.CreateAccountWorker do
   end
 
   defp update_platform_jwt(platform_tenant, account_jwt) do
-    actor = SystemActor.platform(:nats_account_worker)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:nats_account_worker)
 
     platform_tenant
     |> Ash.Changeset.for_update(:update_nats_account_jwt, %{account_jwt: account_jwt},

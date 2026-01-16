@@ -11,9 +11,8 @@ defmodule ServiceRadar.AgentRegistry do
   The registry tracks agent metadata including gRPC addresses so gateways
   can discover and communicate with their assigned agents.
 
-  In the tenant-unaware architecture, this module provides agent discovery
-  without tenant_id routing. Tenant isolation is handled by infrastructure
-  (separate deployments, databases, NATS credentials).
+  This module provides agent discovery for the local instance. Each tenant
+  deployment runs independently with its own infrastructure.
 
   ## Registration
 

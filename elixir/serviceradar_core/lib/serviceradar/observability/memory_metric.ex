@@ -4,11 +4,6 @@ defmodule ServiceRadar.Observability.MemoryMetric do
 
   Maps to the `memory_metrics` TimescaleDB hypertable. This table is managed by raw SQL
   migrations that match the Go schema exactly.
-
-  ## Tenant-Unaware Architecture
-
-  This resource operates in tenant-unaware mode where PostgreSQL schema isolation
-  (via CNPG search_path) handles multi-tenancy. No tenant_id column is needed.
   """
 
   use Ash.Resource,
@@ -35,9 +30,7 @@ defmodule ServiceRadar.Observability.MemoryMetric do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
+  # DB connection's search_path determines the schema
 
   resource do
     # TimescaleDB hypertables don't have traditional primary keys
@@ -75,7 +68,6 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   end
 
   policies do
-    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
@@ -84,8 +76,6 @@ defmodule ServiceRadar.Observability.MemoryMetric do
       authorize_if always()
     end
   end
-
-  # Tenant-unaware: PostgreSQL schema isolation (via CNPG search_path) handles multi-tenancy.
 
   attributes do
     # TimescaleDB hypertable - no traditional PK

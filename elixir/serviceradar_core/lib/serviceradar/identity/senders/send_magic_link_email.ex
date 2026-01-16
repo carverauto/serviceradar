@@ -101,10 +101,7 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
     URI.parse(base_url)
   end
 
-  defp resolve_tenant(%{tenant_id: tenant_id}, _opts) when is_binary(tenant_id) do
-    fetch_tenant_by_id(tenant_id) || default_tenant()
-  end
-
+  # DB connection's search_path determines the schema - resolve tenant from context
   defp resolve_tenant(_user_or_email, opts) do
     opts
     |> Keyword.get(:tenant)

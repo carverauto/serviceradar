@@ -30,9 +30,7 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
+  # DB connection's search_path determines the schema
 
   resource do
     # TimescaleDB hypertables don't have traditional primary keys
@@ -79,7 +77,6 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
   end
 
   policies do
-    # Reads are tenant-scoped by schema isolation
     policy action_type(:read) do
       authorize_if always()
     end
@@ -88,8 +85,6 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
       authorize_if always()
     end
   end
-
-  # Note: This hypertable does not include tenant_id; schema isolation handles tenancy.
 
   attributes do
     # TimescaleDB hypertable - no traditional PK

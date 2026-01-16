@@ -6,9 +6,6 @@ defmodule ServiceRadar.AgentConfig.ConfigPublisher do
   events to NATS so that other nodes (gateways, other core instances) can
   invalidate their caches.
 
-  Each tenant instance publishes to its own NATS, providing implicit tenant isolation
-  without needing tenant_id in the API or NATS subjects.
-
   ## Event Format
 
   Events are published to: `serviceradar.config.invalidated.{config_type}`

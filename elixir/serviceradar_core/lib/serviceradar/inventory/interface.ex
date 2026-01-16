@@ -100,15 +100,12 @@ defmodule ServiceRadar.Inventory.Interface do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # Read access: Authenticated users can read interfaces
-    # Note: Full tenant isolation requires joining to device table
-    # For now, allow reads for any authenticated user with a role
+    # Read access for authenticated users
+    # DB connection's search_path determines the schema.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end
   end
-
-  # Note: discovered_interfaces doesn't have tenant_id; schema isolation handles tenancy.
 
   attributes do
     # Composite primary key: timestamp + device_id + if_index

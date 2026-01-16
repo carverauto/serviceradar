@@ -22,24 +22,23 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id}
+    {:ok, tenant_slug: tenant.tenant_slug}
   end
 
-  setup %{tenant_id: tenant_id} do
+  setup %{tenant_slug: tenant_slug} do
     unique_id = :erlang.unique_integer([:positive])
 
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
-      role: :super_admin,
-      tenant_id: tenant_id
+      role: :super_admin
     }
 
-    {:ok, tenant_id: tenant_id, actor: actor, unique_id: unique_id}
+    {:ok, tenant_slug: tenant_slug, actor: actor, unique_id: unique_id}
   end
 
   describe "health state transitions" do
-    test "new agent starts healthy", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "new agent starts healthy", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register, %{
@@ -47,13 +46,13 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "New Agent",
           host: "192.168.1.10",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.is_healthy == true
     end
 
-    test "connected agent starts healthy", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "connected agent starts healthy", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{
@@ -61,14 +60,14 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Connected Agent",
           host: "192.168.1.11",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.is_healthy == true
       assert agent.status == :connected
     end
 
-    test "degrade action marks agent as unhealthy", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "degrade action marks agent as unhealthy", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create connected agent
       {:ok, agent} =
         Agent
@@ -77,7 +76,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Degrade Test Agent",
           host: "192.168.1.12",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -93,7 +92,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert degraded.status == :degraded
     end
 
-    test "restore_health action marks agent as healthy", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "restore_health action marks agent as healthy", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create and degrade agent
       {:ok, agent} =
         Agent
@@ -102,7 +101,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Restore Test Agent",
           host: "192.168.1.13",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, degraded} =
@@ -122,7 +121,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert restored.status == :connected
     end
 
-    test "mark_unavailable action marks agent as unhealthy", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "mark_unavailable action marks agent as unhealthy", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{
@@ -130,7 +129,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Unavailable Test Agent",
           host: "192.168.1.14",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, unavailable} =
@@ -142,7 +141,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert unavailable.status == :unavailable
     end
 
-    test "establish_connection resets health to true", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "establish_connection resets health to true", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create connecting agent (default state)
       {:ok, agent} =
         Agent
@@ -151,7 +150,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Connect Health Test",
           host: "192.168.1.15",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       # Establish connection
@@ -166,7 +165,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
   end
 
   describe "health-based queries" do
-    setup %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    setup %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       # Create a healthy connected agent
       {:ok, healthy_agent} =
         Agent
@@ -175,7 +174,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Healthy Agent",
           host: "192.168.1.20",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       # Create a degraded (unhealthy) agent
@@ -186,7 +185,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Degraded Agent",
           host: "192.168.1.21",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       {:ok, degraded_agent} =
@@ -201,11 +200,11 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       healthy_agent: healthy,
       degraded_agent: degraded,
       actor: actor,
-      tenant_id: tenant_id
+      tenant_slug: tenant_slug
     } do
       agents =
         Agent
-        |> Ash.Query.for_read(:connected, %{}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:connected, %{}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       # Should include healthy connected agent
@@ -219,11 +218,11 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       degraded_agent: degraded,
       healthy_agent: healthy,
       actor: actor,
-      tenant_id: tenant_id
+      tenant_slug: tenant_slug
     } do
       agents =
         Agent
-        |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor, tenant: tenant_id)
+        |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor, tenant: tenant_slug)
         |> Ash.read!()
 
       assert Enum.any?(agents, &(&1.uid == degraded.uid))
@@ -232,7 +231,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
   end
 
   describe "heartbeat and timestamps" do
-    test "heartbeat updates last_seen_time", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "heartbeat updates last_seen_time", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{
@@ -240,7 +239,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Heartbeat Agent",
           host: "192.168.1.30",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       original_seen = agent.last_seen_time
@@ -258,7 +257,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert DateTime.compare(updated.last_seen_time, original_seen) in [:eq, :gt]
     end
 
-    test "heartbeat can update is_healthy flag", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "heartbeat can update is_healthy flag", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{
@@ -266,7 +265,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Heartbeat Health Agent",
           host: "192.168.1.31",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       assert agent.is_healthy == true
@@ -288,7 +287,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert healthy.is_healthy == true
     end
 
-    test "first_seen_time is set on creation and never changes", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "first_seen_time is set on creation and never changes", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register, %{
@@ -296,7 +295,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "First Seen Agent",
           host: "192.168.1.32",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       original_first_seen = agent.first_seen_time
@@ -312,7 +311,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
       assert DateTime.compare(updated.first_seen_time, original_first_seen) == :eq
     end
 
-    test "modified_time is updated on state changes", %{tenant_id: tenant_id, actor: actor, unique_id: unique_id} do
+    test "modified_time is updated on state changes", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register_connected, %{
@@ -320,7 +319,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
           name: "Modified Time Agent",
           host: "192.168.1.33",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       # Sleep to ensure measurable time difference

@@ -2,10 +2,8 @@ defmodule ServiceRadar.ProcessRegistry do
   @moduledoc """
   Singleton Horde registry for process discovery.
 
-  In the tenant-unaware architecture, each tenant instance runs its own
-  ERTS cluster with isolated resources. This single registry handles all
-  process registration without tenant_id routing - tenant isolation is
-  handled by the infrastructure (separate deployments, databases, NATS).
+  Each tenant deployment runs its own ERTS cluster with isolated resources.
+  This single registry handles all process registration for the local instance.
 
   ## Usage
 

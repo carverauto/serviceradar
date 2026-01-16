@@ -6,11 +6,13 @@ defmodule ServiceRadar.Edge.PubSub do
   application (e.g., web-ng). If the PubSub is not running, broadcasts
   are silently ignored.
 
+  DB connection's search_path determines the schema - each tenant gets their own deployment.
+
   ## Topics
 
-  - `collectors:tenant:<tenant_id>` - All collector updates for a tenant
+  - `collectors` - All collector updates
   - `collectors:package:<package_id>` - Specific package updates
-  - `nats:tenant:<tenant_id>` - NATS credential updates for a tenant
+  - `nats:credentials` - NATS credential updates
 
   ## Events
 
@@ -25,9 +27,9 @@ defmodule ServiceRadar.Edge.PubSub do
 
   # Topic helpers
 
-  def tenant_collectors_topic(tenant_id), do: "collectors:tenant:#{tenant_id}"
+  def collectors_topic, do: "collectors"
   def package_topic(package_id), do: "collectors:package:#{package_id}"
-  def tenant_nats_topic(tenant_id), do: "nats:tenant:#{tenant_id}"
+  def nats_credentials_topic, do: "nats:credentials"
 
   # Package broadcasts
 
@@ -36,7 +38,7 @@ defmodule ServiceRadar.Edge.PubSub do
   """
   def broadcast_package_created(package) do
     event = {:package_created, package}
-    safe_broadcast(tenant_collectors_topic(package.tenant_id), event)
+    safe_broadcast(collectors_topic(), event)
     safe_broadcast(package_topic(package.id), event)
   end
 
@@ -45,12 +47,12 @@ defmodule ServiceRadar.Edge.PubSub do
   """
   def broadcast_package_status_changed(package, old_status, new_status) do
     event = {:package_updated, package, old_status, new_status}
-    safe_broadcast(tenant_collectors_topic(package.tenant_id), event)
+    safe_broadcast(collectors_topic(), event)
     safe_broadcast(package_topic(package.id), event)
 
     if new_status == :revoked do
       revoke_event = {:package_revoked, package}
-      safe_broadcast(tenant_collectors_topic(package.tenant_id), revoke_event)
+      safe_broadcast(collectors_topic(), revoke_event)
     end
   end
 
@@ -61,7 +63,7 @@ defmodule ServiceRadar.Edge.PubSub do
   """
   def broadcast_credential_created(credential) do
     event = {:credential_created, credential}
-    safe_broadcast(tenant_nats_topic(credential.tenant_id), event)
+    safe_broadcast(nats_credentials_topic(), event)
   end
 
   @doc """
@@ -69,7 +71,7 @@ defmodule ServiceRadar.Edge.PubSub do
   """
   def broadcast_credential_revoked(credential) do
     event = {:credential_revoked, credential}
-    safe_broadcast(tenant_nats_topic(credential.tenant_id), event)
+    safe_broadcast(nats_credentials_topic(), event)
   end
 
   # Safe broadcast - silently ignores if PubSub is not running

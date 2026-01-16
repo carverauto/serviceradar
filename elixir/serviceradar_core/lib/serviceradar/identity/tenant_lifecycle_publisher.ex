@@ -11,7 +11,7 @@ defmodule ServiceRadar.Identity.TenantLifecyclePublisher do
   ```json
   {
     "event_type": "tenant.created",
-    "tenant_id": "uuid",
+    "id": "uuid",
     "tenant_slug": "platform",
     "status": "active",
     "plan": "free",
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Identity.TenantLifecyclePublisher do
   defp build_payload(action, tenant, opts) do
     %{
       event_type: "tenant.#{action}",
-      tenant_id: tenant.id,
+      id: tenant.id,
       tenant_slug: tenant.slug |> to_string(),
       status: tenant.status |> to_string(),
       plan: tenant.plan |> to_string(),

@@ -143,10 +143,10 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   end
 
   defp validate_platform_tenant!(tenant, platform_slug) do
-    tenant_id = to_string(tenant.id)
+    id = to_string(tenant.id)
     tenant_slug = to_string(tenant.slug)
 
-    if tenant_id == @zero_uuid do
+    if id == @zero_uuid do
       Logger.error("[PlatformTenantBootstrap] Platform tenant UUID must not be the zero UUID")
       raise "invalid platform tenant id"
     end
@@ -197,40 +197,40 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   end
 
   @impl true
-  def handle_info({:publish_platform_event, tenant_id, event}, state) do
-    handle_info({:publish_platform_event, tenant_id, event, 1}, state)
+  def handle_info({:publish_platform_event, id, event}, state) do
+    handle_info({:publish_platform_event, id, event, 1}, state)
   end
 
-  def handle_info({:publish_platform_event, tenant_id, event, attempt}, state) do
-    case fetch_platform_tenant(tenant_id) do
+  def handle_info({:publish_platform_event, id, event, attempt}, state) do
+    case fetch_platform_tenant(id) do
       {:ok, tenant} ->
         if publish_event(event, tenant) != :ok do
-          schedule_publish_retry(tenant_id, event, attempt + 1)
+          schedule_publish_retry(id, event, attempt + 1)
         end
 
       {:error, :not_found} ->
         Logger.warning(
           "[PlatformTenantBootstrap] Tenant not found during publish retry; stopping retries.",
-          tenant_id: tenant_id,
+          id: id,
           event: event
         )
 
       {:error, {:unexpected_count, count}} ->
         Logger.error(
           "[PlatformTenantBootstrap] Multiple tenants found during publish retry; stopping retries.",
-          tenant_id: tenant_id,
+          id: id,
           count: count,
           event: event
         )
 
       {:error, reason} ->
         Logger.warning("[PlatformTenantBootstrap] Retry publish failed to load tenant",
-          tenant_id: tenant_id,
+          id: id,
           reason: inspect(reason),
           event: event
         )
 
-        schedule_publish_retry(tenant_id, event, attempt + 1)
+        schedule_publish_retry(id, event, attempt + 1)
     end
 
     {:noreply, state}
@@ -239,7 +239,7 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   defp publish_platform_lifecycle_event(event, tenant) do
     if publish_event(event, tenant) != :ok do
       Logger.warning("[PlatformTenantBootstrap] Tenant lifecycle publish failed; retrying",
-        tenant_id: tenant.id,
+        id: tenant.id,
         event: event
       )
 
@@ -252,9 +252,9 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
   defp publish_event(:deleted, tenant), do: TenantLifecyclePublisher.publish_deleted(tenant)
   defp publish_event(_event, tenant), do: TenantLifecyclePublisher.publish_updated(tenant)
 
-  defp schedule_publish_retry(tenant_id, event, attempt) do
+  defp schedule_publish_retry(id, event, attempt) do
     delay = calculate_publish_backoff(attempt)
-    Process.send_after(self(), {:publish_platform_event, tenant_id, event, attempt}, delay)
+    Process.send_after(self(), {:publish_platform_event, id, event, attempt}, delay)
   end
 
   defp calculate_publish_backoff(attempt) do
@@ -268,13 +268,13 @@ defmodule ServiceRadar.Identity.PlatformTenantBootstrap do
     min(base_delay + jitter, @max_publish_retry_delay)
   end
 
-  defp fetch_platform_tenant(tenant_id) do
+  defp fetch_platform_tenant(id) do
     actor = SystemActor.platform(:platform_tenant_bootstrap)
 
     query =
       Tenant
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(id == ^tenant_id)
+      |> Ash.Query.filter(id == ^id)
       |> Ash.Query.select([:id, :slug, :status, :plan, :is_platform_tenant, :nats_account_status])
 
     case Ash.read(query, actor: actor) do

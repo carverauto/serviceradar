@@ -302,11 +302,10 @@ defmodule ServiceRadar.NATS.OperatorBootstrap do
   end
 
   defp enqueue_tenant_account(tenant) do
-    Logger.info(
-      "[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug} (#{tenant.id})"
-    )
+    # DB connection's search_path determines the schema
+    Logger.info("[NATS Bootstrap] Creating NATS account for tenant: #{tenant.slug}")
 
-    case CreateAccountWorker.enqueue(tenant.id) do
+    case CreateAccountWorker.enqueue() do
       {:ok, _job} ->
         Logger.info("[NATS Bootstrap] Enqueued NATS account creation for #{tenant.slug}")
 

@@ -3,6 +3,7 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
   Creates a version history record when a config instance is updated.
 
   This captures the state before the update for audit and rollback purposes.
+  DB connection's search_path determines the schema.
   """
 
   use Ash.Resource.Change
@@ -30,38 +31,30 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
     current_config = Ash.Changeset.get_data(changeset, :compiled_config) || %{}
     current_hash = Ash.Changeset.get_data(changeset, :content_hash) || ""
     current_source_ids = Ash.Changeset.get_data(changeset, :source_ids) || []
-    tenant = changeset.tenant
 
     # Extract actor info if available
     {actor_id, actor_email} = extract_actor_info(context)
 
-    if is_nil(tenant) do
-      Ash.Changeset.add_error(changeset,
-        field: :tenant_id,
-        message: "tenant context is required to record config history"
-      )
-    else
-      # Create the version record
-      version_attrs = %{
-        config_instance_id: config_instance_id,
-        version: current_version,
-        compiled_config: current_config,
-        content_hash: current_hash,
-        source_ids: current_source_ids,
-        actor_id: actor_id,
-        actor_email: actor_email,
-        change_reason: "Config updated"
-      }
+    # Create the version record
+    version_attrs = %{
+      config_instance_id: config_instance_id,
+      version: current_version,
+      compiled_config: current_config,
+      content_hash: current_hash,
+      source_ids: current_source_ids,
+      actor_id: actor_id,
+      actor_email: actor_email,
+      change_reason: "Config updated"
+    }
 
-      case create_version(version_attrs, tenant, context) do
-        {:ok, _version} ->
-          changeset
+    case create_version(version_attrs, context) do
+      {:ok, _version} ->
+        changeset
 
-        {:error, error} ->
-          Logger.warning("Failed to create config version history: #{inspect(error)}")
-          # Don't fail the main operation if history creation fails
-          changeset
-      end
+      {:error, error} ->
+        Logger.warning("Failed to create config version history: #{inspect(error)}")
+        # Don't fail the main operation if history creation fails
+        changeset
     end
   end
 
@@ -73,8 +66,8 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
     end
   end
 
-  defp create_version(attrs, tenant, context) do
-    # DB connection's search_path determines the schema
+  # DB connection's search_path determines the schema
+  defp create_version(attrs, context) do
     actor =
       case Map.get(context, :actor) do
         nil -> SystemActor.system(:config_version_history)
@@ -83,6 +76,6 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
 
     ServiceRadar.AgentConfig.ConfigVersion
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(tenant: tenant, actor: actor)
+    |> Ash.create(actor: actor)
   end
 end

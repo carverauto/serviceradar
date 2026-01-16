@@ -2,9 +2,8 @@ defmodule ServiceRadar.GatewayRegistry do
   @moduledoc """
   Registry for tracking available agent gateways across the ERTS cluster.
 
-  In the tenant-unaware architecture, this module provides gateway discovery
-  without tenant_id routing. Tenant isolation is handled by infrastructure
-  (separate deployments, databases, NATS credentials).
+  This module provides gateway discovery for the local instance. Each tenant
+  deployment runs independently with its own infrastructure.
 
   ## Registration
 

@@ -22,30 +22,28 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id}
+    {:ok, tenant: tenant.tenant_slug}
   end
 
-  setup %{tenant_id: tenant_id} do
-    partition_id = Ash.UUID.generate()
-
-    {:ok, tenant_id: tenant_id, partition_id: partition_id}
+  setup %{tenant: tenant} do
+    {:ok, tenant: tenant}
   end
 
   describe "Gateway state machine" do
-    test "registers in healthy state", %{tenant_id: tenant_id} do
+    test "registers in healthy state", %{tenant: tenant} do
       {:ok, gateway} =
         Gateway
         |> Ash.Changeset.for_create(:register, %{
           id: "gateway-#{System.unique_integer([:positive])}"
         })
-        |> Ash.create(authorize?: false, tenant: tenant_id)
+        |> Ash.create(authorize?: false, tenant: tenant)
 
       assert gateway.status == :healthy
       assert gateway.is_healthy == true
     end
 
-    test "transitions from healthy to degraded", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "transitions from healthy to degraded", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
       assert gateway.status == :healthy
 
       {:ok, degraded} = Ash.update(gateway, :degrade, %{reason: "test"}, authorize?: false)
@@ -54,8 +52,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert degraded.is_healthy == false
     end
 
-    test "transitions from healthy to offline", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "transitions from healthy to offline", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "shutdown"}, authorize?: false)
 
@@ -63,8 +61,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert offline.is_healthy == false
     end
 
-    test "transitions through maintenance cycle", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "transitions through maintenance cycle", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       # Start maintenance
       {:ok, in_maintenance} = Ash.update(gateway, :start_maintenance, %{}, authorize?: false)
@@ -76,8 +74,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert restored.is_healthy == true
     end
 
-    test "transitions through draining cycle", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "transitions through draining cycle", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       # Start draining
       {:ok, draining} = Ash.update(gateway, :start_draining, %{}, authorize?: false)
@@ -88,8 +86,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert offline.status == :offline
     end
 
-    test "transitions through recovery cycle", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "transitions through recovery cycle", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       # Go offline
       {:ok, offline} = Ash.update(gateway, :go_offline, %{reason: "failure"}, authorize?: false)
@@ -105,46 +103,45 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert healthy.is_healthy == true
     end
 
-    test "deactivate works from any state", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "deactivate works from any state", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       {:ok, inactive} = Ash.update(gateway, :deactivate, %{}, authorize?: false)
       assert inactive.status == :inactive
       assert inactive.is_healthy == false
     end
 
-    test "rejects invalid transitions", %{tenant_id: tenant_id} do
-      {:ok, gateway} = create_healthy_gateway(tenant_id)
+    test "rejects invalid transitions", %{tenant: tenant} do
+      {:ok, gateway} = create_healthy_gateway(tenant)
 
       # Cannot recover from healthy (only from degraded/offline/recovering)
       {:error, changeset} = Ash.update(gateway, :recover, %{}, authorize?: false)
       assert changeset.errors != []
     end
 
-    defp create_healthy_gateway(tenant_id) do
+    defp create_healthy_gateway(tenant) do
       Gateway
       |> Ash.Changeset.for_create(:register, %{
         id: "gateway-#{System.unique_integer([:positive])}"
       })
-      |> Ash.create(authorize?: false, tenant: tenant_id)
+      |> Ash.create(authorize?: false, tenant: tenant)
     end
   end
 
   describe "Agent state machine" do
-    test "registers in connecting state by default", %{tenant_id: tenant_id} do
+    test "registers in connecting state by default", %{tenant: tenant} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(:register, %{
-          uid: "agent-#{System.unique_integer([:positive])}",
-          tenant_id: tenant_id
+          uid: "agent-#{System.unique_integer([:positive])}"
         })
-        |> Ash.create(authorize?: false)
+        |> Ash.create(authorize?: false, tenant: tenant)
 
       assert agent.status == :connecting
     end
 
-    test "transitions from connecting to connected", %{tenant_id: tenant_id} do
-      {:ok, agent} = create_connecting_agent(tenant_id)
+    test "transitions from connecting to connected", %{tenant: tenant} do
+      {:ok, agent} = create_connecting_agent(tenant)
 
       {:ok, connected} = Ash.update(agent, :establish_connection, %{}, authorize?: false)
 
@@ -152,16 +149,16 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert connected.is_healthy == true
     end
 
-    test "transitions from connected to disconnected", %{tenant_id: tenant_id} do
-      {:ok, agent} = create_connected_agent(tenant_id)
+    test "transitions from connected to disconnected", %{tenant: tenant} do
+      {:ok, agent} = create_connected_agent(tenant)
 
       {:ok, disconnected} = Ash.update(agent, :lose_connection, %{}, authorize?: false)
 
       assert disconnected.status == :disconnected
     end
 
-    test "transitions through degradation cycle", %{tenant_id: tenant_id} do
-      {:ok, agent} = create_connected_agent(tenant_id)
+    test "transitions through degradation cycle", %{tenant: tenant} do
+      {:ok, agent} = create_connected_agent(tenant)
 
       # Degrade
       {:ok, degraded} = Ash.update(agent, :degrade, %{}, authorize?: false)
@@ -174,8 +171,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert restored.is_healthy == true
     end
 
-    test "transitions to unavailable and back", %{tenant_id: tenant_id} do
-      {:ok, agent} = create_connected_agent(tenant_id)
+    test "transitions to unavailable and back", %{tenant: tenant} do
+      {:ok, agent} = create_connected_agent(tenant)
 
       # Mark unavailable
       {:ok, unavailable} = Ash.update(agent, :mark_unavailable, %{reason: "admin"}, authorize?: false)
@@ -187,50 +184,47 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert connecting.status == :connecting
     end
 
-    defp create_connecting_agent(tenant_id) do
+    defp create_connecting_agent(tenant) do
       Agent
       |> Ash.Changeset.for_create(:register, %{
-        uid: "agent-#{System.unique_integer([:positive])}",
-        tenant_id: tenant_id
+        uid: "agent-#{System.unique_integer([:positive])}"
       })
-      |> Ash.create(authorize?: false)
+      |> Ash.create(authorize?: false, tenant: tenant)
     end
 
-    defp create_connected_agent(tenant_id) do
+    defp create_connected_agent(tenant) do
       Agent
       |> Ash.Changeset.for_create(:register_connected, %{
-        uid: "agent-#{System.unique_integer([:positive])}",
-        tenant_id: tenant_id
+        uid: "agent-#{System.unique_integer([:positive])}"
       })
-      |> Ash.create(authorize?: false)
+      |> Ash.create(authorize?: false, tenant: tenant)
     end
   end
 
   describe "Checker state machine" do
-    test "creates in active state", %{tenant_id: tenant_id} do
+    test "creates in active state", %{tenant: tenant} do
       {:ok, checker} =
         Checker
         |> Ash.Changeset.for_create(:create, %{
           name: "Test Checker",
-          type: "ping",
-          tenant_id: tenant_id
+          type: "ping"
         })
-        |> Ash.create(authorize?: false)
+        |> Ash.create(authorize?: false, tenant: tenant)
 
       assert checker.status == :active
       assert checker.consecutive_failures == 0
     end
 
-    test "transitions from active to paused", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "transitions from active to paused", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
 
       {:ok, paused} = Ash.update(checker, :pause, %{}, authorize?: false)
 
       assert paused.status == :paused
     end
 
-    test "transitions from paused to active", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "transitions from paused to active", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
       {:ok, paused} = Ash.update(checker, :pause, %{}, authorize?: false)
 
       {:ok, resumed} = Ash.update(paused, :resume, %{}, authorize?: false)
@@ -239,8 +233,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert resumed.enabled == true
     end
 
-    test "transitions to failing state", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "transitions to failing state", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
 
       {:ok, failing} = Ash.update(checker, :mark_failing, %{reason: "timeout"}, authorize?: false)
 
@@ -249,8 +243,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert failing.last_failure != nil
     end
 
-    test "clears failure state", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "clears failure state", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
       {:ok, failing} = Ash.update(checker, :mark_failing, %{reason: "timeout"}, authorize?: false)
 
       {:ok, cleared} = Ash.update(failing, :clear_failure, %{}, authorize?: false)
@@ -261,8 +255,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert cleared.last_success != nil
     end
 
-    test "records success resets consecutive failures", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "records success resets consecutive failures", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
 
       # Record some failures first
       {:ok, with_failures} =
@@ -277,8 +271,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert success.last_success != nil
     end
 
-    test "records failure increments consecutive failures", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "records failure increments consecutive failures", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
 
       {:ok, failed_once} = Ash.update(checker, :record_failure, %{reason: "timeout"}, authorize?: false)
       assert failed_once.consecutive_failures == 1
@@ -287,8 +281,8 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert failed_twice.consecutive_failures == 2
     end
 
-    test "disable and enable cycle", %{tenant_id: tenant_id} do
-      {:ok, checker} = create_active_checker(tenant_id)
+    test "disable and enable cycle", %{tenant: tenant} do
+      {:ok, checker} = create_active_checker(tenant)
 
       # Disable
       {:ok, disabled} = Ash.update(checker, :disable, %{}, authorize?: false)
@@ -301,14 +295,13 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
       assert enabled.enabled == true
     end
 
-    defp create_active_checker(tenant_id) do
+    defp create_active_checker(tenant) do
       Checker
       |> Ash.Changeset.for_create(:create, %{
         name: "Test Checker #{System.unique_integer([:positive])}",
-        type: "ping",
-        tenant_id: tenant_id
+        type: "ping"
       })
-      |> Ash.create(authorize?: false)
+      |> Ash.create(authorize?: false, tenant: tenant)
     end
   end
 end

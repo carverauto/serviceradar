@@ -55,7 +55,6 @@ defmodule ServiceRadar.Edge.TenantResolver do
           component_type: atom() | nil,
           spiffe_id: String.t() | nil,
           is_platform_tenant: boolean(),
-          tenant_id: String.t() | nil,
           tenant_ca_id: String.t() | nil,
           issuer_spki_sha256: String.t() | nil
         }
@@ -254,7 +253,6 @@ defmodule ServiceRadar.Edge.TenantResolver do
          component_type: spiffe_info[:component_type],
          spiffe_id: spiffe_info[:spiffe_id],
          is_platform_tenant: is_platform_tenant,
-         tenant_id: nil,
          tenant_ca_id: nil,
          issuer_spki_sha256: nil
        }}

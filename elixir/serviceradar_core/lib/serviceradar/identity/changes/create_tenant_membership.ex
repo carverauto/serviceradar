@@ -3,7 +3,7 @@ defmodule ServiceRadar.Identity.Changes.CreateTenantMembership do
   Creates a tenant membership for newly registered users.
 
   This ensures that when a user signs up (via magic link or password registration),
-  they automatically get a membership entry for their assigned tenant. This is
+  they automatically get a membership entry for the current tenant. This is
   critical for first-time installs where the first user needs access to the
   platform tenant.
 
@@ -12,6 +12,8 @@ defmodule ServiceRadar.Identity.Changes.CreateTenantMembership do
   - Other users get :member membership
 
   This change is idempotent - if a membership already exists, it's a no-op.
+
+  DB connection's search_path determines the schema.
   """
 
   use Ash.Resource.Change
@@ -35,25 +37,17 @@ defmodule ServiceRadar.Identity.Changes.CreateTenantMembership do
     end)
   end
 
-  defp create_membership_if_needed(%{tenant_id: nil} = user) do
-    Logger.warning(
-      "[CreateTenantMembership] User #{user.id} has no tenant_id, skipping membership creation"
-    )
-
-    :ok
-  end
-
   defp create_membership_if_needed(user) do
     membership_role = membership_role_for_user(user)
 
     user.id
-    |> create_membership(user.tenant_id, membership_role)
+    |> create_membership(membership_role)
     |> handle_create_result(user, membership_role)
   end
 
   defp handle_create_result({:ok, _membership}, user, membership_role) do
     Logger.info(
-      "[CreateTenantMembership] Created #{membership_role} membership for user #{user.id} in tenant #{user.tenant_id}"
+      "[CreateTenantMembership] Created #{membership_role} membership for user #{user.id}"
     )
 
     :ok
@@ -62,7 +56,7 @@ defmodule ServiceRadar.Identity.Changes.CreateTenantMembership do
   defp handle_create_result({:error, %Ash.Error.Invalid{errors: errors}}, user, _role) do
     if unique_constraint_error?(errors) do
       Logger.debug(
-        "[CreateTenantMembership] Membership already exists for user #{user.id} in tenant #{user.tenant_id}"
+        "[CreateTenantMembership] Membership already exists for user #{user.id}"
       )
     else
       Logger.error("[CreateTenantMembership] Failed to create membership: #{inspect(errors)}")
@@ -85,17 +79,16 @@ defmodule ServiceRadar.Identity.Changes.CreateTenantMembership do
     end
   end
 
-  defp create_membership(user_id, tenant_id, role) do
-    # Use platform actor since we're bootstrapping the first user
-    actor = SystemActor.platform(:user_registration)
+  # DB connection's search_path determines the schema
+  defp create_membership(user_id, role) do
+    actor = SystemActor.system(:user_registration)
 
     TenantMembership
     |> Ash.Changeset.for_create(:create, %{
       user_id: user_id,
-      tenant_id: tenant_id,
       role: role
     })
-    |> Ash.create(actor: actor, tenant: tenant_id)
+    |> Ash.create(actor: actor)
   end
 
   defp unique_constraint_error?(errors) do

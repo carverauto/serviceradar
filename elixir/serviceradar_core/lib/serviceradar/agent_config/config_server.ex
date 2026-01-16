@@ -5,9 +5,6 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   Provides the main API for getting compiled configs with automatic
   caching, hash-based change detection, and cache invalidation.
 
-  The database connection's search_path determines the tenant schema,
-  so there is no tenant_id parameter in the API.
-
   ## Usage
 
       # Get config for an agent

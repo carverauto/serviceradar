@@ -46,16 +46,16 @@ defmodule ServiceRadar.Identity.Changes.PublishTenantLifecycleEvent do
   end
 
   defp publish_event(event, tenant, publish_opts) do
-    Logger.warning("Unknown tenant lifecycle event", event: event, tenant_id: tenant.id)
+    Logger.warning("Unknown tenant lifecycle event", event: event, id: tenant.id)
     publish_event(:updated, tenant, publish_opts)
   end
 
-  defp handle_publish_result(:ok, _event, _tenant_id), do: :ok
+  defp handle_publish_result(:ok, _event, _id), do: :ok
 
-  defp handle_publish_result({:error, reason}, event, tenant_id) do
+  defp handle_publish_result({:error, reason}, event, id) do
     Logger.warning("Tenant lifecycle publish failed",
       event: event,
-      tenant_id: tenant_id,
+      id: id,
       reason: inspect(reason)
     )
 

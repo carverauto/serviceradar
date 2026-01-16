@@ -2,8 +2,6 @@ defmodule ServiceRadar.Actors.SystemActor do
   @moduledoc """
   Generates system actors for background operations.
 
-  # DB connection's search_path determines the schema - no tenant_id needed at instance level.
-
   System actors allow background processes (GenServers, Oban workers, seeders)
   to perform Ash operations while maintaining authorization policy enforcement.
 
@@ -21,7 +19,6 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   - `system/1` - Use in tenant instance code where the DB connection's
     search_path is set by CNPG credentials (tenant-unaware mode).
-    Each instance serves a single tenant, so no tenant_id is needed.
 
   - `platform/1` - Use for cross-tenant operations in the public schema
     (tenant management, operator bootstrap, etc.)
@@ -64,7 +61,6 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   The actor will have:
   - `role: :super_admin` - Full access across all tenants
-  - No `tenant_id` - Not scoped to any specific tenant
 
   ## Important
 
@@ -109,11 +105,10 @@ defmodule ServiceRadar.Actors.SystemActor do
   Creates a system actor for tenant-unaware mode.
 
   In tenant-unaware mode, the tenant is implicit from the database connection's
-  `search_path`, so we don't need to include `tenant_id` in the actor.
+  `search_path`.
 
   The actor will have:
   - `role: :system` - Recognized by authorization policies
-  - No `tenant_id` - Tenant isolation is enforced by DB connection
 
   ## Parameters
 
@@ -132,7 +127,6 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   Use `system/1` in tenant instance code where the DB connection's
   search_path is set by CNPG credentials (tenant isolation is implicit).
-  Each instance serves a single tenant, so no tenant_id is needed.
   """
   @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}
   def system(component) when is_atom(component) do

@@ -9,9 +9,6 @@ defmodule ServiceRadar.AgentConfig.ConfigCache do
 
   Keys are tuples: `{config_type, partition, agent_id}`
 
-  The database connection's search_path determines the tenant schema,
-  so there is no need for tenant_id in the cache key.
-
   ## Cache Entry Structure
 
   Values are maps with:

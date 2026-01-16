@@ -141,8 +141,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       check_count: length(checks),
       check_ids: check_ids,
       priority: schedule.priority || 0,
-      timeout_seconds: schedule.timeout_seconds || 60,
-      tenant_id: schedule.tenant_id
+      timeout_seconds: schedule.timeout_seconds || 60
     })
     |> Ash.create()
   end
@@ -417,7 +416,6 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       job_id: poll_job.id,
       schedule_id: schedule.id,
       schedule_name: schedule.name,
-      tenant_id: schedule.tenant_id,
       checks: checks,
       timeout: schedule.timeout_seconds * 1000,
       priority: schedule.priority
@@ -430,13 +428,6 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "schedule:results:#{schedule.id}",
-      {:schedule_completed, schedule.id, poll_job.id, result}
-    )
-
-    # Also broadcast to tenant-level topic
-    Phoenix.PubSub.broadcast(
-      ServiceRadar.PubSub,
-      "tenant:#{schedule.tenant_id}:schedule_results",
       {:schedule_completed, schedule.id, poll_job.id, result}
     )
 

@@ -26,8 +26,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   ## Tenant-Unaware Architecture
 
   This module operates in tenant-unaware mode where the database connection's
-  search_path (set by CNPG credentials) determines the schema. Each instance
-  serves only one tenant, so no tenant_id is needed in function parameters.
+  search_path (set by CNPG credentials) determines the schema.
 
   ## Usage
 
@@ -330,7 +329,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp build_host_record(result, execution_id, ip, status, device_id) do
-    # DB connection's search_path determines the schema - no tenant_id needed
+    # DB connection's search_path determines the schema
     %{
       id: Ash.UUID.generate(),
       execution_id: execution_id,
@@ -579,7 +578,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp create_execution(execution_id, sweep_group_id, agent_id, config_version) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    # DB connection's search_path determines the schema - no tenant_id needed
+    # DB connection's search_path determines the schema
     record = %{
       id: execution_id,
       sweep_group_id: sweep_group_id,

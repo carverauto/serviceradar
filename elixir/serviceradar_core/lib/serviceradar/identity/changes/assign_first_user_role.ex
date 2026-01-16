@@ -1,16 +1,14 @@
 defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
   @moduledoc """
-  Assigns super_admin role to the first user registered for a tenant.
+  Assigns super_admin role to the first user registered.
 
-  When a user registers and is the first user for their tenant, they are
-  automatically granted super_admin role. Subsequent users get the default
-  viewer role.
+  When a user registers and is the first user, they are automatically granted
+  super_admin role. Subsequent users get the default viewer role.
 
-  This ensures every tenant has at least one super_admin who can manage
-  the tenant's users and settings.
+  This ensures every deployment has at least one super_admin who can manage
+  the users and settings.
 
-  In single-tenant deployments, the database search_path determines
-  which schema to query for existing users.
+  DB connection's search_path determines the schema.
   """
 
   use Ash.Resource.Change
@@ -40,24 +38,18 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
   end
 
   defp maybe_assign_super_admin(changeset) do
-    tenant_id = Ash.Changeset.get_attribute(changeset, :tenant_id)
-
-    if is_nil(tenant_id) do
-      # No tenant yet, can't check - leave default
-      changeset
+    # DB connection's search_path determines the schema
+    if first_user?() do
+      Logger.info("Assigning super_admin role to first user")
+      Ash.Changeset.force_change_attribute(changeset, :role, :super_admin)
     else
-      if first_user_for_tenant?() do
-        Logger.info("Assigning super_admin role to first user for tenant #{tenant_id}")
-        Ash.Changeset.force_change_attribute(changeset, :role, :super_admin)
-      else
-        changeset
-      end
+      changeset
     end
   end
 
   # Check if this is the first user in the current schema.
   # The database connection's search_path determines which schema to query.
-  defp first_user_for_tenant? do
+  defp first_user? do
     count = count_users_in_current_schema()
     count == 0
   end
@@ -70,7 +62,7 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
         select: count(u.id)
       )
 
-    # No prefix needed - search_path determines the schema
+    # DB connection's search_path determines the schema
     case ServiceRadar.Repo.one(query) do
       nil -> 0
       count -> count
