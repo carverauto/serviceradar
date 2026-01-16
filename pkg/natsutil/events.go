@@ -16,7 +16,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/tenant"
 )
 
 const (
@@ -94,7 +93,6 @@ type ocsfEvent struct {
 	LogVersion   string           `json:"log_version,omitempty"`
 	Unmapped     map[string]any   `json:"unmapped,omitempty"`
 	RawData      string           `json:"raw_data,omitempty"`
-	TenantID     string           `json:"tenant_id,omitempty"`
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
@@ -153,7 +151,7 @@ func (p *EventPublisher) PublishGatewayHealthEvent(
 
 	severityID, severity := severityForState(data.CurrentState)
 	message := fmt.Sprintf("Gateway %s state %s -> %s", data.GatewayID, data.PreviousState, data.CurrentState)
-	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity)
 	event.Unmapped = gatewayHealthUnmapped(data)
 
 	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
@@ -223,7 +221,7 @@ func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *
 
 	severityID, severity := severityForLifecycle(data)
 	message := fmt.Sprintf("Device %s %s", data.DeviceID, data.Action)
-	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity)
 	event.Unmapped = deviceLifecycleUnmapped(data)
 
 	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
@@ -264,19 +262,18 @@ func (p *EventPublisher) publishEvent(ctx context.Context, subject string, event
 	return nil
 }
 
-// applyTenantPrefix adds the tenant prefix to a subject if prefixing is enabled.
-// Extracts tenant from context; falls back to DefaultTenant if not found.
-func (p *EventPublisher) applyTenantPrefix(ctx context.Context, subject string) string {
+// applyTenantPrefix adds a namespace prefix to a subject if prefixing is enabled.
+// Uses DefaultTenant as the prefix since ServiceRadar uses single-tenant-per-deployment.
+func (p *EventPublisher) applyTenantPrefix(_ context.Context, subject string) string {
 	if !p.tenantPrefixing {
 		return subject
 	}
 
-	tenantSlug := tenant.SlugFromContext(ctx)
-	if tenantSlug == "" {
-		tenantSlug = DefaultTenant
+	if DefaultTenant == "" {
+		return subject
 	}
 
-	return tenant.PrefixChannelWithSlug(tenantSlug, subject)
+	return DefaultTenant + "." + subject
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.
@@ -531,7 +528,7 @@ func isStreamMissingErr(err error) bool {
 		errors.Is(err, nats.ErrNoResponders)
 }
 
-func buildOCSFEvent(message string, eventTime time.Time, severityID int, severity string, tenantID string) *ocsfEvent {
+func buildOCSFEvent(message string, eventTime time.Time, severityID int, severity string) *ocsfEvent {
 	if eventTime.IsZero() {
 		eventTime = time.Now().UTC()
 	}
@@ -555,7 +552,6 @@ func buildOCSFEvent(message string, eventTime time.Time, severityID int, severit
 		Actor:        map[string]any{"app_name": "serviceradar-core"},
 		LogName:      ocsfEventsSubject,
 		LogProvider:  "serviceradar-core",
-		TenantID:     tenantID,
 	}
 }
 

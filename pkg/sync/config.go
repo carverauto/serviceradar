@@ -47,11 +47,9 @@ type Config struct {
 	GatewayID          string                          `json:"gateway_id"`
 	Security          *models.SecurityConfig          `json:"security" hot:"rebuild"`
 	Logging           *logger.Config                  `json:"logging"`
-	GatewayAddr       string                          `json:"gateway_addr"`          // Agent-gateway address for push mode
-	GatewaySecurity   *models.SecurityConfig          `json:"gateway_security"`      // mTLS config for gateway connection
-	TenantID          string                          `json:"tenant_id,omitempty"`   // Tenant UUID for routing
-	TenantSlug        string                          `json:"tenant_slug,omitempty"` // Tenant slug for routing
-	Partition         string                          `json:"partition,omitempty"`   // Partition identifier
+	GatewayAddr     string                 `json:"gateway_addr"`        // Agent-gateway address for push mode
+	GatewaySecurity *models.SecurityConfig `json:"gateway_security"`    // mTLS config for gateway connection
+	Partition       string                 `json:"partition,omitempty"` // Partition identifier
 }
 
 // Clone returns a deep copy of the Config.
@@ -62,11 +60,9 @@ func (c *Config) Clone() Config {
 		DiscoveryInterval: c.DiscoveryInterval,
 		UpdateInterval:    c.UpdateInterval,
 		AgentID:           c.AgentID,
-		GatewayID:          c.GatewayID,
-		GatewayAddr:       c.GatewayAddr,
-		TenantID:          c.TenantID,
-		TenantSlug:        c.TenantSlug,
-		Partition:         c.Partition,
+		GatewayID:         c.GatewayID,
+		GatewayAddr: c.GatewayAddr,
+		Partition:   c.Partition,
 	}
 
 	// Deep copy Sources map

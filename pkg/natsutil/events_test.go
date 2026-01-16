@@ -7,8 +7,6 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-
-	"github.com/carverauto/serviceradar/pkg/tenant"
 )
 
 var errTestFixture = errors.New("fixture error")
@@ -152,35 +150,18 @@ func TestApplyTenantPrefix(t *testing.T) {
 	tests := []struct {
 		name             string
 		prefixingEnabled bool
-		tenantSlug       string
 		subject          string
 		expected         string
 	}{
 		{
-			name:             "prefixing enabled with tenant in context",
+			name:             "prefixing enabled uses DefaultTenant",
 			prefixingEnabled: true,
-			tenantSlug:       "acme-corp",
-			subject:          "events.ocsf.processed",
-			expected:         "acme-corp.events.ocsf.processed",
-		},
-		{
-			name:             "prefixing enabled without tenant defaults to 'default'",
-			prefixingEnabled: true,
-			tenantSlug:       "",
 			subject:          "events.ocsf.processed",
 			expected:         "default.events.ocsf.processed",
 		},
 		{
 			name:             "prefixing disabled returns original subject",
 			prefixingEnabled: false,
-			tenantSlug:       "acme-corp",
-			subject:          "events.ocsf.processed",
-			expected:         "events.ocsf.processed",
-		},
-		{
-			name:             "prefixing disabled without tenant returns original",
-			prefixingEnabled: false,
-			tenantSlug:       "",
 			subject:          "events.ocsf.processed",
 			expected:         "events.ocsf.processed",
 		},
@@ -193,10 +174,6 @@ func TestApplyTenantPrefix(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			if tc.tenantSlug != "" {
-				ctx = tenant.WithContext(ctx, &tenant.Info{TenantSlug: tc.tenantSlug})
-			}
-
 			got := publisher.applyTenantPrefix(ctx, tc.subject)
 			if got != tc.expected {
 				t.Fatalf("applyTenantPrefix() = %q, want %q", got, tc.expected)

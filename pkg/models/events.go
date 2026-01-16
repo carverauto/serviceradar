@@ -79,7 +79,6 @@ type GatewayHealthEventData struct {
 	CurrentState   string    `json:"current_state"`
 	Timestamp      time.Time `json:"timestamp"`
 	LastSeen       time.Time `json:"last_seen"`
-	TenantID       string    `json:"tenant_id,omitempty"`
 	Host           string    `json:"host,omitempty"`
 	RemoteAddr     string    `json:"remote_addr,omitempty"`
 	SourceIP       string    `json:"source_ip,omitempty"`
@@ -99,6 +98,5 @@ type DeviceLifecycleEventData struct {
 	Severity   string            `json:"severity,omitempty"`
 	Level      int32             `json:"level,omitempty"`
 	RemoteAddr string            `json:"remote_addr,omitempty"`
-	TenantID   string            `json:"tenant_id,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }

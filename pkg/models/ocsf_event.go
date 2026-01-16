@@ -35,6 +35,5 @@ type OCSFEventRow struct {
 	LogVersion   string
 	Unmapped     json.RawMessage
 	RawData      string
-	TenantID     string
 	CreatedAt    time.Time
 }
