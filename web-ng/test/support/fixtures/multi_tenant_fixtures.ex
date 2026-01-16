@@ -7,8 +7,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   ## Tenant Instance Model
 
   In a tenant-instance model, tenant isolation is handled at the infrastructure
-  level via PostgreSQL search_path. These fixtures create resources without
-  tenant_id since each tenant has their own deployment.
+  level via PostgreSQL search_path. Each tenant has their own deployment.
   """
 
   alias ServiceRadar.Identity.Tenant
@@ -52,13 +51,13 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   @doc """
   Creates a user belonging to the given tenant.
   """
-  def tenant_user_fixture(tenant, attrs \\ %{}) do
+  def tenant_user_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
+    # In tenant-instance model, users are created in the schema determined by DB connection
     defaults = %{
       email: "user-#{unique}@example.com",
       display_name: "Test User #{unique}",
-      tenant_id: tenant.id,
       password: "test_password_123!",
       password_confirmation: "test_password_123!"
     }

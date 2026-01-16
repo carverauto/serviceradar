@@ -414,11 +414,12 @@ if config_env() == :prod do
   end
   config :serviceradar_web_ng, :tenant_base_domain, tenant_base_domain
 
-  default_tenant_id =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
+  # Default tenant for Control Plane workload routing
+  default_tenant =
+    System.get_env("SERVICERADAR_DEFAULT_TENANT") ||
       "00000000-0000-0000-0000-000000000000"
 
-  config :serviceradar_core, :default_tenant_id, default_tenant_id
+  config :serviceradar_core, :default_tenant, default_tenant
 
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do

@@ -81,12 +81,13 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
   end
 
   defp load_default_tenant do
-    default_id = Application.get_env(:serviceradar_core, :default_tenant_id)
+    # Control Plane: Load the default tenant for workload configuration
+    default_tenant = Application.get_env(:serviceradar_core, :default_tenant)
 
-    if default_id do
+    if default_tenant do
       actor = SystemActor.platform(:tenant_workload_controller)
 
-      case Ash.get(Tenant, default_id, actor: actor) do
+      case Ash.get(Tenant, default_tenant, actor: actor) do
         {:ok, %Tenant{} = tenant} -> {:ok, tenant}
         _ -> {:error, :tenant_not_configured}
       end

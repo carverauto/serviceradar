@@ -39,14 +39,14 @@ defmodule ServiceRadar.Identity.PolicyTest do
     tenant
   end
 
-  defp create_user(tenant, attrs \\ %{}) do
+  defp create_user(_tenant, attrs \\ %{}) do
     email = attrs[:email] || "user#{System.unique_integer([:positive])}@example.com"
     role = attrs[:role] || :viewer
 
+    # In tenant-instance model, users are created in the schema determined by DB connection
     {:ok, user} =
       Ash.Changeset.for_create(User, :create, %{
         email: email,
-        tenant_id: tenant.id,
         role: role
       })
       |> Ash.create(authorize?: false)
