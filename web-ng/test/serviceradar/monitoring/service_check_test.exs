@@ -35,8 +35,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
             target: "https://api.example.com/health"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -48,7 +47,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert check.enabled == true
       # default
       assert check.interval_seconds == 60
-      assert check.tenant_id == tenant.id
     end
 
     test "sets default values on creation", %{tenant: tenant} do
@@ -93,8 +91,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
             name: "Updated Check Name",
             interval_seconds: 120
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -109,8 +106,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       result =
         check
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -130,7 +126,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       {:ok, disabled} =
         check
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       assert disabled.enabled == false
@@ -142,13 +138,13 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # First disable
       {:ok, disabled} =
         check
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       # Then enable
       {:ok, enabled} =
         disabled
-        |> Ash.Changeset.for_update(:enable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:enable, %{}, actor: actor)
         |> Ash.update()
 
       assert enabled.enabled == true
@@ -159,7 +155,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       result =
         check
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -184,8 +180,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
             result: :success,
             last_response_time_ms: 150
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -206,8 +201,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
             result: :error,
             last_error: "Connection refused"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -223,8 +217,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, first} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -234,8 +227,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, second} =
         first
         |> Ash.Changeset.for_update(:record_result, %{result: :critical},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -245,8 +237,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, success} =
         second
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -260,8 +251,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, failed} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -271,8 +261,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, warning} =
         failed
         |> Ash.Changeset.for_update(:record_result, %{result: :warning},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -286,16 +275,14 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, failed} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
       {:ok, failed2} =
         failed
         |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -304,7 +291,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Reset
       {:ok, reset} =
         failed2
-        |> Ash.Changeset.for_update(:reset_failures, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:reset_failures, %{}, actor: actor)
         |> Ash.update()
 
       assert reset.consecutive_failures == 0
@@ -323,8 +310,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         service_check_fixture(tenant, %{name: "Disabled Check"})
         |> Ash.Changeset.for_update(:disable, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -333,8 +319,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         service_check_fixture(tenant, %{name: "Failing Check"})
         |> Ash.Changeset.for_update(:record_result, %{result: :error},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -350,7 +335,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       {:ok, found} =
         ServiceCheck
-        |> Ash.Query.for_read(:by_id, %{id: check.id}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_id, %{id: check.id}, actor: actor)
         |> Ash.read_one()
 
       assert found.id == check.id
@@ -364,7 +349,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, checks} = Ash.read(ServiceCheck, action: :enabled, actor: actor, tenant: tenant.id)
+      {:ok, checks} = Ash.read(ServiceCheck, action: :enabled, actor: actor)
       ids = Enum.map(checks, & &1.id)
 
       assert enabled.id in ids
@@ -380,7 +365,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, checks} = Ash.read(ServiceCheck, action: :failing, actor: actor, tenant: tenant.id)
+      {:ok, checks} = Ash.read(ServiceCheck, action: :failing, actor: actor)
       ids = Enum.map(checks, & &1.id)
 
       assert failing.id in ids
@@ -419,7 +404,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
           ServiceCheck
           |> Ash.Query.filter(id == ^check.id)
           |> Ash.Query.load(:check_type_label)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.check_type_label == expected_label
       end
@@ -434,8 +419,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       {:ok, success} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -443,7 +427,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         ServiceCheck
         |> Ash.Query.filter(id == ^success.id)
         |> Ash.Query.load(:status_color)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
     end
@@ -467,7 +451,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, checks} = Ash.read(ServiceCheck, actor: actor, tenant: tenant_a.id)
+      {:ok, checks} = Ash.read(ServiceCheck, actor: actor)
       ids = Enum.map(checks, & &1.id)
 
       assert check_a.id in ids
@@ -482,7 +466,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       result =
         check_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
         |> Ash.update()
 
       assert {:error, error} = result
@@ -497,7 +481,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       {:ok, result} =
         ServiceCheck
-        |> Ash.Query.for_read(:by_id, %{id: check_b.id}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_id, %{id: check_b.id}, actor: actor)
         |> Ash.read_one()
 
       assert result == nil

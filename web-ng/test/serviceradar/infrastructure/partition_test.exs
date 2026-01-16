@@ -34,8 +34,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
             cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16"]
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -45,7 +44,6 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       assert partition.cidr_ranges == ["10.0.0.0/8", "192.168.0.0/16"]
       # default
       assert partition.enabled == true
-      assert partition.tenant_id == tenant.id
     end
 
     test "sets timestamps on creation", %{tenant: tenant} do
@@ -104,8 +102,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
             description: "Updated description",
             cidr_ranges: ["172.16.0.0/12"]
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -122,8 +119,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       result =
         partition
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -136,8 +132,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       result =
         partition
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -157,7 +152,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, disabled} =
         partition
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       assert disabled.enabled == false
@@ -170,13 +165,13 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       # First disable
       {:ok, disabled} =
         partition
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       # Then enable
       {:ok, enabled} =
         disabled
-        |> Ash.Changeset.for_update(:enable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:enable, %{}, actor: actor)
         |> Ash.update()
 
       assert enabled.enabled == true
@@ -187,7 +182,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -226,7 +221,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, found} =
         Partition
-        |> Ash.Query.for_read(:by_id, %{id: partition.id}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_id, %{id: partition.id}, actor: actor)
         |> Ash.read_one()
 
       assert found.id == partition.id
@@ -237,7 +232,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, found} =
         Partition
-        |> Ash.Query.for_read(:by_slug, %{slug: partition.slug}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_slug, %{slug: partition.slug}, actor: actor)
         |> Ash.read_one()
 
       assert found.slug == partition.slug
@@ -250,7 +245,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, partitions} = Ash.read(Partition, action: :enabled, actor: actor, tenant: tenant.id)
+      {:ok, partitions} = Ash.read(Partition, action: :enabled, actor: actor)
       ids = Enum.map(partitions, & &1.id)
 
       assert enabled.id in ids
@@ -265,7 +260,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, partitions} =
         Partition
-        |> Ash.Query.for_read(:by_site, %{site: "datacenter-1"}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_site, %{site: "datacenter-1"}, actor: actor)
         |> Ash.read()
 
       refute Enum.empty?(partitions)
@@ -282,8 +277,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       {:ok, prod_partitions} =
         Partition
         |> Ash.Query.for_read(:by_environment, %{environment: "production"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.read()
 
@@ -313,7 +307,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         Partition
         |> Ash.Query.filter(id == ^partition_named.id)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "Named Partition"
     end
@@ -341,7 +335,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
           Partition
           |> Ash.Query.filter(id == ^partition.id)
           |> Ash.Query.load(:environment_label)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.environment_label == expected_label
       end
@@ -357,21 +351,21 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         Partition
         |> Ash.Query.filter(id == ^partition_enabled.id)
         |> Ash.Query.load(:status_color)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
 
       # Disable it
       {:ok, disabled} =
         partition_enabled
-        |> Ash.Changeset.for_update(:disable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:disable, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =
         Partition
         |> Ash.Query.filter(id == ^disabled.id)
         |> Ash.Query.load(:status_color)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.status_color == "gray"
     end
@@ -389,7 +383,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
         Partition
         |> Ash.Query.filter(id == ^partition.id)
         |> Ash.Query.load(:cidr_count)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.cidr_count == 3
     end
@@ -414,7 +408,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, partitions} = Ash.read(Partition, actor: actor, tenant: tenant_a.id)
+      {:ok, partitions} = Ash.read(Partition, actor: actor)
       ids = Enum.map(partitions, & &1.id)
 
       assert partition_a.id in ids
@@ -429,7 +423,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
         |> Ash.update()
 
       assert {:error, error} = result
@@ -444,7 +438,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, result} =
         Partition
-        |> Ash.Query.for_read(:by_id, %{id: partition_b.id}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_id, %{id: partition_b.id}, actor: actor)
         |> Ash.read_one()
 
       assert result == nil
@@ -459,8 +453,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       {:ok, result} =
         Partition
         |> Ash.Query.for_read(:by_slug, %{slug: partition_b.slug},
-          actor: actor,
-          tenant: tenant_a.id
+          actor: actor
         )
         |> Ash.read_one()
 

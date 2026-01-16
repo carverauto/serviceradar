@@ -35,8 +35,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             site: "datacenter-1"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -45,7 +44,6 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert package.component_id == "test-gateway-001"
       assert package.component_type == :gateway
       assert package.status == :issued
-      assert package.tenant_id == tenant.id
     end
 
     test "creates package with default issued status", %{tenant: tenant} do
@@ -81,7 +79,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:ok, delivered} = result
@@ -94,7 +92,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:ok, delivered} = result
@@ -107,13 +105,13 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Try to deliver again
       result =
         delivered
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -129,7 +127,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # First deliver the package
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, tenant: tenant, delivered_package: delivered}
@@ -146,8 +144,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             activated_from_ip: "192.168.1.100",
             last_seen_spiffe_id: "spiffe://example.org/gateway/test"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -164,7 +161,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         issued_package
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -179,13 +176,13 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # First activate
       {:ok, activated} =
         package
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to activate again
       result =
         activated
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -205,8 +202,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -221,15 +217,14 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Then revoke
       result =
         delivered
         |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -243,20 +238,19 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Deliver then activate
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to revoke activated package
       result =
         activated
         |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -269,8 +263,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -291,8 +284,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         package
         |> Ash.Changeset.for_update(:expire, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -306,7 +298,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Then expire
@@ -314,8 +306,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         delivered
         |> Ash.Changeset.for_update(:expire, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -329,12 +320,12 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Deliver then activate
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to expire activated package
@@ -342,8 +333,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         activated
         |> Ash.Changeset.for_update(:expire, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -369,8 +359,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             deleted_by: "admin@example.com",
             deleted_reason: "Cleanup"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -388,14 +377,13 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         package = onboarding_package_fixture(tenant)
 
         # Transition to target state
-        package = transition_to_state(package, initial_state, actor, tenant.id)
+        package = transition_to_state(package, initial_state, actor)
 
         # Soft delete should work from any state
         result =
           package
           |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"},
-            actor: actor,
-            tenant: tenant.id
+            actor: actor
           )
           |> Ash.update()
 
@@ -410,8 +398,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package
         |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -429,20 +416,20 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       {:ok, delivered} =
         onboarding_package_fixture(tenant, %{label: "Delivered Package"})
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         onboarding_package_fixture(tenant, %{label: "Activated Package"})
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
         |> elem(1)
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, revoked} =
         onboarding_package_fixture(tenant, %{label: "Revoked Package"})
-        |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
         |> Ash.update()
 
       {:ok,
@@ -463,7 +450,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       actor = operator_actor(tenant)
 
       {:ok, active} =
-        Ash.read(OnboardingPackage, action: :active, actor: actor, tenant: tenant.id)
+        Ash.read(OnboardingPackage, action: :active, actor: actor)
 
       ids = Enum.map(active, & &1.id)
 
@@ -489,21 +476,21 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         OnboardingPackage
         |> Ash.Query.filter(id == ^issued.id)
         |> Ash.Query.load(:is_usable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_usable == true
 
       # Deliver and check again
       {:ok, delivered} =
         issued
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =
         OnboardingPackage
         |> Ash.Query.filter(id == ^delivered.id)
         |> Ash.Query.load(:is_usable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_usable == true
     end
@@ -516,19 +503,19 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =
         OnboardingPackage
         |> Ash.Query.filter(id == ^activated.id)
         |> Ash.Query.load(:is_terminal)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_terminal == true
     end
@@ -552,7 +539,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     } do
       actor = operator_actor(tenant_a)
 
-      {:ok, packages} = Ash.read(OnboardingPackage, actor: actor, tenant: tenant_a.id)
+      {:ok, packages} = Ash.read(OnboardingPackage, actor: actor)
       ids = Enum.map(packages, & &1.id)
 
       assert package_a.id in ids
@@ -568,8 +555,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         package_b
         |> Ash.Changeset.for_update(:revoke, %{reason: "Attacker action"},
-          actor: actor,
-          tenant: tenant_a.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -580,46 +566,45 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   end
 
   # Helper function to transition package to a specific state
-  defp transition_to_state(package, :issued, _actor, _tenant_id), do: package
+  defp transition_to_state(package, :issued, _actor), do: package
 
-  defp transition_to_state(package, :delivered, actor, tenant_id) do
+  defp transition_to_state(package, :delivered, actor) do
     {:ok, delivered} =
       package
-      |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant_id)
+      |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
       |> Ash.update()
 
     delivered
   end
 
-  defp transition_to_state(package, :activated, actor, tenant_id) do
+  defp transition_to_state(package, :activated, actor) do
     package
-    |> transition_to_state(:delivered, actor, tenant_id)
+    |> transition_to_state(:delivered, actor)
     |> then(fn p ->
       {:ok, activated} =
         p
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant_id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       activated
     end)
   end
 
-  defp transition_to_state(package, :revoked, actor, tenant_id) do
+  defp transition_to_state(package, :revoked, actor) do
     {:ok, revoked} =
       package
-      |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, tenant: tenant_id)
+      |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
       |> Ash.update()
 
     revoked
   end
 
-  defp transition_to_state(package, :expired, _actor, tenant_id) do
+  defp transition_to_state(package, :expired, _actor) do
     {:ok, expired} =
       package
       |> Ash.Changeset.for_update(:expire, %{},
         actor: system_actor(),
-        authorize?: false,
-        tenant: tenant_id
+        authorize?: false
       )
       |> Ash.update()
 

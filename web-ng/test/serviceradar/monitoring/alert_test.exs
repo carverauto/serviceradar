@@ -35,8 +35,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             source_type: :device
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -45,7 +44,6 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert alert.severity == :warning
       assert alert.status == :pending
       assert alert.triggered_at != nil
-      assert alert.tenant_id == tenant.id
     end
 
     test "creates alert with default pending status", %{tenant: tenant} do
@@ -87,8 +85,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "operator@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -108,8 +105,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "admin@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -126,8 +122,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "viewer@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -145,8 +140,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "first@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -158,8 +152,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "second@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -185,8 +178,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             resolved_by: "operator@example.com",
             resolution_note: "Issue fixed"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -207,8 +199,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "operator@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -220,8 +211,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             resolved_by: "operator@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -239,8 +229,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "No response"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -252,8 +241,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             resolved_by: "admin@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -271,8 +259,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             resolved_by: "operator@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -284,8 +271,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             resolved_by: "another@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -310,8 +296,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "No response after 30 minutes"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -331,8 +316,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, first} =
         alert
         |> Ash.Changeset.for_update(:escalate, %{reason: "First escalation"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -342,24 +326,21 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, resolved} =
         first
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "admin"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
       {:ok, reopened} =
         resolved
         |> Ash.Changeset.for_update(:reopen, %{reason: "Still broken"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
       {:ok, second} =
         reopened
         |> Ash.Changeset.for_update(:escalate, %{reason: "Second escalation"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -376,8 +357,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "Should fail"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -397,7 +377,6 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             acknowledged_by: "operator@example.com"
           },
           actor: operator,
-          tenant: tenant.id
         )
         |> Ash.update()
 
@@ -410,7 +389,6 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             reason: "Needs attention"
           },
           actor: admin,
-          tenant: tenant.id
         )
         |> Ash.update()
 
@@ -436,8 +414,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             until: suppress_until
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -456,8 +433,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             until: suppress_until
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -479,8 +455,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             resolved_by: "admin@example.com"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -497,8 +472,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "Issue recurring"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -517,8 +491,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "Should fail"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -538,16 +511,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, acknowledged} =
         alert_fixture(tenant, %{title: "Acknowledged Alert"})
         |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
       {:ok, resolved} =
         alert_fixture(tenant, %{title: "Resolved Alert"})
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -562,7 +533,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, active} = Ash.read(Alert, action: :active, actor: actor, tenant: tenant.id)
+      {:ok, active} = Ash.read(Alert, action: :active, actor: actor)
       ids = Enum.map(active, & &1.id)
 
       assert pending.id in ids
@@ -577,7 +548,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, page} = Ash.read(Alert, action: :pending, actor: actor, tenant: tenant.id)
+      {:ok, page} = Ash.read(Alert, action: :pending, actor: actor)
       # The :pending action uses keyset pagination, so extract results
       pending_alerts = if is_struct(page, Ash.Page.Keyset), do: page.results, else: page
       ids = Enum.map(pending_alerts, & &1.id)
@@ -608,7 +579,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           Alert
           |> Ash.Query.filter(id == ^alert.id)
           |> Ash.Query.load(:severity_color)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.severity_color == expected_color
       end
@@ -622,7 +593,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         Alert
         |> Ash.Query.filter(id == ^alert.id)
         |> Ash.Query.load(:is_actionable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert pending.is_actionable == true
 
@@ -630,8 +601,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, resolved} =
         alert
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -639,7 +609,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         Alert
         |> Ash.Query.filter(id == ^resolved.id)
         |> Ash.Query.load(:is_actionable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_actionable == false
     end
@@ -663,7 +633,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, alerts} = Ash.read(Alert, actor: actor, tenant: tenant_a.id)
+      {:ok, alerts} = Ash.read(Alert, actor: actor)
       ids = Enum.map(alerts, & &1.id)
 
       assert alert_a.id in ids
@@ -683,8 +653,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "attacker@example.com"
           },
-          actor: actor,
-          tenant: tenant_a.id
+          actor: actor
         )
         |> Ash.update()
 

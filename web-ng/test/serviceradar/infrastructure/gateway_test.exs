@@ -35,8 +35,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
             registration_source: "manual"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -46,7 +45,6 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert gateway.registration_source == "manual"
       assert gateway.status == :healthy
       assert gateway.is_healthy == true
-      assert gateway.tenant_id == tenant.id
     end
 
     test "sets timestamps on registration", %{tenant: tenant} do
@@ -86,8 +84,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
             agent_count: 5,
             checker_count: 10
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -103,7 +100,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       result =
         gateway
-        |> Ash.Changeset.for_update(:update, %{agent_count: 1}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:update, %{agent_count: 1}, actor: actor)
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -124,8 +121,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
             is_healthy: true,
             agent_count: 3
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -147,8 +143,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       {:ok, updated} =
         gateway
         |> Ash.Changeset.for_update(:start_draining, %{},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -160,7 +155,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, updated} =
         gateway
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       assert updated.is_healthy == false
@@ -172,7 +167,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, updated} =
         gateway
-        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
         |> Ash.update()
 
       assert updated.status == :inactive
@@ -192,8 +187,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         gateway_fixture(tenant, %{id: "gateway-degraded"})
         |> Ash.Changeset.for_update(:mark_unhealthy, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -205,7 +199,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, found} =
         Gateway
-        |> Ash.Query.for_read(:by_id, %{id: gateway.id}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_id, %{id: gateway.id}, actor: actor)
         |> Ash.read_one()
 
       assert found.id == gateway.id
@@ -218,7 +212,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, gateways} = Ash.read(Gateway, action: :active, actor: actor, tenant: tenant.id)
+      {:ok, gateways} = Ash.read(Gateway, action: :active, actor: actor)
       ids = Enum.map(gateways, & &1.id)
 
       assert active.id in ids
@@ -230,7 +224,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, gateways} =
         Gateway
-        |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_status, %{status: :degraded}, actor: actor)
         |> Ash.read()
 
       ids = Enum.map(gateways, & &1.id)
@@ -254,7 +248,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         Gateway
         |> Ash.Query.filter(id == ^active.id)
         |> Ash.Query.load(:status_color)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
     end
@@ -273,7 +267,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         Gateway
         |> Ash.Query.filter(id == ^with_component.id)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "Component Display Name"
 
@@ -288,7 +282,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         Gateway
         |> Ash.Query.filter(id == ^without_component.id)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "gateway-no-component"
     end
@@ -312,7 +306,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, gateways} = Ash.read(Gateway, actor: actor, tenant: tenant_a.id)
+      {:ok, gateways} = Ash.read(Gateway, actor: actor)
       ids = Enum.map(gateways, & &1.id)
 
       assert gateway_a.id in ids
@@ -328,8 +322,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       result =
         gateway_b
         |> Ash.Changeset.for_update(:update, %{agent_count: 999},
-          actor: actor,
-          tenant: tenant_a.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -345,7 +338,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, result} =
         Gateway
-        |> Ash.Query.for_read(:by_id, %{id: gateway_b.id}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_id, %{id: gateway_b.id}, actor: actor)
         |> Ash.read_one()
 
       assert result == nil
@@ -376,7 +369,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     test "can read gateways without partition context", %{tenant: tenant, gateway_a: gateway_a} do
       actor = viewer_actor(tenant)
 
-      {:ok, gateways} = Ash.read(Gateway, actor: actor, tenant: tenant.id)
+      {:ok, gateways} = Ash.read(Gateway, actor: actor)
       ids = Enum.map(gateways, & &1.id)
 
       # Should see all gateways when no partition filter

@@ -77,7 +77,8 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
     # since the Ash change_password action requires current_password
     hashed = Bcrypt.hash_pwd_salt(valid_user_password())
 
-    # In a tenant instance, tenant schema comes from config
+    # In a tenant instance, DB connection's search_path determines the schema
+    # We use prefix for the raw SQL update, but Ash operations don't need tenant option
     tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     {1, nil} =
@@ -87,8 +88,8 @@ defmodule ServiceRadarWebNG.AccountsFixtures do
         prefix: tenant_schema
       )
 
-    # Re-fetch the user from Ash
-    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id, tenant: tenant_schema)
+    # Re-fetch the user from Ash (DB connection handles schema)
+    {:ok, updated_user} = ServiceRadar.Identity.Users.get(user.id)
     updated_user
   end
 end

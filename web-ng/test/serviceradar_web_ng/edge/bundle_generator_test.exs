@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
           component_type: :gateway,
           component_id: "gateway-test-bundle"
         },
-        tenant: tenant.id
+        []
       )
 
     %{

@@ -34,8 +34,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
             is_available: true
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -44,7 +43,6 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert device.hostname == "test-host.local"
       assert device.type_id == 1
       assert device.is_available == true
-      assert device.tenant_id == tenant.id
     end
 
     test "sets first_seen_time and last_seen_time on creation", %{tenant: tenant} do
@@ -85,8 +83,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
             name: "Updated Name",
             is_managed: true
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -102,8 +99,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       {:ok, updated} =
         device
         |> Ash.Changeset.for_update(:update, %{name: "Admin Update"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -116,8 +112,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       result =
         device
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -133,7 +128,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, touched} =
         device
-        |> Ash.Changeset.for_update(:touch, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:touch, %{}, actor: actor)
         |> Ash.update()
 
       # Allow :gt or :eq (in case of very fast execution)
@@ -169,7 +164,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, found} =
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device1.uid}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_uid, %{uid: device1.uid}, actor: actor)
         |> Ash.read_one()
 
       assert found.uid == device1.uid
@@ -180,7 +175,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, found} =
         Device
-        |> Ash.Query.for_read(:by_ip, %{ip: "192.168.1.1"}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_ip, %{ip: "192.168.1.1"}, actor: actor)
         |> Ash.read()
 
       assert length(found) == 1
@@ -197,8 +192,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       {:ok, available} =
         Ash.read(Device,
           action: :available,
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
 
       uids = Enum.map(available, & &1.uid)
@@ -237,7 +231,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
           Device
           |> Ash.Query.filter(uid == ^device.uid)
           |> Ash.Query.load(:type_name)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.type_name == expected_name
       end
@@ -259,7 +253,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         Device
         |> Ash.Query.filter(uid == ^device_full.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       # Should use name first
       assert loaded.display_name == "Display Name"
@@ -275,7 +269,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         Device
         |> Ash.Query.filter(uid == ^device_hostname.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "just-hostname.local"
     end
@@ -299,7 +293,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, devices} = Ash.read(Device, actor: actor, tenant: tenant_a.id)
+      {:ok, devices} = Ash.read(Device, actor: actor)
       uids = Enum.map(devices, & &1.uid)
 
       assert device_a.uid in uids
@@ -314,7 +308,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       result =
         device_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
         |> Ash.update()
 
       # Should fail - either Forbidden or StaleRecord
@@ -330,7 +324,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, result} =
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device_b.uid}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_uid, %{uid: device_b.uid}, actor: actor)
         |> Ash.read_one()
 
       # Should be nil - device not found in tenant context

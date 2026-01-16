@@ -16,11 +16,11 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   Used for creating test fixtures.
   """
   def system_actor do
+    # In a tenant instance, tenant isolation is handled by DB connection
     %{
       id: "00000000-0000-0000-0000-000000000000",
       email: "system@serviceradar.test",
-      role: :super_admin,
-      tenant_id: nil
+      role: :super_admin
     }
   end
 
@@ -63,8 +63,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     User
     |> Ash.Changeset.for_create(:register_with_password, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -78,8 +77,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :admin},
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.update!()
   end
@@ -88,10 +86,10 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   Creates an actor map for the given user, suitable for Ash queries.
   """
   def actor_for_user(user) do
+    # In a tenant instance, tenant isolation is handled by DB connection
     %{
       id: user.id,
       email: user.email,
-      tenant_id: user.tenant_id,
       role: user.role || :viewer
     }
   end
@@ -116,8 +114,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     Device
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -139,8 +136,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     Gateway
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -163,8 +159,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     ServiceRadar.Infrastructure.Agent
     |> Ash.Changeset.for_create(:register_connected, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -189,8 +184,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     ServiceRadar.Monitoring.ServiceCheck
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -214,8 +208,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     ServiceRadar.Monitoring.Alert
     |> Ash.Changeset.for_create(:trigger, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.create!()
   end

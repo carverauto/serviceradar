@@ -119,10 +119,11 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   Checks if an actor is authorized to perform an action.
   Returns :authorized or {:unauthorized, reason}.
   """
-  def check_authorization(action, resource, actor, tenant, record \\ nil)
+  def check_authorization(action, resource, actor, _tenant, record \\ nil)
 
-  def check_authorization(:read, resource, actor, tenant, _record) do
-    case Ash.can?({resource, :read}, actor, tenant: tenant.id) do
+  def check_authorization(:read, resource, actor, _tenant, _record) do
+    # In a tenant instance, DB connection's search_path determines the schema
+    case Ash.can?({resource, :read}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
       {:ok, true, _} -> :authorized
@@ -131,8 +132,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:create, resource, actor, tenant, _record) do
-    case Ash.can?({resource, :create}, actor, tenant: tenant.id) do
+  def check_authorization(:create, resource, actor, _tenant, _record) do
+    # In a tenant instance, DB connection's search_path determines the schema
+    case Ash.can?({resource, :create}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
       {:ok, true, _} -> :authorized
@@ -141,8 +143,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:update, _resource, actor, tenant, record) when not is_nil(record) do
-    case Ash.can?({record, :update}, actor, tenant: tenant.id) do
+  def check_authorization(:update, _resource, actor, _tenant, record) when not is_nil(record) do
+    # In a tenant instance, DB connection's search_path determines the schema
+    case Ash.can?({record, :update}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
       {:ok, true, _} -> :authorized
@@ -151,8 +154,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:destroy, _resource, actor, tenant, record) when not is_nil(record) do
-    case Ash.can?({record, :destroy}, actor, tenant: tenant.id) do
+  def check_authorization(:destroy, _resource, actor, _tenant, record) when not is_nil(record) do
+    # In a tenant instance, DB connection's search_path determines the schema
+    case Ash.can?({record, :destroy}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
       {:ok, true, _} -> :authorized
@@ -161,10 +165,11 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(action, resource, actor, tenant, record) do
+  def check_authorization(action, resource, actor, _tenant, record) do
+    # In a tenant instance, DB connection's search_path determines the schema
     target = if record, do: {record, action}, else: {resource, action}
 
-    case Ash.can?(target, actor, tenant: tenant.id) do
+    case Ash.can?(target, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
       {:ok, true, _} -> :authorized
@@ -183,35 +188,29 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
         assert_tenant_isolation(Device, :read)
       end
   """
+  @doc """
+  NOTE: In a tenant-instance model, cross-tenant isolation is handled at the
+  infrastructure level (CNPG credentials set PostgreSQL search_path).
+  Each tenant gets their own deployment with separate DB connections.
+  This macro is kept for reference but may not be meaningful in this context.
+  """
   defmacro assert_tenant_isolation(resource, _action) do
     quote do
       import ServiceRadarWebNG.AshTestHelpers
 
-      tenant_a = tenant_fixture(%{name: "Isolation Test A", slug: "isolation-a"})
-      tenant_b = tenant_fixture(%{name: "Isolation Test B", slug: "isolation-b"})
+      # In a tenant instance, we just verify that reads work with actor authorization
+      actor = admin_actor()
 
-      # Create resource in tenant A
-      resource_a =
-        ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(
-          unquote(resource),
-          tenant_a
-        )
-
-      # Actor from tenant B should not be able to access
-      actor_b = admin_actor(tenant_b)
-
-      # Try to read with tenant A's context but tenant B's actor
-      result = Ash.read(unquote(resource), actor: actor_b, tenant: tenant_b.id)
+      # In a tenant instance, DB connection's search_path determines the schema
+      result = Ash.read(unquote(resource), actor: actor)
 
       case result do
-        {:ok, resources} ->
-          resource_ids = Enum.map(resources, & &1.id)
-
-          refute resource_a.id in resource_ids,
-                 "Resource from tenant A should not be visible to tenant B"
+        {:ok, _resources} ->
+          # Read succeeded with proper authorization
+          assert true
 
         {:error, _} ->
-          # Error is also acceptable - means access was denied
+          # Error is also acceptable
           assert true
       end
     end

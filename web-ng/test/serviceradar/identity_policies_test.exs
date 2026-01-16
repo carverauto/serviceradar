@@ -26,21 +26,21 @@ defmodule ServiceRadar.IdentityPoliciesTest do
     test "admin can read users in their tenant", %{tenant: tenant, admin: admin} do
       actor = actor_for_user(admin)
 
-      {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
+      {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
     test "operator can read users in their tenant", %{tenant: tenant, operator: operator} do
       actor = actor_for_user(operator)
 
-      {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
+      {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
     test "viewer can read users in their tenant", %{tenant: tenant, viewer: viewer} do
       actor = actor_for_user(viewer)
 
-      {:ok, users} = Ash.read(User, actor: actor, tenant: tenant.id)
+      {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
   end
@@ -64,8 +64,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       result =
         target
         |> Ash.Changeset.for_update(:update_role, %{role: :operator},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -79,8 +78,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       result =
         user
         |> Ash.Changeset.for_update(:update, %{display_name: "My New Name"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -96,8 +94,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       result =
         target
         |> Ash.Changeset.for_update(:update, %{display_name: "Hacked Name"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -113,8 +110,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       result =
         target
         |> Ash.Changeset.for_update(:update_role, %{role: :admin},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -143,7 +139,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       actor_a = actor_for_user(user_a)
 
       # Query with tenant A context
-      {:ok, users} = Ash.read(User, actor: actor_a, tenant: tenant_a.id)
+      {:ok, users} = Ash.read(User, actor: actor_a)
       user_ids = Enum.map(users, & &1.id)
 
       # Should see user_a but not user_b
@@ -159,7 +155,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       actor_a = actor_for_user(user_a)
 
       # Try to get user_b using tenant_a context
-      result = Ash.get(User, user_b.id, actor: actor_a, tenant: tenant_a.id)
+      result = Ash.get(User, user_b.id, actor: actor_a)
 
       # Should fail - user_b doesn't exist in tenant_a's context
       assert {:error, _} = result
@@ -191,8 +187,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
             user_id: admin.id,
             token: raw_token
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.create()
 
@@ -214,8 +209,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
             user_id: viewer.id,
             token: raw_token
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.create()
 
@@ -238,13 +232,12 @@ defmodule ServiceRadar.IdentityPoliciesTest do
             user_id: viewer.id,
             token: raw_token
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.create()
 
       # Read tokens
-      {:ok, tokens} = Ash.read(ApiToken, actor: actor, tenant: tenant.id)
+      {:ok, tokens} = Ash.read(ApiToken, actor: actor)
       refute Enum.empty?(tokens)
     end
   end

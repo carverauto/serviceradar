@@ -41,8 +41,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             site: "test-site"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -56,8 +55,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             join_token_expires_at: expired_join
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -74,8 +72,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             site: "test-site"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -88,8 +85,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             join_token_expires_at: valid_expiry
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -117,8 +113,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         package
         |> Ash.Changeset.for_update(:expire, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -133,8 +128,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         package
         |> Ash.Changeset.for_update(:expire, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -161,8 +155,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         package
         |> Ash.Changeset.for_update(:deliver, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -210,8 +203,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -247,8 +239,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         check
         |> Ash.Changeset.for_update(:disable, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -270,8 +261,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         check
         |> Ash.Changeset.for_update(:execute, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -305,8 +295,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -326,8 +315,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -355,8 +343,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :manual
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -383,8 +370,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -392,8 +378,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         schedule
         |> Ash.Changeset.for_update(:disable, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -420,8 +405,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -429,8 +413,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         schedule
         |> Ash.Changeset.for_update(:execute, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -449,8 +432,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -465,8 +447,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             failure_count: 2
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -489,8 +470,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -499,8 +479,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         schedule
         |> Ash.Changeset.for_update(:record_result, %{result: :failed},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -511,8 +490,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         failed1
         |> Ash.Changeset.for_update(:record_result, %{result: :timeout},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -523,8 +501,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         failed2
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -564,8 +541,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             acknowledged_by: "test-user"
           },
-          actor: admin_actor(tenant),
-          tenant: tenant.id
+          actor: admin_actor()
         )
         |> Ash.update()
 
@@ -594,8 +570,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             reason: "No response for 30 minutes"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -613,8 +588,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             resolution_note: "Fixed"
           },
-          actor: admin_actor(tenant),
-          tenant: tenant.id
+          actor: admin_actor()
         )
         |> Ash.update()
 
@@ -671,8 +645,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         alert
         |> Ash.Changeset.for_update(:send_notification, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -702,8 +675,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -715,8 +687,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             node_id: "node-1@localhost"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -736,8 +707,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -750,8 +720,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             node_id: "node-1@localhost"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -760,8 +729,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         locked
         |> Ash.Changeset.for_update(:release_lock, %{},
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 
@@ -781,8 +749,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             interval_seconds: 60
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -794,8 +761,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             node_id: "node-1@localhost"
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.update()
 

@@ -36,8 +36,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -48,7 +47,6 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Default initial state
       assert agent.status == :connecting
       assert agent.is_healthy == true
-      assert agent.tenant_id == tenant.id
     end
 
     test "can register agent as already connected", %{tenant: tenant, gateway: gateway} do
@@ -61,8 +59,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -111,8 +108,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, connected} =
         agent
         |> Ash.Changeset.for_update(:establish_connection, %{gateway_id: gateway.id},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -126,7 +122,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:connection_failed, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:connection_failed, %{}, actor: actor)
         |> Ash.update()
 
       assert disconnected.status == :disconnected
@@ -148,8 +144,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -161,7 +156,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, degraded} =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       assert degraded.status == :degraded
@@ -174,13 +169,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First degrade
       {:ok, degraded} =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       # Then restore
       {:ok, restored} =
         degraded
-        |> Ash.Changeset.for_update(:restore_health, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:restore_health, %{}, actor: actor)
         |> Ash.update()
 
       assert restored.status == :connected
@@ -192,7 +187,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       result =
         agent
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       assert {:ok, degraded} = result
@@ -214,8 +209,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -227,7 +221,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
         |> Ash.update()
 
       assert disconnected.status == :disconnected
@@ -240,13 +234,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First disconnect
       {:ok, disconnected} =
         agent
-        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
         |> Ash.update()
 
       # Then reconnect
       {:ok, reconnecting} =
         disconnected
-        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor)
         |> Ash.update()
 
       assert reconnecting.status == :connecting
@@ -267,8 +261,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -281,8 +274,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, unavailable} =
         agent
         |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -296,13 +288,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First mark unavailable
       {:ok, unavailable} =
         agent
-        |> Ash.Changeset.for_update(:mark_unavailable, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{}, actor: actor)
         |> Ash.update()
 
       # Then recover
       {:ok, recovering} =
         unavailable
-        |> Ash.Changeset.for_update(:recover, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:recover, %{}, actor: actor)
         |> Ash.update()
 
       assert recovering.status == :connecting
@@ -315,7 +307,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # (reconnect is only valid from :disconnected)
       result =
         agent
-        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -337,8 +329,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -357,7 +348,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, found} =
         Agent
-        |> Ash.Query.for_read(:by_uid, %{uid: agent.uid}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_uid, %{uid: agent.uid}, actor: actor)
         |> Ash.read_one()
 
       assert found.uid == agent.uid
@@ -373,8 +364,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, agents} =
         Agent
         |> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway.id},
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.read()
 
@@ -389,7 +379,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     } do
       actor = viewer_actor(tenant)
 
-      {:ok, agents} = Ash.read(Agent, action: :connected, actor: actor, tenant: tenant.id)
+      {:ok, agents} = Ash.read(Agent, action: :connected, actor: actor)
       uids = Enum.map(agents, & &1.uid)
 
       assert connected.uid in uids
@@ -401,7 +391,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agents} =
         Agent
-        |> Ash.Query.for_read(:by_status, %{status: :connecting}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_status, %{status: :connecting}, actor: actor)
         |> Ash.read()
 
       uids = Enum.map(agents, & &1.uid)
@@ -437,7 +427,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           Agent
           |> Ash.Query.filter(uid == ^agent.uid)
           |> Ash.Query.load(:type_name)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.type_name == expected_name
       end
@@ -458,7 +448,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         Agent
         |> Ash.Query.filter(uid == ^agent_named.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "My Custom Agent"
 
@@ -474,7 +464,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         Agent
         |> Ash.Query.filter(uid == ^agent_host.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "192.168.1.101"
     end
@@ -495,8 +485,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             gateway_id: gateway.id
           },
           actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          authorize?: false
         )
         |> Ash.create()
 
@@ -504,7 +493,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         Agent
         |> Ash.Query.filter(uid == ^agent.uid)
         |> Ash.Query.load(:status_color)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
     end
@@ -531,7 +520,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     } do
       actor = viewer_actor(tenant_a)
 
-      {:ok, agents} = Ash.read(Agent, actor: actor, tenant: tenant_a.id)
+      {:ok, agents} = Ash.read(Agent, actor: actor)
       uids = Enum.map(agents, & &1.uid)
 
       assert agent_a.uid in uids
@@ -546,7 +535,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       result =
         agent_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
         |> Ash.update()
 
       assert {:error, error} = result
@@ -561,7 +550,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, result} =
         Agent
-        |> Ash.Query.for_read(:by_uid, %{uid: agent_b.uid}, actor: actor, tenant: tenant_a.id)
+        |> Ash.Query.for_read(:by_uid, %{uid: agent_b.uid}, actor: actor)
         |> Ash.read_one()
 
       assert result == nil

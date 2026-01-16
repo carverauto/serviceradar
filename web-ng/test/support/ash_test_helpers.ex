@@ -166,8 +166,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     User
     |> Ash.Changeset.for_create(:register_with_password, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -181,8 +180,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :admin},
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.update!()
   end
@@ -196,8 +194,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :operator},
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant.id
+      authorize?: false
     )
     |> Ash.update!()
   end
@@ -221,8 +218,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     ApiToken
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: user.tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -257,8 +253,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     Device
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -291,8 +286,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     Partition
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -320,8 +314,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     Gateway
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -333,8 +326,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   def agent_fixture(%Gateway{} = gateway, attrs) do
     unique = System.unique_integer([:positive])
-    # In a tenant instance, tenant schema is determined by config
-    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     defaults = %{
       uid: "agent-#{unique}",
@@ -345,11 +336,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
+    # In a tenant instance, DB connection's search_path determines the schema
     Agent
     |> Ash.Changeset.for_create(:register, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_schema
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -361,8 +352,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   def checker_fixture(%Agent{} = agent, attrs) do
     unique = System.unique_integer([:positive])
-    # In a tenant instance, tenant schema is determined by config
-    tenant_schema = ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
 
     defaults = %{
       name: "Checker #{unique}",
@@ -373,11 +362,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
+    # In a tenant instance, DB connection's search_path determines the schema
     Checker
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_schema
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -410,8 +399,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     ServiceCheck
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -440,8 +428,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     Alert
     |> Ash.Changeset.for_create(:trigger, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -469,8 +456,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     PollingSchedule
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
@@ -505,8 +491,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     OnboardingPackage
     |> Ash.Changeset.for_create(:create, attrs,
       actor: system_actor(),
-      authorize?: false,
-      tenant: tenant_id
+      authorize?: false
     )
     |> Ash.create!()
   end
