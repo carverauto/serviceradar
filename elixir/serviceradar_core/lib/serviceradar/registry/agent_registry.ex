@@ -97,11 +97,6 @@ defmodule ServiceRadar.AgentRegistry do
     register_agent(agent_id, agent_info)
   end
 
-  # Legacy compatibility: extract agent_id from agent_info
-  def register_agent(agent_id, agent_info) when is_binary(agent_id) and is_map(agent_info) do
-    register_agent(agent_id, agent_info)
-  end
-
   @doc """
   Unregister an agent from the registry.
   """

@@ -17,7 +17,6 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
       {:ok, pid} = ServiceRadar.Edge.GatewayProcess.start_link(
         gateway_id: "gateway-uuid",
-        tenant_id: "tenant-uuid",
         partition_id: "partition-1"
       )
   """
@@ -32,8 +31,8 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   @type state :: %{
           gateway_id: String.t(),
-          tenant_id: String.t(),
           partition_id: String.t(),
+          domain: String.t() | nil,
           status: :idle | :executing,
           current_job: map() | nil,
           metrics: map()
@@ -150,13 +149,11 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def init(opts) do
     gateway_id = Keyword.fetch!(opts, :gateway_id)
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.get(opts, :partition_id, "default")
     domain = Keyword.get(opts, :domain)
 
     state = %{
       gateway_id: gateway_id,
-      tenant_id: tenant_id,
       partition_id: partition_id,
       domain: domain,
       status: :idle,
@@ -175,7 +172,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
     # Schedule health checks
     schedule_health_check()
 
-    Logger.info("Gateway #{gateway_id} started for tenant #{tenant_id}/#{partition_id}")
+    Logger.info("Gateway #{gateway_id} started for partition #{partition_id}")
 
     {:ok, state}
   end
@@ -223,8 +220,8 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   def handle_call(:status, _from, state) do
     status = %{
       gateway_id: state.gateway_id,
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
+      domain: state.domain,
       status: state.status,
       metrics: state.metrics
     }
@@ -282,7 +279,6 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   defp register_gateway(state) do
     gateway_info = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
       status: registry_status(state.status)

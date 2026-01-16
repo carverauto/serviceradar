@@ -25,9 +25,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   ## Usage
 
-      SweepResultsIngestor.ingest_results(results, execution_id, tenant_id,
+      SweepResultsIngestor.ingest_results(results, execution_id,
         actor: actor
       )
+
+  In tenant-unaware mode, the DB schema is set by CNPG search_path credentials.
   """
 
   require Logger
@@ -55,10 +57,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
-  @spec ingest_results([map()], String.t(), String.t(), keyword()) ::
+  @spec ingest_results([map()], String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def ingest_results(results, execution_id, tenant_id, opts \\ []) do
-    # Simple actor - DB connection's search_path determines the schema
+  def ingest_results(results, execution_id, opts \\ []) do
+    # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor, SystemActor.system(:sweep_results_ingestor))
     sweep_group_id = Keyword.get(opts, :sweep_group_id)
     agent_id = Keyword.get(opts, :agent_id)
@@ -71,7 +73,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Logger.info("SweepResultsIngestor: Processing #{total_count} results for execution #{execution_id}")
 
     # Ensure execution record exists (creates one if missing)
-    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_id, actor) do
+    case ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, actor) do
       :ok ->
         :ok
 
@@ -103,7 +105,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Enum.reduce_while(batches, {:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
         batch_start = System.monotonic_time(:millisecond)
 
-        case process_batch(batch, execution_id, tenant_id, actor) do
+        case process_batch(batch, execution_id, actor) do
           {:ok, batch_stats} ->
             batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -114,7 +116,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
             merged_stats = merge_stats(acc_stats, batch_stats)
 
             # Broadcast progress after each batch for real-time UI updates
-            SweepPubSub.broadcast_progress(tenant_id, execution_id, %{
+            SweepPubSub.broadcast_progress(execution_id, %{
               batch_num: batch_num,
               total_batches: total_batches,
               hosts_processed: merged_stats.hosts_total,
@@ -139,7 +141,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           sweep_group_id,
           final_stats,
           scanner_metrics,
-          tenant_id,
           actor
         )
 
@@ -163,14 +164,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   Convenience function for processing individual results (e.g., from streaming).
   """
-  @spec ingest_single(map(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def ingest_single(result, execution_id, tenant_id, opts \\ []) do
-    ingest_results([result], execution_id, tenant_id, opts)
+  @spec ingest_single(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def ingest_single(result, execution_id, opts \\ []) do
+    ingest_results([result], execution_id, opts)
   end
 
   # Private functions
 
-  defp process_batch(results, execution_id, tenant_id, actor) do
+  defp process_batch(results, execution_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = Enum.map(results, &extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -189,7 +190,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     all_devices = Map.merge(device_map, created_devices)
 
     # Step 6: Build host result records
-    {host_results, stats} = build_host_results(results, execution_id, tenant_id, all_devices)
+    {host_results, stats} = build_host_results(results, execution_id, all_devices)
 
     # Step 7: Bulk insert host results
     case bulk_insert_host_results(host_results) do
@@ -285,7 +286,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
      }}
   end
 
-  defp build_host_results(results, execution_id, tenant_id, device_map) do
+  defp build_host_results(results, execution_id, device_map) do
     initial_stats = %{
       hosts_total: 0,
       hosts_available: 0,
@@ -300,7 +301,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         device_id = device_id_for_ip(device_map, ip)
 
         record =
-          build_host_record(result, execution_id, tenant_id, ip, status, device_id)
+          build_host_record(result, execution_id, ip, status, device_id)
 
         updated_stats = update_host_stats(stats, is_available)
 
@@ -324,10 +325,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp build_host_record(result, execution_id, tenant_id, ip, status, device_id) do
+  defp build_host_record(result, execution_id, ip, status, device_id) do
+    # DB connection's search_path determines the schema - no tenant_id needed
     %{
       id: Ash.UUID.generate(),
-      tenant_id: tenant_id,
       execution_id: execution_id,
       ip: ip,
       hostname: result["hostname"],
@@ -491,7 +492,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   end
 
-  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, tenant_id, _actor) do
+  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, _actor) do
     timestamp = DateTime.utc_now()
 
     # DB connection's search_path determines the schema
@@ -544,10 +545,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       hosts_failed: stats.hosts_failed
     }
 
-    SweepPubSub.broadcast_completed(tenant_id, execution, stats)
+    SweepPubSub.broadcast_completed(execution, stats)
   end
 
-  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, tenant_id, _actor) do
+  defp ensure_execution_exists(execution_id, sweep_group_id, agent_id, config_version, _actor) do
     # DB connection's search_path determines the schema
     # Check if execution exists
     existing =
@@ -563,7 +564,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     else
       # Create execution record if we have a sweep_group_id
       if sweep_group_id && sweep_group_id != "" do
-        create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_id)
+        create_execution(execution_id, sweep_group_id, agent_id, config_version)
       else
         Logger.warning("SweepResultsIngestor: Cannot create execution - no sweep_group_id provided")
         :ok
@@ -571,12 +572,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp create_execution(execution_id, sweep_group_id, agent_id, config_version, tenant_id) do
+  defp create_execution(execution_id, sweep_group_id, agent_id, config_version) do
     timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
+    # DB connection's search_path determines the schema - no tenant_id needed
     record = %{
       id: execution_id,
-      tenant_id: tenant_id,
       sweep_group_id: sweep_group_id,
       agent_id: agent_id,
       config_version: config_version,
@@ -589,7 +590,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       updated_at: timestamp
     }
 
-    # DB connection's search_path determines the schema
     case Repo.insert_all(
            SweepGroupExecution,
            [record],
@@ -608,7 +608,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           config_version: config_version
         }
 
-        SweepPubSub.broadcast_started(tenant_id, execution)
+        SweepPubSub.broadcast_started(execution)
 
         :ok
 

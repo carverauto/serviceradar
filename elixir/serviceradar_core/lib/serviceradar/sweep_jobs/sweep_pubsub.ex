@@ -5,10 +5,13 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcasts to `ServiceRadar.PubSub` when available. If PubSub is not running,
   broadcasts are ignored.
 
+  In tenant-unaware mode, operates as a single instance since the DB schema
+  is set by CNPG search_path credentials.
+
   ## Topics
 
-  - `sweep:executions:<tenant_id>` - All execution updates for a tenant
-  - `sweep:executions:<tenant_id>:<execution_id>` - Updates for a specific execution
+  - `sweep:executions` - All execution updates
+  - `sweep:executions:<execution_id>` - Updates for a specific execution
 
   ## Events
 
@@ -21,40 +24,34 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   @pubsub ServiceRadar.PubSub
 
   @doc """
-  Build the per-tenant sweep executions topic.
+  Build the sweep executions topic.
   """
-  def topic(tenant_id) when is_binary(tenant_id) and tenant_id != "" do
-    "sweep:executions:#{tenant_id}"
+  def topic do
+    "sweep:executions"
   end
-
-  def topic(_), do: nil
 
   @doc """
   Build a topic for a specific execution.
   """
-  def execution_topic(tenant_id, execution_id)
-      when is_binary(tenant_id) and tenant_id != "" and is_binary(execution_id) do
-    "sweep:executions:#{tenant_id}:#{execution_id}"
+  def execution_topic(execution_id) when is_binary(execution_id) and execution_id != "" do
+    "sweep:executions:#{execution_id}"
   end
 
-  def execution_topic(_, _), do: nil
+  def execution_topic(_), do: nil
 
   @doc """
-  Subscribe to all sweep execution updates for a tenant.
+  Subscribe to all sweep execution updates.
   """
-  def subscribe(tenant_id) do
-    case topic(tenant_id) do
-      nil -> {:error, :invalid_tenant}
-      topic -> Phoenix.PubSub.subscribe(@pubsub, topic)
-    end
+  def subscribe do
+    Phoenix.PubSub.subscribe(@pubsub, topic())
   end
 
   @doc """
   Subscribe to updates for a specific execution.
   """
-  def subscribe_execution(tenant_id, execution_id) do
-    case execution_topic(tenant_id, execution_id) do
-      nil -> {:error, :invalid_params}
+  def subscribe_execution(execution_id) do
+    case execution_topic(execution_id) do
+      nil -> {:error, :invalid_execution_id}
       topic -> Phoenix.PubSub.subscribe(@pubsub, topic)
     end
   end
@@ -62,7 +59,7 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   @doc """
   Broadcast that an execution has started.
   """
-  def broadcast_started(tenant_id, execution) do
+  def broadcast_started(execution) do
     event = {:sweep_execution_started, %{
       execution_id: execution.id,
       sweep_group_id: execution.sweep_group_id,
@@ -71,8 +68,8 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
       config_version: execution.config_version
     }}
 
-    broadcast_to_tenant(tenant_id, event)
-    broadcast_to_execution(tenant_id, execution.id, event)
+    broadcast_to_all(event)
+    broadcast_to_execution(execution.id, event)
   end
 
   @doc """
@@ -82,7 +79,6 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
 
   ## Parameters
 
-  - `tenant_id` - Tenant identifier
   - `execution_id` - Execution being updated
   - `progress` - Map with:
     - `:batch_num` - Current batch number (1-indexed)
@@ -93,20 +89,20 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
     - `:devices_created` - New devices created so far
     - `:devices_updated` - Existing devices updated so far
   """
-  def broadcast_progress(tenant_id, execution_id, progress) when is_map(progress) do
+  def broadcast_progress(execution_id, progress) when is_map(progress) do
     event = {:sweep_execution_progress, Map.merge(progress, %{
       execution_id: execution_id,
       updated_at: DateTime.utc_now()
     })}
 
-    broadcast_to_tenant(tenant_id, event)
-    broadcast_to_execution(tenant_id, execution_id, event)
+    broadcast_to_all(event)
+    broadcast_to_execution(execution_id, event)
   end
 
   @doc """
   Broadcast that an execution has completed successfully.
   """
-  def broadcast_completed(tenant_id, execution, stats) do
+  def broadcast_completed(execution, stats) do
     event = {:sweep_execution_completed, %{
       execution_id: execution.id,
       sweep_group_id: execution.sweep_group_id,
@@ -121,14 +117,14 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
       devices_updated: stats[:devices_updated] || 0
     }}
 
-    broadcast_to_tenant(tenant_id, event)
-    broadcast_to_execution(tenant_id, execution.id, event)
+    broadcast_to_all(event)
+    broadcast_to_execution(execution.id, event)
   end
 
   @doc """
   Broadcast that an execution has failed.
   """
-  def broadcast_failed(tenant_id, execution, error_message) do
+  def broadcast_failed(execution, error_message) do
     event = {:sweep_execution_failed, %{
       execution_id: execution.id,
       sweep_group_id: execution.sweep_group_id,
@@ -137,21 +133,18 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
       failed_at: DateTime.utc_now()
     }}
 
-    broadcast_to_tenant(tenant_id, event)
-    broadcast_to_execution(tenant_id, execution.id, event)
+    broadcast_to_all(event)
+    broadcast_to_execution(execution.id, event)
   end
 
   # Private helpers
 
-  defp broadcast_to_tenant(tenant_id, event) do
-    case topic(tenant_id) do
-      nil -> :ok
-      topic -> safe_broadcast(topic, event)
-    end
+  defp broadcast_to_all(event) do
+    safe_broadcast(topic(), event)
   end
 
-  defp broadcast_to_execution(tenant_id, execution_id, event) do
-    case execution_topic(tenant_id, execution_id) do
+  defp broadcast_to_execution(execution_id, event) do
+    case execution_topic(execution_id) do
       nil -> :ok
       topic -> safe_broadcast(topic, event)
     end

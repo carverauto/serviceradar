@@ -96,7 +96,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   # Process inventory updates for sweep results
-  defp process_inventory_updates(messages, tenant_id) when is_binary(tenant_id) do
+  # DB connection's search_path determines the schema
+  defp process_inventory_updates(messages, _tenant_id) do
     # Parse messages and group by execution_id
     parsed_results =
       messages
@@ -106,20 +107,18 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     # Group by execution_id (or nil for messages without execution context)
     results_by_execution = Enum.group_by(parsed_results, & &1["execution_id"])
 
-    Enum.each(results_by_execution, &process_execution_results(&1, tenant_id))
+    Enum.each(results_by_execution, &process_execution_results/1)
   rescue
     e ->
       Logger.warning("Inventory update failed (non-fatal): #{inspect(e)}")
   end
 
-  defp process_inventory_updates(_messages, _tenant_id), do: :ok
-
-  defp process_execution_results({nil, results}, tenant_id) do
+  defp process_execution_results({nil, results}) do
     # Just update device availability (no execution tracking)
-    update_device_availability_only(results, tenant_id)
+    update_device_availability_only(results)
   end
 
-  defp process_execution_results({execution_id, results}, tenant_id) do
+  defp process_execution_results({execution_id, results}) do
     # Extract additional context from first result
     first_result = List.first(results) || %{}
     sweep_group_id = first_result["sweep_group_id"] || first_result["sweepGroupId"]
@@ -127,13 +126,14 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     config_version = first_result["config_hash"] || first_result["configHash"]
 
     # Full ingest with SweepHostResult records
+    # DB connection's search_path determines the schema
     opts = [
       sweep_group_id: sweep_group_id,
       agent_id: agent_id,
       config_version: config_version
     ]
 
-    case SweepResultsIngestor.ingest_results(results, execution_id, tenant_id, opts) do
+    case SweepResultsIngestor.ingest_results(results, execution_id, opts) do
       {:ok, _stats} ->
         :ok
 
@@ -149,7 +149,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     end
   end
 
-  defp update_device_availability_only(results, tenant_id) do
+  defp update_device_availability_only(results) do
+    alias ServiceRadar.Actors.SystemActor
     alias ServiceRadar.Identity.DeviceLookup
 
     # DB connection's search_path determines the schema
@@ -165,7 +166,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       :ok
     else
       # Lookup existing devices
-      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: system_actor(tenant_id))
+      actor = SystemActor.system(:sweep_processor)
+      device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: actor)
       timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
       update_availability(results, device_map, timestamp)
@@ -216,10 +218,6 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       )
       |> Repo.update_all(set: [is_available: false, modified_time: timestamp])
     end
-  end
-
-  defp system_actor(tenant_id) do
-    %{id: "system", role: :system, tenant_id: tenant_id}
   end
 
   @impl true

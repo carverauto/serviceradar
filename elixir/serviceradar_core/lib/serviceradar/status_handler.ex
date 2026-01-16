@@ -26,12 +26,11 @@ defmodule ServiceRadar.StatusHandler do
   def handle_cast({:status_update, status}, state) do
     service_type = status[:service_type] || "unknown"
     source = status[:source] || "unknown"
-    tenant_id = status[:tenant_id] || "unknown"
     service_name = status[:service_name] || "unknown"
 
     Logger.info(
       "StatusHandler received: service_type=#{service_type} source=#{source} " <>
-        "tenant=#{tenant_id} service=#{service_name}"
+        "service=#{service_name}"
     )
 
     case process(status) do
@@ -57,25 +56,20 @@ defmodule ServiceRadar.StatusHandler do
   defp process(_status), do: :ok
 
   defp process_legacy_results(%{service_type: "sync"} = status) do
-    tenant_id = status[:tenant_id]
-
-    if is_binary(tenant_id) and tenant_id != "" do
-      schedule_sync_ingestion(status, tenant_id)
-    else
-      {:error, :missing_tenant_id}
-    end
+    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    schedule_sync_ingestion(status)
   end
 
   defp process_legacy_results(_status), do: :ok
 
-  defp schedule_sync_ingestion(status, tenant_id) do
+  defp schedule_sync_ingestion(status) do
     message = status[:message]
     async_enabled = Application.get_env(:serviceradar_core, :sync_ingestor_async, true)
 
     if async_enabled do
-      SyncIngestorQueue.enqueue(message, tenant_id)
+      SyncIngestorQueue.enqueue(message)
     else
-      SyncIngestorQueue.ingest_sync_results(message, tenant_id)
+      SyncIngestorQueue.ingest_sync_results(message)
     end
   end
 end

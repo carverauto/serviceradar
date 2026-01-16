@@ -4,6 +4,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   Optimized for bulk operations to handle large batches efficiently.
   Uses batch DB queries and bulk upserts instead of one-by-one processing.
+
+  In tenant-unaware mode, operates as a single instance since the DB schema
+  is set by CNPG search_path credentials.
   """
 
   require Logger
@@ -17,18 +20,16 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
 
-  @spec ingest_updates([map()], String.t(), keyword()) :: :ok | {:error, term()}
-  def ingest_updates(updates, tenant_id, opts \\ []) do
-    # Simple actor - DB connection's search_path determines the schema
+  @spec ingest_updates([map()], keyword()) :: :ok | {:error, term()}
+  def ingest_updates(updates, opts \\ []) do
+    # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor, SystemActor.system(:sync_ingestor))
 
     updates = List.wrap(updates)
     total_count = length(updates)
     batch_concurrency = batch_concurrency()
 
-    Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}",
-      tenant_id: tenant_id
-    )
+    Logger.info("SyncIngestor: Processing #{total_count} updates in batches of #{@batch_size}")
     start_time = System.monotonic_time(:millisecond)
 
     batches =

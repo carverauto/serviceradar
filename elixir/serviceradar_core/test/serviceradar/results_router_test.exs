@@ -1,6 +1,9 @@
 defmodule ServiceRadar.ResultsRouterTest do
   @moduledoc """
   Tests for results ingestion routing in ResultsRouter.
+
+  In tenant-unaware mode, there is no tenant_id parameter - the DB schema
+  is set by CNPG search_path credentials.
   """
 
   use ExUnit.Case, async: false
@@ -8,22 +11,22 @@ defmodule ServiceRadar.ResultsRouterTest do
   alias ServiceRadar.ResultsRouter
 
   defmodule TestIngestor do
-    def ingest_updates(updates, tenant_id, opts) do
-      send(self(), {:ingest, updates, tenant_id, opts})
+    def ingest_updates(updates, opts) do
+      send(self(), {:ingest, updates, opts})
       :ok
     end
   end
 
   defmodule TestSweepIngestor do
-    def ingest_results(results, execution_id, tenant_id, opts) do
-      send(self(), {:sweep_ingest, results, execution_id, tenant_id, opts})
+    def ingest_results(results, execution_id, opts) do
+      send(self(), {:sweep_ingest, results, execution_id, opts})
       {:ok, %{hosts_total: length(results)}}
     end
   end
 
   defmodule TestSysmonIngestor do
-    def ingest(payload, status, tenant_id) do
-      send(self(), {:sysmon_ingest, payload, status, tenant_id})
+    def ingest(payload, status) do
+      send(self(), {:sysmon_ingest, payload, status})
       :ok
     end
   end
@@ -67,43 +70,29 @@ defmodule ServiceRadar.ResultsRouterTest do
     :ok
   end
 
-  test "ingests sync updates when tenant_id is present" do
+  test "ingests sync updates" do
     status = %{
       source: "results",
       service_type: "sync",
-      message: Jason.encode!([%{"device_id" => "dev-1", "ip" => "10.0.0.1"}]),
-      tenant_id: "tenant-1"
+      message: Jason.encode!([%{"device_id" => "dev-1", "ip" => "10.0.0.1"}])
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
-    assert_receive {:ingest, updates, "tenant-1", opts}
+    assert_receive {:ingest, updates, opts}
     assert [%{"device_id" => "dev-1", "ip" => "10.0.0.1"}] = updates
     assert Keyword.keyword?(opts)
-    assert %{tenant_id: "tenant-1"} = opts[:actor]
   end
 
-  test "does not ingest when tenant_id is missing" do
+  test "does not ingest when payload is invalid (not a list)" do
     status = %{
       source: "results",
       service_type: "sync",
-      message: Jason.encode!([%{"device_id" => "dev-1"}])
+      message: Jason.encode!(%{"device_id" => "dev-1"})
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
-    refute_receive {:ingest, _updates, _tenant, _opts}
-  end
-
-  test "does not ingest when payload is invalid" do
-    status = %{
-      source: "results",
-      service_type: "sync",
-      message: Jason.encode!(%{"device_id" => "dev-1"}),
-      tenant_id: "tenant-1"
-    }
-
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
-    refute_receive {:ingest, _updates, _tenant, _opts}
+    refute_receive {:ingest, _updates, _opts}
   end
 
   test "ingests sweep results from summary payload" do
@@ -133,20 +122,18 @@ defmodule ServiceRadar.ResultsRouterTest do
       source: "results",
       service_type: "sweep",
       message: Jason.encode!(payload),
-      tenant_id: "tenant-1",
       agent_id: "agent-1"
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
-    assert_receive {:sweep_ingest, results, ^execution_id, "tenant-1", opts}
+    assert_receive {:sweep_ingest, results, ^execution_id, opts}
     assert length(results) == 2
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.10"))
     assert Enum.any?(results, &(&1["host_ip"] == "192.168.1.11"))
     assert Enum.all?(results, &(&1["last_sweep_time"] == DateTime.to_iso8601(DateTime.from_unix!(last_sweep))))
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
-    assert %{tenant_id: "tenant-1"} = opts[:actor]
   end
 
   test "routes sysmon metrics payloads" do
@@ -168,14 +155,13 @@ defmodule ServiceRadar.ResultsRouterTest do
       source: "sysmon-metrics",
       service_type: "sysmon",
       message: Jason.encode!(payload),
-      tenant_id: "tenant-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1"
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
-    assert_receive {:sysmon_ingest, decoded, ^status, "tenant-1"}
+    assert_receive {:sysmon_ingest, decoded, ^status}
     assert %{"status" => _} = decoded
   end
 end

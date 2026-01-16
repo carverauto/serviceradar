@@ -28,12 +28,11 @@ defmodule ServiceRadar.ResultsRouter do
   def handle_cast({:results_update, status}, state) do
     service_type = status[:service_type] || "unknown"
     source = status[:source] || "unknown"
-    tenant_id = status[:tenant_id] || "unknown"
     service_name = status[:service_name] || "unknown"
 
     Logger.info(
       "ResultsRouter received: service_type=#{service_type} source=#{source} " <>
-        "tenant=#{tenant_id} service=#{service_name}"
+        "service=#{service_name}"
     )
 
     case process(status) do
@@ -60,67 +59,51 @@ defmodule ServiceRadar.ResultsRouter do
   defp process(_status), do: :ok
 
   defp handle_sync_results(status) do
-    tenant_id = status[:tenant_id]
-
-    if is_binary(tenant_id) and tenant_id != "" do
-      schedule_sync_ingestion(status, tenant_id)
-    else
-      {:error, :missing_tenant_id}
-    end
+    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    schedule_sync_ingestion(status)
   end
 
-  defp schedule_sync_ingestion(status, tenant_id) do
+  defp schedule_sync_ingestion(status) do
     message = status[:message]
     async_enabled = Application.get_env(:serviceradar_core, :sync_ingestor_async, true)
 
     if async_enabled do
-      SyncIngestorQueue.enqueue(message, tenant_id)
+      SyncIngestorQueue.enqueue(message)
     else
-      SyncIngestorQueue.ingest_sync_results(message, tenant_id)
+      SyncIngestorQueue.ingest_sync_results(message)
     end
   end
 
   defp handle_sweep_results(status) do
-    tenant_id = status[:tenant_id]
+    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    with {:ok, payload} <- decode_payload(status[:message]),
+         {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
+      actor = SystemActor.system(:sweep_ingestor)
 
-    if is_binary(tenant_id) and tenant_id != "" do
-      with {:ok, payload} <- decode_payload(status[:message]),
-           {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
-        # Simple actor - DB connection's search_path determines the schema
-        actor = SystemActor.system(:sweep_ingestor)
+      opts =
+        [
+          sweep_group_id: sweep_group_id,
+          agent_id: status[:agent_id],
+          actor: actor
+        ]
+        |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
 
-        opts =
-          [
-            sweep_group_id: sweep_group_id,
-            agent_id: status[:agent_id],
-            actor: actor
-          ]
-          |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
-
-        case sweep_ingestor().ingest_results(results, execution_id, tenant_id, opts) do
-          :ok -> :ok
-          {:ok, _stats} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
-      else
+      case sweep_ingestor().ingest_results(results, execution_id, opts) do
+        :ok -> :ok
+        {:ok, _stats} -> :ok
         {:error, reason} -> {:error, reason}
       end
     else
-      {:error, :missing_tenant_id}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp handle_sysmon_metrics(status) do
-    tenant_id = status[:tenant_id]
-
-    if is_binary(tenant_id) and tenant_id != "" do
-      with {:ok, payload} <- decode_payload(status[:message]) do
-        sysmon_ingestor().ingest(payload, status, tenant_id)
-      else
-        {:error, reason} -> {:error, reason}
-      end
+    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      sysmon_ingestor().ingest(payload, status)
     else
-      {:error, :missing_tenant_id}
+      {:error, reason} -> {:error, reason}
     end
   end
 

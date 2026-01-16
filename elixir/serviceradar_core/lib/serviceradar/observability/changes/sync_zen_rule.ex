@@ -2,7 +2,8 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
   @moduledoc """
   Syncs Zen rules to the datasvc KV store after create/update/destroy.
 
-  Also ensures the tenant-scoped ZenRuleSync GenServer is running for the tenant.
+  In tenant-unaware mode, the ZenRuleSync GenServer is started as a singleton
+  by the application supervisor.
   """
 
   use Ash.Resource.Change
@@ -20,21 +21,21 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
       tenant_schema = changeset.tenant
 
       Ash.Changeset.after_action(changeset, fn changeset, rule ->
-        # Ensure ZenRuleSync is running for this tenant
-        ensure_zen_sync_running(rule.tenant_id)
+        # Verify ZenRuleSync is running
+        ensure_zen_sync_running()
         sync_rule_action(action_type, changeset, rule, tenant_schema)
       end)
     end
   end
 
-  defp ensure_zen_sync_running(tenant_id) do
-    case ZenRuleSync.ensure_started(tenant_id) do
-      {:ok, _pid} -> :ok
-      {:error, reason} ->
-        Logger.warning("Failed to start ZenRuleSync for tenant",
-          tenant_id: tenant_id,
-          reason: inspect(reason)
-        )
+  defp ensure_zen_sync_running do
+    # In tenant-unaware mode, ZenRuleSync is a singleton started by the supervisor
+    case ZenRuleSync.whereis() do
+      nil ->
+        Logger.warning("ZenRuleSync is not running - rule sync may be degraded")
+
+      _pid ->
+        :ok
     end
   end
 

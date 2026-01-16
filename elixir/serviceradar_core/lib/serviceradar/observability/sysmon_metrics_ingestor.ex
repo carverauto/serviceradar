@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   @moduledoc """
-  Parses sysmon metric payloads and ingests them into tenant-scoped hypertables.
+  Parses sysmon metric payloads and ingests them into hypertables.
+
+  In tenant-unaware mode, operates as a single instance since the DB schema
+  is set by CNPG search_path credentials.
   """
 
   require Logger
@@ -16,9 +19,9 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     ProcessMetric
   }
 
-  @spec ingest(map(), map(), String.t()) :: :ok | {:error, term()}
-  def ingest(payload, status, _tenant_id) when is_map(payload) and is_map(status) do
-    # Simple actor - DB connection's search_path determines the schema
+  @spec ingest(map(), map()) :: :ok | {:error, term()}
+  def ingest(payload, status) when is_map(payload) and is_map(status) do
+    # DB connection's search_path determines the schema
     actor = SystemActor.system(:sysmon_metrics_ingestor)
 
     with {:ok, sample} <- extract_sample(payload),
@@ -28,7 +31,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
     end
   end
 
-  def ingest(_payload, _status, _tenant_id), do: {:error, :invalid_payload}
+  def ingest(_payload, _status), do: {:error, :invalid_payload}
 
   @doc false
   def build_metrics(sample, context) when is_map(sample) and is_map(context) do

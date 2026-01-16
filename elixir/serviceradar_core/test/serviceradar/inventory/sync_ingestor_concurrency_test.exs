@@ -1,13 +1,16 @@
 defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   @moduledoc """
   Integration coverage for concurrent sync ingestor upserts.
+
+  In tenant-unaware mode, the DB schema is set by CNPG search_path credentials.
+  Tests use TestSupport for schema isolation.
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler, SyncIngestor}
   alias ServiceRadar.TestSupport
 
@@ -17,26 +20,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
+    %{tenant_slug: tenant_slug} =
       TestSupport.create_tenant_schema!("sync-ingestor")
 
     on_exit(fn ->
       TestSupport.drop_tenant_schema!(tenant_slug)
     end)
 
-    actor = %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:sync_ingestor_test)
 
-    {:ok, tenant_id: tenant_id, tenant_slug: tenant_slug, actor: actor}
+    {:ok, tenant_slug: tenant_slug, actor: actor}
   end
 
   test "concurrent batches upsert without duplicate key errors", %{
-    tenant_id: tenant_id,
-    tenant_slug: tenant_slug,
+    tenant_slug: _tenant_slug,
     actor: actor
   } do
     armis_id = "armis-#{System.unique_integer([:positive])}"
@@ -65,15 +63,16 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
     tasks =
       Enum.map(1..2, fn _ ->
         Task.async(fn ->
-          SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
+          SyncIngestor.ingest_updates([update], actor: actor)
         end)
       end)
 
     results = Task.await_many(tasks, 5_000)
     assert Enum.all?(results, &(&1 == :ok))
 
+    # DB connection's search_path determines the schema
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, tenant: tenant_id, actor: actor, authorize?: false)
+             Device.get_by_uid(expected_id, actor: actor, authorize?: false)
 
     assert device.uid == expected_id
 
@@ -89,7 +88,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
              Ash.read(identifier_query, actor: actor, authorize?: false)
 
     assert identifier.device_id == expected_id
-    assert TenantSchemas.schema_for_tenant(tenant_slug) != nil
   end
 
   defp mac_suffix do
