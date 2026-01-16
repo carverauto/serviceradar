@@ -65,7 +65,7 @@ var (
 	errInvalidPackageFormat     = errors.New("format must be tar or json")
 	errMetadataJSONInvalid      = errors.New("metadata-json must be valid JSON")
 	errNATSTokenRequired        = errors.New("NATS bootstrap token is required")
-	errAdminNatsCommandRequired = errors.New("admin nats command requires an action (generate-bootstrap-token, status, tenants)")
+	errAdminNatsCommandRequired = errors.New("admin nats command requires an action (generate-bootstrap-token, status, accounts)")
 	errAdminNatsUnknownAction   = errors.New("unknown admin nats action")
 	errUnknownAdminResource  = errors.New("unknown admin resource")
 	errAdminResourceRequired = errors.New("admin command requires a resource (e.g., nats)")

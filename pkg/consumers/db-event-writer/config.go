@@ -27,8 +27,8 @@ type StreamConfig struct {
 }
 
 // DBEventWriterConfig holds configuration for the DB event writer consumer.
-// In tenant-instance architecture, each tenant has their own deployment.
-// CNPG credentials set the search_path for tenant schema isolation.
+// In single-instance-per-deployment architecture, each deployment is isolated.
+// CNPG credentials set the search_path for schema isolation.
 type DBEventWriterConfig struct {
 	ListenAddr    string                 `json:"listen_addr"`
 	NATSURL       string                 `json:"nats_url" hot:"rebuild"`

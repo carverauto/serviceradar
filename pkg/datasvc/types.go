@@ -61,7 +61,7 @@ type Config struct {
 	BucketHistory    uint32            `json:"bucket_history,omitempty"`    // History depth per key
 	CoreRegistration *CoreRegistration `json:"core_registration,omitempty"` // Core service registration settings
 
-	// NATSOperator configures the NATS account management service for multi-tenant isolation.
+	// NATSOperator configures the NATS account management service for namespace isolation.
 	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
 	NATSOperator *accounts.OperatorConfig `json:"nats_operator,omitempty"`
 }

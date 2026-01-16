@@ -234,6 +234,6 @@ type CollectorDownloadResult struct {
 	Package         *CollectorPackage `json:"package"`
 	NatsCredsFile   string            `json:"nats_creds_file"`   // .creds file content
 	CollectorConfig string            `json:"collector_config"`  // Collector-specific config
-	MTLSBundle      []byte            `json:"mtls_bundle"`       // mTLS certificates from tenant CA
+	MTLSBundle      []byte            `json:"mtls_bundle"`       // mTLS certificates from deployment CA
 	InstallScript   string            `json:"install_script"`    // Installation instructions
 }

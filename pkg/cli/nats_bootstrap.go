@@ -832,8 +832,8 @@ func (AdminNatsHandler) Parse(args []string, cfg *CmdConfig) error {
 		return (AdminNatsBootstrapTokenHandler{}).Parse(subArgs, cfg)
 	case "status":
 		return parseAdminNatsStatusFlags(subArgs, cfg)
-	case "tenants":
-		return parseAdminNatsTenantFlags(subArgs, cfg)
+	case "accounts":
+		return parseAdminNatsAccountFlags(subArgs, cfg)
 	default:
 		return fmt.Errorf("%w: %s", errAdminNatsUnknownAction, action)
 	}
@@ -860,17 +860,17 @@ func parseAdminNatsStatusFlags(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
-func parseAdminNatsTenantFlags(args []string, cfg *CmdConfig) error {
-	fs := flag.NewFlagSet("admin nats tenants", flag.ExitOnError)
+func parseAdminNatsAccountFlags(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("admin nats accounts", flag.ExitOnError)
 	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
 	apiKey := fs.String("api-key", "", "API key for authenticating with core")
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
 	skipTLS := fs.Bool("tls-skip-verify", false, "Skip TLS certificate verification")
 	output := fs.String("output", "text", "Output format: text or json")
-	limit := fs.Int("limit", 50, "Maximum number of tenants to return")
+	limit := fs.Int("limit", 50, "Maximum number of accounts to return")
 
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("parsing admin nats tenants flags: %w", err)
+		return fmt.Errorf("parsing admin nats accounts flags: %w", err)
 	}
 
 	cfg.CoreAPIURL = *coreURL
@@ -878,7 +878,7 @@ func parseAdminNatsTenantFlags(args []string, cfg *CmdConfig) error {
 	cfg.BearerToken = *bearer
 	cfg.TLSSkipVerify = *skipTLS
 	cfg.NATSOutputFormat = strings.ToLower(strings.TrimSpace(*output))
-	cfg.NATSTenantLimit = *limit
+	cfg.NATSAccountLimit = *limit
 
 	return nil
 }
@@ -890,31 +890,31 @@ func RunAdminNatsCommand(cfg *CmdConfig) error {
 		return RunAdminNatsGenerateBootstrapToken(cfg)
 	case "status":
 		return RunAdminNatsStatus(cfg)
-	case "tenants":
-		return RunAdminNatsTenants(cfg)
+	case "accounts":
+		return RunAdminNatsAccounts(cfg)
 	default:
 		return fmt.Errorf("%w: %s", errAdminNatsUnknownAction, cfg.AdminNatsAction)
 	}
 }
 
-// RunAdminNatsTenants lists all tenant NATS accounts.
-func RunAdminNatsTenants(cfg *CmdConfig) error {
+// RunAdminNatsAccounts lists all NATS accounts.
+func RunAdminNatsAccounts(cfg *CmdConfig) error {
 	coreURL := normaliseCoreURL(cfg.CoreAPIURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	endpoint := fmt.Sprintf("%s/api/admin/nats/tenants?limit=%d", coreURL, cfg.NATSTenantLimit)
+	endpoint := fmt.Sprintf("%s/api/admin/nats/accounts?limit=%d", coreURL, cfg.NATSAccountLimit)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("create tenants request: %w", err)
+		return fmt.Errorf("create accounts request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	applyAuthHeaders(req, cfg)
 
 	resp, err := newHTTPClient(cfg.TLSSkipVerify).Do(req)
 	if err != nil {
-		return fmt.Errorf("request NATS tenants: %w", err)
+		return fmt.Errorf("request NATS accounts: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -936,24 +936,24 @@ func RunAdminNatsTenants(cfg *CmdConfig) error {
 		fmt.Println(string(body))
 	} else {
 		// Parse and display in table format
-		var tenants []map[string]interface{}
-		if err := json.Unmarshal(body, &tenants); err != nil {
-			return fmt.Errorf("decode tenants response: %w", err)
+		var accounts []map[string]interface{}
+		if err := json.Unmarshal(body, &accounts); err != nil {
+			return fmt.Errorf("decode accounts response: %w", err)
 		}
 
-		if len(tenants) == 0 {
-			fmt.Println("No tenant NATS accounts found.")
+		if len(accounts) == 0 {
+			fmt.Println("No NATS accounts found.")
 			return nil
 		}
 
-		fmt.Printf("%-36s  %-20s  %-15s  %s\n", "TENANT ID", "SLUG", "STATUS", "ACCOUNT KEY")
+		fmt.Printf("%-36s  %-20s  %-15s  %s\n", "ACCOUNT ID", "NAME", "STATUS", "ACCOUNT KEY")
 		fmt.Println(strings.Repeat("-", 100))
-		for _, t := range tenants {
-			tenantID, _ := t["id"].(string)
-			slug, _ := t["slug"].(string)
-			status, _ := t["nats_account_status"].(string)
-			accountKey, _ := t["nats_account_public_key"].(string)
-			fmt.Printf("%-36s  %-20s  %-15s  %s\n", tenantID, slug, status, accountKey)
+		for _, a := range accounts {
+			accountID, _ := a["id"].(string)
+			name, _ := a["name"].(string)
+			status, _ := a["nats_account_status"].(string)
+			accountKey, _ := a["nats_account_public_key"].(string)
+			fmt.Printf("%-36s  %-20s  %-15s  %s\n", accountID, name, status, accountKey)
 		}
 	}
 
