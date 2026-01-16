@@ -2,8 +2,7 @@ defmodule ServiceRadar.ResultsRouterTest do
   @moduledoc """
   Tests for results ingestion routing in ResultsRouter.
 
-  In tenant-unaware mode, there is no tenant_id parameter - the DB schema
-  is set by CNPG search_path credentials.
+  DB connection's search_path determines the schema.
   """
 
   use ExUnit.Case, async: false

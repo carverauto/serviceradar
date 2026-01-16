@@ -22,14 +22,13 @@ defmodule ServiceRadar.TestSupport do
 
   def create_tenant_schema!(slug_prefix) when is_binary(slug_prefix) do
     unique_id = :erlang.unique_integer([:positive])
-    tenant_id = Ash.UUID.generate()
     tenant_slug = "#{slug_prefix}-#{unique_id}"
 
     # In tenant-unaware architecture, just create the schema
     # No per-tenant registry registration is needed
     {:ok, _schema} = TenantSchemas.create_schema(tenant_slug)
 
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug}
+    %{tenant_slug: tenant_slug}
   end
 
   def drop_tenant_schema!(tenant_slug) when is_binary(tenant_slug) do

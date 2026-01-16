@@ -75,7 +75,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
-  describe "compile/4" do
+  describe "compile/3" do
     @tag :integration
     setup do
       tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-compiler")
@@ -84,12 +84,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
-    test "returns disabled config when no profile exists", %{tenant_id: tenant_id} do
-      {:ok, config} = SNMPCompiler.compile(tenant_id, "default", nil, [])
+    test "returns disabled config when no profile exists" do
+      {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == false
       assert config["targets"] == []
@@ -97,12 +97,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile config when default profile exists", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       # Create a default profile
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
@@ -121,7 +120,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SNMPCompiler.compile(tenant_id, "default", nil, [])
+      {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == true
       assert config["profile_id"] == profile.id
@@ -131,11 +130,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile with targets and OIDs", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a profile
       {:ok, profile} =
@@ -191,7 +189,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SNMPCompiler.compile(tenant_id, "default", nil, [])
+      {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == true
       assert config["profile_name"] == "Network Monitoring"
@@ -217,11 +215,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns SNMPv3 target with decrypted credentials", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a profile
       {:ok, profile} =
@@ -264,7 +261,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SNMPCompiler.compile(tenant_id, "default", nil, [])
+      {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == true
       assert length(config["targets"]) == 1
@@ -284,7 +281,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
-  describe "resolve_profile/4" do
+  describe "resolve_profile/2" do
     @tag :integration
     setup do
       tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-resolve")
@@ -293,25 +290,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
-    test "returns nil when no profiles exist", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
+    test "returns nil when no profiles exist", %{tenant_slug: tenant_slug} do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
-      result = SNMPCompiler.resolve_profile(schema, nil, nil, actor)
+      result = SNMPCompiler.resolve_profile(nil, actor)
       assert result == nil
     end
 
     @tag :integration
     test "returns default profile when no targeting matches", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
@@ -327,7 +323,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SNMPCompiler.resolve_profile(schema, "some-device-uid", nil, actor)
+      result = SNMPCompiler.resolve_profile("some-device-uid", actor)
       assert result.id == profile.id
       assert result.is_default == true
     end

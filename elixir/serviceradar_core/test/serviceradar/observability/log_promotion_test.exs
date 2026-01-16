@@ -23,11 +23,11 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     end)
 
     schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    {:ok, tenant: tenant, schema: schema}
+    {:ok, schema: schema}
   end
 
-  test "promotes log to event and creates alert", %{tenant: tenant, schema: schema} do
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
+  test "promotes log to event and creates alert", %{schema: schema} do
+    actor = %{id: "system", role: :admin}
 
     {:ok, _rule} =
       LogPromotionRule
@@ -52,11 +52,10 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       service_name: "syslog",
       attributes: %{"serviceradar.ingest" => %{"subject" => "logs.syslog.processed"}},
       resource_attributes: %{},
-      tenant_id: tenant.tenant_id,
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, 1} = LogPromotion.promote([log], tenant.tenant_id, schema)
+    assert {:ok, 1} = LogPromotion.promote([log], schema)
 
     assert %Result{rows: [[1]]} =
              SQL.query!(

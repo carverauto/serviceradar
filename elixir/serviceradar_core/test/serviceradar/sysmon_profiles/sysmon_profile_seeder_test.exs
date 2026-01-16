@@ -34,12 +34,12 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
-    test "creates default profile when none exists", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
-      tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
+    test "creates default profile when none exists", %{tenant_slug: tenant_slug} do
+      tenant = %{slug: tenant_slug}
 
       result = SysmonProfileSeeder.seed_for_tenant(tenant)
 
@@ -47,7 +47,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
       # Verify the profile was created
       schema = TenantSchemas.schema_for_tenant(tenant)
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       query =
         SysmonProfile
@@ -68,8 +68,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
     end
 
     @tag :integration
-    test "does not create duplicate profile when called twice", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
-      tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
+    test "does not create duplicate profile when called twice", %{tenant_slug: tenant_slug} do
+      tenant = %{slug: tenant_slug}
 
       # Seed once
       SysmonProfileSeeder.seed_for_tenant(tenant)
@@ -80,7 +80,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
       # Verify only one default profile exists
       schema = TenantSchemas.schema_for_tenant(tenant)
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       query =
         SysmonProfile
@@ -93,13 +93,13 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
     end
 
     @tag :integration
-    test "default profile has correct thresholds", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
-      tenant = %ServiceRadar.Identity.Tenant{id: tenant_id, slug: tenant_slug}
+    test "default profile has correct thresholds", %{tenant_slug: tenant_slug} do
+      tenant = %{slug: tenant_slug}
 
       SysmonProfileSeeder.seed_for_tenant(tenant)
 
       schema = TenantSchemas.schema_for_tenant(tenant)
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       query =
         SysmonProfile

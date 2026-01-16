@@ -26,7 +26,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
+    %{tenant_slug: tenant_slug} =
       TestSupport.create_tenant_schema!("snmp-config")
 
     on_exit(fn ->
@@ -36,19 +36,18 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
     actor = %{
       id: Ash.UUID.generate(),
       email: "snmp-config@serviceradar.local",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
 
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
-    {:ok, tenant_id: tenant_id, actor: actor, agent_id: agent_id}
+    {:ok, tenant_slug: tenant_slug, actor: actor, agent_id: agent_id}
   end
 
   describe "SNMP config compilation" do
     @tag :integration
     test "includes SNMP config in agent payload with default profile", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -69,8 +68,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             modified_time: DateTime.utc_now()
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -88,8 +86,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             retries: 2
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -107,8 +104,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_profile_id: profile.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -124,13 +120,12 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_target_id: target.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
       # Get SNMP config via ConfigServer
-      {:ok, entry} = ConfigServer.get_config(tenant_id, :snmp, "default", agent_id)
+      {:ok, entry} = ConfigServer.get_config(:snmp, "default", agent_id)
 
       assert is_map(entry.config)
       assert entry.config["enabled"] == true
@@ -153,7 +148,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "SRQL targeting matches device to profile", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -174,8 +169,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             modified_time: DateTime.utc_now()
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -194,8 +188,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             retries: 1
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -213,8 +206,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_profile_id: profile.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -231,14 +223,13 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_target_id: target.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
       # Get config - the targeting profile should be resolved for this device
       {:ok, entry} =
-        ConfigServer.get_config(tenant_id, :snmp, "default", agent_id, device_uid: device.uid)
+        ConfigServer.get_config(:snmp, "default", agent_id, device_uid: device.uid)
 
       assert is_map(entry.config)
       assert entry.config["enabled"] == true
@@ -249,7 +240,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "agent config generator includes SNMP in full config", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -267,8 +258,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             poll_interval_seconds: 120
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -286,8 +276,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_profile_id: profile.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -303,13 +292,12 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_target_id: target.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
       # Generate full agent config
-      {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id, tenant_id)
+      {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
       payload = Jason.decode!(agent_config.config_json)
 
       # Verify SNMP config is included
@@ -322,7 +310,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "disabled profile does not include SNMP config", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -338,13 +326,12 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             poll_interval_seconds: 60
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
       # Get config
-      {:ok, entry} = ConfigServer.get_config(tenant_id, :snmp, "default", agent_id)
+      {:ok, entry} = ConfigServer.get_config(:snmp, "default", agent_id)
 
       # Should be disabled or have no targets
       assert entry.config["enabled"] == false || entry.config["targets"] == []
@@ -352,7 +339,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "SNMPv3 config is properly compiled", %{
-      tenant_id: tenant_id,
+      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -370,8 +357,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             poll_interval_seconds: 60
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -394,8 +380,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_profile_id: profile.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
@@ -411,13 +396,12 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             snmp_target_id: target.id
           },
           actor: actor,
-          tenant: tenant_id,
-          authorize?: false
+          tenant: tenant_slug
         )
         |> Ash.create()
 
       # Get config
-      {:ok, entry} = ConfigServer.get_config(tenant_id, :snmp, "default", agent_id)
+      {:ok, entry} = ConfigServer.get_config(:snmp, "default", agent_id)
 
       assert entry.config["enabled"] == true
 

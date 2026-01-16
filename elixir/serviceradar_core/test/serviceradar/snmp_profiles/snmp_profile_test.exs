@@ -104,16 +104,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
     test "creates a profile with required fields", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
@@ -136,11 +135,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
     @tag :integration
     test "creates a profile with all fields", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
@@ -173,11 +171,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
     @tag :integration
     test "enforces unique name per tenant", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, _profile1} =
         SNMPProfile
@@ -202,11 +199,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
 
     @tag :integration
     test "set_as_default clears other defaults", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create first profile as default
       {:ok, profile1} =

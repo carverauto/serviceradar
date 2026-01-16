@@ -20,7 +20,8 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
     end)
 
     schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
+    # DB connection's search_path determines the schema
+    actor = %{id: "system", role: :admin}
 
     {:ok, tenant: tenant, schema: schema, actor: actor}
   end

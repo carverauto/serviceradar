@@ -30,7 +30,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant.tenant_id}
+    {:ok, tenant_slug: tenant.tenant_slug}
   end
 
   describe "ERTS cluster isolation (9.1, 9.2)" do
@@ -155,14 +155,13 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   end
 
   describe "infrastructure agent resource validation" do
-    test "Agent resource requires host and port for gRPC", %{tenant_id: tenant_id} do
+    test "Agent resource requires host and port for gRPC", %{tenant_slug: tenant_slug} do
       alias ServiceRadar.Infrastructure.Agent
 
       actor = %{
         id: Ash.UUID.generate(),
         email: "test@serviceradar.local",
-        role: :super_admin,
-        tenant_id: tenant_id
+        role: :super_admin
       }
 
       unique_id = :erlang.unique_integer([:positive])
@@ -175,7 +174,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
           name: "Security Test Agent",
           host: "192.168.1.50",
           port: 50_051
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor, tenant: tenant_slug, authorize?: false)
         |> Ash.create()
 
       # Verify agent has gRPC connection details

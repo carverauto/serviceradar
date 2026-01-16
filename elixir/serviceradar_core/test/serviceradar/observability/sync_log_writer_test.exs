@@ -22,19 +22,17 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
     end)
 
     schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
+    actor = %{id: "system", role: :admin}
 
-    {:ok, tenant: tenant, schema: schema, actor: actor}
+    {:ok, schema: schema, actor: actor}
   end
 
   test "writes sync lifecycle logs without creating OCSF events", %{
-    tenant: tenant,
     schema: schema,
     actor: actor
   } do
     source = %IntegrationSource{
       id: Ash.UUID.generate(),
-      tenant_id: tenant.tenant_id,
       name: "Armis",
       source_type: :armis,
       agent_id: "agent-1",

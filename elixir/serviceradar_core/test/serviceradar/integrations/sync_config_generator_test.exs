@@ -39,7 +39,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     sources = config["sources"]
 
     assert config["agent_id"] == agent_a.uid
-    assert config["tenant_id"] == to_string(tenant_a.id)
     assert Map.has_key?(sources, source_a.name)
   end
 
@@ -60,7 +59,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   defp create_agent!(tenant, uid) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid},
-      actor: system_actor(tenant.id),
+      actor: system_actor(),
       tenant: tenant.id,
       authorize?: false
     )
@@ -73,7 +72,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
   defp create_source!(tenant, agent_id, name) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
-    actor = system_actor(tenant.id)
+    actor = system_actor()
 
     IntegrationSource
     |> Ash.Changeset.for_create(
@@ -96,12 +95,12 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     end
   end
 
-  defp system_actor(tenant_id) do
+  defp system_actor do
+    # DB connection's search_path determines the schema
     %{
       id: "system",
       email: "system@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
   end
 end

@@ -22,12 +22,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end)
 
     schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
+    actor = %{id: "system", role: :admin}
 
-    {:ok, tenant: tenant, schema: schema, actor: actor}
+    {:ok, schema: schema, actor: actor}
   end
 
-  test "fires and resolves alerts based on bucketed counts", %{tenant: tenant, schema: schema, actor: actor} do
+  test "fires and resolves alerts based on bucketed counts", %{schema: schema, actor: actor} do
     {:ok, rule} =
       StatefulAlertRule
       |> Ash.Changeset.for_create(:create, %{
@@ -63,14 +63,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
               }
             }
           }
-        },
-        tenant_id: tenant.tenant_id
+        }
       }
     end
 
     events = [event.(base_time), event.(base_time)]
 
-    assert :ok = StatefulAlertEngine.evaluate_events(events, tenant.tenant_id, schema)
+    assert :ok = StatefulAlertEngine.evaluate_events(events, schema)
 
     events =
       OcsfEvent
@@ -89,7 +88,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], tenant.tenant_id, schema)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], schema)
 
     {:ok, resolved} = Alert.get_by_id(alert.id, tenant: schema, actor: actor)
     assert resolved.status == :resolved

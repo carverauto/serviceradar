@@ -7,12 +7,12 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
 
   @moduletag :integration
 
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
   alias ServiceRadar.ResultsRouter
+  alias ServiceRadar.TestSupport
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
@@ -20,21 +20,23 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
 
+    %{tenant_slug: tenant_slug} = TestSupport.create_tenant_schema!("results-router")
+
     on_exit(fn ->
       if is_nil(previous_async) do
         Application.delete_env(:serviceradar_core, :sync_ingestor_async)
       else
         Application.put_env(:serviceradar_core, :sync_ingestor_async, previous_async)
       end
+
+      TestSupport.drop_tenant_schema!(tenant_slug)
     end)
 
-    :ok
+    {:ok, tenant_slug: tenant_slug}
   end
 
-  test "sync status update creates device and identifiers" do
-    tenant = create_tenant!("sync-flow")
-    tenant_id = to_string(tenant.id)
-    actor = system_actor(tenant_id)
+  test "sync status update creates device and identifiers", %{tenant_slug: tenant_slug} do
+    actor = system_actor()
 
     armis_id = "armis-#{System.unique_integer([:positive])}"
     ip_octet = rem(System.unique_integer([:positive]), 200) + 10
@@ -57,19 +59,18 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       metadata: %{"armis_device_id" => armis_id}
     }
 
-    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor)
+    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor, tenant: tenant_slug)
 
     status = %{
       source: "results",
       service_type: "sync",
-      message: Jason.encode!([update]),
-      tenant_id: tenant_id
+      message: Jason.encode!([update])
     }
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, tenant: tenant_id, actor: actor, authorize?: false)
+             Device.get_by_uid(expected_id, tenant: tenant_slug, actor: actor, authorize?: false)
 
     assert device.ip == ip
     assert device.hostname == "edge-#{ip_octet}"
@@ -84,31 +85,16 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       })
 
     assert {:ok, [identifier | _]} =
-             Ash.read(identifier_query, actor: actor, authorize?: false)
+             Ash.read(identifier_query, actor: actor, tenant: tenant_slug, authorize?: false)
 
     assert identifier.device_id == expected_id
   end
 
-  defp create_tenant!(slug_prefix) do
-    suffix = System.unique_integer([:positive])
-    slug = "#{slug_prefix}-#{suffix}"
-    name = "#{slug_prefix}-name-#{suffix}"
-
-    Tenant
-    |> Ash.Changeset.for_create(:create, %{name: name, slug: slug}, authorize?: false)
-    |> Ash.create(authorize?: false)
-    |> case do
-      {:ok, tenant} -> tenant
-      {:error, reason} -> raise "failed to create tenant: #{inspect(reason)}"
-    end
-  end
-
-  defp system_actor(tenant_id) do
+  defp system_actor do
     %{
       id: "system",
       email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
   end
 

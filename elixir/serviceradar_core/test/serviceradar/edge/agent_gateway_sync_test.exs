@@ -287,7 +287,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       case result do
         {:ok, info} ->
-          assert Map.has_key?(info, :tenant_id)
           assert Map.has_key?(info, :tenant_slug)
 
         {:error, :not_ready} ->

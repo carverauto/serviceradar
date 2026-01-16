@@ -5,7 +5,6 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
   alias Opentelemetry.Proto.Common.V1.{AnyValue, InstrumentationScope, KeyValue}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias Opentelemetry.Proto.Resource.V1.Resource
-  alias ServiceRadar.Cluster.TenantGuard
   alias ServiceRadar.EventWriter.Processors.Logs
 
   describe "table_name/0" do
@@ -34,10 +33,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       message = %{data: json_data, metadata: %{subject: "logs.app"}}
 
-      result =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(message)
-        end)
+      result = Logs.parse_message(message)
 
       assert result.timestamp == ~U[2024-01-15 10:30:00Z]
       assert result.trace_id == "trace-123"
@@ -53,7 +49,6 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.attributes["serviceradar.ingest"]["subject"] == "logs.app"
       assert result.resource_attributes == %{"host.name" => "server1"}
       assert result.id
-      assert result.tenant_id == "11111111-1111-1111-1111-111111111111"
       assert %DateTime{} = result.created_at
     end
 
@@ -75,10 +70,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       message = %{data: json_data, metadata: %{}}
 
-      result =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(message)
-        end)
+      result = Logs.parse_message(message)
 
       assert result.trace_id == "trace-camel"
       assert result.span_id == "span-camel"
@@ -91,39 +83,19 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
     end
 
     test "extracts body from various fields" do
-      result1 =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(%{data: Jason.encode!(%{"body" => "from body"}), metadata: %{}})
-        end)
-
+      result1 = Logs.parse_message(%{data: Jason.encode!(%{"body" => "from body"}), metadata: %{}})
       assert result1.body == "from body"
 
-      result2 =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(%{data: Jason.encode!(%{"body" => %{"nested" => "data"}}), metadata: %{}})
-        end)
-
+      result2 = Logs.parse_message(%{data: Jason.encode!(%{"body" => %{"nested" => "data"}}), metadata: %{}})
       assert result2.body == ~s({"nested":"data"})
 
-      result3 =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(%{data: Jason.encode!(%{"message" => "from message"}), metadata: %{}})
-        end)
-
+      result3 = Logs.parse_message(%{data: Jason.encode!(%{"message" => "from message"}), metadata: %{}})
       assert result3.body == "from message"
 
-      result4 =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(%{data: Jason.encode!(%{"msg" => "from msg"}), metadata: %{}})
-        end)
-
+      result4 = Logs.parse_message(%{data: Jason.encode!(%{"msg" => "from msg"}), metadata: %{}})
       assert result4.body == "from msg"
 
-      result5 =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(%{data: Jason.encode!(%{"short_message" => "from short_message"}), metadata: %{}})
-        end)
-
+      result5 = Logs.parse_message(%{data: Jason.encode!(%{"short_message" => "from short_message"}), metadata: %{}})
       assert result5.body == "from short_message"
     end
 
@@ -138,10 +110,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       message = %{data: json_data, metadata: %{}}
 
-      result =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(message)
-        end)
+      result = Logs.parse_message(message)
 
       assert %DateTime{} = result.timestamp
     end
@@ -149,10 +118,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
     test "returns nil for invalid JSON" do
       message = %{data: "not valid json", metadata: %{}}
 
-      result =
-        with_tenant("11111111-1111-1111-1111-111111111111", fn ->
-          Logs.parse_message(message)
-        end)
+      result = Logs.parse_message(message)
 
       assert result == nil
     end
@@ -195,10 +161,7 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       request = %ExportLogsServiceRequest{resource_logs: [resource_logs]}
       payload = ExportLogsServiceRequest.encode(request)
 
-      result =
-        with_tenant("22222222-2222-2222-2222-222222222222", fn ->
-          Logs.parse_message(%{data: payload, metadata: %{}})
-        end)
+      result = Logs.parse_message(%{data: payload, metadata: %{}})
 
       assert is_list(result)
       assert length(result) == 1
@@ -214,21 +177,6 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.span_id == Base.encode16(span_id, case: :lower)
       assert row.attributes["custom"] == "value"
       assert row.id
-      assert row.tenant_id == "22222222-2222-2222-2222-222222222222"
     end
   end
-
-  defp with_tenant(tenant_id, fun) when is_function(fun, 0) do
-    previous = TenantGuard.get_process_tenant()
-    TenantGuard.set_process_tenant(tenant_id)
-
-    try do
-      fun.()
-    after
-      restore_tenant(previous)
-    end
-  end
-
-  defp restore_tenant(nil), do: Process.delete(:serviceradar_tenant)
-  defp restore_tenant(tenant_id), do: TenantGuard.set_process_tenant(tenant_id)
 end

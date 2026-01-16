@@ -56,16 +56,15 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
     test "returns nil when no targeting profiles exist", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a default profile (not a targeting profile)
       {:ok, _default_profile} =
@@ -86,11 +85,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "matches device with hostname query", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -134,11 +132,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "returns nil when device does not match query", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a device with different hostname
       device_uid = Ecto.UUID.generate()
@@ -181,11 +178,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "resolves by priority - higher priority wins", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -246,11 +242,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "skips disabled profiles", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -312,11 +307,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "skips profiles without target_query (non-targeting profiles)", %{
-      tenant_id: tenant_id,
       tenant_slug: tenant_slug
     } do
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()

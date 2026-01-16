@@ -18,22 +18,20 @@ defmodule ServiceRadar.Events.AuditWriterTest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("audit")
+    %{tenant_slug: tenant_slug} = TestSupport.create_tenant_schema!("audit")
 
     on_exit(fn ->
       TestSupport.drop_tenant_schema!(tenant_slug)
     end)
 
-    {:ok, tenant_id: tenant_id, tenant_slug: tenant_slug}
+    {:ok, tenant_slug: tenant_slug}
   end
 
-  test "writes audit events with UUID fields", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
+  test "writes audit events with UUID fields", %{tenant_slug: tenant_slug} do
     resource_id = Ecto.UUID.generate()
 
     assert :ok =
              AuditWriter.write(
-               tenant_id: tenant_id,
                action: :create,
                resource_type: "integration_source",
                resource_id: resource_id,

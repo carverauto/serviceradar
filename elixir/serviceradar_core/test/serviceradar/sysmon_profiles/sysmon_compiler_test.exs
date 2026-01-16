@@ -70,7 +70,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
   end
 
-  describe "compile/4" do
+  describe "compile/3" do
     @tag :integration
     setup do
       tenant = ServiceRadar.TestSupport.create_tenant_schema!("sysmon-compiler")
@@ -79,12 +79,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
       end)
 
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      {:ok, tenant_slug: tenant.tenant_slug}
     end
 
     @tag :integration
-    test "returns default config when no profile exists", %{tenant_id: tenant_id} do
-      {:ok, config} = SysmonCompiler.compile(tenant_id, "default", nil, [])
+    test "returns default config when no profile exists" do
+      {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])
 
       assert config["enabled"] == true
       assert config["sample_interval"] == "10s"
@@ -92,10 +92,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
 
     @tag :integration
-    test "returns profile config when default profile exists", %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
+    test "returns profile config when default profile exists", %{tenant_slug: tenant_slug} do
       # Create a default profile
       schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SysmonProfile
@@ -115,7 +115,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         }, actor: actor, tenant: schema)
         |> Ash.create(actor: actor)
 
-      {:ok, config} = SysmonCompiler.compile(tenant_id, "default", nil, [])
+      {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])
 
       assert config["enabled"] == true
       assert config["sample_interval"] == "30s"
