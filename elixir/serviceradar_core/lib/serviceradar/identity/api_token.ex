@@ -261,13 +261,6 @@ defmodule ServiceRadar.Identity.ApiToken do
       description "When token was created"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this token belongs to"
-    end
-
     # User who created the token
     attribute :user_id, :uuid do
       allow_nil? false

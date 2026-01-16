@@ -39,10 +39,10 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :sweep_group_id, :started_at],
+      index [:sweep_group_id, :started_at],
         name: "sweep_group_executions_group_started_idx"
 
-      index [:tenant_id, :status],
+      index [:status],
         name: "sweep_group_executions_status_idx"
     end
   end
@@ -173,12 +173,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this execution belongs to"
-    end
 
     attribute :status, :atom do
       allow_nil? false

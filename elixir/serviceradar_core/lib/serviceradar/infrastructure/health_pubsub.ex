@@ -7,7 +7,7 @@ defmodule ServiceRadar.Infrastructure.HealthPubSub do
 
   ## Topics
 
-  - `serviceradar:health_events:<tenant_id>` - Health event updates for a tenant
+  - `serviceradar:health_events` - Health event updates
 
   ## Events
 
@@ -15,24 +15,18 @@ defmodule ServiceRadar.Infrastructure.HealthPubSub do
   """
 
   @pubsub ServiceRadar.PubSub
+  @topic "serviceradar:health_events"
 
   @doc """
-  Build the per-tenant health events topic.
+  Returns the health events topic.
   """
-  def topic(tenant_id) when is_binary(tenant_id) and tenant_id != "" do
-    "serviceradar:health_events:#{tenant_id}"
-  end
-
-  def topic(_), do: nil
+  def topic, do: @topic
 
   @doc """
-  Broadcast a HealthEvent to the per-tenant topic.
+  Broadcast a HealthEvent to the health events topic.
   """
   def broadcast_health_event(event) do
-    case topic(Map.get(event, :tenant_id)) do
-      nil -> :ok
-      topic -> safe_broadcast(topic, {:health_event, event})
-    end
+    safe_broadcast(@topic, {:health_event, event})
   end
 
   defp safe_broadcast(topic, event) do

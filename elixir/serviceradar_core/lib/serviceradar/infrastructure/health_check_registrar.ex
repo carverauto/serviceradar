@@ -157,12 +157,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     {:noreply, state}
   end
 
-  def handle_info({:agent_disconnected, agent_id, _tenant_id}, state) do
-    Logger.info("Agent disconnected: #{agent_id}")
-    state = handle_agent_disconnected(agent_id, state)
-    {:noreply, state}
-  end
-
   def handle_info({:agent_disconnected, agent_id}, state) do
     Logger.info("Agent disconnected: #{agent_id}")
     state = handle_agent_disconnected(agent_id, state)
@@ -176,11 +170,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   end
 
   def handle_info({:gateway_disconnected, _gateway_id}, state) do
-    Logger.debug("Gateway disconnected event received")
-    {:noreply, state}
-  end
-
-  def handle_info({:gateway_disconnected, _gateway_id, _tenant_id}, state) do
     Logger.debug("Gateway disconnected event received")
     {:noreply, state}
   end

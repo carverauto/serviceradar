@@ -74,13 +74,6 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
-  # Legacy compatibility: extract gateway_id and ignore tenant_id
-  def register_gateway(tenant_id, gateway_id, gateway_info)
-      when is_binary(tenant_id) and is_binary(gateway_id) do
-    # Ignore tenant_id - tenant isolation is handled by infrastructure
-    register_gateway(gateway_id, gateway_info)
-  end
-
   @doc """
   Unregister a gateway from the registry.
   """
@@ -97,22 +90,12 @@ defmodule ServiceRadar.GatewayRegistry do
     :ok
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def unregister_gateway(_tenant_id, gateway_id) when is_binary(gateway_id) do
-    unregister_gateway(gateway_id)
-  end
-
   @doc """
   Update gateway heartbeat timestamp.
   """
   @spec heartbeat(String.t()) :: :ok | :error
   def heartbeat(gateway_id) when is_binary(gateway_id) do
     ProcessRegistry.gateway_heartbeat(gateway_id)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def heartbeat(_tenant_id, gateway_id) when is_binary(gateway_id) do
-    heartbeat(gateway_id)
   end
 
   @doc """
@@ -123,23 +106,12 @@ defmodule ServiceRadar.GatewayRegistry do
     ProcessRegistry.update_value({:gateway, gateway_id}, callback)
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def update_value(_tenant_id, gateway_id, callback)
-      when is_binary(gateway_id) and is_function(callback, 1) do
-    update_value(gateway_id, callback)
-  end
-
   @doc """
   Look up a specific gateway in the registry.
   """
   @spec lookup(String.t()) :: [{pid(), map()}]
   def lookup(gateway_id) when is_binary(gateway_id) do
     ProcessRegistry.lookup({:gateway, gateway_id})
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def lookup(_tenant_id, gateway_id) when is_binary(gateway_id) do
-    lookup(gateway_id)
   end
 
   @doc """
@@ -150,12 +122,6 @@ defmodule ServiceRadar.GatewayRegistry do
     ProcessRegistry.find_gateways()
   end
 
-  # Legacy compatibility: ignore tenant_id
-  @spec find_gateways_for_tenant(String.t()) :: [map()]
-  def find_gateways_for_tenant(_tenant_id) do
-    find_gateways()
-  end
-
   @doc """
   Find all gateways for a specific partition.
   """
@@ -163,11 +129,6 @@ defmodule ServiceRadar.GatewayRegistry do
   def find_gateways_for_partition(partition_id) do
     find_gateways()
     |> Enum.filter(&(&1[:partition_id] == partition_id))
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_gateways_for_partition(_tenant_id, partition_id) do
-    find_gateways_for_partition(partition_id)
   end
 
   @doc """
@@ -180,11 +141,6 @@ defmodule ServiceRadar.GatewayRegistry do
   def find_gateways_for_domain(domain) do
     find_gateways()
     |> Enum.filter(&(&1[:domain] == domain))
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_gateways_for_domain(_tenant_id, domain) do
-    find_gateways_for_domain(domain)
   end
 
   @doc """
@@ -203,11 +159,6 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def find_available_gateway_for_domain(_tenant_id, domain) do
-    find_available_gateway_for_domain(domain)
-  end
-
   @doc """
   Find an available gateway for a partition.
 
@@ -224,22 +175,12 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def find_available_gateway_for_partition(_tenant_id, partition_id) do
-    find_available_gateway_for_partition(partition_id)
-  end
-
   @doc """
   Find all available gateways.
   """
   @spec find_available_gateways() :: [map()]
   def find_available_gateways do
     ProcessRegistry.find_available_gateways()
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_available_gateways(_tenant_id) do
-    find_available_gateways()
   end
 
   @doc """
@@ -256,10 +197,5 @@ defmodule ServiceRadar.GatewayRegistry do
   @spec count() :: non_neg_integer()
   def count do
     ProcessRegistry.count_by_type(:gateway)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def count(_tenant_id) do
-    count()
   end
 end

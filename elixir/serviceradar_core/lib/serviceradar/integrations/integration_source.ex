@@ -279,20 +279,16 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read: admins, operators, and viewers in same tenant
+    # Read: admins, operators, and viewers
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:admin, :operator, :viewer] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :viewer)
     end
 
     # Create/Update/Delete: admins only
     policy action_type([:create, :update, :destroy]) do
-      authorize_if expr(
-                     ^actor(:role) == :admin and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
@@ -444,13 +440,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Total sync attempts"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this source belongs to"
-    end
-
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -519,7 +508,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 
   alias ServiceRadar.Actors.SystemActor
@@ -527,15 +516,15 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   alias ServiceRadar.Infrastructure.Agent
 
   defp validate_agent_availability(changeset, _context) do
-    tenant_id = changeset.tenant || Ash.Changeset.get_attribute(changeset, :tenant_id)
+    tenant_schema = changeset.tenant
 
-    if is_nil(tenant_id) do
+    if is_nil(tenant_schema) do
       Ash.Changeset.add_error(changeset,
-        field: :tenant_id,
-        message: "tenant is required"
+        field: :agent_id,
+        message: "tenant context is required"
       )
     else
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+      tenant_id = TenantSchemas.tenant_id_from_schema(tenant_schema)
       # Tenant-scoped actor for validation within the tenant
       actor = SystemActor.for_tenant(tenant_id, :integration_source)
 

@@ -18,9 +18,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
       index [:config_instance_id, :version],
         unique: true,
         name: "agent_config_versions_instance_version_idx"
-
-      index [:tenant_id, :created_at],
-        name: "agent_config_versions_tenant_created_idx"
     end
   end
 
@@ -90,12 +87,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this version belongs to"
-    end
 
     attribute :config_instance_id, :uuid do
       allow_nil? false

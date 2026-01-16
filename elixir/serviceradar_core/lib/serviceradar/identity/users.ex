@@ -7,12 +7,13 @@ defmodule ServiceRadar.Identity.Users do
 
   This module serves as a facade over the Ash User resource, providing a familiar
   API while leveraging Ash's authorization and authentication features.
+
+  In the tenant-unaware architecture, each instance serves only one tenant and
+  PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
   """
 
-  import Ash.Expr
   require Ash.Query
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.User
 
   @doc """
@@ -31,11 +32,9 @@ defmodule ServiceRadar.Identity.Users do
   def get_by_email(email, opts \\ []) when is_binary(email) do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, false)
-    tenant = resolve_tenant(opts)
 
     case User
          |> Ash.Query.for_read(:by_email, %{email: email}, actor: actor, authorize?: authorize?)
-         |> maybe_set_tenant(tenant)
          |> Ash.read_one() do
       {:ok, user} -> user
       {:error, _} -> nil
@@ -91,9 +90,8 @@ defmodule ServiceRadar.Identity.Users do
   def get(id, opts \\ []) when is_binary(id) do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, false)
-    tenant = resolve_tenant(opts)
 
-    case Ash.get(User, id, actor: actor, authorize?: authorize?, tenant: tenant) do
+    case Ash.get(User, id, actor: actor, authorize?: authorize?) do
       {:ok, user} -> {:ok, user}
       {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
       {:error, _} -> {:error, :not_found}
@@ -116,7 +114,6 @@ defmodule ServiceRadar.Identity.Users do
 
   ## Options
 
-    * `:tenant_id` - Required tenant ID for the user
     * `:role` - User role (default: :viewer)
     * `:display_name` - Optional display name
 
@@ -126,13 +123,8 @@ defmodule ServiceRadar.Identity.Users do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, false)
 
-    # Ensure we have a tenant_id - use default tenant if not provided
-    attrs = ensure_tenant_id(attrs)
-    tenant = resolve_tenant(opts, attrs)
-
     User
     |> Ash.Changeset.for_create(:create, attrs, actor: actor, authorize?: authorize?)
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.create()
   end
 
@@ -141,7 +133,6 @@ defmodule ServiceRadar.Identity.Users do
 
   ## Options
 
-    * `:tenant_id` - Required tenant ID for the user
     * `:password` - Required password
     * `:password_confirmation` - Required password confirmation
     * `:role` - User role (default: :viewer)
@@ -153,16 +144,11 @@ defmodule ServiceRadar.Identity.Users do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, false)
 
-    # Ensure we have a tenant_id - use default tenant if not provided
-    attrs = ensure_tenant_id(attrs)
-    tenant = resolve_tenant(opts, attrs)
-
     User
     |> Ash.Changeset.for_create(:register_with_password, attrs,
       actor: actor,
       authorize?: authorize?
     )
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.create()
   end
 
@@ -173,11 +159,9 @@ defmodule ServiceRadar.Identity.Users do
   def update_email(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
     authorize? = Keyword.get(opts, :authorize?, false)
-    tenant = resolve_tenant(opts, %{tenant_id: user.tenant_id})
 
     user
     |> Ash.Changeset.for_update(:update_email, attrs, actor: actor, authorize?: authorize?)
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.update()
   end
 
@@ -191,7 +175,6 @@ defmodule ServiceRadar.Identity.Users do
   def update_password(user, attrs, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
     authorize? = Keyword.get(opts, :authorize?, false)
-    tenant = resolve_tenant(opts, %{tenant_id: user.tenant_id})
 
     # Filter to only valid arguments for change_password action
     valid_keys = [
@@ -210,7 +193,6 @@ defmodule ServiceRadar.Identity.Users do
       actor: actor,
       authorize?: authorize?
     )
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.update()
   end
 
@@ -223,11 +205,9 @@ defmodule ServiceRadar.Identity.Users do
   def update_role(user, role, opts \\ []) do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts, %{tenant_id: user.tenant_id})
 
     user
     |> Ash.Changeset.for_update(:update_role, %{role: role}, actor: actor, authorize?: authorize?)
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.update()
   end
 
@@ -238,14 +218,12 @@ defmodule ServiceRadar.Identity.Users do
   def confirm(user, opts \\ []) do
     actor = Keyword.get(opts, :actor, user)
     authorize? = Keyword.get(opts, :authorize?, false)
-    tenant = resolve_tenant(opts, %{tenant_id: user.tenant_id})
 
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
     user
     |> Ash.Changeset.for_update(:update, %{}, actor: actor, authorize?: authorize?)
     |> Ash.Changeset.force_change_attribute(:confirmed_at, now)
-    |> maybe_set_changeset_tenant(tenant)
     |> Ash.update()
   end
 
@@ -254,7 +232,6 @@ defmodule ServiceRadar.Identity.Users do
 
   ## Options
 
-    * `:tenant_id` - Filter by tenant
     * `:role` - Filter by role
     * `:limit` - Maximum number of results (default: 100)
     * `:actor` - The actor performing the query
@@ -265,14 +242,10 @@ defmodule ServiceRadar.Identity.Users do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, false)
     limit = Keyword.get(opts, :limit, 100)
-    tenant_id = Keyword.get(opts, :tenant_id)
     role = Keyword.get(opts, :role)
-    tenant = resolve_tenant(opts)
 
     User
     |> Ash.Query.for_read(:read, %{}, actor: actor, authorize?: authorize?)
-    |> maybe_set_tenant(tenant)
-    |> maybe_filter_tenant(tenant_id)
     |> maybe_filter_role(role)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(limit)
@@ -281,60 +254,10 @@ defmodule ServiceRadar.Identity.Users do
 
   # Private helpers
 
-  defp ensure_tenant_id(%{tenant_id: _} = attrs), do: attrs
-  defp ensure_tenant_id(%{"tenant_id" => _} = attrs), do: attrs
-
-  defp ensure_tenant_id(attrs) do
-    Map.put(attrs, :tenant_id, default_tenant_id())
-  end
-
-  defp resolve_tenant(opts, attrs \\ %{}) do
-    tenant_value =
-      Keyword.get(opts, :tenant) ||
-        Keyword.get(opts, :tenant_id) ||
-        Map.get(attrs, :tenant_id) ||
-        Map.get(attrs, "tenant_id") ||
-        actor_tenant(Keyword.get(opts, :actor)) ||
-        default_tenant_id()
-
-    TenantSchemas.schema_for_tenant(tenant_value)
-  end
-
-  defp actor_tenant(%{tenant_id: tenant_id}) when is_binary(tenant_id), do: tenant_id
-  defp actor_tenant(_), do: nil
-
-  defp default_tenant_id do
-    configured =
-      Application.get_env(
-        :serviceradar_core,
-        :default_tenant_id,
-        "00000000-0000-0000-0000-000000000000"
-      )
-
-    platform_tenant_id = Application.get_env(:serviceradar_core, :platform_tenant_id)
-
-    if is_nil(configured) or configured == "00000000-0000-0000-0000-000000000000" do
-      platform_tenant_id || configured
-    else
-      configured
-    end
-  end
-
-  defp maybe_set_tenant(query, nil), do: query
-  defp maybe_set_tenant(query, tenant), do: Ash.Query.set_tenant(query, tenant)
-
-  defp maybe_set_changeset_tenant(changeset, nil), do: changeset
-  defp maybe_set_changeset_tenant(changeset, tenant), do: Ash.Changeset.set_tenant(changeset, tenant)
-
-  defp maybe_filter_tenant(query, nil), do: query
-
-  defp maybe_filter_tenant(query, tenant_id) do
-    Ash.Query.filter(query, expr(tenant_id == ^tenant_id))
-  end
-
   defp maybe_filter_role(query, nil), do: query
 
   defp maybe_filter_role(query, role) do
+    import Ash.Expr
     Ash.Query.filter(query, expr(role == ^role))
   end
 end

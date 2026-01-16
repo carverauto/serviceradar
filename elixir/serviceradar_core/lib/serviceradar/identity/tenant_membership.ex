@@ -24,22 +24,19 @@ defmodule ServiceRadar.Identity.TenantMembership do
   end
 
   multitenancy do
-    strategy :attribute
-    attribute :tenant_id
-    # Allow querying without tenant context (e.g., to list all memberships for a user)
-    global? true
+    strategy :context
   end
 
   actions do
     defaults [:read, :destroy]
 
     create :create do
-      accept [:role, :user_id, :tenant_id]
+      accept [:role, :user_id]
     end
 
     create :create_owner do
       description "Create an owner membership for a new tenant"
-      accept [:user_id, :tenant_id]
+      accept [:user_id]
       change set_attribute(:role, :owner)
     end
 
@@ -54,32 +51,32 @@ defmodule ServiceRadar.Identity.TenantMembership do
       authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
-    # System actors can perform all operations within their tenant
+    # System actors can perform all operations
     bypass always() do
-      authorize_if expr(^actor(:role) == :system and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Allow reading memberships for own tenant
+    # Allow reading memberships
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
+      authorize_if actor_attribute_equals(:role, :owner)
+      authorize_if actor_attribute_equals(:role, :member)
     end
 
-    # Owners and admins can create memberships for their tenant
+    # Owners and admins can create memberships
     policy action_type(:create) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id) and ^actor(:role) in [:owner, :admin])
+      authorize_if actor_attribute_equals(:role, :owner)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Only owners can update memberships
     policy action_type(:update) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id) and ^actor(:role) == :owner)
+      authorize_if actor_attribute_equals(:role, :owner)
     end
 
     # Only owners can delete memberships (except themselves)
     policy action_type(:destroy) do
-      authorize_if expr(
-                     tenant_id == ^actor(:tenant_id) and ^actor(:role) == :owner and
-                       user_id != ^actor(:id)
-                   )
+      authorize_if expr(^actor(:role) == :owner and user_id != ^actor(:id))
     end
   end
 
@@ -101,11 +98,6 @@ defmodule ServiceRadar.Identity.TenantMembership do
       description "When the user joined this tenant"
     end
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-    end
-
     attribute :user_id, :uuid do
       allow_nil? false
       public? true
@@ -116,13 +108,9 @@ defmodule ServiceRadar.Identity.TenantMembership do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
   end
 
   identities do
-    identity :unique_membership, [:user_id, :tenant_id]
+    identity :unique_membership, [:user_id]
   end
 end

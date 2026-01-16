@@ -142,11 +142,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   attributes do
     uuid_v7_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-    end
-
     attribute :name, :string do
       allow_nil? false
       public? true

@@ -3,11 +3,14 @@ defmodule ServiceRadar.Actors.Telemetry do
   Telemetry integration for device actors.
 
   Provides metrics for monitoring device actor system health:
-  - Actor count per tenant
+  - Actor count
   - Message throughput
   - Event buffer sizes
   - Health status distribution
   - Memory usage
+
+  In the tenant-unaware architecture, each instance serves only one tenant
+  and PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
 
   ## Metrics
 
@@ -32,7 +35,6 @@ defmodule ServiceRadar.Actors.Telemetry do
   require Logger
 
   alias ServiceRadar.Actors.DeviceRegistry
-  alias ServiceRadar.ProcessRegistry
 
   @prefix [:serviceradar, :actors, :device]
 
@@ -43,36 +45,36 @@ defmodule ServiceRadar.Actors.Telemetry do
     [
       # Gauges
       Telemetry.Metrics.last_value("#{metric_name(:count)}.value",
-        tags: [:tenant_id]
+        tags: []
       ),
       Telemetry.Metrics.last_value("#{metric_name(:memory_bytes)}.value",
-        tags: [:tenant_id],
+        tags: [],
         unit: :byte
       ),
 
       # Counters
       Telemetry.Metrics.counter("#{metric_name(:started)}.count",
-        tags: [:tenant_id, :partition_id]
+        tags: [:partition_id]
       ),
       Telemetry.Metrics.counter("#{metric_name(:stopped)}.count",
-        tags: [:tenant_id, :reason]
+        tags: [:reason]
       ),
       Telemetry.Metrics.counter("#{metric_name(:message)}.count",
-        tags: [:tenant_id, :device_id]
+        tags: [:device_id]
       ),
       Telemetry.Metrics.counter("#{metric_name(:event)}.count",
-        tags: [:tenant_id, :event_type]
+        tags: [:event_type]
       ),
       Telemetry.Metrics.counter("#{metric_name(:identity_update)}.count",
-        tags: [:tenant_id]
+        tags: []
       ),
       Telemetry.Metrics.counter("#{metric_name(:health_check)}.count",
-        tags: [:tenant_id, :status]
+        tags: [:status]
       ),
 
       # Distributions
       Telemetry.Metrics.distribution("#{metric_name(:event_buffer_size)}.value",
-        tags: [:tenant_id],
+        tags: [],
         buckets: [0, 10, 25, 50, 100]
       )
     ]
@@ -81,66 +83,66 @@ defmodule ServiceRadar.Actors.Telemetry do
   @doc """
   Emits actor started event.
   """
-  def emit_started(tenant_id, device_id, partition_id) do
+  def emit_started(device_id, partition_id) do
     :telemetry.execute(
       @prefix ++ [:started],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id, partition_id: partition_id}
+      %{device_id: device_id, partition_id: partition_id}
     )
   end
 
   @doc """
   Emits actor stopped event.
   """
-  def emit_stopped(tenant_id, device_id, reason) do
+  def emit_stopped(device_id, reason) do
     :telemetry.execute(
       @prefix ++ [:stopped],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id, reason: reason}
+      %{device_id: device_id, reason: reason}
     )
   end
 
   @doc """
   Emits message processed event.
   """
-  def emit_message(tenant_id, device_id) do
+  def emit_message(device_id) do
     :telemetry.execute(
       @prefix ++ [:message],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id}
+      %{device_id: device_id}
     )
   end
 
   @doc """
   Emits event recorded metric.
   """
-  def emit_event(tenant_id, device_id, event_type) do
+  def emit_event(device_id, event_type) do
     :telemetry.execute(
       @prefix ++ [:event],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id, event_type: event_type}
+      %{device_id: device_id, event_type: event_type}
     )
   end
 
   @doc """
   Emits identity update metric.
   """
-  def emit_identity_update(tenant_id, device_id) do
+  def emit_identity_update(device_id) do
     :telemetry.execute(
       @prefix ++ [:identity_update],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id}
+      %{device_id: device_id}
     )
   end
 
   @doc """
   Emits health check metric.
   """
-  def emit_health_check(tenant_id, device_id, status) do
+  def emit_health_check(device_id, status) do
     :telemetry.execute(
       @prefix ++ [:health_check],
       %{count: 1},
-      %{tenant_id: tenant_id, device_id: device_id, status: status}
+      %{device_id: device_id, status: status}
     )
   end
 
@@ -150,26 +152,14 @@ defmodule ServiceRadar.Actors.Telemetry do
   Called periodically to update gauge metrics.
   """
   def collect_metrics do
-    # Emit global count from ProcessRegistry
-    :telemetry.execute(
-      @prefix ++ [:count],
-      %{value: count_all_actors()},
-      %{type: "global"}
-    )
-  end
-
-  @doc """
-  Collects metrics for a specific tenant.
-  """
-  def collect_tenant_metrics(tenant_id) do
-    devices = DeviceRegistry.list_devices(tenant_id)
+    devices = DeviceRegistry.list_devices()
     count = length(devices)
 
     # Emit count
     :telemetry.execute(
       @prefix ++ [:count],
       %{value: count},
-      %{tenant_id: tenant_id}
+      %{}
     )
 
     # Collect health status distribution
@@ -180,11 +170,11 @@ defmodule ServiceRadar.Actors.Telemetry do
         Map.update(acc, status, 1, &(&1 + 1))
       end)
 
-    Enum.each(health_counts, fn {status, count} ->
+    Enum.each(health_counts, fn {status, status_count} ->
       :telemetry.execute(
         @prefix ++ [:health_status],
-        %{count: count},
-        %{tenant_id: tenant_id, status: status}
+        %{count: status_count},
+        %{status: status}
       )
     end)
 
@@ -194,18 +184,18 @@ defmodule ServiceRadar.Actors.Telemetry do
     :telemetry.execute(
       @prefix ++ [:memory_bytes],
       %{value: memory_estimate},
-      %{tenant_id: tenant_id}
+      %{}
     )
   end
 
   @doc """
-  Returns a summary of device actor metrics for a tenant.
+  Returns a summary of device actor metrics.
 
   Useful for admin dashboards.
   """
-  @spec summary(String.t()) :: map()
-  def summary(tenant_id) do
-    devices = DeviceRegistry.list_devices(tenant_id)
+  @spec summary() :: map()
+  def summary do
+    devices = DeviceRegistry.list_devices()
 
     health_distribution =
       devices
@@ -229,28 +219,11 @@ defmodule ServiceRadar.Actors.Telemetry do
     }
   end
 
-  @doc """
-  Returns global summary across all tenants.
-
-  WARNING: Admin/platform use only.
-  """
-  @spec global_summary() :: map()
-  def global_summary do
-    %{
-      total_actors: count_all_actors(),
-      collected_at: DateTime.utc_now()
-    }
-  end
-
   # ===========================================================================
   # Private Functions
   # ===========================================================================
 
   defp metric_name(suffix) do
     Enum.join(@prefix ++ [suffix], ".")
-  end
-
-  defp count_all_actors do
-    ProcessRegistry.count_by_type(:device)
   end
 end

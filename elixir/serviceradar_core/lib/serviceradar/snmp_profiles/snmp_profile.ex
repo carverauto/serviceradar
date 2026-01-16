@@ -178,11 +178,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   attributes do
     uuid_v7_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-    end
-
     attribute :name, :string do
       allow_nil? false
       public? true
@@ -256,6 +251,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 end

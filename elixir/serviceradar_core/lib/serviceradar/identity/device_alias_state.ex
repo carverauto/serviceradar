@@ -271,13 +271,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
       description "ID of the alias that replaced this one"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this alias belongs to"
-    end
-
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end

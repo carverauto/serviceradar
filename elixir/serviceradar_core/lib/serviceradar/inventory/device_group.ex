@@ -104,38 +104,28 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION: Groups are organizational structures within a tenant
-
-    # Read access: Authenticated users in same tenant
+    # Read access: Authenticated users
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create groups: Operators/admins in same tenant
+    # Create groups: Operators/admins
     policy action(:create) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Update groups: Operators/admins in same tenant
+    # Update groups: Operators/admins
     policy action([:update, :increment_count, :decrement_count]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Delete groups: Admins only
     policy action(:destroy) do
-      authorize_if expr(
-                     ^actor(:role) == :admin and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
@@ -183,13 +173,6 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
 
     create_timestamp :created_at
     update_timestamp :updated_at
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this group belongs to"
-    end
   end
 
   relationships do
@@ -245,6 +228,6 @@ defmodule ServiceRadar.Inventory.DeviceGroup do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 end

@@ -159,12 +159,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   attributes do
     uuid_v7_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? true
-      public? true
-      description "Tenant ID (nil for built-in templates)"
-    end
-
     attribute :name, :string do
       allow_nil? false
       public? true
@@ -207,6 +201,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   end
 
   identities do
-    identity :unique_name_per_vendor_tenant, [:tenant_id, :vendor, :name]
+    identity :unique_name_per_vendor, [:vendor, :name]
   end
 end

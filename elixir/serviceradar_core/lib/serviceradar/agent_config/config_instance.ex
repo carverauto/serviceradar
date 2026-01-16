@@ -17,12 +17,12 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :config_type, :partition],
-        name: "agent_config_instances_tenant_type_partition_idx"
+      index [:config_type, :partition],
+        name: "agent_config_instances_type_partition_idx"
 
-      index [:tenant_id, :config_type, :agent_id],
+      index [:config_type, :agent_id],
         where: "agent_id IS NOT NULL",
-        name: "agent_config_instances_tenant_type_agent_idx"
+        name: "agent_config_instances_type_agent_idx"
     end
   end
 
@@ -125,12 +125,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   attributes do
     uuid_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this config belongs to"
-    end
-
     attribute :config_type, :atom do
       allow_nil? false
       public? true
@@ -221,6 +215,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   end
 
   identities do
-    identity :unique_config_per_agent, [:tenant_id, :config_type, :partition, :agent_id]
+    identity :unique_config_per_agent, [:config_type, :partition, :agent_id]
   end
 end

@@ -98,12 +98,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   attributes do
     uuid_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this template belongs to"
-    end
-
     attribute :name, :string do
       allow_nil? false
       public? true
@@ -162,6 +156,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   end
 
   identities do
-    identity :unique_name_per_tenant_and_type, [:tenant_id, :name, :config_type]
+    identity :unique_name_per_tenant_and_type, [:name, :config_type]
   end
 end

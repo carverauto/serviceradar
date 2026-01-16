@@ -91,12 +91,6 @@ defmodule ServiceRadar.AgentRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def register_agent(tenant_id, agent_id, agent_info)
-      when is_binary(tenant_id) and is_binary(agent_id) do
-    register_agent(agent_id, agent_info)
-  end
-
   @doc """
   Unregister an agent from the registry.
   """
@@ -113,22 +107,12 @@ defmodule ServiceRadar.AgentRegistry do
     :ok
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def unregister_agent(_tenant_id, agent_id) when is_binary(agent_id) do
-    unregister_agent(agent_id)
-  end
-
   @doc """
   Update agent heartbeat timestamp.
   """
   @spec heartbeat(String.t()) :: :ok | :error
   def heartbeat(agent_id) when is_binary(agent_id) do
     ProcessRegistry.agent_heartbeat(agent_id)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def heartbeat(_tenant_id, agent_id) when is_binary(agent_id) do
-    heartbeat(agent_id)
   end
 
   @doc """
@@ -139,23 +123,12 @@ defmodule ServiceRadar.AgentRegistry do
     ProcessRegistry.lookup({:agent, agent_id})
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def lookup(_tenant_id, agent_id) when is_binary(agent_id) do
-    lookup(agent_id)
-  end
-
   @doc """
   Find all agents.
   """
   @spec find_agents() :: [map()]
   def find_agents do
     ProcessRegistry.find_agents()
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  @spec find_agents_for_tenant(String.t()) :: [map()]
-  def find_agents_for_tenant(_tenant_id) do
-    find_agents()
   end
 
   @doc """
@@ -167,11 +140,6 @@ defmodule ServiceRadar.AgentRegistry do
     |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def find_agents_for_partition(_tenant_id, partition_id) do
-    find_agents_for_partition(partition_id)
-  end
-
   @doc """
   Find all agents for a specific domain.
   """
@@ -179,11 +147,6 @@ defmodule ServiceRadar.AgentRegistry do
   def find_agents_for_domain(domain) do
     find_agents()
     |> Enum.filter(&(&1[:domain] == domain))
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_agents_for_domain(_tenant_id, domain) do
-    find_agents_for_domain(domain)
   end
 
   @doc """
@@ -197,11 +160,6 @@ defmodule ServiceRadar.AgentRegistry do
     |> Enum.find(&(&1[:status] == :connected))
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def find_available_agent_for_domain(_tenant_id, domain) do
-    find_available_agent_for_domain(domain)
-  end
-
   @doc """
   Find agents connected to a specific gateway node.
   """
@@ -209,11 +167,6 @@ defmodule ServiceRadar.AgentRegistry do
   def find_agents_for_gateway(gateway_node) do
     find_agents()
     |> Enum.filter(&(&1[:gateway_node] == gateway_node))
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_agents_for_gateway(_tenant_id, gateway_node) do
-    find_agents_for_gateway(gateway_node)
   end
 
   @doc """
@@ -225,11 +178,6 @@ defmodule ServiceRadar.AgentRegistry do
     |> Enum.filter(fn agent ->
       capability in Map.get(agent, :capabilities, [])
     end)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_agents_with_capability(_tenant_id, capability) do
-    find_agents_with_capability(capability)
   end
 
   @doc """
@@ -256,11 +204,6 @@ defmodule ServiceRadar.AgentRegistry do
     end
   end
 
-  # Legacy compatibility: ignore tenant_id
-  def get_grpc_address(_tenant_id, agent_id) when is_binary(agent_id) do
-    get_grpc_address(agent_id)
-  end
-
   @doc """
   Find all agents with gRPC addresses available.
 
@@ -272,11 +215,6 @@ defmodule ServiceRadar.AgentRegistry do
     |> Enum.filter(fn agent ->
       is_binary(agent[:grpc_host]) and is_integer(agent[:grpc_port]) and agent[:grpc_port] > 0
     end)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def find_agents_with_grpc(_tenant_id) do
-    find_agents_with_grpc()
   end
 
   @doc """
@@ -302,10 +240,5 @@ defmodule ServiceRadar.AgentRegistry do
   @spec count() :: non_neg_integer()
   def count do
     ProcessRegistry.count_by_type(:agent)
-  end
-
-  # Legacy compatibility: ignore tenant_id
-  def count(_tenant_id) do
-    count()
   end
 end

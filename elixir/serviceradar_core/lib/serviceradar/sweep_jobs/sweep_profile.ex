@@ -125,12 +125,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   attributes do
     uuid_primary_key :id
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this profile belongs to"
-    end
-
     attribute :name, :string do
       allow_nil? false
       public? true
@@ -214,6 +208,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name_per_tenant, [:name]
   end
 end
