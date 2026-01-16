@@ -99,7 +99,7 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         pubsub_child(),
         repo_child(),
-        tenant_registry_child(),
+        process_registry_child(),
         gateway_tracker_child(),
         agent_tracker_child(),
         cluster_supervisor_child()
@@ -225,11 +225,14 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
-  defp tenant_registry_child do
-    if Process.whereis(ServiceRadar.Cluster.TenantRegistry) do
+  defp process_registry_child do
+    # ProcessRegistry provides singleton Horde registry + DynamicSupervisor
+    # Check if it's already started (by serviceradar_core)
+    registry_name = ServiceRadar.ProcessRegistry.registry_name()
+    if Process.whereis(registry_name) do
       nil
     else
-      ServiceRadar.Cluster.TenantRegistry
+      ServiceRadar.ProcessRegistry.child_specs()
     end
   end
 

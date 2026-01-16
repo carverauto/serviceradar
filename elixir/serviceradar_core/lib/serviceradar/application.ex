@@ -6,15 +6,17 @@ defmodule ServiceRadar.Application do
   - Database connection pool (Repo)
   - Oban job processor
   - Cluster supervisor (libcluster + Horde)
-  - Per-tenant TenantRegistry (Horde registries + DynamicSupervisors)
+  - ProcessRegistry (singleton Horde registry + DynamicSupervisor)
 
-  ## Multi-Tenant Process Isolation
+  ## Tenant Isolation
 
-  The TenantRegistry provides per-tenant Horde registries and DynamicSupervisors
-  for multi-tenant process isolation. Edge components (gateways, agents) can only
-  discover processes within their tenant, preventing cross-tenant enumeration.
+  In the tenant-unaware architecture, each tenant instance runs its own
+  ERTS cluster with isolated resources. Tenant isolation is handled by
+  infrastructure (separate deployments, databases, NATS credentials),
+  not by in-process tenant_id routing.
 
-  GatewayRegistry and AgentRegistry delegate to TenantRegistry for all operations.
+  ProcessRegistry provides a singleton Horde registry for cross-node
+  process discovery within a single tenant instance.
 
   This application can run standalone or as a dependency of
   serviceradar_web or serviceradar_agent_gateway.
@@ -30,7 +32,7 @@ defmodule ServiceRadar.Application do
   - `:cluster_coordinator` - Whether to run ClusterSupervisor/ClusterHealth (default: same as cluster_enabled)
     - core-elx: true (it's the coordinator)
     - web-ng, agent-gateway: false (they join cluster but don't coordinate)
-  - `:registries_enabled` - Whether to start TenantRegistry (default: true)
+  - `:registries_enabled` - Whether to start ProcessRegistry (default: true)
   - `:start_ash_oban_scheduler` - Whether to start AshOban schedulers (default: false)
     - Only core-elx should set this to true
   - `:status_handler_enabled` - Whether to start StatusHandler for agent push results (default: false)
@@ -116,7 +118,7 @@ defmodule ServiceRadar.Application do
         # Horde registries (always started for registration support)
         registry_children(),
 
-        # Platform tenant bootstrap (requires repo + Ash + TenantRegistry ETS)
+        # Platform tenant bootstrap (requires repo + Ash)
         ServiceRadar.Identity.PlatformTenantBootstrap,
 
         # Template seeding for rule builder defaults
@@ -230,26 +232,24 @@ defmodule ServiceRadar.Application do
 
   defp registry_children do
     if Application.get_env(:serviceradar_core, :registries_enabled, true) do
-      [
-        # Per-tenant Horde registries and DynamicSupervisors
-        # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
-        # GatewayRegistry and AgentRegistry now delegate to TenantRegistry
-        ServiceRadar.Cluster.TenantRegistry,
-        # Platform-level gateway tracker (gateways serve all tenants)
-        ServiceRadar.GatewayTracker,
-        # Agent tracker for Go agents that push status to gateways
-        ServiceRadar.AgentTracker,
-        # Identity cache for device lookups (ETS-based with TTL)
-        ServiceRadar.Identity.IdentityCache,
-        # Agent config cache (ETS-based)
-        ServiceRadar.AgentConfig.ConfigCache,
-        # Agent config server (compilation orchestration)
-        ServiceRadar.AgentConfig.ConfigServer,
-        # Preload tenant slug mappings for edge resolution
-        ServiceRadar.Cluster.TenantRegistryLoader,
-        # DataService client for KV operations (used to push config to Go/Rust services)
-        datasvc_client_child()
-      ]
+      # ProcessRegistry provides Horde registry + DynamicSupervisor as child_specs
+      process_registry_specs = ServiceRadar.ProcessRegistry.child_specs()
+
+      process_registry_specs ++
+        [
+          # Gateway tracker (ETS-based)
+          ServiceRadar.GatewayTracker,
+          # Agent tracker for Go agents that push status to gateways
+          ServiceRadar.AgentTracker,
+          # Identity cache for device lookups (ETS-based with TTL)
+          ServiceRadar.Identity.IdentityCache,
+          # Agent config cache (ETS-based)
+          ServiceRadar.AgentConfig.ConfigCache,
+          # Agent config server (compilation orchestration)
+          ServiceRadar.AgentConfig.ConfigServer,
+          # DataService client for KV operations (used to push config to Go/Rust services)
+          datasvc_client_child()
+        ]
     else
       []
     end

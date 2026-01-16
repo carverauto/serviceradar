@@ -124,7 +124,8 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp get_enabled_sweep_groups(tenant_id) do
-    actor = SystemActor.for_tenant(tenant_id, :sweep_monitor)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:sweep_monitor)
 
     SweepGroup
     |> Ash.Query.for_read(:enabled_groups)

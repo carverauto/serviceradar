@@ -73,10 +73,11 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
 
   alias Ecto.Adapters.SQL
   alias Postgrex.Error, as: PostgrexError
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Repo
 
+  require Ash.Query
   require Logger
 
   @tenant_prefix "tenant_"
@@ -228,17 +229,31 @@ defmodule ServiceRadar.Cluster.TenantSchemas do
   @doc """
   Resolves a tenant schema name from a tenant UUID.
 
-  Uses the in-memory registry only. Callers must register slugs up front.
+  Looks up the tenant slug from the database.
   """
   @spec schema_for_id(String.t()) :: String.t() | nil
   def schema_for_id(tenant_id) when is_binary(tenant_id) do
-    case TenantRegistry.slug_for_tenant_id(tenant_id) do
+    case lookup_slug_for_tenant_id(tenant_id) do
       {:ok, slug} ->
         schema_for(slug)
 
       :error ->
         nil
     end
+  end
+
+  defp lookup_slug_for_tenant_id(tenant_id) do
+    actor = SystemActor.platform(:tenant_schemas)
+
+    case Tenant
+         |> Ash.Query.filter(id == ^tenant_id)
+         |> Ash.Query.limit(1)
+         |> Ash.read(actor: actor) do
+      {:ok, [tenant | _]} -> {:ok, to_string(tenant.slug)}
+      _ -> :error
+    end
+  rescue
+    _ -> :error
   end
 
   @doc """

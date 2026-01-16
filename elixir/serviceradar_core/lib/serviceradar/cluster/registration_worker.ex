@@ -131,12 +131,12 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   @impl true
   def terminate(_reason, state) do
     entity_label = entity_type_label(state.entity_type)
-    Logger.info("#{entity_label} unregistering: #{state.gateway_id} for tenant: #{state.tenant_id}")
-    ServiceRadar.GatewayRegistry.unregister_gateway(state.tenant_id, state.gateway_id)
+    Logger.info("#{entity_label} unregistering: #{state.gateway_id}")
+    ServiceRadar.GatewayRegistry.unregister_gateway(state.gateway_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "gateway:registrations:#{state.tenant_id}",
+      "gateway:registrations",
       {:gateway_unregistered, state.gateway_id}
     )
 
@@ -201,18 +201,16 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
       entity_type: state.entity_type
     }
 
-    # Use the new tenant-scoped registration API
-    ServiceRadar.GatewayRegistry.register_gateway(state.tenant_id, state.gateway_id, metadata)
+    ServiceRadar.GatewayRegistry.register_gateway(state.gateway_id, metadata)
   end
 
   defp update_heartbeat(state) do
-    ServiceRadar.GatewayRegistry.heartbeat(state.tenant_id, state.gateway_id)
+    ServiceRadar.GatewayRegistry.heartbeat(state.gateway_id)
   end
 
   defp update_status(state) do
-    # Update status via TenantRegistry
-    ServiceRadar.Cluster.TenantRegistry.update_value(
-      state.tenant_id,
+    # Update status via ProcessRegistry
+    ServiceRadar.ProcessRegistry.update_value(
       {:gateway, state.gateway_id},
       fn meta ->
         %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
@@ -221,7 +219,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "gateway:registrations:#{state.tenant_id}",
+      "gateway:registrations",
       {:gateway_status_changed, state.gateway_id, state.status}
     )
   end

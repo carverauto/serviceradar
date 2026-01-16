@@ -21,7 +21,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   setup_all do
     tenant = ServiceRadar.TestSupport.create_tenant_schema!("edge-isolation")
@@ -74,16 +74,10 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
     end
 
     test "Horde registries are not accessible from non-ERTS processes" do
-      # Generate test tenant
-      tenant_id = Ash.UUID.generate()
-
-      # Ensure registry exists
-      TenantRegistry.ensure_registry(tenant_id)
-
-      # Get the registry name
-      registry_name = TenantRegistry.registry_name(tenant_id)
-
+      # In tenant-unaware architecture, ProcessRegistry is a singleton Horde
       # Verify the registry is a local Horde.Registry process
+      registry_name = ProcessRegistry.registry_name()
+
       case Process.whereis(registry_name) do
         nil ->
           # Registry might use dynamic naming - check via Horde
@@ -109,22 +103,20 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
     test "AgentRegistry stores gRPC connection details, not ERTS pids" do
       alias ServiceRadar.AgentRegistry
 
-      tenant_id = Ash.UUID.generate()
       agent_id = "go-agent-test-#{:erlang.unique_integer([:positive])}"
 
-      # Ensure tenant registry exists
-      TenantRegistry.ensure_registry(tenant_id)
-      Process.sleep(50)
+      # ProcessRegistry is started by the application supervision tree
+      # No per-tenant registry initialization needed
 
       # Register a Go agent with gRPC details
-      {:ok, _pid} = AgentRegistry.register_agent(tenant_id, agent_id, %{
+      {:ok, _pid} = AgentRegistry.register_agent(agent_id, %{
         grpc_host: "192.168.1.100",
         grpc_port: 50_051,
         capabilities: [:icmp, :tcp]
       })
 
       # Lookup should return gRPC address, not an ERTS connection
-      {:ok, {host, port}} = AgentRegistry.get_grpc_address(tenant_id, agent_id)
+      {:ok, {host, port}} = AgentRegistry.get_grpc_address(agent_id)
 
       assert is_binary(host), "gRPC host should be a string (IP address)"
       assert is_integer(port), "gRPC port should be an integer"
@@ -132,7 +124,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
 
       # The registry entry represents a gRPC endpoint, not an ERTS process
       # Verify we cannot call Erlang functions on this "agent"
-      [{_pid, metadata}] = AgentRegistry.lookup(tenant_id, agent_id)
+      [{_pid, metadata}] = AgentRegistry.lookup(agent_id)
 
       # The registered pid is just a placeholder process for Horde, not the actual agent
       # The actual agent is a Go process accessible only via gRPC

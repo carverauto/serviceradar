@@ -74,23 +74,15 @@ defmodule ServiceRadar.AgentConfig.Changes.CreateVersionHistory do
   end
 
   defp create_version(attrs, tenant, context) do
-    # Use the actor from context if available, otherwise create a tenant-scoped system actor
+    # DB connection's search_path determines the schema
     actor =
       case Map.get(context, :actor) do
-        nil ->
-          # Extract tenant_id from schema name (format: "tenant_<uuid>")
-          tenant_id = extract_tenant_id_from_schema(tenant)
-          SystemActor.for_tenant(tenant_id, :config_version_history)
-
-        provided_actor ->
-          provided_actor
+        nil -> SystemActor.system(:config_version_history)
+        provided_actor -> provided_actor
       end
 
     ServiceRadar.AgentConfig.ConfigVersion
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(tenant: tenant, actor: actor)
   end
-
-  defp extract_tenant_id_from_schema("tenant_" <> uuid), do: uuid
-  defp extract_tenant_id_from_schema(_), do: nil
 end

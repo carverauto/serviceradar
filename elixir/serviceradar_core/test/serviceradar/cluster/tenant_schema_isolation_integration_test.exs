@@ -1,13 +1,16 @@
 defmodule ServiceRadar.Cluster.TenantSchemaIsolationIntegrationTest do
   @moduledoc """
   Integration tests for tenant schema selection and data isolation.
+
+  Verifies PostgreSQL schema-based multitenancy works correctly for
+  isolating tenant data.
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
 
@@ -23,9 +26,8 @@ defmodule ServiceRadar.Cluster.TenantSchemaIsolationIntegrationTest do
     tenant_a_slug = "schema-isolation-a-#{unique_id}"
     tenant_b_slug = "schema-isolation-b-#{unique_id}"
 
-    TenantRegistry.register_slug(tenant_a_slug, tenant_a_id)
-    TenantRegistry.register_slug(tenant_b_slug, tenant_b_id)
-
+    # In tenant-unaware architecture, just create schemas directly
+    # No registry slug registration needed
     {:ok, schema_a} = TenantSchemas.create_schema(tenant_a_slug)
     {:ok, schema_b} = TenantSchemas.create_schema(tenant_b_slug)
 

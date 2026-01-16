@@ -13,11 +13,12 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
 
   @impl true
   def change(changeset, _opts, _context) do
+    # DB connection's search_path determines the schema
     tenant = changeset.tenant
     current_id = Ash.Changeset.get_data(changeset, :id)
 
     # Use SystemActor for the unset operation (never authorize?: false per CLAUDE.md)
-    system_actor = SystemActor.for_tenant(extract_tenant_id(tenant), :snmp_profile_default)
+    system_actor = SystemActor.system(:snmp_profile_default)
 
     # Find and unset any existing default profile (excluding the current one)
     unset_other_defaults(tenant, current_id, system_actor)
@@ -48,13 +49,4 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
     end
   end
 
-  defp extract_tenant_id(tenant) when is_binary(tenant) do
-    # Tenant schema format is "tenant_<id>", extract the ID
-    case String.split(tenant, "_", parts: 2) do
-      ["tenant", id] -> id
-      _ -> tenant
-    end
-  end
-
-  defp extract_tenant_id(tenant), do: tenant
 end

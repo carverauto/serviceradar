@@ -28,19 +28,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("Logs batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_log_rows(schema, rows)
-      end
+      insert_log_rows(rows)
     end
   rescue
     e ->
@@ -70,14 +64,16 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_log_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_log_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
       {count, _} ->
-        maybe_promote_logs(rows, schema)
+        maybe_promote_logs(rows)
         {:ok, count}
     end
   end
@@ -307,14 +303,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp source_kind(_), do: nil
 
-  defp maybe_promote_logs(rows, schema) do
+  defp maybe_promote_logs(rows) do
     tenant_id =
       case rows do
         [%{tenant_id: tenant_id} | _] -> tenant_id
         _ -> TenantContext.current_tenant_id()
       end
 
-    _ = LogPromotion.promote(rows, tenant_id, schema)
+    # DB connection's search_path determines the schema
+    _ = LogPromotion.promote(rows, tenant_id)
     :ok
   end
 

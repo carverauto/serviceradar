@@ -57,8 +57,6 @@ defmodule ServiceRadar.Actors.Device do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device, as: DeviceResource
 
   # Configuration
@@ -424,7 +422,7 @@ defmodule ServiceRadar.Actors.Device do
     end
 
     # Unregister from Horde
-    TenantRegistry.unregister(state.tenant_id, {:device, state.device_id})
+    ServiceRadar.ProcessRegistry.unregister({:device, state.device_id})
 
     Logger.debug("Device actor terminated: #{state.device_id}, reason: #{inspect(reason)}")
     :ok
@@ -434,7 +432,7 @@ defmodule ServiceRadar.Actors.Device do
   # Private Functions
   # ===========================================================================
 
-  defp register_self(tenant_id, device_id, partition_id) do
+  defp register_self(_tenant_id, device_id, partition_id) do
     metadata = %{
       type: :device,
       device_id: device_id,
@@ -443,7 +441,7 @@ defmodule ServiceRadar.Actors.Device do
       started_at: DateTime.utc_now()
     }
 
-    TenantRegistry.register(tenant_id, {:device, device_id}, metadata)
+    ServiceRadar.ProcessRegistry.register({:device, device_id}, metadata)
   end
 
   defp initial_health_state do
@@ -474,10 +472,10 @@ defmodule ServiceRadar.Actors.Device do
   end
 
   defp load_identity_from_db(state) do
-    tenant_schema = TenantSchemas.schema_for_tenant(state.tenant_id)
-    actor = SystemActor.for_tenant(state.tenant_id, :device_actor)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:device_actor)
 
-    case DeviceResource.get_by_uid(state.device_id, tenant: tenant_schema, actor: actor) do
+    case DeviceResource.get_by_uid(state.device_id, actor: actor) do
       {:ok, device} ->
         identity = %{
           uid: device.uid,
@@ -505,11 +503,11 @@ defmodule ServiceRadar.Actors.Device do
     state
   end
 
-  defp persist_identity(tenant_id, device_id, identity) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :device_actor)
+  defp persist_identity(_tenant_id, device_id, identity) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:device_actor)
 
-    case DeviceResource.get_by_uid(device_id, tenant: tenant_schema, actor: actor) do
+    case DeviceResource.get_by_uid(device_id, actor: actor) do
       {:ok, device} ->
         updates =
           identity

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, AlertGenerator, OcsfEvent, WebhookNotifier}
   alias ServiceRadar.Observability.{
@@ -19,25 +19,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @rules_cache_ms :timer.seconds(60)
 
-  @spec evaluate_logs([map()], String.t(), String.t()) :: :ok | {:error, term()}
-  def evaluate_logs(rows, tenant_id, schema) when is_list(rows) do
-    with {:ok, _} <- ensure_started(tenant_id, schema) do
+  @spec evaluate_logs([map()], String.t(), any()) :: :ok | {:error, term()}
+  def evaluate_logs(rows, tenant_id, _schema \\ nil) when is_list(rows) do
+    # DB connection's search_path determines the schema
+    with {:ok, _} <- ensure_started(tenant_id) do
       call(tenant_id, {:evaluate_logs, rows})
     end
   end
 
-  @spec evaluate_events([map()], String.t(), String.t()) :: :ok | {:error, term()}
-  def evaluate_events(events, tenant_id, schema) when is_list(events) do
-    with {:ok, _} <- ensure_started(tenant_id, schema) do
+  @spec evaluate_events([map()], String.t(), any()) :: :ok | {:error, term()}
+  def evaluate_events(events, tenant_id, _schema \\ nil) when is_list(events) do
+    # DB connection's search_path determines the schema
+    with {:ok, _} <- ensure_started(tenant_id) do
       call(tenant_id, {:evaluate_events, events})
     end
   end
 
   def start_link(opts) do
     tenant_id = Keyword.fetch!(opts, :tenant_id)
-    schema = Keyword.fetch!(opts, :schema)
 
-    GenServer.start_link(__MODULE__, %{tenant_id: tenant_id, schema: schema},
+    GenServer.start_link(__MODULE__, %{tenant_id: tenant_id},
       name: via_tuple(tenant_id)
     )
   end
@@ -87,41 +88,37 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {:error, :engine_not_running}
   end
 
-  defp ensure_started(tenant_id, schema) do
-    with {:ok, _} <- TenantRegistry.ensure_registry(tenant_id) do
-      case lookup_engine(tenant_id) do
-        nil ->
-          child_spec = %{
-            id: {:stateful_alert_engine, tenant_id},
-            start: {__MODULE__, :start_link, [[tenant_id: tenant_id, schema: schema]]},
-            restart: :permanent,
-            type: :worker
-          }
+  defp ensure_started(tenant_id) do
+    # DB connection's search_path determines the schema
+    case lookup_engine(tenant_id) do
+      nil ->
+        child_spec = %{
+          id: {:stateful_alert_engine, tenant_id},
+          start: {__MODULE__, :start_link, [[tenant_id: tenant_id]]},
+          restart: :permanent,
+          type: :worker
+        }
 
-          case TenantRegistry.start_child(tenant_id, child_spec) do
-            {:ok, pid} -> {:ok, pid}
-            {:error, {:already_started, pid}} -> {:ok, pid}
-            {:error, reason} -> {:error, reason}
-          end
+        case ProcessRegistry.start_child(child_spec) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+          {:error, reason} -> {:error, reason}
+        end
 
-        pid ->
-          {:ok, pid}
-      end
+      pid ->
+        {:ok, pid}
     end
   end
 
   defp lookup_engine(tenant_id) do
-    registry = TenantRegistry.registry_name(tenant_id)
-
-    case Horde.Registry.lookup(registry, {:stateful_alert_engine, tenant_id}) do
+    case ProcessRegistry.lookup({:stateful_alert_engine, tenant_id}) do
       [{pid, _}] -> pid
       _ -> nil
     end
   end
 
   defp via_tuple(tenant_id) do
-    registry = TenantRegistry.registry_name(tenant_id)
-    {:via, Horde.Registry, {registry, {:stateful_alert_engine, tenant_id}}}
+    ProcessRegistry.via({:stateful_alert_engine, tenant_id})
   end
 
   defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do

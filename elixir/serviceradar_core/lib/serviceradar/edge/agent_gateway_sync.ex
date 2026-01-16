@@ -36,18 +36,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+  @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
-  def get_config_if_changed(agent_id, tenant_id, config_version) do
-    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(
-      agent_id,
-      tenant_id,
-      config_version
-    )
+  def get_config_if_changed(agent_id, config_version) do
+    ServiceRadar.Edge.AgentConfigGenerator.get_config_if_changed(agent_id, config_version)
   end
 
-  @spec component_type_for_component_id(String.t(), String.t()) :: {:ok, atom()} | {:error, term()}
-  def component_type_for_component_id(component_id, _tenant_id) do
+  @spec component_type_for_component_id(String.t()) :: {:ok, atom()} | {:error, term()}
+  def component_type_for_component_id(component_id) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
@@ -73,8 +69,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  @spec upsert_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def upsert_agent(agent_id, _tenant_id, attrs) do
+  @spec upsert_agent(String.t(), map()) :: :ok | {:error, term()}
+  def upsert_agent(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
@@ -92,8 +88,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  @spec heartbeat_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def heartbeat_agent(agent_id, _tenant_id, attrs) do
+  @spec heartbeat_agent(String.t(), map()) :: :ok | {:error, term()}
+  def heartbeat_agent(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
@@ -121,9 +117,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   The device identity is resolved using DIRE (Device Identity and Reconciliation Engine)
   based on the agent's hostname and source IP.
   """
-  @spec ensure_device_for_agent(String.t(), String.t(), map()) ::
+  @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  def ensure_device_for_agent(agent_id, _tenant_id, attrs) do
+  def ensure_device_for_agent(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 

@@ -6,7 +6,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Integrations.IntegrationSource
@@ -178,16 +177,9 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     |> Map.new()
   end
 
+  defp lookup_tenant_slug(nil), do: nil
+
   defp lookup_tenant_slug(tenant_id) do
-    case TenantRegistry.slug_for_tenant_id(tenant_id) do
-      {:ok, slug} -> slug
-      :error -> lookup_tenant_slug_from_db(tenant_id)
-    end
-  end
-
-  defp lookup_tenant_slug_from_db(nil), do: nil
-
-  defp lookup_tenant_slug_from_db(tenant_id) do
     # Tenant resource is cross-tenant, use platform actor
     actor = SystemActor.platform(:sync_config_generator)
 

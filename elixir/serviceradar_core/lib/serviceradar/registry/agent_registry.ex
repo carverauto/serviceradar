@@ -1,6 +1,6 @@
 defmodule ServiceRadar.AgentRegistry do
   @moduledoc """
-  Distributed registry for tracking connected agents.
+  Registry for tracking connected agents.
 
   ## Architecture: Go Agents via gRPC
 
@@ -11,20 +11,13 @@ defmodule ServiceRadar.AgentRegistry do
   The registry tracks agent metadata including gRPC addresses so gateways
   can discover and communicate with their assigned agents.
 
-  ## Multi-Tenant Isolation
+  In the tenant-unaware architecture, this module provides agent discovery
+  without tenant_id routing. Tenant isolation is handled by infrastructure
+  (separate deployments, databases, NATS credentials).
 
-  Agents are registered in per-tenant Horde registries managed by
-  `ServiceRadar.Cluster.TenantRegistry`. This ensures:
+  ## Registration
 
-  - Edge components can only discover agents within their tenant
-  - Cross-tenant process enumeration is prevented
-  - Each tenant has isolated registry state
-
-  ## Registration Format
-
-  Agents register via the core API with their gRPC address:
-
-      ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, %{
+      ServiceRadar.AgentRegistry.register_agent("agent-001", %{
         partition_id: "partition-1",
         grpc_host: "192.168.1.100",
         grpc_port: 50_051,
@@ -34,52 +27,43 @@ defmodule ServiceRadar.AgentRegistry do
 
   ## Querying Agents
 
-      # Find all agents for a tenant (REQUIRED: tenant_id)
-      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+      # Find all agents
+      ServiceRadar.AgentRegistry.find_agents()
 
       # Find agents for a partition
-      ServiceRadar.AgentRegistry.find_agents_for_partition(tenant_id, partition_id)
-
-  ## Legacy Compatibility
-
-  This module maintains backwards compatibility with the old single-registry
-  API while delegating to per-tenant registries. The `all_agents/0` function
-  is retained for admin purposes but iterates across all tenant registries.
+      ServiceRadar.AgentRegistry.find_agents_for_partition(partition_id)
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   require Logger
 
   @doc """
-  Register an agent in its tenant's registry.
+  Register an agent in the registry.
 
   ## Parameters
 
-    - `tenant_id` - Tenant UUID (REQUIRED for multi-tenant isolation)
     - `agent_id` - Unique agent identifier
     - `agent_info` - Agent metadata map
 
   ## Examples
 
-      register_agent("tenant-uuid", "agent-001", %{
+      register_agent("agent-001", %{
         partition_id: "partition-1",
         gateway_node: node(),
         capabilities: [:icmp_sweep, :tcp_sweep],
         status: :connected
       })
   """
-  @spec register_agent(String.t(), String.t(), map()) ::
+  @spec register_agent(String.t(), map()) ::
           {:ok, pid()} | {:error, {:already_registered, pid()} | term()}
-  def register_agent(tenant_id, agent_id, agent_info) when is_binary(tenant_id) do
+  def register_agent(agent_id, agent_info) when is_binary(agent_id) do
     metadata = %{
       agent_id: agent_id,
-      tenant_id: tenant_id,
       partition_id: Map.get(agent_info, :partition_id),
       domain: Map.get(agent_info, :domain),
       gateway_node: Map.get(agent_info, :gateway_node, Node.self()),
-      # gRPC connection details for gateway-initiated communication
       grpc_host: Map.get(agent_info, :grpc_host),
       grpc_port: Map.get(agent_info, :grpc_port),
       capabilities: Map.get(agent_info, :capabilities, []),
@@ -90,23 +74,15 @@ defmodule ServiceRadar.AgentRegistry do
       last_heartbeat: DateTime.utc_now()
     }
 
-    case TenantRegistry.register_agent(tenant_id, agent_id, metadata) do
+    case ProcessRegistry.register_agent(agent_id, metadata) do
       {:ok, _pid} = result ->
-        # Broadcast registration event (tenant-scoped topic)
-        Phoenix.PubSub.broadcast(
-          ServiceRadar.PubSub,
-          "agent:registrations:#{tenant_id}",
-          {:agent_registered, metadata}
-        )
-
-        # Also broadcast to global topic for admin monitoring
         Phoenix.PubSub.broadcast(
           ServiceRadar.PubSub,
           "agent:registrations",
           {:agent_registered, metadata}
         )
 
-        Logger.info("Agent registered: #{agent_id} for tenant: #{tenant_id}")
+        Logger.info("Agent registered: #{agent_id}")
         result
 
       error ->
@@ -115,128 +91,150 @@ defmodule ServiceRadar.AgentRegistry do
     end
   end
 
-  # Legacy compatibility: extract tenant_id from agent_info
-  def register_agent(agent_id, agent_info) when is_binary(agent_id) and is_map(agent_info) do
-    tenant_id = Map.get(agent_info, :tenant_id)
+  # Legacy compatibility: ignore tenant_id
+  def register_agent(tenant_id, agent_id, agent_info)
+      when is_binary(tenant_id) and is_binary(agent_id) do
+    register_agent(agent_id, agent_info)
+  end
 
-    if tenant_id do
-      register_agent(tenant_id, agent_id, agent_info)
-    else
-      Logger.warning("register_agent called without tenant_id - tenant_id is required")
-      {:error, :tenant_id_required}
-    end
+  # Legacy compatibility: extract agent_id from agent_info
+  def register_agent(agent_id, agent_info) when is_binary(agent_id) and is_map(agent_info) do
+    register_agent(agent_id, agent_info)
   end
 
   @doc """
-  Unregister an agent from its tenant's registry.
+  Unregister an agent from the registry.
   """
-  @spec unregister_agent(String.t(), String.t()) :: :ok
-  def unregister_agent(tenant_id, agent_id) when is_binary(tenant_id) do
-    TenantRegistry.unregister(tenant_id, {:agent, agent_id})
-
-    Phoenix.PubSub.broadcast(
-      ServiceRadar.PubSub,
-      "agent:registrations:#{tenant_id}",
-      {:agent_disconnected, agent_id}
-    )
+  @spec unregister_agent(String.t()) :: :ok
+  def unregister_agent(agent_id) when is_binary(agent_id) do
+    ProcessRegistry.unregister({:agent, agent_id})
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "agent:registrations",
-      {:agent_disconnected, agent_id, tenant_id}
+      {:agent_disconnected, agent_id}
     )
 
     :ok
   end
 
-  # Legacy compatibility
-  def unregister_agent(agent_id) when is_binary(agent_id) do
-    Logger.warning("unregister_agent called without tenant_id - operation may not work correctly")
-    :ok
+  # Legacy compatibility: ignore tenant_id
+  def unregister_agent(_tenant_id, agent_id) when is_binary(agent_id) do
+    unregister_agent(agent_id)
   end
 
   @doc """
   Update agent heartbeat timestamp.
   """
-  @spec heartbeat(String.t(), String.t()) :: :ok | :error
-  def heartbeat(tenant_id, agent_id) when is_binary(tenant_id) do
-    case TenantRegistry.update_value(tenant_id, {:agent, agent_id}, fn meta ->
-           %{meta | last_heartbeat: DateTime.utc_now()}
-         end) do
-      {_new, _old} -> :ok
-      :error -> :error
-    end
+  @spec heartbeat(String.t()) :: :ok | :error
+  def heartbeat(agent_id) when is_binary(agent_id) do
+    ProcessRegistry.agent_heartbeat(agent_id)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def heartbeat(_tenant_id, agent_id) when is_binary(agent_id) do
+    heartbeat(agent_id)
   end
 
   @doc """
-  Look up a specific agent in a tenant's registry.
+  Look up a specific agent in the registry.
   """
-  @spec lookup(String.t(), String.t()) :: [{pid(), map()}]
-  def lookup(tenant_id, agent_id) when is_binary(tenant_id) do
-    TenantRegistry.lookup(tenant_id, {:agent, agent_id})
+  @spec lookup(String.t()) :: [{pid(), map()}]
+  def lookup(agent_id) when is_binary(agent_id) do
+    ProcessRegistry.lookup({:agent, agent_id})
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def lookup(_tenant_id, agent_id) when is_binary(agent_id) do
+    lookup(agent_id)
   end
 
   @doc """
-  Find all agents for a specific tenant.
-
-  This is the primary query function - always requires tenant_id.
+  Find all agents.
   """
+  @spec find_agents() :: [map()]
+  def find_agents do
+    ProcessRegistry.find_agents()
+  end
+
+  # Legacy compatibility: ignore tenant_id
   @spec find_agents_for_tenant(String.t()) :: [map()]
-  def find_agents_for_tenant(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.find_agents(tenant_id)
+  def find_agents_for_tenant(_tenant_id) do
+    find_agents()
   end
 
   @doc """
-  Find all agents for a specific tenant and partition.
+  Find all agents for a specific partition.
   """
-  @spec find_agents_for_partition(String.t(), String.t()) :: [map()]
-  def find_agents_for_partition(tenant_id, partition_id) when is_binary(tenant_id) do
-    find_agents_for_tenant(tenant_id)
+  @spec find_agents_for_partition(String.t()) :: [map()]
+  def find_agents_for_partition(partition_id) do
+    find_agents()
     |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
-  @doc """
-  Find all agents for a specific tenant and domain.
+  # Legacy compatibility: ignore tenant_id
+  def find_agents_for_partition(_tenant_id, partition_id) do
+    find_agents_for_partition(partition_id)
+  end
 
-  Domain represents a logical grouping of agents, typically by site or location
-  (e.g., "site-a", "datacenter-east"). Used for routing checks to agents
-  in the same network segment as target endpoints.
+  @doc """
+  Find all agents for a specific domain.
   """
-  @spec find_agents_for_domain(String.t(), String.t()) :: [map()]
-  def find_agents_for_domain(tenant_id, domain) when is_binary(tenant_id) do
-    find_agents_for_tenant(tenant_id)
+  @spec find_agents_for_domain(String.t()) :: [map()]
+  def find_agents_for_domain(domain) do
+    find_agents()
     |> Enum.filter(&(&1[:domain] == domain))
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def find_agents_for_domain(_tenant_id, domain) do
+    find_agents_for_domain(domain)
+  end
+
   @doc """
-  Find an available agent for a tenant's domain.
+  Find an available agent for a domain.
 
   Returns the first connected agent in the domain, or nil if none available.
   """
-  @spec find_available_agent_for_domain(String.t(), String.t()) :: map() | nil
-  def find_available_agent_for_domain(tenant_id, domain) do
-    find_agents_for_domain(tenant_id, domain)
+  @spec find_available_agent_for_domain(String.t()) :: map() | nil
+  def find_available_agent_for_domain(domain) do
+    find_agents_for_domain(domain)
     |> Enum.find(&(&1[:status] == :connected))
   end
 
-  @doc """
-  Find agents connected to a specific gateway node within a tenant.
-  """
-  @spec find_agents_for_gateway(String.t(), node()) :: [map()]
-  def find_agents_for_gateway(tenant_id, gateway_node) when is_binary(tenant_id) do
-    find_agents_for_tenant(tenant_id)
-    |> Enum.filter(&(&1[:gateway_node] == gateway_node))
+  # Legacy compatibility: ignore tenant_id
+  def find_available_agent_for_domain(_tenant_id, domain) do
+    find_available_agent_for_domain(domain)
   end
 
   @doc """
-  Find agents with specific capabilities within a tenant.
+  Find agents connected to a specific gateway node.
   """
-  @spec find_agents_with_capability(String.t(), atom()) :: [map()]
-  def find_agents_with_capability(tenant_id, capability) when is_binary(tenant_id) do
-    find_agents_for_tenant(tenant_id)
+  @spec find_agents_for_gateway(node()) :: [map()]
+  def find_agents_for_gateway(gateway_node) do
+    find_agents()
+    |> Enum.filter(&(&1[:gateway_node] == gateway_node))
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def find_agents_for_gateway(_tenant_id, gateway_node) do
+    find_agents_for_gateway(gateway_node)
+  end
+
+  @doc """
+  Find agents with specific capabilities.
+  """
+  @spec find_agents_with_capability(atom()) :: [map()]
+  def find_agents_with_capability(capability) do
+    find_agents()
     |> Enum.filter(fn agent ->
       capability in Map.get(agent, :capabilities, [])
     end)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def find_agents_with_capability(_tenant_id, capability) do
+    find_agents_with_capability(capability)
   end
 
   @doc """
@@ -245,49 +243,57 @@ defmodule ServiceRadar.AgentRegistry do
   Returns `{:ok, {host, port}}` if agent is registered with gRPC details,
   or `{:error, :not_found}` if agent is not registered or has no gRPC address.
   """
-  @spec get_grpc_address(String.t(), String.t()) ::
+  @spec get_grpc_address(String.t()) ::
           {:ok, {String.t(), pos_integer()}} | {:error, :not_found | :no_grpc_address}
-  def get_grpc_address(tenant_id, agent_id) when is_binary(tenant_id) do
-    case lookup(tenant_id, agent_id) do
+  def get_grpc_address(agent_id) when is_binary(agent_id) do
+    case lookup(agent_id) do
       [{_pid, metadata}] ->
         case {metadata[:grpc_host], metadata[:grpc_port]} do
           {host, port} when is_binary(host) and is_integer(port) and port > 0 ->
             {:ok, {host, port}}
+
           _ ->
             {:error, :no_grpc_address}
         end
+
       [] ->
         {:error, :not_found}
     end
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def get_grpc_address(_tenant_id, agent_id) when is_binary(agent_id) do
+    get_grpc_address(agent_id)
+  end
+
   @doc """
-  Find all agents with gRPC addresses available for a tenant.
+  Find all agents with gRPC addresses available.
 
   Used by gateways to discover agents they can communicate with.
   """
-  @spec find_agents_with_grpc(String.t()) :: [map()]
-  def find_agents_with_grpc(tenant_id) when is_binary(tenant_id) do
-    find_agents_for_tenant(tenant_id)
+  @spec find_agents_with_grpc() :: [map()]
+  def find_agents_with_grpc do
+    find_agents()
     |> Enum.filter(fn agent ->
       is_binary(agent[:grpc_host]) and is_integer(agent[:grpc_port]) and agent[:grpc_port] > 0
     end)
   end
 
-  @doc """
-  Get all registered agents across ALL tenants.
+  # Legacy compatibility: ignore tenant_id
+  def find_agents_with_grpc(_tenant_id) do
+    find_agents_with_grpc()
+  end
 
-  WARNING: This is for admin/platform use only. Edge components should
-  NEVER call this function - use tenant-scoped queries instead.
+  @doc """
+  Get all registered agents.
 
   Queries the database as source of truth for admin views.
   """
   @spec all_agents() :: [map()]
   def all_agents do
     # For admin, query Ash for all agents in database
-    # Registry state is for runtime/clustering, DB is source of truth
-    # Uses platform actor since this crosses tenant boundaries (admin only)
-    actor = SystemActor.platform(:agent_registry)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:agent_registry)
 
     case Ash.read(ServiceRadar.Infrastructure.Agent, actor: actor) do
       {:ok, agents} -> agents
@@ -296,24 +302,15 @@ defmodule ServiceRadar.AgentRegistry do
   end
 
   @doc """
-  Count of registered agents for a tenant.
-  """
-  @spec count(String.t()) :: non_neg_integer()
-  def count(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.count_by_type(tenant_id, :agent)
-  end
-
-  @doc """
-  Count of registered agents across all tenants.
-
-  WARNING: Admin/platform use only.
+  Count of registered agents.
   """
   @spec count() :: non_neg_integer()
   def count do
-    TenantRegistry.list_registries()
-    |> Enum.reduce(0, fn {_name, _pid}, acc ->
-      # Would need to track tenant_id per registry for accurate count
-      acc
-    end)
+    ProcessRegistry.count_by_type(:agent)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def count(_tenant_id) do
+    count()
   end
 end

@@ -23,24 +23,32 @@ defmodule ServiceRadar.Observability.LogPromotion do
     "trace" => OCSF.severity_low()
   }
 
+  @spec promote([map()], String.t() | nil) :: {:ok, non_neg_integer()}
+  def promote(rows, tenant_id) when is_list(rows) do
+    # DB connection's search_path determines the schema
+    promote(rows, tenant_id, nil)
+  end
+
   @spec promote([map()], String.t() | nil, String.t() | nil) :: {:ok, non_neg_integer()}
-  def promote(_rows, nil, _schema), do: {:ok, 0}
-  def promote(_rows, _tenant_id, nil), do: {:ok, 0}
+  def promote(rows, tenant_id, _schema) when is_list(rows) do
+    # DB connection's search_path determines the schema
+    if is_nil(tenant_id) do
+      {:ok, 0}
+    else
+      rules = load_rules(tenant_id)
+      promotions = build_promotions(rows, rules)
+      events = Enum.map(promotions, & &1.event)
 
-  def promote(rows, tenant_id, schema) when is_list(rows) do
-    rules = load_rules(tenant_id, schema)
-    promotions = build_promotions(rows, rules)
-    events = Enum.map(promotions, & &1.event)
+      case insert_events(events, tenant_id) do
+        {:ok, 0} ->
+          {:ok, 0}
 
-    case insert_events(events, tenant_id, schema) do
-      {:ok, 0} ->
-        {:ok, 0}
-
-      {:ok, count} ->
-        _ = maybe_evaluate_stateful_rules(events, tenant_id, schema)
-        maybe_create_alerts(promotions, schema)
-        Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
-        {:ok, count}
+        {:ok, count} ->
+          _ = maybe_evaluate_stateful_rules(events, tenant_id)
+          maybe_create_alerts(promotions)
+          Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
+          {:ok, count}
+      end
     end
   rescue
     error ->
@@ -48,8 +56,8 @@ defmodule ServiceRadar.Observability.LogPromotion do
       {:ok, 0}
   end
 
-  defp load_rules(_tenant_id, _schema) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp load_rules(_tenant_id) do
+    # DB connection's search_path determines the schema
     actor = SystemActor.system(:log_promotion)
 
     LogPromotionRule
@@ -72,12 +80,14 @@ defmodule ServiceRadar.Observability.LogPromotion do
     Enum.flat_map(rows, &match_rules(&1, rules))
   end
 
-  defp insert_events([], _tenant_id, _schema), do: {:ok, 0}
+  defp insert_events([], _tenant_id), do: {:ok, 0}
 
-  defp insert_events(events, tenant_id, schema) do
+  defp insert_events(events, tenant_id) do
+    # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all("ocsf_events", events,
-        prefix: schema,
+      ServiceRadar.Repo.insert_all(
+        "ocsf_events",
+        events,
         on_conflict: :nothing,
         returning: false
       )
@@ -258,10 +268,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
     }
   end
 
-  defp maybe_create_alerts(promotions, schema) do
+  defp maybe_create_alerts(promotions) do
     {created, attempted} =
       Enum.reduce(promotions, {0, 0}, fn promotion, acc ->
-        update_alert_counts(promotion, schema, acc)
+        update_alert_counts(promotion, acc)
       end)
 
     maybe_emit_alert_metrics(created, attempted)
@@ -276,10 +286,11 @@ defmodule ServiceRadar.Observability.LogPromotion do
     end
   end
 
-  defp maybe_evaluate_stateful_rules([], _tenant_id, _schema), do: :ok
+  defp maybe_evaluate_stateful_rules([], _tenant_id), do: :ok
 
-  defp maybe_evaluate_stateful_rules(events, tenant_id, schema) do
-    case StatefulAlertEngine.evaluate_events(events, tenant_id, schema) do
+  defp maybe_evaluate_stateful_rules(events, tenant_id) do
+    # DB connection's search_path determines the schema
+    case StatefulAlertEngine.evaluate_events(events, tenant_id, nil) do
       :ok -> :ok
       {:error, reason} ->
         Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}", tenant_id: tenant_id)
@@ -406,10 +417,11 @@ defmodule ServiceRadar.Observability.LogPromotion do
     {activity_id, class_uid, category_uid, type_uid}
   end
 
-  defp update_alert_counts(%{event: _event, alert: nil}, _schema, counts), do: counts
+  defp update_alert_counts(%{event: _event, alert: nil}, counts), do: counts
 
-  defp update_alert_counts(%{event: event, alert: alert_config}, schema, {created, attempted}) do
-    case AlertGenerator.from_event(event, alert: alert_config, tenant: schema) do
+  defp update_alert_counts(%{event: event, alert: alert_config}, {created, attempted}) do
+    # DB connection's search_path determines the schema
+    case AlertGenerator.from_event(event, alert: alert_config) do
       {:ok, %{} = _alert} -> {created + 1, attempted + 1}
       _ -> {created, attempted + 1}
     end
@@ -424,4 +436,5 @@ defmodule ServiceRadar.Observability.LogPromotion do
       %{}
     )
   end
+
 end

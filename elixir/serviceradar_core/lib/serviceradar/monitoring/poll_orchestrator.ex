@@ -15,12 +15,12 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   Jobs are dispatched to gateways across the ERTS cluster using Horde registries:
 
-  1. **Discovery**: GatewayRegistry (backed by Horde via TenantRegistry) provides
+  1. **Discovery**: GatewayRegistry (backed by ProcessRegistry Horde) provides
      cluster-wide gateway discovery. Each registered gateway has a PID that is
      location-transparent across nodes.
 
-  2. **Selection**: Gateways are selected by tenant/partition using:
-     - `:any` - Random available gateway for tenant
+  2. **Selection**: Gateways are selected by partition using:
+     - `:any` - Random available gateway
      - `:partition` - Available gateway in specific partition
      - `:specific` - Directly assigned gateway by UUID
 

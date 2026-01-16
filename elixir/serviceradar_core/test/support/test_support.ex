@@ -1,7 +1,7 @@
 defmodule ServiceRadar.TestSupport do
   @moduledoc false
 
-  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
+  alias ServiceRadar.Cluster.TenantSchemas
 
   def start_core! do
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
@@ -25,7 +25,8 @@ defmodule ServiceRadar.TestSupport do
     tenant_id = Ash.UUID.generate()
     tenant_slug = "#{slug_prefix}-#{unique_id}"
 
-    TenantRegistry.register_slug(tenant_slug, tenant_id)
+    # In tenant-unaware architecture, just create the schema
+    # No per-tenant registry registration is needed
     {:ok, _schema} = TenantSchemas.create_schema(tenant_slug)
 
     %{tenant_id: tenant_id, tenant_slug: tenant_slug}

@@ -128,9 +128,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.PartitionContext do
 
   @doc """
   Build an actor map with optional partition context.
-
-  This is the enhanced version of TenantContext.build_actor/1 that includes
-  partition awareness.
   """
   def build_actor_with_partition(user, partition_id \\ nil) do
     base_actor = %{

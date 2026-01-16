@@ -345,7 +345,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   def handle_info(:health_check, state) do
     if state.connected do
       # Update registry heartbeat
-      AgentRegistry.heartbeat(state.tenant_id, state.agent_id)
+      AgentRegistry.heartbeat(state.agent_id)
     end
 
     schedule_health_check()
@@ -362,7 +362,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
     end
 
     # Unregister from registry
-    AgentRegistry.unregister_agent(state.tenant_id, state.agent_id)
+    AgentRegistry.unregister_agent(state.agent_id)
 
     :ok
   end
@@ -388,12 +388,11 @@ defmodule ServiceRadar.Edge.AgentProcess do
       spiffe_id: nil
     }
 
-    AgentRegistry.register_agent(state.tenant_id, state.agent_id, agent_info)
+    AgentRegistry.register_agent(state.agent_id, agent_info)
   end
 
   defp update_registry_status(state, status) do
-    ServiceRadar.Cluster.TenantRegistry.update_value(
-      state.tenant_id,
+    ServiceRadar.ProcessRegistry.update_value(
       {:agent, state.agent_id},
       fn meta ->
         Map.put(meta, :status, status)

@@ -2231,7 +2231,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       available_profiles = load_available_profiles(tenant_schema, actor)
 
       # Resolve the effective profile via SRQL targeting
-      profile = SysmonCompiler.resolve_profile(tenant_schema, device_uid, nil, actor)
+      profile = SysmonCompiler.resolve_profile(device_uid, actor)
 
       # Determine source based on profile type
       source =

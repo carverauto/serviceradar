@@ -144,29 +144,6 @@ if config_env() == :prod do
   config :serviceradar_core,
     status_handler_enabled: System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-  # Tenant mode configuration
-  # TENANT_AWARE_MODE controls whether the application uses explicit tenant context:
-  # - true (default): Pass tenant: parameter to Ash operations, enumerate tenant schemas
-  # - false: Tenant is implicit from DB connection's search_path (CNPG scoped credentials)
-  tenant_aware_mode =
-    case System.get_env("TENANT_AWARE_MODE") do
-      "false" -> false
-      "0" -> false
-      _ -> true
-    end
-
-  config :serviceradar_core, :tenant_aware_mode, tenant_aware_mode
-
-  # When TENANT_AWARE_MODE=false, the tenant schema comes from DB connection
-  # DB_SCHEMA is injected by tenant-workload-operator from CNPG credentials
-  if not tenant_aware_mode do
-    tenant_schema = System.get_env("DB_SCHEMA")
-
-    if tenant_schema do
-      config :serviceradar_core, :tenant_schema, tenant_schema
-    end
-  end
-
   config :serviceradar_core,
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 

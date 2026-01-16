@@ -17,7 +17,6 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
 
@@ -39,9 +38,8 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
     require Ash.Query
     active_tenant_id = Keyword.get(opts, :active_tenant_id)
 
-    # Use mode-conditional actor for scope building
     # Tenant and TenantMembership are public schema resources
-    actor = TenantMode.system_actor(:scope, nil)
+    actor = SystemActor.platform(:scope)
 
     # Load tenant separately - Tenant is a global resource, no tenant context needed
     user_with_tenant = Ash.load!(user, [:tenant], actor: actor)
@@ -135,8 +133,8 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   end
 
   defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
-    # Tenant is in public schema, use mode-conditional actor
-    actor = TenantMode.system_actor(:scope, nil)
+    # Tenant is in public schema
+    actor = SystemActor.platform(:scope)
 
     Tenant
     |> Ash.Query.for_read(:read)

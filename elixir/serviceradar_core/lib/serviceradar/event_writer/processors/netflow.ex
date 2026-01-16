@@ -57,19 +57,13 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("NetFlow batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_netflow_rows(schema, rows)
-      end
+      insert_netflow_rows(rows)
     end
   rescue
     e ->
@@ -103,9 +97,11 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_netflow_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_netflow_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do

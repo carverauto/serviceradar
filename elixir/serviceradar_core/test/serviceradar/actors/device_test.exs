@@ -16,7 +16,6 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   alias ServiceRadar.Actors.Device
   alias ServiceRadar.Actors.DeviceRegistry
-  alias ServiceRadar.Cluster.TenantRegistry
 
   @moduletag :database
 
@@ -35,14 +34,12 @@ defmodule ServiceRadar.Actors.DeviceTest do
     device_id = "device-#{unique_id}"
     partition_id = "partition-#{unique_id}"
 
-    # Ensure tenant registry exists
-    TenantRegistry.ensure_registry(tenant_id)
-
-    # Wait for registry processes to start
-    Process.sleep(100)
+    # ProcessRegistry is started by the application supervision tree
+    # No per-tenant registry initialization needed
 
     on_exit(fn ->
       # Cleanup: stop any device actors we started
+      # Legacy API accepts but ignores tenant_id
       DeviceRegistry.stop_all(tenant_id)
     end)
 
@@ -311,54 +308,13 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
   end
 
-  describe "multi-tenant isolation" do
-    test "device actors are isolated between tenants", ctx do
-      tenant_b = Ash.UUID.generate()
-      TenantRegistry.ensure_registry(tenant_b)
-      Process.sleep(100)
-
-      # Start device in tenant A
-      {:ok, pid_a} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
-
-      # Same device_id in tenant B should create new actor
-      {:ok, pid_b} = DeviceRegistry.get_or_start(tenant_b, ctx.device_id)
-
-      assert pid_a != pid_b
-
-      # Lookup in wrong tenant returns not_found
-      assert DeviceRegistry.lookup(tenant_b, ctx.device_id) == {:ok, pid_b}
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == {:ok, pid_a}
-
-      # Cleanup
-      DeviceRegistry.stop_all(tenant_b)
-    end
-
-    test "list_devices only returns devices for specified tenant", ctx do
-      tenant_b = Ash.UUID.generate()
-      TenantRegistry.ensure_registry(tenant_b)
-      Process.sleep(100)
-
-      # Start devices in both tenants
-      {:ok, _} = DeviceRegistry.get_or_start(ctx.tenant_id, "device-a-#{ctx.unique_id}")
-      {:ok, _} = DeviceRegistry.get_or_start(tenant_b, "device-b-#{ctx.unique_id}")
-
-      # List should only return tenant's devices
-      devices_a = DeviceRegistry.list_devices(ctx.tenant_id)
-      devices_b = DeviceRegistry.list_devices(tenant_b)
-
-      device_ids_a = Enum.map(devices_a, & &1.device_id)
-      device_ids_b = Enum.map(devices_b, & &1.device_id)
-
-      assert "device-a-#{ctx.unique_id}" in device_ids_a
-      refute "device-b-#{ctx.unique_id}" in device_ids_a
-
-      assert "device-b-#{ctx.unique_id}" in device_ids_b
-      refute "device-a-#{ctx.unique_id}" in device_ids_b
-
-      # Cleanup
-      DeviceRegistry.stop_all(tenant_b)
-    end
-  end
+  # Note: In tenant-unaware architecture, each tenant instance runs its own
+  # ERTS cluster with isolated resources. Tenant isolation is handled by
+  # infrastructure (separate deployments, databases, NATS credentials),
+  # not by in-process tenant_id routing.
+  #
+  # The legacy API functions that accept tenant_id still work but ignore
+  # the tenant_id parameter - all operations go to the singleton ProcessRegistry.
 
   describe "convenience functions" do
     test "DeviceRegistry.update_identity/3 starts actor if needed", ctx do

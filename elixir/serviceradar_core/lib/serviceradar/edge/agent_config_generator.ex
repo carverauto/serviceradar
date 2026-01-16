@@ -74,13 +74,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     - `{:ok, config}` - The generated config with version hash
     - `{:error, reason}` - If config generation fails
   """
-  @spec generate_config(String.t(), String.t()) :: {:ok, agent_config()} | {:error, term()}
-  def generate_config(agent_id, tenant_id) do
-    case load_agent_checks(agent_id, tenant_id) do
+  @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
+  def generate_config(agent_id) do
+    case load_agent_checks(agent_id) do
       {:ok, checks} ->
-        sync_payload = load_sync_payload(agent_id, tenant_id)
-        sweep_config = load_sweep_config(agent_id, tenant_id)
-        sysmon_config = load_sysmon_config(agent_id, tenant_id)
+        sync_payload = load_sync_payload(agent_id)
+        sweep_config = load_sweep_config(agent_id)
+        sysmon_config = load_sysmon_config(agent_id)
         config = build_config(checks, sync_payload, sweep_config, sysmon_config)
         {:ok, config}
 
@@ -111,10 +111,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     - `{:ok, config}` - If config has changed (includes new version hash)
     - `{:error, reason}` - If config generation fails
   """
-  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+  @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
-  def get_config_if_changed(agent_id, tenant_id, current_version) do
-    case generate_config(agent_id, tenant_id) do
+  def get_config_if_changed(agent_id, current_version) do
+    case generate_config(agent_id) do
       {:ok, config} ->
         if config.config_version == current_version do
           Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
@@ -158,7 +158,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load service checks assigned to this agent from the database
-  defp load_agent_checks(agent_id, _tenant_id) do
+  defp load_agent_checks(agent_id) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:agent_config_generator)
 
@@ -268,8 +268,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     "v" <> Base.encode16(hash, case: :lower)
   end
 
-  defp load_sync_payload(agent_id, tenant_id) do
-    case SyncConfigGenerator.build_payload(agent_id, tenant_id) do
+  defp load_sync_payload(agent_id) do
+    case SyncConfigGenerator.build_payload(agent_id) do
       {:ok, payload} ->
         payload
 
@@ -278,17 +278,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           "Failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
         )
 
-        %{"agent_id" => agent_id, "tenant_id" => tenant_id, "sources" => %{}}
+        %{"agent_id" => agent_id, "sources" => %{}}
     end
   end
 
   # Load sweep configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
-  defp load_sweep_config(agent_id, tenant_id) do
+  defp load_sweep_config(agent_id) do
     # Use "default" partition for now - can be extended to support partitions later
     partition = "default"
+    # Tenant isolation is handled by DB search_path, use placeholder for cache key
+    tenant_key = "default"
 
-    case ConfigServer.get_config(tenant_id, :sweep, partition, agent_id) do
+    case ConfigServer.get_config(tenant_key, :sweep, partition, agent_id) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
         entry.config
@@ -309,10 +311,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
-  defp load_sysmon_config(agent_id, tenant_id) do
+  defp load_sysmon_config(agent_id) do
     partition = "default"
+    # Tenant isolation is handled by DB search_path, use placeholder for cache key
+    tenant_key = "default"
 
-    case ConfigServer.get_config(tenant_id, :sysmon, partition, agent_id) do
+    case ConfigServer.get_config(tenant_key, :sysmon, partition, agent_id) do
       {:ok, entry} ->
         entry.config
 

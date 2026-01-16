@@ -1,19 +1,34 @@
 defmodule ServiceRadar.Actors.SystemActor do
   @moduledoc """
-  Generates tenant-scoped system actors for background operations.
+  Generates system actors for background operations.
 
   System actors allow background processes (GenServers, Oban workers, seeders)
-  to perform Ash operations while maintaining tenant isolation policy enforcement.
+  to perform Ash operations while maintaining authorization policy enforcement.
 
   ## Usage
 
-      # For tenant-scoped operations
-      actor = SystemActor.for_tenant(tenant_id, :state_monitor)
-      Gateway |> Ash.read(actor: actor, tenant: tenant_schema)
+      # For tenant instance code (search_path determines schema)
+      actor = SystemActor.system(:state_monitor)
+      Gateway |> Ash.read(actor: actor)
+
+      # For control plane code accessing tenant schemas
+      actor = SystemActor.for_tenant(tenant_id, :edge_site)
+      NatsLeafServer |> Ash.read(actor: actor, tenant: tenant_schema)
 
       # For platform-wide operations (bootstrap, tenant management)
       actor = SystemActor.platform(:tenant_bootstrap)
       Tenant |> Ash.read(actor: actor)
+
+  ## When to Use Each Type
+
+  - `system/1` - Use in tenant instance code where the DB connection's
+    search_path is set by CNPG credentials (tenant-unaware mode).
+
+  - `for_tenant/2` - Use in control plane code that needs to access
+    a specific tenant's schema from a non-scoped connection.
+
+  - `platform/1` - Use for cross-tenant operations in the public schema
+    (tenant management, operator bootstrap, etc.)
 
   ## Why Not authorize?: false?
 
@@ -22,7 +37,7 @@ defmodule ServiceRadar.Actors.SystemActor do
   operations could inadvertently access cross-tenant data.
 
   System actors ensure:
-  1. Tenant isolation policies are enforced via `actor(:tenant_id)`
+  1. Authorization policies are properly evaluated
   2. Operations are auditable with identifiable actors
   3. New security policies apply to all operations
 
@@ -31,8 +46,8 @@ defmodule ServiceRadar.Actors.SystemActor do
   System actors are maps with the following fields:
   - `id` - Unique identifier (e.g., "system:state_monitor")
   - `email` - Descriptive email for audit logs (e.g., "state-monitor@system.serviceradar")
-  - `role` - Either `:system` (tenant-scoped) or `:super_admin` (platform-wide)
-  - `tenant_id` - The tenant UUID (only for tenant-scoped actors)
+  - `role` - Either `:system` or `:super_admin` (platform-wide)
+  - `tenant_id` - The tenant UUID (only for `for_tenant` actors)
   """
 
   @type component :: atom()
@@ -161,11 +176,11 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   ## When to Use
 
-  Use `system/1` when `TENANT_AWARE_MODE=false` and the tenant context
-  is provided by database credentials (schema-scoped CNPG users).
+  Use `system/1` in tenant instance code where the DB connection's
+  search_path is set by CNPG credentials (tenant isolation is implicit).
 
-  Use `for_tenant/2` when `TENANT_AWARE_MODE=true` and the tenant must
-  be explicitly passed to Ash operations.
+  Use `for_tenant/2` in control plane code that needs to access a
+  specific tenant's schema from a non-scoped connection.
   """
   @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}
   def system(component) when is_atom(component) do

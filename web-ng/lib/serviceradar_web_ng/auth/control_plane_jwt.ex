@@ -96,9 +96,8 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
   def verify_and_decode(token) when is_binary(token) do
     with {:ok, public_key} <- get_public_key(),
          {:ok, {header, payload}} <- decode_token(token),
-         :ok <- verify_signature(token, public_key, header),
-         {:ok, claims} <- validate_claims(payload) do
-      {:ok, claims}
+         :ok <- verify_signature(token, public_key, header) do
+      validate_claims(payload)
     end
   end
 
@@ -261,9 +260,8 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
     with :ok <- validate_issuer(payload, expected_issuer),
          :ok <- validate_audience(payload, expected_audience),
-         :ok <- validate_expiration(payload, now),
-         {:ok, claims} <- extract_claims(payload) do
-      {:ok, claims}
+         :ok <- validate_expiration(payload, now) do
+      extract_claims(payload)
     end
   end
 

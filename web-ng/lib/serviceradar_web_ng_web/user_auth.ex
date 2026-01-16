@@ -13,7 +13,6 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Phoenix.Controller
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.TenantResolver
 
@@ -61,9 +60,9 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     if is_nil(tenant) do
       {:error, :invalid_token}
     else
-      opts = TenantMode.tenant_opts(tenant)
-      # Use mode-conditional actor for JWT validation
-      actor = TenantMode.system_actor(:user_auth, nil)
+      # Control plane code - pass tenant context for cross-tenant user lookup
+      opts = [tenant: tenant]
+      actor = SystemActor.platform(:user_auth)
       subject_opts = Keyword.merge([actor: actor], opts)
 
       # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured

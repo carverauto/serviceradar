@@ -28,9 +28,12 @@ defmodule ServiceRadarAgentGateway.AgentClient do
 
   use GenServer
 
+  require Ash.Query
   require Logger
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Identity.Tenant
 
   @connection_timeout :timer.seconds(10)
   @call_timeout :timer.seconds(30)
@@ -320,11 +323,19 @@ defmodule ServiceRadarAgentGateway.AgentClient do
   end
 
   # Resolve tenant_id (UUID) to tenant_slug for certificate validation
+  # In tenant-unaware architecture, look up from database
   defp get_tenant_slug(tenant_id) do
-    case ServiceRadar.Cluster.TenantRegistry.slug_for_tenant_id(tenant_id) do
-      {:ok, slug} -> slug
-      :error -> nil
+    actor = SystemActor.platform(:agent_client)
+
+    case Tenant
+         |> Ash.Query.filter(id == ^tenant_id)
+         |> Ash.Query.limit(1)
+         |> Ash.read(actor: actor) do
+      {:ok, [tenant | _]} -> to_string(tenant.slug)
+      _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   # Build gRPC credentials with mTLS if configured

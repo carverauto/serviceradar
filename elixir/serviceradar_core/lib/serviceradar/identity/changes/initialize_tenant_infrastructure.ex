@@ -28,7 +28,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   use Ash.Resource.Change
 
-  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
+  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
   alias ServiceRadar.Oban.TenantQueues
   alias ServiceRadar.Observability.{TemplateSeeder, ZenRuleSeeder}
@@ -59,20 +59,9 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
     Logger.info("Initializing infrastructure for tenant: #{tenant_slug} (#{tenant_id})")
 
     with {:ok, _schema} <- TenantSchemas.create_schema(tenant_slug) do
-      # 1. Create per-tenant Horde registry and DynamicSupervisor
-      case TenantRegistry.ensure_registry(tenant_id, tenant_slug) do
-        {:ok, %{registry: registry, supervisor: supervisor}} ->
-          Logger.debug(
-            "Created TenantRegistry infrastructure: registry=#{registry}, supervisor=#{supervisor}"
-          )
+      # Note: ProcessRegistry is a singleton started by the application supervision tree.
+      # No per-tenant registry initialization is needed in the tenant-unaware architecture.
 
-        {:error, reason} ->
-          Logger.error("Failed to create TenantRegistry for #{tenant_slug}: #{inspect(reason)}")
-          # Don't fail the tenant creation, just log the error
-          # Registry will be lazily created on first gateway/agent connection
-      end
-
-      # 2. Provision per-tenant Oban queues for job isolation
       case TenantQueues.provision_tenant(tenant_id) do
         :ok ->
           Logger.debug("Provisioned Oban queues for tenant: #{tenant_slug}")

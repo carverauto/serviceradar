@@ -19,19 +19,13 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("OCSF events batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_event_rows(schema, rows)
-      end
+      insert_event_rows(rows)
     end
   rescue
     e ->
@@ -65,14 +59,16 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_event_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_event_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
       {count, _} ->
-        maybe_evaluate_stateful_rules(rows, schema)
+        maybe_evaluate_stateful_rules(rows)
         {:ok, count}
     end
   end
@@ -194,9 +190,10 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp severity_name(6), do: "Fatal"
   defp severity_name(_), do: "Unknown"
 
-  defp maybe_evaluate_stateful_rules([], _schema), do: :ok
+  defp maybe_evaluate_stateful_rules([]), do: :ok
 
-  defp maybe_evaluate_stateful_rules(rows, schema) do
+  defp maybe_evaluate_stateful_rules(rows) do
+    # DB connection's search_path determines the schema
     tenant_id =
       case rows do
         [%{tenant_id: tenant_id} | _] -> tenant_id
@@ -207,7 +204,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
       Logger.warning("Skipping stateful alert evaluation; missing tenant_id")
       :ok
     else
-      case StatefulAlertEngine.evaluate_events(rows, tenant_id, schema) do
+      case StatefulAlertEngine.evaluate_events(rows, tenant_id, nil) do
         :ok -> :ok
         {:error, reason} ->
           Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
@@ -215,5 +212,4 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
       end
     end
   end
-
 end

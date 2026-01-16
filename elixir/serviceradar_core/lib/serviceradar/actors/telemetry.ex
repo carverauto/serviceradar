@@ -32,7 +32,7 @@ defmodule ServiceRadar.Actors.Telemetry do
   require Logger
 
   alias ServiceRadar.Actors.DeviceRegistry
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   @prefix [:serviceradar, :actors, :device]
 
@@ -150,20 +150,11 @@ defmodule ServiceRadar.Actors.Telemetry do
   Called periodically to update gauge metrics.
   """
   def collect_metrics do
-    # Collect metrics per tenant
-    TenantRegistry.list_registries()
-    |> Enum.each(fn {_name, _pid} ->
-      # For each tenant, collect device actor stats
-      # Note: We'd need to track tenant_id per registry for this
-      # For now, emit global metrics
-      :ok
-    end)
-
-    # Emit global count
+    # Emit global count from ProcessRegistry
     :telemetry.execute(
       @prefix ++ [:count],
       %{value: count_all_actors()},
-      %{tenant_id: "global"}
+      %{type: "global"}
     )
   end
 
@@ -260,8 +251,6 @@ defmodule ServiceRadar.Actors.Telemetry do
   end
 
   defp count_all_actors do
-    # This is expensive - iterate all tenant registries
-    # In production, maintain a counter instead
-    0
+    ProcessRegistry.count_by_type(:device)
   end
 end

@@ -59,20 +59,14 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
     tenant_id = TenantContext.current_tenant()
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("Sweep batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_sweep_rows(schema, rows, messages, tenant_id)
-      end
+      insert_sweep_rows(rows, messages, tenant_id)
     end
   rescue
     e ->
@@ -86,9 +80,11 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_sweep_rows(schema, rows, messages, tenant_id) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_sweep_rows(rows, messages, tenant_id) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
@@ -154,10 +150,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   defp update_device_availability_only(results, tenant_id) do
-    alias ServiceRadar.Cluster.TenantSchemas
     alias ServiceRadar.Identity.DeviceLookup
 
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+    # DB connection's search_path determines the schema
 
     # Extract IPs
     ips =
@@ -173,24 +168,20 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       device_map = DeviceLookup.batch_lookup_by_ip(ips, actor: system_actor(tenant_id))
       timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      update_availability(
-        results,
-        device_map,
-        tenant_schema,
-        timestamp
-      )
+      update_availability(results, device_map, timestamp)
     end
   rescue
     e ->
       Logger.warning("Device availability update failed: #{inspect(e)}")
   end
 
-  defp update_availability(results, device_map, tenant_schema, timestamp) do
-    update_available_devices(results, device_map, tenant_schema, timestamp)
-    update_unavailable_devices(results, device_map, tenant_schema, timestamp)
+  defp update_availability(results, device_map, timestamp) do
+    update_available_devices(results, device_map, timestamp)
+    update_unavailable_devices(results, device_map, timestamp)
   end
 
-  defp update_available_devices(results, device_map, tenant_schema, timestamp) do
+  defp update_available_devices(results, device_map, timestamp) do
+    # DB connection's search_path determines the schema
     available_uids =
       results
       |> Enum.filter(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
@@ -201,14 +192,15 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       |> Enum.map(& &1.canonical_device_id)
 
     unless Enum.empty?(available_uids) do
-      from(d in {tenant_schema <> ".ocsf_devices", Device},
+      from(d in {"ocsf_devices", Device},
         where: d.uid in ^available_uids
       )
       |> Repo.update_all(set: [is_available: true, last_seen_time: timestamp, modified_time: timestamp])
     end
   end
 
-  defp update_unavailable_devices(results, device_map, tenant_schema, timestamp) do
+  defp update_unavailable_devices(results, device_map, timestamp) do
+    # DB connection's search_path determines the schema
     unavailable_uids =
       results
       |> Enum.reject(fn r -> r["icmp_available"] || r["icmpAvailable"] end)
@@ -219,7 +211,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       |> Enum.map(& &1.canonical_device_id)
 
     unless Enum.empty?(unavailable_uids) do
-      from(d in {tenant_schema <> ".ocsf_devices", Device},
+      from(d in {"ocsf_devices", Device},
         where: d.uid in ^unavailable_uids
       )
       |> Repo.update_all(set: [is_available: false, modified_time: timestamp])
@@ -227,7 +219,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   defp system_actor(tenant_id) do
-    %{id: "system", role: :super_admin, tenant_id: tenant_id}
+    %{id: "system", role: :system, tenant_id: tenant_id}
   end
 
   @impl true

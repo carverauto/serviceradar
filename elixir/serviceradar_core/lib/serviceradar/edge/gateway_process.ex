@@ -245,7 +245,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def handle_info(:health_check, state) do
     # Update registry heartbeat + status so the scheduler has accurate availability
-    GatewayRegistry.update_value(state.tenant_id, state.gateway_id, fn meta ->
+    GatewayRegistry.update_value(state.gateway_id, fn meta ->
       base =
         case meta do
           m when is_map(m) -> m
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def terminate(reason, state) do
     Logger.info("Gateway #{state.gateway_id} terminating: #{inspect(reason)}")
-    GatewayRegistry.unregister_gateway(state.tenant_id, state.gateway_id)
+    GatewayRegistry.unregister_gateway(state.gateway_id)
     :ok
   end
 
@@ -319,17 +319,17 @@ defmodule ServiceRadar.Edge.GatewayProcess do
     agents =
       if domain do
         # Try domain-based selection first
-        domain_agents = AgentRegistry.find_agents_for_domain(state.tenant_id, domain)
+        domain_agents = AgentRegistry.find_agents_for_domain(domain)
 
         if Enum.empty?(domain_agents) do
           # Fall back to partition-based selection
-          AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+          AgentRegistry.find_agents_for_partition(state.partition_id)
         else
           domain_agents
         end
       else
         # Use partition-based selection
-        AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+        AgentRegistry.find_agents_for_partition(state.partition_id)
       end
 
     # Filter to connected agents and pick one
@@ -457,7 +457,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   defp find_agent_by_uid(state, agent_uid) do
     # Look up agents in the partition by UID
-    agents = AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+    agents = AgentRegistry.find_agents_for_partition(state.partition_id)
 
     Enum.find(agents, fn agent ->
       agent[:agent_id] == agent_uid or agent[:uid] == agent_uid

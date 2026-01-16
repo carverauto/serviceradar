@@ -36,10 +36,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Edge.TenantResolver
-  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, StatusProcessor, TenantScope}
+  alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, StatusProcessor}
 
   # Default heartbeat interval for agents
   @default_heartbeat_interval_sec 30
@@ -87,15 +86,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.debug("Agent capabilities: #{inspect(capabilities)}")
 
     # Extract tenant from mTLS certificate (secure source of truth)
-    tenant_info = extract_tenant_from_stream(stream)
-    {tenant_info, _component_type} = resolve_component_type!(tenant_info, agent_id)
-    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
-    partition_id = resolve_partition(tenant_info, request.partition)
+    identity = extract_identity_from_stream(stream)
+    {identity, _component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity, request.partition)
     capabilities = normalize_capabilities(request.capabilities || [])
 
-    ensure_agent_record(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
-    ensure_device_for_agent(tenant_info, agent_id, partition_id, request, get_peer_ip(stream))
-    ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream)
+    ensure_agent_record(identity, agent_id, partition_id, request, get_peer_ip(stream))
+    ensure_device_for_agent(identity, agent_id, partition_id, request, get_peer_ip(stream))
+    ensure_agent_registered(identity, agent_id, partition_id, capabilities, stream)
 
     # Registration is stored in the tenant registry and DB; acceptance remains cert-based.
 
@@ -103,9 +102,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     # TODO: Implement config versioning in core-elx
     config_outdated = request.config_version == "" or request.config_version == nil
 
-    Logger.info(
-      "Agent enrolled: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, config_outdated=#{config_outdated}"
-    )
+    Logger.info("Agent enrolled: agent_id=#{agent_id}, config_outdated=#{config_outdated}")
 
     %Monitoring.AgentHelloResponse{
       accepted: true,
@@ -115,8 +112,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_outdated: config_outdated,
-      tenant_id: tenant_info.tenant_id,
-      tenant_slug: tenant_info.tenant_slug
+      # Tenant fields kept for proto compatibility but not used in tenant-unaware mode
+      tenant_id: "",
+      tenant_slug: ""
     }
   end
 
@@ -153,27 +151,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.debug("Agent config request: agent_id=#{agent_id}, version=#{config_version}")
 
     # Extract tenant from mTLS certificate for authorization
-    tenant_info = extract_tenant_from_stream(stream)
-    {tenant_info, component_type} = resolve_component_type!(tenant_info, agent_id)
-    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
+    identity = extract_identity_from_stream(stream)
+    {identity, component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
 
-    Logger.info(
-      "Config request received: component_type=#{component_type}, agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}"
-    )
+    Logger.info("Config request received: component_type=#{component_type}, agent_id=#{agent_id}")
 
     # Generate config from database using the config generator
-    case core_call(AgentGatewaySync, :get_config_if_changed, [
-           agent_id,
-           tenant_info.tenant_id,
-           config_version
-         ]) do
+    case core_call(AgentGatewaySync, :get_config_if_changed, [agent_id, config_version]) do
       {:error, :core_unavailable} ->
         raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
       {:ok, :not_modified} ->
-        Logger.debug(
-          "Agent config not modified: agent_id=#{agent_id}, version=#{config_version}"
-        )
+        Logger.debug("Agent config not modified: agent_id=#{agent_id}, version=#{config_version}")
 
         %Monitoring.AgentConfigResponse{
           not_modified: true,
@@ -182,7 +172,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
       {:ok, {:ok, config}} ->
         Logger.info(
-          "Sending config to agent: agent_id=#{agent_id}, tenant=#{tenant_info.tenant_slug}, version=#{config.config_version}, checks=#{length(config.checks)}"
+          "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}"
         )
 
         # Convert checks to proto format
@@ -262,17 +252,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     # Extract tenant from mTLS certificate (secure source of truth)
-    tenant_info = extract_tenant_from_stream(stream)
-    enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
-    partition = resolve_partition(tenant_info, request.partition)
+    identity = extract_identity_from_stream(stream)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition = resolve_partition(identity, request.partition)
 
-    refresh_agent_heartbeat(tenant_info, agent_id, partition, request, stream)
+    refresh_agent_heartbeat(identity, agent_id, partition, request, stream)
 
-    Logger.info(
-      "Received status push from agent #{agent_id}: #{service_count} services (tenant: #{tenant_info.tenant_slug})"
-    )
+    Logger.info("Received status push from agent #{agent_id}: #{service_count} services")
 
-    # Extract metadata from request including tenant context
+    # Extract metadata from request
     # Use server's gateway_id() instead of client-provided request.gateway_id
     # to prevent spoofing and ensure correct data attribution
     metadata = %{
@@ -282,9 +270,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
-      agent_timestamp: request.timestamp,
-      tenant_id: tenant_info.tenant_id,
-      tenant_slug: tenant_info.tenant_slug
+      agent_timestamp: request.timestamp
     }
 
     # Process each service status
@@ -338,7 +324,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.debug("Starting streaming status reception")
 
     # Extract tenant from mTLS certificate once for all chunks
-    tenant_info = extract_tenant_from_stream(stream)
+    identity = extract_identity_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
     {total_services, saw_final?, _stream_agent_id, _expected_idx, _pinned_total_chunks, _registered?} =
@@ -368,7 +354,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
             _ -> raise GRPC.RPCError, status: :invalid_argument, message: "agent_id changed mid-stream"
           end
 
-        enforce_component_identity!(tenant_info, agent_id, @agent_gateway_component_types)
+        enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
         services =
           chunk.services
           |> List.wrap()
@@ -407,16 +393,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         end
 
         Logger.debug(
-          "Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id} (tenant: #{tenant_info.tenant_slug})"
+          "Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}"
         )
 
-        partition = resolve_partition(tenant_info, chunk.partition)
+        partition = resolve_partition(identity, chunk.partition)
 
         if not registered? do
-          refresh_agent_heartbeat(tenant_info, agent_id, partition, chunk, stream)
+          refresh_agent_heartbeat(identity, agent_id, partition, chunk, stream)
         end
 
-        # Extract metadata from chunk including tenant context from mTLS cert
+        # Extract metadata from chunk
         # Use server's gateway_id() instead of client-provided chunk.gateway_id
         # to prevent spoofing and ensure correct data attribution
         metadata = %{
@@ -429,9 +415,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           agent_timestamp: chunk.timestamp,
           chunk_index: chunk_index,
           total_chunks: total_chunks,
-          is_final: chunk.is_final,
-          tenant_id: tenant_info.tenant_id,
-          tenant_slug: tenant_info.tenant_slug
+          is_final: chunk.is_final
         }
 
         # Process each service status in the chunk
@@ -560,9 +544,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition: normalize_partition(service.partition || metadata.partition),
       source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
-      timestamp: metadata.timestamp,
-      tenant_id: metadata.tenant_id,
-      tenant_slug: metadata.tenant_slug
+      timestamp: metadata.timestamp
     }
 
     # Forward to the status processor (delegates to core)
@@ -635,9 +617,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     |> Enum.uniq()
   end
 
-  defp resolve_partition(tenant_info, request_partition) do
+  defp resolve_partition(identity, request_partition) do
     tenant_partition =
-      case tenant_info do
+      case identity do
         %{partition_id: partition_id} -> partition_id
         _ -> nil
       end
@@ -645,27 +627,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     normalize_partition(tenant_partition || request_partition)
   end
 
-  defp resolve_component_type!(tenant_info, component_id) do
-    case Map.get(tenant_info, :component_type) do
+  defp resolve_component_type!(identity, component_id) do
+    case Map.get(identity, :component_type) do
       component_type when is_atom(component_type) ->
-        {tenant_info, component_type}
+        {identity, component_type}
 
       _ ->
-        case core_call(AgentGatewaySync, :component_type_for_component_id, [
-               component_id,
-               tenant_info.tenant_id
-             ]) do
+        case core_call(AgentGatewaySync, :component_type_for_component_id, [component_id]) do
           {:error, :core_unavailable} ->
             raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
 
           {:ok, {:ok, component_type}} when is_atom(component_type) ->
-            {Map.put(tenant_info, :component_type, component_type), component_type}
+            {Map.put(identity, :component_type, component_type), component_type}
 
           {:ok, {:error, :not_found}} ->
-            Logger.warning(
-              "Component type not found for component_id=#{component_id} tenant=#{tenant_info.tenant_slug}"
-            )
-
+            Logger.warning("Component type not found for component_id=#{component_id}")
             raise GRPC.RPCError, status: :permission_denied, message: "component not enrolled"
 
           {:ok, {:error, reason}} ->
@@ -678,9 +654,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp enforce_component_identity!(tenant_info, component_id, allowed_types) do
+  defp enforce_component_identity!(identity, component_id, allowed_types) do
     cert_component_id =
-      case tenant_info do
+      case identity do
         %{component_id: value} when is_binary(value) -> String.trim(value)
         _ -> ""
       end
@@ -698,7 +674,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       raise GRPC.RPCError, status: :permission_denied, message: "component_id mismatch"
     end
 
-    component_type = Map.get(tenant_info, :component_type)
+    component_type = Map.get(identity, :component_type)
 
     cond do
       is_nil(component_type) ->
@@ -716,11 +692,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp ensure_agent_registered(tenant_info, agent_id, partition_id, capabilities, stream) do
+  defp ensure_agent_registered(_identity, agent_id, partition_id, capabilities, stream) do
     metadata =
-      agent_registry_metadata(tenant_info, partition_id, capabilities, stream)
+      agent_registry_metadata(partition_id, capabilities, stream)
 
-    case AgentRegistryProxy.touch_agent(tenant_info.tenant_id, agent_id, metadata) do
+    case AgentRegistryProxy.touch_agent(agent_id, metadata) do
       :ok ->
         :ok
 
@@ -733,8 +709,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp refresh_agent_heartbeat(tenant_info, agent_id, partition_id, request, stream) do
-    _ = ensure_agent_registered(tenant_info, agent_id, partition_id, nil, stream)
+  defp refresh_agent_heartbeat(identity, agent_id, partition_id, request, stream) do
+    _ = ensure_agent_registered(identity, agent_id, partition_id, nil, stream)
 
     source_ip =
       case request do
@@ -744,7 +720,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     config_source = extract_config_source(request)
 
-    touch_agent_record(tenant_info, agent_id, partition_id, source_ip, config_source)
+    touch_agent_record(identity, agent_id, partition_id, source_ip, config_source)
   end
 
   defp extract_config_source(request) do
@@ -763,13 +739,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp agent_registry_metadata(tenant_info, partition_id, capabilities, stream) do
+  defp agent_registry_metadata(partition_id, capabilities, stream) do
     metadata = %{
       partition_id: partition_id,
       domain: Config.domain(),
       capabilities: capabilities,
       status: :connected,
-      spiffe_id: tenant_info.spiffe_id,
       gateway_id: Config.gateway_id(),
       source_ip: get_peer_ip(stream)
     }
@@ -777,10 +752,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     compact_metadata(metadata)
   end
 
-  defp ensure_agent_record(tenant_info, agent_id, partition_id, request, source_ip) do
-    attrs = agent_record_attrs(agent_id, partition_id, request, source_ip, tenant_info)
+  defp ensure_agent_record(_identity, agent_id, partition_id, request, source_ip) do
+    attrs = agent_record_attrs(agent_id, partition_id, request, source_ip)
 
-    case core_call(AgentGatewaySync, :upsert_agent, [agent_id, tenant_info.tenant_id, attrs]) do
+    case core_call(AgentGatewaySync, :upsert_agent, [agent_id, attrs]) do
       {:ok, :ok} ->
         :ok
 
@@ -793,14 +768,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp ensure_device_for_agent(tenant_info, agent_id, partition_id, request, source_ip) do
+  defp ensure_device_for_agent(_identity, agent_id, partition_id, request, source_ip) do
     attrs = device_attrs_from_request(partition_id, request, source_ip)
 
-    case core_call(AgentGatewaySync, :ensure_device_for_agent, [
-           agent_id,
-           tenant_info.tenant_id,
-           attrs
-         ]) do
+    case core_call(AgentGatewaySync, :ensure_device_for_agent, [agent_id, attrs]) do
       {:ok, {:ok, device_uid}} ->
         Logger.debug("Agent #{agent_id} linked to device #{device_uid}")
         :ok
@@ -830,12 +801,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  defp touch_agent_record(tenant_info, agent_id, partition_id, source_ip, config_source) do
+  defp touch_agent_record(_identity, agent_id, partition_id, source_ip, config_source) do
     attrs =
-      agent_record_attrs(agent_id, partition_id, nil, source_ip, tenant_info)
+      agent_record_attrs(agent_id, partition_id, nil, source_ip)
       |> maybe_add_config_source(config_source)
 
-    case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, tenant_info.tenant_id, attrs]) do
+    case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
       {:ok, :ok} ->
         :ok
 
@@ -852,7 +823,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp maybe_add_config_source(attrs, nil), do: attrs
   defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
 
-  defp agent_record_attrs(agent_id, partition_id, request, source_ip, tenant_info) do
+  defp agent_record_attrs(agent_id, partition_id, request, source_ip) do
     metadata =
       %{
         gateway_id: Config.gateway_id(),
@@ -870,7 +841,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       type_id: 4,
       capabilities: request_capabilities(request),
       host: source_ip,
-      spiffe_identity: tenant_info.spiffe_id,
       metadata: metadata
     }
     |> compact_metadata()
@@ -984,85 +954,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end)
   end
 
-  # Extract tenant info from the gRPC stream's mTLS certificate
-  # Uses TenantResolver to properly validate and extract tenant identity
-  # Rejects requests without valid mTLS to prevent multi-tenant security vulnerabilities
-  defp extract_tenant_from_stream(stream) do
+  # Extract identity info from the gRPC stream's mTLS certificate
+  # In tenant-unaware mode, we just validate the cert and extract component identity
+  # (component_id, partition_id, component_type). Tenant isolation is handled by DB credentials.
+  defp extract_identity_from_stream(stream) do
     with {:ok, cert_der} <- get_peer_cert(stream),
-         {:ok, resolved} <- TenantResolver.resolve_from_cert(cert_der),
-         {:ok, tenant_id} <- resolve_tenant_id(resolved),
-         tenant_slug when is_binary(tenant_slug) and tenant_slug != "" <- resolved.tenant_slug do
+         {:ok, resolved} <- TenantResolver.resolve_from_cert(cert_der) do
+      # Return identity info - tenant fields exist but are not used for isolation
       resolved
-      |> Map.put(:tenant_id, tenant_id)
-      |> Map.put(:tenant_slug, tenant_slug)
     else
-      {:error, :tenant_slug_missing} ->
-        Logger.warning("Tenant resolution failed: tenant_slug missing from client certificate")
-        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
-
-      {:error, {:tenant_id_not_found, tenant_slug}} ->
-        Logger.warning(
-          "Tenant resolution failed: tenant_id not found for tenant_slug=#{tenant_slug}"
-        )
-        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
-
-      {:error, {:core_unavailable, tenant_slug}} ->
-        Logger.warning(
-          "Tenant resolution failed: core unavailable for tenant_slug=#{tenant_slug}"
-        )
-        raise GRPC.RPCError, status: :unavailable, message: "core unavailable"
-
       {:error, reason} ->
-        Logger.warning("Tenant resolution failed: #{inspect(reason)}")
-        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
-
-      _ ->
-        Logger.warning("Tenant resolution failed: invalid tenant identity")
+        Logger.warning("Certificate validation failed: #{inspect(reason)}")
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
     end
-  end
-
-  defp resolve_tenant_id(%{tenant_id: tenant_id}) when is_binary(tenant_id) and tenant_id != "" do
-    {:ok, tenant_id}
-  end
-
-  defp resolve_tenant_id(%{tenant_slug: tenant_slug}) when is_binary(tenant_slug) and tenant_slug != "" do
-    case TenantRegistry.tenant_id_for_slug(tenant_slug) do
-      {:ok, tenant_id} ->
-        {:ok, tenant_id}
-
-      :error ->
-        resolve_tenant_id_from_cluster(tenant_slug)
-    end
-  end
-
-  defp resolve_tenant_id(_resolved), do: {:error, :tenant_slug_missing}
-
-  defp resolve_tenant_id_from_cluster(tenant_slug) do
-    nodes = core_nodes()
-
-    if nodes == [] do
-      {:error, {:core_unavailable, tenant_slug}}
-    else
-      {results, _bad_nodes} =
-        :rpc.multicall(nodes, TenantRegistry, :tenant_id_for_slug, [tenant_slug], 5_000)
-
-      case Enum.find(results, &match?({:ok, _}, &1)) do
-        {:ok, tenant_id} -> {:ok, tenant_id}
-        _ ->
-          if core_unavailable_results?(results) do
-            {:error, {:core_unavailable, tenant_slug}}
-          else
-            {:error, {:tenant_id_not_found, tenant_slug}}
-          end
-      end
-    end
-  end
-
-  defp core_unavailable_results?([]), do: true
-
-  defp core_unavailable_results?(results) do
-    Enum.all?(results, &match?({:badrpc, _}, &1))
   end
 
   # Get the peer certificate from the gRPC stream

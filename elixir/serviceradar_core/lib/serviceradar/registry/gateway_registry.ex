@@ -1,21 +1,14 @@
 defmodule ServiceRadar.GatewayRegistry do
   @moduledoc """
-  Distributed registry for tracking available agent gateways across the ERTS cluster.
+  Registry for tracking available agent gateways across the ERTS cluster.
 
-  ## Multi-Tenant Isolation
+  In the tenant-unaware architecture, this module provides gateway discovery
+  without tenant_id routing. Tenant isolation is handled by infrastructure
+  (separate deployments, databases, NATS credentials).
 
-  Gateways are registered in per-tenant Horde registries managed by
-  `ServiceRadar.Cluster.TenantRegistry`. This ensures:
+  ## Registration
 
-  - Edge components can only discover gateways within their tenant
-  - Cross-tenant process enumeration is prevented
-  - Each tenant has isolated registry state
-
-  ## Registration Format
-
-  Gateways register with their tenant_id, which routes to the correct registry:
-
-      ServiceRadar.GatewayRegistry.register_gateway(tenant_id, gateway_id, %{
+      ServiceRadar.GatewayRegistry.register_gateway("gateway-001", %{
         partition_id: "partition-1",
         domain: "site-a",
         status: :available
@@ -23,40 +16,38 @@ defmodule ServiceRadar.GatewayRegistry do
 
   ## Querying Gateways
 
-      # Find all gateways for a tenant (REQUIRED: tenant_id)
-      ServiceRadar.GatewayRegistry.find_gateways_for_tenant(tenant_id)
+      # Find all gateways
+      ServiceRadar.GatewayRegistry.find_gateways()
 
       # Find available gateways for a partition
-      ServiceRadar.GatewayRegistry.find_gateways_for_partition(tenant_id, partition_id)
+      ServiceRadar.GatewayRegistry.find_gateways_for_partition(partition_id)
   """
 
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   require Logger
 
   @doc """
-  Register a gateway in its tenant's registry.
+  Register a gateway in the registry.
 
   ## Parameters
 
-    - `tenant_id` - Tenant UUID (REQUIRED for multi-tenant isolation)
     - `gateway_id` - Unique gateway identifier
     - `gateway_info` - Gateway metadata map
 
   ## Examples
 
-      register_gateway("tenant-uuid", "gateway-001", %{
+      register_gateway("gateway-001", %{
         partition_id: "partition-1",
         domain: "site-a",
         status: :available
       })
   """
-  @spec register_gateway(String.t(), String.t(), map()) ::
+  @spec register_gateway(String.t(), map()) ::
           {:ok, pid()} | {:error, {:already_registered, pid()} | term()}
-  def register_gateway(tenant_id, gateway_id, gateway_info) when is_binary(tenant_id) do
+  def register_gateway(gateway_id, gateway_info) when is_binary(gateway_id) do
     metadata = %{
       gateway_id: gateway_id,
-      tenant_id: tenant_id,
       partition_id: Map.get(gateway_info, :partition_id),
       domain: Map.get(gateway_info, :domain),
       node: Node.self(),
@@ -66,23 +57,15 @@ defmodule ServiceRadar.GatewayRegistry do
       last_heartbeat: DateTime.utc_now()
     }
 
-    case TenantRegistry.register_gateway(tenant_id, gateway_id, metadata) do
+    case ProcessRegistry.register_gateway(gateway_id, metadata) do
       {:ok, _pid} = result ->
-        # Broadcast registration event (tenant-scoped topic)
-        Phoenix.PubSub.broadcast(
-          ServiceRadar.PubSub,
-          "gateway:registrations:#{tenant_id}",
-          {:gateway_registered, metadata}
-        )
-
-        # Also broadcast to global topic for admin monitoring
         Phoenix.PubSub.broadcast(
           ServiceRadar.PubSub,
           "gateway:registrations",
           {:gateway_registered, metadata}
         )
 
-        Logger.info("Gateway registered: #{gateway_id} for tenant: #{tenant_id}")
+        Logger.info("Gateway registered: #{gateway_id}")
         result
 
       error ->
@@ -91,107 +74,128 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
-  # Legacy compatibility: extract tenant_id from gateway_info
-  def register_gateway(gateway_id, gateway_info) when is_binary(gateway_id) and is_map(gateway_info) do
-    tenant_id = Map.get(gateway_info, :tenant_id)
-
-    if tenant_id do
-      register_gateway(tenant_id, gateway_id, gateway_info)
-    else
-      Logger.warning("register_gateway called without tenant_id")
-      {:error, :tenant_id_required}
-    end
+  # Legacy compatibility: extract gateway_id and ignore tenant_id
+  def register_gateway(tenant_id, gateway_id, gateway_info)
+      when is_binary(tenant_id) and is_binary(gateway_id) do
+    # Ignore tenant_id - tenant isolation is handled by infrastructure
+    register_gateway(gateway_id, gateway_info)
   end
 
   @doc """
-  Unregister a gateway from its tenant's registry.
+  Unregister a gateway from the registry.
   """
-  @spec unregister_gateway(String.t(), String.t()) :: :ok
-  def unregister_gateway(tenant_id, gateway_id) when is_binary(tenant_id) do
-    TenantRegistry.unregister(tenant_id, {:gateway, gateway_id})
-
-    Phoenix.PubSub.broadcast(
-      ServiceRadar.PubSub,
-      "gateway:registrations:#{tenant_id}",
-      {:gateway_disconnected, gateway_id}
-    )
+  @spec unregister_gateway(String.t()) :: :ok
+  def unregister_gateway(gateway_id) when is_binary(gateway_id) do
+    ProcessRegistry.unregister({:gateway, gateway_id})
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "gateway:registrations",
-      {:gateway_disconnected, gateway_id, tenant_id}
+      {:gateway_disconnected, gateway_id}
     )
 
     :ok
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def unregister_gateway(_tenant_id, gateway_id) when is_binary(gateway_id) do
+    unregister_gateway(gateway_id)
+  end
+
   @doc """
   Update gateway heartbeat timestamp.
   """
-  @spec heartbeat(String.t(), String.t()) :: :ok | :error
-  def heartbeat(tenant_id, gateway_id) when is_binary(tenant_id) do
-    TenantRegistry.gateway_heartbeat(tenant_id, gateway_id)
+  @spec heartbeat(String.t()) :: :ok | :error
+  def heartbeat(gateway_id) when is_binary(gateway_id) do
+    ProcessRegistry.gateway_heartbeat(gateway_id)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def heartbeat(_tenant_id, gateway_id) when is_binary(gateway_id) do
+    heartbeat(gateway_id)
   end
 
   @doc """
   Update a gateway's registry metadata using a callback.
   """
-  @spec update_value(String.t(), String.t(), (map() -> map())) :: {map(), map()} | :error
-  def update_value(tenant_id, gateway_id, callback)
-      when is_binary(tenant_id) and is_binary(gateway_id) and is_function(callback, 1) do
-    TenantRegistry.update_value(tenant_id, {:gateway, gateway_id}, callback)
+  @spec update_value(String.t(), (map() -> map())) :: {map(), map()} | :error
+  def update_value(gateway_id, callback) when is_binary(gateway_id) and is_function(callback, 1) do
+    ProcessRegistry.update_value({:gateway, gateway_id}, callback)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def update_value(_tenant_id, gateway_id, callback)
+      when is_binary(gateway_id) and is_function(callback, 1) do
+    update_value(gateway_id, callback)
   end
 
   @doc """
-  Look up a specific gateway in a tenant's registry.
+  Look up a specific gateway in the registry.
   """
-  @spec lookup(String.t(), String.t()) :: [{pid(), map()}]
-  def lookup(tenant_id, gateway_id) when is_binary(tenant_id) do
-    TenantRegistry.lookup(tenant_id, {:gateway, gateway_id})
+  @spec lookup(String.t()) :: [{pid(), map()}]
+  def lookup(gateway_id) when is_binary(gateway_id) do
+    ProcessRegistry.lookup({:gateway, gateway_id})
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def lookup(_tenant_id, gateway_id) when is_binary(gateway_id) do
+    lookup(gateway_id)
   end
 
   @doc """
-  Find all gateways for a specific tenant.
-
-  This is the primary query function - always requires tenant_id.
+  Find all gateways.
   """
+  @spec find_gateways() :: [map()]
+  def find_gateways do
+    ProcessRegistry.find_gateways()
+  end
+
+  # Legacy compatibility: ignore tenant_id
   @spec find_gateways_for_tenant(String.t()) :: [map()]
-  def find_gateways_for_tenant(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.find_gateways(tenant_id)
+  def find_gateways_for_tenant(_tenant_id) do
+    find_gateways()
   end
 
   @doc """
-  Find all gateways for a specific tenant and partition.
+  Find all gateways for a specific partition.
   """
-  @spec find_gateways_for_partition(String.t(), String.t()) :: [map()]
-  def find_gateways_for_partition(tenant_id, partition_id) when is_binary(tenant_id) do
-    find_gateways_for_tenant(tenant_id)
+  @spec find_gateways_for_partition(String.t()) :: [map()]
+  def find_gateways_for_partition(partition_id) do
+    find_gateways()
     |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def find_gateways_for_partition(_tenant_id, partition_id) do
+    find_gateways_for_partition(partition_id)
+  end
+
   @doc """
-  Find all gateways for a specific tenant and domain.
+  Find all gateways for a specific domain.
 
   Domain represents a logical grouping of gateways, typically by site or location
-  (e.g., "site-a", "datacenter-east"). Used for routing checks to gateways
-  closest to the target endpoints.
+  (e.g., "site-a", "datacenter-east").
   """
-  @spec find_gateways_for_domain(String.t(), String.t()) :: [map()]
-  def find_gateways_for_domain(tenant_id, domain) when is_binary(tenant_id) do
-    find_gateways_for_tenant(tenant_id)
+  @spec find_gateways_for_domain(String.t()) :: [map()]
+  def find_gateways_for_domain(domain) do
+    find_gateways()
     |> Enum.filter(&(&1[:domain] == domain))
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def find_gateways_for_domain(_tenant_id, domain) do
+    find_gateways_for_domain(domain)
+  end
+
   @doc """
-  Find an available gateway for a tenant's domain.
+  Find an available gateway for a domain.
 
   Returns `{:ok, metadata}` if found, `{:error, :no_available_gateway}` otherwise.
-  The returned metadata includes the `:pid` from Horde for cross-node dispatch.
   """
-  @spec find_available_gateway_for_domain(String.t(), String.t()) ::
+  @spec find_available_gateway_for_domain(String.t()) ::
           {:ok, map()} | {:error, :no_available_gateway}
-  def find_available_gateway_for_domain(tenant_id, domain) do
-    gateways = find_gateways_for_domain(tenant_id, domain)
+  def find_available_gateway_for_domain(domain) do
+    gateways = find_gateways_for_domain(domain)
 
     case Enum.find(gateways, &(&1[:status] == :available)) do
       nil -> {:error, :no_available_gateway}
@@ -199,16 +203,20 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
+  # Legacy compatibility: ignore tenant_id
+  def find_available_gateway_for_domain(_tenant_id, domain) do
+    find_available_gateway_for_domain(domain)
+  end
+
   @doc """
-  Find an available gateway for a tenant's partition.
+  Find an available gateway for a partition.
 
   Returns `{:ok, metadata}` if found, `{:error, :no_available_gateway}` otherwise.
-  The returned metadata includes the `:pid` from Horde for cross-node dispatch.
   """
-  @spec find_available_gateway_for_partition(String.t(), String.t()) ::
+  @spec find_available_gateway_for_partition(String.t()) ::
           {:ok, map()} | {:error, :no_available_gateway}
-  def find_available_gateway_for_partition(tenant_id, partition_id) do
-    gateways = find_gateways_for_partition(tenant_id, partition_id)
+  def find_available_gateway_for_partition(partition_id) do
+    gateways = find_gateways_for_partition(partition_id)
 
     case Enum.find(gateways, &(&1[:status] == :available)) do
       nil -> {:error, :no_available_gateway}
@@ -216,42 +224,42 @@ defmodule ServiceRadar.GatewayRegistry do
     end
   end
 
-  @doc """
-  Find all available gateways for a tenant.
-  """
-  @spec find_available_gateways(String.t()) :: [map()]
-  def find_available_gateways(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.find_available_gateways(tenant_id)
+  # Legacy compatibility: ignore tenant_id
+  def find_available_gateway_for_partition(_tenant_id, partition_id) do
+    find_available_gateway_for_partition(partition_id)
   end
 
   @doc """
-  Get all registered gateways across ALL tenants.
+  Find all available gateways.
+  """
+  @spec find_available_gateways() :: [map()]
+  def find_available_gateways do
+    ProcessRegistry.find_available_gateways()
+  end
 
-  WARNING: Admin/platform use only.
+  # Legacy compatibility: ignore tenant_id
+  def find_available_gateways(_tenant_id) do
+    find_available_gateways()
+  end
+
+  @doc """
+  Get all registered gateways.
   """
   @spec all_gateways() :: [map()]
   def all_gateways do
-    # Runtime/admin view: return currently registered gateways across tenants.
-    # This is intentionally not a database listing.
-    ServiceRadar.GatewayTracker.list_gateways()
+    find_gateways()
   end
 
   @doc """
-  Count of registered gateways for a tenant.
-  """
-  @spec count(String.t()) :: non_neg_integer()
-  def count(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.count_by_type(tenant_id, :gateway)
-  end
-
-  @doc """
-  Count of active runtime gateway registrations across all tenants.
-  Uses GatewayTracker ETS for accurate count of currently connected gateways.
-
-  WARNING: Admin/platform use only.
+  Count of registered gateways.
   """
   @spec count() :: non_neg_integer()
   def count do
-    ServiceRadar.GatewayTracker.count()
+    ProcessRegistry.count_by_type(:gateway)
+  end
+
+  # Legacy compatibility: ignore tenant_id
+  def count(_tenant_id) do
+    count()
   end
 end

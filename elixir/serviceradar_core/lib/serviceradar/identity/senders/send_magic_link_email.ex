@@ -213,35 +213,37 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   end
 
   defp fetch_tenant_by_schema(schema) when is_binary(schema) do
-    # Platform actor for authentication routing (before tenant is confirmed)
-    actor = SystemActor.platform(:magic_link_sender)
+    case extract_tenant_slug(schema) do
+      {:ok, slug} ->
+        fetch_tenant_by_slug(slug)
 
-    # Extract tenant slug from schema name (format: tenant_<slug>)
-    slug =
-      case schema do
-        "tenant_" <> slug -> slug
-        _ -> nil
-      end
-
-    if slug do
-      fetch_tenant_by_slug(slug)
-    else
-      # Fallback: query tenants and match by slug
-      Tenant
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-      |> Ash.read(actor: actor)
-      |> case do
-        {:ok, tenants} when is_list(tenants) ->
-          Enum.find(tenants, fn tenant ->
-            "tenant_#{tenant.slug}" == schema
-          end)
-
-        _ ->
-          nil
-      end
+      :error ->
+        fetch_tenant_by_schema_fallback(schema)
     end
   end
 
   defp fetch_tenant_by_schema(_), do: nil
+
+  defp extract_tenant_slug("tenant_" <> slug), do: {:ok, slug}
+  defp extract_tenant_slug(_), do: :error
+
+  defp fetch_tenant_by_schema_fallback(schema) do
+    # Platform actor for authentication routing (before tenant is confirmed)
+    actor = SystemActor.platform(:magic_link_sender)
+
+    # Fallback: query tenants and match by slug
+    Tenant
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, tenants} when is_list(tenants) ->
+        Enum.find(tenants, fn tenant ->
+          "tenant_#{tenant.slug}" == schema
+        end)
+
+      _ ->
+        nil
+    end
+  end
 end

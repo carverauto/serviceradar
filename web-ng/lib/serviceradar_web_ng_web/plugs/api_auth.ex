@@ -40,7 +40,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
   alias Ash.PlugHelpers
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantMode
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.ControlPlaneJWT
@@ -113,9 +112,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
     if is_nil(tenant) do
       {:error, :no_tenant}
     else
-      opts = TenantMode.tenant_opts(tenant)
-      # Use mode-conditional actor for JWT validation
-      actor = TenantMode.system_actor(:api_auth, nil)
+      # Control plane code - pass tenant context for cross-tenant user lookup
+      opts = [tenant: tenant]
+      actor = SystemActor.platform(:api_auth)
       subject_opts = Keyword.merge([actor: actor], opts)
 
       # Bearer tokens are Ash JWT tokens
@@ -239,11 +238,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
     # Record usage asynchronously to not block the request
     Task.start(fn ->
-      # In tenant-aware mode, resolve tenant and pass explicit tenant context
-      # In tenant-unaware mode, tenant is implicit from DB search_path
+      # Control plane code - resolve tenant and pass explicit tenant context
       tenant = resolve_tenant_context(api_token.tenant_id)
       schema = if tenant, do: TenantSchemas.schema_for_tenant(tenant), else: nil
-      opts = TenantMode.ash_opts(:api_auth, api_token.tenant_id, schema)
+      actor = SystemActor.platform(:api_auth)
+      opts = [actor: actor, tenant: schema]
 
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
@@ -288,33 +287,22 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       )
       |> Ash.Query.load(:user)
 
-    if TenantMode.tenant_aware?() do
-      # Tenant-aware mode: search across all tenant schemas (Control Plane)
-      actor = SystemActor.platform(:api_auth)
+    # Control plane code - search across all tenant schemas
+    actor = SystemActor.platform(:api_auth)
 
-      TenantSchemas.list_schemas()
-      |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
-        case Ash.read(query, actor: actor, tenant: schema) do
-          {:ok, [api_token | _]} ->
-            {:halt, {:ok, api_token}}
+    TenantSchemas.list_schemas()
+    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
+      case Ash.read(query, actor: actor, tenant: schema) do
+        {:ok, [api_token | _]} ->
+          {:halt, {:ok, api_token}}
 
-          {:ok, []} ->
-            {:cont, {:error, :not_found}}
+        {:ok, []} ->
+          {:cont, {:error, :not_found}}
 
-          {:error, _} ->
-            {:cont, {:error, :not_found}}
-        end
-      end)
-    else
-      # Tenant-unaware mode: search current schema only (tenant instance)
-      actor = SystemActor.system(:api_auth)
-
-      case Ash.read(query, actor: actor) do
-        {:ok, [api_token | _]} -> {:ok, api_token}
-        {:ok, []} -> {:error, :not_found}
-        {:error, _} -> {:error, :not_found}
+        {:error, _} ->
+          {:cont, {:error, :not_found}}
       end
-    end
+    end)
   end
 
   defp assign_scope(conn, %Scope{user: user} = scope, tenant_id) do

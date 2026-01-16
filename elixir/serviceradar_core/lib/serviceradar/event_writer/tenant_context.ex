@@ -10,8 +10,11 @@ defmodule ServiceRadar.EventWriter.TenantContext do
   search_path is set by CNPG credentials.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Cluster.TenantGuard
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.Identity.Tenant
+
+  require Ash.Query
 
   @doc """
   Returns the current tenant slug from process context.
@@ -24,7 +27,7 @@ defmodule ServiceRadar.EventWriter.TenantContext do
   @doc """
   Returns the current tenant's UUID.
 
-  Resolves the tenant slug to its UUID via TenantRegistry.
+  Resolves the tenant slug to its UUID via database lookup.
   """
   @spec current_tenant_id() :: String.t() | nil
   def current_tenant_id do
@@ -66,9 +69,17 @@ defmodule ServiceRadar.EventWriter.TenantContext do
   defp restore_tenant(tenant_slug), do: TenantGuard.set_process_tenant(tenant_slug)
 
   defp resolve_slug_to_uuid(slug) do
-    case TenantRegistry.tenant_id_for_slug(slug) do
-      {:ok, uuid} -> uuid
-      :error -> nil
+    # In tenant-unaware architecture, look up tenant UUID from database
+    actor = SystemActor.platform(:event_writer)
+
+    case Tenant
+         |> Ash.Query.filter(slug == ^slug)
+         |> Ash.Query.limit(1)
+         |> Ash.read(actor: actor) do
+      {:ok, [tenant | _]} -> to_string(tenant.id)
+      _ -> nil
     end
+  rescue
+    _ -> nil
   end
 end

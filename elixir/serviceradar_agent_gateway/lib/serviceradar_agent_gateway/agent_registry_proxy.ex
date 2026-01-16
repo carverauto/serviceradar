@@ -12,15 +12,15 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   require Logger
 
   alias ServiceRadar.AgentRegistry
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @spec touch_agent(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def touch_agent(tenant_id, agent_id, metadata) do
-    GenServer.call(__MODULE__, {:touch_agent, tenant_id, agent_id, metadata})
+  @spec touch_agent(String.t(), map()) :: :ok | {:error, term()}
+  def touch_agent(agent_id, metadata) do
+    GenServer.call(__MODULE__, {:touch_agent, agent_id, metadata})
   end
 
   @impl true
@@ -29,8 +29,8 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
   end
 
   @impl true
-  def handle_call({:touch_agent, tenant_id, agent_id, metadata}, _from, state) do
-    case TenantRegistry.update_value(tenant_id, {:agent, agent_id}, fn existing ->
+  def handle_call({:touch_agent, agent_id, metadata}, _from, state) do
+    case ProcessRegistry.update_value({:agent, agent_id}, fn existing ->
            existing
            |> Map.merge(metadata)
            |> Map.put(:last_heartbeat, DateTime.utc_now())
@@ -39,7 +39,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
         {:reply, :ok, state}
 
       :error ->
-        case AgentRegistry.register_agent(tenant_id, agent_id, metadata) do
+        case AgentRegistry.register_agent(agent_id, metadata) do
           {:ok, _pid} ->
             {:reply, :ok, state}
 
@@ -47,10 +47,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
             {:reply, :ok, state}
 
           {:error, reason} ->
-            Logger.warning(
-              "Failed to register agent #{agent_id} for tenant #{tenant_id}: #{inspect(reason)}"
-            )
-
+            Logger.warning("Failed to register agent #{agent_id}: #{inspect(reason)}")
             {:reply, {:error, reason}, state}
         end
     end

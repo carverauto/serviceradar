@@ -6,13 +6,14 @@ defmodule ServiceRadar.AgentRegistryTest do
   - Agents can be registered with gRPC connection details
   - gRPC addresses can be looked up by agent ID
   - Registry properly supports gateway discovery of agents
-  - Multi-tenant isolation works for registry operations
+
+  Note: In tenant-unaware architecture, each tenant instance runs its own
+  ERTS cluster. Tenant isolation is handled by infrastructure.
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadar.AgentRegistry
-  alias ServiceRadar.Cluster.TenantRegistry
 
   @moduletag :database
 
@@ -21,12 +22,8 @@ defmodule ServiceRadar.AgentRegistryTest do
     tenant_a_id = Ash.UUID.generate()
     tenant_b_id = Ash.UUID.generate()
 
-    # Ensure tenant registries exist
-    TenantRegistry.ensure_registry(tenant_a_id)
-    TenantRegistry.ensure_registry(tenant_b_id)
-
-    # Wait for registry processes to start
-    Process.sleep(100)
+    # ProcessRegistry is started by the application supervision tree
+    # No per-tenant registry initialization needed
 
     {:ok,
       tenant_a_id: tenant_a_id,
@@ -237,55 +234,13 @@ defmodule ServiceRadar.AgentRegistryTest do
     end
   end
 
-  describe "multi-tenant isolation" do
-    test "agents in tenant A are not visible in tenant B", %{
-      tenant_a_id: tenant_a_id,
-      tenant_b_id: tenant_b_id,
-      unique_id: unique_id
-    } do
-      agent_a = "agent-iso-a-#{unique_id}"
-      agent_b = "agent-iso-b-#{unique_id}"
-
-      {:ok, _} = AgentRegistry.register_agent(tenant_a_id, agent_a, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
-
-      {:ok, _} = AgentRegistry.register_agent(tenant_b_id, agent_b, %{
-        grpc_host: "192.168.2.100",
-        grpc_port: 50_051
-      })
-
-      # Tenant A queries
-      agents_a = AgentRegistry.find_agents_for_tenant(tenant_a_id)
-      assert Enum.any?(agents_a, &(&1[:agent_id] == agent_a))
-      refute Enum.any?(agents_a, &(&1[:agent_id] == agent_b))
-
-      # Tenant B queries
-      agents_b = AgentRegistry.find_agents_for_tenant(tenant_b_id)
-      assert Enum.any?(agents_b, &(&1[:agent_id] == agent_b))
-      refute Enum.any?(agents_b, &(&1[:agent_id] == agent_a))
-    end
-
-    test "gRPC address lookup respects tenant isolation", %{
-      tenant_a_id: tenant_a_id,
-      tenant_b_id: tenant_b_id,
-      unique_id: unique_id
-    } do
-      agent_a = "agent-grpc-iso-a-#{unique_id}"
-
-      {:ok, _} = AgentRegistry.register_agent(tenant_a_id, agent_a, %{
-        grpc_host: "192.168.1.100",
-        grpc_port: 50_051
-      })
-
-      # Lookup with correct tenant works
-      assert {:ok, {"192.168.1.100", 50_051}} = AgentRegistry.get_grpc_address(tenant_a_id, agent_a)
-
-      # Lookup with wrong tenant fails
-      assert {:error, :not_found} = AgentRegistry.get_grpc_address(tenant_b_id, agent_a)
-    end
-  end
+  # Note: In tenant-unaware architecture, each tenant instance runs its own
+  # ERTS cluster with isolated resources. Tenant isolation is handled by
+  # infrastructure (separate deployments, databases, NATS credentials),
+  # not by in-process tenant_id routing.
+  #
+  # The legacy API functions that accept tenant_id still work but ignore
+  # the tenant_id parameter - all operations go to the singleton ProcessRegistry.
 
   describe "unregister_agent/2" do
     test "removes agent from registry", %{tenant_a_id: tenant_id, unique_id: unique_id} do
