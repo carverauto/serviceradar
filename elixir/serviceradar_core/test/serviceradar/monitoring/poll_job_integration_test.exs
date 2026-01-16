@@ -10,6 +10,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.PollJob
 
@@ -17,12 +18,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
 
   setup do
     unique_id = :erlang.unique_integer([:positive])
-
-    actor = %{
-      id: Ash.UUID.generate(),
-      email: "test@serviceradar.local",
-      role: :super_admin
-    }
+    actor = SystemActor.system(:test)
 
     # Create a valid polling schedule for the tests
     {:ok, schedule} =
@@ -31,7 +27,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         name: "Test Schedule #{unique_id}",
         schedule_type: :interval,
         interval_seconds: 60
-      }, authorize?: false)
+      })
       |> Ash.create()
 
     {:ok,
@@ -52,7 +48,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           check_ids: [Ash.UUID.generate(), Ash.UUID.generate(), Ash.UUID.generate()],
           priority: 1,
           timeout_seconds: 60
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       assert job.status == :pending
@@ -68,7 +64,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Transition Test",
           check_count: 2
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       assert job.status == :pending
@@ -76,7 +72,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       # Transition to dispatching
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       assert dispatching.status == :dispatching
@@ -85,7 +81,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       # Transition to running
       {:ok, running} =
         dispatching
-        |> Ash.Changeset.for_update(:start, %{agent_id: "agent-001"}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{agent_id: "agent-001"})
         |> Ash.update()
 
       assert running.status == :running
@@ -99,7 +95,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           success_count: 2,
           failure_count: 0,
           results: [%{check_id: "c1", status: "ok"}, %{check_id: "c2", status: "ok"}]
-        }, authorize?: false)
+        })
         |> Ash.update()
 
       assert completed.status == :completed
@@ -117,12 +113,12 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Fail Dispatch Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, failed} =
@@ -130,7 +126,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.Changeset.for_update(:fail, %{
           error_message: "No gateway available",
           error_code: "NO_GATEWAY"
-        }, authorize?: false)
+        })
         |> Ash.update()
 
       assert failed.status == :failed
@@ -145,17 +141,17 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Fail Running Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, running} =
         dispatching
-        |> Ash.Changeset.for_update(:start, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{})
         |> Ash.update()
 
       {:ok, failed} =
@@ -163,7 +159,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
         |> Ash.Changeset.for_update(:fail, %{
           error_message: "Agent connection lost",
           error_code: "AGENT_DISCONNECTED"
-        }, authorize?: false)
+        })
         |> Ash.update()
 
       assert failed.status == :failed
@@ -177,22 +173,22 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Timeout Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, running} =
         dispatching
-        |> Ash.Changeset.for_update(:start, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{})
         |> Ash.update()
 
       {:ok, timed_out} =
         running
-        |> Ash.Changeset.for_update(:timeout, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:timeout, %{})
         |> Ash.update()
 
       assert timed_out.status == :timeout
@@ -206,12 +202,12 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Cancel Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, cancelled} =
         job
-        |> Ash.Changeset.for_update(:cancel, %{reason: "User requested cancellation"}, authorize?: false)
+        |> Ash.Changeset.for_update(:cancel, %{reason: "User requested cancellation"})
         |> Ash.update()
 
       assert cancelled.status == :cancelled
@@ -225,23 +221,23 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Retry Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       # Run through to failure
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, running} =
         dispatching
-        |> Ash.Changeset.for_update(:start, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{})
         |> Ash.update()
 
       {:ok, failed} =
         running
-        |> Ash.Changeset.for_update(:fail, %{error_message: "First attempt failed"}, authorize?: false)
+        |> Ash.Changeset.for_update(:fail, %{error_message: "First attempt failed"})
         |> Ash.update()
 
       assert failed.retry_count == 0
@@ -249,7 +245,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       # Retry
       {:ok, retrying} =
         failed
-        |> Ash.Changeset.for_update(:retry, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:retry, %{})
         |> Ash.update()
 
       assert retrying.status == :pending
@@ -268,7 +264,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Pending Query Job",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, running_job} =
@@ -277,17 +273,17 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Running Query Job",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       {:ok, running_job} =
         running_job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, running_job} =
         running_job
-        |> Ash.Changeset.for_update(:start, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{})
         |> Ash.update()
 
       {:ok, pending_job: pending_job, running_job: running_job}
@@ -297,7 +293,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       jobs =
         PollJob
         |> Ash.Query.for_read(:pending, %{})
-        |> Ash.read!(authorize?: false)
+        |> Ash.read!(actor: actor)
 
       assert Enum.any?(jobs, &(&1.id == pending.id))
       refute Enum.any?(jobs, &(&1.id == running.id))
@@ -307,7 +303,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       jobs =
         PollJob
         |> Ash.Query.for_read(:running, %{})
-        |> Ash.read!(authorize?: false)
+        |> Ash.read!(actor: actor)
 
       assert Enum.any?(jobs, &(&1.id == running.id))
       refute Enum.any?(jobs, &(&1.id == pending.id))
@@ -317,7 +313,7 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       jobs =
         PollJob
         |> Ash.Query.for_read(:by_schedule, %{schedule_id: schedule_id})
-        |> Ash.read!(authorize?: false)
+        |> Ash.read!(actor: actor)
 
       assert Enum.any?(jobs, &(&1.id == pending.id))
     end
@@ -331,10 +327,10 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Terminal Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
         |> then(fn {:ok, job} ->
-          Ash.load(job, [:is_terminal], authorize?: false)
+          Ash.load(job, [:is_terminal])
         end)
 
       # Pending is not terminal
@@ -343,20 +339,20 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
       # Complete it
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, running} =
         dispatching
-        |> Ash.Changeset.for_update(:start, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:start, %{})
         |> Ash.update()
 
       {:ok, completed} =
         running
-        |> Ash.Changeset.for_update(:complete, %{success_count: 1}, authorize?: false)
+        |> Ash.Changeset.for_update(:complete, %{success_count: 1})
         |> Ash.update()
         |> then(fn {:ok, job} ->
-          Ash.load(job, [:is_terminal], authorize?: false)
+          Ash.load(job, [:is_terminal])
         end)
 
       # Completed is terminal
@@ -371,21 +367,21 @@ defmodule ServiceRadar.Monitoring.PollJobIntegrationTest do
           schedule_id: schedule_id,
           schedule_name: "Can Retry Test",
           check_count: 1
-        }, authorize?: false)
+        })
         |> Ash.create()
 
       # Fail the job
       {:ok, dispatching} =
         job
-        |> Ash.Changeset.for_update(:dispatch, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:dispatch, %{})
         |> Ash.update()
 
       {:ok, failed} =
         dispatching
-        |> Ash.Changeset.for_update(:fail, %{error_message: "Error"}, authorize?: false)
+        |> Ash.Changeset.for_update(:fail, %{error_message: "Error"})
         |> Ash.update()
         |> then(fn {:ok, job} ->
-          Ash.load(job, [:can_retry], authorize?: false)
+          Ash.load(job, [:can_retry])
         end)
 
       # retry_count = 0, max_retries = 3, so can_retry should be true

@@ -54,7 +54,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["armis"]
     end
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["netbox"]
     end
@@ -117,7 +117,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       # Should have both sources, order may vary
       assert Enum.sort(device.discovery_sources) == ["armis", "netbox"]
@@ -141,7 +141,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["unknown"]
     end
@@ -168,7 +168,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       # Should only have one "armis" entry, not duplicated
       assert device.discovery_sources == ["armis"]

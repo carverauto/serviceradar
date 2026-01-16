@@ -7,6 +7,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
 
   @moduletag :integration
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, DeviceIdentifier, IdentityReconciler}
   alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
@@ -70,7 +71,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, actor: actor, authorize?: false)
+             Device.get_by_uid(expected_id, actor: actor)
 
     assert device.ip == ip
     assert device.hostname == "edge-#{ip_octet}"
@@ -85,17 +86,13 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       })
 
     assert {:ok, [identifier | _]} =
-             Ash.read(identifier_query, actor: actor, authorize?: false)
+             Ash.read(identifier_query, actor: actor)
 
     assert identifier.device_id == expected_id
   end
 
   defp system_actor do
-    %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin
-    }
+    SystemActor.system(:test)
   end
 
   defp mac_suffix do

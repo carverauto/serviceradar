@@ -8,6 +8,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
 
   @moduletag :database
@@ -19,25 +20,19 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    {:ok, tenant_slug: tenant.tenant_slug}
+    :ok
   end
 
-  setup %{tenant_slug: tenant_slug} do
+  setup do
     # Generate unique IDs to prevent test pollution
     unique_id = :erlang.unique_integer([:positive])
+    actor = SystemActor.system(:test)
 
-    # Create a test actor with super_admin role for bypassing policies
-    actor = %{
-      id: Ash.UUID.generate(),
-      email: "test@serviceradar.local",
-      role: :super_admin
-    }
-
-    {:ok, tenant_slug: tenant_slug, actor: actor, unique_id: unique_id}
+    {:ok, actor: actor, unique_id: unique_id}
   end
 
   describe "register/1" do
-    test "creates agent in connecting state", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    test "creates agent in connecting state", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-#{unique_id}"
 
       {:ok, agent} =
@@ -48,7 +43,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.100",
           port: 50_051,
           capabilities: ["icmp", "tcp", "http"]
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       assert agent.uid == agent_uid
@@ -61,7 +56,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.last_seen_time != nil
     end
 
-    test "creates agent with SPIFFE identity", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    test "creates agent with SPIFFE identity", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-spiffe-#{unique_id}"
       spiffe_id = "spiffe://serviceradar.local/agent/test-tenant/default/#{agent_uid}"
 
@@ -73,7 +68,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "10.0.0.50",
           port: 50_051,
           spiffe_identity: spiffe_id
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       assert agent.spiffe_identity == spiffe_id
@@ -81,7 +76,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "register_connected/1" do
-    test "creates agent directly in connected state", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    test "creates agent directly in connected state", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-connected-#{unique_id}"
 
       {:ok, agent} =
@@ -91,7 +86,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Pre-connected Agent",
           host: "192.168.1.101",
           port: 50_051
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       assert agent.status == :connected
@@ -112,7 +107,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Initial Agent",
           host: "192.168.1.101",
           port: 50_051
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       {:ok, updated} =
@@ -122,7 +117,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Updated Agent",
           host: "192.168.1.200",
           port: 50_052
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       assert updated.uid == agent.uid
@@ -136,7 +131,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "state machine transitions" do
-    setup %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    setup %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-sm-#{unique_id}"
 
       {:ok, agent} =
@@ -146,7 +141,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "State Machine Test Agent",
           host: "192.168.1.102",
           port: 50_051
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       {:ok, agent: agent}
@@ -157,7 +152,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, updated} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor)
         |> Ash.update()
 
       assert updated.status == :connected
@@ -168,7 +163,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First connect
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor)
         |> Ash.update()
 
       assert connected.status == :connected
@@ -176,7 +171,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Then degrade
       {:ok, degraded} =
         connected
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       assert degraded.status == :degraded
@@ -187,13 +182,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # First connect
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor)
         |> Ash.update()
 
       # Then lose connection
       {:ok, disconnected} =
         connected
-        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
         |> Ash.update()
 
       assert disconnected.status == :disconnected
@@ -204,17 +199,17 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Connect -> Disconnect -> Reconnect
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, disconnected} =
         connected
-        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:lose_connection, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, reconnecting} =
         disconnected
-        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:reconnect, %{}, actor: actor)
         |> Ash.update()
 
       assert reconnecting.status == :connecting
@@ -224,17 +219,17 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       # Connect -> Degrade -> Restore
       {:ok, connected} =
         agent
-        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:establish_connection, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, degraded} =
         connected
-        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:degrade, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, restored} =
         degraded
-        |> Ash.Changeset.for_update(:restore_health, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:restore_health, %{}, actor: actor)
         |> Ash.update()
 
       assert restored.status == :connected
@@ -244,7 +239,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     test "mark_unavailable: any state -> unavailable", %{agent: agent, actor: actor} do
       {:ok, unavailable} =
         agent
-        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"}, actor: actor)
         |> Ash.update()
 
       assert unavailable.status == :unavailable
@@ -253,7 +248,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "heartbeat/1" do
-    test "updates last_seen_time", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    test "updates last_seen_time", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-hb-#{unique_id}"
 
       {:ok, agent} =
@@ -263,7 +258,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Heartbeat Test Agent",
           host: "192.168.1.103",
           port: 50_051
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       original_last_seen = agent.last_seen_time
@@ -273,7 +268,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, updated} =
         agent
-        |> Ash.Changeset.for_update(:heartbeat, %{}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:heartbeat, %{}, actor: actor)
         |> Ash.update()
 
       assert DateTime.compare(updated.last_seen_time, original_last_seen) in [:gt, :eq]
@@ -281,7 +276,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert updated.last_seen_time != nil
     end
 
-    test "can update capabilities", %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    test "can update capabilities", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-hb-caps-#{unique_id}"
 
       {:ok, agent} =
@@ -292,12 +287,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.104",
           port: 50_051,
           capabilities: ["icmp"]
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       {:ok, updated} =
         agent
-        |> Ash.Changeset.for_update(:heartbeat, %{capabilities: ["icmp", "tcp", "snmp"]}, actor: actor, authorize?: false)
+        |> Ash.Changeset.for_update(:heartbeat, %{capabilities: ["icmp", "tcp", "snmp"]}, actor: actor)
         |> Ash.update()
 
       assert "snmp" in updated.capabilities
@@ -306,7 +301,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   end
 
   describe "queries" do
-    setup %{tenant_slug: tenant_slug, actor: actor, unique_id: unique_id} do
+    setup %{actor: actor, unique_id: unique_id} do
       # Create multiple agents in different states (without gateway FK constraint)
       {:ok, connected_agent} =
         Agent
@@ -316,7 +311,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           host: "192.168.1.110",
           port: 50_051,
           capabilities: ["icmp", "tcp"]
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       {:ok, connecting_agent} =
@@ -326,7 +321,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
           name: "Connecting Query Agent",
           host: "192.168.1.111",
           port: 50_051
-        }, actor: actor, authorize?: false)
+        }, actor: actor)
         |> Ash.create()
 
       {:ok,
