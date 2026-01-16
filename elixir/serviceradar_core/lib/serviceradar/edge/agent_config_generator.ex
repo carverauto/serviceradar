@@ -287,10 +287,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp load_sweep_config(agent_id) do
     # Use "default" partition for now - can be extended to support partitions later
     partition = "default"
-    # Tenant isolation is handled by DB search_path, use placeholder for cache key
-    tenant_key = "default"
 
-    case ConfigServer.get_config(tenant_key, :sweep, partition, agent_id) do
+    case ConfigServer.get_config(:sweep, partition, agent_id) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
         entry.config
@@ -313,10 +311,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
   defp load_sysmon_config(agent_id) do
     partition = "default"
-    # Tenant isolation is handled by DB search_path, use placeholder for cache key
-    tenant_key = "default"
 
-    case ConfigServer.get_config(tenant_key, :sysmon, partition, agent_id) do
+    case ConfigServer.get_config(:sysmon, partition, agent_id) do
       {:ok, entry} ->
         entry.config
 

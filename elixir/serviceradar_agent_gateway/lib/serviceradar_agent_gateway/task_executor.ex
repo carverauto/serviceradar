@@ -174,13 +174,12 @@ defmodule ServiceRadarAgentGateway.TaskExecutor do
   # Agent-delegated check implementations
 
   defp execute_agent_status_check(config) do
-    tenant_id = config[:tenant_id] || config["tenant_id"]
     agent_id = config[:agent_id] || config["agent_id"]
 
-    unless tenant_id && agent_id do
-      {:error, :missing_tenant_or_agent_id}
+    unless agent_id do
+      {:error, :missing_agent_id}
     else
-      case ServiceRadarAgentGateway.AgentClient.get_status(tenant_id, agent_id, %{}) do
+      case ServiceRadarAgentGateway.AgentClient.get_status(agent_id, %{}) do
         {:ok, status} ->
           {:ok, %{
             status: if(status.available, do: :up, else: :down),
@@ -204,20 +203,19 @@ defmodule ServiceRadarAgentGateway.TaskExecutor do
   end
 
   defp execute_agent_sweep(config) do
-    tenant_id = config[:tenant_id] || config["tenant_id"]
     agent_id = config[:agent_id] || config["agent_id"]
     service_type = config[:service_type] || config["service_type"] || "icmp_sweep"
     last_sequence = config[:last_sequence] || config["last_sequence"]
 
-    unless tenant_id && agent_id do
-      {:error, :missing_tenant_or_agent_id}
+    unless agent_id do
+      {:error, :missing_agent_id}
     else
       opts = %{
         service_type: service_type,
         last_sequence: last_sequence || ""
       }
 
-      case ServiceRadarAgentGateway.AgentClient.get_results(tenant_id, agent_id, opts) do
+      case ServiceRadarAgentGateway.AgentClient.get_results(agent_id, opts) do
         {:ok, results} ->
           {:ok, %{
             status: if(results.available, do: :up, else: :down),
@@ -244,19 +242,18 @@ defmodule ServiceRadarAgentGateway.TaskExecutor do
   end
 
   defp execute_agent_delegated_check(config, service_type) do
-    tenant_id = config[:tenant_id] || config["tenant_id"]
     agent_id = config[:agent_id] || config["agent_id"]
     service_name = config[:service_name] || config["service_name"]
 
-    unless tenant_id && agent_id do
-      {:error, :missing_tenant_or_agent_id}
+    unless agent_id do
+      {:error, :missing_agent_id}
     else
       opts = %{
         service_type: service_type,
         service_name: service_name || ""
       }
 
-      case ServiceRadarAgentGateway.AgentClient.get_status(tenant_id, agent_id, opts) do
+      case ServiceRadarAgentGateway.AgentClient.get_status(agent_id, opts) do
         {:ok, status} ->
           {:ok, %{
             status: if(status.available, do: :up, else: :down),

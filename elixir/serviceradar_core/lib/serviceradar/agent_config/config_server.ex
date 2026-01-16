@@ -5,19 +5,22 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   Provides the main API for getting compiled configs with automatic
   caching, hash-based change detection, and cache invalidation.
 
+  The database connection's search_path determines the tenant schema,
+  so there is no tenant_id parameter in the API.
+
   ## Usage
 
       # Get config for an agent
-      {:ok, config} = ConfigServer.get_config(tenant_id, :sweep, "default", "agent-123")
+      {:ok, config} = ConfigServer.get_config(:sweep, "default", "agent-123")
 
       # Check if config has changed
-      case ConfigServer.get_config_if_changed(tenant_id, :sweep, "default", nil, current_hash) do
+      case ConfigServer.get_config_if_changed(:sweep, "default", nil, current_hash) do
         {:ok, config} -> # Config changed, update agent
         :unchanged -> # No change, agent is up to date
       end
 
       # Invalidate cache when resources change
-      ConfigServer.invalidate(tenant_id, :sweep)
+      ConfigServer.invalidate(:sweep)
   """
 
   use GenServer
@@ -41,17 +44,17 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   Returns cached config if available, otherwise compiles and caches.
   """
-  @spec get_config(String.t(), atom(), String.t(), String.t() | nil, keyword()) ::
+  @spec get_config(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
-  def get_config(tenant_id, config_type, partition, agent_id \\ nil, opts \\ []) do
+  def get_config(config_type, partition, agent_id \\ nil, opts \\ []) do
     # Check cache first
-    case ConfigCache.get(tenant_id, config_type, partition, agent_id) do
+    case ConfigCache.get(config_type, partition, agent_id) do
       {:ok, entry} ->
         {:ok, entry}
 
       :miss ->
         # Cache miss - compile and cache
-        compile_and_cache(tenant_id, config_type, partition, agent_id, opts)
+        compile_and_cache(config_type, partition, agent_id, opts)
     end
   end
 
@@ -63,10 +66,10 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   - `:unchanged` if hash matches cached config
   - `{:error, reason}` on compilation error
   """
-  @spec get_config_if_changed(String.t(), atom(), String.t(), String.t() | nil, String.t(), keyword()) ::
+  @spec get_config_if_changed(atom(), String.t(), String.t() | nil, String.t(), keyword()) ::
           {:ok, map()} | :unchanged | {:error, term()}
-  def get_config_if_changed(tenant_id, config_type, partition, agent_id, current_hash, opts \\ []) do
-    case ConfigCache.get_if_changed(tenant_id, config_type, partition, agent_id, current_hash) do
+  def get_config_if_changed(config_type, partition, agent_id, current_hash, opts \\ []) do
+    case ConfigCache.get_if_changed(config_type, partition, agent_id, current_hash) do
       :unchanged ->
         :unchanged
 
@@ -75,12 +78,12 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
       :miss ->
         # Cache miss - compile and check
-        compile_cache_miss(tenant_id, config_type, partition, agent_id, current_hash, opts)
+        compile_cache_miss(config_type, partition, agent_id, current_hash, opts)
     end
   end
 
-  defp compile_cache_miss(tenant_id, config_type, partition, agent_id, current_hash, opts) do
-    case compile_and_cache(tenant_id, config_type, partition, agent_id, opts) do
+  defp compile_cache_miss(config_type, partition, agent_id, current_hash, opts) do
+    case compile_and_cache(config_type, partition, agent_id, opts) do
       {:ok, entry} when entry.hash == current_hash ->
         :unchanged
 
@@ -93,40 +96,30 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   end
 
   @doc """
-  Invalidates cached configs for a tenant and config type.
+  Invalidates cached configs for a config type.
 
   Call this when source resources change.
   """
-  @spec invalidate(String.t(), atom()) :: :ok
-  def invalidate(tenant_id, config_type) do
-    ConfigCache.invalidate(tenant_id, config_type)
-    Logger.debug("ConfigServer: invalidated cache for tenant=#{tenant_id} type=#{config_type}")
-    :ok
-  end
-
-  @doc """
-  Invalidates all cached configs for a tenant.
-  """
-  @spec invalidate_tenant(String.t()) :: :ok
-  def invalidate_tenant(tenant_id) do
-    ConfigCache.invalidate_tenant(tenant_id)
-    Logger.debug("ConfigServer: invalidated all cache for tenant=#{tenant_id}")
+  @spec invalidate(atom()) :: :ok
+  def invalidate(config_type) do
+    ConfigCache.invalidate(config_type)
+    Logger.debug("ConfigServer: invalidated cache for type=#{config_type}")
     :ok
   end
 
   @doc """
   Compiles config without using cache (force recompile).
   """
-  @spec compile(String.t(), atom(), String.t(), String.t() | nil, keyword()) ::
+  @spec compile(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map() | ConfigInstance.t()} | {:error, term()}
-  def compile(tenant_id, config_type, partition, agent_id, opts \\ []) do
+  def compile(config_type, partition, agent_id, opts \\ []) do
     case Compiler.compiler_for(config_type) do
       {:ok, compiler} ->
-        compiler.compile(tenant_id, partition, agent_id, opts)
+        compiler.compile(partition, agent_id, opts)
 
       {:error, :unknown_config_type} ->
         # No compiler registered - try to load from database
-        load_from_database(tenant_id, config_type, partition, agent_id)
+        load_from_database(config_type, partition, agent_id)
     end
   end
 
@@ -139,11 +132,11 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
 
   # Private helpers
 
-  defp compile_and_cache(tenant_id, config_type, partition, agent_id, opts) do
-    case compile(tenant_id, config_type, partition, agent_id, opts) do
+  defp compile_and_cache(config_type, partition, agent_id, opts) do
+    case compile(config_type, partition, agent_id, opts) do
       {:ok, compiled_result} ->
         entry = build_cache_entry(compiled_result)
-        ConfigCache.put(tenant_id, config_type, partition, agent_id, entry)
+        ConfigCache.put(config_type, partition, agent_id, entry)
         {:ok, entry}
 
       {:error, _} = error ->
@@ -169,8 +162,8 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
     }
   end
 
-  defp load_from_database(_tenant_id, config_type, partition, agent_id) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp load_from_database(config_type, partition, agent_id) do
+    # DB connection's search_path determines the schema
     actor = SystemActor.system(:config_server)
 
     # Try to load pre-compiled config from database using the :for_agent read action

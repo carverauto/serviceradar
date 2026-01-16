@@ -1,22 +1,22 @@
 defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   @moduledoc """
   Builds sync configuration payloads for agents from IntegrationSource data.
+
+  Tenant isolation is handled by the database connection's search_path.
   """
 
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Integrations.IntegrationSource
 
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
 
-  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+  @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
-  def get_config_if_changed(agent_id, tenant_id, config_version) do
-    case build_payload(agent_id, tenant_id) do
+  def get_config_if_changed(agent_id, config_version) do
+    case build_payload(agent_id) do
       {:ok, payload} ->
         encoded = Jason.encode!(payload)
         version = hash_config(payload)
@@ -39,27 +39,26 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     end
   end
 
-  @spec build_payload(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def build_payload(agent_id, tenant_id) do
-    with {:ok, sources} <- load_sources(agent_id, tenant_id) do
+  @spec build_payload(String.t()) :: {:ok, map()} | {:error, term()}
+  def build_payload(agent_id) do
+    with {:ok, sources} <- load_sources(agent_id) do
       {:ok,
        %{
          "agent_id" => agent_id,
-         "tenant_id" => tenant_id,
          "sources" => build_sources_payload(sources)
        }}
     end
   end
 
-  defp load_sources(agent_id, tenant_id) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :sync_config_generator)
+  defp load_sources(agent_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:sync_config_generator)
 
     # Include sources assigned to this specific agent OR sources with no agent (auto-assign)
     # Load credentials_encrypted first (so AshCloak can decrypt it), then the credentials calculation
     query =
       IntegrationSource
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, actor: actor)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
       |> Ash.Query.load([:credentials_encrypted, :credentials])
       |> Ash.Query.sort(name: :asc)
@@ -72,13 +71,12 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
 
   defp build_sources_payload(sources) do
     Enum.reduce(sources, %{}, fn source, acc ->
-      tenant_slug = lookup_tenant_slug(to_string(source.tenant_id))
       source_key = source.name || to_string(source.id)
-      Map.put(acc, source_key, source_payload(source, tenant_slug))
+      Map.put(acc, source_key, source_payload(source))
     end)
   end
 
-  defp source_payload(source, tenant_slug) do
+  defp source_payload(source) do
     credentials = normalize_credentials(source.credentials || %{})
     credentials = put_optional(credentials, "page_size", source.page_size)
     source_type = source.source_type && Atom.to_string(source.source_type)
@@ -100,8 +98,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       "custom_field" => first_custom_field(source.custom_fields),
       "batch_size" => get_setting(source.settings, "batch_size"),
       "insecure_skip_verify" => get_setting(source.settings, "insecure_skip_verify"),
-      "tenant_id" => to_string(source.tenant_id),
-      "tenant_slug" => tenant_slug,
       "sync_service_id" => to_string(source.id)
     }
     |> compact_map()
@@ -175,23 +171,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
       _ -> false
     end)
     |> Map.new()
-  end
-
-  defp lookup_tenant_slug(nil), do: nil
-
-  defp lookup_tenant_slug(tenant_id) do
-    # Tenant resource is cross-tenant, use platform actor
-    actor = SystemActor.platform(:sync_config_generator)
-
-    case Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(actor: actor) do
-      {:ok, [tenant | _]} -> to_string(tenant.slug)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
   end
 
   defp get_setting(nil, _key), do: nil

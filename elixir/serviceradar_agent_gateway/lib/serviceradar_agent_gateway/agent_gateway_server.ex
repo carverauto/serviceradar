@@ -462,9 +462,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
-    # Tenant and gateway_id come from server-side metadata (mTLS cert + server identity)
-    # NOT from the service message - this prevents spoofing
-    TenantScope.validate_service_tenant!(service, metadata)
+    # In tenant-unaware architecture, validation is done by mTLS certificate verification
+    # There is no tenant_id to validate since each tenant has their own gateway instance
 
     service_name =
       case service.service_name do

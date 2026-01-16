@@ -6,14 +6,16 @@ defmodule ServiceRadar.AgentConfig.ConfigPublisher do
   events to NATS so that other nodes (gateways, other core instances) can
   invalidate their caches.
 
+  Each tenant instance publishes to its own NATS, providing implicit tenant isolation
+  without needing tenant_id in the API or NATS subjects.
+
   ## Event Format
 
-  Events are published to: `serviceradar.config.invalidated.{tenant_id}.{config_type}`
+  Events are published to: `serviceradar.config.invalidated.{config_type}`
 
   Payload:
   ```json
   {
-    "tenant_id": "uuid",
     "config_type": "sweep",
     "partition": "default",       // optional
     "agent_id": "agent-123",      // optional
@@ -36,21 +38,18 @@ defmodule ServiceRadar.AgentConfig.ConfigPublisher do
 
   This will invalidate local cache and publish to NATS for cluster-wide invalidation.
   """
-  @spec publish_invalidation(String.t(), atom(), keyword()) :: :ok | {:error, term()}
-  def publish_invalidation(tenant_id, config_type, opts \\ []) do
+  @spec publish_invalidation(atom(), keyword()) :: :ok | {:error, term()}
+  def publish_invalidation(config_type, opts \\ []) do
     # Invalidate local cache immediately
-    ConfigServer.invalidate(tenant_id, config_type)
+    ConfigServer.invalidate(config_type)
 
     # Build and publish NATS event
-    payload = build_payload(tenant_id, config_type, opts)
-    subject = build_subject(tenant_id, config_type)
+    payload = build_payload(config_type, opts)
+    subject = build_subject(config_type)
 
     case publish_to_nats(subject, payload) do
       :ok ->
-        Logger.debug(
-          "ConfigPublisher: published invalidation for tenant=#{tenant_id} type=#{config_type}"
-        )
-
+        Logger.debug("ConfigPublisher: published invalidation for type=#{config_type}")
         :ok
 
       {:error, reason} ->
@@ -66,29 +65,28 @@ defmodule ServiceRadar.AgentConfig.ConfigPublisher do
   @doc """
   Publishes an invalidation event for a specific resource change.
   """
-  @spec publish_resource_change(String.t(), atom(), module(), String.t(), atom()) ::
+  @spec publish_resource_change(atom(), module(), String.t(), atom()) ::
           :ok | {:error, term()}
-  def publish_resource_change(tenant_id, config_type, resource_module, resource_id, action) do
+  def publish_resource_change(config_type, resource_module, resource_id, action) do
     opts = [
       source_resource: resource_module |> Module.split() |> List.last(),
       source_id: resource_id,
       action: action
     ]
 
-    publish_invalidation(tenant_id, config_type, opts)
+    publish_invalidation(config_type, opts)
   end
 
   # Note: subscribe functionality will be added when NATS subscription handler is implemented
 
   # Private helpers
 
-  defp build_subject(tenant_id, config_type) do
-    "#{@subject_prefix}.#{tenant_id}.#{config_type}"
+  defp build_subject(config_type) do
+    "#{@subject_prefix}.#{config_type}"
   end
 
-  defp build_payload(tenant_id, config_type, opts) do
+  defp build_payload(config_type, opts) do
     %{
-      tenant_id: tenant_id,
       config_type: to_string(config_type),
       partition: Keyword.get(opts, :partition),
       agent_id: Keyword.get(opts, :agent_id),

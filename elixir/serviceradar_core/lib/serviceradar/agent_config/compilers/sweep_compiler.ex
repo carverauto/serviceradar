@@ -49,8 +49,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   end
 
   @impl true
-  def compile(_tenant_id, partition, agent_id, opts \\ []) do
-    # In tenant-unaware mode, actor is simple system actor
+  def compile(partition, agent_id, opts \\ []) do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:sweep_compiler)
 

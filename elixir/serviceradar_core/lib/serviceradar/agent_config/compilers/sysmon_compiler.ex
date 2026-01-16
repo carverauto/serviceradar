@@ -57,8 +57,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   end
 
   @impl true
-  def compile(_tenant_id, _partition, _agent_id, opts \\ []) do
-    # In tenant-unaware mode, actor is simple system actor
+  def compile(_partition, _agent_id, opts \\ []) do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:sysmon_compiler)
     device_uid = opts[:device_uid]

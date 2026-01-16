@@ -3,7 +3,9 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   Behaviour for config compilers that transform Ash resources into agent-consumable format.
 
   Each config type (sweep, poller, checker) implements this behaviour to compile
-  tenant-specific configurations from Ash resources into JSON format that agents expect.
+  configurations from Ash resources into JSON format that agents expect.
+
+  Tenant isolation is handled by the database connection's search_path.
 
   ## Implementing a Compiler
 
@@ -14,7 +16,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
         def config_type, do: :sweep
 
         @impl true
-        def compile(tenant_id, partition, agent_id, opts) do
+        def compile(partition, agent_id, opts) do
           # Query Ash resources and build config
           {:ok, %{networks: [...], ports: [...]}}
         end
@@ -26,7 +28,6 @@ defmodule ServiceRadar.AgentConfig.Compiler do
       end
   """
 
-  @type tenant_id :: String.t()
   @type partition :: String.t()
   @type agent_id :: String.t() | nil
   @type config_type :: :sweep | :sysmon | :snmp | :poller | :checker
@@ -39,13 +40,13 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   @callback config_type() :: config_type()
 
   @doc """
-  Compiles configuration for a specific tenant, partition, and optional agent.
+  Compiles configuration for a specific partition and optional agent.
 
   Returns `{:ok, compiled_config}` or `{:error, reason}`.
 
   The compiled config should be a map that can be JSON-encoded and sent to agents.
   """
-  @callback compile(tenant_id(), partition(), agent_id(), compile_opts()) ::
+  @callback compile(partition(), agent_id(), compile_opts()) ::
               {:ok, compiled_config()} | {:error, term()}
 
   @doc """
