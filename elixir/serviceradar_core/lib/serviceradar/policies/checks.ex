@@ -117,7 +117,19 @@ defmodule ServiceRadar.Policies.Checks do
   defmodule TenantMatches do
     @moduledoc """
     Check if the resource belongs to the actor's tenant.
-    Used for multi-tenant isolation.
+
+    This check is used for resources in the public schema that use attribute-based
+    multi-tenancy (with a `tenant_id` column). Most resources use PostgreSQL schema
+    isolation instead and don't need this check.
+
+    ## When to Use
+
+    Only use this for resources with `global?: true` in the public schema, such as:
+    - `tenants` - Tenant records
+    - `tenant_memberships` - User-tenant associations
+    - `nats_platform_tokens` - Platform NATS tokens
+
+    ## Requirements
 
     Expects the resource to have a `tenant_id` attribute and
     the actor to have a `tenant_id` attribute.

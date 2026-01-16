@@ -34,16 +34,12 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata} = message) do
-    tenant_id = TenantContext.resolve_tenant_id(message)
+  def parse_message(%{data: data, metadata: metadata}) do
+    tenant_id = TenantContext.current_tenant_id()
 
-    with tenant_id when not is_nil(tenant_id) <- tenant_id,
-         {:ok, json} <- Jason.decode(data) do
-      parse_event(json, metadata, data, tenant_id)
-    else
-      nil ->
-        Logger.error("OCSF event missing tenant_id", subject: metadata[:subject])
-        nil
+    case Jason.decode(data) do
+      {:ok, json} ->
+        parse_event(json, metadata, data, tenant_id)
 
       {:error, _} ->
         Logger.debug("Failed to parse events message as JSON")

@@ -23,40 +23,30 @@ defmodule ServiceRadar.Observability.LogPromotion do
     "trace" => OCSF.severity_low()
   }
 
-  @spec promote([map()], String.t() | nil) :: {:ok, non_neg_integer()}
-  def promote(rows, tenant_id) when is_list(rows) do
+  @spec promote([map()]) :: {:ok, non_neg_integer()}
+  def promote(rows) when is_list(rows) do
     # DB connection's search_path determines the schema
-    promote(rows, tenant_id, nil)
-  end
+    rules = load_rules()
+    promotions = build_promotions(rows, rules)
+    events = Enum.map(promotions, & &1.event)
 
-  @spec promote([map()], String.t() | nil, String.t() | nil) :: {:ok, non_neg_integer()}
-  def promote(rows, tenant_id, _schema) when is_list(rows) do
-    # DB connection's search_path determines the schema
-    if is_nil(tenant_id) do
-      {:ok, 0}
-    else
-      rules = load_rules(tenant_id)
-      promotions = build_promotions(rows, rules)
-      events = Enum.map(promotions, & &1.event)
+    case insert_events(events) do
+      {:ok, 0} ->
+        {:ok, 0}
 
-      case insert_events(events, tenant_id) do
-        {:ok, 0} ->
-          {:ok, 0}
-
-        {:ok, count} ->
-          _ = maybe_evaluate_stateful_rules(events)
-          maybe_create_alerts(promotions)
-          Logger.debug("Promoted #{count} logs to OCSF events", tenant_id: tenant_id)
-          {:ok, count}
-      end
+      {:ok, count} ->
+        _ = maybe_evaluate_stateful_rules(events)
+        maybe_create_alerts(promotions)
+        Logger.debug("Promoted #{count} logs to OCSF events")
+        {:ok, count}
     end
   rescue
     error ->
-      Logger.warning("Log promotion failed: #{inspect(error)}", tenant_id: tenant_id)
+      Logger.warning("Log promotion failed: #{inspect(error)}")
       {:ok, 0}
   end
 
-  defp load_rules(_tenant_id) do
+  defp load_rules do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:log_promotion)
 
@@ -80,9 +70,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
     Enum.flat_map(rows, &match_rules(&1, rules))
   end
 
-  defp insert_events([], _tenant_id), do: {:ok, 0}
+  defp insert_events([], _opts \\ []), do: {:ok, 0}
 
-  defp insert_events(events, tenant_id) do
+  defp insert_events(events) do
     # DB connection's search_path determines the schema
     {count, _} =
       ServiceRadar.Repo.insert_all(
@@ -95,7 +85,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     :telemetry.execute(
       [:serviceradar, :log_promotion, :events_created],
       %{count: count},
-      %{tenant_id: tenant_id}
+      %{}
     )
 
     {:ok, count}
@@ -263,7 +253,6 @@ defmodule ServiceRadar.Observability.LogPromotion do
       log_version: event_overrides["log_version"],
       unmapped: build_unmapped(log, rule),
       raw_data: nil,
-      tenant_id: Map.get(log, :tenant_id),
       created_at: DateTime.utc_now()
     }
   end

@@ -7,7 +7,6 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages
 
@@ -25,12 +24,11 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     )
   end
 
-  @spec ensure_platform_sync_certificate(String.t()) :: {:ok, OnboardingPackage.t()} | {:error, term()}
-  def ensure_platform_sync_certificate(tenant_id) when is_binary(tenant_id) do
+  @spec ensure_platform_sync_certificate() :: {:ok, OnboardingPackage.t()} | {:error, term()}
+  def ensure_platform_sync_certificate do
     component_id = platform_sync_component_id()
 
     ensure_platform_service_certificate(
-      tenant_id,
       :sync,
       component_id,
       label: "Platform Sync Service",
@@ -39,19 +37,18 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     )
   end
 
-  @spec ensure_platform_service_certificate(String.t(), atom(), String.t(), keyword()) ::
+  @spec ensure_platform_service_certificate(atom(), String.t(), keyword()) ::
           {:ok, OnboardingPackage.t()} | {:error, term()}
-  def ensure_platform_service_certificate(tenant_id, component_type, component_id, opts \\ [])
-      when is_binary(tenant_id) and is_binary(component_id) do
+  def ensure_platform_service_certificate(component_type, component_id, opts \\ [])
+      when is_binary(component_id) do
     label = Keyword.get(opts, :label, "Platform #{component_type} Service")
     partition_id = Keyword.get(opts, :partition_id, @default_partition_id)
     metadata = platform_metadata(Keyword.get(opts, :metadata, %{}))
 
-    case find_existing_package(tenant_id, component_type, component_id) do
+    case find_existing_package(component_type, component_id) do
       {:ok, package} ->
         if package.status in [:revoked, :expired, :deleted] do
           create_platform_package(
-            tenant_id,
             component_type,
             component_id,
             label,
@@ -59,12 +56,11 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
             metadata
           )
         else
-          maybe_update_metadata(tenant_id, package, metadata)
+          maybe_update_metadata(package, metadata)
         end
 
       :not_found ->
         create_platform_package(
-          tenant_id,
           component_type,
           component_id,
           label,
@@ -77,8 +73,8 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     end
   end
 
-  defp create_platform_package(tenant_id, component_type, component_id, label, partition_id, metadata) do
-    actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
+  defp create_platform_package(component_type, component_id, label, partition_id, metadata) do
+    actor = SystemActor.system(:platform_service_certificates)
     attrs = %{
       label: label,
       component_id: component_id,
@@ -88,8 +84,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       metadata_json: metadata
     }
 
-    case OnboardingPackages.create_with_tenant_cert(attrs,
-           tenant: tenant_id,
+    case OnboardingPackages.create_with_platform_cert(attrs,
            partition_id: partition_id,
            cert_validity_days: 365,
            actor: actor
@@ -106,13 +101,12 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     end
   end
 
-  defp find_existing_package(tenant_id, component_type, component_id) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
+  defp find_existing_package(component_type, component_id) do
+    actor = SystemActor.system(:platform_service_certificates)
 
     query =
       OnboardingPackage
-      |> Ash.Query.for_read(:read, %{}, tenant: tenant_schema, actor: actor)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(
         component_type == ^component_type and
           component_id == ^component_id and
@@ -128,19 +122,17 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
     end
   end
 
-  defp maybe_update_metadata(tenant_id, package, metadata) do
+  defp maybe_update_metadata(package, metadata) do
     existing = package.metadata_json || %{}
     merged = existing |> Map.merge(metadata) |> Map.put("platform_service", true)
 
     if merged == existing do
       {:ok, package}
     else
-      tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-      actor = SystemActor.for_tenant(tenant_id, :platform_service_certificates)
+      actor = SystemActor.system(:platform_service_certificates)
 
       package
       |> Ash.Changeset.for_update(:update_metadata, %{metadata_json: merged},
-        tenant: tenant_schema,
         actor: actor
       )
       |> Ash.update()

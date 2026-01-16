@@ -72,16 +72,12 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata} = message) do
-    tenant_id = TenantContext.resolve_tenant_id(message)
+  def parse_message(%{data: data, metadata: metadata}) do
+    tenant_id = TenantContext.current_tenant_id()
 
-    with tenant_id when not is_nil(tenant_id) <- tenant_id,
-         {:ok, json} <- Jason.decode(data) do
-      parse_netflow(json, metadata, tenant_id)
-    else
-      nil ->
-        Logger.error("NetFlow message missing tenant_id", subject: metadata[:subject])
-        nil
+    case Jason.decode(data) do
+      {:ok, json} ->
+        parse_netflow(json, metadata, tenant_id)
 
       {:error, _} ->
         Logger.debug("Failed to parse netflow message as JSON")
@@ -299,7 +295,7 @@ defmodule ServiceRadar.EventWriter.Processors.NetFlow do
       dst_addr dstAddr destinationAddress src_port srcPort sourcePort
       dst_port dstPort destinationPort protocol packets octets bytes
       sampler_address samplerAddress input_snmp inputSnmp output_snmp outputSnmp
-      metadata tenant_id
+      metadata
     )
 
     json

@@ -1,12 +1,18 @@
 defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @moduledoc """
-  Generates agent configuration from tenant data stored in CNPG.
+  Generates agent configuration from database.
 
   This module is responsible for:
   1. Loading service checks assigned to a specific agent
   2. Converting them to proto-compatible format (AgentCheckConfig)
   3. Computing a version hash for cache validation
   4. Supporting `not_modified` responses when config hasn't changed
+
+  ## Tenant-Unaware Architecture
+
+  This module operates in tenant-unaware mode where the database connection's
+  search_path (set by CNPG credentials) determines the schema. Each instance
+  serves only one tenant.
 
   ## Config Versioning
 
@@ -17,10 +23,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   ## Usage
 
       # Generate full config for an agent
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_id, tenant_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_id)
 
       # Check if config has changed (returns :not_modified or {:ok, config})
-      result = AgentConfigGenerator.get_config_if_changed(agent_id, tenant_id, current_version)
+      result = AgentConfigGenerator.get_config_if_changed(agent_id, current_version)
   """
 
   require Logger
@@ -64,10 +70,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   Loads all enabled service checks assigned to this agent from the database
   and returns them in a format suitable for the AgentConfigResponse proto.
 
+  The tenant schema is determined by the DB connection's search_path.
+
   ## Parameters
 
     - `agent_id` - The agent's unique identifier (uid)
-    - `tenant_id` - The tenant's UUID (for multi-tenant isolation)
 
   ## Returns
 
@@ -99,10 +106,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   3. Returns `:not_modified` if the hash matches `current_version`
   4. Returns `{:ok, config}` if the config has changed
 
+  The tenant schema is determined by the DB connection's search_path.
+
   ## Parameters
 
     - `agent_id` - The agent's unique identifier
-    - `tenant_id` - The tenant's UUID
     - `current_version` - The agent's current config version hash (or empty string)
 
   ## Returns

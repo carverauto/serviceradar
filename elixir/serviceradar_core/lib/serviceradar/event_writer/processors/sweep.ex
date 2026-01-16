@@ -221,21 +221,16 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata} = message) do
-    tenant_id = TenantContext.resolve_tenant_id(message)
+  def parse_message(%{data: data, metadata: metadata}) do
+    tenant_id = TenantContext.current_tenant_id()
 
-    if is_nil(tenant_id) do
-      Logger.error("Sweep message missing tenant_id", subject: metadata[:subject])
-      nil
-    else
-      case Jason.decode(data) do
-        {:ok, json} ->
-          parse_sweep_result(json, metadata, tenant_id)
+    case Jason.decode(data) do
+      {:ok, json} ->
+        parse_sweep_result(json, metadata, tenant_id)
 
-        {:error, _} ->
-          Logger.debug("Failed to parse sweep message as JSON")
-          nil
-      end
+      {:error, _} ->
+        Logger.debug("Failed to parse sweep message as JSON")
+        nil
     end
   end
 
@@ -431,7 +426,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
       icmp_response_time_ns icmpResponseTimeNs icmp_packet_loss icmpPacketLoss
       tcp_ports_scanned tcpPortsScanned tcp_ports_open tcpPortsOpen
       port_scan_results portScanResults last_sweep_time lastSweepTime
-      first_seen firstSeen metadata tenant_id
+      first_seen firstSeen metadata
     )
 
     json

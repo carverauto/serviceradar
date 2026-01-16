@@ -23,13 +23,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         "last_sweep_time" => "2024-01-01T00:00:00Z"
       }
 
+  ## Tenant-Unaware Architecture
+
+  This module operates in tenant-unaware mode where the database connection's
+  search_path (set by CNPG credentials) determines the schema. Each instance
+  serves only one tenant, so no tenant_id is needed in function parameters.
+
   ## Usage
 
       SweepResultsIngestor.ingest_results(results, execution_id,
         actor: actor
       )
-
-  In tenant-unaware mode, the DB schema is set by CNPG search_path credentials.
   """
 
   require Logger

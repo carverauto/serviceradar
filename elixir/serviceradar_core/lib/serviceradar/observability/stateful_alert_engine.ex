@@ -168,7 +168,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp normalize_snapshot(snapshot) do
     %{
       rule_id: snapshot.rule_id,
-      tenant_id: snapshot.tenant_id,
       group_key: snapshot.group_key,
       group_values: snapshot.group_values || %{},
       window_seconds: snapshot.window_seconds,
@@ -211,23 +210,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
 
   defp process_record(rule, record, state) do
-    tenant_id = record[:tenant_id] || record["tenant_id"]
+    case build_group(rule.group_by, record) do
+      {:ok, group_key, group_values} ->
+        key = {rule.id, group_key}
+        snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
+        updated = update_snapshot(snapshot, rule, record)
+        flushed = maybe_flush_snapshot(updated, rule, state)
+        :ets.insert(state.table, {key, flushed})
 
-    if is_nil(tenant_id) do
-      Logger.warning("Skipping stateful alert evaluation; record missing tenant_id")
-      :ok
-    else
-      case build_group(rule.group_by, record) do
-        {:ok, group_key, group_values} ->
-          key = {rule.id, group_key}
-          snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
-          updated = update_snapshot(snapshot, rule, record)
-          flushed = maybe_flush_snapshot(updated, rule, state)
-          :ets.insert(state.table, {key, flushed})
-
-        :error ->
-          :ok
-      end
+      :error ->
+        :ok
     end
   end
 
@@ -239,7 +231,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       _ ->
         %{
           rule_id: rule.id,
-          tenant_id: record[:tenant_id] || record["tenant_id"],
           group_key: group_key,
           group_values: group_values,
           window_seconds: rule.window_seconds,
@@ -273,7 +264,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Map.put(:last_seen_at, now)
       |> Map.put(:bucket_changed, bucket_changed)
       |> Map.put(:window_count, window_count)
-      |> Map.put_new(:tenant_id, record[:tenant_id] || record["tenant_id"])
       |> Map.put_new(:flush_required, false)
 
     handle_threshold(snapshot, rule, record, now)
@@ -380,8 +370,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       last_fired_at: snapshot.last_fired_at,
       last_notification_at: snapshot.last_notification_at,
       cooldown_until: snapshot.cooldown_until,
-      alert_id: snapshot.alert_id,
-      tenant_id: snapshot.tenant_id
+      alert_id: snapshot.alert_id
     }
 
     StatefulAlertRuleState
@@ -396,36 +385,29 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp create_event_and_alert(rule, snapshot, record, now) do
-    tenant_id = record[:tenant_id] || record["tenant_id"] || snapshot.tenant_id
+    event = build_event(rule, snapshot, record, now)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    if is_nil(tenant_id) do
-      {:error, :missing_tenant_id}
-    else
-      event = build_event(rule, snapshot, record, now, tenant_id)
-      # DB connection's search_path determines the schema
-      actor = SystemActor.system(:alert_engine)
+    with {:ok, ocsf_event} <- record_event(event, actor) do
+      case AlertGenerator.from_event(ocsf_event, actor: actor, alert: rule.alert) do
+        {:ok, %Alert{} = alert} ->
+          record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+          {:ok, alert.id}
 
-      with {:ok, ocsf_event} <- record_event(event, actor, tenant_id) do
-        case AlertGenerator.from_event(ocsf_event, actor: actor, alert: rule.alert) do
-          {:ok, %Alert{} = alert} ->
-            record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
-            {:ok, alert.id}
+        {:ok, :skipped} ->
+          {:error, :alert_disabled}
 
-          {:ok, :skipped} ->
-            {:error, :alert_disabled}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
 
-  defp record_event(attrs, actor, tenant_id) do
+  defp record_event(attrs, actor) do
     # DB connection's search_path determines the schema
     OcsfEvent
     |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
     |> Ash.create()
   end
 
@@ -492,7 +474,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp severity_to_level(:info), do: :info
   defp severity_to_level(_), do: :warning
 
-  defp build_event(rule, snapshot, record, now, tenant_id) do
+  defp build_event(rule, snapshot, record, now) do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
@@ -531,23 +513,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
       log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
       log_provider: "serviceradar.core",
-      log_level: log_level_for_severity(severity_id),
-      unmapped:
-        %{
-          "rule_id" => to_string(rule.id),
-          "rule_name" => rule.name,
-          "group_key" => snapshot.group_key,
-          "group_values" => snapshot.group_values,
-          "threshold" => rule.threshold,
-          "window_seconds" => rule.window_seconds,
-          "bucket_seconds" => rule.bucket_seconds,
-          "window_count" => snapshot.window_count,
-          "cooldown_seconds" => rule.cooldown_seconds,
-          "renotify_seconds" => rule.renotify_seconds
-        }
-        |> Map.merge(source),
-      tenant_id: tenant_id
+      log_level: log_level_for_severity(severity_id)
     }
+    |> Map.put(:unmapped, build_unmapped(rule, snapshot, source))
+  end
+
+  defp build_unmapped(rule, snapshot, source) do
+    %{
+      "rule_id" => to_string(rule.id),
+      "rule_name" => rule.name,
+      "group_key" => snapshot.group_key,
+      "group_values" => snapshot.group_values,
+      "threshold" => rule.threshold,
+      "window_seconds" => rule.window_seconds,
+      "bucket_seconds" => rule.bucket_seconds,
+      "window_count" => snapshot.window_count,
+      "cooldown_seconds" => rule.cooldown_seconds,
+      "renotify_seconds" => rule.renotify_seconds
+    }
+    |> Map.merge(source)
   end
 
   defp severity_id(alert_overrides) do
@@ -589,8 +573,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       group_key: snapshot.group_key,
       event_type: event_type,
       alert_id: alert_id,
-      details: details,
-      tenant_id: snapshot.tenant_id
+      details: details
     }
 
     StatefulAlertRuleHistory

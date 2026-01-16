@@ -11,10 +11,6 @@ defmodule ServiceRadar.Actors.SystemActor do
       actor = SystemActor.system(:state_monitor)
       Gateway |> Ash.read(actor: actor)
 
-      # For control plane code accessing tenant schemas
-      actor = SystemActor.for_tenant(tenant_id, :edge_site)
-      NatsLeafServer |> Ash.read(actor: actor, tenant: tenant_schema)
-
       # For platform-wide operations (bootstrap, tenant management)
       actor = SystemActor.platform(:tenant_bootstrap)
       Tenant |> Ash.read(actor: actor)
@@ -23,9 +19,7 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   - `system/1` - Use in tenant instance code where the DB connection's
     search_path is set by CNPG credentials (tenant-unaware mode).
-
-  - `for_tenant/2` - Use in control plane code that needs to access
-    a specific tenant's schema from a non-scoped connection.
+    Each instance serves a single tenant, so no tenant_id is needed.
 
   - `platform/1` - Use for cross-tenant operations in the public schema
     (tenant management, operator bootstrap, etc.)
@@ -47,16 +41,14 @@ defmodule ServiceRadar.Actors.SystemActor do
   - `id` - Unique identifier (e.g., "system:state_monitor")
   - `email` - Descriptive email for audit logs (e.g., "state-monitor@system.serviceradar")
   - `role` - Either `:system` or `:super_admin` (platform-wide)
-  - `tenant_id` - The tenant UUID (only for `for_tenant` actors)
   """
 
   @type component :: atom()
 
-  @type tenant_actor :: %{
+  @type system_actor :: %{
           id: String.t(),
           email: String.t(),
-          role: :system,
-          tenant_id: String.t()
+          role: :system
         }
 
   @type platform_actor :: %{
@@ -64,46 +56,6 @@ defmodule ServiceRadar.Actors.SystemActor do
           email: String.t(),
           role: :super_admin
         }
-
-  @doc """
-  Creates a system actor for tenant-scoped operations.
-
-  The actor will have:
-  - `role: :system` - Recognized by authorization policies
-  - `tenant_id` - Ensures tenant isolation policies are enforced
-
-  ## Parameters
-
-  - `tenant_id` - The tenant UUID this actor operates within
-  - `component` - Atom identifying the system component (e.g., `:state_monitor`, `:sweep_compiler`)
-
-  ## Examples
-
-      iex> SystemActor.for_tenant("abc-123", :state_monitor)
-      %{
-        id: "system:state_monitor",
-        email: "state-monitor@system.serviceradar",
-        role: :system,
-        tenant_id: "abc-123"
-      }
-
-      iex> SystemActor.for_tenant("abc-123", :sweep_compiler)
-      %{
-        id: "system:sweep_compiler",
-        email: "sweep-compiler@system.serviceradar",
-        role: :system,
-        tenant_id: "abc-123"
-      }
-  """
-  @spec for_tenant(String.t(), component()) :: tenant_actor()
-  def for_tenant(tenant_id, component) when is_binary(tenant_id) and is_atom(component) do
-    %{
-      id: "system:#{component}",
-      email: "#{component_to_email(component)}@system.serviceradar",
-      role: :system,
-      tenant_id: tenant_id
-    }
-  end
 
   @doc """
   Creates a platform-level system actor for cross-tenant operations.
@@ -120,7 +72,7 @@ defmodule ServiceRadar.Actors.SystemActor do
   - Cross-tenant analytics or reporting
   - Seeding default data across tenants
 
-  Regular tenant operations should use `for_tenant/2` instead.
+  Regular tenant operations should use `system/1` instead.
 
   ## Parameters
 
@@ -178,9 +130,7 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   Use `system/1` in tenant instance code where the DB connection's
   search_path is set by CNPG credentials (tenant isolation is implicit).
-
-  Use `for_tenant/2` in control plane code that needs to access a
-  specific tenant's schema from a non-scoped connection.
+  Each instance serves a single tenant, so no tenant_id is needed.
   """
   @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}
   def system(component) when is_atom(component) do
@@ -196,13 +146,13 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   ## Examples
 
-      iex> SystemActor.system_actor?(%{role: :system, tenant_id: "abc"})
+      iex> SystemActor.system_actor?(%{role: :system})
       true
 
       iex> SystemActor.system_actor?(%{role: :super_admin})
       true
 
-      iex> SystemActor.system_actor?(%{role: :admin, tenant_id: "abc"})
+      iex> SystemActor.system_actor?(%{role: :admin})
       false
 
       iex> SystemActor.system_actor?(nil)

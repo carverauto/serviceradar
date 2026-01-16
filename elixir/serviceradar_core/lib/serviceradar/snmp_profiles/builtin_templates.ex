@@ -19,8 +19,8 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   # Get all built-in templates
   templates = BuiltinTemplates.all()
 
-  # Seed templates into database
-  BuiltinTemplates.seed!(tenant_id, actor)
+  # Seed templates into database (schema is determined by DB connection's search_path)
+  BuiltinTemplates.seed!(tenant_schema, actor)
   ```
   """
 
@@ -80,8 +80,10 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   def for_vendor(_), do: []
 
   @doc """
-  Seeds all built-in templates into the database for a tenant.
+  Seeds all built-in templates into the database.
   Skips templates that already exist.
+
+  The tenant schema is determined by the DB connection's search_path in tenant-unaware mode.
   """
   @spec seed!(String.t(), map()) :: {:ok, integer()} | {:error, term()}
   def seed!(tenant_schema, actor) do

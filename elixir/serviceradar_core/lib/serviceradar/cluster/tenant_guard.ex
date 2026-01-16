@@ -1,36 +1,36 @@
 defmodule ServiceRadar.Cluster.TenantGuard do
   @moduledoc """
-  Defense-in-depth tenant validation for inter-process communication.
+  Defense-in-depth validation for inter-process communication.
 
-  Even with per-tenant Horde registries, an attacker who discovers a PID
-  could attempt direct messaging. TenantGuard provides an additional layer
-  of protection by validating tenant identity on every GenServer operation.
+  In a tenant-unaware architecture where each instance serves only one tenant
+  (with PostgreSQL schema isolation), TenantGuard provides additional security
+  for inter-node communication in clustered deployments.
 
   ## How It Works
 
-  1. Each process stores its tenant_id in the process dictionary
-  2. The calling process's tenant is extracted from:
+  1. Each process can store a tenant marker in the process dictionary
+  2. The calling process's identity is extracted from:
      - Process dictionary (`:serviceradar_tenant`)
-     - Node name (if follows tenant naming convention)
+     - Node name (if follows naming convention)
      - Client certificate (for external connections)
-  3. Every handle_call/handle_cast validates tenant match
+  3. GenServer operations can validate caller identity
 
   ## Usage
 
   ```elixir
-  defmodule MyTenantAwareServer do
+  defmodule MyServer do
     use GenServer
     use ServiceRadar.Cluster.TenantGuard
 
     def init(opts) do
-      tenant_id = Keyword.fetch!(opts, :tenant_id)
-      set_process_tenant(tenant_id)
-      {:ok, %{tenant_id: tenant_id}}
+      # In tenant-unaware mode, use a marker like :instance
+      set_process_tenant(:instance)
+      {:ok, %{}}
     end
 
-    # Macro validates tenant before execution
+    # Validates caller before execution
     def handle_call({:get_data, id}, from, state) do
-      guard_tenant!(state.tenant_id, from)
+      guard_tenant!(:instance, from)
       # ... handle request
     end
   end
@@ -38,18 +38,19 @@ defmodule ServiceRadar.Cluster.TenantGuard do
 
   ## Platform Admin Bypass
 
-  Processes with tenant_id `:platform` can access any tenant's processes.
-  This is used by core services that need cross-tenant access.
+  Processes with tenant marker `:platform` can access any process.
+  This is used by core services that need cross-instance access.
 
   ## Integration with Ash
 
-  When making Ash calls, pass the tenant from the validated context:
+  In tenant-unaware mode, the DB connection's search_path determines
+  the tenant schema, so explicit tenant passing is not required:
 
   ```elixir
   def handle_call({:create_device, attrs}, from, state) do
-    guard_tenant!(state.tenant_id, from)
-
-    Ash.create(Device, attrs, tenant: state.tenant_id)
+    guard_tenant!(:instance, from)
+    # DB search_path handles tenant isolation
+    Ash.create(Device, attrs, actor: SystemActor.system(:my_server))
   end
   ```
   """

@@ -38,13 +38,6 @@ defmodule ServiceRadar.EventWriter.TenantContext do
     end
   end
 
-  @doc """
-  Resolves tenant_id (UUID) from message context.
-
-  Returns the tenant UUID for storing in event records.
-  """
-  @spec resolve_tenant_id(map()) :: String.t() | nil
-  def resolve_tenant_id(_message), do: current_tenant_id()
 
   @doc """
   Executes a function within a tenant context.

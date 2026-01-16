@@ -13,15 +13,18 @@ defmodule ServiceRadar.Actors.Device do
 
   Device actors are:
   - Lazily initialized on first access (not pre-created for all devices)
-  - Registered in the tenant's Horde registry with key `{:device, device_id}`
-  - Supervised by the tenant's Horde DynamicSupervisor
+  - Registered in the Horde registry with key `{:device, device_id}`
+  - Supervised by the Horde DynamicSupervisor
   - Automatically distributed across the cluster via Horde
   - Hibernated after inactivity to reduce memory usage
+
+  Each instance serves a single tenant (tenant isolation is handled by PostgreSQL
+  schema isolation via the DB connection's search_path).
 
   ## Usage
 
       # Get or start a device actor
-      {:ok, pid} = DeviceRegistry.get_or_start("tenant-id", "device-id")
+      {:ok, pid} = DeviceRegistry.get_or_start("device-id")
 
       # Send commands to the actor
       Device.update_identity(pid, %{hostname: "server-01", ip: "10.0.0.1"})
@@ -70,7 +73,6 @@ defmodule ServiceRadar.Actors.Device do
   @health_states [:unknown, :healthy, :degraded, :unhealthy, :offline]
 
   defstruct [
-    :tenant_id,
     :device_id,
     :partition_id,
     :identity,
@@ -84,7 +86,6 @@ defmodule ServiceRadar.Actors.Device do
   ]
 
   @type t :: %__MODULE__{
-          tenant_id: String.t(),
           device_id: String.t(),
           partition_id: String.t() | nil,
           identity: map(),
@@ -123,19 +124,17 @@ defmodule ServiceRadar.Actors.Device do
   # ===========================================================================
 
   @doc """
-  Starts a device actor for the given tenant and device.
+  Starts a device actor for the given device.
 
-  This is typically called by `DeviceRegistry.get_or_start/2`, not directly.
+  This is typically called by `DeviceRegistry.get_or_start/1`, not directly.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
     device_id = Keyword.fetch!(opts, :device_id)
     partition_id = Keyword.get(opts, :partition_id)
     initial_identity = Keyword.get(opts, :identity, %{})
 
     GenServer.start_link(__MODULE__, %{
-      tenant_id: tenant_id,
       device_id: device_id,
       partition_id: partition_id,
       identity: initial_identity
@@ -236,14 +235,13 @@ defmodule ServiceRadar.Actors.Device do
   # ===========================================================================
 
   @impl true
-  def init(%{tenant_id: tenant_id, device_id: device_id} = init_state) do
-    # Register in the tenant's Horde registry
-    case register_self(tenant_id, device_id, init_state[:partition_id]) do
+  def init(%{device_id: device_id} = init_state) do
+    # Register in the Horde registry
+    case register_self(device_id, init_state[:partition_id]) do
       {:ok, _} ->
         now = DateTime.utc_now()
 
         state = %__MODULE__{
-          tenant_id: tenant_id,
           device_id: device_id,
           partition_id: init_state[:partition_id],
           identity: init_state[:identity] || %{},
@@ -269,7 +267,7 @@ defmodule ServiceRadar.Actors.Device do
         schedule_health_check()
         schedule_idle_check()
 
-        Logger.debug("Device actor started: #{device_id} for tenant: #{tenant_id}")
+        Logger.debug("Device actor started: #{device_id}")
 
         {:ok, state, @hibernate_after}
 
@@ -302,7 +300,7 @@ defmodule ServiceRadar.Actors.Device do
   def handle_call({:update_identity, updates}, _from, state) do
     new_identity = Map.merge(state.identity, updates)
 
-    case persist_identity(state.tenant_id, state.device_id, new_identity) do
+    case persist_identity(state.device_id, new_identity) do
       :ok ->
         new_state = %{
           state
@@ -432,7 +430,7 @@ defmodule ServiceRadar.Actors.Device do
   # Private Functions
   # ===========================================================================
 
-  defp register_self(_tenant_id, device_id, partition_id) do
+  defp register_self(device_id, partition_id) do
     metadata = %{
       type: :device,
       device_id: device_id,
@@ -464,7 +462,11 @@ defmodule ServiceRadar.Actors.Device do
   end
 
   defp touch_state(state) do
-    %{state | last_seen: DateTime.utc_now(), metrics: increment_metric(state.metrics, :message_count)}
+    %{
+      state
+      | last_seen: DateTime.utc_now(),
+        metrics: increment_metric(state.metrics, :message_count)
+    }
   end
 
   defp increment_metric(metrics, key) do
@@ -503,7 +505,7 @@ defmodule ServiceRadar.Actors.Device do
     state
   end
 
-  defp persist_identity(_tenant_id, device_id, identity) do
+  defp persist_identity(device_id, identity) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:device_actor)
 
@@ -573,13 +575,13 @@ defmodule ServiceRadar.Actors.Device do
   defp broadcast_identity_update(state) do
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "device:#{state.tenant_id}:#{state.device_id}",
+      "device:#{state.device_id}",
       {:device_identity_updated, state.identity}
     )
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "devices:#{state.tenant_id}",
+      "devices",
       {:device_identity_updated, state.device_id, state.identity}
     )
   end
@@ -587,13 +589,13 @@ defmodule ServiceRadar.Actors.Device do
   defp broadcast_health_change(state, old_status, new_status) do
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "device:#{state.tenant_id}:#{state.device_id}",
+      "device:#{state.device_id}",
       {:device_health_changed, old_status, new_status}
     )
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "devices:#{state.tenant_id}",
+      "devices",
       {:device_health_changed, state.device_id, old_status, new_status}
     )
   end
