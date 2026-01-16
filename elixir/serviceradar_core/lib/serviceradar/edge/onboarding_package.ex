@@ -51,8 +51,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
       trigger :expire_packages do

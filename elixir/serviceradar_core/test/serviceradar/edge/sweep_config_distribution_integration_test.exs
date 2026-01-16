@@ -15,13 +15,6 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
   end
 
   setup do
-    %{tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("sweep-config")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     actor = %{
       id: Ash.UUID.generate(),
       email: "sweep-config@serviceradar.local",
@@ -30,11 +23,10 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
 
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
-    {:ok, tenant_slug: tenant_slug, actor: actor, agent_id: agent_id}
+    {:ok, actor: actor, agent_id: agent_id}
   end
 
   test "includes sweep config in agent payload", %{
-    tenant_slug: tenant_slug,
     actor: actor,
     agent_id: agent_id
   } do

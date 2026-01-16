@@ -72,26 +72,14 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
-        # Per-tenant Oban supervisors (after Oban)
-        tenant_oban_supervisor_child(),
-
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
-
-        # Per-tenant Oban queue management (after Oban, before registries)
-        tenant_queues_child(),
 
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
 
         # NATS JetStream connection for event publishing
         nats_connection_child(),
-
-        # Tenant lifecycle JetStream stream bootstrap
-        tenant_lifecycle_stream_child(),
-
-        # NATS operator auto-bootstrap (runs once at startup)
-        nats_operator_bootstrap_child(),
 
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
@@ -196,25 +184,6 @@ defmodule ServiceRadar.Application do
       []
     else
       []
-    end
-  end
-
-  defp tenant_queues_child do
-    # Only start TenantQueues if Oban is enabled
-    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
-         Application.get_env(:serviceradar_core, Oban) do
-      ServiceRadar.Oban.TenantQueues
-    else
-      nil
-    end
-  end
-
-  defp tenant_oban_supervisor_child do
-    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
-         Application.get_env(:serviceradar_core, Oban) do
-      ServiceRadar.Oban.TenantSupervisor
-    else
-      nil
     end
   end
 
@@ -355,29 +324,11 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp tenant_lifecycle_stream_child do
-    if nats_enabled?() do
-      ServiceRadar.NATS.TenantLifecycleStreamBootstrap
-    else
-      nil
-    end
-  end
-
   defp nats_enabled? do
     case System.get_env("NATS_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
-    end
-  end
-
-  defp nats_operator_bootstrap_child do
-    # Only run auto-bootstrap if datasvc is enabled (we need it to bootstrap)
-    # and if repo is enabled (we need to store the operator record)
-    if datasvc_enabled?() and Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.NATS.OperatorBootstrap
-    else
-      nil
     end
   end
 

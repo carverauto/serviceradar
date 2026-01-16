@@ -48,8 +48,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger to execute due checks
       trigger :execute_due_checks do

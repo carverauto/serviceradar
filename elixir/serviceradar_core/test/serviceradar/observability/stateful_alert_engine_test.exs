@@ -1,9 +1,13 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
+  @moduledoc """
+  In the tenant-instance architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
+  """
+
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
   alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
@@ -15,19 +19,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("stateful-alerts")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
     actor = %{id: "system", role: :admin}
-
-    {:ok, schema: schema, actor: actor}
+    {:ok, actor: actor}
   end
 
-  test "fires and resolves alerts based on bucketed counts", %{schema: schema, actor: actor} do
+  test "fires and resolves alerts based on bucketed counts", %{actor: actor} do
     {:ok, rule} =
       StatefulAlertRule
       |> Ash.Changeset.for_create(:create, %{
@@ -69,7 +65,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     events = [event.(base_time), event.(base_time)]
 
-    assert :ok = StatefulAlertEngine.evaluate_events(events, schema)
+    # In single-tenant mode, schema is determined by search_path
+    assert :ok = StatefulAlertEngine.evaluate_events(events, nil)
 
     events =
       OcsfEvent
@@ -88,7 +85,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], schema)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], nil)
 
     {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved

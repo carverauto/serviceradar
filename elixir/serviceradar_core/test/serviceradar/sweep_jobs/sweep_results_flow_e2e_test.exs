@@ -23,13 +23,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   end
 
   setup do
-    %{tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("sweep-results")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     actor = SystemActor.system(:test)
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
@@ -94,7 +87,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     ]
 
     assert {:ok, stats} =
-             SweepResultsIngestor.ingest_results(results, execution_id, tenant_slug,
+             SweepResultsIngestor.ingest_results(results, execution_id, nil,
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,

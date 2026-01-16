@@ -20,17 +20,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   end
 
   setup do
-    %{tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("discovery-sources")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:discovery_sources_test)
 
-    {:ok, tenant_slug: tenant_slug, actor: actor}
+    {:ok, actor: actor}
   end
 
   describe "discovery_sources propagation" do

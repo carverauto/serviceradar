@@ -13,12 +13,6 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("zen-rule")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
     # Tenant schema determined by DB connection's search_path
     actor = SystemActor.system(:test)
 

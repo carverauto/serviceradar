@@ -24,12 +24,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
   alias ServiceRadar.ProcessRegistry
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("edge-isolation")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 

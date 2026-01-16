@@ -1,7 +1,10 @@
 defmodule ServiceRadar.TestSupport do
-  @moduledoc false
+  @moduledoc """
+  Test support utilities for ServiceRadar Core.
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  In the tenant-instance architecture, each deployment is single-tenant.
+  The PostgreSQL search_path (set by CNPG credentials) determines the schema.
+  """
 
   def start_core! do
     {:ok, _} = Application.ensure_all_started(:serviceradar_core)
@@ -18,20 +21,5 @@ defmodule ServiceRadar.TestSupport do
     end
 
     :ok
-  end
-
-  def create_tenant_schema!(slug_prefix) when is_binary(slug_prefix) do
-    unique_id = :erlang.unique_integer([:positive])
-    tenant_slug = "#{slug_prefix}-#{unique_id}"
-
-    # In tenant-unaware architecture, just create the schema
-    # No per-tenant registry registration is needed
-    {:ok, _schema} = TenantSchemas.create_schema(tenant_slug)
-
-    %{tenant_slug: tenant_slug}
-  end
-
-  def drop_tenant_schema!(tenant_slug) when is_binary(tenant_slug) do
-    TenantSchemas.drop_schema(tenant_slug, cascade: true)
   end
 end

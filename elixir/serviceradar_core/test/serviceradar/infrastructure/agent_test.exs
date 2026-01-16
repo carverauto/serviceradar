@@ -14,12 +14,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   @moduletag :database
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-test")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 
@@ -94,7 +89,6 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     end
 
     test "upserts existing agent without resetting first_seen_time", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       unique_id: unique_id
     } do
@@ -330,7 +324,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       }
     end
 
-    test "connected returns only connected and healthy agents", %{connected_agent: agent, connecting_agent: _connecting, actor: actor, tenant_slug: tenant_slug} do
+    test "connected returns only connected and healthy agents", %{connected_agent: agent, connecting_agent: _connecting, actor: actor} do
       agents =
         Agent
         |> Ash.Query.for_read(:connected, %{}, actor: actor)
@@ -341,7 +335,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_capability returns agents with specific capability", %{connected_agent: agent, actor: actor, tenant_slug: tenant_slug} do
+    test "by_capability returns agents with specific capability", %{connected_agent: agent, actor: actor} do
       agents =
         Agent
         |> Ash.Query.for_read(:by_capability, %{capability: "tcp"}, actor: actor)
@@ -350,7 +344,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(agents, &(&1.uid == agent.uid))
     end
 
-    test "by_status returns agents in specific status", %{connected_agent: connected, connecting_agent: connecting, actor: actor, tenant_slug: tenant_slug} do
+    test "by_status returns agents in specific status", %{connected_agent: connected, connecting_agent: connecting, actor: actor} do
       connected_agents =
         Agent
         |> Ash.Query.for_read(:by_status, %{status: :connected}, actor: actor)

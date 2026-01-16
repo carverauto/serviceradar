@@ -78,8 +78,6 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   oban do
-    list_tenants TenantList
-
     triggers do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do

@@ -13,16 +13,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   @moduletag :integration
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-config")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    {:ok, tenant_slug: tenant.tenant_slug}
+    ServiceRadar.TestSupport.start_core!()
+    :ok
   end
 
-  setup %{tenant_slug: tenant_slug} do
+  setup do
     unique_id = :erlang.unique_integer([:positive])
 
     actor = %{
@@ -33,7 +28,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
     agent_uid = "test-agent-#{unique_id}"
 
-    {:ok, tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id}
+    {:ok, actor: actor, agent_uid: agent_uid, unique_id: unique_id}
   end
 
   describe "generate_config/1" do
@@ -47,7 +42,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.config_timestamp > 0
     end
 
-    test "generates config with checks", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "generates config with checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Create a service check for this agent (enabled by default)
       {:ok, _check} =
         ServiceCheck
@@ -75,7 +70,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert check.enabled == true
     end
 
-    test "excludes disabled checks", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Create enabled check (enabled by default)
       {:ok, _enabled} =
         ServiceCheck
@@ -204,7 +199,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config1.config_version == config2.config_version
     end
 
-    test "different checks produce different version hash", %{tenant_slug: tenant_slug, actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+    test "different checks produce different version hash", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       # Get initial config
       {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
 

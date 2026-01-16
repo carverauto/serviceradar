@@ -3,12 +3,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   Tests for the AgentGatewaySync module.
 
   Tests agent enrollment, device creation, and heartbeat operations.
+  In the tenant-instance architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -16,25 +17,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   @moduletag :integration
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-gateway-sync")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    {:ok, tenant_slug: tenant.tenant_slug}
+    ServiceRadar.TestSupport.start_core!()
+    :ok
   end
 
-  setup %{tenant_slug: tenant_slug} do
+  setup do
     unique_id = :erlang.unique_integer([:positive])
     agent_id = "test-agent-#{unique_id}"
-    schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
     actor = SystemActor.system(:test)
 
     {:ok,
-     tenant_slug: tenant_slug,
      agent_id: agent_id,
-     schema: schema,
      actor: actor,
      unique_id: unique_id}
   end
@@ -42,7 +35,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   describe "ensure_device_for_agent/2" do
     test "creates device for new agent", %{
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -70,7 +62,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "updates existing device on subsequent enrollment", %{
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -109,7 +100,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "sets discovery_sources based on capabilities", %{
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       # Agent without sysmon capability
@@ -131,7 +121,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "handles agent with system_monitor capability", %{
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       agent_id = "agent-system-monitor-#{unique_id}"
@@ -152,7 +141,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   describe "upsert_agent/2" do
     test "creates new agent record", %{
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -177,7 +165,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "updates existing agent record", %{
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       # Create initial agent
@@ -209,7 +196,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   describe "heartbeat_agent/2" do
     test "updates agent heartbeat with config_source", %{
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       # First create the agent
@@ -240,7 +226,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "heartbeat creates agent if not exists", %{
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       new_agent_id = "new-heartbeat-agent-#{unique_id}"
@@ -259,7 +244,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     test "heartbeat with local config_source", %{
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       agent_id = "local-config-agent-#{unique_id}"

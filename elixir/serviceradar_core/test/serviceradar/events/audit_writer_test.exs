@@ -1,33 +1,25 @@
 defmodule ServiceRadar.Events.AuditWriterTest do
   @moduledoc """
   Integration coverage for audit event writes.
+
+  In the tenant-instance architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   setup_all do
-    ServiceRadar.TestSupport.start_core!()
+    TestSupport.start_core!()
     :ok
   end
 
-  setup do
-    %{tenant_slug: tenant_slug} = TestSupport.create_tenant_schema!("audit")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
-    {:ok, tenant_slug: tenant_slug}
-  end
-
-  test "writes audit events with UUID fields", %{tenant_slug: tenant_slug} do
+  test "writes audit events with UUID fields" do
     resource_id = Ecto.UUID.generate()
 
     assert :ok =
@@ -40,12 +32,11 @@ defmodule ServiceRadar.Events.AuditWriterTest do
                details: %{endpoint: "https://example.net"}
              )
 
-    schema = TenantSchemas.schema_for_tenant(tenant_slug)
-
+    # Query against the current schema (determined by search_path)
     assert %Postgrex.Result{rows: [[count]]} =
              Ecto.Adapters.SQL.query!(
                Repo,
-               "SELECT COUNT(*) FROM #{schema}.ocsf_events",
+               "SELECT COUNT(*) FROM ocsf_events",
                []
              )
 

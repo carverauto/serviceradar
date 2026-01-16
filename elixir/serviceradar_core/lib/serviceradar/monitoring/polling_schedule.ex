@@ -38,8 +38,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger to execute due polling schedules
       trigger :execute_schedules do

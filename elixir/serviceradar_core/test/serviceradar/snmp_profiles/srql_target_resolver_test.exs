@@ -49,19 +49,12 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
   describe "resolve_for_device/3 with profiles" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-resolver")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
-    test "returns nil when no targeting profiles exist", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns nil when no targeting profiles exist" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -82,9 +75,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "matches device with hostname query", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "matches device with hostname query" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -127,9 +118,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "returns nil when device does not match query", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns nil when device does not match query" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -171,9 +160,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "resolves by priority - higher priority wins", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "resolves by priority - higher priority wins" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -232,9 +219,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "skips disabled profiles", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "skips disabled profiles" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -294,9 +279,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "skips profiles without target_query (non-targeting profiles)", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "skips profiles without target_query (non-targeting profiles)" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 

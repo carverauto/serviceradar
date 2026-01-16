@@ -21,22 +21,18 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
 
-    %{tenant_slug: tenant_slug} = TestSupport.create_tenant_schema!("results-router")
-
     on_exit(fn ->
       if is_nil(previous_async) do
         Application.delete_env(:serviceradar_core, :sync_ingestor_async)
       else
         Application.put_env(:serviceradar_core, :sync_ingestor_async, previous_async)
       end
-
-      TestSupport.drop_tenant_schema!(tenant_slug)
     end)
 
-    {:ok, tenant_slug: tenant_slug}
+    :ok
   end
 
-  test "sync status update creates device and identifiers", %{tenant_slug: tenant_slug} do
+  test "sync status update creates device and identifiers" do
     actor = system_actor()
 
     armis_id = "armis-#{System.unique_integer([:positive])}"

@@ -3,13 +3,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
   Tests for the SysmonCompiler module.
 
   Tests config compilation, validation, and profile resolution.
+  In the tenant-instance architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   require Ash.Query
@@ -73,13 +74,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
   describe "compile/3" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("sysmon-compiler")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
@@ -92,9 +88,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
 
     @tag :integration
-    test "returns profile config when default profile exists", %{tenant_slug: tenant_slug} do
+    test "returns profile config when default profile exists" do
       # Create a default profile
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
       actor = SystemActor.system(:test)
 
       {:ok, profile} =

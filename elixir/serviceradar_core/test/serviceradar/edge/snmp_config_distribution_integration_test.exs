@@ -27,13 +27,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
   # Tenant schema is determined by DB connection's search_path
   setup do
-    %{tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("snmp-config")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     actor = %{
       id: Ash.UUID.generate(),
       email: "snmp-config@serviceradar.local",

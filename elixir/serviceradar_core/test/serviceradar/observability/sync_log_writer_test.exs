@@ -1,9 +1,13 @@
 defmodule ServiceRadar.Observability.SyncLogWriterTest do
+  @moduledoc """
+  In the tenant-instance architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
+  """
+
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.{Log, SyncLogWriter}
@@ -15,20 +19,11 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("sync-log")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
     actor = %{id: "system", role: :admin}
-
-    {:ok, schema: schema, actor: actor}
+    {:ok, actor: actor}
   end
 
   test "writes sync lifecycle logs without creating OCSF events", %{
-    schema: schema,
     actor: actor
   } do
     source = %IntegrationSource{

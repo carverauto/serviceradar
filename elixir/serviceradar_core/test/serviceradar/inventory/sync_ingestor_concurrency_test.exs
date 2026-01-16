@@ -20,21 +20,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   end
 
   setup do
-    %{tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("sync-ingestor")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_ingestor_test)
 
-    {:ok, tenant_slug: tenant_slug, actor: actor}
+    {:ok, actor: actor}
   end
 
   test "concurrent batches upsert without duplicate key errors", %{
-    tenant_slug: _tenant_slug,
     actor: actor
   } do
     armis_id = "armis-#{System.unique_integer([:positive])}"

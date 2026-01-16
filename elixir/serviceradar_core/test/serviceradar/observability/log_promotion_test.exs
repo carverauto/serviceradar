@@ -15,16 +15,10 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("log-promote")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    {:ok, _tenant: tenant}
+    :ok
   end
 
-  test "promotes log to event and creates alert", %{_tenant: _tenant} do
+  test "promotes log to event and creates alert" do
     actor = %{id: "system", role: :admin}
 
     {:ok, _rule} =

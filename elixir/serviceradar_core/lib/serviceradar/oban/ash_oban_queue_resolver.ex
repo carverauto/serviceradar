@@ -31,8 +31,6 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
   - `:default` - General purpose jobs
   """
 
-  alias ServiceRadar.Oban.TenantQueues
-
   @doc """
   Resolves the queue name for an AshOban trigger.
 
@@ -49,7 +47,7 @@ defmodule ServiceRadar.Oban.AshObanQueueResolver do
   """
   @spec resolve(Ash.Resource.record(), atom()) :: atom()
   def resolve(_record, queue_type \\ :default) do
-    TenantQueues.get_queue_name(queue_type)
+    queue_type
   end
 
   @doc """

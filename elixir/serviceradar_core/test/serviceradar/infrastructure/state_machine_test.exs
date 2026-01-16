@@ -17,12 +17,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
   @moduletag :database
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("infra-state")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
+    ServiceRadar.TestSupport.start_core!()
     # Tenant schema determined by DB connection's search_path
     :ok
   end

@@ -17,12 +17,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
   @moduletag :database
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-health")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
+    ServiceRadar.TestSupport.start_core!()
     :ok
   end
 
@@ -195,8 +190,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "connected query only returns healthy agents", %{
       healthy_agent: healthy,
       degraded_agent: degraded,
-      actor: actor,
-      tenant_slug: tenant_slug
+      actor: actor
     } do
       agents =
         Agent
@@ -213,8 +207,7 @@ defmodule ServiceRadar.Infrastructure.AgentHealthTest do
     test "by_status :degraded returns unhealthy agents", %{
       degraded_agent: degraded,
       healthy_agent: healthy,
-      actor: actor,
-      tenant_slug: tenant_slug
+      actor: actor
     } do
       agents =
         Agent

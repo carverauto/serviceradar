@@ -77,13 +77,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   describe "compile/3" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-compiler")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
@@ -95,9 +90,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "returns profile config when default profile exists", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns profile config when default profile exists" do
       # Create a default profile - tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -126,9 +119,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "returns profile with targets and OIDs", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns profile with targets and OIDs" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -208,9 +199,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "returns SNMPv3 target with decrypted credentials", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns SNMPv3 target with decrypted credentials" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -276,17 +265,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   describe "resolve_profile/2" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-resolve")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
-    test "returns nil when no profiles exist", %{tenant_slug: _tenant_slug} do
+    test "returns nil when no profiles exist" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
@@ -295,9 +279,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "returns default profile when no targeting matches", %{
-      tenant_slug: _tenant_slug
-    } do
+    test "returns default profile when no targeting matches" do
       # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
