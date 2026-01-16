@@ -38,8 +38,8 @@ The following modules handle internal health:
 
 ### PubSub Topics
 
-Live views subscribe to per-tenant health topics:
-- `serviceradar:health_events:<tenant_id>` - Health state changes
+Live views subscribe to health topics:
+- `serviceradar:health_events` - Health state changes
 
 ---
 

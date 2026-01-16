@@ -625,9 +625,4 @@ defmodule ServiceRadar.Identity.Tenant do
   identities do
     identity(:unique_slug, [:slug])
   end
-
-  validations do
-    validate(ServiceRadar.Identity.Validations.UniquePlatformTenant)
-    validate(ServiceRadar.Identity.Validations.ReservedTenantSlug)
-  end
 end

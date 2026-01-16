@@ -117,9 +117,6 @@ defmodule ServiceRadar.Application do
         # Horde registries (always started for registration support)
         registry_children(),
 
-        # Platform tenant bootstrap (requires repo + Ash)
-        ServiceRadar.Identity.PlatformTenantBootstrap,
-
         # Template seeding for rule builder defaults
         template_seeder_child(),
 

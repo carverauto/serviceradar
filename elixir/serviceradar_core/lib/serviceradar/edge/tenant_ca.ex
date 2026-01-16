@@ -48,7 +48,7 @@ defmodule ServiceRadar.Edge.TenantCA do
     table "tenant_cas"
     repo ServiceRadar.Repo
 
-    identity_wheres_to_sql unique_active_tenant_ca: "status = 'active'"
+    identity_wheres_to_sql unique_active_ca: "status = 'active'"
 
     custom_indexes do
       index [:spki_sha256]

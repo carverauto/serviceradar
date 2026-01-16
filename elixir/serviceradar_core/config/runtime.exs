@@ -32,12 +32,6 @@ if config_env() == :prod do
     env: :prod,
     cloak_key: cloak_key
 
-  default_tenant_id =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
-      "00000000-0000-0000-0000-000000000000"
-
-  config :serviceradar_core, :default_tenant_id, default_tenant_id
-
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do
       "workload_api" -> :workload_api
@@ -57,19 +51,6 @@ if config_env() == :prod do
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
     workload_api_socket: spiffe_socket,
     trust_bundle_path: spiffe_bundle_path
-
-  platform_tenant_id =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-      System.get_env("PLATFORM_TENANT_ID")
-
-  config :serviceradar_core, :platform_tenant_id, platform_tenant_id
-
-  platform_tenant_slug =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-      System.get_env("PLATFORM_TENANT_SLUG") ||
-      "platform"
-
-  config :serviceradar_core, :platform_tenant_slug, platform_tenant_slug
 
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
