@@ -1,33 +1,21 @@
 defmodule ServiceRadarWebNGWeb.Plugs.ResolveTenant do
-  @moduledoc false
+  @moduledoc """
+  Sets tenant context for Ash queries in single-tenant instance deployments.
+
+  In single-tenant mode, the tenant is determined by configuration (:default_tenant_id).
+  This plug ensures the Ash tenant context is set for all requests.
+  """
 
   import Plug.Conn
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNGWeb.TenantResolver
 
   def init(opts), do: opts
 
   def call(conn, _opts) do
     conn
-    |> maybe_set_from_host()
     |> maybe_set_from_session()
     |> maybe_set_from_default()
-  end
-
-  defp maybe_set_from_host(conn) do
-    case TenantResolver.resolve_host_tenant(conn.host) do
-      {:ok, tenant} ->
-        schema = TenantSchemas.schema_for_tenant(tenant)
-
-        conn
-        |> put_session("tenant", schema)
-        |> put_session("active_tenant_id", tenant.id)
-        |> Ash.PlugHelpers.set_tenant(schema)
-
-      :error ->
-        conn
-    end
   end
 
   defp maybe_set_from_session(conn) do

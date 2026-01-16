@@ -22,15 +22,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    tenant_id = get_tenant_id(socket)
-
     socket =
       socket
       |> assign(:page_title, "Edge Sites & NATS")
       |> assign(:show_create_modal, false)
       |> assign(:filter_status, nil)
       |> assign(:nats_filter_status, nil)
-      |> load_sites(tenant_id)
+      |> load_sites()
       |> load_operator_status()
       |> load_tenant_accounts()
 
@@ -58,18 +56,18 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   def handle_event("create_site", params, socket) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
     name = params["name"]
     slug = params["slug"]
     nats_leaf_url = params["nats_leaf_url"]
 
-    case create_site(tenant_id, name, slug, nats_leaf_url) do
+    case create_site(actor, name, slug, nats_leaf_url) do
       {:ok, site} ->
         {:noreply,
          socket
          |> assign(:show_create_modal, false)
-         |> load_sites(tenant_id)
+         |> load_sites()
          |> put_flash(:info, "Edge site '#{site.name}' created successfully")
          |> push_navigate(to: ~p"/admin/edge-sites/#{site.id}")}
 
@@ -80,13 +78,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   def handle_event("filter", params, socket) do
-    tenant_id = get_tenant_id(socket)
     status = params["status"]
 
     {:noreply,
      socket
      |> assign(:filter_status, if(status == "", do: nil, else: status))
-     |> load_sites(tenant_id)}
+     |> load_sites()}
   end
 
   def handle_event("filter_nats_tenants", %{"status" => status}, socket) do
@@ -116,11 +113,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   def handle_event("refresh", _params, socket) do
-    tenant_id = get_tenant_id(socket)
-
     {:noreply,
      socket
-     |> load_sites(tenant_id)
+     |> load_sites()
      |> load_operator_status()
      |> load_tenant_accounts()}
   end
@@ -616,8 +611,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   # Data loading
 
-  defp load_sites(socket, tenant_id) do
+  defp load_sites(socket) do
     filter_status = socket.assigns[:filter_status]
+    actor = get_actor(socket)
 
     query =
       EdgeSite
@@ -634,10 +630,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
         query
       end
 
-    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
-
     sites =
-      case Ash.read(query, tenant: tenant_id, actor: actor) do
+      case Ash.read(query, actor: actor) do
         {:ok, sites} -> sites
         {:error, _} -> []
       end
@@ -700,9 +694,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   # Actions
 
-  defp create_site(tenant_id, name, slug, nats_leaf_url) do
-    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
-
+  defp create_site(actor, name, slug, nats_leaf_url) do
     attrs = %{name: name}
     attrs = if slug && slug != "", do: Map.put(attrs, :slug, slug), else: attrs
 
@@ -713,7 +705,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
     EdgeSite
     |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
     |> Ash.create(actor: actor)
   end
 
@@ -757,9 +748,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
 
   defp format_errors(error), do: inspect(error)
 
-  defp get_tenant_id(socket) do
+  defp get_actor(socket) do
     case socket.assigns[:current_scope] do
-      %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
+      %{user: user} when not is_nil(user) -> user
       _ -> nil
     end
   end

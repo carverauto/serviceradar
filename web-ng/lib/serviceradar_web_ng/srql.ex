@@ -3,9 +3,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Use ServiceRadar.Repo directly for Ecto.Adapters.SQL operations
   # (The wrapper module ServiceRadarWebNG.Repo doesn't work with SQL adapter functions)
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.AshAdapter
   alias ServiceRadarWebNG.SRQL.Native
 
@@ -292,38 +290,10 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp tenant_schema_for_scope(nil), do: nil
-
-  defp tenant_schema_for_scope(%Scope{active_tenant: active_tenant})
-       when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
-  defp tenant_schema_for_scope(%Scope{} = scope) do
-    scope
-    |> Scope.tenant_id()
-    |> tenant_schema_for_scope()
-  end
-
-  defp tenant_schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
-  defp tenant_schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
-  end
-
-  defp tenant_schema_for_scope(tenant_id) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
-  end
-
-  defp tenant_schema_for_scope(_), do: nil
-
-  defp safe_schema_for_tenant(tenant) do
-    TenantSchemas.schema_for_tenant(tenant)
-  rescue
-    ArgumentError -> nil
-  end
+  # In single-tenant architecture, the tenant context is implicit from the
+  # PostgreSQL search_path configured at the database connection level.
+  # No per-query schema selection is needed.
+  defp tenant_schema_for_scope(_scope), do: nil
 
   defp run_query_in_schema(sql, params, schema) do
     search_path = build_search_path(schema)

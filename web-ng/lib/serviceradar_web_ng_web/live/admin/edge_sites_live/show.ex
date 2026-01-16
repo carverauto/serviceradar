@@ -15,16 +15,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    case load_site(id, tenant_id) do
+    case load_site(id, actor) do
       {:ok, site} ->
         socket =
           socket
           |> assign(:page_title, site.name)
           |> assign(:site, site)
           |> assign(:leaf_server, site.nats_leaf_server)
-          |> load_collectors(tenant_id, id)
+          |> load_collectors(id)
 
         {:ok, socket}
 
@@ -40,9 +40,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   def handle_event("download_bundle", _params, socket) do
     site = socket.assigns.site
     leaf_server = socket.assigns.leaf_server
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    case generate_bundle(site, leaf_server, tenant_id) do
+    case generate_bundle(site, leaf_server, actor) do
       {:ok, tarball} ->
         filename = EdgeSiteBundleGenerator.bundle_filename(site)
 
@@ -65,9 +65,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     case regenerate_config(leaf_server) do
       {:ok, _updated} ->
         site_id = socket.assigns.site.id
-        tenant_id = get_tenant_id(socket)
+        actor = get_actor(socket)
 
-        case load_site(site_id, tenant_id) do
+        case load_site(site_id, actor) do
           {:ok, site} ->
             {:noreply,
              socket
@@ -101,8 +101,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   def handle_event("delete_site", _params, socket) do
     site = socket.assigns.site
-    tenant_id = get_tenant_id(socket)
-    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+    actor = get_actor(socket)
 
     case Ash.destroy(site, actor: actor) do
       :ok ->
@@ -460,29 +459,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   # Data loading
 
-  defp load_site(id, tenant_id) do
-    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
-
+  defp load_site(id, actor) do
     case EdgeSite
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^id)
          |> Ash.Query.load(:nats_leaf_server)
-         |> Ash.read_one(tenant: tenant_id, actor: actor) do
+         |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, site} -> {:ok, site}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp load_collectors(socket, tenant_id, site_id) do
-    actor = SystemActor.for_tenant(tenant_id, :edge_sites_live)
+  defp load_collectors(socket, site_id) do
+    actor = get_actor(socket)
 
     collectors =
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(edge_site_id == ^site_id)
            |> Ash.Query.sort(inserted_at: :desc)
-           |> Ash.read(tenant: tenant_id, actor: actor) do
+           |> Ash.read(actor: actor) do
         {:ok, packages} -> packages
         {:error, _} -> []
       end
@@ -507,8 +504,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     |> Ash.update(actor: actor)
   end
 
-  defp generate_bundle(site, leaf_server, tenant_id) do
-    with {:ok, tenant} <- load_tenant(tenant_id),
+  defp generate_bundle(site, leaf_server, actor) do
+    with {:ok, tenant} <- load_tenant(actor),
          {:ok, nats_creds} <- get_tenant_nats_creds(tenant),
          {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
          {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
@@ -523,8 +520,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     end
   end
 
-  defp load_tenant(tenant_id) do
-    actor = SystemActor.platform(:edge_sites_live)
+  defp load_tenant(actor) do
+    # Get tenant_id from the actor (user)
+    tenant_id = actor.tenant_id
 
     case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: actor) do
       {:ok, nil} -> {:error, :tenant_not_found}
@@ -571,9 +569,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     end
   end
 
-  defp get_tenant_id(socket) do
+  defp get_actor(socket) do
     case socket.assigns[:current_scope] do
-      %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
+      %{user: user} when not is_nil(user) -> user
       _ -> nil
     end
   end

@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
@@ -419,16 +418,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp update_tags_for_uids(scope, uids, new_tags) do
+  defp update_tags_for_uids(_scope, uids, new_tags) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(uid in ^uids)
 
-    case Ash.count(query, scope: scope) do
+    case Ash.count(query) do
       {:ok, existing_count} ->
         requested_count = length(uids)
-        result = bulk_update_tags(query, new_tags, scope)
+        result = bulk_update_tags(query, new_tags)
         handle_bulk_update_result(result, existing_count, requested_count)
 
       {:error, error} ->
@@ -436,9 +435,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp bulk_update_tags(query, new_tags, scope) do
+  defp bulk_update_tags(query, new_tags) do
     Ash.bulk_update(query, :update, %{},
-      scope: scope,
       return_records?: false,
       return_errors?: true,
       atomic_update: %{
@@ -1841,12 +1839,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
   # This function returns an empty map for profiles_by_device and just the default profile.
-  defp load_sysmon_profiles_for_devices(scope, _devices) do
+  defp load_sysmon_profiles_for_devices(_scope, _devices) do
     # Load default profile for display purposes
     default_profile =
       SysmonProfile
       |> Ash.Query.for_read(:get_default, %{})
-      |> Ash.read_one(scope: scope)
+      |> Ash.read_one()
       |> case do
         {:ok, profile} -> profile
         _ -> nil
@@ -1955,28 +1953,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp import_devices(scope, devices) do
-    tenant_id = Scope.tenant_id(scope)
-
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
-      do_import_devices(devices, actor, tenant_schema)
-    end
+    actor = build_device_actor(scope)
+    do_import_devices(devices, actor)
   end
 
-  defp do_import_devices(devices, actor, tenant_schema) do
+  defp do_import_devices(devices, actor) do
     {created, skipped, errors} =
       Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, actor, tenant_schema, acc)
+        process_device_import(device_data, actor, acc)
       end)
 
     if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
   end
 
-  defp process_device_import(device_data, actor, tenant_schema, {created, skipped, errors}) do
-    case create_single_device(device_data, actor, tenant_schema) do
+  defp process_device_import(device_data, actor, {created, skipped, errors}) do
+    case create_single_device(device_data, actor) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -1990,32 +1981,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp create_device(scope, params) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = build_device_actor(scope)
 
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
+    # Build device data from form params
+    device_data = %{
+      hostname: params["hostname"],
+      ip: params["ip"],
+      type: params["type"],
+      tags: parse_form_tags(params["tags"])
+    }
 
-      # Build device data from form params
-      device_data = %{
-        hostname: params["hostname"],
-        ip: params["ip"],
-        type: params["type"],
-        tags: parse_form_tags(params["tags"])
-      }
-
-      create_single_device(device_data, actor, tenant_schema)
-    end
+    create_single_device(device_data, actor)
   end
 
-  defp create_single_device(device_data, actor, tenant_schema) do
+  defp create_single_device(device_data, actor) do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
     # First check if device already exists
-    case Device.get_by_uid(uid, actor: actor, tenant: tenant_schema) do
+    case Device.get_by_uid(uid, actor: actor) do
       {:ok, _existing} ->
         {:error, :already_exists}
 
@@ -2041,7 +2025,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         Device
         |> Ash.Changeset.for_create(:create, attrs)
-        |> Ash.create(actor: actor, tenant: tenant_schema)
+        |> Ash.create(actor: actor)
 
       {:error, _} = error ->
         error
@@ -2101,16 +2085,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
     end
   end

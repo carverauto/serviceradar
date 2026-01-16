@@ -40,24 +40,19 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
         scope -> Scope.platform_admin?(scope)
       end
 
-    # Get tenant_id for scoping agents (only for non-platform admins)
-    tenant_id = get_tenant_id(socket)
-
     # Load existing gateways and agents from trackers on mount (don't start with empty cache)
     initial_gateways_cache = load_initial_gateways_cache()
     initial_agents_cache = load_initial_agents_cache()
 
     gateways = compute_gateways(initial_gateways_cache)
 
-    connected_agents =
-      compute_connected_agents(initial_agents_cache, is_platform_admin, tenant_id)
+    connected_agents = compute_connected_agents(initial_agents_cache)
 
     {:ok,
      socket
      |> assign(:page_title, "Infrastructure")
      |> assign(:active_tab, :agents)
      |> assign(:is_platform_admin, is_platform_admin)
-     |> assign(:tenant_id, tenant_id)
      |> assign(:show_debug, false)
      |> assign(:srql, %{enabled: false, page_path: "/infrastructure"})
      |> assign(:cluster_info, cluster_info)
@@ -126,12 +121,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     gateways = compute_gateways(refreshed_gateways_cache)
 
-    connected_agents =
-      compute_connected_agents(
-        pruned_agents_cache,
-        socket.assigns.is_platform_admin,
-        socket.assigns.tenant_id
-      )
+    connected_agents = compute_connected_agents(pruned_agents_cache)
 
     {:noreply,
      socket
@@ -201,8 +191,6 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
       updated_cache =
         Map.put(socket.assigns.agents_cache, agent_id, %{
           agent_id: agent_id,
-          tenant_id: agent_info[:tenant_id],
-          tenant_slug: agent_info[:tenant_slug] || "default",
           last_seen: agent_info[:last_seen] || DateTime.utc_now(),
           last_seen_mono: System.monotonic_time(:millisecond),
           service_count: agent_info[:service_count] || 0,
@@ -210,12 +198,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           source_ip: agent_info[:source_ip]
         })
 
-      connected_agents =
-        compute_connected_agents(
-          updated_cache,
-          socket.assigns.is_platform_admin,
-          socket.assigns.tenant_id
-        )
+      connected_agents = compute_connected_agents(updated_cache)
 
       {:noreply,
        socket
@@ -235,12 +218,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
     gateways = compute_gateways(refreshed_gateways_cache)
 
-    connected_agents =
-      compute_connected_agents(
-        socket.assigns.agents_cache,
-        socket.assigns.is_platform_admin,
-        socket.assigns.tenant_id
-      )
+    connected_agents = compute_connected_agents(socket.assigns.agents_cache)
 
     {:noreply,
      socket
@@ -570,14 +548,13 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
           <tr class="text-xs uppercase tracking-wide text-base-content/60">
             <th>Status</th>
             <th>Agent ID</th>
-            <th>Tenant</th>
             <th :if={@expanded}>Last Seen</th>
             <th :if={@expanded}>Services</th>
           </tr>
         </thead>
         <tbody>
           <tr :if={@agents == []}>
-            <td colspan={if @expanded, do: 5, else: 3} class="text-center text-base-content/60 py-6">
+            <td colspan={if @expanded, do: 4, else: 2} class="text-center text-base-content/60 py-6">
               No agents have pushed status yet
             </td>
           </tr>
@@ -593,11 +570,6 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <td>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
                   {agent.agent_id}
-                </.link>
-              </td>
-              <td>
-                <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
-                  {agent.tenant_slug}
                 </.link>
               </td>
               <td :if={@expanded}>
@@ -810,8 +782,6 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
       Map.put(acc, agent_id, %{
         agent_id: agent_id,
-        tenant_id: Map.get(agent, :tenant_id) || Map.get(agent, "tenant_id"),
-        tenant_slug: Map.get(agent, :tenant_slug) || Map.get(agent, "tenant_slug") || "default",
         last_seen: Map.get(agent, :last_seen) || Map.get(agent, "last_seen"),
         last_seen_mono: Map.get(agent, :last_seen_mono) || Map.get(agent, "last_seen_mono"),
         service_count: Map.get(agent, :service_count) || Map.get(agent, "service_count") || 0,
@@ -907,40 +877,14 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   defp parse_timestamp_to_ms(_), do: nil
 
-  # Get tenant info from socket assigns for scoping
-  # Returns {tenant_id, tenant_slug} tuple
-  defp get_tenant_id(socket) do
-    case socket.assigns[:current_scope] do
-      %{active_tenant: %{id: id, slug: slug}} when not is_nil(id) ->
-        {id, to_string(slug)}
-
-      %{user: %{tenant_id: id, tenant: %{slug: slug}}} when not is_nil(id) ->
-        {id, to_string(slug)}
-
-      %{user: %{tenant_id: id}} when not is_nil(id) ->
-        {id, nil}
-
-      _ ->
-        {nil, nil}
-    end
-  end
-
   # Compute connected agents from local cache with activity status
-  # Platform admins see all agents, regular users see only their tenant's agents
-  defp compute_connected_agents(agents_cache, is_platform_admin, tenant_info) do
-    {tenant_id, tenant_slug} =
-      case tenant_info do
-        {id, slug} -> {id, slug}
-        id when is_binary(id) -> {id, nil}
-        _ -> {nil, nil}
-      end
-
+  # Tenant filtering is implicit via PostgreSQL search_path (single-tenant instance)
+  defp compute_connected_agents(agents_cache) do
     # Use wall-clock time (system_time) for accurate distributed staleness detection
     now_ms = System.system_time(:millisecond)
 
     agents_cache
     |> Map.values()
-    |> Enum.filter(&agent_visible?(&1, is_platform_admin, tenant_id, tenant_slug))
     |> Enum.map(fn agent ->
       Map.put(agent, :active, agent_active?(agent, now_ms))
     end)
@@ -988,28 +932,6 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     case DateTime.from_iso8601(ts) do
       {:ok, dt, _offset} -> DateTime.to_unix(dt, :millisecond)
       _ -> nil
-    end
-  end
-
-  defp agent_visible?(_agent, true, _tenant_id, _tenant_slug), do: true
-
-  defp agent_visible?(agent, false, tenant_id, tenant_slug) do
-    # Match by tenant_id OR tenant_slug (agents may have one or both)
-    agent_tenant_id = Map.get(agent, :tenant_id)
-    agent_tenant_slug = Map.get(agent, :tenant_slug)
-
-    cond do
-      # Match by tenant_id if both have it
-      tenant_id != nil and agent_tenant_id != nil ->
-        to_string(agent_tenant_id) == to_string(tenant_id)
-
-      # Match by tenant_slug if both have it
-      tenant_slug != nil and agent_tenant_slug != nil ->
-        to_string(agent_tenant_slug) == to_string(tenant_slug)
-
-      # No match possible
-      true ->
-        false
     end
   end
 

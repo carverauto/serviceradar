@@ -2,22 +2,13 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   @moduledoc """
   API authentication plug supporting API keys, bearer tokens, and Ash API tokens.
 
+  This is a tenant instance UI - each instance serves ONE tenant. The tenant context
+  is implicit from the database connection's search_path, so this plug only validates
+  authentication and does not perform tenant validation.
+
   Checks for authentication in the following order:
-  1. `Authorization: Bearer <token>` header (JWT or session token)
-     - First tries AshAuthentication JWT (user session tokens)
-     - Falls back to Control Plane JWT (tokens issued by SaaS Control Plane)
+  1. `Authorization: Bearer <token>` header (JWT session token)
   2. `X-API-Key: <key>` header (Ash API token or legacy static key)
-
-  ## Control Plane JWT
-
-  The plug also supports JWTs issued by the ServiceRadar Control Plane for
-  authenticating requests from the SaaS management layer or system components.
-  These tokens contain tenant_id, role, and optionally component claims.
-
-  Configure the Control Plane public key:
-
-      config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT,
-        public_key_env: "CONTROL_PLANE_PUBLIC_KEY"
 
   ## Ash API Tokens
 
@@ -39,11 +30,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   require Logger
 
   alias Ash.PlugHelpers
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Accounts.Scope
-  alias ServiceRadarWebNG.Auth.ControlPlaneJWT
-  alias ServiceRadar.Identity.Tenant
 
   def init(opts), do: opts
 
@@ -95,91 +82,29 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   end
 
   defp validate_bearer_token(conn, token) do
-    # First try AshAuthentication JWT (user session tokens)
-    case validate_ash_jwt(conn, token) do
-      {:ok, conn} ->
-        {:ok, conn}
-
-      {:error, _} ->
-        # Fall back to Control Plane JWT (tokens from SaaS management layer)
-        validate_control_plane_jwt(conn, token)
-    end
+    # Validate AshAuthentication JWT (user session tokens)
+    validate_ash_jwt(conn, token)
   end
 
   defp validate_ash_jwt(conn, token) do
-    tenant = token_tenant(token)
-
-    if is_nil(tenant) do
-      {:error, :no_tenant}
-    else
-      # Control plane code - pass tenant context for cross-tenant user lookup
-      opts = [tenant: tenant]
-      actor = SystemActor.platform(:api_auth)
-      subject_opts = Keyword.merge([actor: actor], opts)
-
-      # Bearer tokens are Ash JWT tokens
-      # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
-      # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
-      case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
-        {:ok, claims, resource} ->
-          with subject when is_binary(subject) <- claims["sub"],
-               {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
-            tenant_id = Map.get(claims, "tenant_id") || user.tenant_id
-            scope = Scope.for_user(user, active_tenant_id: tenant_id)
-            {:ok, assign_scope(conn, scope, tenant_id)}
-          else
-            _ -> {:error, :invalid_subject}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-
-        :error ->
-          {:error, :verification_failed}
-      end
-    end
-  end
-
-  defp validate_control_plane_jwt(conn, token) do
-    case ControlPlaneJWT.verify_and_decode(token) do
-      {:ok, claims} ->
-        # Build actor from Control Plane JWT claims
-        actor = ControlPlaneJWT.build_actor(claims)
-        tenant_id = claims.tenant_id
-
-        # Resolve tenant context for Ash operations
-        tenant_context = resolve_tenant_context(tenant_id)
-
-        if tenant_context do
-          # Create a scope for Control Plane authenticated requests
-          scope = %Scope{
-            user: nil,
-            active_tenant: tenant_context,
-            tenant_memberships: []
-          }
-
-          conn =
-            conn
-            |> assign(:current_scope, scope)
-            |> assign(:ash_actor, actor)
-            |> assign(:control_plane_jwt, true)
-            |> assign(:control_plane_claims, claims)
-            |> PlugHelpers.set_actor(actor)
-            |> PlugHelpers.set_tenant(tenant_context)
-
-          {:ok, conn}
+    # Bearer tokens are Ash JWT tokens
+    # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
+    case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng) do
+      {:ok, claims, resource} ->
+        with subject when is_binary(subject) <- claims["sub"],
+             {:ok, user} <- AshAuthentication.subject_to_user(subject, resource) do
+          scope = Scope.for_user(user)
+          {:ok, assign_scope(conn, scope, user)}
         else
-          Logger.warning("Control Plane JWT valid but tenant not found: #{tenant_id}")
-          {:error, :tenant_not_found}
+          _ -> {:error, :invalid_subject}
         end
 
-      {:error, :public_key_not_configured} ->
-        # Control Plane JWT not configured - this is expected in OSS deployments
+      {:error, reason} ->
+        Logger.debug("JWT validation failed: #{inspect(reason)}")
         {:error, :unauthorized}
 
-      {:error, reason} ->
-        Logger.debug("Control Plane JWT validation failed: #{inspect(reason)}")
-        {:error, :unauthorized}
+      :error ->
+        {:error, :verification_failed}
     end
   end
 
@@ -210,11 +135,11 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
         # Create scope with the token's user
         user = api_token.user
-        scope = Scope.for_user(user, active_tenant_id: api_token.tenant_id)
+        scope = Scope.for_user(user)
 
         conn =
           conn
-          |> assign_scope(scope, api_token.tenant_id)
+          |> assign_scope(scope, user)
           |> assign(:api_token, api_token)
           |> assign(:api_token_scope, api_token.scope)
 
@@ -238,15 +163,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
 
     # Record usage asynchronously to not block the request
     Task.start(fn ->
-      # Control plane code - resolve tenant and pass explicit tenant context
-      tenant = resolve_tenant_context(api_token.tenant_id)
-      schema = if tenant, do: TenantSchemas.schema_for_tenant(tenant), else: nil
-      actor = SystemActor.platform(:api_auth)
-      opts = [actor: actor, tenant: schema]
-
       api_token
       |> Ash.Changeset.for_update(:record_use, %{last_used_ip: client_ip})
-      |> Ash.update(opts)
+      |> Ash.update()
     end)
   end
 
@@ -287,33 +206,25 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       )
       |> Ash.Query.load(:user)
 
-    # Control plane code - search across all tenant schemas
-    actor = SystemActor.platform(:api_auth)
+    case Ash.read(query) do
+      {:ok, [api_token | _]} ->
+        {:ok, api_token}
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
-      case Ash.read(query, actor: actor, tenant: schema) do
-        {:ok, [api_token | _]} ->
-          {:halt, {:ok, api_token}}
+      {:ok, []} ->
+        {:error, :not_found}
 
-        {:ok, []} ->
-          {:cont, {:error, :not_found}}
-
-        {:error, _} ->
-          {:cont, {:error, :not_found}}
-      end
-    end)
+      {:error, _} ->
+        {:error, :not_found}
+    end
   end
 
-  defp assign_scope(conn, %Scope{user: user} = scope, tenant_id) do
+  defp assign_scope(conn, %Scope{user: user} = scope, _user_data) do
     partition_id = get_partition_id_from_request(conn)
-    tenant_context = scope.active_tenant || resolve_tenant_context(tenant_id)
 
     actor =
       if user do
         actor = %{
           id: user.id,
-          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -331,28 +242,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       |> assign(:ash_actor, actor)
       |> assign(:current_partition_id, partition_id)
 
-    conn =
-      if actor do
-        PlugHelpers.set_actor(conn, actor)
-      else
-        conn
-      end
-
-    if tenant_context do
-      PlugHelpers.set_tenant(conn, tenant_context)
+    if actor do
+      PlugHelpers.set_actor(conn, actor)
     else
       conn
-    end
-  end
-
-  defp resolve_tenant_context(nil), do: nil
-  defp resolve_tenant_context(%Tenant{} = tenant), do: tenant
-
-  defp resolve_tenant_context(tenant_id) when is_binary(tenant_id) do
-    actor = SystemActor.platform(:api_auth)
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
     end
   end
 
@@ -374,27 +267,4 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
       :error -> nil
     end
   end
-
-  defp token_tenant(token) do
-    case AshAuthentication.Jwt.peek(token) do
-      {:ok, claims} ->
-        case Map.get(claims, "tenant") do
-          tenant when is_binary(tenant) ->
-            tenant
-
-          _ ->
-            claims
-            |> Map.get("tenant_id")
-            |> tenant_schema_from_id()
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp tenant_schema_from_id(nil), do: nil
-
-  defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
-    do: TenantSchemas.schema_for_id(tenant_id)
 end

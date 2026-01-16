@@ -1,129 +1,49 @@
 defmodule ServiceRadarWebNGWeb.TenantResolver do
-  @moduledoc false
+  @moduledoc """
+  Simplified tenant resolver for single-tenant instance deployments.
 
-  alias ServiceRadar.Actors.SystemActor
+  This module provides schema resolution for Ash queries. In single-tenant mode,
+  the tenant is implicit from the deployment (PostgreSQL search_path is set by
+  infrastructure). The default_tenant_id configuration determines the schema prefix.
+  """
+
   alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Identity.Tenant
 
-  require Ash.Query
+  @doc """
+  Returns the configured default tenant ID for this instance.
 
-  defp system_actor, do: SystemActor.platform(:tenant_resolver)
-
-  def tenant_base_domain do
-    Application.get_env(:serviceradar_web_ng, :tenant_base_domain)
+  In single-tenant deployments, this is set via :serviceradar_core, :default_tenant_id
+  configuration and represents the one tenant this instance serves.
+  """
+  def default_tenant_id do
+    Application.get_env(:serviceradar_core, :default_tenant_id)
   end
 
-  def default_tenant_id do
-    case Application.get_env(:serviceradar_core, :default_tenant_id) do
-      nil -> platform_tenant_id()
-      "" -> platform_tenant_id()
-      "00000000-0000-0000-0000-000000000000" -> platform_tenant_id()
-      tenant_id -> tenant_id
+  @doc """
+  Returns the database schema name for the default tenant.
+
+  Used for Ash queries that need explicit schema context.
+  """
+  def default_tenant_schema do
+    case default_tenant_id() do
+      nil -> nil
+      "" -> nil
+      tenant_id -> schema_for_tenant_id(tenant_id)
     end
   end
 
-  def default_tenant_schema do
-    default_tenant_id()
-    |> schema_for_tenant_id()
-  end
+  @doc """
+  Converts a tenant ID to its database schema name.
 
+  Returns nil if tenant_id is nil or cannot be resolved.
+  """
   def schema_for_tenant_id(nil), do: nil
 
   def schema_for_tenant_id(tenant_id) when is_binary(tenant_id) do
-    schema =
-      try do
-        TenantSchemas.schema_for_id(tenant_id)
-      rescue
-        ArgumentError -> nil
-      end
-
-    schema ||
-      case fetch_tenant_by_id(tenant_id) do
-        {:ok, tenant} -> TenantSchemas.schema_for_tenant(tenant)
-        :error -> nil
-      end
-  end
-
-  def resolve_host_tenant(host) when is_binary(host) do
-    with base_domain when is_binary(base_domain) <- normalize_domain(tenant_base_domain()),
-         true <- host != base_domain,
-         slug when is_binary(slug) <- slug_from_host(host, base_domain),
-         {:ok, tenant} <- fetch_tenant_by_slug(slug) do
-      {:ok, tenant}
-    else
-      _ -> :error
-    end
-  end
-
-  def multi_tenant? do
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.select([:id])
-    |> Ash.Query.limit(2)
-    |> Ash.read(actor: system_actor())
-    |> case do
-      {:ok, %Ash.Page.Keyset{results: tenants}} -> length(tenants) > 1
-      {:ok, %Ash.Page.Offset{results: tenants}} -> length(tenants) > 1
-      {:ok, tenants} when is_list(tenants) -> length(tenants) > 1
-      {:error, _} -> false
-    end
-  end
-
-  def fetch_tenant_by_slug(slug) when is_binary(slug) do
-    Tenant
-    |> Ash.Query.for_read(:by_slug, %{slug: slug})
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(actor: system_actor())
-    |> case do
-      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
-      {:ok, nil} -> :error
-      {:error, _} -> :error
-    end
-  end
-
-  def fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id: tenant_id)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(actor: system_actor())
-    |> case do
-      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
-      {:ok, nil} -> :error
-      {:error, _} -> :error
-    end
-  end
-
-  defp platform_tenant_id do
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(is_platform_tenant: true)
-    |> Ash.Query.select([:id])
-    |> Ash.read_one(actor: system_actor())
-    |> case do
-      {:ok, %Tenant{id: id}} -> id
-      _ -> nil
-    end
-  end
-
-  defp normalize_domain(nil), do: nil
-
-  defp normalize_domain(domain) when is_binary(domain) do
-    domain
-    |> String.trim()
-    |> String.trim_trailing(".")
-    |> String.downcase()
-  end
-
-  defp slug_from_host(host, base_domain) do
-    suffix = "." <> base_domain
-
-    host = String.downcase(host)
-
-    if String.ends_with?(host, suffix) do
-      String.trim_trailing(host, suffix)
-    else
-      nil
+    try do
+      TenantSchemas.schema_for_id(tenant_id)
+    rescue
+      ArgumentError -> nil
     end
   end
 end

@@ -5,6 +5,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   Handles session management, current user loading, and LiveView authentication
   using AshAuthentication JWT tokens stored in the session by
   `AshAuthentication.Phoenix.Controller.store_in_session/2`.
+
+  This is a tenant instance UI - each instance serves ONE tenant. The tenant
+  context is implicit from the database connection's search_path, so we only
+  need to track the authenticated user.
   """
 
   use ServiceRadarWebNGWeb, :verified_routes
@@ -12,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   import Plug.Conn
   import Phoenix.Controller
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.TenantResolver
 
@@ -42,11 +45,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   def fetch_current_scope_for_user(conn, _opts) do
     # AshAuthentication stores under "user_token" when require_token_presence_for_authentication? is true
     with token when is_binary(token) <- get_session(conn, "user_token"),
-         {:ok, user, claims} <- verify_token(token) do
-      active_tenant_id = get_session(conn, "active_tenant_id") || Map.get(claims, "tenant_id")
-
-      conn
-      |> assign(:current_scope, Scope.for_user(user, active_tenant_id: active_tenant_id))
+         {:ok, user, _claims} <- verify_token(token) do
+      assign(conn, :current_scope, Scope.for_user(user))
     else
       _ ->
         assign(conn, :current_scope, Scope.for_user(nil))
@@ -54,23 +54,21 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   # Verify an Ash JWT token and load the user
+  # Tenant context comes from database search_path, not from token claims
   defp verify_token(token) do
     tenant = token_tenant(token)
 
     if is_nil(tenant) do
       {:error, :invalid_token}
     else
-      # Control plane code - pass tenant context for cross-tenant user lookup
       opts = [tenant: tenant]
-      actor = SystemActor.platform(:user_auth)
-      subject_opts = Keyword.merge([actor: actor], opts)
 
       # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
       # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim
       case AshAuthentication.Jwt.verify(token, :serviceradar_web_ng, opts) do
         {:ok, claims, resource} ->
           with subject when is_binary(subject) <- claims["sub"],
-               {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, subject_opts) do
+               {:ok, user} <- AshAuthentication.subject_to_user(subject, resource, opts) do
             {:ok, user, claims}
           else
             _ -> {:error, :invalid_token}
@@ -189,16 +187,15 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
     socket
     |> Phoenix.Component.assign_new(:current_scope, fn ->
       # Token is stored under "user_token" key when require_token_presence_for_authentication? is true
-      {user, tenant_claim} =
+      user =
         with token when is_binary(token) <- session["user_token"],
-             {:ok, user, claims} <- verify_token(token) do
-          {user, Map.get(claims, "tenant_id")}
+             {:ok, user, _claims} <- verify_token(token) do
+          user
         else
-          _ -> {nil, nil}
+          _ -> nil
         end
 
-      active_tenant_id = session["active_tenant_id"] || tenant_claim
-      Scope.for_user(user, active_tenant_id: active_tenant_id)
+      Scope.for_user(user)
     end)
     |> Phoenix.Component.assign_new(:current_tenant, fn ->
       session["tenant"] || TenantResolver.default_tenant_schema()
@@ -207,16 +204,14 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   # Set Ash actor and tenant in socket assigns for LiveView Ash operations
+  # Tenant context is implicit from the deployment (database search_path)
   defp maybe_set_ash_context(socket, session) do
-    case socket.assigns[:current_scope] do
-      %{user: user, active_tenant: active_tenant} when not is_nil(user) ->
-        # Use active_tenant if available, otherwise fall back to user's default tenant
-        tenant_id = if active_tenant, do: active_tenant.id, else: user.tenant_id
-        tenant_schema = session["tenant"] || tenant_schema_from_id(tenant_id)
+    tenant_schema = session["tenant"] || TenantResolver.default_tenant_schema()
 
+    case socket.assigns[:current_scope] do
+      %{user: user} when not is_nil(user) ->
         actor = %{
           id: user.id,
-          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -226,10 +221,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         |> Phoenix.Component.assign(:tenant, tenant_schema)
 
       _ ->
-        default_tenant_schema = session["tenant"] || TenantResolver.default_tenant_schema()
-
-        if default_tenant_schema do
-          Phoenix.Component.assign(socket, :tenant, default_tenant_schema)
+        if tenant_schema do
+          Phoenix.Component.assign(socket, :tenant, tenant_schema)
         else
           socket
         end
@@ -244,20 +237,14 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
             tenant
 
           _ ->
-            claims
-            |> Map.get("tenant_id")
-            |> tenant_schema_from_id()
+            # Fall back to tenant from TenantResolver if not in token
+            TenantResolver.default_tenant_schema()
         end
 
       _ ->
         nil
     end
   end
-
-  defp tenant_schema_from_id(nil), do: nil
-
-  defp tenant_schema_from_id(tenant_id) when is_binary(tenant_id),
-    do: TenantResolver.schema_for_tenant_id(tenant_id)
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to analytics
@@ -285,7 +272,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   @doc """
   Plug for routes that require Oban Web access.
 
-  Access is allowed for platform tenant users and tenant admins.
+  Access is allowed for admin users (admin or super_admin role).
   """
   def require_oban_access(conn, _opts) do
     scope = conn.assigns[:current_scope]
@@ -315,29 +302,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp maybe_store_return_to(conn), do: conn
 
-  defp oban_access?(%Scope{} = scope) do
-    platform_tenant?(scope.active_tenant) || tenant_admin?(scope)
+  # In a tenant instance UI, Oban access is granted to admin users
+  defp oban_access?(%Scope{user: %{role: role}}) do
+    role in [:admin, :super_admin]
   end
 
   defp oban_access?(_), do: false
-
-  defp platform_tenant?(%{is_platform_tenant: true}), do: true
-  defp platform_tenant?(_), do: false
-
-  defp tenant_admin?(%Scope{user: %{role: role}} = scope) do
-    admin_role?(role) || membership_admin?(scope.active_tenant, scope.tenant_memberships)
-  end
-
-  defp tenant_admin?(_), do: false
-
-  defp admin_role?(role), do: role in [:admin, :super_admin]
-
-  defp membership_admin?(%{id: tenant_id}, memberships) do
-    Enum.any?(memberships || [], fn membership ->
-      to_string(membership.tenant_id) == to_string(tenant_id) and
-        membership.role in [:admin, :owner]
-    end)
-  end
-
-  defp membership_admin?(_, _), do: false
 end

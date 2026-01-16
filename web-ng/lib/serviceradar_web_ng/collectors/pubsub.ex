@@ -4,12 +4,14 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
 
   Provides topic/subscription management for real-time updates in LiveViews.
 
+  This module uses instance-scoped topics since each tenant instance serves
+  a single tenant - there's no need for tenant_id in topic names.
+
   ## Topics
 
-  - `collectors:tenant:<tenant_id>` - All collector updates for a tenant
+  - `collectors:instance` - All collector updates for this instance
   - `collectors:package:<package_id>` - Specific package updates
-  - `nats:tenant:<tenant_id>` - NATS account/credential updates for a tenant
-  - `nats:admin` - Admin-level NATS updates (operator, all tenants)
+  - `nats:instance` - NATS credential updates for this instance
 
   ## Events
 
@@ -18,7 +20,7 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   - `{:package_revoked, package}`
   - `{:credential_created, credential}`
   - `{:credential_revoked, credential}`
-  - `{:tenant_nats_updated, tenant_id, status}`
+  - `{:nats_status_updated, status}`
   """
 
   # Use ServiceRadar.PubSub - same as serviceradar_core broadcasts to
@@ -26,27 +28,31 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
 
   # Topic helpers
 
-  def tenant_collectors_topic(tenant_id), do: "collectors:tenant:#{tenant_id}"
+  def collectors_topic, do: "collectors:instance"
   def package_topic(package_id), do: "collectors:package:#{package_id}"
-  def tenant_nats_topic(tenant_id), do: "nats:tenant:#{tenant_id}"
-  def admin_nats_topic, do: "nats:admin"
+  def nats_topic, do: "nats:instance"
 
   # Subscribe helpers
 
-  def subscribe_tenant_collectors(tenant_id) do
-    Phoenix.PubSub.subscribe(@pubsub, tenant_collectors_topic(tenant_id))
+  @doc """
+  Subscribe to collector updates for this instance.
+  """
+  def subscribe_collectors do
+    Phoenix.PubSub.subscribe(@pubsub, collectors_topic())
   end
 
+  @doc """
+  Subscribe to updates for a specific package.
+  """
   def subscribe_package(package_id) do
     Phoenix.PubSub.subscribe(@pubsub, package_topic(package_id))
   end
 
-  def subscribe_tenant_nats(tenant_id) do
-    Phoenix.PubSub.subscribe(@pubsub, tenant_nats_topic(tenant_id))
-  end
-
-  def subscribe_admin_nats do
-    Phoenix.PubSub.subscribe(@pubsub, admin_nats_topic())
+  @doc """
+  Subscribe to NATS updates for this instance.
+  """
+  def subscribe_nats do
+    Phoenix.PubSub.subscribe(@pubsub, nats_topic())
   end
 
   # Broadcast helpers
@@ -56,7 +62,7 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   """
   def broadcast_package_created(package) do
     event = {:package_created, package}
-    broadcast_to_tenant(package.tenant_id, event)
+    broadcast_to_collectors(event)
     broadcast_to_package(package.id, event)
   end
 
@@ -65,13 +71,13 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   """
   def broadcast_package_status_changed(package, old_status, new_status) do
     event = {:package_updated, package, old_status, new_status}
-    broadcast_to_tenant(package.tenant_id, event)
+    broadcast_to_collectors(event)
     broadcast_to_package(package.id, event)
 
     # If revoked, send specific event
     if new_status == :revoked do
       revoke_event = {:package_revoked, package}
-      broadcast_to_tenant(package.tenant_id, revoke_event)
+      broadcast_to_collectors(revoke_event)
     end
   end
 
@@ -80,7 +86,7 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   """
   def broadcast_credential_created(credential) do
     event = {:credential_created, credential}
-    broadcast_to_tenant_nats(credential.tenant_id, event)
+    broadcast_to_nats(event)
   end
 
   @doc """
@@ -88,41 +94,28 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   """
   def broadcast_credential_revoked(credential) do
     event = {:credential_revoked, credential}
-    broadcast_to_tenant_nats(credential.tenant_id, event)
+    broadcast_to_nats(event)
   end
 
   @doc """
-  Broadcast a tenant NATS account status change.
+  Broadcast a NATS account status change.
   """
-  def broadcast_tenant_nats_status(tenant_id, status) do
-    event = {:tenant_nats_updated, tenant_id, status}
-    broadcast_to_tenant_nats(tenant_id, event)
-    broadcast_to_admin_nats(event)
-  end
-
-  @doc """
-  Broadcast an operator status change (admin only).
-  """
-  def broadcast_operator_status(operator) do
-    event = {:operator_updated, operator}
-    broadcast_to_admin_nats(event)
+  def broadcast_nats_status(status) do
+    event = {:nats_status_updated, status}
+    broadcast_to_nats(event)
   end
 
   # Private broadcast functions
 
-  defp broadcast_to_tenant(tenant_id, event) do
-    Phoenix.PubSub.broadcast(@pubsub, tenant_collectors_topic(tenant_id), event)
+  defp broadcast_to_collectors(event) do
+    Phoenix.PubSub.broadcast(@pubsub, collectors_topic(), event)
   end
 
   defp broadcast_to_package(package_id, event) do
     Phoenix.PubSub.broadcast(@pubsub, package_topic(package_id), event)
   end
 
-  defp broadcast_to_tenant_nats(tenant_id, event) do
-    Phoenix.PubSub.broadcast(@pubsub, tenant_nats_topic(tenant_id), event)
-  end
-
-  defp broadcast_to_admin_nats(event) do
-    Phoenix.PubSub.broadcast(@pubsub, admin_nats_topic(), event)
+  defp broadcast_to_nats(event) do
+    Phoenix.PubSub.broadcast(@pubsub, nats_topic(), event)
   end
 end

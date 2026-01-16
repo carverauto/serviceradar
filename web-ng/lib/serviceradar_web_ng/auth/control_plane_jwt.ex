@@ -5,12 +5,20 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
   This module validates JWTs that were issued by the SaaS Control Plane
   (serviceradar-web) for authenticating requests to Tenant Instances.
 
+  ## Tenant Instance Context
+
+  This module is designed for tenant instance UIs where each deployment serves
+  a single tenant. The tenant is implicit from the deployment itself, so this
+  module does not extract or use tenant_id for authorization purposes.
+
+  The JWT may contain tenant routing information (tenant_id, tenant_slug) which
+  the Control Plane uses for routing, but the instance trusts that it has been
+  deployed for the correct tenant.
+
   ## Token Structure
 
   Control Plane JWTs contain:
     - `sub` - User ID (UUID) or system identifier
-    - `tenant_id` - Tenant ID (UUID) this token is authorized for
-    - `tenant_slug` - Human-readable tenant slug
     - `role` - One of: admin, operator, viewer, system
     - `component` - Optional system component name (for system tokens)
     - `iss` - Issuer: "serviceradar-control-plane"
@@ -38,7 +46,7 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
       case ControlPlaneJWT.verify_and_decode(token) do
         {:ok, claims} ->
-          # claims contains: tenant_id, user_id, role, etc.
+          # claims contains: user_id, role, etc.
           actor = ControlPlaneJWT.build_actor(claims)
 
         {:error, :invalid_signature} ->
@@ -56,8 +64,6 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
   @type claims :: %{
           sub: String.t(),
-          tenant_id: String.t(),
-          tenant_slug: String.t(),
           role: atom(),
           component: String.t() | nil,
           iss: String.t(),
@@ -69,7 +75,6 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
   @type actor :: %{
           id: String.t(),
-          tenant_id: String.t(),
           role: atom(),
           email: String.t() | nil,
           component: String.t() | nil
@@ -108,14 +113,13 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
   The returned actor can be used with Ash operations:
 
-      Ash.read!(query, actor: actor, tenant: claims.tenant_id)
+      Ash.read!(query, actor: actor)
 
   ## Actor Structure
 
   For user tokens:
       %{
         id: "user-uuid",
-        tenant_id: "tenant-uuid",
         role: :admin,  # or :operator, :viewer
         email: nil     # Not included in JWT, must be fetched if needed
       }
@@ -123,26 +127,23 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
   For system tokens:
       %{
         id: "system:component-name",
-        tenant_id: "tenant-uuid",
         role: :system,
         component: "component-name"
       }
   """
   @spec build_actor(claims()) :: actor()
-  def build_actor(%{role: :system, component: component, tenant_id: tenant_id}) do
+  def build_actor(%{role: :system, component: component}) do
     %{
       id: "system:#{component}",
-      tenant_id: tenant_id,
       role: :system,
       email: "#{component}@system.serviceradar",
       component: component
     }
   end
 
-  def build_actor(%{sub: user_id, tenant_id: tenant_id, role: role}) do
+  def build_actor(%{sub: user_id, role: role}) do
     %{
       id: user_id,
-      tenant_id: tenant_id,
       role: normalize_role(role),
       email: nil,
       component: nil
@@ -156,28 +157,6 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
   def system_token?(%{role: :system}), do: true
   def system_token?(%{component: component}) when is_binary(component), do: true
   def system_token?(_), do: false
-
-  @doc """
-  Extract the tenant ID from a token without full verification.
-
-  Useful for determining which tenant's schema to use before full validation.
-  Note: This does NOT verify the signature - use `verify_and_decode/1` for that.
-  """
-  @spec peek_tenant_id(String.t()) :: {:ok, String.t()} | {:error, atom()}
-  def peek_tenant_id(token) when is_binary(token) do
-    case decode_token(token) do
-      {:ok, {_header, payload}} ->
-        case Map.get(payload, "tenant_id") do
-          nil -> {:error, :missing_tenant_id}
-          tenant_id -> {:ok, tenant_id}
-        end
-
-      error ->
-        error
-    end
-  end
-
-  def peek_tenant_id(_), do: {:error, :invalid_token}
 
   # Private Functions
 
@@ -293,13 +272,9 @@ defmodule ServiceRadarWebNG.Auth.ControlPlaneJWT do
 
   defp extract_claims(payload) do
     with {:ok, sub} <- get_required(payload, "sub"),
-         {:ok, tenant_id} <- get_required(payload, "tenant_id"),
-         {:ok, tenant_slug} <- get_required(payload, "tenant_slug"),
          {:ok, role} <- get_required(payload, "role") do
       claims = %{
         sub: sub,
-        tenant_id: tenant_id,
-        tenant_slug: tenant_slug,
         role: normalize_role(role),
         component: Map.get(payload, "component"),
         iss: Map.get(payload, "iss"),

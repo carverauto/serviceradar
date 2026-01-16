@@ -5,7 +5,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -2063,27 +2062,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(scope, ip) when is_binary(ip) do
     actor = build_sweep_actor(scope)
+    require Ash.Query
 
-    case get_sweep_tenant(scope) do
-      nil ->
+    query =
+      SweepHostResult
+      |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(10)
+
+    case Ash.read(query, authorize?: true) do
+      {:ok, results} when results != [] ->
+        %{results: results, total: length(results)}
+
+      _ ->
         nil
-
-      tenant ->
-        require Ash.Query
-
-        query =
-          SweepHostResult
-          |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
-          |> Ash.Query.sort(inserted_at: :desc)
-          |> Ash.Query.limit(10)
-
-        case Ash.read(query, authorize?: true) do
-          {:ok, results} when results != [] ->
-            %{results: results, total: length(results)}
-
-          _ ->
-            nil
-        end
     end
   end
 
@@ -2095,24 +2087,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
-    end
-  end
-
-  defp get_sweep_tenant(scope) do
-    case Scope.tenant_id(scope) do
-      nil -> nil
-      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
     end
   end
 
@@ -2215,40 +2198,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # ---------------------------------------------------------------------------
 
   # Extract the user from scope to use as actor for Ash operations
-  defp get_sweep_actor(%Scope{user: user}), do: user
-  defp get_sweep_actor(_), do: nil
+  defp get_profile_actor(%{user: user}) when not is_nil(user), do: user
+  defp get_profile_actor(_), do: nil
 
   defp load_sysmon_profile_info(scope, device_uid) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = get_profile_actor(scope)
 
-    if is_nil(tenant_id) do
-      {nil, []}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = get_sweep_actor(scope)
+    # Load available profiles (for reference)
+    available_profiles = load_available_profiles(actor)
 
-      # Load available profiles (for reference)
-      available_profiles = load_available_profiles(tenant_schema, actor)
+    # Resolve the effective profile via SRQL targeting
+    profile = SysmonCompiler.resolve_profile(device_uid, actor)
 
-      # Resolve the effective profile via SRQL targeting
-      profile = SysmonCompiler.resolve_profile(device_uid, actor)
+    # Determine source based on profile type
+    source =
+      cond do
+        is_nil(profile) -> "default"
+        profile.is_default -> "default"
+        not is_nil(profile.target_query) -> "srql"
+        true -> "default"
+      end
 
-      # Determine source based on profile type
-      source =
-        cond do
-          is_nil(profile) -> "default"
-          profile.is_default -> "default"
-          not is_nil(profile.target_query) -> "srql"
-          true -> "default"
-        end
+    profile_info = %{
+      profile: profile,
+      source: source
+    }
 
-      profile_info = %{
-        profile: profile,
-        source: source
-      }
-
-      {profile_info, available_profiles}
-    end
+    {profile_info, available_profiles}
   rescue
     e ->
       require Logger
@@ -2256,16 +2232,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {nil, []}
   end
 
-  defp load_available_profiles(tenant_schema, actor) do
-    case Ash.read(SysmonProfile, action: :list_available, actor: actor, tenant: tenant_schema) do
+  defp load_available_profiles(actor) do
+    case Ash.read(SysmonProfile, action: :list_available, actor: actor) do
       {:ok, profiles} -> profiles
       {:error, _} -> []
     end
   end
 
   # RBAC helper - check if user can edit devices
-  defp can_edit_device?(%Scope{user: %{role: role}} = scope) do
-    admin_role?(role) || membership_admin?(scope.active_tenant, scope.tenant_memberships)
+  defp can_edit_device?(%{user: %{role: role}} = scope) do
+    admin_role?(role) || membership_admin?(scope[:active_tenant], scope[:tenant_memberships])
   end
 
   defp can_edit_device?(_), do: false
@@ -2283,35 +2259,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = build_device_actor(scope)
 
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
+    # Parse tags from newline-separated string to map
+    attrs = %{
+      hostname: params["hostname"],
+      ip: params["ip"],
+      vendor_name: params["vendor_name"],
+      model: params["model"],
+      tags: parse_tags_input(params["tags"])
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+    |> Map.new()
 
-      # Parse tags from newline-separated string to map
-      attrs = %{
-        hostname: params["hostname"],
-        ip: params["ip"],
-        vendor_name: params["vendor_name"],
-        model: params["model"],
-        tags: parse_tags_input(params["tags"])
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> Map.new()
+    # First get the device, then update it
+    case Device.get_by_uid(device_uid, actor: actor) do
+      {:ok, device} ->
+        device
+        |> Ash.Changeset.for_update(:update, attrs)
+        |> Ash.update(actor: actor)
 
-      # First get the device, then update it
-      case Device.get_by_uid(device_uid, actor: actor, tenant: tenant_schema) do
-        {:ok, device} ->
-          device
-          |> Ash.Changeset.for_update(:update, attrs)
-          |> Ash.update(actor: actor, tenant: tenant_schema)
-
-        {:error, _} = error ->
-          error
-      end
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -2321,16 +2290,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
     end
   end

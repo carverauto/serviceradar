@@ -475,30 +475,30 @@ defmodule ServiceRadarWebNG.Api.EdgeController do
     end
   end
 
+  # In a tenant instance UI, the tenant is implicit from the deployment.
+  # We use the configured default_tenant_id to load the tenant context.
   defp require_tenant(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{active_tenant: %Tenant{} = tenant} ->
-        {:ok, tenant}
-
-      %Scope{} = scope ->
-        scope
-        |> Scope.tenant_id()
-        |> load_tenant()
+      %Scope{} ->
+        load_default_tenant()
 
       _ ->
         {:error, :unauthorized}
     end
   end
 
-  defp load_tenant(nil), do: {:error, :unauthorized}
+  defp load_default_tenant do
+    tenant_id = Application.get_env(:serviceradar_core, :default_tenant_id)
 
-  defp load_tenant(tenant_id) do
-    # Control plane code - use platform actor
-    actor = SystemActor.platform(:edge_controller)
+    if tenant_id do
+      actor = SystemActor.platform(:edge_controller)
 
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
-      _ -> {:error, :unauthorized}
+      case Ash.get(Tenant, tenant_id, actor: actor) do
+        {:ok, %Tenant{} = tenant} -> {:ok, tenant}
+        _ -> {:error, :tenant_not_configured}
+      end
+    else
+      {:error, :tenant_not_configured}
     end
   end
 
