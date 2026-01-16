@@ -112,8 +112,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_outdated: config_outdated,
-      # Tenant fields kept for proto compatibility but not used in tenant-unaware mode
-      tenant_id: "",
+      # In tenant-instance architecture, tenant identity is embedded in the deployment itself.
+      # These fields are kept for proto compatibility but are not used for isolation.
       tenant_slug: ""
     }
   end
@@ -462,8 +462,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
-    # In tenant-unaware architecture, validation is done by mTLS certificate verification
-    # There is no tenant_id to validate since each tenant has their own gateway instance
+    # In tenant-instance architecture, validation is done by mTLS certificate verification.
+    # Each tenant has their own deployment, so tenant isolation is inherent to the architecture.
 
     service_name =
       case service.service_name do

@@ -1,9 +1,14 @@
 defmodule ServiceRadarWebNG.MultiTenantFixtures do
   @moduledoc """
-  Test helpers for creating multi-tenant test data.
+  Test helpers for creating test data.
 
-  Provides fixtures for tenants and tenant-scoped resources to test
-  isolation and access control across tenant boundaries.
+  Provides fixtures for tenants and resources to test access control.
+
+  ## Tenant Instance Model
+
+  In a tenant-instance model, tenant isolation is handled at the infrastructure
+  level via PostgreSQL search_path. These fixtures create resources without
+  tenant_id since each tenant has their own deployment.
   """
 
   alias ServiceRadar.Identity.Tenant
@@ -95,9 +100,9 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a device belonging to the given tenant.
+  Creates a device.
   """
-  def tenant_device_fixture(tenant, attrs \\ %{}) do
+  def tenant_device_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -120,9 +125,9 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a gateway belonging to the given tenant.
+  Creates a gateway.
   """
-  def tenant_gateway_fixture(tenant, attrs \\ %{}) do
+  def tenant_gateway_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -142,9 +147,9 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates an agent belonging to the given tenant.
+  Creates an agent.
   """
-  def tenant_agent_fixture(tenant, attrs \\ %{}) do
+  def tenant_agent_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -165,9 +170,9 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a service check belonging to the given tenant.
+  Creates a service check.
   """
-  def tenant_service_check_fixture(tenant, attrs \\ %{}) do
+  def tenant_service_check_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     # Note: `enabled` is not in the accept list for :create, defaults to true
@@ -190,9 +195,9 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates an alert belonging to the given tenant.
+  Creates an alert.
   """
-  def tenant_alert_fixture(tenant, attrs \\ %{}) do
+  def tenant_alert_fixture(_tenant, attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -214,19 +219,16 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a complete multi-tenant test scenario with two tenants,
-  each having a user, admin, and some resources.
+  Creates a complete test scenario with a tenant and resources.
 
   Returns a map with all the created resources:
 
       %{
-        tenant_a: %{tenant: ..., user: ..., admin: ..., device: ..., gateway: ...},
-        tenant_b: %{tenant: ..., user: ..., admin: ..., device: ..., gateway: ...}
+        tenant_a: %{tenant: ..., user: ..., admin: ..., device: ..., gateway: ...}
       }
   """
   def multi_tenant_scenario do
     tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a"})
-    tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b"})
 
     %{
       tenant_a: %{
@@ -235,13 +237,6 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
         admin: tenant_admin_fixture(tenant_a),
         device: tenant_device_fixture(tenant_a),
         gateway: tenant_gateway_fixture(tenant_a)
-      },
-      tenant_b: %{
-        tenant: tenant_b,
-        user: tenant_user_fixture(tenant_b),
-        admin: tenant_admin_fixture(tenant_b),
-        device: tenant_device_fixture(tenant_b),
-        gateway: tenant_gateway_fixture(tenant_b)
       }
     }
   end

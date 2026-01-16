@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
   JSON API controller for workload credential requests.
 
   In a tenant instance UI, the tenant is implicit from the deployment.
-  The configured default_tenant_id is used to load the tenant context.
+  The configured default tenant record is used to load the tenant context.
   """
 
   use ServiceRadarWebNGWeb, :controller
@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
   end
 
   # In a tenant instance UI, the tenant is implicit from the deployment.
-  # We use the configured default_tenant_id to load the tenant context.
+  # We use the configured default tenant to load the tenant context.
   defp require_tenant(conn) do
     case conn.assigns[:current_scope] do
       %Scope{} ->
@@ -81,12 +81,12 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
   end
 
   defp load_default_tenant do
-    tenant_id = Application.get_env(:serviceradar_core, :default_tenant_id)
+    default_id = Application.get_env(:serviceradar_core, :default_tenant_id)
 
-    if tenant_id do
+    if default_id do
       actor = SystemActor.platform(:tenant_workload_controller)
 
-      case Ash.get(Tenant, tenant_id, actor: actor) do
+      case Ash.get(Tenant, default_id, actor: actor) do
         {:ok, %Tenant{} = tenant} -> {:ok, tenant}
         _ -> {:error, :tenant_not_configured}
       end

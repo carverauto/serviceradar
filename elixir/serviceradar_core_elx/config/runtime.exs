@@ -156,18 +156,6 @@ if config_env() == :prod do
     status_handler_enabled:
       System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-  default_tenant_id =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
-      "00000000-0000-0000-0000-000000000000"
-
-  config :serviceradar_core, :default_tenant_id, default_tenant_id
-
-  platform_tenant_id =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-      System.get_env("PLATFORM_TENANT_ID")
-
-  config :serviceradar_core, :platform_tenant_id, platform_tenant_id
-
   platform_tenant_slug =
     System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
       System.get_env("PLATFORM_TENANT_SLUG") ||

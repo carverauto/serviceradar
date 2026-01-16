@@ -19,13 +19,13 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   alias ServiceRadar.Identity.Tenant
 
   @impl true
-  def mount(%{"id" => tenant_id}, _session, socket) do
+  def mount(%{"id" => id}, _session, socket) do
     socket =
       socket
       |> assign(:page_title, "Tenant NATS Account")
       |> assign(:show_confirm_modal, false)
       |> assign(:confirm_action, nil)
-      |> load_tenant(tenant_id)
+      |> load_tenant(id)
 
     {:ok, socket}
   end
@@ -409,8 +409,8 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
 
   # Data loading
 
-  defp load_tenant(socket, tenant_id) do
-    case get_tenant(tenant_id) do
+  defp load_tenant(socket, id) do
+    case get_tenant(id) do
       {:ok, tenant} ->
         socket
         |> assign(:tenant, tenant)
@@ -423,10 +423,10 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
     end
   end
 
-  defp get_tenant(tenant_id) do
+  defp get_tenant(id) do
     Tenant
     |> Ash.Query.for_read(:for_nats_provisioning)
-    |> Ash.Query.filter(id == ^tenant_id)
+    |> Ash.Query.filter(id == ^id)
     |> Ash.Query.select([
       :id,
       :name,

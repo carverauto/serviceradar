@@ -93,8 +93,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
      |> load_tenant_accounts()}
   end
 
-  def handle_event("reprovision_nats", %{"id" => tenant_id}, socket) do
-    case reprovision_tenant(tenant_id) do
+  def handle_event("reprovision_nats", %{"id" => id}, socket) do
+    case reprovision_tenant(id) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -708,19 +708,19 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
     |> Ash.create(actor: actor)
   end
 
-  defp reprovision_tenant(tenant_id) do
-    with {:ok, tenant} <- get_tenant(tenant_id),
+  defp reprovision_tenant(id) do
+    with {:ok, tenant} <- get_tenant(id),
          :ok <- validate_retriable(tenant) do
-      ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(tenant_id)
+      ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(id)
     end
   end
 
-  defp get_tenant(tenant_id) do
+  defp get_tenant(id) do
     actor = SystemActor.platform(:edge_sites_live)
 
     case Tenant
          |> Ash.Query.for_read(:for_nats_provisioning)
-         |> Ash.Query.filter(id == ^tenant_id)
+         |> Ash.Query.filter(id == ^id)
          |> Ash.read_one(actor: actor) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, tenant} -> {:ok, tenant}

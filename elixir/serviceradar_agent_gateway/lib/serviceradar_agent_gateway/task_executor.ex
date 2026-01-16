@@ -29,7 +29,7 @@ defmodule ServiceRadarAgentGateway.TaskExecutor do
   - `:snmp` - SNMP polling via agent
   - `:wmi` - Windows WMI polling via agent
 
-  Agent-delegated checks require a `tenant_id` and `agent_id` in the task config.
+  Agent-delegated checks require an `agent_id` in the task config.
   The gateway will connect to the agent via gRPC to execute these checks.
   """
 

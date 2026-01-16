@@ -110,7 +110,6 @@ _ =
       {"agent_count", "integer"},
       {"checker_count", "integer"},
       {"updated_at", "timestamptz"},
-      {"tenant_id", "uuid"},
       {"partition_id", "uuid"}
     ],
     fn {col, type} ->

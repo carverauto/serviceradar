@@ -70,18 +70,6 @@ defmodule ServiceRadarWebNG.DataCase do
   def test_tenant_slug, do: @test_tenant_slug
 
   @doc """
-  DEPRECATED: Returns the test tenant ID.
-
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path,
-  not by tenant_id in records. This function is kept temporarily for legacy
-  tests that still use raw SQL inserts with tenant_id columns.
-
-  New tests should use Ash fixtures which don't require tenant_id.
-  """
-  @deprecated "Use Ash fixtures instead of raw SQL inserts with tenant_id"
-  def test_tenant_id, do: "00000000-0000-0000-0000-000000000099"
-
-  @doc """
   A helper that transforms changeset errors into a map of messages.
 
       assert {:error, changeset} = Accounts.create_user(%{password: "short"})

@@ -32,7 +32,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
     %{
       tenant: tenant,
-      tenant_id: tenant.id,
       package: result.package,
       join_token: result.join_token,
       download_token: result.download_token

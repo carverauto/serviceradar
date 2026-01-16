@@ -41,8 +41,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       - `:source` - Source type ("status" or "results")
       - `:kv_store_id` - KV store identifier
       - `:timestamp` - Unix timestamp in nanoseconds
-      - `:tenant_id` - Tenant UUID for multi-tenant routing
-      - `:tenant_slug` - Tenant slug for NATS subject prefixing
+      - `:tenant_slug` - Tenant slug for routing (e.g., NATS subject prefixing)
 
   ## Returns
 
@@ -143,7 +142,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     service_name = status[:service_name]
     service_type = status[:service_type]
     source = status[:source]
-    _tenant_id = status[:tenant_id]
     tenant_slug = status[:tenant_slug]
     handler = handler_module(status)
 

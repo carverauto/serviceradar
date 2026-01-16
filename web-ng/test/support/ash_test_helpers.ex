@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   The module provides several actor types for testing authorization:
 
   - `system_actor/0` - Bypasses all authorization (super_admin)
-  - `admin_actor/1` - Admin role for a tenant
-  - `operator_actor/1` - Operator role for a tenant
-  - `viewer_actor/1` - Viewer role (read-only) for a tenant
+  - `admin_actor/0` - Admin role
+  - `operator_actor/0` - Operator role
+  - `viewer_actor/0` - Viewer role (read-only)
   """
 
   alias ServiceRadar.Identity.{Tenant, User, ApiToken}
@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   Used for creating test fixtures without policy restrictions.
 
   In a tenant instance, tenant isolation is handled by PostgreSQL search_path,
-  not by actor tenant_id.
+  not by actor.
   """
   def system_actor do
     %{
@@ -501,31 +501,23 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a complete multi-tenant test scenario with two tenants,
-  each having users with different roles and some resources.
+  Creates a complete test scenario with a tenant and resources.
 
   Returns a map with all the created resources:
 
       %{
-        tenant_a: %{
-          tenant: ...,
-          admin: ...,
-          operator: ...,
-          viewer: ...,
-          device: ...,
-          gateway: ...
-        },
-        tenant_b: %{...}
+        tenant: ...,
+        admin: ...,
+        operator: ...,
+        viewer: ...,
+        device: ...,
+        gateway: ...,
+        agent: ...
       }
   """
-  def multi_tenant_scenario do
-    tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a"})
-    tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b"})
-
-    %{
-      tenant_a: build_tenant_resources(tenant_a),
-      tenant_b: build_tenant_resources(tenant_b)
-    }
+  def tenant_scenario do
+    tenant = tenant_fixture(%{name: "Test Tenant", slug: "test-tenant-scenario"})
+    build_tenant_resources(tenant)
   end
 
   defp build_tenant_resources(tenant) do
