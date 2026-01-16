@@ -41,7 +41,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         bucket_seconds: 60,
         cooldown_seconds: 60,
         renotify_seconds: 3600
-      }, tenant: schema, actor: actor)
+      }, actor: actor)
       |> Ash.create()
 
     base_time = DateTime.utc_now()
@@ -73,14 +73,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     events =
       OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     assert Enum.any?(events, fn event -> event.log_name == "alert.rule.threshold" end)
 
     alert =
       Alert
-      |> Ash.Query.for_read(:active, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
       |> Ash.read!()
       |> List.first()
 
@@ -90,7 +90,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     later = DateTime.add(base_time, 180, :second)
     assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], schema)
 
-    {:ok, resolved} = Alert.get_by_id(alert.id, tenant: schema, actor: actor)
+    {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
   end
 end

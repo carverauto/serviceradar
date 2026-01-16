@@ -168,19 +168,14 @@ config :serviceradar_core, :spiffe,
 # Cluster coordination is handled by core-elx; the gateway only joins.
 
 # In tenant-instance architecture, each tenant has their own deployment.
-# The tenant_slug is used for routing purposes (e.g., NATS subject prefixing).
-# Platform tenant slug defaults to "platform" for the control plane.
+# Agent gateway does not need tenant slug - tenant isolation is handled by
+# NATS credentials and database search_path at the infrastructure level.
 config :serviceradar_core,
   repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "false") in ~w(true 1 yes),
   vault_enabled: false,
   datasvc_enabled: false,
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
-  cluster_coordinator: false,
-  platform_tenant_slug:
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-      System.get_env("PLATFORM_TENANT_SLUG") ||
-      System.get_env("GATEWAY_TENANT_SLUG") ||
-      "platform"
+  cluster_coordinator: false
 
 config :serviceradar_core, Oban, false
 

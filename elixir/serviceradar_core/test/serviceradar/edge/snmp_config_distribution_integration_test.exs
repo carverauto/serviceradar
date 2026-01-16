@@ -25,6 +25,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
     :ok
   end
 
+  # Tenant schema is determined by DB connection's search_path
   setup do
     %{tenant_slug: tenant_slug} =
       TestSupport.create_tenant_schema!("snmp-config")
@@ -41,13 +42,12 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
-    {:ok, tenant_slug: tenant_slug, actor: actor, agent_id: agent_id}
+    {:ok, actor: actor, agent_id: agent_id}
   end
 
   describe "SNMP config compilation" do
     @tag :integration
     test "includes SNMP config in agent payload with default profile", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -67,8 +67,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -85,8 +84,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             timeout_seconds: 5,
             retries: 2
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -103,8 +101,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             community: "public",
             snmp_profile_id: profile.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -119,8 +116,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             data_type: :timeticks,
             snmp_target_id: target.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -148,7 +144,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "SRQL targeting matches device to profile", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -168,8 +163,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -187,8 +181,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             timeout_seconds: 3,
             retries: 1
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -205,8 +198,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             community: "switch-community",
             snmp_profile_id: profile.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -222,8 +214,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             delta: true,
             snmp_target_id: target.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -240,7 +231,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "agent config generator includes SNMP in full config", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -257,8 +247,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             enabled: true,
             poll_interval_seconds: 120
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -275,8 +264,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             community: "test",
             snmp_profile_id: profile.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -291,8 +279,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             data_type: :string,
             snmp_target_id: target.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -310,7 +297,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "disabled profile does not include SNMP config", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -325,8 +311,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             enabled: false,
             poll_interval_seconds: 60
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -339,7 +324,6 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
     @tag :integration
     test "SNMPv3 config is properly compiled", %{
-      tenant_slug: tenant_slug,
       actor: actor,
       agent_id: agent_id
     } do
@@ -356,8 +340,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             enabled: true,
             poll_interval_seconds: 60
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -379,8 +362,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             v3_priv_password: "privpass456",
             snmp_profile_id: profile.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 
@@ -395,8 +377,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
             data_type: :string,
             snmp_target_id: target.id
           },
-          actor: actor,
-          tenant: tenant_slug
+          actor: actor
         )
         |> Ash.create()
 

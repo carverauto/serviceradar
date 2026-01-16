@@ -74,10 +74,11 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   def resolve_for_device(_tenant_schema, nil, _actor), do: {:ok, nil}
 
   # Load all profiles with SRQL targeting, ordered by priority
-  defp load_targeting_profiles(tenant_schema, actor) do
+  # Tenant isolation is handled by the DB connection's search_path
+  defp load_targeting_profiles(_tenant_schema, actor) do
     query =
       SysmonProfile
-      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}
@@ -147,12 +148,13 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   end
 
   # Check if any devices match the parsed SRQL filters
-  defp check_device_exists(ast, tenant_schema, actor) do
+  # Tenant isolation is handled by the DB connection's search_path
+  defp check_device_exists(ast, _tenant_schema, actor) do
     filters = extract_filters(ast)
 
     query =
       Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> apply_srql_filters(filters)
       |> Ash.Query.limit(1)
 

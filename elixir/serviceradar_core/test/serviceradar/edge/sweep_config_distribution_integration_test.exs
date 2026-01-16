@@ -50,7 +50,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           uid: device_uid,
           ip: device_ip,
           tags: %{"env" => "prod"}
-        }, actor: actor, tenant: tenant_slug)
+        }, actor: actor)
       |> Ash.create()
 
     {:ok, profile} =
@@ -63,7 +63,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           sweep_modes: ["icmp", "tcp"],
           concurrency: 25,
           timeout: "4s"
-        }, actor: actor, tenant: tenant_slug)
+        }, actor: actor)
       |> Ash.create()
 
     {:ok, group} =
@@ -77,7 +77,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           profile_id: profile.id,
           target_criteria: %{"tags" => %{"has_any" => ["env=prod"]}},
           static_targets: ["10.0.2.0/24"]
-        }, actor: actor, tenant: tenant_slug)
+        }, actor: actor)
       |> Ash.create()
 
     {:ok, entry} = ConfigServer.get_config(:sweep, "default", agent_id)

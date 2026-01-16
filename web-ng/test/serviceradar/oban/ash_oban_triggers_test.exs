@@ -40,8 +40,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             component_type: :gateway,
             site: "test-site"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -54,8 +53,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             download_token_expires_at: expired_download,
             join_token_expires_at: expired_join
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -71,8 +69,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             component_type: :gateway,
             site: "test-site"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -84,15 +81,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             download_token_expires_at: valid_expiry,
             join_token_expires_at: valid_expiry
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
       # Query needs_expiration (system actor for scheduler context) - returns a page
       {:ok, expiration_page} =
         OnboardingPackage
-        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor())
         |> Ash.read()
 
       needing_expiration =
@@ -112,8 +108,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, expired} =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -127,15 +122,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, expired} =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
       # Query needs_expiration - returns a page
       {:ok, expiration_page} =
         OnboardingPackage
-        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor())
         |> Ash.read()
 
       needing_expiration =
@@ -154,15 +148,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, delivered} =
         package
         |> Ash.Changeset.for_update(:deliver, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
       # Query needs_expiration (without expired tokens, should not be returned) - returns a page
       {:ok, expiration_page} =
         OnboardingPackage
-        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:needs_expiration, %{}, actor: system_actor())
         |> Ash.read()
 
       needing_expiration =
@@ -202,8 +195,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, overdue_check} =
         check
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -222,7 +214,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Query due_for_check - returns a page
       {:ok, due_page} =
         ServiceCheck
-        |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor())
         |> Ash.read()
 
       due_checks = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
@@ -238,15 +230,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, disabled} =
         check
         |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
       # Query due_for_check - returns a page
       {:ok, due_page} =
         ServiceCheck
-        |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:due_for_check, %{}, actor: system_actor())
         |> Ash.read()
 
       due_checks = if is_struct(due_page, Ash.Page.Keyset), do: due_page.results, else: due_page
@@ -260,8 +251,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, executed} =
         check
         |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -294,8 +284,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -314,15 +303,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
       # Query due_for_execution - returns a page
       {:ok, due_page} =
         PollingSchedule
-        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor())
         |> Ash.read()
 
       due_schedules =
@@ -333,7 +321,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert fresh.id in ids
     end
 
-    test "due_for_execution excludes manual schedules", %{tenant: tenant} do
+    test "due_for_execution excludes manual schedules", %{tenant: _tenant} do
       {:ok, manual} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -342,14 +330,13 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             name: "Manual Schedule",
             schedule_type: :manual
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
       {:ok, due_page} =
         PollingSchedule
-        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor())
         |> Ash.read()
 
       due_schedules =
@@ -359,7 +346,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute manual.id in ids
     end
 
-    test "due_for_execution excludes disabled schedules", %{tenant: tenant} do
+    test "due_for_execution excludes disabled schedules", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -369,22 +356,20 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
       {:ok, disabled} =
         schedule
         |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
       {:ok, due_page} =
         PollingSchedule
-        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:due_for_execution, %{}, actor: system_actor())
         |> Ash.read()
 
       due_schedules =
@@ -394,7 +379,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute disabled.id in ids
     end
 
-    test "execute action updates last_executed_at and execution_count", %{tenant: tenant} do
+    test "execute action updates last_executed_at and execution_count", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -404,16 +389,14 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
       {:ok, executed} =
         schedule
         |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -421,7 +404,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert executed.execution_count == 1
     end
 
-    test "record_result updates result tracking fields", %{tenant: tenant} do
+    test "record_result updates result tracking fields", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -431,8 +414,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -446,8 +428,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             success_count: 8,
             failure_count: 2
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -459,7 +440,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert recorded.consecutive_failures == 0
     end
 
-    test "consecutive failures increment on failed results", %{tenant: tenant} do
+    test "consecutive failures increment on failed results", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -469,8 +450,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -478,8 +458,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, failed1} =
         schedule
         |> Ash.Changeset.for_update(:record_result, %{result: :failed},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -489,8 +468,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, failed2} =
         failed1
         |> Ash.Changeset.for_update(:record_result, %{result: :timeout},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -500,8 +478,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, success} =
         failed2
         |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -548,7 +525,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Query pending - returns a page, so get the results
       {:ok, pending_page} =
         Alert
-        |> Ash.Query.for_read(:pending, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:pending, %{}, actor: system_actor())
         |> Ash.read()
 
       pending_alerts =
@@ -569,8 +546,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             reason: "No response for 30 minutes"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -594,7 +570,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, pending_page} =
         Alert
-        |> Ash.Query.for_read(:pending, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:pending, %{}, actor: system_actor())
         |> Ash.read()
 
       pending_alerts =
@@ -622,7 +598,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # The needs_notification read action filters for notification_count == 0 and status in [:pending, :escalated]
       {:ok, needing_notification_page} =
         Alert
-        |> Ash.Query.for_read(:needs_notification, %{}, actor: system_actor(), authorize?: false)
+        |> Ash.Query.for_read(:needs_notification, %{}, actor: system_actor())
         |> Ash.read()
 
       needing_notification =
@@ -644,8 +620,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, notified} =
         alert
         |> Ash.Changeset.for_update(:send_notification, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -664,7 +639,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, tenant: tenant}
     end
 
-    test "acquire_lock sets lock fields", %{tenant: tenant} do
+    test "acquire_lock sets lock fields", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -674,8 +649,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -686,8 +660,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             node_id: "node-1@localhost"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -696,7 +669,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert locked.locked_by == "node-1@localhost"
     end
 
-    test "release_lock clears lock fields", %{tenant: tenant} do
+    test "release_lock clears lock fields", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -706,8 +679,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -719,8 +691,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             node_id: "node-1@localhost"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -728,8 +699,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       {:ok, released} =
         locked
         |> Ash.Changeset.for_update(:release_lock, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -738,7 +708,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert released.locked_by == nil
     end
 
-    test "is_locked calculation returns true for recently locked schedules", %{tenant: tenant} do
+    test "is_locked calculation returns true for recently locked schedules", %{tenant: _tenant} do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -748,8 +718,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
             schedule_type: :interval,
             interval_seconds: 60
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -760,8 +729,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
           %{
             node_id: "node-1@localhost"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -770,7 +738,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         PollingSchedule
         |> Ash.Query.filter(id == ^locked.id)
         |> Ash.Query.load(:is_locked)
-        |> Ash.read(actor: system_actor(), authorize?: false)
+        |> Ash.read(actor: system_actor())
 
       assert loaded.is_locked == true
     end

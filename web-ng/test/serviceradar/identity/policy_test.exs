@@ -18,28 +18,13 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   require Ash.Query
 
-  alias ServiceRadar.Identity.{User, Tenant}
+  alias ServiceRadar.Identity.User
 
   # ============================================================================
   # Test Fixtures
   # ============================================================================
 
-  defp create_tenant(name \\ nil) do
-    name = name || "Test Tenant #{System.unique_integer([:positive])}"
-
-    {:ok, tenant} =
-      Ash.Changeset.for_create(Tenant, :create, %{
-        name: name,
-        slug: Slug.slugify(name),
-        contact_email: "admin@#{Slug.slugify(name)}.example.com",
-        contact_name: "Admin"
-      })
-      |> Ash.create(authorize?: false)
-
-    tenant
-  end
-
-  defp create_user(_tenant, attrs \\ %{}) do
+  defp create_user(attrs \\ %{}) do
     email = attrs[:email] || "user#{System.unique_integer([:positive])}@example.com"
     role = attrs[:role] || :viewer
 
@@ -49,7 +34,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
         email: email,
         role: role
       })
-      |> Ash.create(authorize?: false)
+      |> Ash.create()
 
     user
   end
@@ -68,13 +53,11 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   describe "role-based access control" do
     setup do
-      tenant = create_tenant("RBAC Tenant")
+      viewer = create_user(%{role: :viewer, email: "viewer@example.com"})
+      operator = create_user(%{role: :operator, email: "operator@example.com"})
+      admin = create_user(%{role: :admin, email: "admin@example.com"})
 
-      viewer = create_user(tenant, %{role: :viewer, email: "viewer@example.com"})
-      operator = create_user(tenant, %{role: :operator, email: "operator@example.com"})
-      admin = create_user(tenant, %{role: :admin, email: "admin@example.com"})
-
-      %{tenant: tenant, viewer: viewer, operator: operator, admin: admin}
+      %{viewer: viewer, operator: operator, admin: admin}
     end
 
     test "viewer can read users in tenant", %{viewer: viewer, admin: admin} do
@@ -138,13 +121,10 @@ defmodule ServiceRadar.Identity.PolicyTest do
 
   describe "super_admin bypass" do
     setup do
-      tenant = create_tenant("Tenant A")
-
-      super_admin = create_user(tenant, %{role: :super_admin, email: "super@example.com"})
-      regular_user = create_user(tenant, %{role: :viewer, email: "regular@example.com"})
+      super_admin = create_user(%{role: :super_admin, email: "super@example.com"})
+      regular_user = create_user(%{role: :viewer, email: "regular@example.com"})
 
       %{
-        tenant: tenant,
         super_admin: super_admin,
         regular_user: regular_user
       }

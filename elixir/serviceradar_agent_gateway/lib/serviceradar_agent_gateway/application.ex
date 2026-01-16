@@ -107,31 +107,42 @@ defmodule ServiceRadarAgentGateway.Application do
       |> List.flatten()
       |> Enum.reject(&is_nil/1)
 
-    gateway_children = [
-      ServiceRadarAgentGateway.AgentRegistryProxy,
-      ServiceRadarAgentGateway.StatusBuffer,
+    registries_enabled = Application.get_env(:serviceradar_core, :registries_enabled, true)
 
-      # Registration worker - registers this gateway in the distributed registry.
-      # Gateways are platform-level; tenant context is derived per-request via mTLS.
-      {ServiceRadar.Gateway.RegistrationWorker,
-       partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
-      # Register gateway for platform-wide visibility (Infrastructure UI).
-      {ServiceRadar.GatewayRegistrationWorker,
-       gateway_id: gateway_id, partition: partition_id, domain: domain},
+    # Registration workers require ProcessRegistry (Horde)
+    registration_children =
+      if registries_enabled do
+        [
+          # Registration worker - registers this gateway in the distributed registry.
+          # Gateways are platform-level; tenant context is derived per-request via mTLS.
+          {ServiceRadar.Gateway.RegistrationWorker,
+           partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
+          # Register gateway for platform-wide visibility (Infrastructure UI).
+          {ServiceRadar.GatewayRegistrationWorker,
+           gateway_id: gateway_id, partition: partition_id, domain: domain}
+        ]
+      else
+        []
+      end
 
-      # gRPC server that receives status pushes from Go agents
-      {GRPC.Server.Supervisor,
-       endpoint: ServiceRadarAgentGateway.Endpoint,
-       port: grpc_port,
-       start_server: true,
-       adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+    gateway_children =
+      [
+        ServiceRadarAgentGateway.AgentRegistryProxy,
+        ServiceRadarAgentGateway.StatusBuffer,
 
-      # gRPC client for communicating with Go agents (legacy support)
-      ServiceRadarAgentGateway.AgentClient,
+        # gRPC server that receives status pushes from Go agents
+        {GRPC.Server.Supervisor,
+         endpoint: ServiceRadarAgentGateway.Endpoint,
+         port: grpc_port,
+         start_server: true,
+         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
 
-      # Task executor - executes polling tasks from the core
-      ServiceRadarAgentGateway.TaskExecutor
-    ]
+        # gRPC client for communicating with Go agents (legacy support)
+        ServiceRadarAgentGateway.AgentClient,
+
+        # Task executor - executes polling tasks from the core
+        ServiceRadarAgentGateway.TaskExecutor
+      ] ++ registration_children
 
     children = core_children ++ gateway_children
 
@@ -176,7 +187,9 @@ defmodule ServiceRadarAgentGateway.Application do
       GRPC.Credential.new(ssl: ssl_opts)
     else
       # Fail closed by default - require explicit opt-in for insecure connections
-      allow_insecure? = System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
+      allow_insecure? =
+        Application.get_env(:serviceradar_agent_gateway, :allow_insecure_grpc, false) ||
+          System.get_env("GATEWAY_ALLOW_INSECURE_GRPC", "false") == "true"
 
       if allow_insecure? do
         Logger.warning(
@@ -227,28 +240,42 @@ defmodule ServiceRadarAgentGateway.Application do
 
   defp process_registry_child do
     # ProcessRegistry provides singleton Horde registry + DynamicSupervisor
-    # Check if it's already started (by serviceradar_core)
-    registry_name = ServiceRadar.ProcessRegistry.registry_name()
-    if Process.whereis(registry_name) do
-      nil
+    # Disabled in tests via config to avoid Horde clustering issues
+    if Application.get_env(:serviceradar_core, :registries_enabled, true) do
+      # Check if it's already started (by serviceradar_core)
+      registry_name = ServiceRadar.ProcessRegistry.registry_name()
+
+      if Process.whereis(registry_name) do
+        nil
+      else
+        ServiceRadar.ProcessRegistry.child_specs()
+      end
     else
-      ServiceRadar.ProcessRegistry.child_specs()
+      nil
     end
   end
 
   defp gateway_tracker_child do
-    if Process.whereis(ServiceRadar.GatewayTracker) do
-      nil
+    if Application.get_env(:serviceradar_core, :registries_enabled, true) do
+      if Process.whereis(ServiceRadar.GatewayTracker) do
+        nil
+      else
+        ServiceRadar.GatewayTracker
+      end
     else
-      ServiceRadar.GatewayTracker
+      nil
     end
   end
 
   defp agent_tracker_child do
-    if Process.whereis(ServiceRadar.AgentTracker) do
-      nil
+    if Application.get_env(:serviceradar_core, :registries_enabled, true) do
+      if Process.whereis(ServiceRadar.AgentTracker) do
+        nil
+      else
+        ServiceRadar.AgentTracker
+      end
     else
-      ServiceRadar.AgentTracker
+      nil
     end
   end
 

@@ -23,7 +23,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
       {:ok, tenant: tenant}
     end
 
-    test "can create a partition with required fields", %{tenant: tenant} do
+    test "can create a partition with required fields", %{tenant: _tenant} do
       result =
         Partition
         |> Ash.Changeset.for_create(
@@ -33,8 +33,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
             slug: "production-network",
             cidr_ranges: ["10.0.0.0/8", "192.168.0.0/16"]
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -403,6 +402,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
     test "user cannot see partitions from other tenant", %{
       tenant_a: tenant_a,
+      tenant_b: _tenant_b,
       partition_a: partition_a,
       partition_b: partition_b
     } do
@@ -417,6 +417,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
     test "user cannot update partition from other tenant", %{
       tenant_a: tenant_a,
+      tenant_b: _tenant_b,
+      partition_a: _partition_a,
       partition_b: partition_b
     } do
       actor = admin_actor(tenant_a)
@@ -432,6 +434,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
     test "user cannot get partition from other tenant by id", %{
       tenant_a: tenant_a,
+      tenant_b: _tenant_b,
+      partition_a: _partition_a,
       partition_b: partition_b
     } do
       actor = viewer_actor(tenant_a)
@@ -446,6 +450,8 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
     test "user cannot get partition from other tenant by slug", %{
       tenant_a: tenant_a,
+      tenant_b: _tenant_b,
+      partition_a: _partition_a,
       partition_b: partition_b
     } do
       actor = viewer_actor(tenant_a)

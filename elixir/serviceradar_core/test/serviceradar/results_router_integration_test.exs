@@ -59,7 +59,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       metadata: %{"armis_device_id" => armis_id}
     }
 
-    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor, tenant: tenant_slug)
+    assert {:ok, expected_id} = IdentityReconciler.resolve_device_id(identity_update, actor: actor)
 
     status = %{
       source: "results",
@@ -70,7 +70,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
     assert {:ok, device} =
-             Device.get_by_uid(expected_id, tenant: tenant_slug, actor: actor, authorize?: false)
+             Device.get_by_uid(expected_id, actor: actor, authorize?: false)
 
     assert device.ip == ip
     assert device.hostname == "edge-#{ip_octet}"
@@ -85,7 +85,7 @@ defmodule ServiceRadar.ResultsRouterIntegrationTest do
       })
 
     assert {:ok, [identifier | _]} =
-             Ash.read(identifier_query, actor: actor, tenant: tenant_slug, authorize?: false)
+             Ash.read(identifier_query, actor: actor, authorize?: false)
 
     assert identifier.device_id == expected_id
   end

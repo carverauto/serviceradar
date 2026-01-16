@@ -34,8 +34,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             component_type: :gateway,
             site: "datacenter-1"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -44,6 +43,9 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert package.component_id == "test-gateway-001"
       assert package.component_type == :gateway
       assert package.status == :issued
+
+      # Ensure tenant is used in setup
+      _ = tenant
     end
 
     test "creates package with default issued status", %{tenant: tenant} do
@@ -278,13 +280,12 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       {:ok, tenant: tenant, package: package}
     end
 
-    test "can expire issued package", %{tenant: tenant, package: package} do
+    test "can expire issued package", %{tenant: _tenant, package: package} do
       # Expiration is usually triggered by AshOban, so use system actor
       result =
         package
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -305,8 +306,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         delivered
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -332,8 +332,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       result =
         activated
         |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -464,12 +463,11 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   describe "calculations" do
     setup do
       tenant = tenant_fixture()
-      {:ok, tenant: tenant}
+      actor = admin_actor(tenant)
+      {:ok, tenant: tenant, actor: actor}
     end
 
-    test "is_usable returns true for issued and delivered", %{tenant: tenant} do
-      actor = admin_actor(tenant)
-
+    test "is_usable returns true for issued and delivered", %{tenant: tenant, actor: actor} do
       issued = onboarding_package_fixture(tenant)
 
       {:ok, [loaded]} =
@@ -495,9 +493,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert loaded.is_usable == true
     end
 
-    test "is_terminal returns true for terminal states", %{tenant: tenant} do
-      actor = admin_actor(tenant)
-
+    test "is_terminal returns true for terminal states", %{tenant: tenant, actor: actor} do
       # Activate a package
       package = onboarding_package_fixture(tenant)
 
@@ -603,8 +599,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
     {:ok, expired} =
       package
       |> Ash.Changeset.for_update(:expire, %{},
-        actor: system_actor(),
-        authorize?: false
+        actor: system_actor()
       )
       |> Ash.update()
 

@@ -234,17 +234,18 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   # Helper function to create associated NatsLeafServer
-  defp create_nats_leaf_server(site, tenant_schema) do
+  defp create_nats_leaf_server(site, _tenant_schema) do
     # Get platform NATS URL from config
     upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
     actor = SystemActor.platform(:edge_site)
 
+    # Tenant isolation is handled by the DB connection's search_path
     ServiceRadar.Edge.NatsLeafServer
     |> Ash.Changeset.for_create(:create, %{
       edge_site_id: site.id,
       upstream_url: upstream_url,
       local_listen: "0.0.0.0:4222"
-    }, tenant: tenant_schema)
+    })
     |> Ash.create(actor: actor)
   end
 end

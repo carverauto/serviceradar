@@ -19,19 +19,18 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   end
 
   test "agent sync config only includes sources assigned to the agent" do
-    tenant_a = create_tenant!("tenant-a")
-    tenant_b = create_tenant!("tenant-b")
+    _tenant_a = create_tenant!("tenant-a")
+    _tenant_b = create_tenant!("tenant-b")
 
-    agent_a = create_agent!(tenant_a, "agent-a")
-    agent_b = create_agent!(tenant_b, "agent-b")
+    agent_a = create_agent!("agent-a")
+    agent_b = create_agent!("agent-b")
 
-    source_a = create_source!(tenant_a, agent_a.uid, "source-a")
-    _source_b = create_source!(tenant_b, agent_b.uid, "source-b")
+    source_a = create_source!(agent_a.uid, "source-a")
+    _source_b = create_source!(agent_b.uid, "source-b")
 
     assert {:ok, payload} =
              SyncConfigGenerator.get_config_if_changed(
                agent_a.uid,
-               to_string(tenant_a.id),
                ""
              )
 
@@ -48,29 +47,27 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     name = "#{slug_prefix}-name-#{suffix}"
 
     Tenant
-    |> Ash.Changeset.for_create(:create, %{name: name, slug: slug}, authorize?: false)
-    |> Ash.create(authorize?: false)
+    |> Ash.Changeset.for_create(:create, %{name: name, slug: slug}, actor: system_actor())
+    |> Ash.create(actor: system_actor())
     |> case do
       {:ok, tenant} -> tenant
       {:error, reason} -> raise "failed to create tenant: #{inspect(reason)}"
     end
   end
 
-  defp create_agent!(tenant, uid) do
+  defp create_agent!(uid) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid},
-      actor: system_actor(),
-      tenant: tenant.id,
-      authorize?: false
+      actor: system_actor()
     )
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: system_actor())
     |> case do
       {:ok, agent} -> agent
       {:error, reason} -> raise "failed to create agent: #{inspect(reason)}"
     end
   end
 
-  defp create_source!(tenant, agent_id, name) do
+  defp create_source!(agent_id, name) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
     actor = system_actor()
 
@@ -83,12 +80,10 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
         endpoint: endpoint,
         agent_id: agent_id
       },
-      actor: actor,
-      tenant: tenant.id,
-      authorize?: false
+      actor: actor
     )
     |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
     |> case do
       {:ok, source} -> source
       {:error, reason} -> raise "failed to create integration source: #{inspect(reason)}"

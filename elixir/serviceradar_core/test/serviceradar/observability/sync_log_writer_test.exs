@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
     logs =
       Log
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     sync_logs =
@@ -72,7 +72,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
     events =
       OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     assert events == []

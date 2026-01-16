@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     Tenant
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor(), authorize?: false)
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -65,10 +65,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     User
-    |> Ash.Changeset.for_create(:register_with_password, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register_with_password, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -79,10 +76,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     user = tenant_user_fixture(tenant, attrs)
 
     user
-    |> Ash.Changeset.for_update(:update_role, %{role: :admin},
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_update(:update_role, %{role: :admin}, actor: system_actor())
     |> Ash.update!()
   end
 
@@ -116,10 +110,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     Device
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -138,10 +129,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     Gateway
-    |> Ash.Changeset.for_create(:register, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -161,10 +149,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     ServiceRadar.Infrastructure.Agent
-    |> Ash.Changeset.for_create(:register_connected, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register_connected, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -186,10 +171,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs) |> Map.drop([:enabled])
 
     ServiceRadar.Monitoring.ServiceCheck
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -210,10 +192,7 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
     attrs = Map.merge(defaults, attrs)
 
     ServiceRadar.Monitoring.Alert
-    |> Ash.Changeset.for_create(:trigger, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:trigger, attrs, actor: system_actor())
     |> Ash.create!()
   end
 

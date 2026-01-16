@@ -3,22 +3,8 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
 
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadar.Identity.Tenant
 
-  # Create a tenant for all tests
   setup do
-    {:ok, tenant} =
-      Tenant
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "Bundle Test Org",
-          slug: "bundle-test-org-#{System.unique_integer([:positive])}"
-        },
-        authorize?: false
-      )
-      |> Ash.create()
-
     # Create a test package
     {:ok, result} =
       OnboardingPackages.create(
@@ -31,7 +17,6 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
       )
 
     %{
-      tenant: tenant,
       package: result.package,
       join_token: result.join_token,
       download_token: result.download_token

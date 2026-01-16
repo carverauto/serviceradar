@@ -20,24 +20,24 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       operator = operator_user_fixture(tenant)
       viewer = user_fixture(tenant)
 
-      {:ok, tenant: tenant, admin: admin, operator: operator, viewer: viewer}
+      {:ok, admin: admin, operator: operator, viewer: viewer}
     end
 
-    test "admin can read users in their tenant", %{tenant: tenant, admin: admin} do
+    test "admin can read users in their tenant", %{admin: admin} do
       actor = actor_for_user(admin)
 
       {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
-    test "operator can read users in their tenant", %{tenant: tenant, operator: operator} do
+    test "operator can read users in their tenant", %{operator: operator} do
       actor = actor_for_user(operator)
 
       {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
-    test "viewer can read users in their tenant", %{tenant: tenant, viewer: viewer} do
+    test "viewer can read users in their tenant", %{viewer: viewer} do
       actor = actor_for_user(viewer)
 
       {:ok, users} = Ash.read(User, actor: actor)
@@ -55,7 +55,6 @@ defmodule ServiceRadar.IdentityPoliciesTest do
     end
 
     test "admin can update role of users in their tenant", %{
-      tenant: tenant,
       admin: admin,
       target_user: target
     } do
@@ -72,7 +71,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       assert updated.role == :operator
     end
 
-    test "users can update their own display_name", %{tenant: tenant, target_user: user} do
+    test "users can update their own display_name", %{target_user: user} do
       actor = actor_for_user(user)
 
       result =
@@ -87,7 +86,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
     end
 
     test "users cannot update other users display_name", %{tenant: tenant, target_user: target} do
-      # Create another user to try to update target
+      # Create another user to try to update target (tenant needed for fixture)
       other_user = user_fixture(tenant, %{email: "other@example.com"})
       actor = actor_for_user(other_user)
 
@@ -103,7 +102,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
     end
 
     test "non-admin cannot change user roles", %{tenant: tenant, target_user: target} do
-      # Create a regular user to try to change roles
+      # Create a regular user to try to change roles (tenant needed for fixture)
       regular_user = user_fixture(tenant, %{email: "regular@example.com"})
       actor = actor_for_user(regular_user)
 
@@ -127,18 +126,16 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       user_a = admin_user_fixture(tenant_a)
       user_b = admin_user_fixture(tenant_b)
 
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, user_a: user_a, user_b: user_b}
+      {:ok, user_a: user_a, user_b: user_b}
     end
 
     test "user cannot see users from other tenant", %{
-      tenant_a: tenant_a,
-      tenant_b: _tenant_b,
       user_a: user_a,
       user_b: user_b
     } do
       actor_a = actor_for_user(user_a)
 
-      # Query with tenant A context
+      # Query with user A's actor context
       {:ok, users} = Ash.read(User, actor: actor_a)
       user_ids = Enum.map(users, & &1.id)
 
@@ -148,13 +145,12 @@ defmodule ServiceRadar.IdentityPoliciesTest do
     end
 
     test "user cannot access other tenant's user by ID", %{
-      tenant_a: tenant_a,
       user_a: user_a,
       user_b: user_b
     } do
       actor_a = actor_for_user(user_a)
 
-      # Try to get user_b using tenant_a context
+      # Try to get user_b using user_a's actor context
       result = Ash.get(User, user_b.id, actor: actor_a)
 
       # Should fail - user_b doesn't exist in tenant_a's context
@@ -170,10 +166,10 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       admin = admin_user_fixture(tenant)
       viewer = user_fixture(tenant)
 
-      {:ok, tenant: tenant, admin: admin, viewer: viewer}
+      {:ok, admin: admin, viewer: viewer}
     end
 
-    test "admin can create API tokens", %{tenant: tenant, admin: admin} do
+    test "admin can create API tokens", %{admin: admin} do
       actor = actor_for_user(admin)
       raw_token = "srk_" <> Base.encode64(:crypto.strong_rand_bytes(32))
 
@@ -195,7 +191,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       assert token.name == "Test Token"
     end
 
-    test "users can create tokens for themselves", %{tenant: tenant, viewer: viewer} do
+    test "users can create tokens for themselves", %{viewer: viewer} do
       actor = actor_for_user(viewer)
       raw_token = "srk_" <> Base.encode64(:crypto.strong_rand_bytes(32))
 
@@ -217,7 +213,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       assert token.user_id == viewer.id
     end
 
-    test "users can read their own tokens", %{tenant: tenant, viewer: viewer} do
+    test "users can read their own tokens", %{viewer: viewer} do
       actor = actor_for_user(viewer)
       raw_token = "srk_" <> Base.encode64(:crypto.strong_rand_bytes(32))
 

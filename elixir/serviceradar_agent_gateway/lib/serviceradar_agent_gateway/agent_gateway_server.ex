@@ -10,15 +10,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   - No inbound firewall rules needed in customer networks
   - Secure communication via mTLS
 
-  ## Multi-Tenant Security
+  ## Component Identity
 
-  Tenant identity is extracted from the mTLS client certificate using
-  `ServiceRadar.Edge.TenantResolver`. The certificate contains:
+  Component identity (component_id, partition_id, component_type) is extracted
+  from the mTLS client certificate. The certificate contains:
   - CN: `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
-  - SPIFFE URI SAN: `spiffe://serviceradar.local/<component_type>/<tenant_slug>/<partition_id>/<component_id>`
+  - SPIFFE URI SAN: `spiffe://serviceradar.local/<component_type>/...`
 
-  The issuer CA SPKI hash is also verified against stored tenant CA records.
-  This ensures tenants cannot impersonate each other.
+  In the tenant-instance architecture, each tenant has their own deployment.
+  Tenant isolation is handled by infrastructure (NATS credentials, DB search_path),
+  not by the gateway validating tenant_slug.
 
   ## Protocol
 
@@ -37,7 +38,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   require Logger
 
   alias ServiceRadar.Edge.AgentGatewaySync
-  alias ServiceRadar.Edge.TenantResolver
+  alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.{AgentRegistryProxy, Config, StatusProcessor}
 
   # Default heartbeat interval for agents
@@ -112,8 +113,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_outdated: config_outdated,
-      # In tenant-instance architecture, tenant identity is embedded in the deployment itself.
-      # These fields are kept for proto compatibility but are not used for isolation.
+      # Proto field kept for backwards compatibility - not used in tenant-instance architecture
       tenant_slug: ""
     }
   end
@@ -617,13 +617,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp resolve_partition(identity, request_partition) do
-    tenant_partition =
+    identity_partition =
       case identity do
         %{partition_id: partition_id} -> partition_id
         _ -> nil
       end
 
-    normalize_partition(tenant_partition || request_partition)
+    normalize_partition(identity_partition || request_partition)
   end
 
   defp resolve_component_type!(identity, component_id) do
@@ -953,14 +953,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end)
   end
 
-  # Extract identity info from the gRPC stream's mTLS certificate
-  # In tenant-unaware mode, we just validate the cert and extract component identity
-  # (component_id, partition_id, component_type). Tenant isolation is handled by DB credentials.
+  # Extract component identity from the gRPC stream's mTLS certificate
+  # Returns component_id, partition_id, and component_type.
+  # Tenant isolation is handled by infrastructure (NATS credentials, DB search_path).
   defp extract_identity_from_stream(stream) do
     with {:ok, cert_der} <- get_peer_cert(stream),
-         {:ok, resolved} <- TenantResolver.resolve_from_cert(cert_der) do
-      # Return identity info - tenant fields exist but are not used for isolation
-      resolved
+         {:ok, identity} <- ComponentIdentityResolver.resolve_from_cert(cert_der) do
+      identity
     else
       {:error, reason} ->
         Logger.warning("Certificate validation failed: #{inspect(reason)}")

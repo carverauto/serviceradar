@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.{ZenRule, ZenRuleSync}
   alias ServiceRadar.TestSupport
 
@@ -19,14 +19,13 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
       TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    # DB connection's search_path determines the schema
-    actor = %{id: "system", role: :admin}
+    # Tenant schema determined by DB connection's search_path
+    actor = SystemActor.system(:test)
 
-    {:ok, tenant: tenant, schema: schema, actor: actor}
+    {:ok, actor: actor}
   end
 
-  test "compiles rule and derives format from subject", %{schema: schema, actor: actor} do
+  test "compiles rule and derives format from subject", %{actor: actor} do
     {:ok, rule} =
       ZenRule
       |> Ash.Changeset.for_create(
@@ -37,7 +36,6 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
           template: :passthrough
         },
         actor: actor,
-        tenant: schema,
         context: %{skip_zen_sync: true}
       )
       |> Ash.create()
@@ -55,7 +53,6 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
           template: :passthrough
         },
         actor: actor,
-        tenant: schema,
         context: %{skip_zen_sync: true}
       )
       |> Ash.create()
@@ -63,7 +60,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
     assert otel_rule.format == :protobuf
   end
 
-  test "rejects invalid name or subject", %{schema: schema, actor: actor} do
+  test "rejects invalid name or subject", %{actor: actor} do
     {:error, %Ash.Error.Invalid{errors: errors}} =
       ZenRule
       |> Ash.Changeset.for_create(
@@ -74,7 +71,6 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
           template: :passthrough
         },
         actor: actor,
-        tenant: schema,
         context: %{skip_zen_sync: true}
       )
       |> Ash.create()
@@ -91,7 +87,6 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
           template: :passthrough
         },
         actor: actor,
-        tenant: schema,
         context: %{skip_zen_sync: true}
       )
       |> Ash.create()

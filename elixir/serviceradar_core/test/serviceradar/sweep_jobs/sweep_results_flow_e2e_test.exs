@@ -62,7 +62,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           is_available: false
         },
         actor: actor,
-        tenant: tenant_slug,
         authorize?: false
       )
       |> Ash.create()
@@ -75,7 +74,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           name: "Group #{unique_id}"
         },
         actor: actor,
-        tenant: tenant_slug,
         authorize?: false
       )
       |> Ash.create()
@@ -117,7 +115,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [existing_device]} =
              Device
              |> Ash.Query.filter(ip == ^existing_ip)
-             |> Ash.read(tenant: tenant_slug, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor, authorize?: false)
 
     assert existing_device.is_available
     assert "sweep" in existing_device.discovery_sources
@@ -126,7 +124,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [new_device]} =
              Device
              |> Ash.Query.filter(ip == ^new_ip)
-             |> Ash.read(tenant: tenant_slug, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor, authorize?: false)
 
     refute new_device.is_available
     assert Enum.sort(new_device.discovery_sources) == ["sweep"]
@@ -134,7 +132,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, host_results} =
              SweepHostResult
              |> Ash.Query.for_read(:by_execution, %{execution_id: execution_id})
-             |> Ash.read(tenant: tenant_slug, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor, authorize?: false)
 
     assert length(host_results) == 2
 
@@ -150,7 +148,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [execution]} =
              SweepGroupExecution
              |> Ash.Query.filter(id == ^execution_id)
-             |> Ash.read(tenant: tenant_slug, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor, authorize?: false)
 
     assert execution.status == :completed
     assert execution.hosts_total == 2

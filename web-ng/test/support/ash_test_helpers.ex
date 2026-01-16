@@ -137,7 +137,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Tenant
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor(), authorize?: false)
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -164,10 +164,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     User
-    |> Ash.Changeset.for_create(:register_with_password, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register_with_password, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -178,10 +175,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     user = user_fixture(tenant, attrs)
 
     user
-    |> Ash.Changeset.for_update(:update_role, %{role: :admin},
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_update(:update_role, %{role: :admin}, actor: system_actor())
     |> Ash.update!()
   end
 
@@ -192,10 +186,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     user = user_fixture(tenant, attrs)
 
     user
-    |> Ash.Changeset.for_update(:update_role, %{role: :operator},
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_update(:update_role, %{role: :operator}, actor: system_actor())
     |> Ash.update!()
   end
 
@@ -216,10 +207,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     ApiToken
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -251,10 +239,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Device
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -284,10 +269,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Partition
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -312,10 +294,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Gateway
-    |> Ash.Changeset.for_create(:register, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -338,10 +317,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     # In a tenant instance, DB connection's search_path determines the schema
     Agent
-    |> Ash.Changeset.for_create(:register, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:register, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -364,10 +340,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     # In a tenant instance, DB connection's search_path determines the schema
     Checker
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -397,10 +370,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     ServiceCheck
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -426,10 +396,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     Alert
-    |> Ash.Changeset.for_create(:trigger, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:trigger, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -454,10 +421,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     PollingSchedule
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 
@@ -489,10 +453,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     attrs = Map.merge(defaults, Map.new(attrs))
 
     OnboardingPackage
-    |> Ash.Changeset.for_create(:create, attrs,
-      actor: system_actor(),
-      authorize?: false
-    )
+    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
   end
 

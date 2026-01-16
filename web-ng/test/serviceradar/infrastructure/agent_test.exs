@@ -24,7 +24,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, tenant: tenant, gateway: gateway}
     end
 
-    test "can register an agent with required fields", %{tenant: tenant, gateway: gateway} do
+    test "can register an agent with required fields", %{tenant: _tenant, gateway: gateway} do
       result =
         Agent
         |> Ash.Changeset.for_create(
@@ -35,8 +35,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             type_id: 4,
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -49,7 +48,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.is_healthy == true
     end
 
-    test "can register agent as already connected", %{tenant: tenant, gateway: gateway} do
+    test "can register agent as already connected", %{tenant: _tenant, gateway: gateway} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(
@@ -58,8 +57,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-connected-001",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -67,7 +65,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.is_healthy == true
     end
 
-    test "sets timestamps on registration", %{tenant: tenant, gateway: gateway} do
+    test "sets timestamps on registration", %{tenant: _tenant, gateway: gateway} do
       agent = agent_fixture(gateway)
 
       assert agent.first_seen_time != nil
@@ -76,7 +74,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert DateTime.diff(DateTime.utc_now(), agent.first_seen_time, :second) < 60
     end
 
-    test "supports all OCSF agent type IDs", %{tenant: tenant, gateway: gateway} do
+    test "supports all OCSF agent type IDs", %{tenant: _tenant, gateway: gateway} do
       for type_id <- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99] do
         unique = System.unique_integer([:positive])
 
@@ -143,8 +141,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-health-test-#{System.unique_integer([:positive])}",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -208,8 +205,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-disconnect-test-#{System.unique_integer([:positive])}",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -260,8 +256,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-unavailable-test-#{System.unique_integer([:positive])}",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -328,8 +323,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-connected-read",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -484,8 +478,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
             uid: "agent-color-test-#{System.unique_integer([:positive])}",
             gateway_id: gateway.id
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 

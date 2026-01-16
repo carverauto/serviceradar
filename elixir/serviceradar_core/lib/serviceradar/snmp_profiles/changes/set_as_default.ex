@@ -27,18 +27,19 @@ defmodule ServiceRadar.SNMPProfiles.Changes.SetAsDefault do
     Ash.Changeset.change_attribute(changeset, :is_default, true)
   end
 
-  defp unset_other_defaults(tenant, current_id, actor) do
+  # Tenant isolation is handled by the DB connection's search_path
+  defp unset_other_defaults(_tenant, current_id, actor) do
     # Query for existing default profiles, excluding the current one
     query =
       SNMPProfile
       |> Ash.Query.filter(is_default == true)
       |> Ash.Query.filter(id != ^current_id)
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} ->
         # Unset all default profiles in a single bulk operation
-        Ash.bulk_update(profiles, :unset_default, %{}, actor: actor, tenant: tenant)
+        Ash.bulk_update(profiles, :unset_default, %{}, actor: actor)
 
       {:error, error} ->
         # Log but don't fail - the system should continue and we'll have multiple defaults

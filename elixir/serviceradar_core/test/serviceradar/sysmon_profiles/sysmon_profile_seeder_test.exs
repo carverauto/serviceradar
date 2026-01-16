@@ -51,7 +51,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
       query =
         SysmonProfile
-        |> Ash.Query.for_read(:get_default, %{}, actor: actor, tenant: schema)
+        |> Ash.Query.for_read(:get_default, %{}, actor: actor)
 
       {:ok, profile} = Ash.read_one(query, actor: actor)
 
@@ -84,7 +84,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
       query =
         SysmonProfile
-        |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+        |> Ash.Query.for_read(:read, %{}, actor: actor)
         |> Ash.Query.filter(is_default == true)
 
       {:ok, profiles} = Ash.read(query, actor: actor)
@@ -103,7 +103,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
       query =
         SysmonProfile
-        |> Ash.Query.for_read(:get_default, %{}, actor: actor, tenant: schema)
+        |> Ash.Query.for_read(:get_default, %{}, actor: actor)
 
       {:ok, profile} = Ash.read_one(query, actor: actor)
 

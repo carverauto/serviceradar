@@ -112,7 +112,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
           thresholds: %{"cpu_warning" => "75"},
           is_default: true,
           enabled: true
-        }, actor: actor, tenant: schema)
+        }, actor: actor)
         |> Ash.create(actor: actor)
 
       {:ok, config} = SysmonCompiler.compile("default", "agent-1", [])

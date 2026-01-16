@@ -60,7 +60,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert is_binary(device_uid)
 
       # Verify device was created
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert device.hostname == "test-host-#{agent_id}"
       assert device.ip == "192.168.1.100"
       assert device.agent_id == agent_id
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device_uid1 == device_uid2
 
       # Verify device was updated
-      {:ok, device} = Device.get_by_uid(device_uid2, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid2, actor: actor)
       assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
@@ -124,7 +124,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, device_uid} =
         AgentGatewaySync.ensure_device_for_agent(agent_id_no_sysmon, attrs_no_sysmon)
 
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert "agent" in device.discovery_sources
       refute "sysmon" in device.discovery_sources
     end
@@ -144,7 +144,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert "sysmon" in device.discovery_sources
     end
   end
@@ -168,7 +168,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert :ok = result
 
       # Verify agent was created
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.name == "Test Agent"
       assert agent.version == "1.0.0"
       assert "icmp" in agent.capabilities
@@ -199,7 +199,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       :ok = AgentGatewaySync.upsert_agent(agent_id, updated_attrs)
 
       # Verify agent was updated
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.name == "Updated Name"
       assert agent.version == "2.0.0"
       assert "sysmon" in agent.capabilities
@@ -231,7 +231,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       :ok = AgentGatewaySync.heartbeat_agent(agent_id, heartbeat_attrs)
 
       # Verify agent was updated
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.is_healthy == true
       assert agent.config_source == :remote
       assert "sysmon" in agent.capabilities
@@ -253,7 +253,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       :ok = AgentGatewaySync.heartbeat_agent(new_agent_id, attrs)
 
       # Verify agent was created
-      {:ok, agent} = Agent.get_by_uid(new_agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(new_agent_id, actor: actor)
       assert agent.is_healthy == true
     end
 
@@ -274,7 +274,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
           is_healthy: true
         })
 
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.config_source == :local
     end
   end

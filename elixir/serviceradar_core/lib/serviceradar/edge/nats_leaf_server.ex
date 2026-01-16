@@ -424,7 +424,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  defp update_edge_site_status(leaf_server, new_status, tenant_schema) do
+  defp update_edge_site_status(leaf_server, new_status, _tenant_schema) do
     action =
       case new_status do
         :active -> :activate
@@ -432,10 +432,11 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       end
 
     actor = SystemActor.platform(:nats_leaf_server)
-    case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, actor: actor) do
+    # Tenant isolation is handled by the DB connection's search_path
+    case Ash.get(EdgeSite, leaf_server.edge_site_id, actor: actor) do
       {:ok, site} when site.status != new_status ->
         site
-        |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
+        |> Ash.Changeset.for_update(action, %{})
         |> Ash.update(actor: actor)
 
       _ ->

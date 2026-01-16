@@ -18,11 +18,11 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
   describe "device creation" do
     setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
+      _tenant = tenant_fixture()
+      :ok
     end
 
-    test "can create a device with required fields", %{tenant: tenant} do
+    test "can create a device with required fields" do
       result =
         Device
         |> Ash.Changeset.for_create(
@@ -33,8 +33,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
             type_id: 1,
             is_available: true
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -45,20 +44,20 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert device.is_available == true
     end
 
-    test "sets first_seen_time and last_seen_time on creation", %{tenant: tenant} do
-      device = device_fixture(tenant)
+    test "sets first_seen_time and last_seen_time on creation" do
+      device = device_fixture()
 
       assert device.first_seen_time != nil
       assert device.last_seen_time != nil
       assert DateTime.diff(DateTime.utc_now(), device.first_seen_time, :second) < 60
     end
 
-    test "supports all OCSF type IDs", %{tenant: tenant} do
+    test "supports all OCSF type IDs" do
       for type_id <- [0, 1, 2, 3, 6, 7, 9, 10, 12, 99] do
         unique = System.unique_integer([:positive])
 
         device =
-          device_fixture(tenant, %{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
+          device_fixture(%{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
 
         assert device.type_id == type_id
       end
@@ -68,7 +67,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   describe "update actions" do
     setup do
       tenant = tenant_fixture()
-      device = device_fixture(tenant)
+      device = device_fixture()
       {:ok, tenant: tenant, device: device}
     end
 
@@ -143,14 +142,14 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       tenant = tenant_fixture()
 
       device1 =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "device-available",
           ip: "192.168.1.1",
           is_available: true
         })
 
       device2 =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "device-unavailable",
           ip: "192.168.1.2",
           is_available: false
@@ -225,7 +224,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         unique = System.unique_integer([:positive])
 
         device =
-          device_fixture(tenant, %{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
+          device_fixture(%{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
 
         {:ok, [loaded]} =
           Device
@@ -242,7 +241,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       # Device with all fields
       device_full =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "uid-full",
           name: "Display Name",
           hostname: "hostname.local",
@@ -260,7 +259,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       # Device with only hostname
       device_hostname =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "uid-hostname",
           hostname: "just-hostname.local"
         })
@@ -278,12 +277,12 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   describe "tenant isolation" do
     setup do
       tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-device"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-device"})
+      _tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-device"})
 
-      device_a = device_fixture(tenant_a, %{uid: "device-a", hostname: "host-a.local"})
-      device_b = device_fixture(tenant_b, %{uid: "device-b", hostname: "host-b.local"})
+      device_a = device_fixture(%{uid: "device-a", hostname: "host-a.local"})
+      device_b = device_fixture(%{uid: "device-b", hostname: "host-b.local"})
 
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, device_a: device_a, device_b: device_b}
+      {:ok, tenant_a: tenant_a, device_a: device_a, device_b: device_b}
     end
 
     test "user cannot see devices from other tenant", %{

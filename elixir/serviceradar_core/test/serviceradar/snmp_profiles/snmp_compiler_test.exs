@@ -9,7 +9,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
@@ -97,10 +96,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile config when default profile exists", %{
-      tenant_slug: tenant_slug
+      tenant_slug: _tenant_slug
     } do
-      # Create a default profile
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
+      # Create a default profile - tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
       {:ok, profile} =
@@ -115,8 +113,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             is_default: true,
             enabled: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -130,9 +127,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile with targets and OIDs", %{
-      tenant_slug: tenant_slug
+      tenant_slug: _tenant_slug
     } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
+      # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a profile
@@ -148,8 +145,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             is_default: true,
             enabled: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -166,8 +162,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             version: :v2c,
             community: "public"
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -184,8 +179,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             scale: 1.0,
             delta: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -215,9 +209,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns SNMPv3 target with decrypted credentials", %{
-      tenant_slug: tenant_slug
+      tenant_slug: _tenant_slug
     } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
+      # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a profile
@@ -233,8 +227,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             is_default: true,
             enabled: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -256,8 +249,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             priv_protocol: :aes256,
             priv_password: "privpass456"
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -294,8 +286,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
 
     @tag :integration
-    test "returns nil when no profiles exist", %{tenant_slug: tenant_slug} do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
+    test "returns nil when no profiles exist", %{tenant_slug: _tenant_slug} do
+      # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
       result = SNMPCompiler.resolve_profile(nil, actor)
@@ -304,9 +296,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns default profile when no targeting matches", %{
-      tenant_slug: tenant_slug
+      tenant_slug: _tenant_slug
     } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
+      # Tenant schema determined by DB connection
       actor = SystemActor.system(:test)
 
       {:ok, profile} =
@@ -318,8 +310,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
             is_default: true,
             enabled: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 

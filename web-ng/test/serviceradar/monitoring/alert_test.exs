@@ -15,6 +15,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   require Ash.Query
 
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadarWebNG.Repo
 
   describe "alert creation" do
     setup do
@@ -22,7 +23,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       {:ok, tenant: tenant}
     end
 
-    test "can trigger an alert with required fields", %{tenant: tenant} do
+    test "can trigger an alert with required fields", %{tenant: _tenant} do
+      actor = system_actor()
       # Note: Create policy authorization is tested separately
       # Here we test the action functionality
       result =
@@ -34,8 +36,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             severity: :warning,
             source_type: :device
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: actor
         )
         |> Ash.create()
 
@@ -46,23 +47,23 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert alert.triggered_at != nil
     end
 
-    test "creates alert with default pending status", %{tenant: tenant} do
-      alert = alert_fixture(tenant)
+    test "creates alert with default pending status", %{tenant: _tenant} do
+      alert = alert_fixture()
 
       assert alert.status == :pending
     end
 
-    test "sets triggered_at timestamp on creation", %{tenant: tenant} do
-      alert = alert_fixture(tenant)
+    test "sets triggered_at timestamp on creation", %{tenant: _tenant} do
+      alert = alert_fixture()
 
       # Verify triggered_at is set and is recent (within last minute)
       assert alert.triggered_at != nil
       assert DateTime.diff(DateTime.utc_now(), alert.triggered_at, :second) < 60
     end
 
-    test "supports all severity levels", %{tenant: tenant} do
+    test "supports all severity levels", %{tenant: _tenant} do
       for severity <- [:info, :warning, :critical, :emergency] do
-        alert = alert_fixture(tenant, %{severity: severity})
+        alert = alert_fixture(%{severity: severity})
         assert alert.severity == severity
       end
     end
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   describe "acknowledge transition" do
     setup do
       tenant = tenant_fixture()
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
       {:ok, tenant: tenant, alert: alert}
     end
 
@@ -163,7 +164,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   describe "resolve transition" do
     setup do
       tenant = tenant_fixture()
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
       {:ok, tenant: tenant, alert: alert}
     end
 
@@ -282,7 +283,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   describe "escalate transition" do
     setup do
       tenant = tenant_fixture()
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
       {:ok, tenant: tenant, alert: alert}
     end
 
@@ -310,7 +311,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # Create an alert with existing escalation level
       actor = admin_actor(tenant)
 
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
 
       # First escalation
       {:ok, first} =
@@ -399,7 +400,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   describe "suppress transition" do
     setup do
       tenant = tenant_fixture()
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
       {:ok, tenant: tenant, alert: alert}
     end
 
@@ -444,7 +445,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   describe "reopen transition" do
     setup do
       tenant = tenant_fixture()
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
       actor = admin_actor(tenant)
 
       # Resolve the alert first
@@ -504,19 +505,19 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       tenant = tenant_fixture()
 
       # Create alerts in different states
-      pending = alert_fixture(tenant, %{title: "Pending Alert"})
+      pending = alert_fixture(%{title: "Pending Alert"})
 
       actor = admin_actor(tenant)
 
       {:ok, acknowledged} =
-        alert_fixture(tenant, %{title: "Acknowledged Alert"})
+        alert_fixture(%{title: "Acknowledged Alert"})
         |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"},
           actor: actor
         )
         |> Ash.update()
 
       {:ok, resolved} =
-        alert_fixture(tenant, %{title: "Resolved Alert"})
+        alert_fixture(%{title: "Resolved Alert"})
         |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
           actor: actor
         )
@@ -573,7 +574,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
             {:warning, "yellow"},
             {:info, "blue"}
           ] do
-        alert = alert_fixture(tenant, %{severity: severity})
+        alert = alert_fixture(%{severity: severity})
 
         {:ok, [loaded]} =
           Alert
@@ -587,7 +588,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
     test "is_actionable returns true for active states", %{tenant: tenant} do
       actor = admin_actor(tenant)
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
 
       {:ok, [pending]} =
         Alert
@@ -620,8 +621,14 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-alert"})
       tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-alert"})
 
-      alert_a = alert_fixture(tenant_a, %{title: "Alert A"})
-      alert_b = alert_fixture(tenant_b, %{title: "Alert B"})
+      alert_a = alert_fixture(%{title: "Alert A"})
+
+      # Switch to tenant_b context to create alert_b
+      Repo.put_tenant(tenant_b.slug)
+      alert_b = alert_fixture(%{title: "Alert B"})
+
+      # Switch back to tenant_a for tests
+      Repo.put_tenant(tenant_a.slug)
 
       {:ok, tenant_a: tenant_a, tenant_b: tenant_b, alert_a: alert_a, alert_b: alert_b}
     end

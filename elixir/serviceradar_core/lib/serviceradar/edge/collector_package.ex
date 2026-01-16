@@ -275,21 +275,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       end
 
       # After revoking the package, revoke the NATS credential and broadcast
-      change fn changeset, context ->
+      # Tenant isolation is handled by the DB connection's search_path
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn changeset, package ->
-          # Revoke associated NATS credential - get tenant_schema from context
+          # Revoke associated NATS credential
           if package.nats_credential_id do
-            tenant_schema = context.tenant
             actor = SystemActor.platform(:collector_package)
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
-                   tenant: tenant_schema,
                    actor: actor
                  ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
-                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
-                  tenant: tenant_schema
-                )
+                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
                 |> Ash.update(actor: actor)
 
               _ ->

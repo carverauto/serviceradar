@@ -2,27 +2,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   use ServiceRadarWebNG.DataCase, async: true
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Edge.TenantCA
 
   require Ash.Query
-
-  # Create a tenant for all tests
-  setup do
-    {:ok, tenant} =
-      Tenant
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "Test Org",
-          slug: "test-org-#{System.unique_integer([:positive])}"
-        },
-        authorize?: false
-      )
-      |> Ash.create()
-
-    %{tenant: tenant}
-  end
 
   describe "create/2" do
     test "creates a package with generated tokens", _context do
@@ -348,7 +330,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       existing_cas =
         TenantCA
         |> Ash.Query.for_read(:active)
-        |> Ash.read!(authorize?: false)
+        |> Ash.read!()
 
       assert existing_cas == []
 
@@ -370,7 +352,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
           cas_after =
             TenantCA
             |> Ash.Query.for_read(:active)
-            |> Ash.read!(authorize?: false)
+            |> Ash.read!()
 
           assert not Enum.empty?(cas_after)
           ca = List.first(cas_after)
@@ -403,7 +385,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
           cas_after_first =
             TenantCA
             |> Ash.Query.for_read(:active)
-            |> Ash.read!(authorize?: false)
+            |> Ash.read!()
 
           ca_count_first = length(cas_after_first)
 
@@ -420,7 +402,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
               cas_after_second =
                 TenantCA
                 |> Ash.Query.for_read(:active)
-                |> Ash.read!(authorize?: false)
+                |> Ash.read!()
 
               assert length(cas_after_second) == ca_count_first
 

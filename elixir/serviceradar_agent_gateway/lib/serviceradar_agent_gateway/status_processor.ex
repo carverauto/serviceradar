@@ -41,7 +41,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       - `:source` - Source type ("status" or "results")
       - `:kv_store_id` - KV store identifier
       - `:timestamp` - Unix timestamp in nanoseconds
-      - `:tenant_slug` - Tenant slug for routing (e.g., NATS subject prefixing)
 
   ## Returns
 
@@ -90,7 +89,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   # Track the agent that sent this status update
   defp track_agent(status) do
     agent_id = status[:agent_id]
-    tenant_slug = status[:tenant_slug] || "default"
 
     metadata = %{
       service_count: 1,
@@ -98,7 +96,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       source_ip: status[:source_ip]
     }
 
-    ServiceRadar.AgentTracker.track_agent(agent_id, tenant_slug, metadata)
+    # In tenant-instance architecture, tenant is implicit from deployment
+    ServiceRadar.AgentTracker.track_agent(agent_id, "default", metadata)
   rescue
     # AgentTracker may not be available (e.g., during tests)
     _ -> :ok
@@ -142,18 +141,17 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     service_name = status[:service_name]
     service_type = status[:service_type]
     source = status[:source]
-    tenant_slug = status[:tenant_slug]
     handler = handler_module(status)
 
     # Log at info level for sync results to trace the flow
     if service_type == "sync" and source == "results" do
       Logger.info(
-        "Forwarding sync results to core: tenant=#{tenant_slug} partition=#{partition} " <>
+        "Forwarding sync results to core: partition=#{partition} " <>
           "agent=#{agent_id} service=#{service_name}"
       )
     else
       Logger.debug(
-        "Forwarding status to core: tenant=#{tenant_slug} partition=#{partition} " <>
+        "Forwarding status to core: partition=#{partition} " <>
           "agent=#{agent_id} service=#{service_name}"
       )
     end
@@ -193,7 +191,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   # Forward to distributed core process via RPC
   defp forward_distributed(status, handler) do
-    tenant_slug = status[:tenant_slug] || "default"
     service_type = status[:service_type]
     source = status[:source]
     is_sync_results = service_type == "sync" and source == "results"
@@ -207,11 +204,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           GenServer.cast({handler, node}, message)
 
           if is_sync_results do
-            Logger.info(
-              "Forwarded sync results to #{inspect(handler)} on #{node} for tenant=#{tenant_slug}"
-            )
+            Logger.info("Forwarded sync results to #{inspect(handler)} on #{node}")
           else
-            Logger.debug("Forwarded status to #{inspect(handler)} on #{node} for tenant=#{tenant_slug}")
+            Logger.debug("Forwarded status to #{inspect(handler)} on #{node}")
           end
 
           :ok
@@ -285,7 +280,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           service_name: status[:service_name],
           agent_id: status[:agent_id],
           gateway_id: status[:gateway_id],
-          tenant_slug: status[:tenant_slug],
           partition: status[:partition]
         }
       )

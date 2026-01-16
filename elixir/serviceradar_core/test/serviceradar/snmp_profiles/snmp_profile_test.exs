@@ -119,8 +119,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Test Profile"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -155,8 +154,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
             target_query: "in:devices tags.role:network",
             priority: 50
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -181,8 +179,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Duplicate Name"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -191,8 +188,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Duplicate Name"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
     end
@@ -210,8 +206,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Profile 1", is_default: true},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -221,21 +216,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Profile 2"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
       # Set profile2 as default
       {:ok, updated_profile2} =
         profile2
-        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor, tenant: schema)
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
         |> Ash.update(actor: actor)
 
       assert updated_profile2.is_default == true
 
       # Reload profile1 and check it's no longer default
-      {:ok, reloaded_profile1} = Ash.get(SNMPProfile, profile1.id, actor: actor, tenant: schema)
+      {:ok, reloaded_profile1} = Ash.get(SNMPProfile, profile1.id, actor: actor)
       assert reloaded_profile1.is_default == false
     end
   end

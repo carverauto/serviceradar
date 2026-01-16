@@ -18,12 +18,12 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/devices" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant, %{hostname: "test-host"})
+      _device = tenant_device_fixture(tenant, %{hostname: "test-host"})
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
-    test "returns a list of devices", %{conn: conn, device: _device} do
+    test "returns a list of devices", %{conn: conn} do
       conn = get(conn, ~p"/api/v2/devices")
       response = json_response(conn, 200)
 
@@ -47,9 +47,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/devices/:uid" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant, %{uid: "unique-device-uid"})
+      _device = tenant_device_fixture(tenant, %{uid: "unique-device-uid"})
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
     test "returns error for non-existent device", %{conn: conn} do
@@ -63,9 +63,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/gateways" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
+      _gateway = tenant_gateway_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, gateway: gateway}
+      %{conn: conn}
     end
 
     test "returns a list of gateways", %{conn: conn} do
@@ -90,9 +90,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/gateways/:id" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
+      _gateway = tenant_gateway_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, gateway: gateway}
+      %{conn: conn}
     end
 
     test "returns error for non-existent gateway", %{conn: conn} do
@@ -106,9 +106,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/agents" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      agent = tenant_agent_fixture(tenant)
+      _agent = tenant_agent_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, agent: agent}
+      %{conn: conn}
     end
 
     test "returns a list of agents", %{conn: conn} do
@@ -133,9 +133,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/agents/:uid" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      agent = tenant_agent_fixture(tenant, %{uid: "unique-agent-uid"})
+      _agent = tenant_agent_fixture(tenant, %{uid: "unique-agent-uid"})
 
-      %{conn: conn, tenant: tenant, agent: agent}
+      %{conn: conn}
     end
 
     test "returns error for non-existent agent", %{conn: conn} do
@@ -150,9 +150,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     setup %{conn: conn} do
       tenant = tenant_fixture()
       gateway = tenant_gateway_fixture(tenant)
-      agent = tenant_agent_fixture(tenant, %{gateway_id: gateway.id})
+      _agent = tenant_agent_fixture(tenant, %{gateway_id: gateway.id})
 
-      %{conn: conn, tenant: tenant, gateway: gateway, agent: agent}
+      %{conn: conn, gateway: gateway}
     end
 
     test "returns agents for a gateway", %{conn: conn, gateway: gateway} do
@@ -174,9 +174,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/service-checks" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      check = tenant_service_check_fixture(tenant)
+      _check = tenant_service_check_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns a list of service checks", %{conn: conn} do
@@ -202,9 +202,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
     setup %{conn: conn} do
       tenant = tenant_fixture()
       # All checks default to enabled, so just create one
-      check = tenant_service_check_fixture(tenant)
+      _check = tenant_service_check_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns enabled service checks", %{conn: conn} do
@@ -219,9 +219,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/service-checks/failing" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      check = tenant_service_check_fixture(tenant)
+      _check = tenant_service_check_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns failing service checks", %{conn: conn} do
@@ -284,9 +284,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/alerts" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns a list of alerts", %{conn: conn} do
@@ -311,9 +311,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/alerts/active" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns active alerts", %{conn: conn} do
@@ -328,9 +328,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/alerts/pending" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns pending alerts", %{conn: conn} do
@@ -392,9 +392,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "PATCH /api/v2/alerts/:id/acknowledge" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns error for non-existent alert", %{conn: conn} do
@@ -413,9 +413,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "PATCH /api/v2/alerts/:id/resolve" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns error for non-existent alert", %{conn: conn} do
@@ -453,9 +453,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "JSON:API response format" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant)
+      _device = tenant_device_fixture(tenant)
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
     test "includes proper JSON:API structure", %{conn: conn} do

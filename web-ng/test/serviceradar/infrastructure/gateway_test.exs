@@ -24,7 +24,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       {:ok, tenant: tenant}
     end
 
-    test "can register a gateway with required fields", %{tenant: tenant} do
+    test "can register a gateway with required fields", %{tenant: _tenant} do
       result =
         Gateway
         |> Ash.Changeset.for_create(
@@ -34,8 +34,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
             component_id: "component-001",
             registration_source: "manual"
           },
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -47,8 +46,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert gateway.is_healthy == true
     end
 
-    test "sets timestamps on registration", %{tenant: tenant} do
-      gateway = gateway_fixture(tenant)
+    test "sets timestamps on registration", %{tenant: _tenant} do
+      gateway = gateway_fixture()
 
       assert gateway.first_registered != nil
       assert gateway.first_seen != nil
@@ -56,8 +55,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert DateTime.diff(DateTime.utc_now(), gateway.first_registered, :second) < 60
     end
 
-    test "gateway starts with default values", %{tenant: tenant} do
-      gateway = gateway_fixture(tenant)
+    test "gateway starts with default values", %{tenant: _tenant} do
+      gateway = gateway_fixture()
 
       assert gateway.is_healthy == true
       assert gateway.agent_count == 0
@@ -68,7 +67,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   describe "update actions" do
     setup do
       tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
       {:ok, tenant: tenant, gateway: gateway}
     end
 
@@ -133,7 +132,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   describe "status management" do
     setup do
       tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
       {:ok, tenant: tenant, gateway: gateway}
     end
 
@@ -180,14 +179,13 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       tenant = tenant_fixture()
 
       # Active and healthy gateway
-      gateway_active = gateway_fixture(tenant, %{id: "gateway-active"})
+      gateway_active = gateway_fixture(%{id: "gateway-active"})
 
       # Create a degraded gateway
       {:ok, gateway_degraded} =
-        gateway_fixture(tenant, %{id: "gateway-degraded"})
+        gateway_fixture(%{id: "gateway-degraded"})
         |> Ash.Changeset.for_update(:mark_unhealthy, %{},
-          actor: system_actor(),
-          authorize?: false
+          actor: system_actor()
         )
         |> Ash.update()
 
@@ -242,7 +240,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       actor = viewer_actor(tenant)
 
       # Active healthy gateway - should be green
-      active = gateway_fixture(tenant, %{id: "gateway-green"})
+      active = gateway_fixture(%{id: "gateway-green"})
 
       {:ok, [loaded]} =
         Gateway
@@ -258,7 +256,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       # With component_id
       with_component =
-        gateway_fixture(tenant, %{
+        gateway_fixture(%{
           id: "gateway-with-component",
           component_id: "Component Display Name"
         })
@@ -273,7 +271,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       # Without component_id
       without_component =
-        gateway_fixture(tenant, %{
+        gateway_fixture(%{
           id: "gateway-no-component",
           component_id: nil
         })
@@ -293,8 +291,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-gateway"})
       tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-gateway"})
 
-      gateway_a = gateway_fixture(tenant_a, %{id: "gateway-a"})
-      gateway_b = gateway_fixture(tenant_b, %{id: "gateway-b"})
+      gateway_a = gateway_fixture(%{id: "gateway-a"})
+      gateway_b = gateway_fixture(%{id: "gateway-b"})
 
       {:ok, tenant_a: tenant_a, tenant_b: tenant_b, gateway_a: gateway_a, gateway_b: gateway_b}
     end
@@ -348,12 +346,12 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   describe "partition isolation" do
     setup do
       tenant = tenant_fixture()
-      partition_a = partition_fixture(tenant, %{slug: "partition-a-test"})
-      partition_b = partition_fixture(tenant, %{slug: "partition-b-test"})
+      partition_a = partition_fixture(%{slug: "partition-a-test"})
+      partition_b = partition_fixture(%{slug: "partition-b-test"})
 
       # Create gateways with partition assignments
-      gateway_a = gateway_fixture(tenant, %{id: "gateway-part-a"})
-      gateway_b = gateway_fixture(tenant, %{id: "gateway-part-b"})
+      gateway_a = gateway_fixture(%{id: "gateway-part-a"})
+      gateway_b = gateway_fixture(%{id: "gateway-part-b"})
 
       # Note: Partition assignment would need to be done through update or fixture
       # For now, we test with partition_id filter in actor context

@@ -7,8 +7,13 @@ defmodule ServiceRadarGateway.RegistrationTest do
   - Registration metadata is correct
   - Status updates are reflected in the registry
   - Heartbeat mechanism works
+
+  Note: These tests require ProcessRegistry (Horde) to be running.
+  They are tagged as :integration and excluded by default.
   """
   use ExUnit.Case, async: false
+
+  @moduletag :integration
 
   alias ServiceRadar.Gateway.RegistrationWorker
   alias ServiceRadar.GatewayRegistry

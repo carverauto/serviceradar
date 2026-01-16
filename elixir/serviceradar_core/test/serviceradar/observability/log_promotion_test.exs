@@ -5,7 +5,6 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Observability.{LogPromotion, LogPromotionRule}
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -22,11 +21,10 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       TestSupport.drop_tenant_schema!(tenant.tenant_slug)
     end)
 
-    schema = TenantSchemas.schema_for_tenant(tenant.tenant_slug)
-    {:ok, schema: schema}
+    {:ok, _tenant: tenant}
   end
 
-  test "promotes log to event and creates alert", %{schema: schema} do
+  test "promotes log to event and creates alert", %{_tenant: _tenant} do
     actor = %{id: "system", role: :admin}
 
     {:ok, _rule} =
@@ -38,8 +36,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
           match: %{"subject_prefix" => "logs.syslog", "severity_text" => "ERROR"},
           event: %{"log_name" => "syslog.promoted"}
         },
-        actor: actor,
-        tenant: schema
+        actor: actor
       )
       |> Ash.create()
 
@@ -55,19 +52,19 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, 1} = LogPromotion.promote([log], schema)
+    assert {:ok, 1} = LogPromotion.promote([log])
 
     assert %Result{rows: [[1]]} =
              SQL.query!(
                Repo,
-               "SELECT COUNT(*) FROM #{schema}.ocsf_events WHERE log_name = $1",
+               "SELECT COUNT(*) FROM ocsf_events WHERE log_name = $1",
                ["syslog.promoted"]
              )
 
     assert %Result{rows: [[alert_count]]} =
              SQL.query!(
                Repo,
-               "SELECT COUNT(*) FROM #{schema}.alerts WHERE event_id IS NOT NULL",
+               "SELECT COUNT(*) FROM alerts WHERE event_id IS NOT NULL",
                []
              )
 

@@ -86,15 +86,16 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   The tenant schema is determined by the DB connection's search_path in tenant-unaware mode.
   """
   @spec seed!(String.t(), map()) :: {:ok, integer()} | {:error, term()}
-  def seed!(tenant_schema, actor) do
+  def seed!(_tenant_schema, actor) do
     templates = all()
 
+    # Tenant isolation is handled by the DB connection's search_path
     results =
       Enum.map(templates, fn template ->
         attrs = Map.put(template, :is_builtin, true)
 
         SNMPOIDTemplate
-        |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_schema)
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
         |> Ash.create(actor: actor)
         |> classify_seed_result()
       end)
