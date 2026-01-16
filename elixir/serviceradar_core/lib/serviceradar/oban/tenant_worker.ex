@@ -1,11 +1,9 @@
 defmodule ServiceRadar.Oban.TenantWorker do
   @moduledoc """
-  Behaviour for tenant-aware Oban workers.
+  Behaviour for ServiceRadar Oban workers.
 
-  Extends Oban.Worker with tenant isolation:
-  - Jobs are automatically routed to tenant-specific queues
-  - Worker receives tenant context in perform/2
-  - Tenant validation before job execution
+  Extends Oban.Worker with convenience functions for job enqueueing
+  and consistent error handling patterns.
 
   ## Usage
 
@@ -15,9 +13,8 @@ defmodule ServiceRadar.Oban.TenantWorker do
           max_attempts: 5
 
         @impl true
-        def perform_for_tenant(args, tenant_id, job) do
+        def perform_job(args, job) do
           # Your job logic here
-          # tenant_id is guaranteed to be valid
           :ok
         end
       end
@@ -25,10 +22,10 @@ defmodule ServiceRadar.Oban.TenantWorker do
   ## Enqueueing Jobs
 
       # Use the worker's enqueue function
-      SyncWorker.enqueue(tenant_id, %{source_id: "123"})
+      SyncWorker.enqueue(%{source_id: "123"})
 
       # Or use TenantQueues directly
-      TenantQueues.insert_job(tenant_id, SyncWorker, %{source_id: "123"})
+      TenantQueues.insert_job(SyncWorker, %{source_id: "123"})
 
   ## Options
 
@@ -39,32 +36,31 @@ defmodule ServiceRadar.Oban.TenantWorker do
 
   ## Callbacks
 
-    - `perform_for_tenant/3` - Required. Called with (args, tenant_id, job)
-    - `on_success/3` - Optional. Called after successful execution
-    - `on_failure/4` - Optional. Called after failed execution
+    - `perform_job/2` - Required. Called with (args, job)
+    - `on_success/2` - Optional. Called after successful execution
+    - `on_failure/3` - Optional. Called after failed execution
   """
 
   @doc """
-  Callback for tenant-aware job execution.
+  Callback for job execution.
 
-  Receives the job args, tenant_id, and full Oban.Job struct.
+  Receives the job args and full Oban.Job struct.
   Must return `:ok`, `{:ok, result}`, or `{:error, reason}`.
   """
-  @callback perform_for_tenant(args :: map(), tenant_id :: String.t(), job :: Oban.Job.t()) ::
+  @callback perform_job(args :: map(), job :: Oban.Job.t()) ::
               :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
 
   @doc """
   Optional callback after successful job execution.
   """
-  @callback on_success(args :: map(), tenant_id :: String.t(), result :: term()) :: :ok
+  @callback on_success(args :: map(), result :: term()) :: :ok
 
   @doc """
   Optional callback after failed job execution.
   """
-  @callback on_failure(args :: map(), tenant_id :: String.t(), error :: term(), job :: Oban.Job.t()) ::
-              :ok
+  @callback on_failure(args :: map(), error :: term(), job :: Oban.Job.t()) :: :ok
 
-  @optional_callbacks [on_success: 3, on_failure: 4]
+  @optional_callbacks [on_success: 2, on_failure: 3]
 
   defmacro __using__(opts) do
     queue_type = Keyword.get(opts, :queue_type, :default)
@@ -87,9 +83,7 @@ defmodule ServiceRadar.Oban.TenantWorker do
       @queue_type unquote(queue_type)
 
       @doc """
-      Enqueues a job for a specific tenant.
-
-      The job will be routed to the tenant's queue automatically.
+      Enqueues a job.
 
       ## Options
 
@@ -98,28 +92,28 @@ defmodule ServiceRadar.Oban.TenantWorker do
         - `:unique` - Override unique settings
         - `:meta` - Additional job metadata
       """
-      @spec enqueue(String.t(), map(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
-      def enqueue(tenant_id, args, opts \\ []) when is_binary(tenant_id) do
-        TenantQueues.insert_job(tenant_id, __MODULE__, args, Keyword.put(opts, :queue, @queue_type))
+      @spec enqueue(map(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+      def enqueue(args, opts \\ []) do
+        TenantQueues.insert_job(__MODULE__, args, Keyword.put(opts, :queue, @queue_type))
       end
 
       @doc """
       Enqueues a job to run at a specific time.
       """
-      @spec enqueue_at(String.t(), map(), DateTime.t(), keyword()) ::
+      @spec enqueue_at(map(), DateTime.t(), keyword()) ::
               {:ok, Oban.Job.t()} | {:error, term()}
-      def enqueue_at(tenant_id, args, %DateTime{} = scheduled_at, opts \\ []) do
-        enqueue(tenant_id, args, Keyword.put(opts, :scheduled_at, scheduled_at))
+      def enqueue_at(args, %DateTime{} = scheduled_at, opts \\ []) do
+        enqueue(args, Keyword.put(opts, :scheduled_at, scheduled_at))
       end
 
       @doc """
       Enqueues a job to run after a delay.
       """
-      @spec enqueue_in(String.t(), map(), pos_integer(), keyword()) ::
+      @spec enqueue_in(map(), pos_integer(), keyword()) ::
               {:ok, Oban.Job.t()} | {:error, term()}
-      def enqueue_in(tenant_id, args, delay_seconds, opts \\ []) when is_integer(delay_seconds) do
+      def enqueue_in(args, delay_seconds, opts \\ []) when is_integer(delay_seconds) do
         scheduled_at = DateTime.add(DateTime.utc_now(), delay_seconds, :second)
-        enqueue(tenant_id, args, Keyword.put(opts, :scheduled_at, scheduled_at))
+        enqueue(args, Keyword.put(opts, :scheduled_at, scheduled_at))
       end
 
       @doc """
@@ -130,60 +124,40 @@ defmodule ServiceRadar.Oban.TenantWorker do
 
       # Oban.Worker implementation
       @impl Oban.Worker
-      def perform(%Oban.Job{args: args, meta: meta} = job) do
-        tenant_id = extract_tenant_id(args, meta)
-
-        case tenant_id do
-          nil ->
-            Logger.error("#{__MODULE__}: Job missing tenant_id, args: #{inspect(args)}")
-            {:error, :missing_tenant_id}
-
-          tenant_id ->
-            execute_with_tenant(args, tenant_id, job)
-        end
+      def perform(%Oban.Job{args: args} = job) do
+        execute_job(args, job)
       end
 
-      defp extract_tenant_id(args, meta) do
-        # Try meta first (added by TenantQueues), then args
-        case meta do
-          %{"tenant_id" => tenant_id} when is_binary(tenant_id) -> tenant_id
-          %{tenant_id: tenant_id} when is_binary(tenant_id) -> tenant_id
-          _ -> Map.get(args, "tenant_id") || Map.get(args, :tenant_id)
-        end
-      end
-
-      defp execute_with_tenant(args, tenant_id, job) do
-        perform_for_tenant(args, tenant_id, job)
-        |> handle_perform_result(args, tenant_id, job)
+      defp execute_job(args, job) do
+        perform_job(args, job)
+        |> handle_perform_result(args, job)
       rescue
         e ->
-          Logger.error(
-            "#{__MODULE__}: Exception for tenant #{tenant_id}: #{Exception.message(e)}"
-          )
+          Logger.error("#{__MODULE__}: Exception: #{Exception.message(e)}")
 
-          if function_exported?(__MODULE__, :on_failure, 4) do
-            __MODULE__.on_failure(args, tenant_id, e, job)
+          if function_exported?(__MODULE__, :on_failure, 3) do
+            __MODULE__.on_failure(args, e, job)
           end
 
           reraise e, __STACKTRACE__
       end
 
-      defp handle_perform_result(result, args, tenant_id, job) do
+      defp handle_perform_result(result, args, job) do
         case result do
           :ok ->
-            maybe_on_success(args, tenant_id, :ok)
+            maybe_on_success(args, :ok)
             :ok
 
           {:ok, payload} ->
-            maybe_on_success(args, tenant_id, payload)
+            maybe_on_success(args, payload)
             {:ok, payload}
 
           {:error, _reason} = error ->
-            maybe_on_failure(args, tenant_id, error, job)
+            maybe_on_failure(args, error, job)
             error
 
           {:cancel, reason} ->
-            Logger.info("#{__MODULE__}: Job cancelled for tenant #{tenant_id}: #{inspect(reason)}")
+            Logger.info("#{__MODULE__}: Job cancelled: #{inspect(reason)}")
             {:cancel, reason}
 
           {:snooze, seconds} ->
@@ -195,26 +169,26 @@ defmodule ServiceRadar.Oban.TenantWorker do
         end
       end
 
-      defp maybe_on_success(args, tenant_id, result) do
-        if function_exported?(__MODULE__, :on_success, 3) do
-          __MODULE__.on_success(args, tenant_id, result)
+      defp maybe_on_success(args, result) do
+        if function_exported?(__MODULE__, :on_success, 2) do
+          __MODULE__.on_success(args, result)
         end
       end
 
-      defp maybe_on_failure(args, tenant_id, error, job) do
-        if function_exported?(__MODULE__, :on_failure, 4) do
-          __MODULE__.on_failure(args, tenant_id, error, job)
+      defp maybe_on_failure(args, error, job) do
+        if function_exported?(__MODULE__, :on_failure, 3) do
+          __MODULE__.on_failure(args, error, job)
         end
       end
 
       # Allow workers to override these defaults
       @impl ServiceRadar.Oban.TenantWorker
-      def on_success(_args, _tenant_id, _result), do: :ok
+      def on_success(_args, _result), do: :ok
 
       @impl ServiceRadar.Oban.TenantWorker
-      def on_failure(_args, _tenant_id, _error, _job), do: :ok
+      def on_failure(_args, _error, _job), do: :ok
 
-      defoverridable enqueue: 3, queue_type: 0, on_success: 3, on_failure: 4
+      defoverridable enqueue: 2, queue_type: 0, on_success: 2, on_failure: 3
     end
   end
 end

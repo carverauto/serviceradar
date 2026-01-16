@@ -1,33 +1,9 @@
 defmodule ServiceRadar.Oban.TenantQueues do
   @moduledoc """
-  Per-tenant Oban queue management for multi-tenant job isolation.
-
-  Provides complete tenant isolation for background jobs by:
-  - Creating dedicated queues per tenant
-  - Routing jobs to tenant-specific queues
-  - Tracking queue state per tenant
-  - Supporting dynamic queue provisioning
-
-  ## Queue Naming Convention
-
-  Each tenant runs in its own Oban instance (scoped to a tenant schema),
-  so queue names can remain stable and do not need hashing.
-
-  ## Usage
-
-      # Provision queues for a new tenant
-      TenantQueues.provision_tenant(tenant_id)
-
-      # Insert a job for a tenant
-      TenantQueues.insert_job(tenant_id, MyWorker, %{data: "value"}, queue: :service_checks)
-
-      # Get queue name for a tenant
-      queue = TenantQueues.get_queue_name(tenant_id, :default)
-      # => :default
+  Oban queue management for background job processing.
 
   ## Queue Types
 
-  Each tenant gets these queues by default:
   - `:default` - General purpose jobs
   - `:service_checks` - Service check polling jobs
   - `:alerts` - Alert processing jobs
@@ -36,19 +12,19 @@ defmodule ServiceRadar.Oban.TenantQueues do
   - `:events` - Event processing jobs
   - `:integrations` - Integration sync jobs
 
-  ## Architecture
+  ## Usage
 
-  Queue state is tracked in an ETS table for fast lookups.
-  Queue provisioning is idempotent - safe to call multiple times.
+      # Insert a job
+      TenantQueues.insert_job(MyWorker, %{data: "value"}, queue: :service_checks)
+
+      # Get queue name
+      queue = TenantQueues.get_queue_name(:default)
+      # => :default
   """
 
   use GenServer
 
   require Logger
-
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Oban.TenantOban
 
   @ets_table :serviceradar_tenant_queues
   @queue_types [
@@ -61,7 +37,9 @@ defmodule ServiceRadar.Oban.TenantQueues do
     :sweeps,
     :edge,
     :integrations,
-    :nats_accounts
+    :nats_accounts,
+    :monitoring,
+    :maintenance
   ]
   @default_concurrency %{
     default: 10,
@@ -73,7 +51,9 @@ defmodule ServiceRadar.Oban.TenantQueues do
     sweeps: 20,
     edge: 10,
     integrations: 5,
-    nats_accounts: 3
+    nats_accounts: 3,
+    monitoring: 5,
+    maintenance: 3
   }
 
   # ===========================================================================
@@ -100,71 +80,31 @@ defmodule ServiceRadar.Oban.TenantQueues do
   end
 
   @doc """
-  Provisions queues for a tenant.
-
-  Creates all standard queues for the tenant and starts them in Oban.
-  Safe to call multiple times (idempotent).
-
-  ## Options
-
-    - `:queue_types` - List of queue types to create (default: all)
-    - `:concurrency` - Map of queue_type => concurrency (default: standard values)
-
-  ## Examples
-
-      TenantQueues.provision_tenant("tenant-uuid")
-      TenantQueues.provision_tenant("tenant-uuid", queue_types: [:default, :service_checks])
+  Gets the Oban queue name for a queue type.
   """
-  @spec provision_tenant(String.t(), keyword()) :: :ok | {:error, term()}
-  def provision_tenant(tenant_id, opts \\ []) when is_binary(tenant_id) do
-    GenServer.call(__MODULE__, {:provision_tenant, tenant_id, opts})
-  end
-
-  @doc """
-  Deprovisions queues for a tenant.
-
-  Pauses and removes tenant's queues from Oban.
-  Existing jobs will complete but no new jobs will be processed.
-  """
-  @spec deprovision_tenant(String.t()) :: :ok
-  def deprovision_tenant(tenant_id) when is_binary(tenant_id) do
-    GenServer.call(__MODULE__, {:deprovision_tenant, tenant_id})
-  end
-
-  @doc """
-  Gets the Oban queue name for a tenant and queue type.
-
-  Returns a stable queue name atom.
-  """
-  @spec get_queue_name(String.t(), atom()) :: atom()
-  def get_queue_name(tenant_id, queue_type) when is_binary(tenant_id) and is_atom(queue_type) do
+  @spec get_queue_name(atom()) :: atom()
+  def get_queue_name(queue_type) when is_atom(queue_type) do
     queue_type
   end
 
   @doc """
-  Gets all queue names for a tenant.
+  Gets all queue names.
   """
-  @spec get_all_queue_names(String.t()) :: [atom()]
-  def get_all_queue_names(tenant_id) when is_binary(tenant_id) do
-    Enum.map(@queue_types, &get_queue_name(tenant_id, &1))
+  @spec get_all_queue_names() :: [atom()]
+  def get_all_queue_names do
+    @queue_types
   end
 
   @doc """
-  Checks if a tenant has been provisioned.
+  Checks if Oban is running.
   """
-  @spec tenant_provisioned?(String.t()) :: boolean()
-  def tenant_provisioned?(tenant_id) when is_binary(tenant_id) do
-    case :ets.lookup(@ets_table, {:tenant, tenant_id}) do
-      [{_, :provisioned}] -> true
-      _ -> false
-    end
+  @spec ready?() :: boolean()
+  def ready? do
+    Process.whereis(Oban) != nil
   end
 
   @doc """
-  Inserts a job for a specific tenant.
-
-  Routes the job to the tenant's queue based on the queue type.
-  Adds tenant_id to job meta for tracking.
+  Inserts a job.
 
   ## Options
 
@@ -173,103 +113,68 @@ defmodule ServiceRadar.Oban.TenantQueues do
 
   ## Examples
 
-      TenantQueues.insert_job(tenant_id, MyWorker, %{data: "value"})
-      TenantQueues.insert_job(tenant_id, MyWorker, %{}, queue: :service_checks, priority: 1)
+      TenantQueues.insert_job(MyWorker, %{data: "value"})
+      TenantQueues.insert_job(MyWorker, %{data: "value"}, queue: :service_checks)
   """
-  @spec insert_job(String.t(), module(), map(), keyword()) ::
-          {:ok, Oban.Job.t()} | {:error, term()}
-  def insert_job(tenant_id, worker, args, opts \\ []) when is_binary(tenant_id) do
+  @spec insert_job(module(), map(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def insert_job(worker, args, opts \\ []) when is_atom(worker) do
     queue_type = Keyword.get(opts, :queue, :default)
-    queue_name = get_queue_name(tenant_id, queue_type)
-
-    # Add tenant_id to job meta
-    meta = Map.merge(Keyword.get(opts, :meta, %{}), %{tenant_id: tenant_id})
+    queue_name = get_queue_name(queue_type)
 
     job_opts =
       opts
-      |> Keyword.drop([:queue, :meta])
+      |> Keyword.drop([:queue])
       |> Keyword.put(:queue, queue_name)
-      |> Keyword.put(:meta, meta)
 
-    with_tenant_oban(tenant_id, fn oban_name ->
-      Oban.insert(oban_name, worker.new(args, job_opts))
-    end)
+    Oban.insert(worker.new(args, job_opts))
   end
 
   @doc """
-  Inserts multiple jobs for a tenant as a batch.
+  Inserts multiple jobs as a batch.
   """
-  @spec insert_all_jobs(String.t(), [{module(), map(), keyword()}]) ::
-          {:ok, [Oban.Job.t()]} | {:error, term()}
-  def insert_all_jobs(tenant_id, jobs) when is_binary(tenant_id) and is_list(jobs) do
+  @spec insert_all_jobs([{module(), map(), keyword()}]) :: {:ok, [Oban.Job.t()]} | {:error, term()}
+  def insert_all_jobs(jobs) when is_list(jobs) do
     changesets =
       Enum.map(jobs, fn {worker, args, opts} ->
         queue_type = Keyword.get(opts, :queue, :default)
-        queue_name = get_queue_name(tenant_id, queue_type)
-        meta = Map.merge(Keyword.get(opts, :meta, %{}), %{tenant_id: tenant_id})
+        queue_name = get_queue_name(queue_type)
 
         job_opts =
           opts
-          |> Keyword.drop([:queue, :meta])
+          |> Keyword.drop([:queue])
           |> Keyword.put(:queue, queue_name)
-          |> Keyword.put(:meta, meta)
 
         worker.new(args, job_opts)
       end)
 
-    with_tenant_oban(tenant_id, fn oban_name ->
-      Oban.insert_all(oban_name, changesets)
-    end)
+    Oban.insert_all(changesets)
   end
 
   @doc """
-  Lists all provisioned tenants.
+  Gets queue statistics.
   """
-  @spec list_provisioned_tenants() :: [String.t()]
-  def list_provisioned_tenants do
-    :ets.match(@ets_table, {{:tenant, :"$1"}, :provisioned})
-    |> Enum.map(fn [tenant_id] -> tenant_id end)
-  end
-
-  @doc """
-  Gets queue statistics for a tenant.
-  """
-  @spec get_tenant_stats(String.t()) :: map()
-  def get_tenant_stats(tenant_id) when is_binary(tenant_id) do
-    queue_names = get_all_queue_names(tenant_id)
-
-    case fetch_queue_stats(tenant_id, queue_names) do
-      {:ok, stats} ->
-        %{
-          tenant_id: tenant_id,
-          provisioned: tenant_provisioned?(tenant_id),
-          queues: stats,
-          collected_at: DateTime.utc_now()
-        }
-
-      {:error, _reason} ->
-        empty_tenant_stats(tenant_id)
-    end
-  end
-
-  defp fetch_queue_stats(tenant_id, queue_names) do
-    with_tenant_oban(tenant_id, fn oban_name ->
-      queue_names
-      |> Enum.map(&queue_stats(oban_name, &1))
+  @spec get_stats() :: map()
+  def get_stats do
+    queue_stats =
+      @queue_types
+      |> Enum.map(fn queue_type ->
+        counts = queue_counts(queue_type)
+        {Atom.to_string(queue_type), counts}
+      end)
       |> Map.new()
-    end)
+
+    %{
+      ready: ready?(),
+      queues: queue_stats,
+      collected_at: DateTime.utc_now()
+    }
   end
 
-  defp queue_stats(oban_name, queue) do
-    queue_str = Atom.to_string(queue)
-    counts = queue_counts(oban_name, queue)
-    {queue_str, counts}
-  end
-
-  defp queue_counts(oban_name, queue) do
-    oban_name
-    |> Oban.check_queue(queue: queue)
+  defp queue_counts(queue) do
+    Oban.check_queue(queue: queue)
     |> normalize_queue_counts()
+  rescue
+    _ -> %{paused: false, running: 0, available: 0}
   end
 
   defp normalize_queue_counts(%{paused: paused, running: running, available: available}) do
@@ -278,50 +183,30 @@ defmodule ServiceRadar.Oban.TenantQueues do
 
   defp normalize_queue_counts(_), do: %{paused: false, running: 0, available: 0}
 
-  defp empty_tenant_stats(tenant_id) do
-    %{
-      tenant_id: tenant_id,
-      provisioned: false,
-      queues: %{},
-      collected_at: DateTime.utc_now()
-    }
-  end
-
   @doc """
-  Pauses all queues for a tenant.
+  Pauses all queues.
   """
-  @spec pause_tenant(String.t()) :: :ok
-  def pause_tenant(tenant_id) when is_binary(tenant_id) do
-    with_tenant_oban(tenant_id, fn oban_name ->
-      get_all_queue_names(tenant_id)
-      |> Enum.each(&Oban.pause_queue(oban_name, queue: &1))
-    end)
-
+  @spec pause_all() :: :ok
+  def pause_all do
+    Enum.each(@queue_types, &Oban.pause_queue(queue: &1))
     :ok
   end
 
   @doc """
-  Resumes all queues for a tenant.
+  Resumes all queues.
   """
-  @spec resume_tenant(String.t()) :: :ok
-  def resume_tenant(tenant_id) when is_binary(tenant_id) do
-    with_tenant_oban(tenant_id, fn oban_name ->
-      get_all_queue_names(tenant_id)
-      |> Enum.each(&Oban.resume_queue(oban_name, queue: &1))
-    end)
-
+  @spec resume_all() :: :ok
+  def resume_all do
+    Enum.each(@queue_types, &Oban.resume_queue(queue: &1))
     :ok
   end
 
   @doc """
-  Scales queue concurrency for a tenant.
+  Scales queue concurrency.
   """
-  @spec scale_tenant_queue(String.t(), atom(), pos_integer()) :: :ok
-  def scale_tenant_queue(tenant_id, queue_type, limit) do
-    queue_name = get_queue_name(tenant_id, queue_type)
-    with_tenant_oban(tenant_id, fn oban_name ->
-      Oban.scale_queue(oban_name, queue: queue_name, limit: limit)
-    end)
+  @spec scale_queue(atom(), pos_integer()) :: :ok
+  def scale_queue(queue_type, limit) do
+    Oban.scale_queue(queue: queue_type, limit: limit)
     :ok
   end
 
@@ -343,154 +228,20 @@ defmodule ServiceRadar.Oban.TenantQueues do
 
   @impl true
   def init(_opts) do
-    # Create ETS table for tracking provisioned tenants
+    # Create ETS table for tracking
     :ets.new(@ets_table, [:set, :public, :named_table, read_concurrency: true])
 
-    # Provision queues for existing tenants
-    provision_existing_tenants()
+    Logger.info("TenantQueues started")
 
     {:ok, %{}}
   end
 
   @impl true
-  def handle_call({:provision_tenant, tenant_id, opts}, _from, state) do
-    result = do_provision_tenant(tenant_id, opts)
-    {:reply, result, state}
-  end
-
-  @impl true
-  def handle_call({:deprovision_tenant, tenant_id}, _from, state) do
-    result = do_deprovision_tenant(tenant_id)
-    {:reply, result, state}
-  end
-
-  @impl true
   def handle_info({ref, _result}, state) when is_reference(ref) do
-    # Ignore stray Task messages from async decrypt/transform work in Ash reads.
     {:noreply, state}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) when is_reference(ref) do
     {:noreply, state}
-  end
-
-  # ===========================================================================
-  # Private Functions
-  # ===========================================================================
-
-  defp provision_existing_tenants do
-    # Platform actor since we need to read all tenants
-    actor = SystemActor.platform(:tenant_queues)
-
-    # Query all tenants from the database and provision their queues
-    case Ash.read(ServiceRadar.Identity.Tenant, actor: actor) do
-      {:ok, tenants} ->
-        Enum.each(tenants, fn tenant ->
-          do_provision_tenant(tenant.id, tenant_slug: tenant.slug)
-        end)
-
-        Logger.info("Provisioned Oban queues for #{length(tenants)} existing tenants")
-
-      {:error, reason} ->
-        Logger.warning("Failed to load tenants for queue provisioning: #{inspect(reason)}")
-    end
-  rescue
-    # Database might not be available during startup
-    e ->
-      Logger.debug("Skipping tenant queue provisioning: #{inspect(e)}")
-  end
-
-  defp do_provision_tenant(tenant_id, opts) do
-    queue_types = Keyword.get(opts, :queue_types, @queue_types)
-    concurrency = Keyword.get(opts, :concurrency, @default_concurrency)
-    schema = tenant_schema_for(tenant_id, opts)
-
-    with {:ok, oban_name} <- ensure_tenant_oban(schema) do
-      # Create queue configurations
-      queues =
-        Enum.map(queue_types, fn type ->
-          queue_name = get_queue_name(tenant_id, type)
-          limit = Map.get(concurrency, type, 10)
-          {queue_name, limit}
-        end)
-
-      # Start each queue in Oban
-      Enum.each(queues, fn {queue_name, limit} ->
-        # Use Oban's scale_queue to start/configure the queue
-        # This is idempotent - works for both new and existing queues
-        try do
-          Oban.scale_queue(oban_name, queue: queue_name, limit: limit)
-        rescue
-          # Queue might not exist yet, which is fine for Oban 2.18+
-          _ -> :ok
-        end
-      end)
-
-      # Mark tenant as provisioned
-      :ets.insert(@ets_table, {{:tenant, tenant_id}, :provisioned})
-
-      # Store queue names for this tenant
-      Enum.each(queue_types, fn type ->
-        queue_name = get_queue_name(tenant_id, type)
-        :ets.insert(@ets_table, {{:queue, tenant_id, type}, queue_name})
-      end)
-
-      Logger.info("Provisioned Oban queues for tenant: #{tenant_id}")
-      :ok
-    end
-  end
-
-  defp do_deprovision_tenant(tenant_id) do
-    queue_names = get_all_queue_names(tenant_id)
-
-    # Pause all tenant queues (jobs will drain but no new ones processed)
-    with_tenant_oban(tenant_id, fn oban_name ->
-      Enum.each(queue_names, fn queue ->
-        try do
-          Oban.pause_queue(oban_name, queue: queue)
-        rescue
-          _ -> :ok
-        end
-      end)
-    end)
-
-    # Remove from ETS
-    :ets.delete(@ets_table, {:tenant, tenant_id})
-
-    Enum.each(@queue_types, fn type ->
-      :ets.delete(@ets_table, {:queue, tenant_id, type})
-    end)
-
-    Logger.info("Deprovisioned Oban queues for tenant: #{tenant_id}")
-    :ok
-  end
-
-  defp tenant_schema_for(tenant_id, opts) do
-    cond do
-      schema = Keyword.get(opts, :tenant_schema) ->
-        schema
-
-      slug = Keyword.get(opts, :tenant_slug) ->
-        TenantSchemas.schema_for(slug)
-
-      true ->
-        TenantSchemas.schema_for_id(tenant_id)
-    end
-  end
-
-  defp ensure_tenant_oban(nil), do: {:error, :tenant_schema_not_found}
-
-  defp ensure_tenant_oban(schema) do
-    TenantOban.ensure_schema(schema)
-  end
-
-  defp with_tenant_oban(tenant_id, fun) do
-    tenant_id
-    |> tenant_schema_for([])
-    |> ensure_tenant_oban()
-    |> case do
-      {:ok, oban_name} -> {:ok, fun.(oban_name)}
-      {:error, reason} -> {:error, reason}
-    end
   end
 end

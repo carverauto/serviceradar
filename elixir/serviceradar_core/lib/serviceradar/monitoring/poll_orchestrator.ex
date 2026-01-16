@@ -241,9 +241,9 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Find an available gateway based on schedule assignment mode
-  defp find_gateway(%{assignment_mode: :any, tenant_id: tenant_id}) do
-    # Find any available gateway for this tenant
-    case GatewayRegistry.find_available_gateways(tenant_id) do
+  defp find_gateway(%{assignment_mode: :any}) do
+    # Find any available gateway
+    case GatewayRegistry.find_available_gateways() do
       [] -> {:error, :no_available_gateway}
       gateways -> {:ok, Enum.random(gateways)}
     end
@@ -251,41 +251,39 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp find_gateway(%{
          assignment_mode: :partition,
-         tenant_id: tenant_id,
          assigned_partition_id: partition_id
        }) do
     # Find gateway in specific partition
     if is_nil(partition_id) do
       {:error, :no_partition_assigned}
     else
-      GatewayRegistry.find_available_gateway_for_partition(tenant_id, partition_id)
+      GatewayRegistry.find_available_gateway_for_partition(partition_id)
     end
   end
 
-  defp find_gateway(%{assignment_mode: :domain, tenant_id: tenant_id, assigned_domain: domain}) do
+  defp find_gateway(%{assignment_mode: :domain, assigned_domain: domain}) do
     # Find gateway in specific domain (e.g., site-a, datacenter-east)
     if is_nil(domain) do
       {:error, :no_domain_assigned}
     else
-      GatewayRegistry.find_available_gateway_for_domain(tenant_id, domain)
+      GatewayRegistry.find_available_gateway_for_domain(domain)
     end
   end
 
   defp find_gateway(%{
          assignment_mode: :specific,
-         tenant_id: tenant_id,
          assigned_gateway_id: gateway_id
        }) do
     # Use specifically assigned gateway
     if is_nil(gateway_id) do
       {:error, :no_gateway_assigned}
     else
-      lookup_specific_gateway(tenant_id, gateway_id)
+      lookup_specific_gateway(gateway_id)
     end
   end
 
-  defp lookup_specific_gateway(tenant_id, gateway_id) do
-    case GatewayRegistry.lookup(tenant_id, gateway_id) do
+  defp lookup_specific_gateway(gateway_id) do
+    case GatewayRegistry.lookup(gateway_id) do
       [{pid, metadata}] ->
         if metadata[:status] == :available do
           # Include the PID in the returned metadata for cross-node dispatch

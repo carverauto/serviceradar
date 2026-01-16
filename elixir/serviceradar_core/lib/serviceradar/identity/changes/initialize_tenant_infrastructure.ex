@@ -4,10 +4,9 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   This change runs after a tenant is successfully created and:
 
-  1. Creates per-tenant Horde registry and DynamicSupervisor
-  2. Registers slug -> UUID mapping for admin lookups
-  3. Provisions per-tenant Oban queues for job isolation
-  4. Enqueues NATS account creation job for tenant isolation
+  1. Creates the tenant's PostgreSQL schema
+  2. Enqueues NATS account creation job for tenant isolation
+  3. Seeds default templates, rules, and profiles
 
   ## Usage
 
@@ -30,7 +29,6 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
 
   alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.NATS.Workers.CreateAccountWorker
-  alias ServiceRadar.Oban.TenantQueues
   alias ServiceRadar.Observability.{TemplateSeeder, ZenRuleSeeder}
   alias ServiceRadar.SysmonProfiles.SysmonProfileSeeder
 
@@ -59,19 +57,7 @@ defmodule ServiceRadar.Identity.Changes.InitializeTenantInfrastructure do
     Logger.info("Initializing infrastructure for tenant: #{tenant_slug} (#{tenant_id})")
 
     with {:ok, _schema} <- TenantSchemas.create_schema(tenant_slug) do
-      # Note: ProcessRegistry is a singleton started by the application supervision tree.
-      # No per-tenant registry initialization is needed in the tenant-unaware architecture.
-
-      case TenantQueues.provision_tenant(tenant_id) do
-        :ok ->
-          Logger.debug("Provisioned Oban queues for tenant: #{tenant_slug}")
-
-        {:error, reason} ->
-          Logger.error("Failed to provision Oban queues for #{tenant_slug}: #{inspect(reason)}")
-          # Don't fail tenant creation, queues can be provisioned later
-      end
-
-      # 3. Enqueue NATS account creation job for tenant isolation
+      # Enqueue NATS account creation job for tenant isolation
       case CreateAccountWorker.enqueue(tenant_id) do
         {:ok, _job} ->
           Logger.debug("Enqueued NATS account creation for tenant: #{tenant_slug}")

@@ -42,7 +42,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
 
       config :serviceradar_core, ServiceRadar.Infrastructure.ServiceHeartbeat,
         service_type: :core,           # :core | :web | :gateway
-        tenant_id: "platform",         # Platform-level tenant for system services
         interval: 30_000,              # Heartbeat interval in ms
         enabled: true
 
@@ -61,7 +60,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
 
       {:ok, pid} = ServiceHeartbeat.start_link(
         service_type: :core,
-        tenant_id: tenant_id,
         interval: 30_000
       )
   """
@@ -77,7 +75,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   defstruct [
     :service_type,
     :service_id,
-    :tenant_id,
     :interval,
     :started_at,
     :last_heartbeat_at,
@@ -154,10 +151,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
     service_type = Keyword.get(opts, :service_type) ||
                    Keyword.get(config, :service_type, :core)
 
-    tenant_id = Keyword.get(opts, :tenant_id) ||
-                Keyword.get(config, :tenant_id) ||
-                get_platform_tenant_id()
-
     interval = Keyword.get(opts, :interval) ||
                Keyword.get(config, :interval, @default_interval)
 
@@ -166,7 +159,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
     state = %__MODULE__{
       service_type: service_type,
       service_id: service_id,
-      tenant_id: tenant_id,
       interval: interval,
       started_at: DateTime.utc_now(),
       last_heartbeat_at: nil,
@@ -186,7 +178,6 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
     status = %{
       service_type: state.service_type,
       service_id: state.service_id,
-      tenant_id: state.tenant_id,
       interval: state.interval,
       started_at: state.started_at,
       last_heartbeat_at: state.last_heartbeat_at,
@@ -206,17 +197,14 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   def handle_cast({:report_degraded, reason}, state) do
     Logger.warning("Service #{state.service_type} reporting degraded: #{reason}")
 
-    if state.tenant_id do
-      HealthTracker.record_state_change(
-        state.service_type,
-        state.service_id,
-        state.tenant_id,
-        old_state: :healthy,
-        new_state: :degraded,
-        reason: reason,
-        metadata: build_metadata(state)
-      )
-    end
+    HealthTracker.record_state_change(
+      state.service_type,
+      state.service_id,
+      old_state: :healthy,
+      new_state: :degraded,
+      reason: reason,
+      metadata: build_metadata(state)
+    )
 
     {:noreply, state}
   end
@@ -224,17 +212,14 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   def handle_cast(:report_recovered, state) do
     Logger.info("Service #{state.service_type} reporting recovered")
 
-    if state.tenant_id do
-      HealthTracker.record_state_change(
-        state.service_type,
-        state.service_id,
-        state.tenant_id,
-        old_state: :degraded,
-        new_state: :healthy,
-        reason: :recovery,
-        metadata: build_metadata(state)
-      )
-    end
+    HealthTracker.record_state_change(
+      state.service_type,
+      state.service_id,
+      old_state: :degraded,
+      new_state: :healthy,
+      reason: :recovery,
+      metadata: build_metadata(state)
+    )
 
     {:noreply, state}
   end
@@ -250,18 +235,15 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
   def terminate(reason, state) do
     Logger.info("ServiceHeartbeat for #{state.service_type} terminating: #{inspect(reason)}")
 
-    # Record offline event if we have a tenant
-    if state.tenant_id do
-      HealthTracker.record_state_change(
-        state.service_type,
-        state.service_id,
-        state.tenant_id,
-        old_state: :healthy,
-        new_state: :offline,
-        reason: :shutdown,
-        metadata: build_metadata(state)
-      )
-    end
+    # Record offline event
+    HealthTracker.record_state_change(
+      state.service_type,
+      state.service_id,
+      old_state: :healthy,
+      new_state: :offline,
+      reason: :shutdown,
+      metadata: build_metadata(state)
+    )
 
     :ok
   end
@@ -272,22 +254,16 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
 
   defp send_heartbeat(state, healthy) do
     now = DateTime.utc_now()
+    metadata = build_metadata(state)
 
-    if state.tenant_id do
-      metadata = build_metadata(state)
+    HealthTracker.heartbeat(
+      state.service_type,
+      state.service_id,
+      healthy: healthy,
+      metadata: metadata
+    )
 
-      HealthTracker.heartbeat(
-        state.service_type,
-        state.service_id,
-        state.tenant_id,
-        healthy: healthy,
-        metadata: metadata
-      )
-
-      Logger.debug("Heartbeat sent for #{state.service_type} (#{state.service_id})")
-    else
-      Logger.debug("Skipping heartbeat - no tenant_id configured")
-    end
+    Logger.debug("Heartbeat sent for #{state.service_type} (#{state.service_id})")
 
     %{state |
       last_heartbeat_at: now,
@@ -314,13 +290,5 @@ defmodule ServiceRadar.Infrastructure.ServiceHeartbeat do
       memory_mb: div(:erlang.memory(:total), 1_048_576),
       process_count: :erlang.system_info(:process_count)
     }
-  end
-
-  defp get_platform_tenant_id do
-    # Try to get platform tenant from config or environment
-    case System.get_env("PLATFORM_TENANT_ID") do
-      nil -> Application.get_env(:serviceradar_core, :platform_tenant_id)
-      id -> id
-    end
   end
 end
