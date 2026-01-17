@@ -114,9 +114,9 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
   end
 
   policies do
-    # All operations require super_admin
+    # All operations require system actor
     policy always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 
@@ -197,8 +197,8 @@ defmodule ServiceRadar.Infrastructure.NatsPlatformToken do
     # Hash the token to match against stored hash
     token_hash = :crypto.hash(:sha256, token_secret) |> Base.encode16(case: :lower)
 
-    # Platform actor for bootstrap token operations
-    actor = SystemActor.platform(:nats_platform_token)
+    # System actor for bootstrap token operations
+    actor = SystemActor.system(:nats_platform_token)
 
     # Find the token by hash
     case __MODULE__

@@ -205,7 +205,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
   - `state_monitor.ex` - updated GenServer state to use ash_opts
 
 - [x] **3.5.4 Remaining GenServers - COMPLETE**
-  - All GenServers now use `SystemActor.system/1` or `SystemActor.platform/1`
+  - All GenServers now use `SystemActor.system/1`
   - No `SystemActor.for_tenant` usage remains in codebase
   - Only legitimate `tenant:` usage: AshAuthentication JWT verification (required)
 
@@ -217,29 +217,23 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 ### 4.1 Refactor SystemActor module
 
-- [x] **4.1.1 Keep `SystemActor.platform/1` for public schema resources**
-  - Used for NatsOperator, NatsPlatformToken, EdgeSite (platform-level resources)
-  - These live in public schema and need super_admin role
-  - Appropriate for tenant instance to access platform config
+- [x] **4.1.1 Remove `SystemActor.platform/1`**
+  - No public-schema access in tenant instances
+  - Control Plane owns platform resources
 
 - [x] **4.1.2 Remove `SystemActor.for_tenant/2`**
   - DELETED - no longer exists in codebase
   - Replaced with `SystemActor.system/1`
 
 - [x] **4.1.3 Simplified actor model implemented**
-  - `system/1` - For tenant-scoped operations (role: :system)
-  - `platform/1` - For public schema operations (role: :super_admin)
+  - `system/1` - For instance-scoped operations (role: :system)
   - No tenant_id in actors - implicit from DB connection
 
 ### 4.2 Update authorization policies
 
 - [x] **4.2.1 Updated bypass policies**
-  - Policies now check for `role: :system` or `role: :super_admin`
+  - Policies now check for `role: :system` only
   - No tenant_id checks needed
-
-- [x] **4.2.2 Platform actor kept for public schema**
-  - Platform actor exists for NatsOperator, EdgeSite, etc.
-  - These are legitimate uses in tenant instance
 
 ---
 
@@ -320,7 +314,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 - [x] **7.2.1 Update CLAUDE.md**
   - `elixir/serviceradar_core/CLAUDE.md` updated with single-tenant patterns
-  - Documents `SystemActor.system/1` and `SystemActor.platform/1`
+  - Documents `SystemActor.system/1`
   - Documents instance isolation model
 
 - [ ] **7.2.2 Update deployment docs**
@@ -344,8 +338,8 @@ Code removal (complete):
 - [x] Tenant instance cannot query other tenant schemas (CNPG search_path enforces)
 - [x] No `tenant:` parameters in Ash calls (except AshAuthentication JWT - required)
 - [x] No `TenantSchemas` usage in tenant instance
-- [x] No `SystemActor.for_tenant()` usage (only `system/1` and `platform/1` remain)
-- [x] `SystemActor.platform()` only used for public schema resources (NatsOperator, EdgeSite)
+- [x] No `SystemActor.for_tenant()` usage (only `system/1` remains)
+- [x] No `SystemActor.platform()` usage remains in tenant instance code
 
 Infrastructure (pending Phase 6):
 

@@ -35,10 +35,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     current_scope = socket.assigns.current_scope
 
-    is_platform_admin =
+    is_admin =
       case current_scope do
         nil -> false
-        scope -> Scope.platform_admin?(scope)
+        scope -> Scope.admin?(scope)
       end
 
     gateways_cache = load_initial_gateways_cache()
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
       |> assign(:agents_cache, agents_cache)
       |> assign(:gateways, gateways)
       |> assign(:agents, agents)
-      |> assign(:is_platform_admin, is_platform_admin)
+      |> assign(:is_admin, is_admin)
       |> assign(:job_counts, job_counts)
       |> assign(:oban_stats, load_oban_stats())
       |> assign(:events, [])
@@ -285,14 +285,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             icon="hero-globe-alt"
           />
           <.health_card
-            :if={@is_platform_admin}
+            :if={@is_admin}
             title="Nodes"
             value={@cluster_status.node_count}
             variant={if @cluster_status.node_count > 1, do: "success", else: "info"}
             icon="hero-server-stack"
           />
           <.health_card
-            :if={@is_platform_admin}
+            :if={@is_admin}
             title="Gateways"
             value={length(@gateways)}
             variant="info"
@@ -313,7 +313,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </div>
         
     <!-- Cluster Nodes -->
-        <.ui_panel :if={@is_platform_admin}>
+        <.ui_panel :if={@is_admin}>
           <:header>
             <div>
               <div class="text-sm font-semibold">Cluster Nodes</div>
@@ -372,7 +372,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </.ui_panel>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.ui_panel :if={@is_platform_admin}>
+          <.ui_panel :if={@is_admin}>
             <:header>
               <div>
                 <div class="text-sm font-semibold">Agent Gateways</div>

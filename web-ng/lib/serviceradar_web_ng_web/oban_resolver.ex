@@ -25,6 +25,6 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
   def resolve_refresh(_user), do: 5
 
   # Admin users can access Oban dashboard
-  defp admin_access?(%{user: %{role: role}}) when role in [:admin, :super_admin], do: true
+  defp admin_access?(%{user: %{role: role}}) when role in [:admin], do: true
   defp admin_access?(_), do: false
 end

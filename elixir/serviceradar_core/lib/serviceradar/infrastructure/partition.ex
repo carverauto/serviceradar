@@ -127,7 +127,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
 
     # Super admins bypass all policies (platform-wide access)
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)

@@ -47,8 +47,7 @@ ServiceRadar uses PostgreSQL schema-based multi-tenancy where each tenant has th
 
 1. Passing `tenant: schema` to every Ash query
 2. Using `SystemActor.for_tenant(tenant_id, :component)` for scoped operations
-3. Using `SystemActor.platform(:component)` for cross-tenant operations
-4. Tracking tenant context through `Scope` structs in the request lifecycle
+3. Tracking tenant context through `Scope` structs in the request lifecycle
 
 This design document outlines how to eliminate tenant awareness from the Tenant Instance, making isolation database-enforced rather than application-enforced.
 
@@ -136,10 +135,6 @@ end
 # Tenant-scoped system actor
 actor = SystemActor.for_tenant(tenant_id, :my_worker)
 Ash.read!(query, actor: actor, tenant: schema)
-
-# Platform actor (God Mode)
-actor = SystemActor.platform(:admin_task)
-Ash.read!(query, actor: actor, tenant: schema)  # Can access any schema
 ```
 
 **Target Actors:**

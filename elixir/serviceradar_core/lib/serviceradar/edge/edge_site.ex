@@ -149,7 +149,6 @@ defmodule ServiceRadar.Edge.EdgeSite do
   policies do
     # Super admins can manage all sites
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)
@@ -237,7 +236,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
   defp create_nats_leaf_server(site, _tenant_schema) do
     # Get platform NATS URL from config
     upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
-    actor = SystemActor.platform(:edge_site)
+    actor = SystemActor.system(:edge_site)
 
     # Tenant isolation is handled by the DB connection's search_path
     ServiceRadar.Edge.NatsLeafServer

@@ -121,7 +121,6 @@ defmodule ServiceRadar.Infrastructure.NatsServiceAccount do
 
   policies do
     bypass always() do
-      authorize_if(actor_attribute_equals(:role, :super_admin))
     end
 
     bypass always() do

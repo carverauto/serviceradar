@@ -17,7 +17,7 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
 
   - Operator seed is stored in environment (not in database)
   - Only public key and signed JWT are persisted
-  - All actions require super_admin role
+  - All actions require system role
 
   ## Status Values
 
@@ -132,9 +132,9 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
   end
 
   policies do
-    # All operations require super_admin
+    # All operations require system actor
     policy always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 

@@ -135,10 +135,9 @@ Users have a `role` attribute determining their permissions:
 
 | Role | Description | Capabilities |
 |------|-------------|--------------|
-| `viewer` | Read-only access | View resources in their tenant |
+| `viewer` | Read-only access | View resources in the deployment |
 | `operator` | Standard operator | Create, update resources |
-| `admin` | Tenant administrator | Full tenant management |
-| `super_admin` | Platform administrator | Cross-tenant access, system config |
+| `admin` | Administrator | Full instance management |
 
 **Role Assignment:**
 ```elixir

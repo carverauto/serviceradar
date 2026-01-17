@@ -422,7 +422,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
   policies do
     # Super admins can see all agents across tenants
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)

@@ -20,7 +20,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   The module provides several actor types for testing authorization:
 
-  - `system_actor/0` - Bypasses all authorization (super_admin)
+  - `system_actor/0` - Bypasses all authorization (system)
   - `admin_actor/0` - Admin role
   - `operator_actor/0` - Operator role
   - `viewer_actor/0` - Viewer role (read-only)
@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     %{
       id: "00000000-0000-0000-0000-000000000000",
       email: "system@serviceradar.test",
-      role: :super_admin
+      role: :system
     }
   end
 

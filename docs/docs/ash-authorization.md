@@ -5,7 +5,7 @@ title: Ash Authorization
 
 # Authorization Policies
 
-ServiceRadar uses Ash policies for fine-grained access control with multi-tenancy enforcement.
+ServiceRadar uses Ash policies for fine-grained access control with database-enforced isolation.
 
 ## Policy Architecture
 
@@ -19,7 +19,6 @@ graph TB
 
     subgraph PolicyEval["Policy Evaluation"]
         Bypass{Bypass?}
-        TenantCheck{Tenant Match?}
         RoleCheck{Role Allowed?}
         FieldPolicy{Field Access?}
     end
@@ -30,10 +29,8 @@ graph TB
     end
 
     Actor --> Bypass
-    Bypass -->|super_admin| Allowed
-    Bypass -->|No| TenantCheck
-    TenantCheck -->|Yes| RoleCheck
-    TenantCheck -->|No| Denied
+    Bypass -->|system| Allowed
+    Bypass -->|No| RoleCheck
     RoleCheck -->|Yes| FieldPolicy
     RoleCheck -->|No| Denied
     FieldPolicy -->|Yes| Allowed
@@ -48,7 +45,7 @@ Every Ash operation requires an actor with these attributes:
 %{
   id: "user_uuid",
   email: "user@example.com",
-  role: :admin           # :viewer | :operator | :admin | :super_admin | :system
+  role: :admin           # :viewer | :operator | :admin | :system
 }
 ```
 
@@ -66,18 +63,6 @@ System actors (background jobs, GenServers) bypass authorization:
 policies do
   bypass always() do
     authorize_if actor_attribute_equals(:role, :system)
-  end
-end
-```
-
-### Super Admin Bypass
-
-Super admins bypass resource policies:
-
-```elixir
-policies do
-  bypass always() do
-    authorize_if actor_attribute_equals(:role, :super_admin)
   end
 end
 ```

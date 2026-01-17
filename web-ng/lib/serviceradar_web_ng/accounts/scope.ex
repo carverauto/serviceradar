@@ -44,11 +44,8 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   def for_user(nil, _opts), do: %__MODULE__{user: nil}
 
   @doc """
-  Returns true if the user has super_admin role.
-
-  In the tenant instance UI, platform admin status is determined by role alone
-  since the tenant context is implicit from the deployment.
+  Returns true if the user has admin role.
   """
-  def platform_admin?(%{user: %{role: :super_admin}}), do: true
-  def platform_admin?(_), do: false
+  def admin?(%{user: %{role: :admin}}), do: true
+  def admin?(_), do: false
 end

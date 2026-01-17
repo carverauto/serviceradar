@@ -2246,7 +2246,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_edit_device?(_), do: false
 
-  defp admin_role?(role), do: role in [:admin, :super_admin]
+  defp admin_role?(role), do: role in [:admin]
 
   # In a tenant-unaware instance, if user has a membership they're a member of THE tenant.
   # Just check if any membership has admin/owner role.

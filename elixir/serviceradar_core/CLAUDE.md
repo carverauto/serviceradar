@@ -32,22 +32,6 @@ Resource
 |> Ash.create!(actor: actor)
 ```
 
-#### Platform-Wide Operations
-
-For operations that manage platform resources (bootstrap, seeding, tenant management):
-
-```elixir
-alias ServiceRadar.Actors.SystemActor
-
-# Create platform actor
-actor = SystemActor.platform(:tenant_bootstrap)
-
-# Use with Ash operations
-Tenant
-|> Ash.Query.for_read(:list)
-|> Ash.read!(actor: actor)
-```
-
 ### Component Naming
 
 Use descriptive component names that identify the calling system:
@@ -55,7 +39,6 @@ Use descriptive component names that identify the calling system:
 - `:state_monitor` - StateMonitor GenServer
 - `:health_tracker` - HealthTracker GenServer
 - `:sweep_compiler` - Sweep compilation operations
-- `:tenant_bootstrap` - Tenant creation/bootstrap
 - `:template_seeder` - Template seeding operations
 
 ### Authorization Policies

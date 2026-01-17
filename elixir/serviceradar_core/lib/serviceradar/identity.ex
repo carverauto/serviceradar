@@ -16,7 +16,6 @@ defmodule ServiceRadar.Identity do
   ## Authorization
 
   All resources in this domain enforce authorization via policies.
-  The `super_admin` role can bypass restrictions for admin operations.
   """
 
   use Ash.Domain,

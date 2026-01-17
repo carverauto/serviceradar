@@ -82,9 +82,6 @@ defmodule ServiceRadar.Actors.SystemActor do
       iex> SystemActor.system_actor?(%{role: :system})
       true
 
-      iex> SystemActor.system_actor?(%{role: :super_admin})
-      true
-
       iex> SystemActor.system_actor?(%{role: :admin})
       false
 

@@ -67,7 +67,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   policies do
     # Super admins can do anything
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)

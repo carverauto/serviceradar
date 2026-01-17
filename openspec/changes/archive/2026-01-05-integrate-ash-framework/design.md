@@ -1210,7 +1210,7 @@ iex> ServiceRadar.DeviceActor.get_status("tenant_abc", "partition_1", "10.0.0.1"
 
 ### Decision 18: tenant_id Immutability as Security Control
 
-**What**: Make `tenant_id` immutable after user creation - it cannot be changed by any user, including super_admins.
+**What**: Make `tenant_id` immutable after user creation - it cannot be changed by any user, including admins.
 
 **Why**:
 - **Prevents tenant hopping attacks** - Malicious users cannot move themselves to other tenants
@@ -1253,7 +1253,7 @@ iex> ServiceRadar.DeviceActor.get_status("tenant_abc", "partition_1", "10.0.0.1"
    - Test: Super_admins cannot change tenant_id (defense in depth)
    - Test: `force_change_attribute` is blocked
 
-**Why super_admins cannot change tenant_id**:
+**Why admins cannot change tenant_id**:
 - Tenant transfers should be a separate, audited process (not a simple update)
 - Prevents accidental data leakage via admin UI
 - Moving a user between tenants has complex implications (permissions, data access)

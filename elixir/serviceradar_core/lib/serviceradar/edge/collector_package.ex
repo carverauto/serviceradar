@@ -280,7 +280,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
           if package.nats_credential_id do
-            actor = SystemActor.platform(:collector_package)
+            actor = SystemActor.system(:collector_package)
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
                    actor: actor
                  ) do
@@ -305,11 +305,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   policies do
-    # Super admins can manage all packages
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
     # System actors can perform all operations (tenant isolation via schema)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)

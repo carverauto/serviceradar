@@ -4,15 +4,14 @@ if Code.ensure_loaded?(Credo.Check) do
     @moduledoc """
     Detects usage of `authorize?: false` in Ash operations.
 
-    Using `authorize?: false` bypasses ALL authorization policies, including tenant
-    isolation. This creates security vulnerabilities where background operations
-    could inadvertently access cross-tenant data.
+    Using `authorize?: false` bypasses ALL authorization policies. This creates
+    security vulnerabilities where background operations could access data
+    without any role checks.
 
     ## Why This Is Problematic
 
-    With schema-isolated multi-tenancy, most resources are protected by PostgreSQL
-    schema boundaries. However, some resources live in the public schema and rely
-    on policy-level tenant isolation. Bypassing authorization removes this protection.
+    Even with schema isolation handled by PostgreSQL search_path, policy checks
+    still enforce role-based access. Bypassing authorization removes this protection.
 
     ## The Solution: SystemActor
 
@@ -20,10 +19,6 @@ if Code.ensure_loaded?(Credo.Check) do
 
         # For instance-scoped operations (DB search_path determines schema)
         actor = SystemActor.system(:my_component)
-        Resource |> Ash.read(actor: actor)
-
-        # For platform-wide operations (bootstrap, tenant management)
-        actor = SystemActor.platform(:my_component)
         Resource |> Ash.read(actor: actor)
 
     ## Exceptions
@@ -40,7 +35,7 @@ if Code.ensure_loaded?(Credo.Check) do
       category: :warning,
       explanations: [
         check: """
-        Avoid `authorize?: false` - use SystemActor.system/1 or SystemActor.platform/1 instead.
+        Avoid `authorize?: false` - use SystemActor.system/1 instead.
         See ServiceRadar.Actors.SystemActor for the proper pattern.
         """
       ]
@@ -93,8 +88,7 @@ if Code.ensure_loaded?(Credo.Check) do
 
       format_issue(
         issue_meta,
-        message:
-          "Avoid `authorize?: false` - use SystemActor.system/1 or SystemActor.platform/1 instead",
+        message: "Avoid `authorize?: false` - use SystemActor.system/1 instead",
         trigger: "authorize?: false",
         line_no: line_no
       )

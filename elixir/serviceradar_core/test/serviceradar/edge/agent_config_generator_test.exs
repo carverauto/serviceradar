@@ -23,7 +23,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     actor = %{
       id: Ash.UUID.generate(),
       email: "test@serviceradar.local",
-      role: :super_admin
+      role: :admin
     }
 
     agent_uid = "test-agent-#{unique_id}"

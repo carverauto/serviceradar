@@ -137,7 +137,7 @@
 - [x] 3.5.2 Create `NatsOperator` resource for platform operator
 - [x] 3.5.3 Create `NatsPlatformToken` resource for bootstrap tokens
 - [x] 3.5.4 Add `bootstrap` action to NatsOperator
-- [x] 3.5.5 Add policies for super_admin access control
+- [x] 3.5.5 Add policies for admin access control
 
 ## Phase 4: Collector Onboarding Packages (DONE)
 

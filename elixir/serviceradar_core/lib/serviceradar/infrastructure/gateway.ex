@@ -334,7 +334,6 @@ defmodule ServiceRadar.Infrastructure.Gateway do
   policies do
     # Super admins can see all gateways across tenants
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)

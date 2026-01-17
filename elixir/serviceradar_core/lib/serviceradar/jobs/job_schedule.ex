@@ -104,7 +104,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     policy action([:create, :update, :enable, :disable, :update_last_enqueued]) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :super_admin)
       # Allow system operations (no actor)
       authorize_if always()
     end

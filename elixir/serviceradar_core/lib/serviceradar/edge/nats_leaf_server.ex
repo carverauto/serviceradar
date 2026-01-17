@@ -186,7 +186,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   policies do
     # Super admins can manage all servers
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
     end
 
     # System actors can perform all operations (tenant isolation via schema)
@@ -431,7 +430,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         :offline -> :go_offline
       end
 
-    actor = SystemActor.platform(:nats_leaf_server)
+    actor = SystemActor.system(:nats_leaf_server)
     # Tenant isolation is handled by the DB connection's search_path
     case Ash.get(EdgeSite, leaf_server.edge_site_id, actor: actor) do
       {:ok, site} when site.status != new_status ->

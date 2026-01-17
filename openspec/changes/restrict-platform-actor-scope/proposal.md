@@ -2,99 +2,56 @@
 
 ## Problem Statement
 
-The current `SystemActor.platform/1` function creates actors with a `:super_admin` role that can bypass tenant isolation. This is dangerous because:
+The current `SystemActor.platform/1` function creates platform-scoped actors that enable cross-tenant operations inside tenant instances. This violates the single-tenant deployment model and increases security risk.
 
-1. **Overly broad permissions**: `super_admin` implies god-mode access across all tenants
-2. **Abuse potential**: Any code using platform actors could accidentally or maliciously access/modify tenant data
-3. **Unclear boundaries**: No clear definition of what platform operations are actually legitimate
-4. **Tenant deletion risk**: Platform actors could delete tenants, bypassing proper closure workflows
+Key risks:
+
+1. **Overly broad permissions**: Platform actors imply god-mode access across deployments
+2. **Abuse potential**: Any code using platform actors could access data outside the instance
+3. **Unclear boundaries**: Platform operations are mixed into tenant instance code
+4. **Tenant deletion risk**: Platform actors could bypass proper closure workflows
 
 ## Current State
 
-```elixir
-def platform(component) when is_atom(component) do
-  %{
-    id: "platform:#{component}",
-    email: "#{component_to_email(component)}@platform.serviceradar",
-    role: :super_admin  # <-- Too powerful
-  }
-end
-```
-
-This role is used for:
-- Listing all tenants (seeders, bootstrap)
+Platform actors are used for:
+- Listing tenants (seeders, bootstrap)
 - Looking up tenants by slug (authentication flows)
 - Creating NATS operators (infrastructure bootstrap)
 - Querying cross-tenant resources during startup
 
 ## Proposed Solution
 
-### 1. Replace `:super_admin` with scoped roles
+1. **Remove `SystemActor.platform/1` from tenant instances**
+   - Tenant instances only use `SystemActor.system/1`
+   - No platform-scoped actors in instance code
 
-Instead of a single `super_admin` role, define specific platform roles:
+2. **Move platform operations to the Control Plane**
+   - Bootstrap, tenant management, and NATS provisioning live in the control plane
+   - Tenant instances operate only on their own data
 
-- `:platform_reader` - Can read tenant metadata (slug, id, status) but not tenant data
-- `:platform_bootstrap` - Can create initial infrastructure (operators, platform tenant)
-- `:platform_seeder` - Can seed default data into tenant schemas
-
-### 2. Remove tenant deletion from platform actors
-
-Tenant closure should be:
-- **Self-service**: Tenant admin initiates closure
-- **Billing-triggered**: Non-payment triggers suspension then closure
-- **Audited**: All closure actions require explicit user action with audit trail
-
-Platform actors should NEVER be able to delete or deactivate tenants.
-
-### 3. Constrain cross-tenant queries
-
-Platform actors should only be able to:
-- List tenant IDs/slugs (for routing)
-- Check tenant status (active/suspended)
-- Read platform-level configuration
-
-They should NOT be able to:
-- Read tenant-internal data (devices, alerts, users)
-- Modify tenant data
-- Delete or suspend tenants
-- Access tenant secrets/credentials
-
-### 4. Explicit action allowlists
-
-Each resource should explicitly declare which actions platform roles can perform:
-
-```elixir
-policies do
-  policy action(:read) do
-    authorize_if actor_attribute_equals(:role, :platform_reader)
-    # Only allows reading tenant metadata, not internal data
-  end
-end
-```
+3. **Eliminate cross-tenant queries in tenant instances**
+   - No tenant iteration or cross-tenant lookups
+   - Instance isolation enforced by DB search_path
 
 ## Security Boundaries
 
-| Operation | Allowed Actor | Notes |
-|-----------|--------------|-------|
-| List all tenants (metadata only) | `:platform_reader` | For routing, seeding |
-| Create platform tenant | `:platform_bootstrap` | One-time bootstrap only |
-| Create NATS operator | `:platform_bootstrap` | One-time bootstrap only |
-| Seed tenant defaults | `:platform_seeder` | Creates default rules/templates |
-| Delete/suspend tenant | **NONE** | Must be self-service or billing |
-| Read tenant data | Tenant actors only | Never platform actors |
-| Modify tenant data | Tenant actors only | Never platform actors |
+| Operation | Allowed Component | Notes |
+|-----------|-------------------|-------|
+| List all tenants (metadata only) | Control Plane | Not in tenant instance |
+| Create NATS operator | Control Plane | Not in tenant instance |
+| Read tenant data | Tenant instance | Single-tenant only |
+| Modify tenant data | Tenant instance | Admin/operator only |
+| Cross-tenant access | Control Plane | Never in tenant instance |
 
 ## Migration Path
 
-1. Update `SystemActor.platform/1` to accept a scope parameter
-2. Add new platform roles to authorization policies
-3. Audit all current platform actor usages
-4. Restrict each usage to minimum required scope
-5. Add policy tests to verify boundaries
+1. Remove `SystemActor.platform/1` and all usages in tenant instance code
+2. Move platform bootstrap and provisioning to the control plane
+3. Verify no cross-tenant queries remain in the instance
 
 ## Success Criteria
 
-- No platform actor can access tenant-internal data
-- No platform actor can delete/modify tenants
-- All cross-tenant operations are explicitly scoped
-- Policy tests verify boundaries are enforced
+- No platform actor exists in tenant instance code
+- No cross-tenant operations in tenant instances
+- Platform operations handled by control plane only
+- Policy tests verify instance isolation

@@ -569,21 +569,21 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
 
   # In a tenant instance, admin users can trigger jobs
   defp can_trigger_jobs?(%{user: %{role: role}}) do
-    role in [:admin, :super_admin]
+    role in [:admin]
   end
 
   defp can_trigger_jobs?(_), do: false
 
   # In a tenant instance, all authenticated users can see Oban Web
   defp show_oban_web?(%{user: %{role: role}}) do
-    role in [:admin, :super_admin]
+    role in [:admin]
   end
 
   defp show_oban_web?(_), do: false
 
   # In a tenant instance, admin users can see leader info
   defp show_leader_info?(%{user: %{role: role}}) do
-    role in [:admin, :super_admin]
+    role in [:admin]
   end
 
   defp show_leader_info?(_), do: false

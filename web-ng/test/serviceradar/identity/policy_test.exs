@@ -9,7 +9,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
   PostgreSQL search_path set by CNPG credentials.
 
   These tests verify role-based access control within a single tenant instance:
-  - viewer/operator/admin/super_admin permissions
+  - viewer/operator/admin permissions
   - Profile update authorization
   - Role change authorization
   """
@@ -115,47 +115,4 @@ defmodule ServiceRadar.Identity.PolicyTest do
     end
   end
 
-  # ============================================================================
-  # Super Admin Tests
-  # ============================================================================
-
-  describe "super_admin bypass" do
-    setup do
-      super_admin = create_user(%{role: :super_admin, email: "super@example.com"})
-      regular_user = create_user(%{role: :viewer, email: "regular@example.com"})
-
-      %{
-        super_admin: super_admin,
-        regular_user: regular_user
-      }
-    end
-
-    test "super_admin can read all users", %{
-      super_admin: super_admin,
-      regular_user: regular_user
-    } do
-      actor = actor_for(super_admin)
-
-      {:ok, users} = Ash.read(User, actor: actor)
-      user_ids = Enum.map(users, & &1.id)
-
-      # Super admin sees everyone
-      assert super_admin.id in user_ids
-      assert regular_user.id in user_ids
-    end
-
-    test "super_admin can change roles", %{
-      super_admin: super_admin,
-      regular_user: regular_user
-    } do
-      actor = actor_for(super_admin)
-
-      {:ok, updated} =
-        regular_user
-        |> Ash.Changeset.for_update(:update_role, %{role: :admin})
-        |> Ash.update(actor: actor)
-
-      assert updated.role == :admin
-    end
-  end
 end
