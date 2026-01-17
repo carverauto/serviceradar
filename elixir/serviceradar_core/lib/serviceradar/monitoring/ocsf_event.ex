@@ -17,10 +17,6 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     migrate? false
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read]
 

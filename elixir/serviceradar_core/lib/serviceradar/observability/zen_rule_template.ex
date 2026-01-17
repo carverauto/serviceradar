@@ -13,10 +13,6 @@ defmodule ServiceRadar.Observability.ZenRuleTemplate do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list, action: :read
     define :create, action: :create

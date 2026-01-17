@@ -54,10 +54,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :list_active_for_device, action: :active_for_device, args: [:device_id]

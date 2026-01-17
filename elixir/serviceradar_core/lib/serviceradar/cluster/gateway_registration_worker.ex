@@ -1,9 +1,9 @@
 defmodule ServiceRadar.GatewayRegistrationWorker do
   @moduledoc """
-  GenServer that handles agent gateway registration at the platform level.
+  GenServer that handles agent gateway registration at the instance level.
 
-  Agent gateways are platform infrastructure that serve all tenants. This worker registers the gateway
-  with `ServiceRadar.GatewayTracker` for cluster-wide visibility.
+  This worker registers the gateway with `ServiceRadar.GatewayTracker` for
+  cluster-wide visibility within the instance.
 
   ## Configuration
 
@@ -40,7 +40,7 @@ defmodule ServiceRadar.GatewayRegistrationWorker do
       registered_at: DateTime.utc_now()
     }
 
-    # Register with platform-level tracker
+    # Register with instance-level tracker
     metadata = %{
       partition: partition,
       domain: domain,

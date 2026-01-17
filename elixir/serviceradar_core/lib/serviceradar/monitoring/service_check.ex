@@ -63,10 +63,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_by_agent, action: :by_agent, args: [:agent_uid]

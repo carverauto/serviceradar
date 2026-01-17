@@ -30,10 +30,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   state_machine do
     initial_states [:active, :paused, :disabled]
     default_initial_state :active

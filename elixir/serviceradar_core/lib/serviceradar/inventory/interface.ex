@@ -50,10 +50,6 @@ defmodule ServiceRadar.Inventory.Interface do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]

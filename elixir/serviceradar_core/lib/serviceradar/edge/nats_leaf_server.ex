@@ -66,10 +66,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read]
 

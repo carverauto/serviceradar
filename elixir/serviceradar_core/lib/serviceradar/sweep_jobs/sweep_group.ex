@@ -52,10 +52,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -374,6 +370,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:name]
+    identity :unique_name, [:name]
   end
 end

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Repo.Migrations.DropPublicSysmonProfiles do
   @moduledoc """
   Drops the legacy public sysmon_profiles table.
 
-  Sysmon profiles are tenant-scoped and should live in tenant schemas.
+  Sysmon profiles are instance-scoped and should live in the instance schema.
   """
 
   use Ecto.Migration
@@ -15,7 +15,6 @@ defmodule ServiceRadar.Repo.Migrations.DropPublicSysmonProfiles do
     execute """
     CREATE TABLE IF NOT EXISTS sysmon_profiles (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id uuid NOT NULL,
       name text NOT NULL,
       description text,
       sample_interval text NOT NULL DEFAULT '10s',
@@ -36,8 +35,8 @@ defmodule ServiceRadar.Repo.Migrations.DropPublicSysmonProfiles do
     """
 
     execute """
-    CREATE UNIQUE INDEX IF NOT EXISTS sysmon_profiles_unique_name_per_tenant_index
-    ON sysmon_profiles (tenant_id, name)
+    CREATE UNIQUE INDEX IF NOT EXISTS sysmon_profiles_unique_name_index
+    ON sysmon_profiles (name)
     """
 
     execute """

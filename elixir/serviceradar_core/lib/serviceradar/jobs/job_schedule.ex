@@ -32,10 +32,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_job_key, action: :by_job_key, args: [:job_key]
     define :list_enabled, action: :enabled

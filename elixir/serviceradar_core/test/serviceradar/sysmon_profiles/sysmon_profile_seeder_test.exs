@@ -22,9 +22,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
     test "defines seed function" do
       functions = SysmonProfileSeeder.__info__(:functions)
-      # Check for seed/0 or seed_for_tenant/1 depending on what exists
-      has_seed = {:seed, 0} in functions or {:seed_for_tenant, 1} in functions
-      assert has_seed
+      assert {:seed, 0} in functions
     end
   end
 
@@ -37,8 +35,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
     @tag :integration
     test "creates default profile when none exists" do
-      # In single-tenant mode, use direct seeding
-      result = SysmonProfileSeeder.seed_for_tenant(%{slug: "test"})
+      # Seed the default profile
+      result = SysmonProfileSeeder.seed()
 
       assert result == :ok or match?({:ok, _}, result)
 
@@ -66,10 +64,10 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
     @tag :integration
     test "does not create duplicate profile when called twice" do
       # Seed once
-      SysmonProfileSeeder.seed_for_tenant(%{slug: "test"})
+      SysmonProfileSeeder.seed()
 
       # Seed again
-      result = SysmonProfileSeeder.seed_for_tenant(%{slug: "test"})
+      result = SysmonProfileSeeder.seed()
       assert result == :ok
 
       # Verify only one default profile exists
@@ -87,7 +85,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
     @tag :integration
     test "default profile has correct thresholds" do
-      SysmonProfileSeeder.seed_for_tenant(%{slug: "test"})
+      SysmonProfileSeeder.seed()
 
       actor = SystemActor.system(:test)
 

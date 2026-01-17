@@ -2,13 +2,13 @@ defmodule ServiceRadar.Identity.User do
   @moduledoc """
   User resource for authentication and authorization.
 
-  Maps to the tenant-scoped `ng_users` table with multi-tenancy support.
+  Maps to the instance-scoped `ng_users` table.
 
   ## Roles
 
-  - `:viewer` - Read-only access to tenant data
+  - `:viewer` - Read-only access to instance data
   - `:operator` - Can create and modify resources
-  - `:admin` - Full tenant management including user management
+  - `:admin` - Full instance management including user management
 
   ## Authentication
 
@@ -79,10 +79,6 @@ defmodule ServiceRadar.Identity.User do
         prevent_hijacking? false
       end
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -334,7 +330,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :email, :ci_string do
       allow_nil? false
       public? true
-      description "User email address (unique within a tenant)"
+      description "User email address (unique within the instance)"
       constraints match: ~r/^[^\s]+@[^\s]+$/
     end
 
@@ -394,7 +390,7 @@ defmodule ServiceRadar.Identity.User do
 
   identities do
     # Email identity required by AshAuthentication for password/magic_link strategies.
-    # Email uniqueness is enforced per-tenant schema.
+    # Email uniqueness is enforced per instance schema.
     identity :email, [:email]
   end
 end

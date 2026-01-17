@@ -36,10 +36,6 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
     define :get_by_device, action: :by_device, args: [:device_id]

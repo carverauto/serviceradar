@@ -66,10 +66,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read]
 
@@ -182,9 +178,8 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION is enforced by schema-based multitenancy (:context)
-    # The tenant context passed to actions automatically filters records
-    # Policies here only check role-based access
+    # Schema isolation is enforced by the DB connection's search_path.
+    # Policies here only check role-based access.
 
     # Read access: Admins/operators can read
     policy action_type(:read) do

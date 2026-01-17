@@ -17,10 +17,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -153,6 +149,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   end
 
   identities do
-    identity :unique_name_per_tenant_and_type, [:name, :config_type]
+    identity :unique_name_and_type, [:name, :config_type]
   end
 end

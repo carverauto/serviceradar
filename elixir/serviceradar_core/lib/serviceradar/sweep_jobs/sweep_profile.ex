@@ -41,10 +41,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -205,6 +201,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:name]
+    identity :unique_name, [:name]
   end
 end

@@ -64,10 +64,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :record, action: :record
     define :timeline, action: :timeline, args: [:entity_type, :entity_id]

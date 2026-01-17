@@ -2,8 +2,8 @@ defmodule ServiceRadar.GatewayRegistry do
   @moduledoc """
   Registry for tracking available agent gateways across the ERTS cluster.
 
-  This module provides gateway discovery for the local instance. Each tenant
-  deployment runs independently with its own infrastructure.
+  This module provides gateway discovery for the local instance. Each deployment
+  runs independently with its own infrastructure.
 
   ## Registration
 

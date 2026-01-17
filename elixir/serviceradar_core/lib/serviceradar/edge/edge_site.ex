@@ -57,10 +57,6 @@ defmodule ServiceRadar.Edge.EdgeSite do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 

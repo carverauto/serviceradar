@@ -6,14 +6,14 @@ defmodule ServiceRadar.Policies do
 
   ## Instance Isolation
 
-  Each tenant deployment is fully isolated:
+  Each instance deployment is fully isolated:
   - DB connection's search_path determines the schema
 
   ## Roles
 
-  - `:viewer` - Read-only access to tenant data
-  - `:operator` - Can create and modify resources within tenant
-  - `:admin` - Full tenant management including user management
+  - `:viewer` - Read-only access to instance data
+  - `:operator` - Can create and modify resources within instance
+  - `:admin` - Full instance management including user management
 
   ## Usage
 

@@ -17,10 +17,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     migrate? false
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list, action: :read
     define :list_by_rule, action: :by_rule, args: [:rule_id]

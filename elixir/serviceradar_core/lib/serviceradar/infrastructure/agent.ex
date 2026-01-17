@@ -135,10 +135,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_uid, action: :by_uid, args: [:uid]
     define :list_by_gateway, action: :by_gateway, args: [:gateway_id]

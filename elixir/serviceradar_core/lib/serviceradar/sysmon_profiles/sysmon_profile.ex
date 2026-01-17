@@ -19,7 +19,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   - `disk_paths`: Specific paths to monitor (empty means all mounted filesystems)
   - `disk_exclude_paths`: Paths to omit from disk metrics collection
   - `thresholds`: Alert thresholds as key-value pairs
-  - `is_default`: Whether this is the default profile for the tenant
+  - `is_default`: Whether this is the default profile for the instance
   - `enabled`: Whether this profile is available for use
   - `target_query`: SRQL query for device targeting (e.g., "in:devices tags.role:database")
   - `priority`: Priority for resolution order (higher = evaluated first)
@@ -37,7 +37,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
 
   ## Default Profile
 
-  Each tenant has exactly one default profile (is_default: true). When no targeting
+  Each instance has exactly one default profile (is_default: true). When no targeting
   profile matches a device, the default profile is used. The default profile
   cannot be deleted and has no `target_query` (applies to all unmatched devices).
 
@@ -73,10 +73,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   postgres do
     table "sysmon_profiles"
     repo ServiceRadar.Repo
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -130,7 +126,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     end
 
     update :set_as_default do
-      description "Set this profile as the default for the tenant"
+      description "Set this profile as the default for the instance"
       accept []
       require_atomic? false
 
@@ -159,7 +155,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
     end
 
     read :get_default do
-      description "Get the default profile for the tenant"
+      description "Get the default profile for the instance"
       get? true
       filter expr(is_default == true)
     end
@@ -320,6 +316,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   # Note: SysmonProfileAssignment removed - use target_query for SRQL-based targeting
 
   identities do
-    identity :unique_name_per_tenant, [:name]
+    identity :unique_name, [:name]
   end
 end

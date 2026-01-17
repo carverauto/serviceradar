@@ -21,10 +21,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read]
 

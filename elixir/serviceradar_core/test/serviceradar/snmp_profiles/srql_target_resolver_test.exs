@@ -23,30 +23,34 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert Code.ensure_loaded?(SrqlTargetResolver)
     end
 
-    test "exports resolve_for_device/3" do
+    test "exports resolve_for_device/2 (primary API)" do
+      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 2)
+    end
+
+    test "exports resolve_for_device/3 (backwards compatibility)" do
       assert function_exported?(SrqlTargetResolver, :resolve_for_device, 3)
     end
   end
 
-  describe "resolve_for_device/3 validation" do
-    test "returns error for nil device_uid" do
-      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device("tenant_test", nil, nil)
+  describe "resolve_for_device/2 validation" do
+    test "returns ok nil for nil device_uid" do
+      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(nil, nil)
     end
 
     test "returns error for invalid device_uid format" do
       actor = %{role: :system}
-      result = SrqlTargetResolver.resolve_for_device("tenant_test", "not-a-uuid", actor)
+      result = SrqlTargetResolver.resolve_for_device("not-a-uuid", actor)
       assert {:error, :invalid_device_uid} = result
     end
 
     test "returns error for malformed UUID" do
       actor = %{role: :system}
-      result = SrqlTargetResolver.resolve_for_device("tenant_test", "12345", actor)
+      result = SrqlTargetResolver.resolve_for_device("12345", actor)
       assert {:error, :invalid_device_uid} = result
     end
   end
 
-  describe "resolve_for_device/3 with profiles" do
+  describe "resolve_for_device/2 with profiles" do
     @tag :integration
     setup do
       ServiceRadar.TestSupport.start_core!()
@@ -69,7 +73,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.create(actor: actor)
 
       device_uid = Ecto.UUID.generate()
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, nil} = result
     end
@@ -111,7 +115,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       assert matched_profile.id == profile.id
@@ -154,7 +158,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, nil} = result
     end
@@ -210,7 +214,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       # High priority profile should be returned
@@ -271,7 +275,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       # Should return the enabled profile, not the disabled one
@@ -328,7 +332,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(nil, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       assert matched_profile.id == targeting_profile.id

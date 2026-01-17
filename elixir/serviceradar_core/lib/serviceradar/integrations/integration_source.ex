@@ -33,10 +33,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   cloak do
     vault(ServiceRadar.Vault)
     # Encrypt the entire credentials map as JSON

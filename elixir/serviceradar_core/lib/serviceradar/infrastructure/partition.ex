@@ -24,10 +24,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_by_slug, action: :by_slug, args: [:slug]

@@ -78,10 +78,6 @@ defmodule ServiceRadar.Infrastructure.Gateway do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   state_machine do
     initial_states [:healthy, :inactive]
     default_initial_state :inactive

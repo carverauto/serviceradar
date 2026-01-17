@@ -59,10 +59,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 

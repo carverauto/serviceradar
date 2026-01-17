@@ -13,10 +13,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRule do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list, action: :read
     define :list_active, action: :active

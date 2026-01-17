@@ -11,8 +11,8 @@ defmodule ServiceRadar.AgentRegistry do
   The registry tracks agent metadata including gRPC addresses so gateways
   can discover and communicate with their assigned agents.
 
-  This module provides agent discovery for the local instance. Each tenant
-  deployment runs independently with its own infrastructure.
+  This module provides agent discovery for the local instance. Each deployment
+  runs independently with its own infrastructure.
 
   ## Registration
 

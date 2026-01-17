@@ -85,10 +85,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_by_schedule, action: :by_schedule, args: [:schedule_id]

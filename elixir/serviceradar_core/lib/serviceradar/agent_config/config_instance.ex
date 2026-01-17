@@ -26,10 +26,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
