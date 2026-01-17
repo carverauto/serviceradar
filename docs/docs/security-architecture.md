@@ -194,7 +194,7 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 3. Verify mTLS certificates are deployment-specific
 4. Run security test suite: `mix test test/serviceradar/security/`
 
-### Suspected Edge Compromise
+For TLS configuration and certificate handling, see [TLS Security](./tls-security.md).
 
 1. Revoke agent certificate via Deployment CA
 2. Unregister agent: `AgentRegistry.unregister_agent/2`
