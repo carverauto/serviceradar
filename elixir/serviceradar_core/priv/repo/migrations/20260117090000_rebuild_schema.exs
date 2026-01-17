@@ -431,7 +431,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:nats_credentials,
             column: :id,
             name: "collector_packages_nats_credential_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
 
       add :download_token_hash, :text
@@ -450,7 +450,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:edge_sites,
             column: :id,
             name: "collector_packages_edge_site_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
 
       add :inserted_at, :utc_datetime_usec,
@@ -535,7 +535,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:device_groups,
             column: :id,
             name: "device_groups_parent_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
 
       add :metadata, :map, default: %{}
@@ -561,7 +561,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:sweep_group_executions,
                column: :id,
                name: "sweep_host_results_execution_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -675,7 +675,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:polling_schedules,
                column: :id,
                name: "poll_jobs_schedule_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -744,7 +744,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:edge_sites,
             column: :id,
             name: "nats_leaf_servers_edge_site_id_fkey",
-            type: :uuid,
+            type: :uuid
           ), null: false
 
       add :status, :text, null: false, default: "pending"
@@ -885,7 +885,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:edge_onboarding_packages,
                column: :package_id,
                name: "nats_credentials_onboarding_package_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -997,7 +997,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:device_groups,
             column: :id,
             name: "ocsf_devices_group_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
     end
 
@@ -1008,7 +1008,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:ocsf_devices,
                column: :uid,
                name: "device_identifiers_device_id_fkey",
-               type: :text,
+               type: :text
              )
     end
 
@@ -1023,7 +1023,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:ocsf_devices,
             column: :uid,
             name: "discovered_interfaces_device_id_fkey",
-            type: :text,
+            type: :text
           ), primary_key: true, null: false
 
       add :if_index, :bigint, null: false, primary_key: true
@@ -1063,7 +1063,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:ng_users,
             column: :id,
             name: "api_tokens_user_id_fkey",
-            type: :uuid,
+            type: :uuid
           ), null: false
     end
 
@@ -1116,7 +1116,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:sweep_groups,
                column: :id,
                name: "sweep_group_executions_sweep_group_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -1162,7 +1162,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:partitions,
                column: :id,
                name: "polling_schedules_assigned_partition_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -1191,7 +1191,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:partitions,
                column: :id,
                name: "gateways_partition_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -1233,14 +1233,14 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:gateways,
             column: :gateway_id,
             name: "ocsf_agents_gateway_id_fkey",
-            type: :text,
+            type: :text
           )
 
       add :device_uid,
           references(:ocsf_devices,
             column: :uid,
             name: "ocsf_agents_device_uid_fkey",
-            type: :text,
+            type: :text
           )
 
       add :capabilities, {:array, :text}, default: []
@@ -1264,7 +1264,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:ocsf_agents,
                column: :uid,
                name: "checkers_agent_uid_fkey",
-               type: :text,
+               type: :text
              )
     end
 
@@ -1303,7 +1303,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:edge_onboarding_packages,
             column: :package_id,
             name: "edge_onboarding_events_package_id_fkey",
-            type: :uuid,
+            type: :uuid
           ), primary_key: true, null: false
 
       add :event_type, :text, null: false
@@ -1319,7 +1319,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:ocsf_devices,
             column: :uid,
             name: "device_alias_states_device_id_fkey",
-            type: :text,
+            type: :text
           ), null: false
 
       add :partition, :text
@@ -1355,21 +1355,21 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:service_checks,
                column: :id,
                name: "alerts_service_check_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
 
       modify :device_uid,
              references(:ocsf_devices,
                column: :uid,
                name: "alerts_device_uid_fkey",
-               type: :text,
+               type: :text
              )
 
       modify :agent_uid,
              references(:ocsf_agents,
                column: :uid,
                name: "alerts_agent_uid_fkey",
-               type: :text,
+               type: :text
              )
     end
 
@@ -1396,14 +1396,14 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:ocsf_agents,
             column: :uid,
             name: "service_checks_agent_uid_fkey",
-            type: :text,
+            type: :text
           )
 
       add :device_uid,
           references(:ocsf_devices,
             column: :uid,
             name: "service_checks_device_uid_fkey",
-            type: :text,
+            type: :text
           )
 
       add :metadata, :map, default: %{}
@@ -1412,7 +1412,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:polling_schedules,
             column: :id,
             name: "service_checks_schedule_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
 
       add :created_at, :utc_datetime_usec,
@@ -1433,7 +1433,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:agent_config_instances,
                column: :id,
                name: "agent_config_versions_config_instance_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
@@ -1452,7 +1452,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
           references(:agent_config_templates,
             column: :id,
             name: "agent_config_instances_template_id_fkey",
-            type: :uuid,
+            type: :uuid
           )
 
       add :inserted_at, :utc_datetime_usec,
@@ -1511,7 +1511,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              references(:sweep_profiles,
                column: :id,
                name: "sweep_groups_profile_id_fkey",
-               type: :uuid,
+               type: :uuid
              )
     end
 
