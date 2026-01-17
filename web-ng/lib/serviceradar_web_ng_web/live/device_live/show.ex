@@ -4,7 +4,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.SRQL.Viz
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -41,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:results, [])
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
+     |> assign(:sysmon_presence, false)
      |> assign(:sysmon_summary, nil)
      |> assign(:sysmon_profile_info, nil)
      |> assign(:available_profiles, [])
@@ -108,8 +111,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
-    metric_sections = load_metric_sections(srql_module, uid, scope)
-    sysmon_summary = load_sysmon_summary(srql_module, uid, scope)
+    device_row = List.first(Enum.filter(results, &is_map/1))
+    sysmon_identity = sysmon_identity(device_row, uid)
+
+    metric_sections = load_metric_sections(srql_module, sysmon_identity, scope)
+    sysmon_summary = load_sysmon_summary(srql_module, sysmon_identity, scope)
+    sysmon_presence = load_sysmon_presence(srql_module, sysmon_identity, scope)
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
@@ -125,8 +132,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_uid, uid)
      |> assign(:limit, limit)
      |> assign(:results, results)
-     |> assign(:panels, Engine.build_panels(srql_response))
+     |> assign(:panels, srql_response |> Engine.build_panels() |> drop_low_value_categories())
      |> assign(:metric_sections, metric_sections)
+     |> assign(:sysmon_presence, sysmon_presence)
      |> assign(:sysmon_summary, sysmon_summary)
      |> assign(:sysmon_profile_info, sysmon_profile_info)
      |> assign(:available_profiles, available_profiles)
@@ -238,11 +246,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       assigns
       |> assign(:device_row, device_row)
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
+      |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
-        Enum.filter(assigns.metric_sections, fn section ->
-          is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
-        end)
+        if sysmon_metrics_visible?(assigns) do
+          Enum.filter(assigns.metric_sections, fn section ->
+            is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
+          end)
+        else
+          []
+        end
       )
 
     ~H"""
@@ -446,7 +459,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             device_uid={@device_uid}
           />
 
-          <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
+          <.sysmon_summary_section
+            :if={@sysmon_metrics_visible and is_map(@sysmon_summary)}
+            summary={@sysmon_summary}
+          />
 
           <%= for section <- @metric_sections_to_render do %>
             <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -1041,11 +1057,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp load_metric_sections(srql_module, device_uid, scope) do
-    device_uid = escape_value(device_uid)
+  defp load_metric_sections(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: []
 
+  defp load_metric_sections(srql_module, identity, scope) do
     metric_section_specs()
-    |> Enum.map(&build_metric_section(srql_module, &1, device_uid, scope))
+    |> Enum.map(&build_metric_section(srql_module, &1, identity, scope))
   end
 
   defp metric_section_specs do
@@ -1074,8 +1092,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ]
   end
 
-  defp build_metric_section(srql_module, spec, device_uid, scope) do
-    query = metric_query(spec.entity, device_uid, spec.series)
+  defp build_metric_section(srql_module, spec, identity, scope) do
+    query = metric_query(spec.entity, identity, spec.series)
 
     base = %{
       key: spec.key,
@@ -1088,7 +1106,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-        panels = build_metric_panels(resp, results)
+        panels = build_metric_panels(resp, results, spec.series)
         %{base | panels: panels}
 
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -1102,12 +1120,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp build_metric_panels(resp, results) do
+  defp build_metric_panels(resp, results, series_field) do
     srql_response = %{"results" => results, "viz" => extract_viz(resp)}
 
-    srql_response
-    |> Engine.build_panels()
-    |> prefer_visual_panels(results)
+    panels =
+      srql_response
+      |> Engine.build_panels()
+      |> prefer_visual_panels(results)
+
+    maybe_force_timeseries(panels, results, series_field)
   end
 
   defp extract_viz(resp) do
@@ -1129,7 +1150,149 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp prefer_visual_panels(panels, _results), do: panels
 
-  defp metric_query(entity, device_uid_escaped, series_field) do
+  defp maybe_force_timeseries(panels, results, series_field) do
+    has_visual = Enum.any?(panels, &(&1.plugin != TablePlugin))
+
+    if has_visual do
+      panels
+    else
+      case inferred_timeseries_viz(results, series_field) do
+        nil ->
+          panels
+
+        viz ->
+          %{"results" => results, "viz" => %{"suggestions" => [viz]}}
+          |> Engine.build_panels()
+          |> prefer_visual_panels(results)
+      end
+    end
+  end
+
+  defp inferred_timeseries_viz(results, series_field) do
+    case Viz.infer(results) do
+      {:timeseries, %{x: x, y: y}} ->
+        base = %{"kind" => "timeseries", "x" => x, "y" => y}
+
+        if is_binary(series_field) and String.trim(series_field) != "" do
+          Map.put(base, "series", series_field)
+        else
+          base
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp sysmon_metrics_visible?(assigns) do
+    sysmon_presence = Map.get(assigns, :sysmon_presence, false)
+    sysmon_summary = Map.get(assigns, :sysmon_summary)
+
+    sysmon_presence or is_map(sysmon_summary)
+  end
+
+  defp sysmon_identity(device_row, device_uid) do
+    device_uid =
+      case Map.get(device_row || %{}, "uid") || device_uid do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    agent_id =
+      device_row
+      |> Map.get("agent_id")
+      |> case do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    %{}
+    |> maybe_put_identity(:device_uid, device_uid)
+    |> maybe_put_identity(:agent_id, agent_id)
+  end
+
+  defp maybe_put_identity(identity, _key, ""), do: identity
+  defp maybe_put_identity(identity, _key, nil), do: identity
+
+  defp maybe_put_identity(identity, key, value) do
+    if is_binary(value) and String.trim(value) != "" do
+      Map.put(identity, key, value)
+    else
+      identity
+    end
+  end
+
+  defp sysmon_filter_tokens(identity) when identity == %{} or identity == nil, do: []
+
+  defp sysmon_filter_tokens(identity) do
+    tokens = []
+    device_uid = Map.get(identity, :device_uid)
+    agent_id = Map.get(identity, :agent_id)
+
+    tokens =
+      if is_binary(device_uid) and device_uid != "" do
+        tokens ++ ["device_id:\"#{escape_value(device_uid)}\""]
+      else
+        tokens
+      end
+
+    if is_binary(agent_id) and agent_id != "" do
+      tokens ++ ["agent_id:\"#{escape_value(agent_id)}\""]
+    else
+      tokens
+    end
+  end
+
+  defp row_matches_identity?(row, identity) when is_map(row) and is_map(identity) do
+    device_match =
+      case Map.get(identity, :device_uid) do
+        value when is_binary(value) and value != "" ->
+          Map.get(row, "uid") == value or Map.get(row, "device_id") == value
+
+        _ ->
+          true
+      end
+
+    agent_match =
+      case Map.get(identity, :agent_id) do
+        value when is_binary(value) and value != "" ->
+          Map.get(row, "agent_id") == value
+
+        _ ->
+          true
+      end
+
+    device_match and agent_match
+  end
+
+  defp row_matches_identity?(_row, _identity), do: false
+
+  defp drop_low_value_categories(panels) when is_list(panels) do
+    Enum.reject(panels, &low_value_categories_panel?/1)
+  end
+
+  defp drop_low_value_categories(_), do: []
+
+  defp low_value_categories_panel?(%{plugin: CategoriesPlugin, assigns: assigns}) do
+    case Map.get(assigns, :viz) do
+      {:categories, %{label: label, value: value}} ->
+        normalize_viz_key(label) == "modified" and normalize_viz_key(value) == "type_id"
+
+      _ ->
+        false
+    end
+  end
+
+  defp low_value_categories_panel?(_), do: false
+
+  defp normalize_viz_key(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp metric_query(entity, identity, series_field) do
     series_field =
       case series_field do
         nil -> nil
@@ -1140,13 +1303,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tokens =
       [
         "in:#{entity}",
-        "uid:\"#{device_uid_escaped}\"",
         "time:last_24h",
         "bucket:5m",
         "agg:avg",
         "sort:timestamp:desc",
         "limit:#{@metrics_limit}"
       ]
+      |> Kernel.++(sysmon_filter_tokens(identity))
 
     tokens =
       if is_binary(series_field) and series_field != "" do
@@ -1543,14 +1706,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_sysmon_summary(srql_module, device_uid, scope) do
-    escaped_id = escape_value(device_uid)
+  defp load_sysmon_summary(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: nil
 
+  defp load_sysmon_summary(srql_module, identity, scope) do
     # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
-    cpu_data = load_cpu_summary(srql_module, escaped_id, scope)
-    memory_data = load_memory_summary(srql_module, escaped_id, scope)
-    disk_data = load_disk_summary(srql_module, escaped_id, scope)
-    icmp_rtt = load_icmp_rtt(srql_module, escaped_id, scope)
+    cpu_data = load_cpu_summary(srql_module, identity, scope)
+    memory_data = load_memory_summary(srql_module, identity, scope)
+    disk_data = load_disk_summary(srql_module, identity, scope)
+    icmp_rtt = load_icmp_rtt(srql_module, identity, scope)
 
     has_sysmon_metrics = is_map(cpu_data) or is_map(memory_data) or disk_data != []
 
@@ -1566,65 +1731,105 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_cpu_summary(srql_module, escaped_id, scope) do
-    query = "in:cpu_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:64"
+  defp load_sysmon_presence(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: false
+
+  defp load_sysmon_presence(srql_module, identity, scope) do
+    query =
+      [
+        "in:cpu_metrics",
+        Enum.join(sysmon_filter_tokens(identity), " "),
+        "time:last_24h",
+        "sort:timestamp:desc",
+        "limit:1"
+      ]
+      |> Enum.join(" ")
+
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        Enum.any?(rows, &row_matches_identity?(&1, identity))
+
+      _ ->
+        false
+    end
+  end
+
+  defp load_cpu_summary(srql_module, identity, scope) do
+    query =
+      "in:cpu_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:64"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        # Get unique cores and calculate average
-        values =
-          Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
-          |> Enum.filter(&is_number/1)
+        rows = Enum.filter(rows, &row_matches_identity?(&1, identity))
 
-        cores =
-          rows
-          |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
-          |> Enum.filter(&is_binary/1)
-          |> Enum.uniq()
-          |> length()
+        if rows == [] do
+          nil
+        else
+          # Get unique cores and calculate average
+          values =
+            Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
+            |> Enum.filter(&is_number/1)
 
-        avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
+          cores =
+            rows
+            |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
+            |> Enum.filter(&is_binary/1)
+            |> Enum.uniq()
+            |> length()
 
-        %{
-          avg_usage: Float.round(avg * 1.0, 1),
-          core_count: max(cores, 1),
-          timestamp: Map.get(List.first(rows), "timestamp")
-        }
+          avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
+
+          %{
+            avg_usage: Float.round(avg * 1.0, 1),
+            core_count: max(cores, 1),
+            timestamp: Map.get(List.first(rows), "timestamp")
+          }
+        end
 
       _ ->
         nil
     end
   end
 
-  defp load_memory_summary(srql_module, escaped_id, scope) do
-    query = "in:memory_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:4"
+  defp load_memory_summary(srql_module, identity, scope) do
+    query =
+      "in:memory_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:4"
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
-        total = extract_numeric(Map.get(row, "total_bytes"))
-        pct = percent_from_row(row, used, total)
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        row = Enum.find(rows, &row_matches_identity?(&1, identity))
 
-        %{
-          used_bytes: used || 0,
-          total_bytes: total || 0,
-          percent: Float.round(pct * 1.0, 1),
-          timestamp: Map.get(row, "timestamp")
-        }
+        if is_map(row) do
+          used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
+          total = extract_numeric(Map.get(row, "total_bytes"))
+          pct = percent_from_row(row, used, total)
+
+          %{
+            used_bytes: used || 0,
+            total_bytes: total || 0,
+            percent: Float.round(pct * 1.0, 1),
+            timestamp: Map.get(row, "timestamp")
+          }
+        else
+          nil
+        end
 
       _ ->
         nil
     end
   end
 
-  defp load_disk_summary(srql_module, escaped_id, scope) do
-    query = "in:disk_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:24"
+  defp load_disk_summary(srql_module, identity, scope) do
+    query =
+      "in:disk_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:24"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         # Group by mount point and take the latest for each
         rows
         |> Enum.filter(&is_map/1)
+        |> Enum.filter(&row_matches_identity?(&1, identity))
         |> Enum.group_by(&disk_mount/1)
         |> Enum.map(fn {mount, disk_rows} ->
           build_disk_entry(mount, List.first(disk_rows))
@@ -1636,16 +1841,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_icmp_rtt(srql_module, escaped_id, scope) do
+  defp load_icmp_rtt(srql_module, identity, scope) do
     query =
-      "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" sort:timestamp:desc limit:1"
+      "in:timeseries_metrics metric_type:icmp #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        row
-        |> Map.get("value")
-        |> extract_numeric()
-        |> normalize_icmp_rtt()
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        row = Enum.find(rows, &row_matches_identity?(&1, identity))
+
+        if is_map(row) do
+          row
+          |> Map.get("value")
+          |> extract_numeric()
+          |> normalize_icmp_rtt()
+        else
+          nil
+        end
 
       _ ->
         nil
