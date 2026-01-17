@@ -1,11 +1,11 @@
-# Tasks: Remove Tenant Awareness from Tenant Instance
+# Tasks: Remove Account Awareness from Instance
 
 ## Summary
 
-Make instance code (web-ng, core-elx) completely schema-scoped and tenant-unaware by:
+Make instance code (web-ng, core-elx) completely schema-scoped and account-unaware by:
 1. Using schema-scoped CNPG credentials (DB enforces isolation)
 2. Using account-scoped NATS JWTs (NATS enforces isolation)
-3. Removing all `tenant:` parameters from Ash queries
+3. Removing all explicit schema context parameters from Ash queries
 4. Removing cross-schema code paths entirely
 
 ---
@@ -22,13 +22,13 @@ Make instance code (web-ng, core-elx) completely schema-scoped and tenant-unawar
   - Sets: `search_path` to account schema
   - Stores: credentials in K8s secret via `K8s.SecretManager`
 
-- [x] **1.1.2 Create migration to add CNPG fields to Tenant resource**
-  - Added `cnpg_username` and `cnpg_password_secret_ref` to Tenant resource
+- [x] **1.1.2 Create migration to add CNPG fields to account registry resource**
+  - Added `cnpg_username` and `cnpg_password_secret_ref` to account registry resource
   - Created migration `20260115100000_add_cnpg_user_fields.exs`
   - Updated `set_cnpg_ready` action to accept new fields
 
 - [x] **1.1.3 Wire up account provisioning to create CNPG user**
-  - Updated `TenantController.create/2` to enqueue `CreateCnpgUserWorker`
+  - Updated account provisioning controller to enqueue `CreateCnpgUserWorker`
   - CNPG provisioning runs in parallel with NATS provisioning
   - Added `cnpg_provisioning` queue to Oban config
 
@@ -50,29 +50,28 @@ Make instance code (web-ng, core-elx) completely schema-scoped and tenant-unawar
 
 - [x] **2.1.1 List all resources with `multitenancy` blocks**
   - Found 59 resources with `strategy :context` (schema-isolated)
-  - Found 1 resource with `strategy :attribute` + `global? true` (TenantMembership)
-  - Found 4 resources with no multitenancy (Tenant, NatsOperator, NatsPlatformToken, NatsServiceAccount)
+  - Found 1 resource with `strategy :attribute` + `global? true` (legacy membership resource)
+  - Found 4 resources with no multitenancy (account registry + NATS operator/tokens)
 
-- [x] **2.1.2 List all resources with `tenant_id` attributes**
-  - Found 47 resources with explicit `tenant_id` attributes
+- [x] **2.1.2 List all resources with legacy account-id attributes**
+  - Found 47 resources with explicit account-id attributes
   - Most are redundant when using schema-based isolation
 
 - [x] **2.1.3 Identify resources that should stay in public schema**
-  - Tenant, TenantMembership, NatsOperator, NatsPlatformToken, NatsServiceAccount
-  - These are Control Plane resources
+  - Account registry + NATS operator/tokens (Control Plane resources)
 
 ### 2.2 Remove multitenancy DSL and regenerate snapshots
 
 - [x] **2.2.1 Remove multitenancy blocks from Ash resources**
   - COMPLETE - No multitenancy blocks remain in Ash resources
-  - No `strategy :context` or `attribute :tenant_id` in codebase
+  - No `strategy :context` or `attribute :account_id` in codebase
 
 - [x] **2.2.2 Regenerate Ash snapshots and migrations**
   - Ran `mix ash.codegen`; no changes detected
 
 ---
 
-## Phase 3: Remove tenant: Parameter from Code
+## Phase 3: Remove Explicit Schema Context from Code
 
 **Status: COMPLETE** (as of 2026-01-16)
 

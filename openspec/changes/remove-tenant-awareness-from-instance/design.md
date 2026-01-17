@@ -1,4 +1,4 @@
-# Design: Remove Tenant Awareness from Tenant Instance
+# Design: Remove Account Awareness from Instance
 
 ## Context
 
@@ -45,15 +45,15 @@
 
 ServiceRadar uses PostgreSQL schema-based isolation where each account has its own schema (e.g., `account_abc123`). Currently, the application code maintains schema awareness by:
 
-1. Passing `tenant: schema` to every Ash query
-2. Using `SystemActor.for_tenant(tenant_id, :component)` for scoped operations
+1. Passing explicit schema context to every Ash query
+2. Using schema-scoped system actors for background operations
 3. Tracking schema context through `Scope` structs in the request lifecycle
 
-This design document outlines how to eliminate schema/tenant context tracking from instance code, making isolation database-enforced rather than application-enforced.
+This design document outlines how to eliminate schema context tracking from instance code, making isolation database-enforced rather than application-enforced.
 
 ## Goals
 
-- **Simplify application code** - No schema tracking, no `tenant:` params
+- **Simplify application code** - No schema tracking, no explicit schema context params
 - **DB-enforced isolation** - Impossible to access other accounts' data
 - **Same code for OSS/SaaS** - Single codebase works for both deployment modes
 - **Secure by default** - Can't accidentally leak data across accounts
@@ -94,7 +94,7 @@ postgresql://account_abc123_app:secret@cnpg-cluster:5432/serviceradar?search_pat
 ```
 
 **Alternatives Considered:**
-- Row-Level Security (RLS): More complex, still requires legacy `tenant_id` tracking in app
+- Row-Level Security (RLS): More complex, still requires legacy `account_id` tracking in app
 - Separate databases per account: Higher operational overhead, harder to share resources
 
 ### Decision 2: Remove Multitenancy from Ash Resources
@@ -108,7 +108,7 @@ end
 
 multitenancy do
   strategy :context
-  attribute :tenant_id
+  attribute :account_id
 end
 ```
 
@@ -131,11 +131,7 @@ end
 ### Decision 3: Simplify Actor Model
 
 **Current Actors:**
-```elixir
-# Legacy schema-scoped system actor
-actor = SystemActor.for_tenant(tenant_id, :my_worker)
-Ash.read!(query, actor: actor, tenant: schema)
-```
+- Schema-scoped system actor plus explicit schema options on queries
 
 **Target Actors:**
 ```elixir
@@ -165,7 +161,7 @@ Ash.read!(query, actor: actor)  # Uses connection's schema
 }
 ```
 
-No `tenant_id` in actors - schema is implicit from the database connection.
+No account id in actors - schema is implicit from the database connection.
 
 ### Decision 4: Handle Shared/Global Resources
 
@@ -200,15 +196,15 @@ For OSS deployments, there's one account. Two options:
 
 ## Database Schema Changes
 
-### Resources That Keep tenant_id Column
+### Resources That Keep account_id Column
 
-None. The `tenant_id` column becomes unnecessary when using schema-based isolation with scoped credentials.
+None. The `account_id` column becomes unnecessary when using schema-based isolation with scoped credentials.
 
 **Before:**
 ```sql
 CREATE TABLE account_abc.devices (
   id UUID PRIMARY KEY,
-  tenant_id UUID NOT NULL,  -- Redundant!
+  account_id UUID NOT NULL,  -- Redundant!
   name TEXT,
   ...
 );
@@ -218,7 +214,7 @@ CREATE TABLE account_abc.devices (
 ```sql
 CREATE TABLE account_abc.devices (
   id UUID PRIMARY KEY,
--- No tenant_id needed - table is in account schema
+-- No account_id needed - table is in account schema
   name TEXT,
   ...
 );
@@ -227,17 +223,17 @@ CREATE TABLE account_abc.devices (
 ### Migration for Existing Schemas
 
 ```sql
--- For each account schema, drop the tenant_id column
-ALTER TABLE account_abc.devices DROP COLUMN tenant_id;
-ALTER TABLE account_abc.agents DROP COLUMN tenant_id;
+-- For each account schema, drop the account_id column
+ALTER TABLE account_abc.devices DROP COLUMN account_id;
+ALTER TABLE account_abc.agents DROP COLUMN account_id;
 -- etc.
 ```
 
-This is a **BREAKING** change for any external tools that rely on `tenant_id`.
+This is a **BREAKING** change for any external tools that rely on `account_id`.
 
 ## Risks / Trade-offs
 
-### Risk: Cross-Tenant Queries Become Impossible
+### Risk: Cross-Account Queries Become Impossible
 
 **Mitigation:** This is the goal. Any legitimate cross-account operation belongs in the Control Plane.
 
@@ -249,10 +245,10 @@ This is a **BREAKING** change for any external tools that rely on `tenant_id`.
 3. Old instances continue working until cutover
 4. Controlled migration per account
 
-### Risk: Debugging Harder Without Tenant Context
+### Risk: Debugging Harder Without Account Context
 
 **Mitigation:**
-- Tenant ID still available in JWT claims
+- Account ID available via deployment config/environment
 - Logs can include account id from config/environment
 - Database user name includes account id
 
@@ -264,13 +260,13 @@ Creating a PostgreSQL user per account increases DB overhead slightly.
 
 ## Migration Plan
 
-### Phase 1: Remove Tenant-Aware Code
+### Phase 1: Remove Account-Aware Code
 
-1. Delete `TenantSchemas` module
+1. Delete schema enumeration helpers
 2. Simplify `SystemActor` module
-3. Remove `tenant:` parameters from all call sites
-4. Delete `find_*_across_tenants()` functions
-5. Remove `Scope.tenant_id()` usage
+3. Remove explicit schema context options from all call sites
+4. Delete cross-schema lookup functions
+5. Remove legacy schema accessors in scope
 
 ### Phase 2: Control Plane Credential Provisioning
 
@@ -287,9 +283,9 @@ Creating a PostgreSQL user per account increases DB overhead slightly.
 
 ### Phase 4: Schema Cleanup
 
-1. Remove `tenant_id` attributes where redundant
-2. Generate migrations to drop `tenant_id` columns
-3. Update policies to not reference tenant_id
+1. Remove `account_id` attributes where redundant
+2. Generate migrations to drop `account_id` columns
+3. Update policies to not reference account_id
 
 ### Phase 5: Documentation + Archive
 
