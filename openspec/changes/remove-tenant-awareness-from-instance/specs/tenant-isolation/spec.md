@@ -1,4 +1,4 @@
-# tenant-isolation Spec Delta
+# Deployment Isolation Spec Delta
 
 ## ADDED Requirements
 
@@ -19,7 +19,7 @@ Each deployment instance SHALL connect to PostgreSQL with schema-scoped credenti
 
 #### Scenario: Application code does not track schema context
 - **WHEN** application code executes an Ash query
-- **THEN** no `tenant:` parameter is required
+- **THEN** no explicit schema context parameter is required
 - **AND** the query automatically uses the connection's search_path schema
 
 ### Requirement: Control Plane Creates Schema-Scoped Users
@@ -50,7 +50,7 @@ Instance application code (web-ng, core-elx) SHALL NOT contain logic to access m
 
 #### Scenario: Ash calls do not pass schema context
 - **WHEN** reviewing Ash operations in instance code
-- **THEN** there are no `tenant:` parameters passed
+- **THEN** there are no explicit schema context parameters passed
 - **AND** queries rely on the connection's search_path schema
 
 ## MODIFIED Requirements
