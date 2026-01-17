@@ -2,15 +2,14 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   @moduledoc """
   Test helpers for creating test data.
 
-  Provides fixtures for tenants and resources to test access control.
-
   ## Tenant Instance Model
 
   In a tenant-instance model, tenant isolation is handled at the infrastructure
   level via PostgreSQL search_path. Each tenant has their own deployment.
+  There is no Tenant resource - tenant_fixture returns a simple map for
+  test compatibility.
   """
 
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Infrastructure.Gateway
@@ -29,23 +28,23 @@ defmodule ServiceRadarWebNG.MultiTenantFixtures do
   end
 
   @doc """
-  Creates a tenant with unique name and slug.
+  Returns a tenant map for test compatibility.
+
+  In single-tenant-per-deployment architecture, there is no Tenant resource.
+  Returns a simple map representing a tenant.
   """
   def tenant_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
+      id: Ecto.UUID.generate(),
       name: "Test Tenant #{unique}",
       slug: "test-tenant-#{unique}",
       contact_email: "contact-#{unique}@example.com",
       plan: :pro
     }
 
-    attrs = Map.merge(defaults, attrs)
-
-    Tenant
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
-    |> Ash.create!()
+    Map.merge(defaults, Map.new(attrs))
   end
 
   @doc """

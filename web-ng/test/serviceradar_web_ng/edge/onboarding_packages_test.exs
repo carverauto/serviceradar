@@ -2,9 +2,6 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   use ServiceRadarWebNG.DataCase, async: true
 
   alias ServiceRadarWebNG.Edge.OnboardingPackages
-  alias ServiceRadar.Edge.TenantCA
-
-  require Ash.Query
 
   describe "create/2" do
     test "creates a package with generated tokens", _context do
@@ -324,105 +321,22 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
   end
 
-  describe "CA auto-generation on first package creation" do
-    test "auto-generates CA when none exists", _context do
-      # In tenant-instance model, verify no CA exists initially in the schema
-      existing_cas =
-        TenantCA
-        |> Ash.Query.for_read(:active)
-        |> Ash.read!()
+  describe "certificate generation (external infrastructure)" do
+    # NOTE: In single-tenant-per-deployment mode, certificate generation is handled by
+    # external infrastructure (SPIFFE/SPIRE, cert-manager). These tests verify that
+    # the functions return appropriate errors indicating this.
 
-      assert existing_cas == []
-
-      # Create a package with certificate - this should trigger CA generation
+    test "create_with_tenant_cert returns error for unavailable CA", _context do
       attrs = %{
-        label: "ca-auto-gen-test",
+        label: "ca-test",
         component_type: :gateway,
         component_id: "gateway-ca-test"
       }
 
+      # In single-tenant mode, this should return an error since TenantCA is not available
       result = OnboardingPackages.create_with_tenant_cert(attrs)
 
-      case result do
-        {:ok, package_result} ->
-          # Package was created successfully
-          assert package_result.package.id != nil
-
-          # Verify a CA was auto-generated
-          cas_after =
-            TenantCA
-            |> Ash.Query.for_read(:active)
-            |> Ash.read!()
-
-          assert not Enum.empty?(cas_after)
-          ca = List.first(cas_after)
-          assert ca.status == :active
-
-        {:error, :ca_generation_failed} ->
-          # CA generation might fail in test environment without PKI setup
-          # This is acceptable - we're testing the flow, not the PKI itself
-          assert true
-
-        {:error, _reason} ->
-          # Other errors are acceptable in unit test environment
-          assert true
-      end
-    end
-
-    test "reuses existing CA on subsequent package creation", _context do
-      # First, try to create a package (which may auto-generate CA)
-      attrs1 = %{
-        label: "ca-reuse-test-1",
-        component_type: :gateway,
-        component_id: "gateway-reuse-1"
-      }
-
-      result1 = OnboardingPackages.create_with_tenant_cert(attrs1)
-
-      case result1 do
-        {:ok, _} ->
-          # Get CA count after first creation
-          cas_after_first =
-            TenantCA
-            |> Ash.Query.for_read(:active)
-            |> Ash.read!()
-
-          ca_count_first = length(cas_after_first)
-
-          # Create second package
-          attrs2 = %{
-            label: "ca-reuse-test-2",
-            component_type: :checker,
-            component_id: "checker-reuse-2"
-          }
-
-          case OnboardingPackages.create_with_tenant_cert(attrs2) do
-            {:ok, _} ->
-              # CA count should remain the same (reused, not regenerated)
-              cas_after_second =
-                TenantCA
-                |> Ash.Query.for_read(:active)
-                |> Ash.read!()
-
-              assert length(cas_after_second) == ca_count_first
-
-            {:error, _} ->
-              # Acceptable in test environment
-              assert true
-          end
-
-        {:error, _} ->
-          # First package creation failed - acceptable in test environment
-          assert true
-      end
-    end
-
-    # NOTE: Cross-tenant CA isolation is handled at infrastructure level in tenant-instance model.
-    # Each tenant gets their own deployment with separate DB schemas.
-    # This test is skipped as it tests Control Plane concerns.
-    @tag :skip
-    test "each tenant gets its own isolated CA (Control Plane concern)" do
-      assert true
+      assert match?({:error, _}, result)
     end
   end
 end

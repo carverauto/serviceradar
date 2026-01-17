@@ -2,12 +2,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   @moduledoc """
   Oban worker for provisioning NATS credentials for collector packages.
 
-  This worker is triggered when a new collector package is created. It:
-  1. Verifies the tenant's NATS account is ready
-  2. Decrypts the tenant's account seed
-  3. Calls datasvc to generate user credentials with collector-specific permissions
-  4. Creates the NatsCredential record
-  5. Updates the CollectorPackage status to ready
+  In single-tenant-per-deployment mode:
+  - NATS account configuration comes from environment variables
+  - TLS certificates are handled by external infrastructure (SPIFFE/SPIRE, cert-manager)
+  - The worker generates NATS user credentials via datasvc gRPC
 
   ## Retries
 
@@ -28,11 +26,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   require Ash.Query
   require Logger
 
-  alias Ash.Resource.Info, as: AshResourceInfo
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
-  alias ServiceRadar.Edge.TenantCA
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
 
@@ -64,19 +60,14 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
     Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
 
-    # DB connection's search_path determines the schema
+    # In single-tenant mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
          {:ok, _package} <- mark_provisioning(package),
-         {:ok, tenant} <- get_tenant(),
-         :ok <- validate_tenant_nats_ready(tenant),
-         {:ok, account_seed} <- get_account_seed(tenant),
-         {:ok, user_creds} <- generate_user_credentials(tenant, package, account_seed),
-         {:ok, tenant_ca} <- get_tenant_ca(),
-         {:ok, tls_certs} <- generate_tls_certificates(tenant_ca, tenant, package),
+         {:ok, nats_config} <- get_nats_config(),
+         {:ok, user_creds} <- generate_user_credentials(nats_config, package),
          {:ok, credential} <- create_credential_record(package, user_creds),
-         {:ok, _package} <-
-           mark_ready(package, credential.id, user_creds.creds_file_content, tls_certs) do
+         {:ok, _package} <- mark_ready(package, credential.id, user_creds.creds_file_content) do
       Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
@@ -88,38 +79,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
         Logger.info("Collector package #{package_id} not in pending state, skipping")
         :ok
 
-      {:error, :tenant_not_found} ->
-        Logger.error("Tenant not found for package #{package_id}, discarding job")
-        mark_failed(package_id, "Tenant not found")
-        {:discard, :tenant_not_found}
-
-      {:error, :tenant_nats_not_ready} ->
-        Logger.warning("Tenant NATS account not ready for package #{package_id}, will retry")
-        {:error, :tenant_nats_not_ready}
+      {:error, :nats_not_configured} ->
+        Logger.error("NATS not configured for package #{package_id}")
+        mark_failed(package_id, "NATS account not configured for this deployment")
+        {:discard, :nats_not_configured}
 
       {:error, :account_seed_not_found} ->
-        Logger.error("Tenant account seed not found for package #{package_id}")
-        mark_failed(package_id, "Tenant NATS account seed not configured")
+        Logger.error("NATS account seed not found for package #{package_id}")
+        mark_failed(package_id, "NATS account seed not configured")
         {:discard, :account_seed_not_found}
-
-      {:error, :tenant_ca_not_found} ->
-        Logger.error("Tenant CA not found for package #{package_id}")
-        mark_failed(package_id, "Tenant certificate authority not configured")
-        {:discard, :tenant_ca_not_found}
-
-      {:error, :tenant_ca_key_decrypt_failed} ->
-        Logger.error("Failed to decrypt tenant CA key for package #{package_id}")
-        mark_failed(package_id, "Failed to decrypt tenant CA key")
-        {:discard, :tenant_ca_key_decrypt_failed}
-
-      {:error, {:tls_cert_generation_failed, reason}} = error ->
-        Logger.error("TLS certificate generation failed for package #{package_id}: #{inspect(reason)}")
-
-        if attempt >= max do
-          mark_failed(package_id, "TLS certificate generation failed: #{inspect(reason)}")
-        end
-
-        error
 
       {:error, {:grpc_error, message}} = error ->
         Logger.error("gRPC error provisioning credentials for package #{package_id}: #{message}")
@@ -148,7 +116,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   # Private helpers
 
   defp get_package(package_id) do
-    # Simple actor - DB connection's search_path determines the schema
     actor = SystemActor.system(:provision_collector)
 
     case CollectorPackage
@@ -170,7 +137,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp mark_provisioning(package) do
-    # Simple actor - DB connection's search_path determines the schema
     actor = SystemActor.system(:provision_collector)
 
     package
@@ -178,94 +144,37 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.update()
   end
 
-  defp get_tenant do
-    # DB connection's search_path determines the schema - get the single tenant
-    actor = SystemActor.system(:provision_collector)
-    seed_attr = seed_attribute()
-    select_fields =
-      case seed_attr do
-        nil ->
-          [:id, :slug, :nats_account_status, :nats_account_jwt]
+  defp get_nats_config do
+    # In single-tenant-per-deployment mode, NATS configuration comes from environment
+    tenant_slug = Application.get_env(:serviceradar, :tenant_slug)
+    account_seed = Application.get_env(:serviceradar, :nats_account_seed)
 
-        attr ->
-          [:id, :slug, :nats_account_status, :nats_account_jwt, attr]
-      end
-
-    case Tenant
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.select(select_fields)
-         |> Ash.Query.limit(1)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :tenant_not_found}
-      {:ok, tenant} -> {:ok, tenant}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp validate_tenant_nats_ready(tenant) do
-    if tenant.nats_account_status == :ready and tenant.nats_account_jwt != nil do
-      :ok
-    else
-      {:error, :tenant_nats_not_ready}
-    end
-  end
-
-  defp get_account_seed(tenant) do
-    # The nats_account_seed_ciphertext is encrypted via AshCloak
-    # Since it's not in decrypt_by_default, we decrypt it via the Vault
-    case account_seed_ciphertext(tenant) do
-      nil ->
-        {:error, :account_seed_not_found}
-
-      encrypted_value when is_binary(encrypted_value) ->
-        case ServiceRadar.Vault.decrypt(encrypted_value) do
-          {:ok, seed} when is_binary(seed) and seed != "" ->
-            {:ok, seed}
-
-          {:ok, _} ->
-            {:error, :account_seed_not_found}
-
-          {:error, _reason} ->
-            {:error, :account_seed_decrypt_failed}
-        end
-
-      _ ->
-        {:error, :account_seed_not_found}
-    end
-  end
-
-  defp account_seed_ciphertext(tenant) do
-    Map.get(tenant, :nats_account_seed_ciphertext) ||
-      Map.get(tenant, :encrypted_nats_account_seed_ciphertext)
-  end
-
-  defp seed_attribute do
     cond do
-      AshResourceInfo.attribute(Tenant, :nats_account_seed_ciphertext) ->
-        :nats_account_seed_ciphertext
+      is_nil(tenant_slug) or tenant_slug == "" ->
+        {:error, :nats_not_configured}
 
-      AshResourceInfo.attribute(Tenant, :encrypted_nats_account_seed_ciphertext) ->
-        :encrypted_nats_account_seed_ciphertext
+      is_nil(account_seed) or account_seed == "" ->
+        {:error, :account_seed_not_found}
 
       true ->
-        nil
+        {:ok, %{tenant_slug: tenant_slug, account_seed: account_seed}}
     end
   end
 
-  defp generate_user_credentials(tenant, package, account_seed) do
+  defp generate_user_credentials(nats_config, package) do
     # Build permissions based on collector type
-    permissions = build_permissions_for_collector(package.collector_type, tenant.slug)
+    permissions = build_permissions_for_collector(package.collector_type)
 
     AccountClient.generate_user_credentials(
-      to_string(tenant.slug),
-      account_seed,
+      nats_config.tenant_slug,
+      nats_config.account_seed,
       package.user_name,
       :collector,
       permissions: permissions
     )
   end
 
-  defp build_permissions_for_collector(collector_type, _tenant_slug) do
+  defp build_permissions_for_collector(collector_type) do
     # Collectors publish to simple subjects without tenant prefix.
     # NATS Account subject mapping transforms these to tenant-prefixed subjects
     # on the server side (e.g., "logs.syslog.>" -> "{tenant}.logs.syslog.>").
@@ -309,7 +218,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp create_credential_record(package, user_creds) do
-    # DB connection's search_path determines the schema
     actor = SystemActor.system(:provision_collector)
 
     NatsCredential
@@ -328,80 +236,21 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     |> Ash.create()
   end
 
-  defp get_tenant_ca do
-    # In the single-tenant-per-deployment architecture, certificate generation
-    # is handled by external infrastructure (SPIFFE/SPIRE, cert-manager, etc.)
-    # TenantCA resource has been removed.
-    {:error, :tenant_ca_not_available}
-  end
-
-  defp generate_tls_certificates(tenant_ca, tenant, package) do
-    # Decrypt the tenant CA's private key and generate component cert
-    with {:ok, private_key_pem} <- decrypt_private_key(tenant_ca),
-         ca_data <- build_ca_data(tenant_ca, tenant, private_key_pem),
-         {:ok, cert_data} <- generate_component_cert(ca_data, package) do
-      {:ok, cert_data}
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp decrypt_private_key(%{private_key_pem: encrypted_value}) when is_binary(encrypted_value) do
-    case ServiceRadar.Vault.decrypt(encrypted_value) do
-      {:ok, private_key_pem} when is_binary(private_key_pem) and private_key_pem != "" ->
-        {:ok, private_key_pem}
-
-      _ ->
-        {:error, :tenant_ca_key_decrypt_failed}
-    end
-  end
-
-  defp decrypt_private_key(_tenant_ca), do: {:error, :tenant_ca_key_decrypt_failed}
-
-  defp build_ca_data(tenant_ca, tenant, private_key_pem) do
-    %{
-      tenant_slug: tenant.slug,
-      certificate_pem: tenant_ca.certificate_pem,
-      private_key_pem: private_key_pem
-    }
-  end
-
-  defp generate_component_cert(ca_data, package) do
-    component_id = "#{package.collector_type}-#{short_id(package.id)}"
-    partition_id = package.site || "default"
-
-    case TenantCA.Generator.generate_component_cert(
-           ca_data,
-           component_id,
-           :collector,
-           partition_id,
-           validity_days: 365
-         ) do
-      {:ok, cert_data} -> {:ok, cert_data}
-      {:error, reason} -> {:error, {:tls_cert_generation_failed, reason}}
-    end
-  end
-
-  defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
-
-  defp mark_ready(package, credential_id, nats_creds_content, tls_certs) do
-    # Simple actor - DB connection's search_path determines the schema
+  defp mark_ready(package, credential_id, nats_creds_content) do
+    # In single-tenant mode, TLS certificates are handled by external infrastructure
+    # (SPIFFE/SPIRE, cert-manager). We only set the NATS credentials.
     actor = SystemActor.system(:provision_collector)
 
     package
     |> Ash.Changeset.for_update(:ready, %{}, actor: actor)
     |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
     |> Ash.Changeset.set_argument(:nats_creds_content, nats_creds_content)
-    |> Ash.Changeset.set_argument(:tls_cert_pem, tls_certs.certificate_pem)
-    |> Ash.Changeset.set_argument(:tls_key_pem, tls_certs.private_key_pem)
-    |> Ash.Changeset.set_argument(:ca_chain_pem, tls_certs.ca_chain_pem)
     |> Ash.update()
   end
 
   defp mark_failed(package_id, message) do
     case get_package(package_id) do
       {:ok, package} ->
-        # Simple actor - DB connection's search_path determines the schema
         actor = SystemActor.system(:provision_collector)
 
         package

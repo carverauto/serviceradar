@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   @moduledoc """
-  Integration tests for sync config generation and tenant isolation.
+  Integration tests for sync config generation.
+
+  In single-tenant-per-deployment architecture, tenant isolation is handled
+  by PostgreSQL search_path. Tests run against the single schema.
   """
 
   use ExUnit.Case, async: false
@@ -9,7 +12,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
   require Ash.Query
 
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.{IntegrationSource, SyncConfigGenerator}
 
@@ -19,9 +21,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   end
 
   test "agent sync config only includes sources assigned to the agent" do
-    _tenant_a = create_tenant!("tenant-a")
-    _tenant_b = create_tenant!("tenant-b")
-
+    # In single-tenant mode, tenant is implicit from DB connection's search_path
     agent_a = create_agent!("agent-a")
     agent_b = create_agent!("agent-b")
 
@@ -39,20 +39,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
     assert config["agent_id"] == agent_a.uid
     assert Map.has_key?(sources, source_a.name)
-  end
-
-  defp create_tenant!(slug_prefix) do
-    suffix = System.unique_integer([:positive])
-    slug = "#{slug_prefix}-#{suffix}"
-    name = "#{slug_prefix}-name-#{suffix}"
-
-    Tenant
-    |> Ash.Changeset.for_create(:create, %{name: name, slug: slug}, actor: system_actor())
-    |> Ash.create(actor: system_actor())
-    |> case do
-      {:ok, tenant} -> tenant
-      {:error, reason} -> raise "failed to create tenant: #{inspect(reason)}"
-    end
   end
 
   defp create_agent!(uid) do

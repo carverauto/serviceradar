@@ -103,9 +103,9 @@ defmodule ServiceRadar.NATS.AccountClientTest do
     end
   end
 
-  describe "Proto.CreateTenantAccountRequest construction" do
+  describe "Proto.CreateAccountRequest construction" do
     test "builds request with tenant slug" do
-      request = %Proto.CreateTenantAccountRequest{
+      request = %Proto.CreateAccountRequest{
         tenant_slug: "acme-corp",
         limits: nil,
         subject_mappings: []
@@ -122,7 +122,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         max_subscriptions: 1000
       }
 
-      request = %Proto.CreateTenantAccountRequest{
+      request = %Proto.CreateAccountRequest{
         tenant_slug: "acme-corp",
         limits: limits,
         subject_mappings: []
@@ -136,7 +136,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         %Proto.SubjectMapping{from: "events.>", to: "acme-corp.events.>"}
       ]
 
-      request = %Proto.CreateTenantAccountRequest{
+      request = %Proto.CreateAccountRequest{
         tenant_slug: "acme-corp",
         limits: nil,
         subject_mappings: mappings
@@ -181,9 +181,9 @@ defmodule ServiceRadar.NATS.AccountClientTest do
     end
   end
 
-  describe "Proto.CreateTenantAccountResponse structure" do
+  describe "Proto.CreateAccountResponse structure" do
     test "has expected fields" do
-      response = %Proto.CreateTenantAccountResponse{
+      response = %Proto.CreateAccountResponse{
         account_public_key: "ATEST123",
         account_seed: "SATEST456",
         account_jwt: "eyJhbGciOiJlZDI1NTE5..."
@@ -250,7 +250,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
       functions = Proto.NATSAccountService.Stub.__info__(:functions)
       function_names = Enum.map(functions, fn {name, _arity} -> name end)
 
-      assert :create_tenant_account in function_names
+      assert :create_account in function_names
       assert :generate_user_credentials in function_names
       assert :sign_account_jwt in function_names
     end

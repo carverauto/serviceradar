@@ -19,7 +19,6 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.NatsCredential
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadarWebNG.Collectors.PubSub, as: CollectorPubSub
 
   @collector_types [
@@ -767,23 +766,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   # Data loading
 
-  defp load_tenant_status(socket, actor) do
-    # Query the tenant record - search_path handles isolation
-    case Tenant
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.select([:nats_account_status, :nats_account_public_key])
-         |> Ash.Query.limit(1)
-         |> Ash.read_one(actor: actor) do
-      {:ok, tenant} when not is_nil(tenant) ->
-        socket
-        |> assign(:tenant_status, tenant.nats_account_status)
-        |> assign(:tenant_public_key, tenant.nats_account_public_key)
+  defp load_tenant_status(socket, _actor) do
+    # In single-tenant-per-deployment mode, NATS account is provisioned by the control plane.
+    # The account is configured via environment variables and is always ready when the
+    # instance is deployed.
+    nats_configured? = Application.get_env(:serviceradar, :nats_url) != nil
 
-      _ ->
-        socket
-        |> assign(:tenant_status, nil)
-        |> assign(:tenant_public_key, nil)
-    end
+    socket
+    |> assign(:tenant_status, if(nats_configured?, do: :ready, else: :pending))
+    |> assign(:tenant_public_key, Application.get_env(:serviceradar, :nats_account_public_key))
   end
 
   defp load_packages(socket, actor) do
