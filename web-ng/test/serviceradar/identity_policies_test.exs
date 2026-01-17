@@ -58,9 +58,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         target
-        |> Ash.Changeset.for_update(:update_role, %{role: :operator},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update_role, %{role: :operator}, actor: actor)
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -72,9 +70,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         user
-        |> Ash.Changeset.for_update(:update, %{display_name: "My New Name"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{display_name: "My New Name"}, actor: actor)
         |> Ash.update()
 
       assert {:ok, updated} = result
@@ -87,9 +83,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         target
-        |> Ash.Changeset.for_update(:update, %{display_name: "Hacked Name"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{display_name: "Hacked Name"}, actor: actor)
         |> Ash.update()
 
       # Should fail - users can only update themselves
@@ -102,9 +96,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
 
       result =
         target
-        |> Ash.Changeset.for_update(:update_role, %{role: :admin},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update_role, %{role: :admin}, actor: actor)
         |> Ash.update()
 
       # Should fail - only admins can change roles

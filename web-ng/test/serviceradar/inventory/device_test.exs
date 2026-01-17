@@ -90,9 +90,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, updated} =
         device
-        |> Ash.Changeset.for_update(:update, %{name: "Admin Update"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Admin Update"}, actor: actor)
         |> Ash.update()
 
       assert updated.name == "Admin Update"
@@ -103,9 +101,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       result =
         device
-        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result

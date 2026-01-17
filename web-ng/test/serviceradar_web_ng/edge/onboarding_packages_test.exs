@@ -76,21 +76,17 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     setup _context do
       # Create some test packages
       {:ok, r1} =
-        OnboardingPackages.create(%{label: "gateway-1", component_type: :gateway}
-        )
+        OnboardingPackages.create(%{label: "gateway-1", component_type: :gateway})
 
       {:ok, r2} =
-        OnboardingPackages.create(%{label: "checker-1", component_type: :checker}
-        )
+        OnboardingPackages.create(%{label: "checker-1", component_type: :checker})
 
       {:ok, r3} =
-        OnboardingPackages.create(
-          %{
-            label: "agent-1",
-            component_type: :agent,
-            gateway_id: "gateway-123"
-          }
-        )
+        OnboardingPackages.create(%{
+          label: "agent-1",
+          component_type: :agent,
+          gateway_id: "gateway-123"
+        })
 
       %{packages: [r1.package, r2.package, r3.package]}
     end

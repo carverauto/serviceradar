@@ -51,7 +51,7 @@ Every Ash operation requires an actor with these attributes:
 
 Note: In the single-tenant-per-deployment model, tenant isolation is handled at the
 infrastructure level via PostgreSQL schema isolation (CNPG search_path). Actors don't
-need a `tenant_id` field - the tenant is implicit from the deployment.
+need a tenant identifier field - the tenant is implicit from the deployment.
 
 ## Policy Patterns
 
@@ -72,7 +72,7 @@ end
 Resources are isolated by PostgreSQL schema (via CNPG search_path):
 
 ```elixir
-# No tenant_id checks needed - schema isolation is at database level
+# No tenant checks needed - schema isolation is at database level
 policy action_type(:read) do
   authorize_if expr(
     ^actor(:role) in [:viewer, :operator, :admin]

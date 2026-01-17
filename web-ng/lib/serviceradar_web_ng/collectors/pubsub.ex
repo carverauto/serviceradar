@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNG.Collectors.PubSub do
   Provides topic/subscription management for real-time updates in LiveViews.
 
   This module uses instance-scoped topics since each tenant instance serves
-  a single tenant - there's no need for tenant_id in topic names.
+  a single tenant - there's no need for tenant identifiers in topic names.
 
   ## Topics
 

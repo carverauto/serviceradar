@@ -1122,43 +1122,43 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         <.network_nav current_path="/settings/snmp" />
 
         <div class="space-y-4">
-        <!-- Content based on form state -->
-        <%= if @show_form in [:new_profile, :edit_profile] do %>
-          <.profile_form
-            form={@form}
-            show_form={@show_form}
-            selected_profile={@selected_profile}
-            target_device_count={@target_device_count}
-            builder_open={@builder_open}
-            builder={@builder}
-            builder_sync={@builder_sync}
-            targets={@targets}
-          />
-        <% else %>
-          <.profiles_panel profiles={@profiles} />
-        <% end %>
-      </div>
-      
+          <!-- Content based on form state -->
+          <%= if @show_form in [:new_profile, :edit_profile] do %>
+            <.profile_form
+              form={@form}
+              show_form={@show_form}
+              selected_profile={@selected_profile}
+              target_device_count={@target_device_count}
+              builder_open={@builder_open}
+              builder={@builder}
+              builder_sync={@builder_sync}
+              targets={@targets}
+            />
+          <% else %>
+            <.profiles_panel profiles={@profiles} />
+          <% end %>
+        </div>
+        
     <!-- Target Modal -->
-      <.target_modal
-        :if={@show_target_modal}
-        form={@target_form}
-        editing_target={@editing_target}
-        show_password={@show_password}
-        target_oids={@target_oids}
-        test_connection_result={@test_connection_result}
-        test_connection_loading={@test_connection_loading}
-      />
-      
+        <.target_modal
+          :if={@show_target_modal}
+          form={@target_form}
+          editing_target={@editing_target}
+          show_password={@show_password}
+          target_oids={@target_oids}
+          test_connection_result={@test_connection_result}
+          test_connection_loading={@test_connection_loading}
+        />
+        
     <!-- Template Browser Modal -->
-      <.template_browser_modal
-        :if={@show_template_browser}
-        search={@template_search}
-        selected_vendor={@selected_vendor}
-        custom_templates={@custom_templates}
-      />
-      
-      <!-- Custom Template Modal -->
+        <.template_browser_modal
+          :if={@show_template_browser}
+          search={@template_search}
+          selected_vendor={@selected_vendor}
+          custom_templates={@custom_templates}
+        />
+        
+    <!-- Custom Template Modal -->
         <.custom_template_modal
           :if={@show_custom_template_modal}
           form={@custom_template_form}

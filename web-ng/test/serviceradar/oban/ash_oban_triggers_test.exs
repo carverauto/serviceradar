@@ -101,9 +101,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Expire the package
       {:ok, expired} =
         package
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert expired.status == :expired
@@ -115,9 +113,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, expired} =
         package
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       # Query needs_expiration - returns a page
@@ -141,9 +137,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Deliver the package
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: system_actor())
         |> Ash.update()
 
       # Query needs_expiration (without expired tokens, should not be returned) - returns a page
@@ -183,9 +177,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Record a result to set last_check_at
       {:ok, overdue_check} =
         check
-        |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :success}, actor: system_actor())
         |> Ash.update()
 
       # Manually set last_check_at to the past
@@ -218,9 +210,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Disable the check
       {:ok, disabled} =
         check
-        |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:disable, %{}, actor: system_actor())
         |> Ash.update()
 
       # Query due_for_check - returns a page
@@ -239,9 +229,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, executed} =
         check
-        |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:execute, %{}, actor: system_actor())
         |> Ash.update()
 
       assert executed.last_check_at != nil
@@ -344,9 +332,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, disabled} =
         schedule
-        |> Ash.Changeset.for_update(:disable, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:disable, %{}, actor: system_actor())
         |> Ash.update()
 
       {:ok, due_page} =
@@ -377,9 +363,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, executed} =
         schedule
-        |> Ash.Changeset.for_update(:execute, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:execute, %{}, actor: system_actor())
         |> Ash.update()
 
       assert executed.last_executed_at != nil
@@ -439,9 +423,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # First failure
       {:ok, failed1} =
         schedule
-        |> Ash.Changeset.for_update(:record_result, %{result: :failed},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :failed}, actor: system_actor())
         |> Ash.update()
 
       assert failed1.consecutive_failures == 1
@@ -449,9 +431,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Second failure
       {:ok, failed2} =
         failed1
-        |> Ash.Changeset.for_update(:record_result, %{result: :timeout},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :timeout}, actor: system_actor())
         |> Ash.update()
 
       assert failed2.consecutive_failures == 2
@@ -459,9 +439,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Success resets
       {:ok, success} =
         failed2
-        |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :success}, actor: system_actor())
         |> Ash.update()
 
       assert success.consecutive_failures == 0
@@ -589,9 +567,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       {:ok, notified} =
         alert
-        |> Ash.Changeset.for_update(:send_notification, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:send_notification, %{}, actor: system_actor())
         |> Ash.update()
 
       assert notified.notification_count == 1
@@ -663,9 +639,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       # Release lock
       {:ok, released} =
         locked
-        |> Ash.Changeset.for_update(:release_lock, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:release_lock, %{}, actor: system_actor())
         |> Ash.update()
 
       assert released.lock_token == nil

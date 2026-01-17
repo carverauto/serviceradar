@@ -1253,7 +1253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of        {@hosts_processed} hosts</span>
+            <span> of         {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -2336,8 +2336,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp transform_ports_to_array(params) do
     case Map.get(params, "ports") do
-      nil -> params
-      "" -> Map.put(params, "ports", [])
+      nil ->
+        params
+
+      "" ->
+        Map.put(params, "ports", [])
+
       value when is_binary(value) ->
         ports =
           value
@@ -2348,8 +2352,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         Map.put(params, "ports", ports)
 
-      value when is_list(value) -> params
-      _ -> params
+      value when is_list(value) ->
+        params
+
+      _ ->
+        params
     end
   end
 

@@ -169,7 +169,7 @@ message GatewayStatusRequest {
   string partition = 5;        // Partition identifier
   string source_ip = 6;        // Host IP where agent is running
   string kv_store_id = 7;      // KV store identifier this agent is using
-  reserved 8, 9;               // Removed: tenant_id, tenant_slug (single-tenant-per-deployment)
+  reserved 8, 9;               // Removed: tenant identifiers (single-tenant-per-deployment)
   string config_source = 10;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
@@ -190,7 +190,7 @@ message GatewayStatusChunk {
   int32 chunk_index = 8;       // Order of this chunk
   int32 total_chunks = 9;      // Total number of chunks
   string kv_store_id = 10;     // KV store identifier this agent is using
-  reserved 11, 12;             // Removed: tenant_id, tenant_slug (single-tenant-per-deployment)
+  reserved 11, 12;             // Removed: tenant identifiers (single-tenant-per-deployment)
   string config_source = 13;   // Source of sysmon config: "remote", "local", "cached", "default"
 }
 
@@ -206,7 +206,7 @@ message GatewayServiceStatus {
   string partition = 8;        // Partition identifier
   string source = 9;           // Source of the message: "status" or "results"
   string kv_store_id = 10;     // KV store identifier this service is using
-  reserved 11, 12;             // Removed: tenant_id, tenant_slug (single-tenant-per-deployment)
+  reserved 11, 12;             // Removed: tenant identifiers (single-tenant-per-deployment)
 }
 
 // ============================================================================
@@ -236,7 +236,7 @@ message AgentHelloResponse {
   int64 server_time = 5;            // Server timestamp (for clock sync)
   int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
   bool config_outdated = 7;         // True if agent should fetch new config
-  reserved 8, 9;                    // Removed: tenant_id, tenant_slug (single-tenant-per-deployment)
+  reserved 8, 9;                    // Removed: tenant identifiers (single-tenant-per-deployment)
 }
 
 // ============================================================================

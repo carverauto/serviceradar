@@ -59,7 +59,7 @@ graph TB
 
 ServiceRadar uses a **single-tenant-per-deployment** model where each tenant gets their own
 isolated deployment. Resources are isolated by PostgreSQL schema (via CNPG search_path) at
-the infrastructure level, not by application-level tenant_id fields.
+the infrastructure level, not by application-level tenant identifier fields.
 
 - Each deployment connects to a tenant-specific PostgreSQL schema
 - No cross-tenant access is possible at the instance level

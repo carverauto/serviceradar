@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   ## Tenant Context
 
   In a tenant instance UI, each instance serves ONE tenant. The tenant is implicit from
-  the PostgreSQL search_path configured for the instance. No tenant_id needs to be stored
+  the PostgreSQL search_path configured for the instance. No tenant identifier needs to be stored
   in the session or JWT claims.
   """
 

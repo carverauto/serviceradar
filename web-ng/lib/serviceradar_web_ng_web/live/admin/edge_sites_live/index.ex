@@ -196,7 +196,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
             <% end %>
           </div>
         </.ui_panel>
-
       </.settings_shell>
 
       <.create_modal :if={@show_create_modal} />

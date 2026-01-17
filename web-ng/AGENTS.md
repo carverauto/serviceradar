@@ -33,7 +33,7 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 ServiceRadar uses a single-tenant-per-deployment model:
 - Each tenant gets their own isolated deployment (web-ng, core-elx, agent-gateway)
 - CNPG credentials set PostgreSQL's `search_path` for schema isolation at infrastructure level
-- No tenant_id fields in application code - isolation is handled by the database connection
+- No tenant identifier fields in application code - isolation is handled by the database connection
 
 #### Passing tenant context via Ash.Scope
 
@@ -91,15 +91,14 @@ Use test helpers from `ServiceRadarWebNG.AshTestHelpers`:
 use ServiceRadarWebNG.AshTestHelpers
 
 test "creates device" do
-  tenant = tenant_fixture()
-  device = device_fixture(tenant)
+  device = device_fixture()
   assert device.id
 end
 ```
 
-Available fixtures: `tenant_fixture/1`, `user_fixture/2`, `device_fixture/2`, `gateway_fixture/2`, `agent_fixture/2`, `alert_fixture/2`, etc.
+Available fixtures: `user_fixture/1`, `device_fixture/1`, `gateway_fixture/1`, `agent_fixture/2`, `alert_fixture/1`, etc.
 
-Available actors: `system_actor/0`, `admin_actor/1`, `operator_actor/1`, `viewer_actor/1`
+Available actors: `system_actor/0`, `admin_actor/0`, `operator_actor/0`, `viewer_actor/0`
 
 ### Phoenix v1.8 guidelines
 

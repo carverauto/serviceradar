@@ -406,8 +406,14 @@ if config_env() == :prod do
   if control_plane_jwt_config != [] do
     control_plane_jwt_config =
       control_plane_jwt_config
-      |> Keyword.put(:issuer, System.get_env("CONTROL_PLANE_JWT_ISSUER", "serviceradar-control-plane"))
-      |> Keyword.put(:audience, System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-tenant-instance"))
+      |> Keyword.put(
+        :issuer,
+        System.get_env("CONTROL_PLANE_JWT_ISSUER", "serviceradar-control-plane")
+      )
+      |> Keyword.put(
+        :audience,
+        System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-tenant-instance")
+      )
 
     config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
   end

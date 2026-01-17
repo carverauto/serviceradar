@@ -114,5 +114,4 @@ defmodule ServiceRadar.Identity.PolicyTest do
       assert updated.role == :operator
     end
   end
-
 end

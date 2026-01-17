@@ -73,9 +73,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
       rule ->
         changeset =
-          Ash.Changeset.for_update(rule, :update, %{enabled: !rule.enabled},
-            scope: scope
-          )
+          Ash.Changeset.for_update(rule, :update, %{enabled: !rule.enabled}, scope: scope)
 
         case Ash.update(changeset) do
           {:ok, _} ->

@@ -1,7 +1,7 @@
 -- Consolidated idempotent schema for ServiceRadar CNPG/Timescale
 -- PUBLIC SCHEMA ONLY - Platform-level tables
 -- Tenant-scoped tables are created via Elixir tenant migrations in:
---   elixir/serviceradar_core/priv/repo/tenant_migrations/
+--   elixir/serviceradar_core/priv/repo/migrations/
 
 -- ================================
 -- Extensions

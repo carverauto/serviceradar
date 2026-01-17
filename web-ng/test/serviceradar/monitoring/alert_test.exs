@@ -307,9 +307,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # First escalation
       {:ok, first} =
         alert
-        |> Ash.Changeset.for_update(:escalate, %{reason: "First escalation"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:escalate, %{reason: "First escalation"}, actor: actor)
         |> Ash.update()
 
       assert first.escalation_level == 1
@@ -317,23 +315,17 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # Resolve, then reopen, then escalate again
       {:ok, resolved} =
         first
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "admin"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "admin"}, actor: actor)
         |> Ash.update()
 
       {:ok, reopened} =
         resolved
-        |> Ash.Changeset.for_update(:reopen, %{reason: "Still broken"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:reopen, %{reason: "Still broken"}, actor: actor)
         |> Ash.update()
 
       {:ok, second} =
         reopened
-        |> Ash.Changeset.for_update(:escalate, %{reason: "Second escalation"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:escalate, %{reason: "Second escalation"}, actor: actor)
         |> Ash.update()
 
       assert second.escalation_level == 2
@@ -498,16 +490,12 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
       {:ok, acknowledged} =
         alert_fixture(%{title: "Acknowledged Alert"})
-        |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:acknowledge, %{acknowledged_by: "test"}, actor: actor)
         |> Ash.update()
 
       {:ok, resolved} =
         alert_fixture(%{title: "Resolved Alert"})
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"}, actor: actor)
         |> Ash.update()
 
       {:ok, pending: pending, acknowledged: acknowledged, resolved: resolved}
@@ -581,9 +569,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       # Resolve and check again
       {:ok, resolved} =
         alert
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "test"}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =

@@ -207,7 +207,7 @@ config :serviceradar_core,
 ```
 
 Note: In the single-tenant-per-deployment model, tenant context is implicit from the
-deployment itself. Tokens don't include tenant_id - the PostgreSQL schema isolation
+deployment itself. Tokens don't include tenant identifiers - the PostgreSQL schema isolation
 (via CNPG search_path) handles tenant boundaries.
 
 ## API Token Management

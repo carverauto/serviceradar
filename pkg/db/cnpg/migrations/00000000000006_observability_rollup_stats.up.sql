@@ -1,6 +1,6 @@
 -- DEPRECATED: This migration is now a no-op.
 -- Observability continuous aggregations are now created in tenant schemas.
--- See: elixir/serviceradar_core/priv/repo/tenant_migrations/
+-- See: elixir/serviceradar_core/priv/repo/migrations/
 
 -- Original functionality (now in tenant migrations):
 -- - logs_severity_stats_5m CAGG

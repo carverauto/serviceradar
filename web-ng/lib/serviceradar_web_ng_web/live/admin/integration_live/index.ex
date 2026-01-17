@@ -908,7 +908,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
           <.dynamic_credentials_fields
             form={@form}
-            source_type={@selected_source && @selected_source.source_type || :armis}
+            source_type={(@selected_source && @selected_source.source_type) || :armis}
             mode={:edit}
           />
 
@@ -1515,7 +1515,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               type="password"
               name="cred_api_secret"
               class="input input-bordered w-full font-mono text-sm"
-              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Armis API secret"}
+              placeholder={
+                if @mode == :edit,
+                  do: "Leave empty to keep existing",
+                  else: "Enter your Armis API secret"
+              }
             />
           </div>
           <label class="label">
@@ -1524,7 +1528,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </span>
           </label>
         </div>
-
       <% :snmp -> %>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
@@ -1545,7 +1548,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 type="password"
                 name="cred_community"
                 class="input input-bordered w-full font-mono text-sm"
-                placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"}
+                placeholder={
+                  if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"
+                }
               />
             </div>
           </div>
@@ -1555,7 +1560,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </span>
           </label>
         </div>
-
       <% :netbox -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1582,7 +1586,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               type="password"
               name="cred_netbox_token"
               class="input input-bordered w-full font-mono text-sm"
-              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Netbox API token"}
+              placeholder={
+                if @mode == :edit,
+                  do: "Leave empty to keep existing",
+                  else: "Enter your Netbox API token"
+              }
             />
             <label class="label">
               <span class="label-text-alt text-base-content/60">
@@ -1600,7 +1608,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </select>
           </div>
         </div>
-
       <% :custom -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1620,7 +1627,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </label>
           </div>
         </div>
-
       <% _ -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1645,7 +1651,10 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
-  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+
+  defp credential_placeholder(:netbox),
+    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
 end

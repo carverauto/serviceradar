@@ -99,9 +99,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       result =
         check
-        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -208,9 +206,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # First failure
       {:ok, first} =
         check
-        |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :error}, actor: actor)
         |> Ash.update()
 
       assert first.consecutive_failures == 1
@@ -218,9 +214,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Second failure
       {:ok, second} =
         first
-        |> Ash.Changeset.for_update(:record_result, %{result: :critical},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :critical}, actor: actor)
         |> Ash.update()
 
       assert second.consecutive_failures == 2
@@ -228,9 +222,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Success resets counter
       {:ok, success} =
         second
-        |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :success}, actor: actor)
         |> Ash.update()
 
       assert success.consecutive_failures == 0
@@ -242,9 +234,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Create a failure first
       {:ok, failed} =
         check
-        |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :error}, actor: actor)
         |> Ash.update()
 
       assert failed.consecutive_failures == 1
@@ -252,9 +242,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Warning resets counter (warning is still a successful response)
       {:ok, warning} =
         failed
-        |> Ash.Changeset.for_update(:record_result, %{result: :warning},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :warning}, actor: actor)
         |> Ash.update()
 
       assert warning.consecutive_failures == 0
@@ -266,16 +254,12 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       # Create some failures
       {:ok, failed} =
         check
-        |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :error}, actor: actor)
         |> Ash.update()
 
       {:ok, failed2} =
         failed
-        |> Ash.Changeset.for_update(:record_result, %{result: :error},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :error}, actor: actor)
         |> Ash.update()
 
       assert failed2.consecutive_failures == 2
@@ -310,9 +294,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         |> Ash.update()
 
       {:ok,
-       check_enabled: check_enabled,
-       check_disabled: check_disabled,
-       check_failing: check_failing}
+       check_enabled: check_enabled, check_disabled: check_disabled, check_failing: check_failing}
     end
 
     test "by_id returns specific check", %{check_enabled: check} do
@@ -396,9 +378,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
       {:ok, success} =
         check
-        |> Ash.Changeset.for_update(:record_result, %{result: :success},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:record_result, %{result: :success}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =

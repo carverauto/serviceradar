@@ -191,9 +191,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"}, actor: actor)
         |> Ash.update()
 
       assert {:ok, revoked} = result
@@ -213,9 +211,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Then revoke
       result =
         delivered
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"}, actor: actor)
         |> Ash.update()
 
       assert {:ok, revoked} = result
@@ -239,9 +235,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Try to revoke activated package
       result =
         activated
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -252,9 +246,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -271,9 +263,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Expiration is usually triggered by AshOban, so use system actor
       result =
         package
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:ok, expired} = result
@@ -292,9 +282,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Then expire
       result =
         delivered
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:ok, expired} = result
@@ -318,9 +306,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       # Try to expire activated package
       result =
         activated
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:error, _} = result
@@ -367,9 +353,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         # Soft delete should work from any state
         result =
           package
-          |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"},
-            actor: actor
-          )
+          |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"}, actor: actor)
           |> Ash.update()
 
         assert {:ok, deleted} = result
@@ -382,9 +366,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
       result =
         package
-        |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -416,11 +398,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
         |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
         |> Ash.update()
 
-      {:ok,
-       issued: issued,
-       delivered: delivered,
-       activated: activated,
-       revoked: revoked}
+      {:ok, issued: issued, delivered: delivered, activated: activated, revoked: revoked}
     end
 
     test "active action returns only usable packages", %{
@@ -534,9 +512,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   defp transition_to_state(package, :expired, _actor) do
     {:ok, expired} =
       package
-      |> Ash.Changeset.for_update(:expire, %{},
-        actor: system_actor()
-      )
+      |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
       |> Ash.update()
 
     expired

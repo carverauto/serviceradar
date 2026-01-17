@@ -156,7 +156,6 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
       Scope.for_user(user)
     end)
   end
-  end
 
   @doc "Returns the path to redirect to after log in."
   # the user was already logged in, redirect to analytics

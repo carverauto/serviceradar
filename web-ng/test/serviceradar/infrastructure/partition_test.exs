@@ -110,9 +110,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition
-        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -123,9 +121,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       result =
         partition
-        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -199,9 +195,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
           environment: "staging"
         })
 
-      {:ok,
-       partition_enabled: partition_enabled,
-       partition_disabled: partition_disabled}
+      {:ok, partition_enabled: partition_enabled, partition_disabled: partition_disabled}
     end
 
     test "by_id returns specific partition", %{partition_enabled: partition} do
@@ -261,9 +255,7 @@ defmodule ServiceRadar.Infrastructure.PartitionTest do
 
       {:ok, prod_partitions} =
         Partition
-        |> Ash.Query.for_read(:by_environment, %{environment: "production"},
-          actor: actor
-        )
+        |> Ash.Query.for_read(:by_environment, %{environment: "production"}, actor: actor)
         |> Ash.read()
 
       prod_ids = Enum.map(prod_partitions, & &1.id)

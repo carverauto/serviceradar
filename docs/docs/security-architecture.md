@@ -106,7 +106,7 @@ Each tenant deployment is fully isolated at the infrastructure level:
 - No cross-tenant access is possible at the instance level
 - Database connection's `search_path` enforces schema boundaries
 - Each deployment has its own NATS account with isolated subjects
-- No tenant_id in application code - isolation is at infrastructure level
+- No tenant identifiers in application code - isolation is at infrastructure level
 
 ### 5. SPIFFE Identity Plane
 

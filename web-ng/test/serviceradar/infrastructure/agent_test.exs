@@ -261,9 +261,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, unavailable} =
         agent
-        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:mark_unavailable, %{reason: "Maintenance"}, actor: actor)
         |> Ash.update()
 
       assert unavailable.status == :unavailable
@@ -323,9 +321,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       agent_connecting = agent_fixture(gateway, %{uid: "agent-connecting-read"})
 
       {:ok,
-       gateway: gateway,
-       agent_connected: agent_connected,
-       agent_connecting: agent_connecting}
+       gateway: gateway, agent_connected: agent_connected, agent_connecting: agent_connecting}
     end
 
     test "by_uid returns specific agent", %{agent_connected: agent} do
@@ -347,9 +343,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
       {:ok, agents} =
         Agent
-        |> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway.id},
-          actor: actor
-        )
+        |> Ash.Query.for_read(:by_gateway, %{gateway_id: gateway.id}, actor: actor)
         |> Ash.read()
 
       uids = Enum.map(agents, & &1.uid)

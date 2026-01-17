@@ -223,9 +223,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_tags_for_edit(nil), do: ""
   defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
+
   defp format_tags_for_edit(tags) when is_map(tags) do
     Enum.map_join(tags, "\n", fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
   end
+
   defp format_tags_for_edit(_), do: ""
 
   @impl true
@@ -252,7 +254,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <span class="font-mono text-xs">{@device_uid}</span>
           </:subtitle>
           <:actions>
-            <.ui_button :if={@can_edit and not @editing} phx-click="toggle_edit" variant="outline" size="sm">
+            <.ui_button
+              :if={@can_edit and not @editing}
+              phx-click="toggle_edit"
+              variant="outline"
+              size="sm"
+            >
               <.icon name="hero-pencil" class="size-4" /> Edit
             </.ui_button>
             <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
@@ -263,8 +270,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
-          <!-- View Mode -->
+          
+    <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
@@ -279,8 +286,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
-
-          <!-- Edit Mode -->
+          
+    <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
             class="rounded-xl border border-primary/30 bg-base-100 shadow-sm"
@@ -340,13 +347,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </label>
                   <select name="device[type]" class="select select-bordered select-sm">
                     <option value="">Select type...</option>
-                    <option value="server" selected={@device_form[:type].value == "server"}>Server</option>
-                    <option value="workstation" selected={@device_form[:type].value == "workstation"}>Workstation</option>
-                    <option value="router" selected={@device_form[:type].value == "router"}>Router</option>
-                    <option value="switch" selected={@device_form[:type].value == "switch"}>Switch</option>
-                    <option value="firewall" selected={@device_form[:type].value == "firewall"}>Firewall</option>
-                    <option value="printer" selected={@device_form[:type].value == "printer"}>Printer</option>
-                    <option value="other" selected={@device_form[:type].value == "other"}>Other</option>
+                    <option value="server" selected={@device_form[:type].value == "server"}>
+                      Server
+                    </option>
+                    <option value="workstation" selected={@device_form[:type].value == "workstation"}>
+                      Workstation
+                    </option>
+                    <option value="router" selected={@device_form[:type].value == "router"}>
+                      Router
+                    </option>
+                    <option value="switch" selected={@device_form[:type].value == "switch"}>
+                      Switch
+                    </option>
+                    <option value="firewall" selected={@device_form[:type].value == "firewall"}>
+                      Firewall
+                    </option>
+                    <option value="printer" selected={@device_form[:type].value == "printer"}>
+                      Printer
+                    </option>
+                    <option value="other" selected={@device_form[:type].value == "other"}>
+                      Other
+                    </option>
                   </select>
                 </div>
 
@@ -395,7 +416,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <div class="form-control mt-4">
                 <label class="label py-1">
                   <span class="label-text text-xs font-medium">Tags</span>
-                  <span class="label-text-alt text-xs text-base-content/50">One per line (key or key=value)</span>
+                  <span class="label-text-alt text-xs text-base-content/50">
+                    One per line (key or key=value)
+                  </span>
                 </label>
                 <textarea
                   name="device[tags]"
@@ -2253,15 +2276,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     actor = build_device_actor(scope)
 
     # Parse tags from newline-separated string to map
-    attrs = %{
-      hostname: params["hostname"],
-      ip: params["ip"],
-      vendor_name: params["vendor_name"],
-      model: params["model"],
-      tags: parse_tags_input(params["tags"])
-    }
-    |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-    |> Map.new()
+    attrs =
+      %{
+        hostname: params["hostname"],
+        ip: params["ip"],
+        vendor_name: params["vendor_name"],
+        model: params["model"],
+        tags: parse_tags_input(params["tags"])
+      }
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Map.new()
 
     # First get the device, then update it
     case Device.get_by_uid(device_uid, actor: actor) do

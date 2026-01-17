@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
   describe "query/3 - devices" do
     setup do
       device1 =
-        device_fixture( %{
+        device_fixture(%{
           uid: "device-001",
           hostname: "server1.local",
           ip: "192.168.1.1",
@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
         })
 
       device2 =
-        device_fixture( %{
+        device_fixture(%{
           uid: "device-002",
           hostname: "server2.local",
           ip: "192.168.1.2",
@@ -95,7 +95,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
         })
 
       device3 =
-        device_fixture( %{
+        device_fixture(%{
           uid: "device-003",
           hostname: "server3.local",
           ip: "192.168.1.3",

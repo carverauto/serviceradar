@@ -107,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   # Query the continuous aggregation for efficient pre-computed stats
   defp get_hourly_metrics_stats(_scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
+
     query =
       from(s in "otel_metrics_hourly_stats",
         where: s.bucket >= ^cutoff,

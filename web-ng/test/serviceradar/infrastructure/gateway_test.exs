@@ -133,9 +133,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
       {:ok, updated} =
         gateway
-        |> Ash.Changeset.for_update(:start_draining, %{},
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:start_draining, %{}, actor: actor)
         |> Ash.update()
 
       assert updated.status == :draining
@@ -174,9 +172,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       # Create a degraded gateway
       {:ok, gateway_degraded} =
         gateway_fixture(%{id: "gateway-degraded"})
-        |> Ash.Changeset.for_update(:mark_unhealthy, %{},
-          actor: system_actor()
-        )
+        |> Ash.Changeset.for_update(:mark_unhealthy, %{}, actor: system_actor())
         |> Ash.update()
 
       {:ok, gateway_active: gateway_active, gateway_degraded: gateway_degraded}
