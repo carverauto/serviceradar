@@ -3,7 +3,7 @@
 Use this runbook to seed subnet policies for the Identity Reconciliation Engine (IRE), run a one-time backfill to reconcile legacy duplicates, and outline rollback steps. Commands assume CNPG is reachable via `CNPG_DSN` (e.g., `postgres://user:pass@host:5432/serviceradar?sslmode=disable`).
 
 ## Prerequisites
-- CNPG migrations applied (run `cmd/tools/cnpg-migrate`).
+- Ash migrations applied (run `mix ash.migrate` from `elixir/serviceradar_core` or ensure core-elx startup migrations ran).
 - Core identity reconciliation enabled (`core.identity.enabled=true`) with promotion/reaper settings set via Helm/KV.
 - Capture a fresh backup/snapshot of CNPG before making changes.
 

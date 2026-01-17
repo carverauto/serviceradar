@@ -483,7 +483,6 @@ curl -H "Authorization: Bearer $JWT_TOKEN" http://23.138.124.18:8090/api/admin/a
 
 ## See Also
 
-- [Service Registry Design](./docs/service-registry-design.md) - Complete service registry architecture
 - [Onboarding Review](./docs/onboarding-review-2025.md) - Gap analysis and recommendations
 - [Checker Template Registration](./checker-template-registration.md) - Checker automation
 - [Edge Onboarding Guide](../docker/compose/edge-e2e/README.md) - Edge deployment

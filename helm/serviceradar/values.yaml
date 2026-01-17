@@ -174,7 +174,7 @@ agent:
       cpu: 200m
       memory: 512Mi
 agentGateway:
-  enabled: false
+  enabled: true
   replicas: 1
   gatewayId: "gateway-platform"
   partitionId: "default"
@@ -195,6 +195,8 @@ agentGateway:
       cpu: "200m"
       memory: "512Mi"
 dbEventWriter:
+  # Enable database migrations on startup (creates otel_traces, logs, etc. tables)
+  enableMigrations: true
   # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
   configSource: file
   kvBootstrap:

@@ -123,17 +123,23 @@ func buildCNPGConnURL(cfg *models.CNPGDatabase) (url.URL, error) {
 	query.Set("sslmode", sslMode)
 
 	if cfg.TLS != nil {
-		certFile := resolveCNPGTLSPath(cfg, cfg.TLS.CertFile)
-		keyFile := resolveCNPGTLSPath(cfg, cfg.TLS.KeyFile)
 		caFile := resolveCNPGTLSPath(cfg, cfg.TLS.CAFile)
 
-		if certFile == "" || keyFile == "" || caFile == "" {
+		// CA file is required for TLS verification (verify-ca, verify-full modes)
+		if caFile == "" {
 			return url.URL{}, ErrCNPGLackingTLSFiles
 		}
 
-		query.Set("sslcert", certFile)
-		query.Set("sslkey", keyFile)
 		query.Set("sslrootcert", caFile)
+
+		// Client cert and key are optional (only required if server demands client auth)
+		certFile := resolveCNPGTLSPath(cfg, cfg.TLS.CertFile)
+		keyFile := resolveCNPGTLSPath(cfg, cfg.TLS.KeyFile)
+
+		if certFile != "" && keyFile != "" {
+			query.Set("sslcert", certFile)
+			query.Set("sslkey", keyFile)
+		}
 	}
 
 	connURL.RawQuery = query.Encode()

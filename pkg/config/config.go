@@ -564,22 +564,23 @@ func (c *Config) normalizeField(field reflect.Value, fieldType *reflect.StructFi
 }
 
 // normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+// Empty paths are left empty (not converted to directory paths).
 func (c *Config) normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
-	if !filepath.IsAbs(tls.CertFile) {
+	if tls.CertFile != "" && !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
 	}
 
-	if !filepath.IsAbs(tls.KeyFile) {
+	if tls.KeyFile != "" && !filepath.IsAbs(tls.KeyFile) {
 		tls.KeyFile = filepath.Join(certDir, tls.KeyFile)
 	}
 
-	if !filepath.IsAbs(tls.CAFile) {
+	if tls.CAFile != "" && !filepath.IsAbs(tls.CAFile) {
 		tls.CAFile = filepath.Join(certDir, tls.CAFile)
 	}
 
 	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
 		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
-	} else if tls.ClientCAFile == "" {
+	} else if tls.ClientCAFile == "" && tls.CAFile != "" {
 		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
 	}
 

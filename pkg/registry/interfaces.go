@@ -1,11 +1,9 @@
 package registry
 
 //go:generate mockgen -destination=mock_registry.go -package=registry github.com/carverauto/serviceradar/pkg/registry Manager
-//go:generate mockgen -destination=mock_service_registry.go -package=registry github.com/carverauto/serviceradar/pkg/registry ServiceManager
 
 import (
 	"context"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -76,65 +74,4 @@ type Manager interface {
 
 	// ListSightingEvents returns audit history for a sighting.
 	ListSightingEvents(ctx context.Context, sightingID string, limit int) ([]*models.SightingEvent, error)
-}
-
-// ServiceManager manages the lifecycle and registration of all services
-// (gateways, agents, checkers) in the ServiceRadar system.
-type ServiceManager interface {
-	// RegisterGateway explicitly registers a new gateway.
-	// Used during edge package creation, K8s ClusterSPIFFEID creation, etc.
-	RegisterGateway(ctx context.Context, reg *GatewayRegistration) error
-
-	// RegisterAgent explicitly registers a new agent under a gateway.
-	RegisterAgent(ctx context.Context, reg *AgentRegistration) error
-
-	// RegisterChecker explicitly registers a new checker under an agent.
-	RegisterChecker(ctx context.Context, reg *CheckerRegistration) error
-
-	// RecordHeartbeat records a service heartbeat from status reports.
-	// This updates last_seen and activates pending services.
-	RecordHeartbeat(ctx context.Context, heartbeat *ServiceHeartbeat) error
-
-	// RecordBatchHeartbeats handles batch heartbeat updates efficiently.
-	RecordBatchHeartbeats(ctx context.Context, heartbeats []*ServiceHeartbeat) error
-
-	// GetGateway retrieves a gateway by ID.
-	GetGateway(ctx context.Context, gatewayID string) (*RegisteredGateway, error)
-
-	// GetAgent retrieves an agent by ID.
-	GetAgent(ctx context.Context, agentID string) (*RegisteredAgent, error)
-
-	// GetChecker retrieves a checker by ID.
-	GetChecker(ctx context.Context, checkerID string) (*RegisteredChecker, error)
-
-	// ListGateways retrieves all gateways matching filter.
-	ListGateways(ctx context.Context, filter *ServiceFilter) ([]*RegisteredGateway, error)
-
-	// ListAgentsByGateway retrieves all agents under a gateway.
-	ListAgentsByGateway(ctx context.Context, gatewayID string) ([]*RegisteredAgent, error)
-
-	// ListCheckersByAgent retrieves all checkers under an agent.
-	ListCheckersByAgent(ctx context.Context, agentID string) ([]*RegisteredChecker, error)
-
-	// UpdateServiceStatus updates the status of a service.
-	UpdateServiceStatus(ctx context.Context, serviceType string, serviceID string, status ServiceStatus) error
-
-	// MarkInactive marks services as inactive if they haven't reported within threshold.
-	// This is typically called by a background job.
-	// Returns the number of services marked inactive.
-	MarkInactive(ctx context.Context, threshold time.Duration) (int, error)
-
-	// IsKnownGateway checks if a gateway is registered and active.
-	// Replaces the logic currently in pkg/core/gateways.go:701
-	IsKnownGateway(ctx context.Context, gatewayID string) (bool, error)
-
-	// DeleteService permanently deletes a service from the registry.
-	// This should only be called for services that are no longer needed (status: revoked, inactive, or deleted).
-	// Returns error if service is still active or pending.
-	DeleteService(ctx context.Context, serviceType, serviceID string) error
-
-	// PurgeInactive permanently deletes services that have been inactive, revoked, or deleted
-	// for longer than the retention period. This is typically called by a background job.
-	// Returns the number of services deleted.
-	PurgeInactive(ctx context.Context, retentionPeriod time.Duration) (int, error)
 }

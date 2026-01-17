@@ -184,15 +184,13 @@ defmodule ServiceRadar.Observability.Log do
       description "Instrumentation scope version"
     end
 
-    # Structured attributes
-    attribute :attributes, :map do
-      default %{}
+    # Structured attributes (stored as TEXT by db-event-writer)
+    attribute :attributes, :string do
       public? true
       description "Log record attributes"
     end
 
-    attribute :resource_attributes, :map do
-      default %{}
+    attribute :resource_attributes, :string do
       public? true
       description "Resource attributes"
     end

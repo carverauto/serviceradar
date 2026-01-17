@@ -116,8 +116,6 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'ash-authorization', label: 'Ash Authorization'},
         {type: 'doc', id: 'ash-domains', label: 'Ash Domains'},
         {type: 'doc', id: 'ash-migration-guide', label: 'Ash Migration Guide'},
-        {type: 'doc', id: 'service-registry-design', label: 'Service Registry Design'},
-        {type: 'doc', id: 'service-registry-status', label: 'Service Registry Status'},
         {type: 'doc', id: 'mcp-integration', label: 'MCP Integration'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'Syn Scanner Tuning'},
       ],

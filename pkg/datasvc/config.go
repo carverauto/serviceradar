@@ -55,7 +55,14 @@ func (c *Config) validateRequiredFields() error {
 	if c.NATSURL == "" {
 		return errNatsURLRequired
 	}
-	if strings.TrimSpace(c.NATSCredsFile) == "" {
+
+	// nats_creds_file is only required when NOT using mTLS for NATS
+	// (i.e., when using JWT auth which needs the creds file)
+	natsMode := ""
+	if c.NATSSecurity != nil {
+		natsMode = strings.ToLower(string(c.NATSSecurity.Mode))
+	}
+	if natsMode != securityModeMTLS && strings.TrimSpace(c.NATSCredsFile) == "" {
 		return errNATSCredsRequired
 	}
 

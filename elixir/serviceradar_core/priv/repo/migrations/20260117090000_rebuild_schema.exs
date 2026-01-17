@@ -432,7 +432,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "collector_packages_nats_credential_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
 
       add :download_token_hash, :text
@@ -452,7 +451,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "collector_packages_edge_site_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
 
       add :inserted_at, :utc_datetime_usec,
@@ -492,7 +490,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "snmp_oid_configs_snmp_target_id_fkey",
             type: :uuid,
-            prefix: "public",
             on_delete: :delete_all
           ), null: false
     end
@@ -539,7 +536,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "device_groups_parent_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
 
       add :metadata, :map, default: %{}
@@ -566,7 +562,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "sweep_host_results_execution_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -681,7 +676,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "poll_jobs_schedule_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -751,7 +745,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "nats_leaf_servers_edge_site_id_fkey",
             type: :uuid,
-            prefix: "public"
           ), null: false
 
       add :status, :text, null: false, default: "pending"
@@ -893,7 +886,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :package_id,
                name: "nats_credentials_onboarding_package_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -1006,7 +998,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "ocsf_devices_group_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
     end
 
@@ -1018,7 +1009,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :uid,
                name: "device_identifiers_device_id_fkey",
                type: :text,
-               prefix: "public"
              )
     end
 
@@ -1034,7 +1024,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "discovered_interfaces_device_id_fkey",
             type: :text,
-            prefix: "public"
           ), primary_key: true, null: false
 
       add :if_index, :bigint, null: false, primary_key: true
@@ -1075,7 +1064,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "api_tokens_user_id_fkey",
             type: :uuid,
-            prefix: "public"
           ), null: false
     end
 
@@ -1089,8 +1077,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "snmp_targets_snmp_profile_id_fkey",
                type: :uuid,
-               prefix: "public",
-               on_delete: :delete_all
+                  on_delete: :delete_all
              )
     end
 
@@ -1130,7 +1117,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "sweep_group_executions_sweep_group_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -1177,21 +1163,8 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "polling_schedules_assigned_partition_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
-
-    alter table(:gateways) do
-      modify :partition_id,
-             references(:partitions,
-               column: :id,
-               name: "gateways_partition_id_fkey",
-               type: :uuid,
-               prefix: "public"
-             )
-    end
-
-    create unique_index(:gateways, [:gateway_id], name: "gateways_unique_gateway_id_index")
 
     alter table(:partitions) do
       add :name, :text, null: false
@@ -1212,6 +1185,17 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
     end
 
     create unique_index(:partitions, [:slug], name: "partitions_unique_slug_index")
+
+    alter table(:gateways) do
+      modify :partition_id,
+             references(:partitions,
+               column: :id,
+               name: "gateways_partition_id_fkey",
+               type: :uuid,
+             )
+    end
+
+    create unique_index(:gateways, [:gateway_id], name: "gateways_unique_gateway_id_index")
 
     create table(:log_promotion_rule_templates, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
@@ -1250,7 +1234,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :gateway_id,
             name: "ocsf_agents_gateway_id_fkey",
             type: :text,
-            prefix: "public"
           )
 
       add :device_uid,
@@ -1258,7 +1241,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "ocsf_agents_device_uid_fkey",
             type: :text,
-            prefix: "public"
           )
 
       add :capabilities, {:array, :text}, default: []
@@ -1283,7 +1265,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :uid,
                name: "checkers_agent_uid_fkey",
                type: :text,
-               prefix: "public"
              )
     end
 
@@ -1323,7 +1304,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :package_id,
             name: "edge_onboarding_events_package_id_fkey",
             type: :uuid,
-            prefix: "public"
           ), primary_key: true, null: false
 
       add :event_type, :text, null: false
@@ -1340,7 +1320,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "device_alias_states_device_id_fkey",
             type: :text,
-            prefix: "public"
           ), null: false
 
       add :partition, :text
@@ -1377,7 +1356,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "alerts_service_check_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
 
       modify :device_uid,
@@ -1385,7 +1363,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :uid,
                name: "alerts_device_uid_fkey",
                type: :text,
-               prefix: "public"
              )
 
       modify :agent_uid,
@@ -1393,7 +1370,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :uid,
                name: "alerts_agent_uid_fkey",
                type: :text,
-               prefix: "public"
              )
     end
 
@@ -1421,7 +1397,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "service_checks_agent_uid_fkey",
             type: :text,
-            prefix: "public"
           )
 
       add :device_uid,
@@ -1429,7 +1404,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :uid,
             name: "service_checks_device_uid_fkey",
             type: :text,
-            prefix: "public"
           )
 
       add :metadata, :map, default: %{}
@@ -1439,7 +1413,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "service_checks_schedule_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
 
       add :created_at, :utc_datetime_usec,
@@ -1461,7 +1434,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "agent_config_versions_config_instance_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -1481,7 +1453,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
             column: :id,
             name: "agent_config_instances_template_id_fkey",
             type: :uuid,
-            prefix: "public"
           )
 
       add :inserted_at, :utc_datetime_usec,
@@ -1541,7 +1512,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
                column: :id,
                name: "sweep_groups_profile_id_fkey",
                type: :uuid,
-               prefix: "public"
              )
     end
 
@@ -1600,13 +1570,13 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
              name: "stateful_alert_rules_unique_name_index"
            )
 
-    oban_prefix = prefix() || "public"
-    Oban.Migrations.up(prefix: oban_prefix)
+    # Use current schema (from search_path) - no explicit prefix needed
+    Oban.Migrations.up()
   end
 
   def down do
-    oban_prefix = prefix() || "public"
-    Oban.Migrations.down(prefix: oban_prefix)
+    # Use current schema (from search_path) - no explicit prefix needed
+    Oban.Migrations.down()
 
     drop_if_exists unique_index(:stateful_alert_rules, [:name],
                      name: "stateful_alert_rules_unique_name_index"
@@ -1770,6 +1740,16 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
 
     drop table(:log_promotion_rule_templates)
 
+    drop_if_exists unique_index(:gateways, [:gateway_id],
+                     name: "gateways_unique_gateway_id_index"
+                   )
+
+    drop constraint(:gateways, "gateways_partition_id_fkey")
+
+    alter table(:gateways) do
+      modify :partition_id, :uuid
+    end
+
     drop_if_exists unique_index(:partitions, [:slug], name: "partitions_unique_slug_index")
 
     alter table(:partitions) do
@@ -1788,16 +1768,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       remove :description
       remove :slug
       remove :name
-    end
-
-    drop_if_exists unique_index(:gateways, [:gateway_id],
-                     name: "gateways_unique_gateway_id_index"
-                   )
-
-    drop constraint(:gateways, "gateways_partition_id_fkey")
-
-    alter table(:gateways) do
-      modify :partition_id, :uuid
     end
 
     drop constraint(:polling_schedules, "polling_schedules_assigned_partition_id_fkey")
@@ -1896,6 +1866,16 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
 
     drop table(:gateways)
 
+    drop_if_exists unique_index(:nats_credentials, [:user_public_key],
+                     name: "nats_credentials_unique_user_public_key_index"
+                   )
+
+    drop constraint(:nats_credentials, "nats_credentials_onboarding_package_id_fkey")
+
+    alter table(:nats_credentials) do
+      modify :onboarding_package_id, :uuid
+    end
+
     alter table(:edge_onboarding_packages) do
       remove :updated_at
       remove :created_at
@@ -1930,16 +1910,6 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       remove :component_type
       remove :component_id
       remove :label
-    end
-
-    drop_if_exists unique_index(:nats_credentials, [:user_public_key],
-                     name: "nats_credentials_unique_user_public_key_index"
-                   )
-
-    drop constraint(:nats_credentials, "nats_credentials_onboarding_package_id_fkey")
-
-    alter table(:nats_credentials) do
-      modify :onboarding_package_id, :uuid
     end
 
     drop table(:edge_onboarding_packages)

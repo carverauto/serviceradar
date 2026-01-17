@@ -136,29 +136,53 @@ else
 fi
 
 # Enforce CNPG TLS/mTLS settings to avoid stale configs
-jq --arg host "$CNPG_HOST_VALUE" \
-   --argjson port "${CNPG_PORT_VALUE:-5432}" \
-   --arg db "$CNPG_DATABASE_VALUE" \
-   --arg user "$CNPG_USERNAME_VALUE" \
-   --arg ssl "$CNPG_SSL_MODE_VALUE" \
-   --arg ca "$CNPG_CA_FILE_VALUE" \
-   --arg cert "$CNPG_CERT_FILE_VALUE" \
-   --arg key "$CNPG_KEY_FILE_VALUE" \
-   '
-   .cnpg = (.cnpg // {})
-   | .cnpg.host = $host
-   | .cnpg.port = ($port | tonumber)
-   | .cnpg.database = $db
-   | .cnpg.username = $user
-   | .cnpg.ssl_mode = $ssl
-   | .cnpg.tls = {
-       ca_file: $ca,
-       cert_file: $cert,
-       key_file: $key
-     }
-   ' "$CONFIG_PATH" > /tmp/config-updated.json
+# Build TLS config based on whether client certs are provided
+if [ -n "$CNPG_CERT_FILE_VALUE" ] && [ -n "$CNPG_KEY_FILE_VALUE" ]; then
+    # Full mTLS with client certs
+    jq --arg host "$CNPG_HOST_VALUE" \
+       --argjson port "${CNPG_PORT_VALUE:-5432}" \
+       --arg db "$CNPG_DATABASE_VALUE" \
+       --arg user "$CNPG_USERNAME_VALUE" \
+       --arg ssl "$CNPG_SSL_MODE_VALUE" \
+       --arg ca "$CNPG_CA_FILE_VALUE" \
+       --arg cert "$CNPG_CERT_FILE_VALUE" \
+       --arg key "$CNPG_KEY_FILE_VALUE" \
+       '
+       .cnpg = (.cnpg // {})
+       | .cnpg.host = $host
+       | .cnpg.port = ($port | tonumber)
+       | .cnpg.database = $db
+       | .cnpg.username = $user
+       | .cnpg.ssl_mode = $ssl
+       | .cnpg.tls = {
+           ca_file: $ca,
+           cert_file: $cert,
+           key_file: $key
+         }
+       ' "$CONFIG_PATH" > /tmp/config-updated.json
+    echo "✅ Ensured CNPG mTLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
+else
+    # Server TLS verification only (no client certs)
+    jq --arg host "$CNPG_HOST_VALUE" \
+       --argjson port "${CNPG_PORT_VALUE:-5432}" \
+       --arg db "$CNPG_DATABASE_VALUE" \
+       --arg user "$CNPG_USERNAME_VALUE" \
+       --arg ssl "$CNPG_SSL_MODE_VALUE" \
+       --arg ca "$CNPG_CA_FILE_VALUE" \
+       '
+       .cnpg = (.cnpg // {})
+       | .cnpg.host = $host
+       | .cnpg.port = ($port | tonumber)
+       | .cnpg.database = $db
+       | .cnpg.username = $user
+       | .cnpg.ssl_mode = $ssl
+       | .cnpg.tls = {
+           ca_file: $ca
+         }
+       ' "$CONFIG_PATH" > /tmp/config-updated.json
+    echo "✅ Ensured CNPG TLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE ca_only=true)"
+fi
 mv /tmp/config-updated.json "$CONFIG_PATH"
-echo "✅ Ensured CNPG TLS config (host=$CNPG_HOST_VALUE port=$CNPG_PORT_VALUE ssl_mode=$CNPG_SSL_MODE_VALUE)"
 
 echo "Starting ServiceRadar DB Event Writer with config: $CONFIG_PATH"
 

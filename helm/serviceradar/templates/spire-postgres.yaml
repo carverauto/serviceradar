@@ -13,7 +13,10 @@
   {{- $superPass = (b64dec $existingSuper.data.password) }}
 {{- end }}
 {{- $cnpg := default (dict) .Values.cnpg }}
-{{- $clientCASecret := $cnpg.clientCASecret }}
+{{- $clientCASecret := default "" $cnpg.clientCASecret }}
+{{- if and (not $clientCASecret) $cnpg.requireClientCert }}
+  {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
+{{- end }}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns "serviceradar-db-credentials") }}
 {{- $appUser := default "serviceradar" $cnpg.username }}
 {{- $appPass := default "" $cnpg.password }}
@@ -139,6 +142,11 @@ spec:
     pg_hba:
       - "hostnossl all all all reject"
       - "hostssl all all all scram-sha-256 clientcert=verify-ca"
+    {{- else }}
+    # Allow SSL connections with password auth (no client cert required)
+    pg_hba:
+      - "hostnossl all all all reject"
+      - "hostssl all all all scram-sha-256"
     {{- end }}
   {{- if $clientCASecret }}
   certificates:

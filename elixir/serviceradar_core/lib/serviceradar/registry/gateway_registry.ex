@@ -76,9 +76,9 @@ defmodule ServiceRadar.GatewayRegistry do
   @doc """
   Unregister a gateway from the registry.
   """
-  @spec unregister_gateway(String.t()) :: :ok
-  def unregister_gateway(gateway_id) when is_binary(gateway_id) do
-    ProcessRegistry.unregister({:gateway, gateway_id})
+  @spec unregister_gateway(String.t(), node()) :: :ok
+  def unregister_gateway(gateway_id, node \\ Node.self()) when is_binary(gateway_id) do
+    ProcessRegistry.unregister_gateway(gateway_id, node)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
@@ -100,9 +100,10 @@ defmodule ServiceRadar.GatewayRegistry do
   @doc """
   Update a gateway's registry metadata using a callback.
   """
-  @spec update_value(String.t(), (map() -> map())) :: {map(), map()} | :error
-  def update_value(gateway_id, callback) when is_binary(gateway_id) and is_function(callback, 1) do
-    ProcessRegistry.update_value({:gateway, gateway_id}, callback)
+  @spec update_value(String.t(), (map() -> map()), node()) :: {map(), map()} | :error
+  def update_value(gateway_id, callback, node \\ Node.self())
+      when is_binary(gateway_id) and is_function(callback, 1) do
+    ProcessRegistry.update_value({:gateway, gateway_id, node}, callback)
   end
 
   @doc """
@@ -110,7 +111,7 @@ defmodule ServiceRadar.GatewayRegistry do
   """
   @spec lookup(String.t()) :: [{pid(), map()}]
   def lookup(gateway_id) when is_binary(gateway_id) do
-    ProcessRegistry.lookup({:gateway, gateway_id})
+    ProcessRegistry.lookup_gateway(gateway_id)
   end
 
   @doc """

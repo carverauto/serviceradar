@@ -13,6 +13,7 @@
 {{- $dbName := default "spire" $pg.database }}
 {{- $cnpgClientCert := default "cnpg-client.pem" $cnpg.clientCertName }}
 {{- $cnpgClientKey := default "cnpg-client-key.pem" $cnpg.clientKeyName }}
+{{- $cnpgRequireClientCert := default false $cnpg.requireClientCert }}
 {{- $tokenAudience := .Values.spire.tokenAudience | default "https://kubernetes.default.svc" }}
 {{- $cmVals := .Values.spire.controllerManager }}
 {{- $cmImageRepo := default "ghcr.io/spiffe/spire-controller-manager" $cmVals.image }}
@@ -138,7 +139,11 @@ data:
       DataStore "sql" {
         plugin_data {
           database_type = "postgres"
+{{- if $cnpgRequireClientCert }}
           connection_string = "dbname={{ $dbName }} user={{ $dbUser }} password=__DB_PASSWORD__ host={{ $pgHost }} port=5432 sslmode=verify-full sslrootcert=/run/spire/cnpg/ca.crt sslcert=/run/spire/certs/{{ $cnpgClientCert }} sslkey=/run/spire/certs/{{ $cnpgClientKey }}"
+{{- else }}
+          connection_string = "dbname={{ $dbName }} user={{ $dbUser }} password=__DB_PASSWORD__ host={{ $pgHost }} port=5432 sslmode=verify-full sslrootcert=/run/spire/cnpg/ca.crt"
+{{- end }}
         }
       }
 

@@ -131,26 +131,21 @@ Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_contain
 
 ## Trigram Indexes for Text Search
 
-ServiceRadar enables the `pg_trgm` extension and creates GIN trigram indexes on frequently searched text columns to optimize `ILIKE` queries. The `pg_trgm` extension is bundled with TimescaleDB, so no additional packages need to be installed—the migration simply runs `CREATE EXTENSION IF NOT EXISTS pg_trgm;` to enable it. Without these indexes, case-insensitive pattern matching (e.g., `hostname ILIKE '%server%'`) would require full table scans.
+ServiceRadar can enable the `pg_trgm` extension and add GIN trigram indexes to optimize `ILIKE` queries. When you add those indexes, define them in the Ash rebuild migration (`elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs`) and keep the list below in sync.
 
 ### Indexed Columns
 
-The migration `00000000000016_pg_trgm_extension.up.sql` creates the following indexes:
-
-| Table | Column | Index Name |
-|-------|--------|------------|
-| `unified_devices` | `hostname` | `idx_unified_devices_hostname_trgm` |
-| `unified_devices` | `ip` | `idx_unified_devices_ip_trgm` |
+No trigram indexes are currently defined in the Ash rebuild migration. Add them when search latency requires it.
 
 ### Verifying Index Usage
 
-For tables with more than ~100 rows, PostgreSQL should use the trigram indexes for `ILIKE` queries:
+For tables with more than ~100 rows, PostgreSQL should use trigram indexes for `ILIKE` queries:
 
 ```sql
-EXPLAIN ANALYZE SELECT * FROM unified_devices WHERE hostname ILIKE '%pattern%';
+EXPLAIN ANALYZE SELECT * FROM <table> WHERE <column> ILIKE '%pattern%';
 ```
 
-Look for `Bitmap Index Scan on idx_unified_devices_hostname_trgm` in the output. Note that PostgreSQL may choose a sequential scan for very small tables where the overhead of using an index exceeds the cost of scanning all rows.
+Look for a `Bitmap Index Scan` on your trigram index. PostgreSQL may choose a sequential scan for very small tables where the overhead of using an index exceeds the cost of scanning all rows.
 
 ### Performance Characteristics
 

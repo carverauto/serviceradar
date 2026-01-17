@@ -295,7 +295,6 @@ data:
     [*] CNPG HELPERS:
         cnpg-info            - Show Postgres connection metadata
         cnpg-sql <SQL>       - Run SQL via TLS-verified service profile
-        cnpg-migrate         - Run Timescale migrations (env-driven)
 
     [*] NATS ALIASES:
         nats-info            - Show NATS server information

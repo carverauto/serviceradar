@@ -1170,7 +1170,6 @@ pkg_tar(
     name = "tools_layer_amd64",
     files = {
         "//cmd/cli:cli": "usr/local/bin/serviceradar-cli",
-        "//cmd/tools/cnpg-migrate:cnpg-migrate": "usr/local/bin/cnpg-migrate",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
@@ -1178,7 +1177,6 @@ pkg_tar(
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
-        "usr/local/bin/cnpg-migrate": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",

@@ -150,10 +150,12 @@ spec:
           value: {{ default "verify-full" $cnpg.sslmode | quote }}
         - name: CNPG_CA_FILE
           value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
         - name: CNPG_CERT_FILE
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
         - name: CNPG_KEY_FILE
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
         - name: DATASVC_HOST
           value: "serviceradar-datasvc"
         - name: DATASVC_PORT
@@ -174,6 +176,10 @@ spec:
           value: "true"
         - name: NATS_SERVER_NAME
           value: "serviceradar-nats"
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: NATS_CREDS_FILE
+          value: "/etc/serviceradar/creds/platform.creds"
+        {{- end }}
         - name: CLOAK_KEY
           valueFrom:
             secretKeyRef:
@@ -192,6 +198,11 @@ spec:
         - name: spire-bundle
           mountPath: /run/spire/bundle
           readOnly: true
+        {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+        - name: nats-creds
+          mountPath: /etc/serviceradar/creds
+          readOnly: true
+        {{- end }}
         resources:
           limits:
             cpu: "4"
@@ -231,6 +242,12 @@ spec:
       - name: spire-bundle
         configMap:
           name: {{ $spireBundle | quote }}
+      {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
+      - name: nats-creds
+        secret:
+          secretName: serviceradar-nats-creds
+          optional: true
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

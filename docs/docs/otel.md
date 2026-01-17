@@ -25,7 +25,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 
 ## Storage and Querying
 
-- Metrics land in the Timescale hypertable `otel_metrics` inside CNPG. Retention defaults to three days via the embedded migrations; extend it by editing `pkg/db/cnpg/migrations/00000000000004_otel_observability.up.sql` and rerunning `cnpg-migrate`.
+- Metrics land in the Timescale hypertable `otel_metrics` inside CNPG. Retention defaults to three days via the Ash migration in `elixir/serviceradar_core/priv/repo/migrations/`; extend it there and re-run `mix ash.migrate`.
 - Traces use the `otel_traces` hypertable. SRQL simply proxies the query to CNPG, so joins such as `SELECT * FROM otel_traces JOIN logs USING (trace_id)` stay performant.
 - Logs from OTEL exporters flow into the shared `logs` hypertable through the `serviceradar-db-event-writer`. The syslog pipeline can still mirror events if you need unified retention or GoRules enrichment.
 

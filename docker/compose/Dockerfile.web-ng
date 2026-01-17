@@ -74,4 +74,4 @@ COPY --from=build /app/web-ng /app/web-ng
 
 EXPOSE 4000
 
-CMD ["sh", "-lc", "mix ecto.migrate && exec mix phx.server"]
+CMD ["sh", "-lc", "exec mix phx.server"]

@@ -2,7 +2,7 @@
 
 ## Overview
 
-ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the Rust-based SRQL service (`rust/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `pkg/db/migrations`, translates them to CNPG SQL via Diesel, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
+ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the Rust-based SRQL service (`rust/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs`, translates them to CNPG SQL via Diesel, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
 
 Use SRQL to:
 - Select one or more OCSF data domains with `in:<entity>`
@@ -12,7 +12,7 @@ Use SRQL to:
 
 ## Target Entities and OCSF Alignment
 
-Target data with the `in:` selector. Each logical entity routes to one or more OCSF tables or streams introduced in the `00000000000002_*` through `00000000000005_*` migrations.
+Target data with the `in:` selector. Each logical entity routes to one or more OCSF tables or streams introduced in the Ash rebuild migration (`20260117090000_rebuild_schema.exs`).
 
 | SRQL Entity | Description | Primary OCSF Source |
 |-------------|-------------|---------------------|
@@ -29,7 +29,7 @@ Target data with the `in:` selector. Each logical entity routes to one or more O
 
 `in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names via the Diesel query builders in `rust/srql/src/query`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
 
-The migrations in `00000000000003_ocsf_entity_state_streams.up.sql` and `00000000000005_ocsf_materialized_views.up.sql` also provision current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
+The consolidated CNPG schema migration also provisions current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
 
 ## Filters and Field References
 
@@ -114,7 +114,7 @@ Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`
 - Anchor every query with `in:` and an explicit `time` window to constrain scans.
 - Prefer SRQL field aliases (e.g. `device.os.name`, `connection.dst_endpoint_ip`) over raw column names; the engine keeps them aligned with the OCSF migrations.
 - Use repeated keys for array containment checks and comma lists for scalar `IN` comparisons.
-- Inspect new OCSF columns in `pkg/db/migrations` before adding filters so names stay consistent with upstream schema revisions.
+- Inspect new OCSF columns in `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs` before adding filters so names stay consistent with upstream schema revisions.
 - Validate complex queries with the `srql.validate` MCP tool or the SRQL CLI under `rust/srql`.
 
 ## Supported Filter Fields by Entity

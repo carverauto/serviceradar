@@ -38,9 +38,7 @@ kubectl apply -k "${OVERLAY}"
 echo "⏳ Waiting for CNPG pods to become Ready..."
 kubectl wait --for=condition=Ready --timeout=600s pod -l "${SELECTOR}" -n "${NAMESPACE}"
 
-echo "🔁 Running cnpg-migrate from serviceradar-tools..."
-kubectl exec -n "${NAMESPACE}" deploy/serviceradar-tools -- \
-  cnpg-migrate --app-name reset-cnpg
+echo "🔁 Ash migrations are applied by core-elx on startup (SERVICERADAR_CORE_RUN_MIGRATIONS=true)."
 
 echo "♻️  Restarting core services so they reconnect to the fresh database..."
 for deployment in serviceradar-core serviceradar-datasvc \

@@ -2,12 +2,22 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+// normalizeRawJSON ensures a json.RawMessage is valid for database insertion.
+// Returns empty JSON object "{}" if the input is nil or empty.
+func normalizeRawJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}
 
 const insertDiscoveredInterfaceSQL = `
 INSERT INTO discovered_interfaces (

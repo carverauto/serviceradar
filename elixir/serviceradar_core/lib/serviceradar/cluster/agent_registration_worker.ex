@@ -196,7 +196,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   defp update_status(state) do
     # Update status via ProcessRegistry
     ServiceRadar.ProcessRegistry.update_value(
-      {:agent, state.agent_id},
+      {:agent, state.agent_id, Node.self()},
       fn meta ->
         %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
       end
