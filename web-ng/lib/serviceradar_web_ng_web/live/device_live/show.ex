@@ -1761,35 +1761,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        rows = Enum.filter(rows, &row_matches_identity?(&1, identity))
-
-        if rows == [] do
-          nil
-        else
-          # Get unique cores and calculate average
-          values =
-            Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
-            |> Enum.filter(&is_number/1)
-
-          cores =
-            rows
-            |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
-            |> Enum.filter(&is_binary/1)
-            |> Enum.uniq()
-            |> length()
-
-          avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
-
-          %{
-            avg_usage: Float.round(avg * 1.0, 1),
-            core_count: max(cores, 1),
-            timestamp: Map.get(List.first(rows), "timestamp")
-          }
-        end
+        rows
+        |> Enum.filter(&row_matches_identity?(&1, identity))
+        |> build_cpu_summary()
 
       _ ->
         nil
     end
+  end
+
+  defp build_cpu_summary([]), do: nil
+
+  defp build_cpu_summary(rows) do
+    values =
+      Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
+      |> Enum.filter(&is_number/1)
+
+    cores =
+      rows
+      |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> length()
+
+    avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
+
+    %{
+      avg_usage: Float.round(avg * 1.0, 1),
+      core_count: max(cores, 1),
+      timestamp: Map.get(List.first(rows), "timestamp")
+    }
   end
 
   defp load_memory_summary(srql_module, identity, scope) do
@@ -1828,8 +1829,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
         # Group by mount point and take the latest for each
         rows
-        |> Enum.filter(&is_map/1)
-        |> Enum.filter(&row_matches_identity?(&1, identity))
+        |> Enum.filter(fn row -> is_map(row) and row_matches_identity?(row, identity) end)
         |> Enum.group_by(&disk_mount/1)
         |> Enum.map(fn {mount, disk_rows} ->
           build_disk_entry(mount, List.first(disk_rows))
