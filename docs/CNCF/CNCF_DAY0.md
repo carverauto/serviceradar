@@ -314,7 +314,6 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 
 ```json
 {
-  "tenant_id": "msp-customer-123",
   "roles": {
     "network-admin": {
       "permissions": [
@@ -337,13 +336,13 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 **RBAC implementation:**
 - JSON-based role definitions
 - Stored in Kubernetes Secrets or config files (never in NATS KV for security)
-- Tenant ID validation on every API call
+- Role validation on every API call
 - gRPC middleware validates mTLS certs + roles
 
-**Multi-tenant isolation:**
-- Tenant ID in JWT claims
-- Database queries scoped: `WHERE tenant_id = $1`
-- Network policies per tenant namespace (optional)
+**Single-Tenant-per-Deployment isolation:**
+- Each tenant gets their own isolated deployment
+- CNPG credentials set PostgreSQL `search_path` for schema isolation
+- Separate NATS accounts per tenant with namespace-based subject mapping
 - Separate encryption keys per tenant (roadmap)
 
 #### Sovereignty and Data Residency
@@ -474,11 +473,11 @@ Client → Edge Proxy (TLS) → Core/Web UI/SRQL → Microservices
 
 ```sql
 -- Example: Get top 10 devices by CPU usage
-devices
-  | where tenant_id = 'customer-123'
-  | where cpu_usage > 80
-  | sort by cpu_usage desc
-  | limit 10
+in:cpu_metrics time:last_1h
+  stats:"avg(usage_percent) as avg_cpu by device_id"
+  having:"avg_cpu>80"
+  sort:avg_cpu:desc
+  limit:10
 ```
 
 **API versioning:**
@@ -1041,7 +1040,6 @@ nats_jetstream_stream_messages_pending
   "timestamp": "2025-10-17T10:30:00Z",
   "level": "info",
   "service": "serviceradar-core",
-  "tenant_id": "customer-123",
   "user_id": "admin@example.com",
   "action": "device.create",
   "resource_id": "device-456",
@@ -1054,7 +1052,7 @@ nats_jetstream_stream_messages_pending
 
 All API mutations logged with:
 - Timestamp (RFC 3339)
-- User ID and tenant ID
+- User ID
 - Action performed (create/update/delete/read)
 - Resource affected (device, config, user)
 - Source IP address
@@ -1351,33 +1349,29 @@ docker save ghcr.io/carverauto/serviceradar-core:v1.0.53 | \
 |-------|-----------|------------------|
 | **Edge Proxy** | TLS termination, routing | External traffic entry |
 | **Service Mesh** | mTLS certificate validation | Every gRPC call |
-| **RBAC Engine** | Tenant-scoped permission checks | Core API middleware |
-| **Database** | Query scoping (`WHERE tenant_id = $1`) | CNPG/Timescale |
+| **RBAC Engine** | Role-based permission checks | Core API middleware |
+| **Database** | Schema isolation via CNPG search_path | PostgreSQL connection |
 
 **Policy enforcement:**
 
 ```go
 // Example: RBAC middleware in Core API
 func (m *RBACMiddleware) Intercept(ctx context.Context, req interface{}) error {
-    // Extract tenant ID from JWT claims
-    tenantID := extractTenantID(ctx)
-
-    // Extract user roles
+    // Extract user roles from JWT claims
     roles := extractRoles(ctx)
 
     // Check if user has permission for action
     action := extractAction(req)
-    if !m.policy.Allow(tenantID, roles, action) {
+    if !m.policy.Allow(roles, action) {
         return status.Error(codes.PermissionDenied, "insufficient permissions")
     }
 
-    // Inject tenant ID into request for query scoping
-    return injectTenantID(req, tenantID)
+    return nil
 }
 ```
 
 **Access control audit:**
-- All API calls logged with user, tenant, action, result
+- All API calls logged with user, action, result
 - Failed authorization attempts trigger alerts
 - Quarterly access review: remove unused accounts, audit permissions
 
