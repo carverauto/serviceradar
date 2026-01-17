@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
+  alias ServiceRadarWebNGWeb.SRQL.Viz
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -41,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:results, [])
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
-     |> assign(:sysmon_summary, nil)
+     |> assign(:sysmon_presence, false)
      |> assign(:sysmon_profile_info, nil)
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
@@ -108,8 +111,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
-    metric_sections = load_metric_sections(srql_module, uid, scope)
-    sysmon_summary = load_sysmon_summary(srql_module, uid, scope)
+    device_row = List.first(Enum.filter(results, &is_map/1))
+    sysmon_identity = sysmon_identity(device_row, uid)
+
+    metric_sections = load_metric_sections(srql_module, sysmon_identity, scope)
+    sysmon_presence = load_sysmon_presence(srql_module, sysmon_identity, scope)
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
@@ -125,9 +131,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_uid, uid)
      |> assign(:limit, limit)
      |> assign(:results, results)
-     |> assign(:panels, Engine.build_panels(srql_response))
+     |> assign(:panels, srql_response |> Engine.build_panels() |> drop_low_value_categories())
      |> assign(:metric_sections, metric_sections)
-     |> assign(:sysmon_summary, sysmon_summary)
+     |> assign(:sysmon_presence, sysmon_presence)
      |> assign(:sysmon_profile_info, sysmon_profile_info)
      |> assign(:available_profiles, available_profiles)
      |> assign(:availability, availability)
@@ -238,11 +244,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       assigns
       |> assign(:device_row, device_row)
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
+      |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
-        Enum.filter(assigns.metric_sections, fn section ->
-          is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
-        end)
+        if sysmon_metrics_visible?(assigns) do
+          Enum.filter(assigns.metric_sections, fn section ->
+            is_binary(Map.get(section, :error)) or Map.get(section, :panels, []) != []
+          end)
+        else
+          []
+        end
       )
 
     ~H"""
@@ -445,8 +456,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             available_profiles={@available_profiles}
             device_uid={@device_uid}
           />
-
-          <.sysmon_summary_section :if={is_map(@sysmon_summary)} summary={@sysmon_summary} />
 
           <%= for section <- @metric_sections_to_render do %>
             <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -1041,11 +1050,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp load_metric_sections(srql_module, device_uid, scope) do
-    device_uid = escape_value(device_uid)
+  defp load_metric_sections(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: []
 
+  defp load_metric_sections(srql_module, identity, scope) do
     metric_section_specs()
-    |> Enum.map(&build_metric_section(srql_module, &1, device_uid, scope))
+    |> Enum.map(&build_metric_section(srql_module, &1, identity, scope))
   end
 
   defp metric_section_specs do
@@ -1074,8 +1085,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ]
   end
 
-  defp build_metric_section(srql_module, spec, device_uid, scope) do
-    query = metric_query(spec.entity, device_uid, spec.series)
+  defp build_metric_section(srql_module, spec, identity, scope) do
+    query = metric_query(spec.entity, identity, spec.series)
 
     base = %{
       key: spec.key,
@@ -1088,7 +1099,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => results} = resp} when is_list(results) and results != [] ->
-        panels = build_metric_panels(resp, results)
+        panels = build_metric_panels(resp, results, spec.series)
         %{base | panels: panels}
 
       {:ok, %{"results" => results}} when is_list(results) ->
@@ -1102,12 +1113,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp build_metric_panels(resp, results) do
+  defp build_metric_panels(resp, results, series_field) do
     srql_response = %{"results" => results, "viz" => extract_viz(resp)}
 
-    srql_response
-    |> Engine.build_panels()
-    |> prefer_visual_panels(results)
+    panels =
+      srql_response
+      |> Engine.build_panels()
+      |> prefer_visual_panels(results)
+      |> drop_category_panels_when_timeseries()
+
+    panels
+    |> maybe_force_timeseries(results, series_field)
+    |> drop_category_panels_when_timeseries()
   end
 
   defp extract_viz(resp) do
@@ -1129,7 +1146,160 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp prefer_visual_panels(panels, _results), do: panels
 
-  defp metric_query(entity, device_uid_escaped, series_field) do
+  defp drop_category_panels_when_timeseries(panels) when is_list(panels) do
+    has_timeseries = Enum.any?(panels, &(&1.plugin == TimeseriesPlugin))
+
+    if has_timeseries do
+      Enum.reject(panels, &(&1.plugin == CategoriesPlugin))
+    else
+      panels
+    end
+  end
+
+  defp drop_category_panels_when_timeseries(panels), do: panels
+
+  defp maybe_force_timeseries(panels, results, series_field) do
+    has_visual = Enum.any?(panels, &(&1.plugin != TablePlugin))
+
+    if has_visual do
+      panels
+    else
+      case inferred_timeseries_viz(results, series_field) do
+        nil ->
+          panels
+
+        viz ->
+          %{"results" => results, "viz" => %{"suggestions" => [viz]}}
+          |> Engine.build_panels()
+          |> prefer_visual_panels(results)
+      end
+    end
+  end
+
+  defp inferred_timeseries_viz(results, series_field) do
+    case Viz.infer(results) do
+      {:timeseries, %{x: x, y: y}} ->
+        base = %{"kind" => "timeseries", "x" => x, "y" => y}
+
+        if is_binary(series_field) and String.trim(series_field) != "" do
+          Map.put(base, "series", series_field)
+        else
+          base
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp sysmon_metrics_visible?(assigns) do
+    sysmon_presence = Map.get(assigns, :sysmon_presence, false)
+
+    sysmon_presence
+  end
+
+  defp sysmon_identity(device_row, device_uid) do
+    device_uid =
+      case Map.get(device_row || %{}, "uid") || device_uid do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    agent_id =
+      device_row
+      |> Map.get("agent_id")
+      |> case do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
+    %{}
+    |> maybe_put_identity(:device_uid, device_uid)
+    |> maybe_put_identity(:agent_id, agent_id)
+  end
+
+  defp maybe_put_identity(identity, _key, ""), do: identity
+  defp maybe_put_identity(identity, _key, nil), do: identity
+
+  defp maybe_put_identity(identity, key, value) do
+    if is_binary(value) and String.trim(value) != "" do
+      Map.put(identity, key, value)
+    else
+      identity
+    end
+  end
+
+  defp sysmon_filter_tokens(identity) when identity == %{} or identity == nil, do: []
+
+  defp sysmon_filter_tokens(identity) do
+    tokens = []
+    device_uid = Map.get(identity, :device_uid)
+    agent_id = Map.get(identity, :agent_id)
+
+    tokens =
+      if is_binary(device_uid) and device_uid != "" do
+        tokens ++ ["device_id:\"#{escape_value(device_uid)}\""]
+      else
+        tokens
+      end
+
+    if is_binary(agent_id) and agent_id != "" do
+      tokens ++ ["agent_id:\"#{escape_value(agent_id)}\""]
+    else
+      tokens
+    end
+  end
+
+  defp row_matches_identity?(row, identity) when is_map(row) and is_map(identity) do
+    device_match =
+      case Map.get(identity, :device_uid) do
+        value when is_binary(value) and value != "" ->
+          Map.get(row, "uid") == value or Map.get(row, "device_id") == value
+
+        _ ->
+          true
+      end
+
+    agent_match =
+      case Map.get(identity, :agent_id) do
+        value when is_binary(value) and value != "" ->
+          Map.get(row, "agent_id") == value
+
+        _ ->
+          true
+      end
+
+    device_match and agent_match
+  end
+
+  defp row_matches_identity?(_row, _identity), do: false
+
+  defp drop_low_value_categories(panels) when is_list(panels) do
+    Enum.reject(panels, &low_value_categories_panel?/1)
+  end
+
+  defp drop_low_value_categories(_), do: []
+
+  defp low_value_categories_panel?(%{plugin: CategoriesPlugin, assigns: assigns}) do
+    case Map.get(assigns, :viz) do
+      {:categories, %{label: label, value: value}} ->
+        normalize_viz_key(label) == "modified" and normalize_viz_key(value) == "type_id"
+
+      _ ->
+        false
+    end
+  end
+
+  defp low_value_categories_panel?(_), do: false
+
+  defp normalize_viz_key(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp metric_query(entity, identity, series_field) do
     series_field =
       case series_field do
         nil -> nil
@@ -1140,13 +1310,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tokens =
       [
         "in:#{entity}",
-        "uid:\"#{device_uid_escaped}\"",
         "time:last_24h",
         "bucket:5m",
         "agg:avg",
         "sort:timestamp:desc",
         "limit:#{@metrics_limit}"
       ]
+      |> Kernel.++(sysmon_filter_tokens(identity))
 
     tokens =
       if is_binary(series_field) and series_field != "" do
@@ -1256,188 +1426,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_pct(_), do: "—"
 
   # ---------------------------------------------------------------------------
-  # Sysmon Summary Section
-  # ---------------------------------------------------------------------------
-
-  attr :summary, :map, required: true
-
-  def sysmon_summary_section(assigns) do
-    cpu = Map.get(assigns.summary, :cpu, %{})
-    memory = Map.get(assigns.summary, :memory, %{})
-    disks = Map.get(assigns.summary, :disks, [])
-    icmp_rtt = Map.get(assigns.summary, :icmp_rtt)
-
-    has_cpu = is_map(cpu) and not is_nil(Map.get(cpu, :timestamp))
-    has_memory = is_map(memory) and not is_nil(Map.get(memory, :timestamp))
-
-    assigns =
-      assigns
-      |> assign(:cpu, cpu)
-      |> assign(:memory, memory)
-      |> assign(:disks, disks)
-      |> assign(:icmp_rtt, icmp_rtt)
-      |> assign(:has_cpu, has_cpu)
-      |> assign(:has_memory, has_memory)
-
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">System Metrics (Sysmon)</span>
-      </div>
-
-      <div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <.metric_card
-          :if={@has_cpu}
-          title="CPU Usage"
-          value={format_pct(Map.get(@cpu, :avg_usage, 0.0))}
-          suffix="%"
-          subtitle={"#{Map.get(@cpu, :core_count, 0)} cores"}
-          icon="hero-cpu-chip"
-          color={cpu_color(Map.get(@cpu, :avg_usage, 0.0))}
-        />
-
-        <.metric_card
-          :if={@has_memory}
-          title="Memory"
-          value={format_pct(Map.get(@memory, :percent, 0.0))}
-          suffix="%"
-          subtitle={format_bytes(Map.get(@memory, :used_bytes, 0)) <> " / " <> format_bytes(Map.get(@memory, :total_bytes, 0))}
-          icon="hero-rectangle-stack"
-          color={memory_color(Map.get(@memory, :percent, 0.0))}
-        />
-
-        <.metric_card
-          :if={is_number(@icmp_rtt)}
-          title="Latency (ICMP)"
-          value={format_latency(@icmp_rtt)}
-          suffix="ms"
-          subtitle="Last check"
-          icon="hero-signal"
-          color={latency_color(@icmp_rtt)}
-        />
-
-        <.metric_card
-          :if={@disks != []}
-          title="Heaviest Disk"
-          value={format_pct(disk_max_percent(@disks))}
-          suffix="%"
-          subtitle={disk_max_mount(@disks)}
-          icon="hero-circle-stack"
-          color={disk_color(disk_max_percent(@disks))}
-        />
-      </div>
-
-      <div :if={@disks != []} class="px-4 pb-4">
-        <div class="text-xs font-semibold text-base-content/70 mb-2">Disk Utilization</div>
-        <div class="space-y-2">
-          <%= for disk <- Enum.take(Enum.sort_by(@disks, & &1.percent, :desc), 5) do %>
-            <.disk_bar disk={disk} />
-          <% end %>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :title, :string, required: true
-  attr :value, :string, required: true
-  attr :suffix, :string, default: ""
-  attr :subtitle, :string, default: ""
-  attr :icon, :string, required: true
-  attr :color, :string, default: "primary"
-
-  def metric_card(assigns) do
-    ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/30 p-4">
-      <div class="flex items-center gap-2 mb-2">
-        <.icon name={@icon} class={["size-4", "text-#{@color}"]} />
-        <span class="text-xs text-base-content/70">{@title}</span>
-      </div>
-      <div class="flex items-baseline gap-1">
-        <span class={["text-2xl font-bold tabular-nums", "text-#{@color}"]}>{@value}</span>
-        <span class="text-sm text-base-content/60">{@suffix}</span>
-      </div>
-      <div :if={@subtitle != ""} class="text-xs text-base-content/50 mt-1">{@subtitle}</div>
-    </div>
-    """
-  end
-
-  attr :disk, :map, required: true
-
-  def disk_bar(assigns) do
-    pct = Map.get(assigns.disk, :percent, 0.0)
-    mount = Map.get(assigns.disk, :mount_point, "?")
-    used = format_bytes(Map.get(assigns.disk, :used_bytes, 0))
-    total = format_bytes(Map.get(assigns.disk, :total_bytes, 0))
-    color = disk_color(pct)
-
-    assigns =
-      assigns
-      |> assign(:pct, pct)
-      |> assign(:mount, mount)
-      |> assign(:used, used)
-      |> assign(:total, total)
-      |> assign(:color, color)
-
-    ~H"""
-    <div class="flex items-center gap-3">
-      <div class="w-24 truncate text-xs font-mono text-base-content/70" title={@mount}>{@mount}</div>
-      <div class="flex-1 h-2 bg-base-200 rounded-full overflow-hidden">
-        <div
-          class={["h-full rounded-full", "bg-#{@color}"]}
-          style={"width: #{min(@pct, 100)}%"}
-        />
-      </div>
-      <div class="w-24 text-right text-xs tabular-nums text-base-content/70">
-        {format_pct(@pct)}% <span class="text-base-content/50">({@used})</span>
-      </div>
-    </div>
-    """
-  end
-
-  defp cpu_color(pct) when pct >= 90, do: "error"
-  defp cpu_color(pct) when pct >= 70, do: "warning"
-  defp cpu_color(_), do: "success"
-
-  defp memory_color(pct) when pct >= 90, do: "error"
-  defp memory_color(pct) when pct >= 80, do: "warning"
-  defp memory_color(_), do: "info"
-
-  defp disk_color(pct) when pct >= 90, do: "error"
-  defp disk_color(pct) when pct >= 80, do: "warning"
-  defp disk_color(_), do: "primary"
-
-  defp latency_color(ms) when ms >= 200, do: "error"
-  defp latency_color(ms) when ms >= 100, do: "warning"
-  defp latency_color(_), do: "success"
-
-  defp disk_max_percent([]), do: 0.0
-
-  defp disk_max_percent(disks),
-    do: Enum.max_by(disks, & &1.percent, fn -> %{percent: 0.0} end).percent
-
-  defp disk_max_mount([]), do: "—"
-
-  defp disk_max_mount(disks),
-    do: Enum.max_by(disks, & &1.percent, fn -> %{mount_point: "—"} end).mount_point
-
-  defp format_bytes(bytes) when is_number(bytes) do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  defp format_bytes(_), do: "—"
-
-  defp format_latency(ms) when is_float(ms), do: :erlang.float_to_binary(ms, decimals: 1)
-  defp format_latency(ms) when is_integer(ms), do: Integer.to_string(ms)
-  defp format_latency(_), do: "—"
-
-  # ---------------------------------------------------------------------------
   # Data Loading Functions
   # ---------------------------------------------------------------------------
 
@@ -1543,166 +1531,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_sysmon_summary(srql_module, device_uid, scope) do
-    escaped_id = escape_value(device_uid)
+  defp load_sysmon_presence(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: false
 
-    # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
-    cpu_data = load_cpu_summary(srql_module, escaped_id, scope)
-    memory_data = load_memory_summary(srql_module, escaped_id, scope)
-    disk_data = load_disk_summary(srql_module, escaped_id, scope)
-    icmp_rtt = load_icmp_rtt(srql_module, escaped_id, scope)
-
-    has_sysmon_metrics = is_map(cpu_data) or is_map(memory_data) or disk_data != []
-
-    if has_sysmon_metrics do
-      %{
-        cpu: cpu_data || %{},
-        memory: memory_data || %{},
-        disks: disk_data || [],
-        icmp_rtt: icmp_rtt
-      }
-    else
-      nil
-    end
-  end
-
-  defp load_cpu_summary(srql_module, escaped_id, scope) do
-    query = "in:cpu_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:64"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        # Get unique cores and calculate average
-        values =
-          Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
-          |> Enum.filter(&is_number/1)
-
-        cores =
-          rows
-          |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
-          |> Enum.filter(&is_binary/1)
-          |> Enum.uniq()
-          |> length()
-
-        avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
-
-        %{
-          avg_usage: Float.round(avg * 1.0, 1),
-          core_count: max(cores, 1),
-          timestamp: Map.get(List.first(rows), "timestamp")
-        }
-
-      _ ->
-        nil
-    end
-  end
-
-  defp load_memory_summary(srql_module, escaped_id, scope) do
-    query = "in:memory_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:4"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
-        total = extract_numeric(Map.get(row, "total_bytes"))
-        pct = percent_from_row(row, used, total)
-
-        %{
-          used_bytes: used || 0,
-          total_bytes: total || 0,
-          percent: Float.round(pct * 1.0, 1),
-          timestamp: Map.get(row, "timestamp")
-        }
-
-      _ ->
-        nil
-    end
-  end
-
-  defp load_disk_summary(srql_module, escaped_id, scope) do
-    query = "in:disk_metrics uid:\"#{escaped_id}\" sort:timestamp:desc limit:24"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        # Group by mount point and take the latest for each
-        rows
-        |> Enum.filter(&is_map/1)
-        |> Enum.group_by(&disk_mount/1)
-        |> Enum.map(fn {mount, disk_rows} ->
-          build_disk_entry(mount, List.first(disk_rows))
-        end)
-        |> Enum.sort_by(& &1.percent, :desc)
-
-      _ ->
-        []
-    end
-  end
-
-  defp load_icmp_rtt(srql_module, escaped_id, scope) do
+  defp load_sysmon_presence(srql_module, identity, scope) do
     query =
-      "in:timeseries_metrics metric_type:icmp uid:\"#{escaped_id}\" sort:timestamp:desc limit:1"
+      [
+        "in:cpu_metrics",
+        Enum.join(sysmon_filter_tokens(identity), " "),
+        "time:last_24h",
+        "sort:timestamp:desc",
+        "limit:1"
+      ]
+      |> Enum.join(" ")
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        row
-        |> Map.get("value")
-        |> extract_numeric()
-        |> normalize_icmp_rtt()
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        Enum.any?(rows, &row_matches_identity?(&1, identity))
 
       _ ->
-        nil
+        false
     end
   end
 
-  defp percent_from_row(row, used, total) do
-    case Map.get(row, "percent") do
-      value when is_number(value) ->
-        value
-
-      _ ->
-        if is_number(used) and is_number(total) and total > 0 do
-          used / total * 100.0
-        else
-          0.0
-        end
+  defp format_bytes(bytes) when is_number(bytes) do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{bytes} B"
     end
   end
 
-  defp disk_mount(row) do
-    Map.get(row, "mount_point") || Map.get(row, "mount") || "unknown"
-  end
-
-  defp build_disk_entry(mount, latest) do
-    used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
-    total = extract_numeric(Map.get(latest, "total_bytes"))
-    pct = percent_from_row(latest, used, total)
-
-    %{
-      mount_point: mount,
-      used_bytes: used || 0,
-      total_bytes: total || 0,
-      percent: Float.round(pct * 1.0, 1)
-    }
-  end
-
-  defp normalize_icmp_rtt(value) when is_number(value) do
-    if value > 1_000_000.0 do
-      Float.round(value / 1_000_000.0, 2)
-    else
-      Float.round(value * 1.0, 2)
-    end
-  end
-
-  defp normalize_icmp_rtt(_), do: nil
-
-  defp extract_numeric(value) when is_number(value), do: value
-
-  defp extract_numeric(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {num, ""} -> num
-      _ -> nil
-    end
-  end
-
-  defp extract_numeric(_), do: nil
+  defp format_bytes(_), do: "—"
 
   # ---------------------------------------------------------------------------
   # Healthcheck Section (GRPC/Service Health)
