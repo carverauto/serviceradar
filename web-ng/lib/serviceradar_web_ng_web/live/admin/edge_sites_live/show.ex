@@ -504,15 +504,17 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     |> Ash.update(actor: actor)
   end
 
-  defp generate_bundle(site, leaf_server, actor) do
-    with {:ok, tenant} <- load_tenant(actor),
-         {:ok, nats_creds} <- get_tenant_nats_creds(tenant),
+  defp generate_bundle(site, leaf_server, _actor) do
+    # In single-tenant-per-deployment mode, tenant info comes from environment
+    tenant_info = get_tenant_info()
+
+    with {:ok, nats_creds} <- get_nats_creds(),
          {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
          {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
       EdgeSiteBundleGenerator.create_tarball(
         site,
         leaf_server,
-        tenant,
+        tenant_info,
         nats_creds,
         leaf_key_pem: leaf_key_pem,
         server_key_pem: server_key_pem
@@ -520,25 +522,22 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     end
   end
 
-  defp load_tenant(actor) do
-    # In tenant instance UI, we load the tenant from the user's scope
-    # The tenant is implicitly scoped via PostgreSQL search_path
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.for_read(:read)
-         |> Ash.Query.limit(1)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :tenant_not_found}
-      {:ok, tenant} -> {:ok, tenant}
-      {:error, error} -> {:error, error}
-    end
+  defp get_tenant_info do
+    # In single-tenant-per-deployment mode, tenant info comes from environment
+    %{
+      name: Application.get_env(:serviceradar, :tenant_name, "ServiceRadar"),
+      slug: Application.get_env(:serviceradar, :tenant_slug, "default")
+    }
   end
 
-  defp get_tenant_nats_creds(tenant) do
-    # For now, return a placeholder - in production this would fetch actual creds
-    # from the NATS account or from the tenant's stored credentials
+  defp get_nats_creds do
+    # In single-tenant mode, NATS credentials come from environment configuration
+    # In production, these would be provisioned by the control plane
+    nats_jwt = Application.get_env(:serviceradar, :nats_account_jwt)
+
     creds_content = """
     -----BEGIN NATS USER JWT-----
-    #{tenant.nats_account_jwt || "PLACEHOLDER_JWT"}
+    #{nats_jwt || "PLACEHOLDER_JWT"}
     ------END NATS USER JWT------
 
     ************************* IMPORTANT *************************
