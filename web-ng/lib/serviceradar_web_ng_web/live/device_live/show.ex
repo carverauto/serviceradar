@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.SRQL.Viz
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -1127,8 +1128,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       srql_response
       |> Engine.build_panels()
       |> prefer_visual_panels(results)
+      |> drop_category_panels_when_timeseries()
 
-    maybe_force_timeseries(panels, results, series_field)
+    panels
+    |> maybe_force_timeseries(results, series_field)
+    |> drop_category_panels_when_timeseries()
   end
 
   defp extract_viz(resp) do
@@ -1149,6 +1153,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp prefer_visual_panels(panels, _results), do: panels
+
+  defp drop_category_panels_when_timeseries(panels) when is_list(panels) do
+    has_timeseries = Enum.any?(panels, &(&1.plugin == TimeseriesPlugin))
+
+    if has_timeseries do
+      Enum.reject(panels, &(&1.plugin == CategoriesPlugin))
+    else
+      panels
+    end
+  end
+
+  defp drop_category_panels_when_timeseries(panels), do: panels
 
   defp maybe_force_timeseries(panels, results, series_field) do
     has_visual = Enum.any?(panels, &(&1.plugin != TablePlugin))
