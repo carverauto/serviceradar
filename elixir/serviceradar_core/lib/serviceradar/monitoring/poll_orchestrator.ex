@@ -283,16 +283,18 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp lookup_specific_gateway(gateway_id) do
     case GatewayRegistry.lookup(gateway_id) do
-      [{pid, metadata}] ->
-        if metadata[:status] == :available do
-          # Include the PID in the returned metadata for cross-node dispatch
-          {:ok, Map.put(metadata, :pid, pid)}
-        else
-          {:error, :gateway_not_available}
-        end
-
       [] ->
         {:error, :gateway_not_found}
+
+      entries ->
+        case Enum.find(entries, fn {_pid, metadata} -> metadata[:status] == :available end) do
+          {pid, metadata} ->
+            # Include the PID in the returned metadata for cross-node dispatch
+            {:ok, Map.put(metadata, :pid, pid)}
+
+          nil ->
+            {:error, :gateway_not_available}
+        end
     end
   end
 
@@ -348,8 +350,18 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
     if gid do
       case GatewayRegistry.lookup(gid) do
-        [{pid, _meta}] when is_pid(pid) -> pid
-        _ -> nil
+        [] ->
+          nil
+
+        entries ->
+          case Enum.find(entries, fn {_pid, meta} -> meta[:status] == :available end) do
+            {pid, _meta} when is_pid(pid) -> pid
+            nil ->
+              case List.first(entries) do
+                {pid, _meta} when is_pid(pid) -> pid
+                _ -> nil
+              end
+          end
       end
     else
       nil

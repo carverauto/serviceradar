@@ -93,9 +93,9 @@ defmodule ServiceRadar.AgentRegistry do
   @doc """
   Unregister an agent from the registry.
   """
-  @spec unregister_agent(String.t()) :: :ok
-  def unregister_agent(agent_id) when is_binary(agent_id) do
-    ProcessRegistry.unregister({:agent, agent_id})
+  @spec unregister_agent(String.t(), node()) :: :ok
+  def unregister_agent(agent_id, node \\ Node.self()) when is_binary(agent_id) do
+    ProcessRegistry.unregister_agent(agent_id, node)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
@@ -109,9 +109,9 @@ defmodule ServiceRadar.AgentRegistry do
   @doc """
   Update agent heartbeat timestamp.
   """
-  @spec heartbeat(String.t()) :: :ok | :error
-  def heartbeat(agent_id) when is_binary(agent_id) do
-    ProcessRegistry.agent_heartbeat(agent_id)
+  @spec heartbeat(String.t(), node()) :: :ok | :error
+  def heartbeat(agent_id, node \\ Node.self()) when is_binary(agent_id) do
+    ProcessRegistry.agent_heartbeat(agent_id, node)
   end
 
   @doc """
@@ -119,7 +119,7 @@ defmodule ServiceRadar.AgentRegistry do
   """
   @spec lookup(String.t()) :: [{pid(), map()}]
   def lookup(agent_id) when is_binary(agent_id) do
-    ProcessRegistry.lookup({:agent, agent_id})
+    ProcessRegistry.lookup_agent(agent_id)
   end
 
   @doc """

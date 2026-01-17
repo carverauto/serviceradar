@@ -78,6 +78,27 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
         schedule_heartbeat()
         {:ok, state}
 
+      {:error, {:already_registered, _pid}} ->
+        Logger.warning(
+          "#{entity_label} already registered (gateway_id=#{gateway_id}); replacing registry entry"
+        )
+
+        ServiceRadar.GatewayRegistry.unregister_gateway(gateway_id)
+
+        case register_gateway(state) do
+          {:ok, _pid} ->
+            Logger.info(
+              "#{entity_label} registered: partition=#{partition_id} domain=#{domain} node=#{Node.self()}"
+            )
+
+            schedule_heartbeat()
+            {:ok, state}
+
+          {:error, reason} ->
+            Logger.error("Failed to register #{String.downcase(entity_label)}: #{inspect(reason)}")
+            {:stop, reason}
+        end
+
       {:error, reason} ->
         Logger.error("Failed to register #{String.downcase(entity_label)}: #{inspect(reason)}")
         {:stop, reason}
@@ -209,7 +230,7 @@ defmodule ServiceRadar.Gateway.RegistrationWorker do
   defp update_status(state) do
     # Update status via ProcessRegistry
     ServiceRadar.ProcessRegistry.update_value(
-      {:gateway, state.gateway_id},
+      {:gateway, state.gateway_id, Node.self()},
       fn meta ->
         %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
       end

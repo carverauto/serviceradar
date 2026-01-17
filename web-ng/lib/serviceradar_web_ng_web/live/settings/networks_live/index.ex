@@ -1818,6 +1818,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             <.input
               type="text"
               field={@form[:ports]}
+              value={format_ports_input(@form[:ports].value)}
               class="input input-bordered w-full font-mono"
               placeholder="22, 80, 443, 3389, 8080"
             />
@@ -2047,6 +2048,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp format_ports([]), do: "—"
   defp format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")
   defp format_ports(ports), do: "#{length(ports)} ports"
+
+  defp format_ports_input(nil), do: ""
+  defp format_ports_input(""), do: ""
+
+  defp format_ports_input(ports) when is_list(ports) do
+    ports
+    |> Enum.map(&to_string/1)
+    |> Enum.join(", ")
+  end
+
+  defp format_ports_input(value) when is_binary(value), do: value
 
   defp default_criteria_field, do: "hostname"
 

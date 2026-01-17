@@ -171,8 +171,6 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
-      core-elx:
-        condition: service_healthy
       nats:
         condition: service_started
     healthcheck:
