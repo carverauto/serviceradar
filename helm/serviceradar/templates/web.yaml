@@ -138,10 +138,12 @@ spec:
           value: {{ default "verify-full" $cnpg.sslmode | quote }}
         - name: CNPG_CA_FILE
           value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        {{- if $cnpg.requireClientCert }}
         - name: CNPG_CERT_FILE
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
         - name: CNPG_KEY_FILE
           value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
         - name: DATASVC_ADDRESS
           value: {{ printf "%s:%v" $datasvcHost $datasvcPort | quote }}
         - name: DATASVC_HOST

@@ -29,7 +29,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/logger"
 )
 
-const cnpgMigrationsTable = "cnpg_schema_migrations"
+const (
+	cnpgMigrationsTable        = "cnpg_schema_migrations"
+	cnpgMigrationsLockID int64 = 0x53524C434E50474D // "SRLCNPGM" stable advisory lock key
+)
 
 //go:embed cnpg/migrations/*.sql
 var cnpgMigrationsFS embed.FS
@@ -45,6 +48,13 @@ func RunCNPGMigrations(ctx context.Context, pool *pgxpool.Pool, log logger.Logge
 		return fmt.Errorf("cnpg migrations: acquire connection: %w", err)
 	}
 	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, cnpgMigrationsLockID); err != nil {
+		return fmt.Errorf("cnpg migrations: acquire advisory lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, cnpgMigrationsLockID)
+	}()
 
 	if _, err := conn.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		version     TEXT PRIMARY KEY,
