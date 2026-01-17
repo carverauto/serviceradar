@@ -18,12 +18,11 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
       changeset
     else
       action_type = changeset.action_type
-      tenant_schema = changeset.tenant
 
       Ash.Changeset.after_action(changeset, fn changeset, rule ->
         # Verify ZenRuleSync is running
         ensure_zen_sync_running()
-        sync_rule_action(action_type, changeset, rule, tenant_schema)
+        sync_rule_action(action_type, changeset, rule)
       end)
     end
   end
@@ -47,17 +46,17 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
       {new_rule.agent_id, new_rule.stream_name, new_rule.subject, new_rule.name}
   end
 
-  defp sync_rule_action(:destroy, _changeset, rule, _tenant_schema) do
+  defp sync_rule_action(:destroy, _changeset, rule) do
     maybe_log(ZenRuleSync.delete_rule(rule))
     {:ok, rule}
   end
 
-  defp sync_rule_action(action_type, changeset, rule, tenant_schema) do
+  defp sync_rule_action(action_type, changeset, rule) do
     if action_type == :update and key_fields_changed?(changeset.data, rule) do
       maybe_log(ZenRuleSync.delete_rule(changeset.data))
     end
 
-    case ZenRuleSync.sync_rule(rule, tenant_schema: tenant_schema) do
+    case ZenRuleSync.sync_rule(rule) do
       {:ok, _revision} ->
         {:ok, rule}
 

@@ -154,17 +154,14 @@ defmodule ServiceRadar.Edge.CollectorPackage do
         |> Ash.Changeset.change_attribute(:download_token_expires_at, token_expires_at)
       end
 
-      change fn changeset, context ->
+      change fn changeset, _context ->
         # Enqueue provisioning job and broadcast after creation
         Ash.Changeset.after_action(changeset, fn _changeset, package ->
           # Broadcast creation event
           __MODULE__.broadcast_created(package)
 
-          # Enqueue async provisioning - get tenant_schema from context
-          tenant_schema = context.tenant
-          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
-                 tenant_schema: tenant_schema
-               ) do
+          # Enqueue async provisioning
+          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id) do
             {:ok, _job} -> {:ok, package}
             {:error, reason} -> {:error, reason}
           end

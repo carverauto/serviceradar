@@ -1,6 +1,6 @@
 defmodule ServiceRadarWebNG.Repo.Migrations.AddTenantIdToUsers do
   @moduledoc """
-  Adds tenant_id to ng_users for multi-tenant isolation.
+  Adds tenant_id to ng_users for instance scoping.
 
   Existing users are assigned to the default tenant during migration.
   """

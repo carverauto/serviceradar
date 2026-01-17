@@ -85,13 +85,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       accept [:edge_site_id, :upstream_url, :local_listen]
 
       # Trigger provisioning after creation
-      change fn changeset, context ->
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue async provisioning - get tenant_schema from context
-          tenant_schema = context.tenant
-          case ProvisionLeafWorker.enqueue(leaf_server.id,
-                 tenant_schema: tenant_schema
-               ) do
+          # Enqueue async provisioning
+          case ProvisionLeafWorker.enqueue(leaf_server.id) do
             {:ok, _job} -> {:ok, leaf_server}
             {:error, reason} -> {:error, reason}
           end
@@ -137,9 +134,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change set_attribute(:connected_at, &DateTime.utc_now/0)
 
       # Also update the parent EdgeSite status
-      change fn changeset, context ->
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :active, context.tenant)
+          update_edge_site_status(leaf_server, :active)
           {:ok, leaf_server}
         end)
       end
@@ -154,9 +151,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change set_attribute(:disconnected_at, &DateTime.utc_now/0)
 
       # Also update the parent EdgeSite status
-      change fn changeset, context ->
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          update_edge_site_status(leaf_server, :offline, context.tenant)
+          update_edge_site_status(leaf_server, :offline)
           {:ok, leaf_server}
         end)
       end
@@ -168,13 +165,10 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       require_atomic? false
       accept []
 
-      change fn changeset, context ->
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
-          # Enqueue provisioning job - get tenant_schema from context
-          tenant_schema = context.tenant
-          case ProvisionLeafWorker.enqueue(leaf_server.id,
-                 tenant_schema: tenant_schema
-               ) do
+          # Enqueue provisioning job
+          case ProvisionLeafWorker.enqueue(leaf_server.id) do
             {:ok, _job} -> {:ok, leaf_server}
             {:error, reason} -> {:error, reason}
           end
@@ -421,7 +415,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  defp update_edge_site_status(leaf_server, new_status, _tenant_schema) do
+  defp update_edge_site_status(leaf_server, new_status) do
     action =
       case new_status do
         :active -> :activate
@@ -429,7 +423,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       end
 
     actor = SystemActor.system(:nats_leaf_server)
-    # Tenant isolation is handled by the DB connection's search_path
+
     case Ash.get(EdgeSite, leaf_server.edge_site_id, actor: actor) do
       {:ok, site} when site.status != new_status ->
         site

@@ -337,7 +337,6 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "localhost"
-  tenant_base_domain = System.get_env("SERVICERADAR_TENANT_BASE_DOMAIN") || host
 
   dev_routes =
     case System.get_env("SERVICERADAR_DEV_ROUTES") do
@@ -387,7 +386,7 @@ if config_env() == :prod do
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
   # Control Plane JWT configuration
-  # Used to validate JWTs issued by the SaaS Control Plane for multi-tenant deployments.
+  # Used to validate JWTs issued by the SaaS Control Plane.
   # In OSS/single-tenant deployments, this can be left unconfigured.
   control_plane_public_key = System.get_env("CONTROL_PLANE_PUBLIC_KEY")
   control_plane_public_key_file = System.get_env("CONTROL_PLANE_PUBLIC_KEY_FILE")
@@ -412,7 +411,6 @@ if config_env() == :prod do
 
     config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
   end
-  config :serviceradar_web_ng, :tenant_base_domain, tenant_base_domain
 
   # Default tenant for Control Plane workload routing
   default_tenant =

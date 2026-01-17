@@ -2,7 +2,7 @@ defmodule ServiceRadar.NATS.AccountClient do
   @moduledoc """
   gRPC client for the datasvc NATSAccountService.
 
-  This client is used to create and manage NATS accounts for tenant isolation.
+  This client is used to create and manage NATS accounts for account isolation.
   The datasvc is stateless - it only holds the operator key for signing JWTs.
   Account state (seeds, JWTs) is stored by Elixir in CNPG with AshCloak encryption.
 
@@ -20,7 +20,7 @@ defmodule ServiceRadar.NATS.AccountClient do
 
   ## Usage
 
-      # Create a new tenant account
+      # Create a new account
       {:ok, result} = AccountClient.create_tenant_account("acme-corp")
       # result.account_seed should be encrypted and stored in Tenant
 

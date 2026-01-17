@@ -20,7 +20,7 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   templates = BuiltinTemplates.all()
 
   # Seed templates into database (schema is determined by DB connection's search_path)
-  BuiltinTemplates.seed!(tenant_schema, actor)
+  BuiltinTemplates.seed!(actor)
   ```
   """
 
@@ -83,13 +83,11 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   Seeds all built-in templates into the database.
   Skips templates that already exist.
 
-  The tenant schema is determined by the DB connection's search_path in tenant-unaware mode.
+  The schema is determined by the DB connection's search_path.
   """
-  @spec seed!(String.t(), map()) :: {:ok, integer()} | {:error, term()}
-  def seed!(_tenant_schema, actor) do
+  @spec seed!(map()) :: {:ok, integer()} | {:error, term()}
+  def seed!(actor) do
     templates = all()
-
-    # Tenant isolation is handled by the DB connection's search_path
     results =
       Enum.map(templates, fn template ->
         attrs = Map.put(template, :is_builtin, true)

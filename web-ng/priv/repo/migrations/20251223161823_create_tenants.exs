@@ -1,8 +1,8 @@
 defmodule ServiceRadarWebNG.Repo.Migrations.CreateTenants do
   @moduledoc """
-  Creates the tenants table for multi-tenant SaaS architecture.
+  Creates the tenants table used for instance metadata.
 
-  Each tenant represents an organization/customer with their own isolated data.
+  Each tenant represents the deployment context for data isolation.
   """
   use Ecto.Migration
 

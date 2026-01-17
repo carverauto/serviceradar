@@ -2,9 +2,9 @@ defmodule ServiceRadar.Infrastructure.NatsOperator do
   @moduledoc """
   NATS Operator resource for managing the platform-level NATS operator.
 
-  The operator is the root of trust for the NATS multi-tenant system. There is
+  The operator is the root of trust for the NATS account system. There is
   exactly one operator per platform installation. The operator key is used to
-  sign all tenant account JWTs.
+  sign account JWTs.
 
   ## Bootstrap Flow
 

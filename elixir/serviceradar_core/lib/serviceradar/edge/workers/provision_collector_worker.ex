@@ -175,10 +175,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp build_permissions_for_collector(collector_type) do
-    # Collectors publish to simple subjects without tenant prefix.
-    # NATS Account subject mapping transforms these to tenant-prefixed subjects
-    # on the server side (e.g., "logs.syslog.>" -> "{tenant}.logs.syslog.>").
-    # This keeps collectors tenant-unaware while NATS enforces isolation.
+    # Collectors publish to simple subjects without any tenant prefix.
+    # NATS account isolation enforces separation without subject rewriting.
 
     case collector_type do
       :flowgger ->

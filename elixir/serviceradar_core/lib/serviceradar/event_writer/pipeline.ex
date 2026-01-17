@@ -26,7 +26,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
-  alias ServiceRadar.NATS.Channels
 
   @doc """
   Starts the Broadway pipeline.
@@ -82,9 +81,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_message(_processor, %Message{} = message, _context) do
     subject = message.metadata[:subject]
 
-    # Extract base subject from NATS channel (tenant prefix is ignored since
-    # DB connection's search_path determines the schema)
-    base_subject = extract_base_subject(subject)
+    # Subjects are unprefixed in single-tenant deployments.
+    base_subject = normalize_subject(subject)
 
     # Route message to appropriate batcher based on base subject
     batcher = determine_batcher(base_subject)
@@ -97,16 +95,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     |> Message.put_batcher(batcher)
   end
 
-  # Extracts base subject from NATS channel (strips tenant prefix if present)
-  # DB connection's search_path determines the schema
-  defp extract_base_subject(subject) when is_binary(subject) do
-    case Channels.parse(subject) do
-      {:ok, _tenant_slug, base_subject} -> base_subject
-      {:error, _} -> subject
-    end
-  end
-
-  defp extract_base_subject(_), do: ""
+  defp normalize_subject(subject) when is_binary(subject), do: subject
+  defp normalize_subject(_), do: ""
 
   # DB connection's search_path determines the schema
   @impl true

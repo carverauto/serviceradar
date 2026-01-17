@@ -2240,21 +2240,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # RBAC helper - check if user can edit devices
-  defp can_edit_device?(%{user: %{role: role}} = scope) do
-    admin_role?(role) || membership_admin?(scope[:active_tenant], scope[:tenant_memberships])
+  defp can_edit_device?(%{user: %{role: role}}) do
+    admin_role?(role)
   end
 
   defp can_edit_device?(_), do: false
 
   defp admin_role?(role), do: role in [:admin]
-
-  # In a tenant-unaware instance, if user has a membership they're a member of THE tenant.
-  # Just check if any membership has admin/owner role.
-  defp membership_admin?(_tenant, memberships) do
-    Enum.any?(memberships || [], fn membership ->
-      membership.role in [:admin, :owner]
-    end)
-  end
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do

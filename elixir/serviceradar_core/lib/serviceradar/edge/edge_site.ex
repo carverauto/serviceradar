@@ -107,10 +107,10 @@ defmodule ServiceRadar.Edge.EdgeSite do
       end
 
       # Trigger NATS leaf provisioning after creation
-      change fn changeset, context ->
+      change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, site ->
           # Create NatsLeafServer and trigger provisioning
-          case create_nats_leaf_server(site, context.tenant) do
+          case create_nats_leaf_server(site) do
             {:ok, _leaf_server} -> {:ok, site}
             {:error, reason} -> {:error, reason}
           end
@@ -231,12 +231,11 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   # Helper function to create associated NatsLeafServer
-  defp create_nats_leaf_server(site, _tenant_schema) do
+  defp create_nats_leaf_server(site) do
     # Get platform NATS URL from config
     upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
     actor = SystemActor.system(:edge_site)
 
-    # Tenant isolation is handled by the DB connection's search_path
     ServiceRadar.Edge.NatsLeafServer
     |> Ash.Changeset.for_create(:create, %{
       edge_site_id: site.id,

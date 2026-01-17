@@ -18,8 +18,8 @@ defmodule ServiceRadar.Actors.Device do
   - Automatically distributed across the cluster via Horde
   - Hibernated after inactivity to reduce memory usage
 
-  Each instance serves a single tenant (tenant isolation is handled by PostgreSQL
-  schema isolation via the DB connection's search_path).
+  Each instance serves a single tenant (schema isolation is handled by the DB
+  connection's search_path).
 
   ## Usage
 

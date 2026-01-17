@@ -1,9 +1,12 @@
 defmodule ServiceRadar.SysmonProfiles.Changes.SetAsDefault do
   @moduledoc """
-  Ensures only one default sysmon profile exists per tenant.
+  Ensures only one default sysmon profile exists.
 
   Before setting a profile as default, this change finds and unsets
-  any existing default profile for the tenant using the :unset_default action.
+  any existing default profile using the :unset_default action.
+
+  In single-tenant-per-deployment architecture, the DB connection's
+  search_path determines which schema is affected.
   """
 
   use Ash.Resource.Change
@@ -13,22 +16,19 @@ defmodule ServiceRadar.SysmonProfiles.Changes.SetAsDefault do
 
   @impl true
   def change(changeset, _opts, _context) do
-    # DB connection's search_path determines the schema
-    tenant = changeset.tenant
     current_id = Ash.Changeset.get_data(changeset, :id)
 
-    # Use SystemActor for the unset operation (never authorize?: false per CLAUDE.md)
+    # Use SystemActor for the unset operation
     system_actor = SystemActor.system(:sysmon_profile_default)
 
     # Find and unset any existing default profile (excluding the current one)
-    unset_other_defaults(tenant, current_id, system_actor)
+    unset_other_defaults(current_id, system_actor)
 
     # Set the current profile as default
     Ash.Changeset.change_attribute(changeset, :is_default, true)
   end
 
-  # Tenant isolation is handled by the DB connection's search_path
-  defp unset_other_defaults(_tenant, current_id, actor) do
+  defp unset_other_defaults(current_id, actor) do
     # Query for existing default profiles, excluding the current one
     query =
       SysmonProfile
