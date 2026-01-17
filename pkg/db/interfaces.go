@@ -24,7 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service,SysmonMetricsProvider,Rows,QueryExecutor
+//go:generate mockgen -source=interfaces.go -destination=mock_db.go -package=db
 
 // QueryExecutor defines a generic interface for executing database queries
 type QueryExecutor interface {
@@ -34,29 +34,6 @@ type QueryExecutor interface {
 // Service represents all CNPG-backed database operations.
 type Service interface {
 	Close() error
-
-	// Gateway operations.
-
-	UpdateGatewayStatus(ctx context.Context, status *models.GatewayStatus) error
-	GetGatewayStatus(ctx context.Context, gatewayID string) (*models.GatewayStatus, error)
-	GetGatewayHistory(ctx context.Context, gatewayID string) ([]models.GatewayStatus, error)
-	GetGatewayHistoryPoints(ctx context.Context, gatewayID string, limit int) ([]models.GatewayHistoryPoint, error)
-	IsGatewayOffline(ctx context.Context, gatewayID string, threshold time.Duration) (bool, error)
-	ListGateways(ctx context.Context) ([]string, error)
-	DeleteGateway(ctx context.Context, gatewayID string) error
-	ListGatewayStatuses(ctx context.Context, patterns []string) ([]models.GatewayStatus, error)
-	ListNeverReportedGateways(ctx context.Context, patterns []string) ([]string, error)
-	ListAgentsWithGateways(ctx context.Context) ([]AgentInfo, error)
-	ListAgentsByGateway(ctx context.Context, gatewayID string) ([]AgentInfo, error)
-
-	// Service operations.
-
-	UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error
-	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
-	GetGatewayServices(ctx context.Context, gatewayID string) ([]models.ServiceStatus, error)
-	GetServiceHistory(ctx context.Context, gatewayID, serviceName string, limit int) ([]models.ServiceStatus, error)
-	// StoreServices stores a batch of service records in the services stream.
-	StoreServices(ctx context.Context, services []*models.Service) error
 
 	// Maintenance operations.
 

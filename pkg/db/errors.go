@@ -67,16 +67,6 @@ var (
 	ErrTimeseriesColumnUnsupported = errors.New("unsupported timeseries column")
 	ErrNetflowMetricNil            = errors.New("netflow metric is nil")
 
-	// Registry validation errors.
-
-	ErrGatewayStatusNil              = errors.New("gateway status nil")
-	ErrGatewayIDMissing              = errors.New("gateway id is required")
-	ErrServiceStatusNil             = errors.New("service status nil")
-	ErrServiceStatusGatewayIDMissing = errors.New("service status gateway id is required")
-	ErrServiceNil                   = errors.New("service nil")
-	ErrServiceGatewayIDMissing       = errors.New("service gateway id required")
-	ErrServiceRegistrationEventNil  = errors.New("service registration event is nil")
-
 	// Sweep validation errors.
 
 	ErrSweepStateNil        = errors.New("sweep host state is nil")
