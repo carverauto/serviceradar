@@ -128,7 +128,7 @@ func TestAccountSigner_CreateAccount_WithLimits(t *testing.T) {
 		AllowWildcardExports: true,
 	}
 
-	result, err := signer.CreateAccount("test-tenant", limits, nil, nil)
+	result, err := signer.CreateAccount("test-ns", limits, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateAccount() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {
 		{From: "metrics.*", To: "{{namespace}}.metrics.*"},
 	}
 
-	result, err := signer.CreateAccount("custom-tenant", nil, customMappings, nil)
+	result, err := signer.CreateAccount("custom-ns", nil, customMappings, nil)
 	if err != nil {
 		t.Fatalf("CreateAccount() error = %v", err)
 	}
@@ -186,8 +186,8 @@ func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {
 
 	// Verify namespace placeholder replacement
 	if mappings, ok := claims.Mappings["custom.>"]; ok {
-		if len(mappings) == 0 || string(mappings[0].Subject) != "custom-tenant.custom.>" {
-			t.Errorf("custom.> mapping = %v, want 'custom-tenant.custom.>'", mappings)
+		if len(mappings) == 0 || string(mappings[0].Subject) != "custom-ns.custom.>" {
+			t.Errorf("custom.> mapping = %v, want 'custom-ns.custom.>'", mappings)
 		}
 	}
 }
@@ -197,7 +197,7 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// First create an account
-	result, err := signer.CreateAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateAccount() error = %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 		MaxConnections: 50,
 	}
 
-	pubKey, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, newLimits, nil, nil, nil, nil)
+	pubKey, newJWT, err := signer.SignAccountJWT("test-ns", result.AccountSeed, newLimits, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateAccount() error = %v", err)
 	}
@@ -245,7 +245,7 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	revokedKeys := []string{userPubKey1, userPubKey2}
 
 	// Re-sign with revocations
-	_, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, nil, nil, nil, nil, revokedKeys)
+	_, newJWT, err := signer.SignAccountJWT("test-ns", result.AccountSeed, nil, nil, nil, nil, revokedKeys)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -273,7 +273,7 @@ func TestAccountSigner_SignAccountJWT_InvalidSeed(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
-	_, _, err := signer.SignAccountJWT("test-tenant", "invalid-seed", nil, nil, nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-ns", "invalid-seed", nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for invalid seed, got nil")
 	}
@@ -286,7 +286,7 @@ func TestAccountSigner_SignAccountJWT_WrongKeyType(t *testing.T) {
 	// Use a user seed instead of account seed
 	userSeed, _, _ := GenerateUserKey()
 
-	_, _, err := signer.SignAccountJWT("test-tenant", userSeed, nil, nil, nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-ns", userSeed, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for wrong key type, got nil")
 	}
@@ -297,7 +297,7 @@ func TestAccountSigner_CanRecreateFromSeed(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateAccount() error = %v", err)
 	}
@@ -323,30 +323,30 @@ func TestAccountSigner_MultipleAccounts(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create multiple accounts
-	tenants := []string{"tenant-a", "tenant-b", "tenant-c"}
+	accountNames := []string{"account-a", "account-b", "account-c"}
 	if testing.Short() {
-		tenants = tenants[:2]
+		accountNames = accountNames[:2]
 	}
 	results := make(map[string]*AccountResult)
 
-	for _, tenant := range tenants {
-		result, err := signer.CreateAccount(tenant, nil, nil, nil)
+	for _, name := range accountNames {
+		result, err := signer.CreateAccount(name, nil, nil, nil)
 		if err != nil {
-			t.Fatalf("CreateAccount(%q) error = %v", tenant, err)
+			t.Fatalf("CreateAccount(%q) error = %v", name, err)
 		}
-		results[tenant] = result
+		results[name] = result
 	}
 
 	// Verify all accounts have unique keys
 	seen := make(map[string]bool)
-	for tenant, result := range results {
+	for name, result := range results {
 		if seen[result.AccountPublicKey] {
-			t.Errorf("Duplicate public key for tenant %q", tenant)
+			t.Errorf("Duplicate public key for account %q", name)
 		}
 		seen[result.AccountPublicKey] = true
 
 		if seen[result.AccountSeed] {
-			t.Errorf("Duplicate seed for tenant %q", tenant)
+			t.Errorf("Duplicate seed for account %q", name)
 		}
 		seen[result.AccountSeed] = true
 	}

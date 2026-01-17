@@ -53,19 +53,17 @@ graph TB
         OnboardingEvent -->|belongs_to| OnboardingPackage
     end
 
-    %% Cross-domain relationships
-    Device -.->|tenant_id| Tenant
-    Gateway -.->|tenant_id| Tenant
-    Alert -.->|tenant_id| Tenant
-    OnboardingPackage -.->|tenant_id| Tenant
 ```
 
-## Multi-Tenancy
+## Instance Isolation
 
-Tenant-scoped resources use **schema-based multitenancy** (`strategy :context`) and are stored
-under `tenant_<slug>` schemas. Platform-managed resources (tenants, users, tenant memberships,
-platform NATS tables, platform Oban, platform job schedules) remain in the public schema.
-Tenant AshOban schedules and Oban jobs are stored in tenant schemas via per-tenant Oban instances.
+ServiceRadar uses a **single-tenant-per-deployment** model where each tenant gets their own
+isolated deployment. Resources are isolated by PostgreSQL schema (via CNPG search_path) at
+the infrastructure level, not by application-level tenant_id fields.
+
+- Each deployment connects to a tenant-specific PostgreSQL schema
+- No cross-tenant access is possible at the instance level
+- CNPG credentials configure the database connection's `search_path`
 
 ```elixir
 multitenancy do

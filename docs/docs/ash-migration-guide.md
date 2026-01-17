@@ -246,11 +246,11 @@ LiveViews must pass the actor to Ash operations:
 ```elixir
 def mount(_params, _session, socket) do
   actor = socket.assigns.current_scope.user
-  tenant_id = actor.tenant_id
 
+  # Tenant context is implicit from the deployment (PostgreSQL search_path)
   {:ok, devices} =
     ServiceRadar.Inventory.Device
-    |> Ash.Query.for_read(:list, %{}, actor: actor, tenant: tenant_id)
+    |> Ash.Query.for_read(:list, %{}, actor: actor)
     |> Ash.read()
 
   {:ok, assign(socket, devices: devices)}

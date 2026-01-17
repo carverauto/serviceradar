@@ -19,8 +19,8 @@ func TestBatchLookupByStrongIdentifiers_PartitionScoped(t *testing.T) {
 	mac := "AA:BB:CC:DD:EE:FF"
 	normalizedMAC := NormalizeMAC(mac)
 
-	updateA := &models.DeviceUpdate{Partition: "tenant-a", MAC: stringPtr(mac)}
-	updateB := &models.DeviceUpdate{Partition: "tenant-b", MAC: stringPtr(mac)}
+	updateA := &models.DeviceUpdate{Partition: "partition-a", MAC: stringPtr(mac)}
+	updateB := &models.DeviceUpdate{Partition: "partition-b", MAC: stringPtr(mac)}
 
 	updateIdentifiers := map[*models.DeviceUpdate]*StrongIdentifiers{
 		updateA: engine.ExtractStrongIdentifiers(updateA),
@@ -34,10 +34,10 @@ func TestBatchLookupByStrongIdentifiers_PartitionScoped(t *testing.T) {
 			require.ElementsMatch(t, []string{normalizedMAC}, identifierValues)
 
 			switch partition {
-			case "tenant-a":
-				return map[string]string{normalizedMAC: "sr:tenant-a-device-123"}, nil
-			case "tenant-b":
-				return map[string]string{normalizedMAC: "sr:tenant-b-device-456"}, nil
+			case "partition-a":
+				return map[string]string{normalizedMAC: "sr:partition-a-device-123"}, nil
+			case "partition-b":
+				return map[string]string{normalizedMAC: "sr:partition-b-device-456"}, nil
 			default:
 				return map[string]string{}, nil
 			}
@@ -46,6 +46,6 @@ func TestBatchLookupByStrongIdentifiers_PartitionScoped(t *testing.T) {
 
 	matches := engine.batchLookupByStrongIdentifiers(context.Background(), []*models.DeviceUpdate{updateA, updateB}, updateIdentifiers)
 
-	require.Equal(t, "sr:tenant-a-device-123", matches[updateA])
-	require.Equal(t, "sr:tenant-b-device-456", matches[updateB])
+	require.Equal(t, "sr:partition-a-device-123", matches[updateA])
+	require.Equal(t, "sr:partition-b-device-456", matches[updateB])
 }

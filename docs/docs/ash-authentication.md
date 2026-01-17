@@ -203,9 +203,13 @@ config :serviceradar_core,
   "exp": 1703606400,
   "jti": "unique_token_id",
   "purpose": "user",
-  "tenant_id": "tenant_uuid"
+  "role": "admin"
 }
 ```
+
+Note: In the single-tenant-per-deployment model, tenant context is implicit from the
+deployment itself. Tokens don't include tenant_id - the PostgreSQL schema isolation
+(via CNPG search_path) handles tenant boundaries.
 
 ## API Token Management
 

@@ -237,17 +237,14 @@ curl https://core.example.com/api/v2/agents/agent-edge-01 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-## Multi-Tenant Isolation
+## Instance Isolation
 
-Edge agents are strictly isolated by tenant:
+Each tenant deployment is fully isolated at the infrastructure level:
 
-1. **Certificate-based Identity**: Tenant slug embedded in certificate CN
-2. **Registry Isolation**: AgentRegistry queries are scoped by tenant_id
-3. **Database Isolation**: schema-based multitenancy enforces tenant boundaries
+1. **Certificate-based Identity**: Deployment identity embedded in certificate CN
+2. **Deployment Isolation**: Each tenant gets their own deployment (separate Kubernetes namespace)
+3. **Database Isolation**: PostgreSQL schema isolation via CNPG search_path
 
-An agent from Tenant A **cannot**:
-- See or enumerate agents from Tenant B
-- Send check results for Tenant B's services
-- Access Tenant B's polling schedules or jobs
+Agents connect to their deployment's gateway and cannot access other deployments.
 
 For detailed security validation, see the [Security Architecture](./security-architecture.md) documentation.

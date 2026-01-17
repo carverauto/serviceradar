@@ -104,7 +104,7 @@ func TestNATSAccountServer_CreateAccount(t *testing.T) {
 
 	t.Run("with limits", func(t *testing.T) {
 		req := &proto.CreateAccountRequest{
-			AccountName: "limited-tenant",
+			AccountName: "limited-account",
 			Limits: &proto.AccountLimits{
 				MaxConnections:   100,
 				MaxSubscriptions: 1000,
@@ -123,7 +123,7 @@ func TestNATSAccountServer_CreateAccount(t *testing.T) {
 
 	t.Run("with subject mappings", func(t *testing.T) {
 		req := &proto.CreateAccountRequest{
-			AccountName: "mapped-tenant",
+			AccountName: "mapped-account",
 			SubjectMappings: []*proto.SubjectMapping{
 				{From: "events.>", To: "mapped.events.>"},
 			},
@@ -165,7 +165,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	// First create an account to get a valid seed
 	createResp, err := server.CreateAccount(ctx, &proto.CreateAccountRequest{
-		AccountName: "test-tenant",
+		AccountName: "test-ns",
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test account: %v", err)
@@ -173,7 +173,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("success with collector type", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:     "test-tenant",
+			AccountName:     "test-ns",
 			AccountSeed:    createResp.AccountSeed,
 			UserName:       "collector-1",
 			CredentialType: proto.UserCredentialType_USER_CREDENTIAL_TYPE_COLLECTOR,
@@ -205,7 +205,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("with expiration", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:        "test-tenant",
+			AccountName:        "test-ns",
 			AccountSeed:       createResp.AccountSeed,
 			UserName:          "expiring-user",
 			CredentialType:    proto.UserCredentialType_USER_CREDENTIAL_TYPE_SERVICE,
@@ -242,7 +242,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:  "test-tenant",
+			AccountName:  "test-ns",
 			AccountSeed: "",
 			UserName:    "test-user",
 		}
@@ -260,7 +260,7 @@ func TestNATSAccountServer_GenerateUserCredentials(t *testing.T) {
 
 	t.Run("empty user name", func(t *testing.T) {
 		req := &proto.GenerateUserCredentialsRequest{
-			AccountName:  "test-tenant",
+			AccountName:  "test-ns",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "",
 		}
@@ -283,7 +283,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	// First create an account to get a valid seed
 	createResp, err := server.CreateAccount(ctx, &proto.CreateAccountRequest{
-		AccountName: "resign-tenant",
+		AccountName: "resign-account",
 	})
 	if err != nil {
 		t.Fatalf("Failed to create test account: %v", err)
@@ -291,7 +291,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-tenant",
+			AccountName:  "resign-account",
 			AccountSeed: createResp.AccountSeed,
 		}
 
@@ -313,7 +313,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 	t.Run("with revocations", func(t *testing.T) {
 		// First generate a user to revoke
 		userResp, err := server.GenerateUserCredentials(ctx, &proto.GenerateUserCredentialsRequest{
-			AccountName:  "resign-tenant",
+			AccountName:  "resign-account",
 			AccountSeed: createResp.AccountSeed,
 			UserName:    "revoke-me",
 		})
@@ -322,7 +322,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 		}
 
 		req := &proto.SignAccountJWTRequest{
-			AccountName:      "resign-tenant",
+			AccountName:      "resign-account",
 			AccountSeed:     createResp.AccountSeed,
 			RevokedUserKeys: []string{userResp.UserPublicKey},
 		}
@@ -339,7 +339,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("with updated limits", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-tenant",
+			AccountName:  "resign-account",
 			AccountSeed: createResp.AccountSeed,
 			Limits: &proto.AccountLimits{
 				MaxConnections: 200,
@@ -375,7 +375,7 @@ func TestNATSAccountServer_SignAccountJWT(t *testing.T) {
 
 	t.Run("empty account seed", func(t *testing.T) {
 		req := &proto.SignAccountJWTRequest{
-			AccountName:  "resign-tenant",
+			AccountName:  "resign-account",
 			AccountSeed: "",
 		}
 

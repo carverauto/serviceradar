@@ -90,25 +90,23 @@ SAN: spiffe://serviceradar.local/<type>/<tenant_slug>/<partition_id>/<id>
 
 **Verified by**: `MTLSTenantValidationTest` (22 tests)
 
-### 4. Multi-Tenant Isolation
+### 4. Instance Isolation (Single-Tenant-per-Deployment)
 
-Resources are isolated by tenant_id at multiple levels:
+Each tenant deployment is fully isolated at the infrastructure level:
 
 | Level | Mechanism | Enforcement |
 |-------|-----------|-------------|
-| Registry | Horde per-tenant registries | TenantRegistry.ensure_registry/1 |
-| API | Ash multitenancy | `tenant: tenant_id` option |
-| Database | per-tenant schema | schema-based isolation |
-| Process | TenantGuard | Process dictionary verification |
+| Deployment | Separate Kubernetes namespace | One instance per tenant |
+| Database | PostgreSQL schema isolation | CNPG search_path configuration |
+| Network | Service mesh isolation | mTLS + network policies |
+| Secrets | Per-deployment secrets | Kubernetes secrets per namespace |
 
-**Attack Scenarios Blocked:**
+**Security Properties:**
 
-| Attack | Result | Test |
-|--------|--------|------|
-| Enumerate other tenant's agents | Empty result | CrossTenantAccessTest |
-| Get gRPC address for other agent | `{:error, :not_found}` | CrossTenantAccessTest |
-| Update other tenant's resource | Policy forbidden | CrossTenantAccessTest |
-| Spoof tenant_id in request | Context overrides | CrossTenantAccessTest |
+- No cross-tenant access is possible at the instance level
+- Database connection's `search_path` enforces schema boundaries
+- Each deployment has its own NATS account with isolated subjects
+- No tenant_id in application code - isolation is at infrastructure level
 
 ### 5. SPIFFE Identity Plane
 
@@ -154,46 +152,46 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 
 **Verification**: `EdgeIsolationTest.remote_RPC_is_only_available_to_ERTS_cluster_members`
 
-### Property 2: Edge Cannot Discover Other Tenants
+### Property 2: Edge Cannot Discover Other Deployments
 
-**Threat**: Compromised agent tries to enumerate other tenants' agents
-
-**Mitigation**:
-- Registry queries scoped by tenant_id
-- Horde registries are per-tenant
-- mTLS certificate binds tenant identity
-
-**Verification**: `CrossTenantAccessTest.Attack_Scenario_1_Registry_Enumeration`
-
-### Property 3: Tenant Identity Cannot Be Forged
-
-**Threat**: Attacker modifies tenant_id in request
+**Threat**: Compromised agent tries to enumerate other deployment's agents
 
 **Mitigation**:
-- Tenant_id from mTLS certificate, not request body
-- TenantGuard verifies process tenant
-- Ash multitenancy uses `tenant:` context option
+- Each tenant deployment is fully isolated
+- Registry queries are instance-scoped (no cross-deployment access possible)
+- mTLS certificate binds deployment identity
 
-**Verification**: `CrossTenantAccessTest.Attack_Scenario_5_Tenant_Spoofing`
+**Verification**: `EdgeIsolationTest`
+
+### Property 3: Deployment Identity Cannot Be Forged
+
+**Threat**: Attacker attempts to access another deployment
+
+**Mitigation**:
+- Deployment identity from mTLS certificate
+- Each deployment has isolated database schema
+- Infrastructure-level isolation prevents cross-deployment access
+
+**Verification**: `EdgeIsolationTest`
 
 ### Property 4: Data Isolation at Database Level
 
-**Threat**: SQL injection to access other tenant's data
+**Threat**: SQL injection to access other deployment's data
 
 **Mitigation**:
-- Ash queries run in tenant-specific schemas
+- PostgreSQL schema isolation via CNPG search_path
 - No raw SQL in application code
-- PostgreSQL row-level security available
+- Each deployment connects to its own schema
 
-**Verification**: `AgentTenantIsolationTest` (10 tests)
+**Verification**: Database connection tests
 
 ## Incident Response
 
-### Suspected Cross-Tenant Access
+### Suspected Cross-Deployment Access
 
-1. Check audit logs for tenant_id anomalies
-2. Review AgentRegistry for cross-tenant lookups
-3. Verify mTLS certificates are tenant-specific
+1. Check audit logs for anomalies
+2. Review AgentRegistry for unauthorized lookups
+3. Verify mTLS certificates are deployment-specific
 4. Run security test suite: `mix test test/serviceradar/security/`
 
 ### Suspected Edge Compromise
