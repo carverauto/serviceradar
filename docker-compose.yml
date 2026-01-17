@@ -153,8 +153,7 @@ services:
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-true}
       - SERVICERADAR_RESET_TENANT_SCHEMAS=${SERVICERADAR_RESET_TENANT_SCHEMAS:-false}
-      - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
-      - SERVICERADAR_PLATFORM_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
+      # Namespace identifier for NATS subject mapping (single-tenant-per-deployment)
       - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
       - CLOAK_KEY=${CLOAK_KEY:-}
@@ -434,9 +433,6 @@ services:
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
-      # Optional: tenant_id is auto-discovered from core via cluster RPC if not set
-      - GATEWAY_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
-      - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-platform}
       - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
       - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
       - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
@@ -450,6 +446,7 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
+      # Namespace identifier for NATS subject mapping (single-tenant-per-deployment)
       - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname

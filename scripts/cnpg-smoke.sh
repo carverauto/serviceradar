@@ -160,7 +160,6 @@ PY
 
 EVENT_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 EVENT_DEVICE="smoke-${EVENT_ID}"
-EVENT_TENANT_ID="${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}"
 
 EVENT_JSON=$(cat <<EOF
 {
@@ -184,8 +183,7 @@ EVENT_JSON=$(cat <<EOF
   "unmapped": {
     "device_id": "$EVENT_DEVICE"
   },
-  "raw_data": "cnpg-smoke",
-  "tenant_id": "$EVENT_TENANT_ID"
+  "raw_data": "cnpg-smoke"
 }
 EOF
 )

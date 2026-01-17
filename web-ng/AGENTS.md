@@ -11,11 +11,11 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 
 ### Resource patterns
 
-- **Always** use `Ash.Changeset.for_create/for_update` with an actor:
+- **Always** use `Ash.Changeset.for_create/for_update` with scope (or actor):
   ```elixir
   ServiceRadar.Inventory.Device
-  |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_id)
-  |> Ash.create()
+  |> Ash.Changeset.for_create(:create, attrs)
+  |> Ash.create(scope: scope)
   ```
 
 - **Always** use `Ash.Query.for_read` for queries:
@@ -28,10 +28,12 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 - **Never** access `changeset.data` fields that don't exist - use `changeset.data.field_name` pattern
 - **Never** use `Ash.Changeset.get_data/1` or `Ash.Changeset.get_data/2` - these don't exist in Ash 3.x. Use `changeset.data` directly
 
-### Multi-tenancy
+### Single-Tenant-per-Deployment Isolation
 
-- Tenant-scoped resources use schema-based multitenancy (`strategy :context`)
-- Public resources (tenants, users, tenant memberships, platform tables) use the public schema and do not take tenant context
+ServiceRadar uses a single-tenant-per-deployment model:
+- Each tenant gets their own isolated deployment (web-ng, core-elx, agent-gateway)
+- CNPG credentials set PostgreSQL's `search_path` for schema isolation at infrastructure level
+- No tenant_id fields in application code - isolation is handled by the database connection
 
 #### Passing tenant context via Ash.Scope
 
@@ -62,8 +64,7 @@ my_helper(socket, scope)
 
 The scope struct (`ServiceRadarWebNG.Accounts.Scope`) contains:
 - `user` - the current user (actor)
-- `active_tenant` - the current tenant struct (converted to schema name via `Ash.ToTenant`)
-- `tenant_memberships` - list of memberships (available in policy context)
+- Tenant context is implicit from the database connection's search_path (single-tenant-per-deployment)
 
 ### Domains
 
