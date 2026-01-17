@@ -2,11 +2,11 @@
 
 ## Summary
 
-Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
+Make instance code (web-ng, core-elx) completely schema-scoped and tenant-unaware by:
 1. Using schema-scoped CNPG credentials (DB enforces isolation)
-2. Using tenant-scoped NATS JWTs (NATS enforces isolation)
+2. Using account-scoped NATS JWTs (NATS enforces isolation)
 3. Removing all `tenant:` parameters from Ash queries
-4. Removing cross-tenant code paths entirely
+4. Removing cross-schema code paths entirely
 
 ---
 
@@ -61,46 +61,14 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
   - Tenant, TenantMembership, NatsOperator, NatsPlatformToken, NatsServiceAccount
   - These are Control Plane resources
 
-### 2.2 Create feature flag for gradual migration
+### 2.2 Remove multitenancy DSL and regenerate snapshots
 
-- [x] **2.2.1 Add `TENANT_AWARE_MODE` environment variable**
-  - Created `ServiceRadar.Cluster.TenantMode` module
-  - Provides `tenant_aware?/0`, `tenant_opts/1`, `with_tenant/2` helpers
-  - Added `system_actor/2` and `ash_opts/3` convenience functions
-  - Updated `runtime.exs` to read `TENANT_AWARE_MODE` env var
+- [x] **2.2.1 Remove multitenancy blocks from Ash resources**
+  - COMPLETE - No multitenancy blocks remain in Ash resources
+  - No `strategy :context` or `attribute :tenant_id` in codebase
 
-- [x] **2.2.2 Update Repo configuration**
-  - Updated `ServiceRadar.Repo.all_tenants/0` to check tenant mode
-  - In tenant-aware mode: returns all tenant schemas
-  - In tenant-unaware mode: returns empty list (tenant is implicit)
-
-- [x] **2.2.3 Add SystemActor.system/1 for tenant-unaware mode**
-  - Added `system/1` function for simple system actors without tenant_id
-  - Updated module docs to explain when to use each pattern
-
-### 2.3 Remove multitenancy from resources (behind flag)
-
-**Decision: Keep multitenancy DSL in resources**
-
-After analysis, we determined that Ash resource definitions don't need to change:
-- `multitenancy strategy: :context` tells AshPostgres to use schema prefix when `tenant:` is passed
-- When `tenant:` is NOT passed, no prefix is set and PostgreSQL uses the connection's `search_path`
-- In tenant-unaware mode, the CNPG credentials set `search_path` to the tenant schema
-
-The actual work is in Phase 3: stop passing `tenant:` parameter when in tenant-unaware mode.
-
-- [x] **2.3.1 Verify approach works with Ash**
-  - Resources with `strategy :context` don't require `tenant:` parameter by default
-  - When no tenant is passed, queries use connection's `search_path`
-  - This means Phase 3 code changes are sufficient
-
-- [x] **2.3.2 Document resources that need special handling**
-  - Public schema resources (Tenant, TenantMembership, NatsOperator, etc.) stay unchanged
-  - These are Control Plane resources and don't exist in tenant instances
-
-- [N/A] **2.3.3-2.3.5 - Skipped**
-  - No changes needed to Ash resource definitions
-  - `tenant_id` attributes can be removed later as cleanup task
+- [x] **2.2.2 Regenerate Ash snapshots and migrations**
+  - Ran `mix ash.codegen`; no changes detected
 
 ---
 
@@ -113,28 +81,26 @@ The actual work is in Phase 3: stop passing `tenant:` parameter when in tenant-u
 ### 3.1 Update web-ng controllers
 
 - [x] **3.1.1 api/collector_controller.ex** (EXAMPLE FILE)
-  - Updated all Ash calls to use `TenantMode.ash_opts/3`
-  - Updated `find_package_across_tenants()` to handle both modes
-  - Platform operations use mode-conditional actors
-  - Pattern: `opts = TenantMode.ash_opts(:component, tenant_id, schema)`
+  - Updated all Ash calls to omit `tenant:` params
+  - Removed cross-schema lookup helper
+  - Platform operations use standard system actors
 
 - [x] **3.1.2 api/edge_controller.ex**
-  - Updated all Ash calls to use `TenantMode` helpers
-  - Updated `find_package_across_tenants()` with mode check
+  - Updated all Ash calls to omit `tenant:` params
+  - Removed cross-schema lookup helper
 
 - [x] **3.1.3 api/enroll_controller.ex**
-  - Updated `mark_enrolled()` and `find_package_across_tenants()`
-  - Uses mode-conditional actors
+  - Updated `mark_enrolled()` to omit `tenant:` params
+  - Removed cross-schema lookup helper
 
 - [x] **3.1.4 api/nats_controller.ex** (Control Plane only)
   - No changes needed - manages NatsOperator/NatsPlatformToken in public schema
 
 - [x] **3.1.5 auth_controller.ex**
-  - Updated JWT token generation to use `TenantMode.tenant_opts/1`
+  - Updated JWT token generation to omit `tenant:` params
 
 - [x] **3.1.6 tenant_controller.ex** (Control Plane only)
-  - No changes needed - handles multi-tenant switching (Control Plane feature)
-  - `tenant: nil` is intentional for TenantMembership (attribute-based multitenancy)
+  - No changes needed - control plane feature
 
 ### 3.2 Update web-ng LiveViews
 
@@ -157,23 +123,23 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 ### 3.3 Update web-ng plugs and auth
 
 - [x] **3.3.1 plugs/api_auth.ex**
-  - Updated `find_api_token()` with TenantMode check (cross-tenant vs single-schema)
-  - Updated `record_token_usage()` to use `TenantMode.ash_opts/3`
+  - Updated `find_api_token()` with schema scope check (single-schema only)
+  - Updated `record_token_usage()` to use `Ash` calls without `tenant:` params
   - Updated `validate_ash_jwt()` to use mode-conditional actors
   - Removed redundant private `tenant_opts/1` helper
 
 - [x] **3.3.2 plugs/tenant_context.ex**
-  - Updated `load_tenant()` to use `TenantMode.system_actor/2`
+  - Updated `load_tenant()` to use `SystemActor.system/1`
   - Tenant resource is in public schema, no tenant: parameter needed
 
 - [x] **3.3.3 accounts/scope.ex**
-  - Updated `for_user()` to use `TenantMode.system_actor/2`
+  - Updated `for_user()` to use `SystemActor.system/1`
   - Updated `fetch_tenant_by_id()` to use mode-conditional actor
   - Removed `tenant: nil` (no longer needed with mode-conditional actors)
 
 - [x] **3.3.4 user_auth.ex**
-  - Updated `verify_token()` to use `TenantMode.tenant_opts/1`
-  - Updated actor to use `TenantMode.system_actor/2`
+  - Updated `verify_token()` to use `Ash` calls without `tenant:` params
+  - Updated actor to use `SystemActor.system/1`
   - Removed redundant private `tenant_opts/1` helper
 
 ### 3.4 Update core-elx workers
@@ -183,21 +149,21 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
   - Found 44 files total with `SystemActor.for_tenant` usage
 
 - [x] **3.4.2 Update edge workers (3 files)**
-  - `provision_collector_worker.ex` - updated all Ash calls to use `TenantMode.ash_opts/3`
-  - `provision_leaf_worker.ex` - updated all Ash calls to use `TenantMode.ash_opts/3`
-  - `record_event_worker.ex` - updated to use `TenantMode.tenant_opts/1`
+  - `provision_collector_worker.ex` - updated all Ash calls to use `Ash` calls without `tenant:` params
+  - `provision_leaf_worker.ex` - updated all Ash calls to use `Ash` calls without `tenant:` params
+  - `record_event_worker.ex` - updated to use `Ash` calls without `tenant:` params
 
 ### 3.5 Update core-elx GenServers
 
 - [x] **3.5.1 Observability seeders (4 files)**
-  - `template_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
-  - `rule_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
-  - `zen_rule_seeder.ex` - updated to skip in tenant-unaware mode, uses TenantMode.ash_opts
-  - `sysmon_profile_seeder.ex` - updated to use TenantMode.ash_opts
+  - `template_seeder.ex` - updated to skip in tenant-unaware mode, uses Ash calls without tenant params
+  - `rule_seeder.ex` - updated to skip in tenant-unaware mode, uses Ash calls without tenant params
+  - `zen_rule_seeder.ex` - updated to skip in tenant-unaware mode, uses Ash calls without tenant params
+  - `sysmon_profile_seeder.ex` - updated to use Ash calls without tenant params
 
 - [x] **3.5.2 Observability sync/writers (3 files)**
   - `zen_rule_sync.ex` - updated GenServer state to use ash_opts instead of actor
-  - `onboarding_writer.ex` - updated to use TenantMode.ash_opts
+  - `onboarding_writer.ex` - updated to use Ash calls without tenant params
 
 - [x] **3.5.3 Infrastructure GenServers (1 file)**
   - `state_monitor.ex` - updated GenServer state to use ash_opts
@@ -278,12 +244,17 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 ### 6.1 Update Helm bootstrap for OSS
 
-- [ ] **6.1.1 Create default schema in bootstrap job (if needed)**
-  - Schema: configurable (or use `public`)
-  - User: deployment-scoped DB user
+- [x] **6.1.1 Create default schema in bootstrap job (if needed)**
+  - Added `cnpg.schema` option to values.yaml (default: `platform`)
+  - Updated spire-postgres.yaml postInitApplicationSQL to:
+    - Create schema with `CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION serviceradar`
+    - Grant permissions with `GRANT ALL ON SCHEMA {schema} TO serviceradar`
+    - Set user search_path with `ALTER ROLE serviceradar SET search_path TO {schema},ag_catalog`
 
-- [ ] **6.1.2 Configure pods with scoped credentials**
-  - Same pattern as SaaS, just one deployment
+- [x] **6.1.2 Configure pods with scoped credentials**
+  - Updated db-event-writer-config.yaml to derive search_path from cnpg.schema
+  - Updated serviceradar-config.yaml to derive search_path from cnpg.schema
+  - All pods use the same pattern: schema comes from values, search_path is auto-derived
 
 ### 6.2 Test OSS deployment
 
@@ -295,7 +266,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 ### 6.3 Infrastructure cleanup (certs/Helm/Compose)
 
-- [x] **6.3.1 Remove tenant-scoped cert generation**
+- [x] **6.3.1 Remove account-scoped cert generation**
   - Edge component certs now live under `/etc/serviceradar/certs/components`
   - CN format: `<component_id>.<partition_id>.serviceradar`
   - SPIFFE format: `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
@@ -323,8 +294,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 - [x] **7.1.2 Remove old code paths**
   - N/A - No `tenant_aware_mode?()` branches exist
-  - TenantMode module was never created
-
+  
 ### 7.2 Update documentation
 
 - [x] **7.2.1 Update CLAUDE.md**

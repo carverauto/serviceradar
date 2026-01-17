@@ -127,8 +127,13 @@ cnpg:
   port: 5432
   database: serviceradar
   username: serviceradar
+  # Schema for application data. The app user's search_path is set to this schema.
+  # For OSS single-deployment mode, use "platform" (default).
+  # The schema is created automatically during bootstrap.
+  schema: platform
   runtimeParams:
-    search_path: "public,ag_catalog,\\\"$user\\\""
+    # search_path is set automatically based on cnpg.schema
+    search_path: ""
   credentialsSecret: serviceradar-db-credentials
   sslmode: verify-full
   certDir: /etc/serviceradar/certs

@@ -1,7 +1,11 @@
 {{- $trustDomain := .Values.spire.trustDomain | default "carverauto.dev" }}
 {{- $cnpg := default (dict) .Values.cnpg }}
 {{- $cnpgRuntime := default (dict) $cnpg.runtimeParams }}
-{{- $searchPath := default "public,ag_catalog,\\\"$user\\\"" $cnpgRuntime.search_path }}
+{{- $appSchema := default "platform" $cnpg.schema }}
+{{- $searchPath := $cnpgRuntime.search_path }}
+{{- if not $searchPath }}
+  {{- $searchPath = printf "%s,ag_catalog" $appSchema }}
+{{- end }}
 {{- $pg := default (dict) .Values.spire.postgres }}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName }}
 apiVersion: v1

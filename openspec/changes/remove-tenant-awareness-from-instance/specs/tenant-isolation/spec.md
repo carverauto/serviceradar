@@ -17,7 +17,7 @@ Each deployment instance SHALL connect to PostgreSQL with schema-scoped credenti
 - **THEN** PostgreSQL denies access with permission error
 - **AND** the query fails without returning data
 
-#### Scenario: Application code does not track tenant context
+#### Scenario: Application code does not track schema context
 - **WHEN** application code executes an Ash query
 - **THEN** no `tenant:` parameter is required
 - **AND** the query automatically uses the connection's search_path schema
@@ -48,7 +48,7 @@ Instance application code (web-ng, core-elx) SHALL NOT contain logic to access m
 - **AND** there are no functions that iterate across schemas
 - **AND** there is no `SystemActor.platform()` usage
 
-#### Scenario: Ash calls do not pass tenant context
+#### Scenario: Ash calls do not pass schema context
 - **WHEN** reviewing Ash operations in instance code
 - **THEN** there are no `tenant:` parameters passed
 - **AND** queries rely on the connection's search_path schema

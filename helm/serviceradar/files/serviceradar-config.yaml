@@ -15,6 +15,11 @@
 {{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
 {{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
+{{- $appSchema := default "platform" .Values.cnpg.schema -}}
+{{- $searchPath := index $cnpgRuntime "search_path" -}}
+{{- if not $searchPath -}}
+  {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
+{{- end -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
@@ -57,7 +62,7 @@ data:
           "ca_file": "/etc/serviceradar/cnpg/ca.crt"
         },
         "runtime_params": {
-          "search_path": "{{ default "public,ag_catalog,\\\"$user\\\"" (index $cnpgRuntime "search_path") }}"
+          "search_path": "{{ $searchPath }}"
         }
       },
       "reaper": {

@@ -4,24 +4,24 @@
 
 The current ServiceRadar instance codebase (`web-ng`, `core-elx`) is deeply tenant-aware despite the architectural goal of having each instance only see its own data. This creates several problems:
 
-1. **Security by Convention, Not Enforcement**: Tenant isolation relies on application code correctly passing `tenant:` parameters to every Ash query. A single missed parameter could leak data.
+1. **Security by Convention, Not Enforcement**: Schema isolation relies on application code correctly passing `tenant:` parameters to every Ash query. A single missed parameter could leak data.
 
-2. **Complexity Overhead**: Every controller, LiveView, and worker must track tenant context, use `SystemActor.for_tenant()` or `SystemActor.platform()`, and pass `tenant:` to queries.
+2. **Complexity Overhead**: Every controller, LiveView, and worker must track schema context, use `SystemActor.for_tenant()` or `SystemActor.platform()`, and pass `tenant:` to queries.
 
-3. **God Mode Still Exists**: Functions like `find_package_across_tenants()` iterate ALL tenant schemas using `TenantSchemas.list_schemas()`. This capability shouldn't exist in a tenant instance.
+3. **God Mode Still Exists**: Functions like `find_package_across_tenants()` iterate ALL schemas using `TenantSchemas.list_schemas()`. This capability shouldn't exist in an instance.
 
 4. **Architectural Violation**: The proposal 2286-break-out-tenant-control-plane explicitly stated:
    > "Connects to CNPG with its credentials (restricted to its schema)"
-   > "core-elx no longer needs complex multi-tenant policies; it only sees its own tenant's data"
+   > "core-elx no longer needs complex multi-tenant policies; it only sees its own data"
 
-   This was not implemented. We cleaned up `authorize?: false` but replaced it with `SystemActor` patterns that still allow cross-tenant access.
+   This was not implemented. We cleaned up `authorize?: false` but replaced it with `SystemActor` patterns that still allow cross-schema access.
 
 ### Relationship to 2286-break-out-tenant-control-plane
 
 This proposal completes the architectural vision of #2286 that was not fully realized. While #2286 moved Control Plane components to `serviceradar-web/` and added JWT-based auth, it did not:
 - Remove tenant awareness from the instance code
 - Configure schema-scoped database credentials
-- Eliminate cross-tenant query capabilities
+- Eliminate cross-schema query capabilities
 
 This proposal finishes that work.
 
@@ -32,15 +32,15 @@ This proposal finishes that work.
 **Current State:**
 ```
 ┌─────────────────────────────────────────────────┐
-│              Tenant Instance App                │
+│              Instance App                       │
 │  DB credentials: serviceradar (superuser)       │
 │  Can see: ALL schemas                           │
-│  Must track: tenant context everywhere          │
+│  Must track: schema context everywhere          │
 └─────────────────────────────────────────────────┘
          ↓
 ┌─────────────────────────────────────────────────┐
 │     PostgreSQL                                  │
-│  tenant_abc │ tenant_def │ tenant_xyz │ public  │
+│  account_abc │ account_def │ account_xyz │ public │
 │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^       │
 │  (all visible to app)                           │
 └─────────────────────────────────────────────────┘
@@ -49,7 +49,7 @@ This proposal finishes that work.
 **Target State:**
 ```
 ┌─────────────────────────────────────────────────┐
-│              Tenant Instance App                │
+│              Instance App                       │
 │  DB credentials: account_abc_app                │
 │  Can see: account_abc schema ONLY               │
 │  Tracks: nothing - implicit isolation           │
@@ -57,7 +57,7 @@ This proposal finishes that work.
          ↓
 ┌─────────────────────────────────────────────────┐
 │     PostgreSQL                                  │
-│  [account_abc] │ account_def │ account_xyz │ public│
+│  [account_abc] │ account_def │ account_xyz │ public │
 │   (visible)   │  (hidden)  │  (hidden)  │       │
 └─────────────────────────────────────────────────┘
 ```
@@ -74,8 +74,8 @@ This proposal finishes that work.
    - No concept of "other schemas" exists
 
 3. **Simplify `SystemActor`**
-   - Remove `SystemActor.platform()` - no cross-tenant ops
-   - Remove `SystemActor.for_tenant()` - tenant is implicit
+   - Remove `SystemActor.platform()` - no cross-schema ops
+   - Remove `SystemActor.for_tenant()` - schema is implicit
    - Keep simple `SystemActor.system()` for background jobs
 
 4. **Remove multitenancy config from Ash resources**
@@ -84,21 +84,21 @@ This proposal finishes that work.
    - Tables live in the schema, no tenant_id column needed
 
 5. **Remove `Tenant` resource**
-   - Tenant instance does not query a tenant table
+   - Instance does not query a tenant table
    - Instance metadata comes from config/JWT only
 
-6. **Remove cross-tenant code paths**
+6. **Remove cross-schema code paths**
    - `find_package_across_tenants()` - delete
    - `TenantRegistryLoader` - simplify or remove
-   - Any code that iterates tenants - delete
+   - Any code that iterates schemas - delete
 
 ### Control Plane Responsibility
 
 The **Control Plane** (`serviceradar-web/`) becomes responsible for:
 - Creating PostgreSQL users with schema-scoped privileges
 - Setting `search_path` in connection strings
-- Managing the `Tenant` table (global view of all tenants)
-- Cross-tenant operations (admin dashboards, billing, etc.)
+- Managing the tenant registry (global view of all accounts)
+- Cross-account operations (admin dashboards, billing, etc.)
 
 ## Impact
 
@@ -107,7 +107,7 @@ The **Control Plane** (`serviceradar-web/`) becomes responsible for:
 | Component | Changes |
 |-----------|---------|
 | `web-ng/` controllers | Remove `tenant:` params, simplify actors |
-| `web-ng/` LiveViews | Remove tenant context tracking |
+| `web-ng/` LiveViews | Remove schema context tracking |
 | `core-elx/` workers | Remove `for_tenant()` patterns |
 | Ash resources | Remove multitenancy configuration |
 | `TenantSchemas` | Delete or move to Control Plane |
@@ -124,26 +124,26 @@ The **Control Plane** (`serviceradar-web/`) becomes responsible for:
 
 1. **Database credentials must be schema-scoped** - Existing deployments need credential rotation
 2. **Instance cannot access other accounts** - By design
-3. **`SystemActor.platform()` removed** - No replacement in tenant instance
-4. **`TenantSchemas` module removed** - No replacement in tenant instance
+3. **`SystemActor.platform()` removed** - No replacement in instance code
+4. **`TenantSchemas` module removed** - No replacement in instance code
 
 ### Migration Path
 
-1. **OSS (Single-Tenant)**: No migration needed - already one tenant
-2. **SaaS (Multi-Tenant)**: Control Plane must:
-   - Create per-tenant PostgreSQL users
-   - Update tenant instance connection strings
+1. **OSS (Single Deployment)**: No migration needed - already one schema
+2. **SaaS (Multi-Account)**: Control Plane must:
+   - Create per-account PostgreSQL users
+   - Update instance connection strings
    - Deploy instances with scoped credentials
 
 ## Open Questions
 
 1. **Shared Tables**: Some tables might need to be in `public` schema (e.g., `nats_operators`). How do we handle read-only access to shared config?
 
-   **Proposed**: Grant SELECT on specific public tables, or replicate needed config into tenant schema.
+   **Proposed**: Grant SELECT on specific public tables, or replicate needed config into account schema.
 
-2. **Platform Tenant in OSS**: Does the OSS deployment still need a "Tenant" record, or can it be purely config-based?
+2. **OSS account metadata**: Does the OSS deployment need a record in a registry, or can it be purely config-based?
 
-   **Proposed**: Config-based. Tenant ID comes from environment variable or is hard-coded.
+   **Proposed**: Config-based. Account ID comes from environment variable or is hard-coded.
 
 3. **Gradual Migration**: Can we do this incrementally, or is it all-or-nothing?
 
