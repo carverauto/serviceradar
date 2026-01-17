@@ -6,7 +6,6 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   - Read actions correctly identify records needing processing
   - Actions properly process records
   - Filter conditions work as expected
-  - Multitenancy is respected
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
@@ -21,12 +20,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "OnboardingPackage expire_packages trigger" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "needs_expiration finds packages with expired tokens", %{tenant: tenant} do
+    test "needs_expiration finds packages with expired tokens" do
       # Create a package with expired tokens
       expired_download = DateTime.add(DateTime.utc_now(), -3600, :second)
       expired_join = DateTime.add(DateTime.utc_now(), -3600, :second)
@@ -101,8 +95,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute valid_package.id in ids
     end
 
-    test "expire action transitions package to expired status", %{tenant: tenant} do
-      package = onboarding_package_fixture(tenant)
+    test "expire action transitions package to expired status" do
+      package = onboarding_package_fixture()
 
       # Expire the package
       {:ok, expired} =
@@ -115,9 +109,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert expired.status == :expired
     end
 
-    test "needs_expiration excludes already expired packages", %{tenant: tenant} do
+    test "needs_expiration excludes already expired packages" do
       # Create and expire a package
-      package = onboarding_package_fixture(tenant)
+      package = onboarding_package_fixture()
 
       {:ok, expired} =
         package
@@ -141,8 +135,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute expired.id in ids
     end
 
-    test "needs_expiration excludes delivered packages without expired tokens", %{tenant: tenant} do
-      package = onboarding_package_fixture(tenant)
+    test "needs_expiration excludes delivered packages without expired tokens" do
+      package = onboarding_package_fixture()
 
       # Deliver the package
       {:ok, delivered} =
@@ -173,12 +167,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "ServiceCheck execute_due_checks trigger" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "due_for_check finds enabled checks past their interval", %{tenant: tenant} do
+    test "due_for_check finds enabled checks past their interval" do
       # Create a check that was last checked 2 minutes ago with 60s interval
       past_time =
         DateTime.utc_now()
@@ -186,7 +175,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
         |> DateTime.truncate(:second)
 
       check =
-        service_check_fixture(tenant, %{
+        service_check_fixture(%{
           name: "Overdue Check",
           interval_seconds: 60
         })
@@ -206,7 +195,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
 
       # Create a fresh check with no last_check_at (should be due)
       fresh_check =
-        service_check_fixture(tenant, %{
+        service_check_fixture(%{
           name: "Fresh Check",
           interval_seconds: 60
         })
@@ -223,8 +212,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert fresh_check.id in ids
     end
 
-    test "due_for_check excludes disabled checks", %{tenant: tenant} do
-      check = service_check_fixture(tenant)
+    test "due_for_check excludes disabled checks" do
+      check = service_check_fixture()
 
       # Disable the check
       {:ok, disabled} =
@@ -245,8 +234,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute disabled.id in ids
     end
 
-    test "execute action updates last_check_at", %{tenant: tenant} do
-      check = service_check_fixture(tenant)
+    test "execute action updates last_check_at" do
+      check = service_check_fixture()
 
       {:ok, executed} =
         check
@@ -264,14 +253,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "PollingSchedule execute_schedules trigger" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "due_for_execution finds enabled interval schedules past their interval", %{
-      tenant: tenant
-    } do
+    test "due_for_execution finds enabled interval schedules past their interval" do
       # Create an interval schedule that was last executed 2 minutes ago with 60s interval
       past_time = DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.truncate(:second)
 
@@ -321,7 +303,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert fresh.id in ids
     end
 
-    test "due_for_execution excludes manual schedules", %{tenant: _tenant} do
+    test "due_for_execution excludes manual schedules" do
       {:ok, manual} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -346,7 +328,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute manual.id in ids
     end
 
-    test "due_for_execution excludes disabled schedules", %{tenant: _tenant} do
+    test "due_for_execution excludes disabled schedules" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -379,7 +361,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute disabled.id in ids
     end
 
-    test "execute action updates last_executed_at and execution_count", %{tenant: _tenant} do
+    test "execute action updates last_executed_at and execution_count" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -404,7 +386,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert executed.execution_count == 1
     end
 
-    test "record_result updates result tracking fields", %{tenant: _tenant} do
+    test "record_result updates result tracking fields" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -440,7 +422,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert recorded.consecutive_failures == 0
     end
 
-    test "consecutive failures increment on failed results", %{tenant: _tenant} do
+    test "consecutive failures increment on failed results" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -491,22 +473,17 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "Alert auto_escalate trigger" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "pending action finds unacknowledged alerts", %{tenant: tenant} do
+    test "pending action finds unacknowledged alerts" do
       # Create a pending alert
       pending_alert =
-        alert_fixture(tenant, %{
+        alert_fixture(%{
           title: "Pending Alert",
           severity: :warning
         })
 
       # Create and acknowledge an alert
       ack_alert =
-        alert_fixture(tenant, %{
+        alert_fixture(%{
           title: "Acknowledged Alert",
           severity: :warning
         })
@@ -536,8 +513,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       refute ack_alert.id in ids
     end
 
-    test "escalate action transitions alert to escalated status", %{tenant: tenant} do
-      alert = alert_fixture(tenant)
+    test "escalate action transitions alert to escalated status" do
+      alert = alert_fixture()
 
       {:ok, escalated} =
         alert
@@ -554,8 +531,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert escalated.escalated_at != nil
     end
 
-    test "pending excludes resolved alerts", %{tenant: tenant} do
-      alert = alert_fixture(tenant)
+    test "pending excludes resolved alerts" do
+      alert = alert_fixture()
 
       {:ok, resolved} =
         alert
@@ -586,14 +563,9 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "Alert send_notifications trigger" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "needs_notification finds alerts with notification_count = 0", %{tenant: tenant} do
+    test "needs_notification finds alerts with notification_count = 0" do
       # Create a new alert - starts with notification_count = 0
-      alert = alert_fixture(tenant)
+      alert = alert_fixture()
 
       # The needs_notification read action filters for notification_count == 0 and status in [:pending, :escalated]
       {:ok, needing_notification_page} =
@@ -611,10 +583,8 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert alert.id in ids
     end
 
-    test "send_notification increments notification_count and sets last_notification_at", %{
-      tenant: tenant
-    } do
-      alert = alert_fixture(tenant)
+    test "send_notification increments notification_count and sets last_notification_at" do
+      alert = alert_fixture()
       assert alert.notification_count == 0
 
       {:ok, notified} =
@@ -634,12 +604,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
   # =============================================================================
 
   describe "PollingSchedule distributed locking" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "acquire_lock sets lock fields", %{tenant: _tenant} do
+    test "acquire_lock sets lock fields" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -669,7 +634,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert locked.locked_by == "node-1@localhost"
     end
 
-    test "release_lock clears lock fields", %{tenant: _tenant} do
+    test "release_lock clears lock fields" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(
@@ -708,7 +673,7 @@ defmodule ServiceRadar.Oban.AshObanTriggersTest do
       assert released.locked_by == nil
     end
 
-    test "is_locked calculation returns true for recently locked schedules", %{tenant: _tenant} do
+    test "is_locked calculation returns true for recently locked schedules" do
       {:ok, schedule} =
         PollingSchedule
         |> Ash.Changeset.for_create(

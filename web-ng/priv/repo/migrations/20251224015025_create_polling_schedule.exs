@@ -58,7 +58,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreatePollingSchedule do
       add :locked_at, :utc_datetime
       add :locked_by, :text
       add :metadata, :map, default: %{}
-      add :tenant_id, :uuid, null: false
 
       add :created_at, :utc_datetime_usec,
         null: false,
@@ -76,7 +75,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreatePollingSchedule do
     alter table(:polling_schedules) do
       remove :updated_at
       remove :created_at
-      remove :tenant_id
       remove :metadata
       remove :locked_by
       remove :locked_at

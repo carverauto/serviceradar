@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateApiTokens do
       add :revoked_by, :text
       add :metadata, :map, default: %{}
       add :created_at, :utc_datetime
-      add :tenant_id, :uuid, null: false
 
       add :user_id,
           references(:ng_users,

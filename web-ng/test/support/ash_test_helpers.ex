@@ -11,8 +11,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       use ServiceRadarWebNG.AshTestHelpers
 
       test "creates a device" do
-        tenant = tenant_fixture()
-        device = device_fixture(tenant)
+        device = device_fixture()
         assert device.id
       end
 
@@ -66,11 +65,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   @doc """
   Creates an admin actor.
-
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
-  The actor only needs id, email, and role.
   """
-  def admin_actor(_tenant \\ nil) do
+  def admin_actor do
     %{
       id: Ecto.UUID.generate(),
       email: "admin-#{System.unique_integer([:positive])}@test.local",
@@ -80,10 +76,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   @doc """
   Creates an operator actor.
-
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
   """
-  def operator_actor(_tenant \\ nil) do
+  def operator_actor do
     %{
       id: Ecto.UUID.generate(),
       email: "operator-#{System.unique_integer([:positive])}@test.local",
@@ -93,10 +87,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   @doc """
   Creates a viewer actor.
-
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
   """
-  def viewer_actor(_tenant \\ nil) do
+  def viewer_actor do
     %{
       id: Ecto.UUID.generate(),
       email: "viewer-#{System.unique_integer([:positive])}@test.local",
@@ -106,8 +98,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   @doc """
   Creates an actor map from a User struct.
-
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path.
   """
   def actor_for_user(%User{} = user) do
     %{
@@ -122,41 +112,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a tenant fixture.
-
-  In single-tenant-per-deployment architecture, there is no Tenant resource.
-  Returns a simple map representing a tenant for test compatibility.
+  Creates a user fixture.
   """
-  def tenant_fixture(attrs \\ %{}) do
+  def user_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
-    defaults = %{
-      id: Ecto.UUID.generate(),
-      name: "Test Tenant #{unique}",
-      slug: "test-tenant-#{unique}",
-      contact_email: "contact-#{unique}@example.com",
-      plan: :pro
-    }
-
-    Map.merge(defaults, Map.new(attrs))
-  end
-
-  @doc """
-  Creates a user belonging to the given tenant.
-
-  In single-tenant-per-deployment architecture, users are created in the
-  schema determined by DB connection's search_path.
-  """
-  def user_fixture(tenant_or_id \\ nil, attrs \\ %{})
-
-  def user_fixture(%{id: id}, attrs) do
-    user_fixture(id, attrs)
-  end
-
-  def user_fixture(_id, attrs) do
-    unique = System.unique_integer([:positive])
-
-    # In tenant-instance model, users are created in the schema determined by DB connection
     defaults = %{
       email: "user-#{unique}@example.com",
       display_name: "Test User #{unique}",
@@ -172,10 +132,10 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates a user with admin role belonging to the given tenant.
+  Creates a user with admin role.
   """
-  def admin_user_fixture(tenant, attrs \\ %{}) do
-    user = user_fixture(tenant, attrs)
+  def admin_user_fixture(attrs \\ %{}) do
+    user = user_fixture(attrs)
 
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :admin}, actor: system_actor())
@@ -183,10 +143,10 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates a user with operator role belonging to the given tenant.
+  Creates a user with operator role.
   """
-  def operator_user_fixture(tenant, attrs \\ %{}) do
-    user = user_fixture(tenant, attrs)
+  def operator_user_fixture(attrs \\ %{}) do
+    user = user_fixture(attrs)
 
     user
     |> Ash.Changeset.for_update(:update_role, %{role: :operator}, actor: system_actor())
@@ -219,15 +179,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a device belonging to the given tenant.
+  Creates a device fixture.
   """
-  def device_fixture(tenant, attrs \\ %{})
-
-  def device_fixture(%{id: id}, attrs) do
-    device_fixture(id, attrs)
-  end
-
-  def device_fixture(id, attrs) when is_binary(id) do
+  def device_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -251,15 +205,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a partition belonging to the given tenant.
+  Creates a partition fixture.
   """
-  def partition_fixture(tenant, attrs \\ %{})
-
-  def partition_fixture(%{id: id}, attrs) do
-    partition_fixture(id, attrs)
-  end
-
-  def partition_fixture(id, attrs) when is_binary(id) do
+  def partition_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -277,15 +225,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates a gateway belonging to the given tenant.
+  Creates a gateway fixture.
   """
-  def gateway_fixture(tenant, attrs \\ %{})
-
-  def gateway_fixture(%{id: id}, attrs) do
-    gateway_fixture(id, attrs)
-  end
-
-  def gateway_fixture(id, attrs) when is_binary(id) do
+  def gateway_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -318,7 +260,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
-    # In a tenant instance, DB connection's search_path determines the schema
     Agent
     |> Ash.Changeset.for_create(:register, attrs, actor: system_actor())
     |> Ash.create!()
@@ -341,7 +282,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     attrs = Map.merge(defaults, Map.new(attrs))
 
-    # In a tenant instance, DB connection's search_path determines the schema
     Checker
     |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
     |> Ash.create!()
@@ -352,15 +292,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a service check belonging to the given tenant.
+  Creates a service check fixture.
   """
-  def service_check_fixture(tenant, attrs \\ %{})
-
-  def service_check_fixture(%{id: id}, attrs) do
-    service_check_fixture(id, attrs)
-  end
-
-  def service_check_fixture(id, attrs) when is_binary(id) do
+  def service_check_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -378,15 +312,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates an alert belonging to the given tenant.
+  Creates an alert fixture.
   """
-  def alert_fixture(tenant, attrs \\ %{})
-
-  def alert_fixture(%{id: id}, attrs) do
-    alert_fixture(id, attrs)
-  end
-
-  def alert_fixture(id, attrs) when is_binary(id) do
+  def alert_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -404,15 +332,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   @doc """
-  Creates a polling schedule belonging to the given tenant.
+  Creates a polling schedule fixture.
   """
-  def polling_schedule_fixture(tenant, attrs \\ %{})
-
-  def polling_schedule_fixture(%{id: id}, attrs) do
-    polling_schedule_fixture(id, attrs)
-  end
-
-  def polling_schedule_fixture(id, attrs) when is_binary(id) do
+  def polling_schedule_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -433,15 +355,9 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates an onboarding package belonging to the given tenant.
+  Creates an onboarding package fixture.
   """
-  def onboarding_package_fixture(tenant, attrs \\ %{})
-
-  def onboarding_package_fixture(%{id: id}, attrs) do
-    onboarding_package_fixture(id, attrs)
-  end
-
-  def onboarding_package_fixture(id, attrs) when is_binary(id) do
+  def onboarding_package_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -461,16 +377,15 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   end
 
   # ============================================================================
-  # Multi-Tenant Scenarios
+  # Test Scenarios
   # ============================================================================
 
   @doc """
-  Creates a complete test scenario with a tenant and resources.
+  Creates a complete test scenario with users and resources.
 
   Returns a map with all the created resources:
 
       %{
-        tenant: ...,
         admin: ...,
         operator: ...,
         viewer: ...,
@@ -479,20 +394,14 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
         agent: ...
       }
   """
-  def tenant_scenario do
-    tenant = tenant_fixture(%{name: "Test Tenant", slug: "test-tenant-scenario"})
-    build_tenant_resources(tenant)
-  end
-
-  defp build_tenant_resources(tenant) do
-    gateway = gateway_fixture(tenant)
+  def test_scenario do
+    gateway = gateway_fixture()
 
     %{
-      tenant: tenant,
-      admin: admin_user_fixture(tenant),
-      operator: operator_user_fixture(tenant),
-      viewer: user_fixture(tenant),
-      device: device_fixture(tenant),
+      admin: admin_user_fixture(),
+      operator: operator_user_fixture(),
+      viewer: user_fixture(),
+      device: device_fixture(),
       gateway: gateway,
       agent: agent_fixture(gateway)
     }
@@ -503,7 +412,6 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
   Returns:
       %{
-        tenant: ...,
         partition: ...,
         gateway: ...,
         agents: [...],
@@ -515,9 +423,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
     agent_count = Keyword.get(opts, :agents, 2)
     device_count = Keyword.get(opts, :devices, 3)
 
-    tenant = tenant_fixture()
-    partition = partition_fixture(tenant)
-    gateway = gateway_fixture(tenant, %{partition_id: partition.id})
+    partition = partition_fixture()
+    gateway = gateway_fixture(%{partition_id: partition.id})
 
     agents =
       for _ <- 1..agent_count do
@@ -534,11 +441,10 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
 
     devices =
       for _ <- 1..device_count do
-        device_fixture(tenant)
+        device_fixture()
       end
 
     %{
-      tenant: tenant,
       partition: partition,
       gateway: gateway,
       agents: agents,

@@ -10,7 +10,6 @@ defmodule ServiceRadar.Actors.SystemActorTest do
       assert actor.id == "system:state_monitor"
       assert actor.email == "state-monitor@system.serviceradar"
       assert actor.role == :system
-      refute Map.has_key?(actor, :tenant_id)
     end
 
     test "converts underscores to hyphens in email" do
@@ -73,8 +72,6 @@ defmodule ServiceRadar.Actors.SystemActorTest do
       assert Map.has_key?(actor, :role)
       assert Map.has_key?(actor, :id)
       assert Map.has_key?(actor, :email)
-      # Should NOT have tenant_id (tenant is implicit from search_path)
-      refute Map.has_key?(actor, :tenant_id)
     end
   end
 end

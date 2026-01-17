@@ -17,7 +17,6 @@ defmodule ServiceRadar.Repo.Migrations.DropSysmonProfileAssignments do
     # Recreate the assignments table if rolling back
     create table(:sysmon_profile_assignments, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :tenant_id, :uuid, null: false
 
       add :profile_id,
           references(:sysmon_profiles,
@@ -43,12 +42,12 @@ defmodule ServiceRadar.Repo.Migrations.DropSysmonProfileAssignments do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:sysmon_profile_assignments, [:tenant_id, :profile_id, :device_uid],
+    create unique_index(:sysmon_profile_assignments, [:profile_id, :device_uid],
              name: "sysmon_profile_assignments_unique_device_index",
              where: "assignment_type = 'device' AND device_uid IS NOT NULL"
            )
 
-    create unique_index(:sysmon_profile_assignments, [:tenant_id, :profile_id, :tag_key, :tag_value],
+    create unique_index(:sysmon_profile_assignments, [:profile_id, :tag_key, :tag_value],
              name: "sysmon_profile_assignments_unique_tag_index",
              where: "assignment_type = 'tag' AND tag_key IS NOT NULL"
            )

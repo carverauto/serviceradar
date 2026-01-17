@@ -45,7 +45,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateMonitoringResources do
           )
 
       add :metadata, :map, default: %{}
-      add :tenant_id, :uuid, null: false
 
       add :created_at, :utc_datetime_usec,
         null: false,
@@ -94,7 +93,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateMonitoringResources do
       add :actor_name, :text
       add :client_ip, :text
       add :occurred_at, :utc_datetime, null: false
-      add :tenant_id, :uuid, null: false
 
       add :created_at, :utc_datetime_usec,
         null: false,
@@ -165,7 +163,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateMonitoringResources do
       add :suppressed_until, :utc_datetime
       add :metadata, :map, default: %{}
       add :tags, {:array, :text}, default: []
-      add :tenant_id, :uuid, null: false
 
       add :created_at, :utc_datetime_usec,
         null: false,
@@ -187,7 +184,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateMonitoringResources do
     alter table(:alerts) do
       remove :updated_at
       remove :created_at
-      remove :tenant_id
       remove :tags
       remove :metadata
       remove :suppressed_until

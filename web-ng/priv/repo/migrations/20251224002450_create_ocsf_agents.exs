@@ -25,9 +25,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
       add :agent_count, :bigint, default: 0
       add :checker_count, :bigint, default: 0
       add :updated_at, :utc_datetime
-
-      add :tenant_id, references(:tenants, column: :id, type: :uuid, on_delete: :delete_all),
-        null: false
     end
 
     create unique_index(:gateways, [:gateway_id], name: "gateways_unique_gateway_id_index")
@@ -71,9 +68,6 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
       add :discovery_sources, {:array, :text}, default: []
       add :is_available, :boolean, default: true
       add :metadata, :map, default: %{}
-
-      add :tenant_id, references(:tenants, column: :id, type: :uuid, on_delete: :delete_all),
-        null: false
     end
 
     create unique_index(:ocsf_devices, [:uid], name: "ocsf_devices_unique_uid_index")
@@ -101,17 +95,10 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateOcsfAgents do
       add :created_time, :utc_datetime
       add :modified_time, :utc_datetime
       add :metadata, :map, default: %{}
-
-      add :tenant_id, references(:tenants, column: :id, type: :uuid, on_delete: :delete_all),
-        null: false
     end
 
     create unique_index(:ocsf_agents, [:uid], name: "ocsf_agents_unique_uid_index")
 
-    # Add indexes on tenant_id for query performance
-    create index(:gateways, [:tenant_id])
-    create index(:ocsf_devices, [:tenant_id])
-    create index(:ocsf_agents, [:tenant_id])
   end
 
   def down do

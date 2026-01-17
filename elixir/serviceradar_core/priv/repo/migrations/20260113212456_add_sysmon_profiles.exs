@@ -2,7 +2,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSysmonProfiles do
   @moduledoc """
   Creates sysmon_profiles and sysmon_profile_assignments tables for system monitoring configuration.
 
-  These tables are tenant-scoped (created in each tenant schema).
+  These tables are instance-scoped.
   """
 
   use Ecto.Migration
@@ -11,7 +11,6 @@ defmodule ServiceRadar.Repo.Migrations.AddSysmonProfiles do
     # sysmon_profiles table
     create table(:sysmon_profiles, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :tenant_id, :uuid, null: false
       add :name, :text, null: false
       add :description, :text
       add :sample_interval, :text, null: false, default: "10s"
@@ -34,14 +33,11 @@ defmodule ServiceRadar.Repo.Migrations.AddSysmonProfiles do
         default: fragment("(now() AT TIME ZONE 'utc')")
     end
 
-    create unique_index(:sysmon_profiles, [:tenant_id, :name],
-             name: "sysmon_profiles_unique_name_per_tenant_index"
-           )
+    create unique_index(:sysmon_profiles, [:name], name: "sysmon_profiles_unique_name_index")
 
     # sysmon_profile_assignments table
     create table(:sysmon_profile_assignments, primary_key: false) do
       add :id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true
-      add :tenant_id, :uuid, null: false
 
       add :profile_id,
           references(:sysmon_profiles,
@@ -68,13 +64,13 @@ defmodule ServiceRadar.Repo.Migrations.AddSysmonProfiles do
     end
 
     # Unique index for device assignments
-    create unique_index(:sysmon_profile_assignments, [:tenant_id, :profile_id, :device_uid],
+    create unique_index(:sysmon_profile_assignments, [:profile_id, :device_uid],
              name: "sysmon_profile_assignments_unique_device_index",
              where: "assignment_type = 'device' AND device_uid IS NOT NULL"
            )
 
     # Unique index for tag assignments
-    create unique_index(:sysmon_profile_assignments, [:tenant_id, :profile_id, :tag_key, :tag_value],
+    create unique_index(:sysmon_profile_assignments, [:profile_id, :tag_key, :tag_value],
              name: "sysmon_profile_assignments_unique_tag_index",
              where: "assignment_type = 'tag' AND tag_key IS NOT NULL"
            )

@@ -30,16 +30,9 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
       add :metadata, :map, default: %{}
       add :created_at, :utc_datetime
       add :updated_at, :utc_datetime
-
-      add :tenant_id, references(:tenants, column: :id, type: :uuid, on_delete: :delete_all),
-        null: false
     end
 
-    create unique_index(:partitions, [:tenant_id, :slug],
-             name: "partitions_unique_slug_per_tenant_index"
-           )
-
-    create index(:partitions, [:tenant_id])
+    create unique_index(:partitions, [:slug], name: "partitions_unique_slug_index")
 
     # Add partition_id to gateways
     alter table(:gateways) do
@@ -72,12 +65,8 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
 
       add :created_at, :utc_datetime
       add :updated_at, :utc_datetime
-
-      add :tenant_id, references(:tenants, column: :id, type: :uuid, on_delete: :delete_all),
-        null: false
     end
 
-    create index(:checkers, [:tenant_id])
     create index(:checkers, [:agent_uid])
     create index(:checkers, [:type])
   end
@@ -90,9 +79,7 @@ defmodule ServiceRadarWebNG.Repo.Migrations.CreateInfrastructureResources do
       remove :partition_id
     end
 
-    drop_if_exists unique_index(:partitions, [:tenant_id, :slug],
-                     name: "partitions_unique_slug_per_tenant_index"
-                   )
+    drop_if_exists unique_index(:partitions, [:slug], name: "partitions_unique_slug_index")
 
     drop table(:partitions)
   end

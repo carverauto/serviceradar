@@ -9,7 +9,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
   - Read actions (by_id, by_agent, enabled, failing, due_for_check)
   - Calculations (check_type_label, status_color, is_overdue)
   - Policy enforcement
-  - Tenant isolation
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
@@ -19,12 +18,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
   alias ServiceRadar.Monitoring.ServiceCheck
 
   describe "service check creation" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "can create a service check with required fields", %{tenant: _tenant} do
+    test "can create a service check with required fields" do
       actor = system_actor()
 
       result =
@@ -50,7 +44,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert check.interval_seconds == 60
     end
 
-    test "sets default values on creation", %{tenant: _tenant} do
+    test "sets default values on creation" do
       check = service_check_fixture()
 
       assert check.enabled == true
@@ -60,7 +54,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert check.consecutive_failures == 0
     end
 
-    test "supports all check types", %{tenant: _tenant} do
+    test "supports all check types" do
       for check_type <- [:ping, :http, :tcp, :snmp, :grpc, :dns, :custom] do
         check =
           service_check_fixture(%{
@@ -76,12 +70,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
   describe "update actions" do
     setup do
-      tenant = tenant_fixture()
       check = service_check_fixture()
-      {:ok, tenant: tenant, check: check}
+      {:ok, check: check}
     end
 
-    test "operator can update service check", %{tenant: _tenant, check: check} do
+    test "operator can update service check", %{check: check} do
       actor = operator_actor()
 
       result =
@@ -101,7 +94,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert updated.interval_seconds == 120
     end
 
-    test "viewer cannot update service check", %{tenant: _tenant, check: check} do
+    test "viewer cannot update service check", %{check: check} do
       actor = viewer_actor()
 
       result =
@@ -117,12 +110,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
   describe "enable/disable actions" do
     setup do
-      tenant = tenant_fixture()
       check = service_check_fixture()
-      {:ok, tenant: tenant, check: check}
+      {:ok, check: check}
     end
 
-    test "operator can disable service check", %{tenant: _tenant, check: check} do
+    test "operator can disable service check", %{check: check} do
       actor = operator_actor()
 
       {:ok, disabled} =
@@ -133,7 +125,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert disabled.enabled == false
     end
 
-    test "operator can enable disabled service check", %{tenant: _tenant, check: check} do
+    test "operator can enable disabled service check", %{check: check} do
       actor = operator_actor()
 
       # First disable
@@ -151,7 +143,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert enabled.enabled == true
     end
 
-    test "viewer cannot enable/disable service check", %{tenant: _tenant, check: check} do
+    test "viewer cannot enable/disable service check", %{check: check} do
       actor = viewer_actor()
 
       result =
@@ -165,12 +157,11 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
   describe "result recording" do
     setup do
-      tenant = tenant_fixture()
       check = service_check_fixture()
-      {:ok, tenant: tenant, check: check}
+      {:ok, check: check}
     end
 
-    test "can record success result", %{tenant: _tenant, check: check} do
+    test "can record success result", %{check: check} do
       actor = operator_actor()
 
       {:ok, updated} =
@@ -191,7 +182,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert updated.consecutive_failures == 0
     end
 
-    test "can record failure result", %{tenant: _tenant, check: check} do
+    test "can record failure result", %{check: check} do
       actor = operator_actor()
 
       {:ok, updated} =
@@ -211,7 +202,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert updated.consecutive_failures == 1
     end
 
-    test "consecutive failures increment on each failure", %{tenant: _tenant, check: check} do
+    test "consecutive failures increment on each failure", %{check: check} do
       actor = operator_actor()
 
       # First failure
@@ -245,7 +236,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert success.consecutive_failures == 0
     end
 
-    test "warning is considered success for failure tracking", %{tenant: _tenant, check: check} do
+    test "warning is considered success for failure tracking", %{check: check} do
       actor = operator_actor()
 
       # Create a failure first
@@ -269,7 +260,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       assert warning.consecutive_failures == 0
     end
 
-    test "can reset failures manually", %{tenant: _tenant, check: check} do
+    test "can reset failures manually", %{check: check} do
       actor = operator_actor()
 
       # Create some failures
@@ -301,7 +292,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
       actor = system_actor()
 
       # Enabled check
@@ -320,13 +310,12 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         |> Ash.update()
 
       {:ok,
-       tenant: tenant,
        check_enabled: check_enabled,
        check_disabled: check_disabled,
        check_failing: check_failing}
     end
 
-    test "by_id returns specific check", %{tenant: _tenant, check_enabled: check} do
+    test "by_id returns specific check", %{check_enabled: check} do
       actor = viewer_actor()
 
       {:ok, found} =
@@ -338,7 +327,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
     end
 
     test "enabled action returns only enabled checks", %{
-      tenant: _tenant,
       check_enabled: enabled,
       check_disabled: disabled,
       check_failing: failing
@@ -355,7 +343,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
     end
 
     test "failing action returns checks with consecutive failures", %{
-      tenant: _tenant,
       check_enabled: enabled,
       check_failing: failing
     } do
@@ -370,12 +357,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
   end
 
   describe "calculations" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "check_type_label returns correct labels", %{tenant: _tenant} do
+    test "check_type_label returns correct labels" do
       actor = viewer_actor()
 
       label_map = %{
@@ -406,7 +388,7 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
       end
     end
 
-    test "status_color returns correct colors", %{tenant: _tenant} do
+    test "status_color returns correct colors" do
       actor = admin_actor()
 
       # Create a check with success result
@@ -426,61 +408,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheckTest do
         |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
-    end
-  end
-
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-check"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-check"})
-
-      check_a = service_check_fixture(%{name: "Check A"})
-      check_b = service_check_fixture(%{name: "Check B"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, check_a: check_a, check_b: check_b}
-    end
-
-    test "user cannot see checks from other tenant", %{
-      tenant_a: _tenant_a,
-      check_a: check_a,
-      check_b: check_b
-    } do
-      actor = viewer_actor()
-
-      {:ok, checks} = Ash.read(ServiceCheck, actor: actor)
-      ids = Enum.map(checks, & &1.id)
-
-      assert check_a.id in ids
-      refute check_b.id in ids
-    end
-
-    test "user cannot update check from other tenant", %{
-      tenant_a: _tenant_a,
-      check_b: check_b
-    } do
-      actor = operator_actor()
-
-      result =
-        check_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
-        |> Ash.update()
-
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
-    end
-
-    test "user cannot get check from other tenant by id", %{
-      tenant_a: _tenant_a,
-      check_b: check_b
-    } do
-      actor = viewer_actor()
-
-      {:ok, result} =
-        ServiceCheck
-        |> Ash.Query.for_read(:by_id, %{id: check_b.id}, actor: actor)
-        |> Ash.read_one()
-
-      assert result == nil
     end
   end
 end
