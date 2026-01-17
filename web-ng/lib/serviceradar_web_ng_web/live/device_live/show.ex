@@ -45,7 +45,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:panels, [])
      |> assign(:metric_sections, [])
      |> assign(:sysmon_presence, false)
-     |> assign(:sysmon_summary, nil)
      |> assign(:sysmon_profile_info, nil)
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
@@ -116,7 +115,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     sysmon_identity = sysmon_identity(device_row, uid)
 
     metric_sections = load_metric_sections(srql_module, sysmon_identity, scope)
-    sysmon_summary = load_sysmon_summary(srql_module, sysmon_identity, scope)
     sysmon_presence = load_sysmon_presence(srql_module, sysmon_identity, scope)
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
@@ -136,7 +134,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:panels, srql_response |> Engine.build_panels() |> drop_low_value_categories())
      |> assign(:metric_sections, metric_sections)
      |> assign(:sysmon_presence, sysmon_presence)
-     |> assign(:sysmon_summary, sysmon_summary)
      |> assign(:sysmon_profile_info, sysmon_profile_info)
      |> assign(:available_profiles, available_profiles)
      |> assign(:availability, availability)
@@ -458,11 +455,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             profile_info={@sysmon_profile_info}
             available_profiles={@available_profiles}
             device_uid={@device_uid}
-          />
-
-          <.sysmon_summary_section
-            :if={@sysmon_metrics_visible and is_map(@sysmon_summary)}
-            summary={@sysmon_summary}
           />
 
           <%= for section <- @metric_sections_to_render do %>
@@ -1202,9 +1194,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp sysmon_metrics_visible?(assigns) do
     sysmon_presence = Map.get(assigns, :sysmon_presence, false)
-    sysmon_summary = Map.get(assigns, :sysmon_summary)
 
-    sysmon_presence or is_map(sysmon_summary)
+    sysmon_presence
   end
 
   defp sysmon_identity(device_row, device_uid) do
@@ -1435,188 +1426,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_pct(_), do: "—"
 
   # ---------------------------------------------------------------------------
-  # Sysmon Summary Section
-  # ---------------------------------------------------------------------------
-
-  attr :summary, :map, required: true
-
-  def sysmon_summary_section(assigns) do
-    cpu = Map.get(assigns.summary, :cpu, %{})
-    memory = Map.get(assigns.summary, :memory, %{})
-    disks = Map.get(assigns.summary, :disks, [])
-    icmp_rtt = Map.get(assigns.summary, :icmp_rtt)
-
-    has_cpu = is_map(cpu) and not is_nil(Map.get(cpu, :timestamp))
-    has_memory = is_map(memory) and not is_nil(Map.get(memory, :timestamp))
-
-    assigns =
-      assigns
-      |> assign(:cpu, cpu)
-      |> assign(:memory, memory)
-      |> assign(:disks, disks)
-      |> assign(:icmp_rtt, icmp_rtt)
-      |> assign(:has_cpu, has_cpu)
-      |> assign(:has_memory, has_memory)
-
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-      <div class="px-4 py-3 border-b border-base-200">
-        <span class="text-sm font-semibold">System Metrics (Sysmon)</span>
-      </div>
-
-      <div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <.metric_card
-          :if={@has_cpu}
-          title="CPU Usage"
-          value={format_pct(Map.get(@cpu, :avg_usage, 0.0))}
-          suffix="%"
-          subtitle={"#{Map.get(@cpu, :core_count, 0)} cores"}
-          icon="hero-cpu-chip"
-          color={cpu_color(Map.get(@cpu, :avg_usage, 0.0))}
-        />
-
-        <.metric_card
-          :if={@has_memory}
-          title="Memory"
-          value={format_pct(Map.get(@memory, :percent, 0.0))}
-          suffix="%"
-          subtitle={format_bytes(Map.get(@memory, :used_bytes, 0)) <> " / " <> format_bytes(Map.get(@memory, :total_bytes, 0))}
-          icon="hero-rectangle-stack"
-          color={memory_color(Map.get(@memory, :percent, 0.0))}
-        />
-
-        <.metric_card
-          :if={is_number(@icmp_rtt)}
-          title="Latency (ICMP)"
-          value={format_latency(@icmp_rtt)}
-          suffix="ms"
-          subtitle="Last check"
-          icon="hero-signal"
-          color={latency_color(@icmp_rtt)}
-        />
-
-        <.metric_card
-          :if={@disks != []}
-          title="Heaviest Disk"
-          value={format_pct(disk_max_percent(@disks))}
-          suffix="%"
-          subtitle={disk_max_mount(@disks)}
-          icon="hero-circle-stack"
-          color={disk_color(disk_max_percent(@disks))}
-        />
-      </div>
-
-      <div :if={@disks != []} class="px-4 pb-4">
-        <div class="text-xs font-semibold text-base-content/70 mb-2">Disk Utilization</div>
-        <div class="space-y-2">
-          <%= for disk <- Enum.take(Enum.sort_by(@disks, & &1.percent, :desc), 5) do %>
-            <.disk_bar disk={disk} />
-          <% end %>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :title, :string, required: true
-  attr :value, :string, required: true
-  attr :suffix, :string, default: ""
-  attr :subtitle, :string, default: ""
-  attr :icon, :string, required: true
-  attr :color, :string, default: "primary"
-
-  def metric_card(assigns) do
-    ~H"""
-    <div class="rounded-lg border border-base-200 bg-base-200/30 p-4">
-      <div class="flex items-center gap-2 mb-2">
-        <.icon name={@icon} class={["size-4", "text-#{@color}"]} />
-        <span class="text-xs text-base-content/70">{@title}</span>
-      </div>
-      <div class="flex items-baseline gap-1">
-        <span class={["text-2xl font-bold tabular-nums", "text-#{@color}"]}>{@value}</span>
-        <span class="text-sm text-base-content/60">{@suffix}</span>
-      </div>
-      <div :if={@subtitle != ""} class="text-xs text-base-content/50 mt-1">{@subtitle}</div>
-    </div>
-    """
-  end
-
-  attr :disk, :map, required: true
-
-  def disk_bar(assigns) do
-    pct = Map.get(assigns.disk, :percent, 0.0)
-    mount = Map.get(assigns.disk, :mount_point, "?")
-    used = format_bytes(Map.get(assigns.disk, :used_bytes, 0))
-    total = format_bytes(Map.get(assigns.disk, :total_bytes, 0))
-    color = disk_color(pct)
-
-    assigns =
-      assigns
-      |> assign(:pct, pct)
-      |> assign(:mount, mount)
-      |> assign(:used, used)
-      |> assign(:total, total)
-      |> assign(:color, color)
-
-    ~H"""
-    <div class="flex items-center gap-3">
-      <div class="w-24 truncate text-xs font-mono text-base-content/70" title={@mount}>{@mount}</div>
-      <div class="flex-1 h-2 bg-base-200 rounded-full overflow-hidden">
-        <div
-          class={["h-full rounded-full", "bg-#{@color}"]}
-          style={"width: #{min(@pct, 100)}%"}
-        />
-      </div>
-      <div class="w-24 text-right text-xs tabular-nums text-base-content/70">
-        {format_pct(@pct)}% <span class="text-base-content/50">({@used})</span>
-      </div>
-    </div>
-    """
-  end
-
-  defp cpu_color(pct) when pct >= 90, do: "error"
-  defp cpu_color(pct) when pct >= 70, do: "warning"
-  defp cpu_color(_), do: "success"
-
-  defp memory_color(pct) when pct >= 90, do: "error"
-  defp memory_color(pct) when pct >= 80, do: "warning"
-  defp memory_color(_), do: "info"
-
-  defp disk_color(pct) when pct >= 90, do: "error"
-  defp disk_color(pct) when pct >= 80, do: "warning"
-  defp disk_color(_), do: "primary"
-
-  defp latency_color(ms) when ms >= 200, do: "error"
-  defp latency_color(ms) when ms >= 100, do: "warning"
-  defp latency_color(_), do: "success"
-
-  defp disk_max_percent([]), do: 0.0
-
-  defp disk_max_percent(disks),
-    do: Enum.max_by(disks, & &1.percent, fn -> %{percent: 0.0} end).percent
-
-  defp disk_max_mount([]), do: "—"
-
-  defp disk_max_mount(disks),
-    do: Enum.max_by(disks, & &1.percent, fn -> %{mount_point: "—"} end).mount_point
-
-  defp format_bytes(bytes) when is_number(bytes) do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  defp format_bytes(_), do: "—"
-
-  defp format_latency(ms) when is_float(ms), do: :erlang.float_to_binary(ms, decimals: 1)
-  defp format_latency(ms) when is_integer(ms), do: Integer.to_string(ms)
-  defp format_latency(_), do: "—"
-
-  # ---------------------------------------------------------------------------
   # Data Loading Functions
   # ---------------------------------------------------------------------------
 
@@ -1722,31 +1531,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_sysmon_summary(_srql_module, identity, _scope)
-       when identity == %{} or identity == nil,
-       do: nil
-
-  defp load_sysmon_summary(srql_module, identity, scope) do
-    # Load CPU, Memory, Disk metrics in parallel (conceptually - in sequence here)
-    cpu_data = load_cpu_summary(srql_module, identity, scope)
-    memory_data = load_memory_summary(srql_module, identity, scope)
-    disk_data = load_disk_summary(srql_module, identity, scope)
-    icmp_rtt = load_icmp_rtt(srql_module, identity, scope)
-
-    has_sysmon_metrics = is_map(cpu_data) or is_map(memory_data) or disk_data != []
-
-    if has_sysmon_metrics do
-      %{
-        cpu: cpu_data || %{},
-        memory: memory_data || %{},
-        disks: disk_data || [],
-        icmp_rtt: icmp_rtt
-      }
-    else
-      nil
-    end
-  end
-
   defp load_sysmon_presence(_srql_module, identity, _scope)
        when identity == %{} or identity == nil,
        do: false
@@ -1771,165 +1555,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_cpu_summary(srql_module, identity, scope) do
-    query =
-      "in:cpu_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:64"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        rows
-        |> Enum.filter(&row_matches_identity?(&1, identity))
-        |> build_cpu_summary()
-
-      _ ->
-        nil
+  defp format_bytes(bytes) when is_number(bytes) do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{bytes} B"
     end
   end
 
-  defp build_cpu_summary([]), do: nil
-
-  defp build_cpu_summary(rows) do
-    values =
-      Enum.map(rows, fn r -> extract_numeric(Map.get(r, "value")) end)
-      |> Enum.filter(&is_number/1)
-
-    cores =
-      rows
-      |> Enum.map(fn r -> Map.get(r, "core") || Map.get(r, "cpu_core") end)
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-      |> length()
-
-    avg = if values != [], do: Enum.sum(values) / length(values), else: 0.0
-
-    %{
-      avg_usage: Float.round(avg * 1.0, 1),
-      core_count: max(cores, 1),
-      timestamp: Map.get(List.first(rows), "timestamp")
-    }
-  end
-
-  defp load_memory_summary(srql_module, identity, scope) do
-    query =
-      "in:memory_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:4"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) ->
-        row = Enum.find(rows, &row_matches_identity?(&1, identity))
-
-        if is_map(row) do
-          used = extract_numeric(Map.get(row, "used_bytes") || Map.get(row, "value"))
-          total = extract_numeric(Map.get(row, "total_bytes"))
-          pct = percent_from_row(row, used, total)
-
-          %{
-            used_bytes: used || 0,
-            total_bytes: total || 0,
-            percent: Float.round(pct * 1.0, 1),
-            timestamp: Map.get(row, "timestamp")
-          }
-        else
-          nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp load_disk_summary(srql_module, identity, scope) do
-    query =
-      "in:disk_metrics #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:24"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) and rows != [] ->
-        # Group by mount point and take the latest for each
-        rows
-        |> Enum.filter(fn row -> is_map(row) and row_matches_identity?(row, identity) end)
-        |> Enum.group_by(&disk_mount/1)
-        |> Enum.map(fn {mount, disk_rows} ->
-          build_disk_entry(mount, List.first(disk_rows))
-        end)
-        |> Enum.sort_by(& &1.percent, :desc)
-
-      _ ->
-        []
-    end
-  end
-
-  defp load_icmp_rtt(srql_module, identity, scope) do
-    query =
-      "in:timeseries_metrics metric_type:icmp #{Enum.join(sysmon_filter_tokens(identity), " ")} sort:timestamp:desc limit:1"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) ->
-        row = Enum.find(rows, &row_matches_identity?(&1, identity))
-
-        if is_map(row) do
-          row
-          |> Map.get("value")
-          |> extract_numeric()
-          |> normalize_icmp_rtt()
-        else
-          nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  defp percent_from_row(row, used, total) do
-    case Map.get(row, "percent") do
-      value when is_number(value) ->
-        value
-
-      _ ->
-        if is_number(used) and is_number(total) and total > 0 do
-          used / total * 100.0
-        else
-          0.0
-        end
-    end
-  end
-
-  defp disk_mount(row) do
-    Map.get(row, "mount_point") || Map.get(row, "mount") || "unknown"
-  end
-
-  defp build_disk_entry(mount, latest) do
-    used = extract_numeric(Map.get(latest, "used_bytes") || Map.get(latest, "value"))
-    total = extract_numeric(Map.get(latest, "total_bytes"))
-    pct = percent_from_row(latest, used, total)
-
-    %{
-      mount_point: mount,
-      used_bytes: used || 0,
-      total_bytes: total || 0,
-      percent: Float.round(pct * 1.0, 1)
-    }
-  end
-
-  defp normalize_icmp_rtt(value) when is_number(value) do
-    if value > 1_000_000.0 do
-      Float.round(value / 1_000_000.0, 2)
-    else
-      Float.round(value * 1.0, 2)
-    end
-  end
-
-  defp normalize_icmp_rtt(_), do: nil
-
-  defp extract_numeric(value) when is_number(value), do: value
-
-  defp extract_numeric(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {num, ""} -> num
-      _ -> nil
-    end
-  end
-
-  defp extract_numeric(_), do: nil
+  defp format_bytes(_), do: "—"
 
   # ---------------------------------------------------------------------------
   # Healthcheck Section (GRPC/Service Health)
