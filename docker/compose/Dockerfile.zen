@@ -1,15 +1,15 @@
 # Build wait-for-port helper used by entrypoint scripts
-FROM golang:1.22-alpine AS waitforport-builder
+FROM golang:1.24-alpine AS waitforport-builder
 
 RUN apk add --no-cache git
 
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN GOTOOLCHAIN=auto go mod download
 
 COPY cmd/tools/waitforport ./cmd/tools/waitforport
-RUN CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
+RUN GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux go build -o /wait-for-port ./cmd/tools/waitforport
 
 # Multi-stage build for ServiceRadar Zen service (Rust) - FIXED
 FROM rust:latest AS builder
@@ -26,11 +26,8 @@ RUN apt-get update && apt-get install -y \
 # This eliminates the complex dependency caching that was causing hangs
 COPY Cargo.toml Cargo.lock ./
 COPY rust ./rust
-COPY cmd ./cmd  
+COPY cmd ./cmd
 COPY proto ./proto
-
-# Override build.rs if needed
-COPY docker/compose/build-zen-fixed.rs ./cmd/consumers/zen/build.rs
 
 # Build arguments for version info
 ARG VERSION=dev
