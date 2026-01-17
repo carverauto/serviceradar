@@ -67,27 +67,31 @@ zen:
 
 ### Decision 3: Fix zen JetStream Configuration
 
-**What:** The zen service fails because its stream subjects overlap with JetStream API requirements.
+**What:** The zen service was failing because its stream subjects used invalid wildcard patterns that overlapped with JetStream API requirements.
 
-**Why:** NATS JetStream has specific requirements for certain subject patterns. The error "subjects that overlap with jetstream api require no-ack to be true" indicates the events stream needs configuration changes.
+**Why:** Previous changes had incorrectly added wildcard prefixes to zen's subjects (e.g., `*.logs.syslog` and `*.logs.internal.>`). These patterns conflicted with NATS JetStream's subject handling and caused error 10052.
 
-**Options considered:**
-1. ~~Modify zen to use different subject patterns~~ - Requires zen code changes
-2. **Configure NATS stream with allow_direct** - Stream-level config change
-3. Use different stream for zen - More complex
+**Solution:** Remove all wildcard prefixes from zen's subject configuration:
+- `*.logs.syslog` → `logs.syslog`
+- `*.logs.snmp` → `logs.snmp`
+- `*.logs.otel` → `logs.otel`
+- `*.logs.internal.*` → `logs.internal`
 
-**Implementation:** Review and update the NATS JetStream stream configuration in datasvc initialization or zen startup to handle the subject pattern requirements.
+**Implementation:** Updated `docker/compose/zen.docker.json` with corrected subjects and switched zen to file-based config (`CONFIG_SOURCE=file`) instead of KV-based config.
 
-### Decision 4: Handle zen NATS Authorization
+### Decision 4: Use File-Based Config for zen
 
-**What:** zen fails with "authorization violation" when trying to install initial rules.
+**What:** Switch zen from KV-based config to file-based config.
 
-**Why:** The zen service may need additional NATS permissions or the correct credentials file.
+**Why:** The KV-based config was loading stale/incorrect configuration from NATS. Using file-based config ensures zen uses the corrected subjects from the mounted config file.
 
 **Implementation:**
-- Verify zen has correct creds file mounted
-- Check platform.creds includes permissions for zen's KV operations
-- May need zen-specific NATS user with appropriate permissions
+```yaml
+zen:
+  environment:
+    - CONFIG_SOURCE=file
+    - CONFIG_PATH=/etc/serviceradar/zen.json
+```
 
 ## Risks / Trade-offs
 
@@ -121,6 +125,6 @@ caddy (wait: web-ng healthy)
 
 ## Open Questions
 
-1. Does zen need its own NATS user, or can it share platform credentials with extended permissions?
-2. Should we add restart backoff delays to prevent rapid restart loops?
-3. Is the agent healthcheck failing due to a real issue or just timing?
+1. ~~Does zen need its own NATS user, or can it share platform credentials with extended permissions?~~ **Resolved:** zen works with platform credentials once subjects are corrected.
+2. ~~Should we add restart backoff delays to prevent rapid restart loops?~~ **Resolved:** The `depends_on` health conditions prevent restart loops.
+3. Is the agent healthcheck failing due to a real issue or just timing? (Pre-existing issue, not addressed in this change)
