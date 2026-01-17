@@ -93,6 +93,30 @@ zen:
     - CONFIG_PATH=/etc/serviceradar/zen.json
 ```
 
+### Decision 5: Fix zen-put-rule NATS Authentication
+
+**What:** Add `nats_creds_file` support to the zen-put-rule binary.
+
+**Why:** The zen-put-rule binary was failing with "authorization violation" when trying to install initial rules because it only supported mTLS authentication but not JWT/NKEY authentication via credentials files.
+
+**Implementation:** Updated `cmd/consumers/zen/src/bin/put_rule.rs` to:
+1. Add `nats_creds_file` field to the Config struct
+2. Call `opts.credentials_file()` when connecting to NATS
+
+```rust
+// In Config struct:
+#[serde(default)]
+nats_creds_file: Option<String>,
+
+// In connect_nats function:
+if let Some(creds_file) = &cfg.nats_creds_file {
+    let creds_path = creds_file.trim();
+    if !creds_path.is_empty() {
+        opts = opts.credentials_file(PathBuf::from(creds_path)).await?;
+    }
+}
+```
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |

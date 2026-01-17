@@ -15,7 +15,8 @@
 - [x] 3.1 Review zen's required NATS subjects and stream configuration
 - [x] 3.2 Remove wildcard prefixes from subjects (`*.logs.syslog` → `logs.syslog`, etc.)
 - [x] 3.3 Switch zen to file-based config (`CONFIG_SOURCE=file`)
-- [x] 3.4 Verify zen can connect and install initial rules
+- [x] 3.4 Fix zen-put-rule binary to support NATS credentials file
+- [x] 3.5 Verify zen can connect and install initial rules
 
 ## 4. Fix Health Checks
 - [x] 4.1 Add healthcheck to db-event-writer service
