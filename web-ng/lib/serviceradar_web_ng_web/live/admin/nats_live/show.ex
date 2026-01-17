@@ -41,18 +41,11 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Show do
   end
 
   def handle_event("reprovision", _params, socket) do
-    tenant = socket.assigns.tenant
-
-    case ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(tenant.id) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_tenant(tenant.id)
-         |> put_flash(:info, "Reprovisioning job enqueued")}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to enqueue reprovisioning")}
-    end
+    # NATS account provisioning is handled by the control plane
+    # in the single-tenant-per-deployment architecture
+    {:noreply,
+     socket
+     |> put_flash(:info, "NATS account provisioning is managed by the control plane")}
   end
 
   def handle_event("show_clear_confirm", _params, socket) do

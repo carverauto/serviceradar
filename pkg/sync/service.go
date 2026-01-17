@@ -110,7 +110,6 @@ type SimpleSyncService struct {
 	gatewayClient       *agentgateway.GatewayClient
 	gatewayEnrolled     int32
 	sharedGatewayClient bool
-	gatewayMu           sync.RWMutex
 
 	configMu           sync.RWMutex
 	configVersion      string

@@ -33,7 +33,6 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Edge.TenantCA
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.NATS.AccountClient
   alias ServiceRadar.Oban.Router
 
@@ -330,16 +329,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp get_tenant_ca do
-    # DB connection's search_path determines the schema - get the active CA
-    actor = SystemActor.system(:provision_collector)
-
-    case TenantCA
-         |> Ash.Query.for_read(:active)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :tenant_ca_not_found}
-      {:ok, ca} -> {:ok, ca}
-      {:error, error} -> {:error, error}
-    end
+    # In the single-tenant-per-deployment architecture, certificate generation
+    # is handled by external infrastructure (SPIFFE/SPIRE, cert-manager, etc.)
+    # TenantCA resource has been removed.
+    {:error, :tenant_ca_not_available}
   end
 
   defp generate_tls_certificates(tenant_ca, tenant, package) do

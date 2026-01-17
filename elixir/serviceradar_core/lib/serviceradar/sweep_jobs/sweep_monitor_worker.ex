@@ -30,8 +30,8 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   to account for network latency, processing time, and clock drift.
   """
 
-  use ServiceRadar.Oban.TenantWorker,
-    queue_type: :monitoring,
+  use Oban.Worker,
+    queue: :monitoring,
     max_attempts: 3,
     unique: [period: 60, states: [:available, :scheduled, :executing, :retryable]]
 
@@ -60,7 +60,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
         {:ok, :already_scheduled}
 
       false ->
-        enqueue(%{})
+        %{} |> new() |> Oban.insert()
     end
   end
 
@@ -77,10 +77,8 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     ServiceRadar.Repo.exists?(query)
   end
 
-  @impl ServiceRadar.Oban.TenantWorker
-  @spec perform_job(map(), Oban.Job.t()) ::
-          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
-  def perform_job(args, _job) do
+  @impl Oban.Worker
+  def perform(%Oban.Job{args: args}) do
     grace_period_seconds = Map.get(args, "grace_period_seconds", @default_grace_period_seconds)
 
     Logger.info("Running sweep monitor check",
@@ -113,7 +111,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp schedule_next_check(args) do
-    enqueue_in(args, @monitor_interval_seconds)
+    args |> new(schedule_in: @monitor_interval_seconds) |> Oban.insert()
   end
 
   defp get_enabled_sweep_groups do

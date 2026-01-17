@@ -38,7 +38,6 @@ defmodule ServiceRadar.Monitoring.Alert do
   }
 
   alias ServiceRadar.Oban.AshObanQueueResolver
-  alias ServiceRadar.Oban.TenantList
 
   postgres do
     table "alerts"

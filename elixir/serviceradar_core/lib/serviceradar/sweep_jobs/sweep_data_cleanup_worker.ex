@@ -27,8 +27,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
         batch_size: 1000
   """
 
-  use ServiceRadar.Oban.TenantWorker,
-    queue_type: :maintenance,
+  use Oban.Worker,
+    queue: :maintenance,
     max_attempts: 3,
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
@@ -58,7 +58,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
         {:ok, :already_scheduled}
 
       false ->
-        enqueue(%{})
+        %{} |> new() |> Oban.insert()
     end
   end
 
@@ -73,10 +73,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     Repo.exists?(query)
   end
 
-  @impl ServiceRadar.Oban.TenantWorker
-  @spec perform_job(map(), Oban.Job.t()) ::
-          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
-  def perform_job(_args, _job) do
+  @impl Oban.Worker
+  def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     host_results_days = Keyword.get(config, :host_results_retention_days, @default_host_results_retention_days)
@@ -108,7 +106,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    enqueue_in(%{}, @reschedule_interval_seconds)
+    %{} |> new(schedule_in: @reschedule_interval_seconds) |> Oban.insert()
   end
 
   defp cleanup_data(host_results_cutoff, executions_cutoff, batch_size) do

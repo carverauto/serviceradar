@@ -107,16 +107,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   defp get_tenant_ca do
-    # DB connection's search_path determines the schema - get the active CA
-    actor = SystemActor.system(:provision_leaf)
-
-    case TenantCA
-         |> Ash.Query.for_read(:active)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :tenant_ca_not_found}
-      {:ok, ca} -> {:ok, ca}
-      {:error, error} -> {:error, error}
-    end
+    # In the single-tenant-per-deployment architecture, certificate generation
+    # is handled by external infrastructure (SPIFFE/SPIRE, cert-manager, etc.)
+    # TenantCA resource has been removed.
+    {:error, :tenant_ca_not_available}
   end
 
   defp generate_leaf_certificates(tenant_ca, tenant, edge_site) do

@@ -10,7 +10,6 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @doc """
@@ -18,8 +17,8 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
 
   Called during tenant creation via InitializeTenantInfrastructure.
   """
-  @spec seed_for_tenant(Tenant.t()) :: :ok | {:error, term()}
-  def seed_for_tenant(%Tenant{} = tenant) do
+  @spec seed_for_tenant(map()) :: :ok | {:error, term()}
+  def seed_for_tenant(%{slug: _} = tenant) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sysmon_profile_seeder)
     opts = [actor: actor]

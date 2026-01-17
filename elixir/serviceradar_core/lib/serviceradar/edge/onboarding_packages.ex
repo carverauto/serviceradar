@@ -17,7 +17,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Edge.TenantCA
   alias ServiceRadar.Edge.TenantCA.Generator, as: CertGenerator
 
   @default_limit 100
@@ -531,36 +530,18 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     end
   end
 
-  # Gets the active platform CA, generating one if it doesn't exist
+  # Gets the active platform CA
+  # In the single-tenant-per-deployment architecture, certificate generation
+  # is handled by external infrastructure (SPIFFE/SPIRE, cert-manager, etc.)
   defp get_platform_ca do
-    actor = SystemActor.platform(:onboarding_packages)
-
-    case TenantCA
-         |> Ash.Query.filter(status == :active)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} ->
-        # No active CA, need to generate one
-        ServiceRadar.Identity.Tenant
-        |> Ash.ActionInput.for_action(:generate_ca, %{})
-        |> Ash.run_action(actor: actor)
-
-      {:ok, ca} -> {:ok, ca}
-      error -> error
-    end
+    {:error, :tenant_ca_not_available}
   end
 
-  # Decrypts the CA private key for signing (AshCloak handles decryption)
-  defp decrypt_ca_private_key(platform_ca) do
-    # Load with decryption - AshCloak will decrypt the private key
-    actor = SystemActor.system(:onboarding_packages)
-
-    case Ash.get(TenantCA, platform_ca.id,
-           actor: actor,
-           load: [:tenant]
-         ) do
-      {:ok, ca} -> {:ok, ca}
-      error -> error
-    end
+  # Decrypts the CA private key for signing
+  # In the single-tenant-per-deployment architecture, certificate generation
+  # is handled by external infrastructure (SPIFFE/SPIRE, cert-manager, etc.)
+  defp decrypt_ca_private_key(_platform_ca) do
+    {:error, :tenant_ca_not_available}
   end
 
   defp build_certificate_bundle(cert_data) do

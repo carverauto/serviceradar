@@ -9,7 +9,6 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.{
     LogPromotionRuleTemplate,
     StatefulAlertRuleTemplate,
@@ -42,7 +41,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
     end
   end
 
-  def seed_for_tenant(%Tenant{} = _tenant) do
+  def seed_for_tenant(_tenant) do
     # DB connection's search_path determines the schema
     seed_for_current_tenant()
   end

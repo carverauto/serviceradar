@@ -182,17 +182,16 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   Tests that cross-tenant access is denied.
   Creates resources in one tenant and tries to access from another.
 
+  NOTE: In a tenant-instance model, cross-tenant isolation is handled at the
+  infrastructure level (CNPG credentials set PostgreSQL search_path).
+  Each tenant gets their own deployment with separate DB connections.
+  This macro is kept for reference but may not be meaningful in this context.
+
   ## Example
 
       test "cross-tenant isolation" do
         assert_tenant_isolation(Device, :read)
       end
-  """
-  @doc """
-  NOTE: In a tenant-instance model, cross-tenant isolation is handled at the
-  infrastructure level (CNPG credentials set PostgreSQL search_path).
-  Each tenant gets their own deployment with separate DB connections.
-  This macro is kept for reference but may not be meaningful in this context.
   """
   defmacro assert_tenant_isolation(resource, _action) do
     quote do

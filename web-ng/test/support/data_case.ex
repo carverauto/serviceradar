@@ -21,10 +21,9 @@ defmodule ServiceRadarWebNG.DataCase do
 
   use ExUnit.CaseTemplate
 
-  alias ServiceRadar.Cluster.TenantSchemas
-
-  # Default test tenant slug for schema setup
-  @test_tenant_slug "test-tenant"
+  # In single-tenant-per-deployment architecture, the schema is determined by
+  # the database connection's search_path (set via CNPG credentials).
+  @test_tenant_slug "default"
 
   using do
     quote do
@@ -53,14 +52,14 @@ defmodule ServiceRadarWebNG.DataCase do
   end
 
   @doc """
-  Ensures the test tenant schema exists for isolated testing.
+  Ensures the test schema is ready for testing.
+
+  In single-tenant-per-deployment architecture, the schema is determined by
+  the database connection's search_path (set via CNPG credentials).
+  No dynamic schema creation is needed.
   """
   def ensure_test_schema do
-    # In a tenant instance, we just need to ensure the schema exists
-    if not TenantSchemas.schema_exists?(@test_tenant_slug) do
-      {:ok, _schema} = TenantSchemas.create_schema(@test_tenant_slug)
-    end
-
+    # Schema is determined by DB connection's search_path in single-tenant mode
     :ok
   end
 

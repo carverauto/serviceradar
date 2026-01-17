@@ -8,9 +8,6 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
-  alias ServiceRadar.NATS.TenantWorkloadCredentials
   alias ServiceRadarWebNG.Accounts.Scope
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
@@ -36,63 +33,25 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
   end
 
   defp issue_zen_credentials(conn, _tenant) do
-    # Tenant is implicit from DB search_path in a tenant instance
-    case TenantWorkloadCredentials.issue_zen_credentials() do
-      {:ok, result} ->
-        json(conn, %{
-          tenant_slug: result.tenant_slug,
-          user_name: result.user_name,
-          user_public_key: result.user_public_key,
-          creds: result.creds,
-          expires_at: format_datetime(result.expires_at)
-        })
-
-      {:error, :tenant_not_found} ->
-        {:error, :not_found}
-
-      {:error, :tenant_nats_not_ready} ->
-        return_error(conn, :conflict, "NATS account not ready")
-
-      {:error, :account_seed_not_found} ->
-        return_error(conn, :not_found, "NATS seed not available")
-
-      {:error, :account_seed_decrypt_failed} ->
-        return_error(conn, :internal_server_error, "Failed to decrypt NATS seed")
-
-      {:error, reason} ->
-        return_error(
-          conn,
-          :internal_server_error,
-          "Failed to issue credentials: #{inspect(reason)}"
-        )
-    end
+    # Workload credentials are now provisioned by the control plane
+    # in the single-tenant-per-deployment architecture
+    return_error(
+      conn,
+      :not_implemented,
+      "Workload credentials are provisioned by the control plane"
+    )
   end
 
   # In a tenant instance UI, the tenant is implicit from the deployment.
-  # We use the configured default tenant to load the tenant context.
+  # DB connection's search_path determines the schema.
   defp require_tenant(conn) do
     case conn.assigns[:current_scope] do
       %Scope{} ->
-        load_default_tenant()
+        # In single-tenant-per-deployment architecture, tenant context is implicit
+        {:ok, %{slug: "default"}}
 
       _ ->
         {:error, :unauthorized}
-    end
-  end
-
-  defp load_default_tenant do
-    # Control Plane: Load the default tenant for workload configuration
-    default_tenant = Application.get_env(:serviceradar_core, :default_tenant)
-
-    if default_tenant do
-      actor = SystemActor.platform(:tenant_workload_controller)
-
-      case Ash.get(Tenant, default_tenant, actor: actor) do
-        {:ok, %Tenant{} = tenant} -> {:ok, tenant}
-        _ -> {:error, :tenant_not_configured}
-      end
-    else
-      {:error, :tenant_not_configured}
     end
   end
 
@@ -101,7 +60,4 @@ defmodule ServiceRadarWebNG.Api.TenantWorkloadController do
     |> put_status(status)
     |> json(%{error: message})
   end
-
-  defp format_datetime(nil), do: nil
-  defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
 end

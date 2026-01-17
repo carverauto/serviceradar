@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   - `viewer_actor/0` - Viewer role (read-only)
   """
 
-  alias ServiceRadar.Identity.{Tenant, User, ApiToken}
+  alias ServiceRadar.Identity.{User, ApiToken}
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Infrastructure.{Gateway, Agent, Checker, Partition}
   alias ServiceRadar.Monitoring.{Alert, ServiceCheck, PollingSchedule}
@@ -122,35 +122,38 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   # ============================================================================
 
   @doc """
-  Creates a tenant with unique name and slug.
+  Creates a tenant fixture.
+
+  In single-tenant-per-deployment architecture, there is no Tenant resource.
+  Returns a simple map representing a tenant for test compatibility.
   """
   def tenant_fixture(attrs \\ %{}) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
+      id: Ecto.UUID.generate(),
       name: "Test Tenant #{unique}",
       slug: "test-tenant-#{unique}",
       contact_email: "contact-#{unique}@example.com",
       plan: :pro
     }
 
-    attrs = Map.merge(defaults, Map.new(attrs))
-
-    Tenant
-    |> Ash.Changeset.for_create(:create, attrs, actor: system_actor())
-    |> Ash.create!()
+    Map.merge(defaults, Map.new(attrs))
   end
 
   @doc """
   Creates a user belonging to the given tenant.
-  """
-  def user_fixture(tenant, attrs \\ %{})
 
-  def user_fixture(%Tenant{} = tenant, attrs) do
-    user_fixture(tenant.id, attrs)
+  In single-tenant-per-deployment architecture, users are created in the
+  schema determined by DB connection's search_path.
+  """
+  def user_fixture(tenant_or_id \\ nil, attrs \\ %{})
+
+  def user_fixture(%{id: id}, attrs) do
+    user_fixture(id, attrs)
   end
 
-  def user_fixture(_id, attrs) when is_binary(_id) do
+  def user_fixture(_id, attrs) do
     unique = System.unique_integer([:positive])
 
     # In tenant-instance model, users are created in the schema determined by DB connection
@@ -220,11 +223,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def device_fixture(tenant, attrs \\ %{})
 
-  def device_fixture(%Tenant{} = tenant, attrs) do
-    device_fixture(tenant.id, attrs)
+  def device_fixture(%{id: id}, attrs) do
+    device_fixture(id, attrs)
   end
 
-  def device_fixture(_id, attrs) when is_binary(_id) do
+  def device_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -252,11 +255,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def partition_fixture(tenant, attrs \\ %{})
 
-  def partition_fixture(%Tenant{} = tenant, attrs) do
-    partition_fixture(tenant.id, attrs)
+  def partition_fixture(%{id: id}, attrs) do
+    partition_fixture(id, attrs)
   end
 
-  def partition_fixture(_id, attrs) when is_binary(_id) do
+  def partition_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -278,11 +281,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def gateway_fixture(tenant, attrs \\ %{})
 
-  def gateway_fixture(%Tenant{} = tenant, attrs) do
-    gateway_fixture(tenant.id, attrs)
+  def gateway_fixture(%{id: id}, attrs) do
+    gateway_fixture(id, attrs)
   end
 
-  def gateway_fixture(_id, attrs) when is_binary(_id) do
+  def gateway_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -353,11 +356,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def service_check_fixture(tenant, attrs \\ %{})
 
-  def service_check_fixture(%Tenant{} = tenant, attrs) do
-    service_check_fixture(tenant.id, attrs)
+  def service_check_fixture(%{id: id}, attrs) do
+    service_check_fixture(id, attrs)
   end
 
-  def service_check_fixture(_id, attrs) when is_binary(_id) do
+  def service_check_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -379,11 +382,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def alert_fixture(tenant, attrs \\ %{})
 
-  def alert_fixture(%Tenant{} = tenant, attrs) do
-    alert_fixture(tenant.id, attrs)
+  def alert_fixture(%{id: id}, attrs) do
+    alert_fixture(id, attrs)
   end
 
-  def alert_fixture(_id, attrs) when is_binary(_id) do
+  def alert_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -405,11 +408,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def polling_schedule_fixture(tenant, attrs \\ %{})
 
-  def polling_schedule_fixture(%Tenant{} = tenant, attrs) do
-    polling_schedule_fixture(tenant.id, attrs)
+  def polling_schedule_fixture(%{id: id}, attrs) do
+    polling_schedule_fixture(id, attrs)
   end
 
-  def polling_schedule_fixture(_id, attrs) when is_binary(_id) do
+  def polling_schedule_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{
@@ -434,11 +437,11 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   """
   def onboarding_package_fixture(tenant, attrs \\ %{})
 
-  def onboarding_package_fixture(%Tenant{} = tenant, attrs) do
-    onboarding_package_fixture(tenant.id, attrs)
+  def onboarding_package_fixture(%{id: id}, attrs) do
+    onboarding_package_fixture(id, attrs)
   end
 
-  def onboarding_package_fixture(_id, attrs) when is_binary(_id) do
+  def onboarding_package_fixture(id, attrs) when is_binary(id) do
     unique = System.unique_integer([:positive])
 
     defaults = %{

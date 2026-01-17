@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -187,19 +186,9 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp schema_for_scope(nil), do: nil
 
-  defp schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
   defp schema_for_scope(_) do
-    # For tenant instance UI, use the configured default tenant schema
+    # In single-tenant-per-deployment, schema is determined by DB connection's search_path
     ServiceRadarWebNGWeb.TenantResolver.default_tenant_schema()
-  end
-
-  defp safe_schema_for_tenant(tenant) do
-    TenantSchemas.schema_for_tenant(tenant)
-  rescue
-    ArgumentError -> nil
   end
 
   defp load_analytics(socket) do

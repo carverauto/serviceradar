@@ -88,15 +88,15 @@ defmodule ServiceRadar.NATS.AccountClient do
   def create_tenant_account(tenant_slug, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
-    request = %Proto.CreateTenantAccountRequest{
-      tenant_slug: tenant_slug,
+    request = %Proto.CreateAccountRequest{
+      account_name: tenant_slug,
       limits: build_limits(opts[:limits]),
       subject_mappings: build_subject_mappings(opts[:subject_mappings]),
       exports: build_stream_exports(opts[:exports])
     }
 
     with {:ok, channel} <- get_channel() do
-      case Proto.NATSAccountService.Stub.create_tenant_account(channel, request, timeout: timeout) do
+      case Proto.NATSAccountService.Stub.create_account(channel, request, timeout: timeout) do
         {:ok, response} ->
           {:ok,
            %{
@@ -160,7 +160,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.GenerateUserCredentialsRequest{
-      tenant_slug: tenant_slug,
+      account_name: tenant_slug,
       account_seed: account_seed,
       user_name: user_name,
       credential_type: credential_type_to_proto(credential_type),
@@ -254,7 +254,7 @@ defmodule ServiceRadar.NATS.AccountClient do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.SignAccountJWTRequest{
-      tenant_slug: tenant_slug,
+      account_name: tenant_slug,
       account_seed: account_seed,
       limits: build_limits(opts[:limits]),
       subject_mappings: build_subject_mappings(opts[:subject_mappings]),

@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.NatsOperator
-  alias ServiceRadar.Identity.Tenant
 
   @impl true
   def mount(_params, _session, socket) do
@@ -57,23 +56,12 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
      |> load_tenant_accounts()}
   end
 
-  def handle_event("reprovision", %{"id" => id}, socket) do
-    case reprovision_tenant(id) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_tenant_accounts()
-         |> put_flash(:info, "Reprovisioning job enqueued")}
-
-      {:error, :not_found} ->
-        {:noreply, put_flash(socket, :error, "Tenant not found")}
-
-      {:error, :not_retriable} ->
-        {:noreply, put_flash(socket, :error, "Tenant is not in a retriable state")}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to enqueue reprovisioning")}
-    end
+  def handle_event("reprovision", %{"id" => _id}, socket) do
+    # NATS account provisioning is handled by the control plane
+    # in the single-tenant-per-deployment architecture
+    {:noreply,
+     socket
+     |> put_flash(:info, "NATS account provisioning is managed by the control plane")}
   end
 
   @impl true
@@ -337,69 +325,12 @@ defmodule ServiceRadarWebNGWeb.Admin.NatsLive.Index do
   end
 
   defp load_tenant_accounts(socket) do
-    filter_status = socket.assigns[:filter_status]
-    actor = SystemActor.platform(:nats_live)
-
-    query =
-      Tenant
-      |> Ash.Query.for_read(:for_nats_provisioning)
-      |> Ash.Query.select([
-        :id,
-        :slug,
-        :name,
-        :nats_account_status,
-        :nats_account_public_key,
-        :nats_account_provisioned_at
-      ])
-      |> Ash.Query.sort(inserted_at: :desc)
-      |> Ash.Query.limit(100)
-
-    query =
-      if filter_status do
-        status_atom = String.to_existing_atom(filter_status)
-        Ash.Query.filter(query, nats_account_status == ^status_atom)
-      else
-        query
-      end
-
-    tenants =
-      case Ash.read(query, actor: actor) do
-        {:ok, tenants} -> tenants
-        {:error, _} -> []
-      end
-
-    assign(socket, :tenants, tenants)
+    # In single-tenant-per-deployment architecture, NATS accounts are provisioned
+    # by the control plane. This admin page is a no-op.
+    assign(socket, :tenants, [])
   end
 
-  # Actions
-
-  defp reprovision_tenant(id) do
-    with {:ok, tenant} <- get_tenant(id),
-         :ok <- validate_retriable(tenant) do
-      ServiceRadar.NATS.Workers.CreateAccountWorker.enqueue(id)
-    end
-  end
-
-  defp get_tenant(id) do
-    actor = SystemActor.platform(:nats_live)
-
-    case Tenant
-         |> Ash.Query.for_read(:for_nats_provisioning)
-         |> Ash.Query.filter(id == ^id)
-         |> Ash.read_one(actor: actor) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, tenant} -> {:ok, tenant}
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp validate_retriable(tenant) do
-    if tenant.nats_account_status in [:error, :pending, :failed] do
-      :ok
-    else
-      {:error, :not_retriable}
-    end
-  end
+  # Formatting helpers
 
   defp format_datetime(nil), do: "-"
 

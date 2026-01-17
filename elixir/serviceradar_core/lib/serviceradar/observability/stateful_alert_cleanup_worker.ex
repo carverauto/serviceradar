@@ -14,8 +14,8 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   The worker reschedules itself daily.
   """
 
-  use ServiceRadar.Oban.TenantWorker,
-    queue_type: :maintenance,
+  use Oban.Worker,
+    queue: :maintenance,
     max_attempts: 3,
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
         {:ok, :already_scheduled}
 
       false ->
-        enqueue(%{})
+        %{} |> new() |> Oban.insert()
     end
   end
 
@@ -61,10 +61,8 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
     Repo.exists?(query)
   end
 
-  @impl ServiceRadar.Oban.TenantWorker
-  @spec perform_job(map(), Oban.Job.t()) ::
-          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
-  def perform_job(_args, _job) do
+  @impl Oban.Worker
+  def perform(_job) do
     cutoff = DateTime.add(DateTime.utc_now(), -@stale_after_days * 86_400, :second)
 
     Logger.info("StatefulAlertCleanupWorker: Starting cleanup",
@@ -84,7 +82,7 @@ defmodule ServiceRadar.Observability.StatefulAlertCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    enqueue_in(%{}, @reschedule_interval_seconds)
+    %{} |> new(schedule_in: @reschedule_interval_seconds) |> Oban.insert()
   end
 
   defp cleanup_stale_states(cutoff) do
