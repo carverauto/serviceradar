@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Load all live agents from the registry
-  # Tenant scoping is implicit via PostgreSQL search_path
+  # Schema scoping is implicit via PostgreSQL search_path
   defp load_live_agents do
     ServiceRadar.AgentRegistry.find_agents()
     |> Enum.map(fn agent ->

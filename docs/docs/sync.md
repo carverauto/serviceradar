@@ -135,11 +135,11 @@ to the embedded sync runtime inside `serviceradar-agent`:
 
 Standalone `sync.json` files and KV/datasvc dependencies are no longer used.
 
-## Multi-Tenant Behavior
+## Deployment Isolation Behavior
 
-- Tenant identity is derived from the agent's mTLS identity.
+- Deployment identity is derived from the agent's mTLS identity.
 - The agent only receives sources scoped to its deployment.
-- Tenant IDs in payloads are trusted only when derived from mTLS.
+- Identity in payloads is trusted only when derived from mTLS.
 
 ## Troubleshooting
 

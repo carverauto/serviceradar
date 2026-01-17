@@ -13,7 +13,7 @@ defmodule ServiceRadar.Observability.ZenRuleTest do
   end
 
   setup do
-    # Tenant schema determined by DB connection's search_path
+    # Schema determined by DB connection's search_path
     actor = SystemActor.system(:test)
 
     {:ok, actor: actor}

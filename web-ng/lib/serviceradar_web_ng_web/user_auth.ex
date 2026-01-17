@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   # Verify an Ash JWT token and load the user
-  # Tenant context comes from database search_path, not from token claims
+  # Schema context comes from database search_path, not from token claims
   defp verify_token(token) do
     # Use :serviceradar_web_ng as otp_app since that's where the signing_secret is configured
     # Jwt.verify returns {:ok, claims, resource} - we need to load the user from the subject claim

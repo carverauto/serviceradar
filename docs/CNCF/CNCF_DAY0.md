@@ -176,7 +176,7 @@ docker compose up -d
 | Integration | Implementation |
 |-------------|----------------|
 | **Deployment** | Helm charts, Kubernetes Operators (roadmap) |
-| **CRDs** | ServiceRadarTenant, ServiceRadarDevice (Q1 2026) |
+| **CRDs** | Control plane provisioning CRDs (roadmap) |
 | **Networking** | NetworkPolicies for pod-to-pod security |
 | **Storage** | PVCs with StorageClass flexibility |
 | **Monitoring** | ServiceMonitor for Prometheus scraping |
@@ -493,16 +493,8 @@ in:cpu_metrics time:last_1h
 
 **Kubernetes integration (roadmap Q1 2026):**
 
-```yaml
-apiVersion: serviceradar.io/v1
-kind: ServiceRadarTenant
-metadata:
-  name: customer-123
-spec:
-  displayName: "Acme Corp"
-  rbacPolicy: "network-admin"
-  retentionDays: 90
-```
+Provisioning is managed by the control plane (outside this repo) and will
+expose deployment-level CRDs for automated namespace and account setup.
 
 #### Release Process
 
@@ -693,7 +685,7 @@ For testing environments only, users can:
 
 High-risk features requiring ongoing maintenance:
 - **Authentication mechanisms**: Local-auth, OAuth2 integration
-- **RBAC policy engine**: Tenant isolation logic
+- **RBAC policy engine**: Deployment isolation logic
 - **SRQL query parser**: SQL injection prevention
 - **mTLS certificate handling**: SPIFFE/SPIRE integration
 - **Edge proxy configuration**: Routing and TLS rules
@@ -800,7 +792,7 @@ helm upgrade serviceradar serviceradar/serviceradar -n serviceradar
 **Impact on cluster:**
 - Installs resources in `serviceradar` namespace only
 - Creates RBAC ClusterRoles for cross-namespace access (optional)
-- Installs CRDs (coming Q1 2026): `ServiceRadarTenant`, `ServiceRadarDevice`
+- Installs optional control plane CRDs (roadmap)
 - No control plane downtime required
 - No impact to existing workloads
 

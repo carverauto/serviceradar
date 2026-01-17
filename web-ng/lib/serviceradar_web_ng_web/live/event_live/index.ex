@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      # Tenant instance - subscribe to instance-wide topics
+      # Instance scope - subscribe to instance-wide topics
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, HealthPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
     end

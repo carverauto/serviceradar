@@ -164,7 +164,7 @@ raise a decryption error.
 ```bash
 cd web-ng
 # Ensure CNPG_* and CLOAK_KEY or CLOAK_KEY_FILE are set for this environment.
-mix run -e 'alias ServiceRadar.Identity.Tenant; q = Tenant |> Ash.Query.for_read(:read); IO.inspect(Ash.read!(q, authorize?: false) |> Enum.take(1))'
+mix run -e 'alias ServiceRadar.Integrations.IntegrationSource; q = IntegrationSource |> Ash.Query.for_read(:read); IO.inspect(Ash.read!(q, authorize?: false) |> Enum.take(1))'
 ```
 
 If you see AshCloak decryption errors, the platform key does not match the key used
@@ -239,7 +239,7 @@ LiveViews must pass the actor to Ash operations:
 def mount(_params, _session, socket) do
   actor = socket.assigns.current_scope.user
 
-  # Tenant context is implicit from the deployment (PostgreSQL search_path)
+  # Schema context is implicit from the deployment (PostgreSQL search_path)
   {:ok, devices} =
     ServiceRadar.Inventory.Device
     |> Ash.Query.for_read(:list, %{}, actor: actor)

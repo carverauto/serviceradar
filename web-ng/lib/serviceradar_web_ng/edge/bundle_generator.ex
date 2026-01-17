@@ -394,7 +394,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     **Delivered via GetConfig:**
     - Monitoring checks and schedules
     - Sweep configurations
-    - Tenant-specific settings
+    - Deployment-specific settings
 
     ## Quick Start
 

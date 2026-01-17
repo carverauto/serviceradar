@@ -8,7 +8,7 @@ defmodule ServiceRadar.AgentRegistryTest do
   - Registry properly supports gateway discovery of agents
 
   Note: Each single-deployment instance runs its own ERTS cluster with isolated
-  resources. Tenant isolation is handled by infrastructure (separate
+  resources. Deployment isolation is handled by infrastructure (separate
   deployments with PostgreSQL search_path determining the schema).
   """
 

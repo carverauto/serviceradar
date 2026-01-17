@@ -104,7 +104,7 @@ This document provides the CNCF TAG-Security with an initial understanding of **
 
 * mTLS Configuration: SPIFFE/SPIRE integration for workload identity and certificate management
 * NATS JetStream: Subject-based authorization and TLS encryption for message broker
-* RBAC Implementation: Tenant-scoped role-based access control across all services
+* RBAC Implementation: Deployment-scoped role-based access control across all services
 * gRPC Security: Mutual TLS enforcement and token-based authentication for all inter-service communication
 
 ## ServiceRadar Compliance

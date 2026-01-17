@@ -2,7 +2,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
   @moduledoc """
   Policy test suite for authorization and role-based access control.
 
-  ## Single-Tenant Instance Model
+  ## Dedicated Deployment Model
 
   In a single-deployment model, each instance has its own database schema.
   Schema isolation is enforced at the infrastructure level via PostgreSQL search_path

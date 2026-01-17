@@ -6,7 +6,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, AlertGenerator, OcsfEvent, WebhookNotifier}
   alias ServiceRadar.Observability.{
@@ -14,6 +13,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     StatefulAlertRuleHistory,
     StatefulAlertRuleState
   }
+  alias ServiceRadar.ProcessRegistry
 
   require Logger
 

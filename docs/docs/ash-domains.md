@@ -12,10 +12,8 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) to organize business 
 ```mermaid
 graph TB
     subgraph Identity["Identity Domain"]
-        Tenant[Tenant]
         User[User]
         ApiToken[API Token]
-        User -->|belongs_to| Tenant
         ApiToken -->|belongs_to| User
     end
 
@@ -69,7 +67,7 @@ infrastructure level, not by application-level identifiers.
 
 ### ServiceRadar.Identity
 
-User authentication and account access.
+User authentication and access.
 
 | Resource | Description | Key Actions |
 |----------|-------------|-------------|

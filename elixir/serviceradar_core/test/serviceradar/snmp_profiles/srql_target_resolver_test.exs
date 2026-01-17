@@ -55,7 +55,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "returns nil when no targeting profiles exist" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a default profile (not a targeting profile)
@@ -76,7 +76,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "matches device with hostname query" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a device
@@ -119,7 +119,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "returns nil when device does not match query" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a device with different hostname
@@ -161,7 +161,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "resolves by priority - higher priority wins" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a device
@@ -220,7 +220,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "skips disabled profiles" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a device
@@ -280,7 +280,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
 
     @tag :integration
     test "skips profiles without target_query (non-targeting profiles)" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a device

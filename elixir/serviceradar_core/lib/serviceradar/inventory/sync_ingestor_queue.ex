@@ -52,14 +52,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   def handle_info(:flush, state) do
     queue = state.queue
 
-    cond do
-      queue.chunk_count == 0 ->
-        {:noreply, state}
-
-      true ->
-        queue = %{queue | timer_ref: nil, ready: true}
-        state = %{state | queue: queue}
-        {:noreply, maybe_start_ingestion(state)}
+    if queue.chunk_count == 0 do
+      {:noreply, state}
+    else
+      queue = %{queue | timer_ref: nil, ready: true}
+      state = %{state | queue: queue}
+      {:noreply, maybe_start_ingestion(state)}
     end
   end
 

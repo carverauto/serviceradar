@@ -18,7 +18,7 @@ defmodule ServiceRadar.Infrastructure.StateMachineTest do
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
-    # Tenant schema determined by DB connection's search_path
+    # Schema determined by DB connection's search_path
     :ok
   end
 

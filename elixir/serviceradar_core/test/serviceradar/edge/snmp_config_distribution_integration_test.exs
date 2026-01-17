@@ -25,7 +25,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
     :ok
   end
 
-  # Tenant schema is determined by DB connection's search_path
+  # Schema is determined by DB connection's search_path
   setup do
     actor = %{
       id: Ash.UUID.generate(),

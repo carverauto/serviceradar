@@ -198,7 +198,7 @@ gateway-prod-01.datacenter-west.acme-corp.serviceradar
 
 ### Certificate Validity
 
-- **Tenant CA**: 10 years
+- **Deployment CA**: 10 years
 - **Component certificates**: 365 days
 - **Join tokens**: 24 hours (configurable)
 - **Download tokens**: 24 hours (configurable)

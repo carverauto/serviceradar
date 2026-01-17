@@ -175,7 +175,7 @@ sequenceDiagram
 
 Sync is the primary integration runtime for IPAM/CMDB/security sources. It runs in a push-first mode inside the agent:
 
-- Tenant-specific integration sources are configured in the Web UI and stored in Core (Ash).
+- Deployment-specific integration sources are configured in the Web UI and stored in Core (Ash).
 - Agents enroll with agent-gateway via mTLS and fetch config via `GetConfig`.
 - Embedded sync updates are streamed back to agent-gateway with ResultsChunk-compatible `StreamStatus` payloads.
 - Core routes updates through DIRE before writing canonical inventory records.

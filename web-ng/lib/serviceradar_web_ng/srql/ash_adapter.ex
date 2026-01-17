@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     - `:cursor` - Pagination cursor
   - `scope` - The scope for policy enforcement (contains actor and context).
               Uses `Ash.Scope.ToOpts` protocol to extract actor.
-              Tenant is implicit from PostgreSQL search_path.
+              Schema is implicit from PostgreSQL search_path.
 
   ## Returns
 

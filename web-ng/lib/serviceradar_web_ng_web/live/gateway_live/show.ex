@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       end
 
     # Fall back to SRQL database query
-    # Tenant scoping is handled by PostgreSQL search_path
+    # Schema scoping is handled by PostgreSQL search_path
     query = "in:gateways id:\"#{escape_value(gateway_id)}\" limit:1"
 
     db_gateway =

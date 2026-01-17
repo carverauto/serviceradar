@@ -120,7 +120,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile with targets and OIDs" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a profile
@@ -200,7 +200,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns SNMPv3 target with decrypted credentials" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       # Create a profile
@@ -271,7 +271,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns nil when no profiles exist" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       result = SNMPCompiler.resolve_profile(nil, actor)
@@ -280,7 +280,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns default profile when no targeting matches" do
-      # Tenant schema determined by DB connection
+      # Schema determined by DB connection
       actor = SystemActor.system(:test)
 
       {:ok, profile} =

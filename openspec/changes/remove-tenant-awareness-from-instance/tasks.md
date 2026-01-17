@@ -282,6 +282,12 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 - [x] **6.3.4 Remove external tenant fields from sync types**
   - Dropped NetBox `tenant` field from sync types
 
+- [x] **6.3.5 Remove generated Ash resource snapshots**
+  - Deleted `elixir/serviceradar_core/priv/resource_snapshots`
+
+- [x] **6.3.6 Consolidate CNPG SQL migrations**
+  - Reduced to a single schema migration in `pkg/db/cnpg/migrations`
+
 ---
 
 ## Phase 7: Cleanup and Documentation

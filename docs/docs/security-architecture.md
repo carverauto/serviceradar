@@ -196,14 +196,14 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 
 ### Suspected Edge Compromise
 
-1. Revoke agent certificate via TenantCA
+1. Revoke agent certificate via Deployment CA
 2. Unregister agent: `AgentRegistry.unregister_agent/2`
 3. Review gRPC logs for unusual patterns
 4. Verify no ERTS connection established
 
 ### Certificate Rotation
 
-1. Generate new certificates via TenantCA
+1. Generate new certificates via Deployment CA
 2. Distribute to edge agents
 3. Agents reconnect with new certs
 4. Old certificates expire per CA policy

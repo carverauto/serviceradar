@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNG.DataCase do
   by setting `use ServiceRadarWebNG.DataCase, async: true`, although
   this option is not recommended for other databases.
 
-  ## Single-Tenant Instance Model
+  ## Dedicated Deployment Model
 
   In a single-deployment architecture, the schema is determined by
   PostgreSQL search_path set via CNPG credentials. No dynamic schema handling
