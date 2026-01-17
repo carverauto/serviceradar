@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   @moduledoc """
-  Buffers sync result chunks per tenant and coalesces bursts before ingestion.
+  Buffers sync result chunks and coalesces bursts before ingestion.
+
+  In schema-agnostic mode, operates as a single queue since the DB schema
+  is set by CNPG search_path credentials.
   """
 
   use GenServer
@@ -8,11 +11,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestor
 
-  defmodule TenantQueue do
+  defmodule Queue do
     @moduledoc false
     defstruct batches: [], chunk_count: 0, timer_ref: nil, inflight: false, ready: false
   end
@@ -21,175 +23,135 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  def enqueue(message, tenant_id) do
-    GenServer.cast(__MODULE__, {:enqueue, tenant_id, message})
+  def enqueue(message) do
+    GenServer.cast(__MODULE__, {:enqueue, message})
   end
 
-  def ingest_sync_results(message, tenant_id) do
-    do_ingest_results(message, tenant_id)
+  def ingest_sync_results(message) do
+    do_ingest_results(message)
   end
 
   @impl true
   def init(_opts) do
-    {:ok, %{tenants: %{}, inflight_refs: %{}, inflight_count: 0}}
+    {:ok, %{queue: %Queue{}, inflight_ref: nil}}
   end
 
   @impl true
-  def handle_cast({:enqueue, tenant_id, message}, state) do
+  def handle_cast({:enqueue, message}, state) do
     case decode_results(message) do
       {:ok, updates} ->
-        {:noreply, enqueue_updates(state, tenant_id, updates)}
+        {:noreply, enqueue_updates(state, updates)}
 
       {:error, reason} ->
-        Logger.warning("Sync results decode failed for tenant=#{tenant_id}: #{inspect(reason)}")
+        Logger.warning("Sync results decode failed: #{inspect(reason)}")
         {:noreply, state}
     end
   end
 
   @impl true
-  def handle_info({:flush, tenant_id}, state) do
-    {state, tenant} = pop_tenant(state, tenant_id)
+  def handle_info(:flush, state) do
+    queue = state.queue
 
-    cond do
-      tenant == nil ->
-        {:noreply, state}
-
-      tenant.chunk_count == 0 ->
-        {:noreply, state}
-
-      true ->
-        tenant = %{tenant | timer_ref: nil, ready: true}
-        state = put_tenant(state, tenant_id, tenant)
-        {:noreply, maybe_start_ready_tenants(state)}
+    if queue.chunk_count == 0 do
+      {:noreply, state}
+    else
+      queue = %{queue | timer_ref: nil, ready: true}
+      state = %{state | queue: queue}
+      {:noreply, maybe_start_ingestion(state)}
     end
   end
 
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.inflight_refs, ref) do
-      {nil, _refs} ->
-        {:noreply, state}
+    if state.inflight_ref == ref do
+      queue = %{state.queue | inflight: false}
+      state = %{state | queue: queue, inflight_ref: nil}
 
-      {tenant_id, refs} ->
-        state = %{state | inflight_refs: refs, inflight_count: max(state.inflight_count - 1, 0)}
-        {state, tenant} = pop_tenant(state, tenant_id)
+      if reason != :normal do
+        Logger.warning("Sync ingestion task exited: #{inspect(reason)}")
+      end
 
-        state =
-          if tenant do
-            tenant = %{tenant | inflight: false}
-            put_tenant(state, tenant_id, tenant)
-          else
-            state
-          end
-
-        if reason != :normal do
-          Logger.warning("Sync ingestion task for tenant=#{tenant_id} exited: #{inspect(reason)}")
-        end
-
-        {:noreply, maybe_start_ready_tenants(state)}
+      {:noreply, maybe_start_ingestion(state)}
+    else
+      {:noreply, state}
     end
   end
 
-  defp enqueue_updates(state, tenant_id, updates) do
-    {state, tenant} = pop_tenant(state, tenant_id)
-    tenant = tenant || %TenantQueue{}
+  defp enqueue_updates(state, updates) do
+    queue = state.queue
 
-    tenant = %{
-      tenant
-      | batches: [updates | tenant.batches],
-        chunk_count: tenant.chunk_count + 1
+    queue = %{
+      queue
+      | batches: [updates | queue.batches],
+        chunk_count: queue.chunk_count + 1
     }
 
-    {tenant, state} = maybe_schedule_flush(state, tenant_id, tenant)
-    state = put_tenant(state, tenant_id, tenant)
+    {queue, state} = maybe_schedule_flush(state, queue)
+    state = %{state | queue: queue}
 
-    if force_flush?(tenant) do
-      cancel_timer(tenant.timer_ref)
-      send(self(), {:flush, tenant_id})
+    if force_flush?(queue) do
+      cancel_timer(queue.timer_ref)
+      send(self(), :flush)
       state
     else
       state
     end
   end
 
-  defp maybe_schedule_flush(state, tenant_id, tenant) do
+  defp maybe_schedule_flush(state, queue) do
     coalesce_ms = coalesce_window_ms()
 
     cond do
       coalesce_ms <= 0 ->
-        send(self(), {:flush, tenant_id})
-        {tenant, state}
+        send(self(), :flush)
+        {queue, state}
 
-      tenant.timer_ref == nil ->
-        ref = Process.send_after(self(), {:flush, tenant_id}, coalesce_ms)
-        {%{tenant | timer_ref: ref}, state}
+      queue.timer_ref == nil ->
+        ref = Process.send_after(self(), :flush, coalesce_ms)
+        {%{queue | timer_ref: ref}, state}
 
       true ->
-        {tenant, state}
+        {queue, state}
     end
   end
 
-  defp force_flush?(tenant) do
+  defp force_flush?(queue) do
     max_chunks = queue_max_chunks()
 
-    is_integer(max_chunks) and max_chunks > 0 and tenant.chunk_count >= max_chunks
+    is_integer(max_chunks) and max_chunks > 0 and queue.chunk_count >= max_chunks
   end
 
-  defp maybe_start_ready_tenants(state) do
-    max_inflight = max_inflight_chunks()
+  defp maybe_start_ingestion(state) do
+    queue = state.queue
 
-    available = available_slots(max_inflight, state.inflight_count)
-
-    if available <= 0 do
-      state
+    if queue.ready and not queue.inflight and queue.chunk_count > 0 do
+      start_ingestion_task(state)
     else
-      state.tenants
-      |> Enum.filter(fn {_tenant_id, tenant} ->
-        tenant.ready and not tenant.inflight and tenant.chunk_count > 0
-      end)
-      |> Enum.take(available)
-      |> Enum.reduce(state, fn {tenant_id, tenant}, acc ->
-        acc
-        |> start_ingestion_task(tenant_id, tenant)
-        |> apply_ingestion_result()
-      end)
+      state
     end
   end
 
-  defp available_slots(max_inflight, inflight_count)
-       when is_integer(max_inflight) and max_inflight > 0 do
-    max_inflight - inflight_count
-  end
+  defp start_ingestion_task(state) do
+    queue = state.queue
+    updates = queue.batches |> Enum.reverse() |> List.flatten()
 
-  defp available_slots(_max_inflight, _inflight_count), do: 0
+    Logger.info("Coalesced #{queue.chunk_count} sync chunks into #{length(updates)} updates")
 
-  defp apply_ingestion_result({:ok, updated}), do: updated
-  defp apply_ingestion_result({:error, updated}), do: updated
-
-  defp start_ingestion_task(state, tenant_id, tenant) do
-    updates = tenant.batches |> Enum.reverse() |> List.flatten()
-
-    Logger.info(
-      "Coalesced #{tenant.chunk_count} sync chunks into #{length(updates)} updates for tenant=#{tenant_id}"
-    )
-
-    tenant = %{tenant | batches: [], chunk_count: 0, inflight: true, ready: false, timer_ref: nil}
-    state = put_tenant(state, tenant_id, tenant)
+    queue = %{queue | batches: [], chunk_count: 0, inflight: true, ready: false, timer_ref: nil}
+    state = %{state | queue: queue}
 
     task_fun = fn ->
-      ingest_updates(updates, tenant_id)
+      ingest_updates(updates)
     end
 
     case start_task(task_fun) do
       {:ok, ref} ->
-        state = update_inflight(state, ref, tenant_id)
-
-        {:ok, state}
+        %{state | inflight_ref: ref}
 
       {:error, reason} ->
-        Logger.warning("Failed to start sync ingestion task for tenant=#{tenant_id}: #{inspect(reason)}")
-        tenant = %{tenant | inflight: false, ready: true}
-        {:error, put_tenant(state, tenant_id, tenant)}
+        Logger.warning("Failed to start sync ingestion task: #{inspect(reason)}")
+        queue = %{queue | inflight: false, ready: true}
+        %{state | queue: queue}
     end
   end
 
@@ -207,23 +169,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp update_inflight(state, ref, tenant_id) do
-    %{
-      state
-      | inflight_refs: Map.put(state.inflight_refs, ref, tenant_id),
-        inflight_count: state.inflight_count + 1
-    }
-  end
-
-  defp pop_tenant(state, tenant_id) do
-    {tenant, tenants} = Map.pop(state.tenants, tenant_id)
-    {%{state | tenants: tenants}, tenant}
-  end
-
-  defp put_tenant(state, tenant_id, tenant) do
-    %{state | tenants: Map.put(state.tenants, tenant_id, tenant)}
-  end
-
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(ref), do: Process.cancel_timer(ref)
 
@@ -235,80 +180,67 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Application.get_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 10)
   end
 
-  defp max_inflight_chunks do
-    configured = Application.get_env(:serviceradar_core, :sync_ingestor_max_inflight, 2)
+  defp ingest_updates(updates) do
+    Logger.info("Processing sync results")
+    Logger.info("Decoded #{length(updates)} sync updates")
 
-    if is_integer(configured) and configured > 0 do
-      configured
-    else
-      1
-    end
-  end
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:sync_ingestor)
+    record_sync_start(updates, actor)
+    result = sync_ingestor().ingest_updates(updates, actor: actor)
+    Logger.info("SyncIngestor result: #{inspect(result)}")
 
-  defp ingest_updates(updates, tenant_id) do
-    Logger.info("Processing sync results for tenant=#{tenant_id}")
-    Logger.info("Decoded #{length(updates)} sync updates for tenant=#{tenant_id}")
-
-    actor = system_actor(tenant_id)
-    record_sync_start(updates, tenant_id, actor)
-    result = sync_ingestor().ingest_updates(updates, tenant_id, actor: actor)
-    Logger.info("SyncIngestor result for tenant=#{tenant_id}: #{inspect(result)}")
-
-    record_sync_status(updates, tenant_id, actor, result)
+    record_sync_status(updates, actor, result)
 
     result
   rescue
     error ->
-      Logger.warning("Sync results ingestion failed for tenant=#{tenant_id}: #{inspect(error)}")
+      Logger.warning("Sync results ingestion failed: #{inspect(error)}")
       {:error, error}
   end
 
-  defp do_ingest_results(message, tenant_id) do
+  defp do_ingest_results(message) do
     case decode_results(message) do
       {:ok, updates} ->
-        ingest_updates(updates, tenant_id)
+        ingest_updates(updates)
 
       {:error, reason} ->
-        Logger.warning("Sync results decode failed for tenant=#{tenant_id}: #{inspect(reason)}")
+        Logger.warning("Sync results decode failed: #{inspect(reason)}")
         {:error, {:invalid_sync_results, reason}}
     end
   end
 
-  defp record_sync_status(updates, tenant_id, actor, ingest_result) do
+  defp record_sync_status(updates, actor, ingest_result) do
     sync_service_id = extract_sync_service_id(updates)
 
-    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
+    with_sync_service(sync_service_id, actor, fn source ->
       {action, action_attrs} = build_sync_finish(ingest_result, length(updates))
-      update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, "status")
+      update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
     end)
   rescue
     error ->
       Logger.warning("Error recording sync status: #{inspect(error)}")
   end
 
-  defp record_sync_start(updates, tenant_id, actor) do
+  defp record_sync_start(updates, actor) do
     sync_service_id = extract_sync_service_id(updates)
 
-    with_sync_service(sync_service_id, tenant_id, actor, fn source, tenant_schema ->
+    with_sync_service(sync_service_id, actor, fn source ->
       action_attrs = %{device_count: length(updates)}
-      update_sync_source(source, tenant_schema, actor, :sync_start, action_attrs, sync_service_id, "start")
+      update_sync_source(source, actor, :sync_start, action_attrs, sync_service_id, "start")
     end)
   rescue
     error ->
       Logger.warning("Error recording sync start: #{inspect(error)}")
   end
 
-  defp with_sync_service(nil, _tenant_id, _actor, _fun), do: :ok
+  defp with_sync_service(nil, _actor, _fun), do: :ok
 
-  defp with_sync_service(sync_service_id, tenant_id, actor, fun) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-
-    case IntegrationSource.get_by_id(sync_service_id,
-           tenant: tenant_schema,
-           actor: actor
-         ) do
+  defp with_sync_service(sync_service_id, actor, fun) do
+    # DB connection's search_path determines the schema
+    case IntegrationSource.get_by_id(sync_service_id, actor: actor) do
       {:ok, source} ->
-        fun.(source, tenant_schema)
+        fun.(source)
 
       {:error, reason} ->
         Logger.debug(
@@ -317,10 +249,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     end
   end
 
-  defp update_sync_source(source, tenant_schema, actor, action, action_attrs, sync_service_id, label) do
+  defp update_sync_source(source, actor, action, action_attrs, sync_service_id, label) do
+    # DB connection's search_path determines the schema
     source
     |> Ash.Changeset.for_update(action, action_attrs)
-    |> Ash.update(tenant: tenant_schema, actor: actor)
+    |> Ash.update(actor: actor)
     |> case do
       {:ok, _} ->
         Logger.debug("Recorded sync #{label} for IntegrationSource #{sync_service_id}")
@@ -379,10 +312,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   end
 
   defp decode_results(_message), do: {:error, :unsupported_payload}
-
-  defp system_actor(tenant_id) do
-    SystemActor.for_tenant(tenant_id, :sync_ingestor)
-  end
 
   defp sync_ingestor do
     Application.get_env(:serviceradar_core, :sync_ingestor, SyncIngestor)

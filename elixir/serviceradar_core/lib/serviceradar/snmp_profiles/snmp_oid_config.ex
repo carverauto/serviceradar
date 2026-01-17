@@ -56,10 +56,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -75,7 +71,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
       argument :snmp_target_id, :uuid, allow_nil?: false
 
       change manage_relationship(:snmp_target_id, :snmp_target, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do
@@ -94,15 +89,11 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
       argument :snmp_target_id, :uuid, allow_nil?: false
 
       change manage_relationship(:snmp_target_id, :snmp_target, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
     end
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -129,11 +120,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDConfig do
 
   attributes do
     uuid_v7_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-    end
 
     attribute :oid, :string do
       allow_nil? false

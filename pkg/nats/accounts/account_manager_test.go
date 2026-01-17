@@ -41,7 +41,7 @@ func TestNewAccountSigner(t *testing.T) {
 		t.Error("NewAccountSigner() defaultSubjectMappings is empty")
 	}
 
-	// Check for expected default mappings (collectors publish to these, NATS maps to tenant-prefixed)
+	// Check for expected default mappings (collectors publish to these, NATS maps to namespace-prefixed)
 	expectedMappings := []string{"events.>", "logs.syslog.>", "logs.snmp.>", "netflow.>", "otel.>", "logs.>", "telemetry.>"}
 	for _, expected := range expectedMappings {
 		found := false
@@ -57,28 +57,28 @@ func TestNewAccountSigner(t *testing.T) {
 	}
 }
 
-func TestAccountSigner_CreateTenantAccount(t *testing.T) {
+func TestAccountSigner_CreateAccount(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
-	result, err := signer.CreateTenantAccount("acme-corp", nil, nil, nil)
+	result, err := signer.CreateAccount("acme-corp", nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	// Verify account public key format
 	if !nkeys.IsValidPublicAccountKey(result.AccountPublicKey) {
-		t.Errorf("CreateTenantAccount() AccountPublicKey = %q is not valid", result.AccountPublicKey)
+		t.Errorf("CreateAccount() AccountPublicKey = %q is not valid", result.AccountPublicKey)
 	}
 
 	// Verify account seed format (starts with SA)
 	if len(result.AccountSeed) < 2 || result.AccountSeed[:2] != "SA" {
-		t.Errorf("CreateTenantAccount() AccountSeed = %q, want prefix 'SA'", result.AccountSeed[:2])
+		t.Errorf("CreateAccount() AccountSeed = %q, want prefix 'SA'", result.AccountSeed[:2])
 	}
 
 	// Verify JWT is not empty
 	if result.AccountJWT == "" {
-		t.Error("CreateTenantAccount() AccountJWT is empty")
+		t.Error("CreateAccount() AccountJWT is empty")
 	}
 
 	// Decode and verify JWT claims
@@ -104,7 +104,7 @@ func TestAccountSigner_CreateTenantAccount(t *testing.T) {
 		t.Error("JWT claims.Mappings is empty, expected default mappings")
 	}
 
-	// Check that mappings use the tenant slug
+	// Check that mappings use the account name as namespace
 	for from, to := range claims.Mappings {
 		if strings.HasPrefix(string(from), "events.") {
 			if len(to) == 0 || !strings.HasPrefix(string(to[0].Subject), "acme-corp.events.") {
@@ -114,7 +114,7 @@ func TestAccountSigner_CreateTenantAccount(t *testing.T) {
 	}
 }
 
-func TestAccountSigner_CreateTenantAccount_WithLimits(t *testing.T) {
+func TestAccountSigner_CreateAccount_WithLimits(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
@@ -128,9 +128,9 @@ func TestAccountSigner_CreateTenantAccount_WithLimits(t *testing.T) {
 		AllowWildcardExports: true,
 	}
 
-	result, err := signer.CreateTenantAccount("test-tenant", limits, nil, nil)
+	result, err := signer.CreateAccount("test-ns", limits, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	// Decode and verify limits in JWT
@@ -156,18 +156,18 @@ func TestAccountSigner_CreateTenantAccount_WithLimits(t *testing.T) {
 	}
 }
 
-func TestAccountSigner_CreateTenantAccount_WithCustomMappings(t *testing.T) {
+func TestAccountSigner_CreateAccount_WithCustomMappings(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
 	customMappings := []SubjectMapping{
-		{From: "custom.>", To: "{{tenant}}.custom.>"},
-		{From: "metrics.*", To: "{{tenant}}.metrics.*"},
+		{From: "custom.>", To: "{{namespace}}.custom.>"},
+		{From: "metrics.*", To: "{{namespace}}.metrics.*"},
 	}
 
-	result, err := signer.CreateTenantAccount("custom-tenant", nil, customMappings, nil)
+	result, err := signer.CreateAccount("custom-ns", nil, customMappings, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	claims, err := jwt.DecodeAccountClaims(result.AccountJWT)
@@ -184,10 +184,10 @@ func TestAccountSigner_CreateTenantAccount_WithCustomMappings(t *testing.T) {
 		t.Error("JWT claims.Mappings missing 'metrics.*' mapping")
 	}
 
-	// Verify tenant slug replacement
+	// Verify namespace placeholder replacement
 	if mappings, ok := claims.Mappings["custom.>"]; ok {
-		if len(mappings) == 0 || string(mappings[0].Subject) != "custom-tenant.custom.>" {
-			t.Errorf("custom.> mapping = %v, want 'custom-tenant.custom.>'", mappings)
+		if len(mappings) == 0 || string(mappings[0].Subject) != "custom-ns.custom.>" {
+			t.Errorf("custom.> mapping = %v, want 'custom-ns.custom.>'", mappings)
 		}
 	}
 }
@@ -197,9 +197,9 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// First create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	// Now re-sign with updated limits
@@ -207,7 +207,7 @@ func TestAccountSigner_SignAccountJWT(t *testing.T) {
 		MaxConnections: 50,
 	}
 
-	pubKey, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, newLimits, nil, nil, nil, nil)
+	pubKey, newJWT, err := signer.SignAccountJWT("test-ns", result.AccountSeed, newLimits, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -233,9 +233,9 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	// Generate some user keys to revoke
@@ -245,7 +245,7 @@ func TestAccountSigner_SignAccountJWT_WithRevocations(t *testing.T) {
 	revokedKeys := []string{userPubKey1, userPubKey2}
 
 	// Re-sign with revocations
-	_, newJWT, err := signer.SignAccountJWT("test-tenant", result.AccountSeed, nil, nil, nil, nil, revokedKeys)
+	_, newJWT, err := signer.SignAccountJWT("test-ns", result.AccountSeed, nil, nil, nil, nil, revokedKeys)
 	if err != nil {
 		t.Fatalf("SignAccountJWT() error = %v", err)
 	}
@@ -273,7 +273,7 @@ func TestAccountSigner_SignAccountJWT_InvalidSeed(t *testing.T) {
 	op := newTestOperator(t)
 	signer := NewAccountSigner(op)
 
-	_, _, err := signer.SignAccountJWT("test-tenant", "invalid-seed", nil, nil, nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-ns", "invalid-seed", nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for invalid seed, got nil")
 	}
@@ -286,7 +286,7 @@ func TestAccountSigner_SignAccountJWT_WrongKeyType(t *testing.T) {
 	// Use a user seed instead of account seed
 	userSeed, _, _ := GenerateUserKey()
 
-	_, _, err := signer.SignAccountJWT("test-tenant", userSeed, nil, nil, nil, nil, nil)
+	_, _, err := signer.SignAccountJWT("test-ns", userSeed, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Error("SignAccountJWT() expected error for wrong key type, got nil")
 	}
@@ -297,9 +297,9 @@ func TestAccountSigner_CanRecreateFromSeed(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create an account
-	result, err := signer.CreateTenantAccount("test-tenant", nil, nil, nil)
+	result, err := signer.CreateAccount("test-ns", nil, nil, nil)
 	if err != nil {
-		t.Fatalf("CreateTenantAccount() error = %v", err)
+		t.Fatalf("CreateAccount() error = %v", err)
 	}
 
 	// Verify we can derive the same public key from the seed
@@ -323,30 +323,30 @@ func TestAccountSigner_MultipleAccounts(t *testing.T) {
 	signer := NewAccountSigner(op)
 
 	// Create multiple accounts
-	tenants := []string{"tenant-a", "tenant-b", "tenant-c"}
+	accountNames := []string{"account-a", "account-b", "account-c"}
 	if testing.Short() {
-		tenants = tenants[:2]
+		accountNames = accountNames[:2]
 	}
-	results := make(map[string]*TenantAccountResult)
+	results := make(map[string]*AccountResult)
 
-	for _, tenant := range tenants {
-		result, err := signer.CreateTenantAccount(tenant, nil, nil, nil)
+	for _, name := range accountNames {
+		result, err := signer.CreateAccount(name, nil, nil, nil)
 		if err != nil {
-			t.Fatalf("CreateTenantAccount(%q) error = %v", tenant, err)
+			t.Fatalf("CreateAccount(%q) error = %v", name, err)
 		}
-		results[tenant] = result
+		results[name] = result
 	}
 
 	// Verify all accounts have unique keys
 	seen := make(map[string]bool)
-	for tenant, result := range results {
+	for name, result := range results {
 		if seen[result.AccountPublicKey] {
-			t.Errorf("Duplicate public key for tenant %q", tenant)
+			t.Errorf("Duplicate public key for account %q", name)
 		}
 		seen[result.AccountPublicKey] = true
 
 		if seen[result.AccountSeed] {
-			t.Errorf("Duplicate seed for tenant %q", tenant)
+			t.Errorf("Duplicate seed for account %q", name)
 		}
 		seen[result.AccountSeed] = true
 	}

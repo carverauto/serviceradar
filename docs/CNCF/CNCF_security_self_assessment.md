@@ -73,7 +73,7 @@ ServiceRadar is a Service Oriented Architecture (SOA) -- all communication betwe
 
 ### Goals
 
-The ServiceRadar aims to support customers working in multi-tenant environments, and therefor requires high security controls throughout the pipeline and APIs. API calls will be checked against RBAC rules to ensure that the tenant-ID from the requestor is matched against data queries, ensuring that tenant-A can only see data related to tenant-A.
+ServiceRadar targets dedicated deployments for each customer, requiring strong security controls throughout the pipeline and APIs. API calls are checked against RBAC rules to ensure that the requestor's deployment identity is matched against data queries, ensuring that one deployment can only see its own data.
 
 ### Non-goals
 
@@ -95,8 +95,8 @@ This document provides the CNCF TAG-Security with an initial understanding of **
 
 ### Critical
 
-* serviceradar-core: gRPC API and core API services with tenant isolation via RBAC and mTLS
-* serviceradar-srql: SRQL Query Engine API with tenant-scoped query validation
+* serviceradar-core: gRPC API and core API services with deployment isolation via RBAC and mTLS
+* serviceradar-srql: SRQL Query Engine API with deployment-scoped query validation
 * CNPG: Timescale-backed telemetry database with subscription-based access controls
 * serviceradar-web-ng: Web UI with server-side API access controls and SRQL-backed queries
 
@@ -104,7 +104,7 @@ This document provides the CNCF TAG-Security with an initial understanding of **
 
 * mTLS Configuration: SPIFFE/SPIRE integration for workload identity and certificate management
 * NATS JetStream: Subject-based authorization and TLS encryption for message broker
-* RBAC Implementation: Tenant-scoped role-based access control across all services
+* RBAC Implementation: Deployment-scoped role-based access control across all services
 * gRPC Security: Mutual TLS enforcement and token-based authentication for all inter-service communication
 
 ## ServiceRadar Compliance
@@ -163,11 +163,11 @@ Core CNCF Integrations:
 
 Ecosystem Impact:
 
-ServiceRadar's agent/gateway/checker architecture addresses the "last mile" problem in cloud-native monitoring - efficiently collecting network telemetry from containerized and VM workloads across multi-tenant environments. By supporting both traditional protocols (SNMP, syslog) and modern streaming telemetry (gNMI), ServiceRadar bridges legacy network infrastructure with cloud-native observability stacks.
+ServiceRadar's agent/gateway/checker architecture addresses the "last mile" problem in cloud-native monitoring - efficiently collecting network telemetry from containerized and VM workloads across isolated customer deployments. By supporting both traditional protocols (SNMP, syslog) and modern streaming telemetry (gNMI), ServiceRadar bridges legacy network infrastructure with cloud-native observability stacks.
 
 Key Differentiators in CNCF Ecosystem:
 
-* Multi-tenant isolation at the network management layer (unlike single-tenant tools)
+* Deployment isolation at the network management layer (unlike shared-instance tools)
 * Horizontal scaling of data collection without single points of failure
 * Event-driven architecture leveraging NATS JetStream with OCSF/OTEL payloads for real-time processing
 * Native support for edge deployments via NATS hub/leaf topology
@@ -214,7 +214,7 @@ https://www.bestpractices.dev/en/projects/11310 -- currently passing
 
 ### Case Studies
 
-1. Multi-tenant MSP: Regional MSP managing 50+ customer environments uses ServiceRadar's tenant isolation to provide network observability while maintaining strict data separation
+1. Managed services provider: Regional MSP managing 50+ customer environments uses ServiceRadar's deployment isolation to provide network observability while maintaining strict data separation
 2. Edge Deployment: Telco uses NATS hub/leaf topology to collect telemetry from 10,000+ cell sites, aggregating at regional data centers
 3. Hybrid Cloud Migration: Enterprise migrating from legacy NMS discovers network dependencies across on-prem and cloud via ServiceRadar's mapper service
 

@@ -51,9 +51,9 @@ func TestInsertOCSFEvents_SurfacesBatchInsertErrors(t *testing.T) {
 
 	now := time.Now().UTC()
 	err := db.InsertOCSFEvents(ctx, "ocsf_events", []models.OCSFEventRow{
-		{ID: "a", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
-		{ID: "b", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
-		{ID: "c", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1, TenantID: "t"},
+		{ID: "a", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1},
+		{ID: "b", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1},
+		{ID: "c", Time: now, ClassUID: 1008, CategoryUID: 1, TypeUID: 100800, ActivityID: 1},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to insert ocsf events")

@@ -5,7 +5,7 @@ title: Ash Authorization
 
 # Authorization Policies
 
-ServiceRadar uses Ash policies for fine-grained access control with multi-tenancy enforcement.
+ServiceRadar uses Ash policies for fine-grained access control with database-enforced isolation.
 
 ## Policy Architecture
 
@@ -19,7 +19,6 @@ graph TB
 
     subgraph PolicyEval["Policy Evaluation"]
         Bypass{Bypass?}
-        TenantCheck{Tenant Match?}
         RoleCheck{Role Allowed?}
         FieldPolicy{Field Access?}
     end
@@ -30,10 +29,8 @@ graph TB
     end
 
     Actor --> Bypass
-    Bypass -->|super_admin| Allowed
-    Bypass -->|No| TenantCheck
-    TenantCheck -->|Yes| RoleCheck
-    TenantCheck -->|No| Denied
+    Bypass -->|system| Allowed
+    Bypass -->|No| RoleCheck
     RoleCheck -->|Yes| FieldPolicy
     RoleCheck -->|No| Denied
     FieldPolicy -->|Yes| Allowed
@@ -48,34 +45,37 @@ Every Ash operation requires an actor with these attributes:
 %{
   id: "user_uuid",
   email: "user@example.com",
-  role: :admin,           # :viewer | :operator | :admin | :super_admin
-  tenant_id: "tenant_uuid"
+  role: :admin           # :viewer | :operator | :admin | :system
 }
 ```
 
+Note: In the single-deployment model, schema isolation is handled at the
+infrastructure level via PostgreSQL schema isolation (CNPG search_path). Actors don't
+need a deployment identifier field - context is implicit from the deployment.
+
 ## Policy Patterns
 
-### Super Admin Bypass
+### System Actor Bypass
 
-Super admins bypass all tenant and resource policies:
+System actors (background jobs, GenServers) bypass authorization:
 
 ```elixir
 policies do
   bypass always() do
-    authorize_if actor_attribute_equals(:role, :super_admin)
+    authorize_if actor_attribute_equals(:role, :system)
   end
 end
 ```
 
-### Tenant Isolation
+### Instance Isolation
 
-All tenant-scoped resources enforce tenant isolation:
+Resources are isolated by PostgreSQL schema (via CNPG search_path):
 
 ```elixir
+# No deployment checks needed - schema isolation is at database level
 policy action_type(:read) do
   authorize_if expr(
-    ^actor(:role) in [:viewer, :operator, :admin] and
-    tenant_id == ^actor(:tenant_id)
+    ^actor(:role) in [:viewer, :operator, :admin]
   )
 end
 ```
@@ -85,7 +85,7 @@ end
 Different actions require different roles:
 
 ```elixir
-# Read: Any authenticated tenant user
+# Read: Any authenticated user
 policy action_type(:read) do
   authorize_if actor_attribute_equals(:role, :viewer)
   authorize_if actor_attribute_equals(:role, :operator)
@@ -111,23 +111,23 @@ end
 ```elixir
 defmodule ServiceRadar.Inventory.Device do
   policies do
+    # System actors (background jobs) bypass authorization
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Viewers, operators, admins can read devices in their tenant
+    # Viewers, operators, admins can read devices
+    # (schema isolation handled by PostgreSQL schema)
     policy action_type(:read) do
       authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
+        ^actor(:role) in [:viewer, :operator, :admin]
       )
     end
 
     # Only operators and admins can modify devices
     policy action([:create, :update, :mark_available, :mark_unavailable]) do
       authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
+        ^actor(:role) in [:operator, :admin]
       )
     end
   end
@@ -139,37 +139,35 @@ end
 ```elixir
 defmodule ServiceRadar.Monitoring.Alert do
   policies do
+    # System actors bypass authorization
     bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read access for all tenant users
+    # Read access for all authenticated users
     policy action_type(:read) do
       authorize_if expr(
-        ^actor(:role) in [:viewer, :operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
+        ^actor(:role) in [:viewer, :operator, :admin]
       )
     end
 
-    # Acknowledge: Operators and admins in same tenant
+    # Acknowledge: Operators and admins
     policy action(:acknowledge) do
       authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
+        ^actor(:role) in [:operator, :admin]
       )
     end
 
-    # Resolve: Operators and admins in same tenant
+    # Resolve: Operators and admins
     policy action(:resolve) do
       authorize_if expr(
-        ^actor(:role) in [:operator, :admin] and
-        tenant_id == ^actor(:tenant_id)
+        ^actor(:role) in [:operator, :admin]
       )
     end
 
-    # AshOban triggers run without actor - allow system actions
+    # AshOban triggers run with system actor
     policy action([:auto_escalate, :send_notification]) do
-      authorize_if always()
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 end
@@ -177,10 +175,9 @@ end
 
 ## Permission Matrix
 
-| Action Type | viewer | operator | admin | super_admin |
-|-------------|--------|----------|-------|-------------|
-| Read (own tenant) | Yes | Yes | Yes | Yes |
-| Read (other tenant) | No | No | No | Yes |
+| Action Type | viewer | operator | admin | system |
+|-------------|--------|----------|-------|--------|
+| Read | Yes | Yes | Yes | Yes |
 | Create | No | Yes | Yes | Yes |
 | Update | No | Yes | Yes | Yes |
 | Destroy | No | No | Yes | Yes |
@@ -195,45 +192,38 @@ attributes do
   attribute :hashed_password, :string do
     public? false  # Never exposed in API/queries
   end
-
-  attribute :tenant_id, :uuid do
-    public? false  # Internal use only
-  end
 end
 ```
 
 ## Policy Testing
 
-Test policies with multi-tenant scenarios:
+Test policies with role-based scenarios:
 
 ```elixir
 defmodule ServiceRadar.Inventory.DevicePolicyTest do
   use ServiceRadarWebNG.DataCase
   use ServiceRadarWebNG.AshTestHelpers
 
-  describe "tenant isolation" do
-    test "viewer cannot read devices from other tenant" do
-      scenario = multi_tenant_scenario()
-      tenant_a_device = device_fixture(scenario.tenant_a.tenant)
-      tenant_b_viewer = viewer_actor(scenario.tenant_b.tenant)
-
-      assert {:error, %Ash.Error.Forbidden{}} =
-        ServiceRadar.Inventory.Device
-        |> Ash.Query.for_read(:by_id, %{id: tenant_a_device.id})
-        |> Ash.read_one(actor: tenant_b_viewer)
-    end
-
-    test "admin can read devices in own tenant" do
-      tenant = tenant_fixture()
-      device = device_fixture(tenant)
-      admin = admin_actor(tenant)
+  describe "role-based access" do
+    test "viewer can read devices" do
+      device = device_fixture()
+      viewer = viewer_actor()
 
       assert {:ok, read_device} =
         ServiceRadar.Inventory.Device
         |> Ash.Query.for_read(:by_id, %{id: device.id})
-        |> Ash.read_one(actor: admin)
+        |> Ash.read_one(actor: viewer)
 
       assert read_device.id == device.id
+    end
+
+    test "viewer cannot create devices" do
+      viewer = viewer_actor()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+        ServiceRadar.Inventory.Device
+        |> Ash.Changeset.for_create(:create, %{name: "test"})
+        |> Ash.create(actor: viewer)
     end
   end
 end
@@ -265,9 +255,9 @@ JSON:API endpoints inherit resource policies:
 GET /api/v2/devices
 Authorization: Bearer <jwt>
 
-# Returns only devices where:
+# Returns devices based on:
 # 1. User role allows read access
-# 2. Device tenant_id matches user's tenant_id
+# 2. PostgreSQL schema isolation (automatic via search_path)
 ```
 
 ## Authorization Tracing

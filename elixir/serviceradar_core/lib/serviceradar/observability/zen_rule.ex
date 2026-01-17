@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.ZenRule do
   @moduledoc """
-  Tenant-scoped Zen rule definitions for log normalization.
+  Zen rule definitions for log normalization.
 
   Rules compile to GoRules/Zen JSON decision models and are synced to KV so
   the zen consumer can reload them without manual JSON edits.
@@ -14,10 +14,6 @@ defmodule ServiceRadar.Observability.ZenRule do
   postgres do
     table "zen_rules"
     repo ServiceRadar.Repo
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -84,36 +80,29 @@ defmodule ServiceRadar.Observability.ZenRule do
   end
 
   identities do
-    identity :unique_name, [:tenant_id, :subject, :name]
+    identity :unique_name, [:subject, :name]
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action([:create, :update, :destroy, :set_kv_revision]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -187,11 +176,6 @@ defmodule ServiceRadar.Observability.ZenRule do
       allow_nil? false
       default "default-agent"
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :inserted_at

@@ -1308,8 +1308,6 @@ type GatewayStatusRequest struct {
 	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                            // Partition identifier
 	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`              // Host IP where agent is running
 	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`         // KV store identifier this agent is using
-	TenantId      string                  `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`              // Tenant UUID for multi-tenant routing
-	TenantSlug    string                  `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`        // Tenant slug for NATS subject prefixing
 	ConfigSource  string                  `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1394,20 +1392,6 @@ func (x *GatewayStatusRequest) GetKvStoreId() string {
 	return ""
 }
 
-func (x *GatewayStatusRequest) GetTenantId() string {
-	if x != nil {
-		return x.TenantId
-	}
-	return ""
-}
-
-func (x *GatewayStatusRequest) GetTenantSlug() string {
-	if x != nil {
-		return x.TenantSlug
-	}
-	return ""
-}
-
 func (x *GatewayStatusRequest) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
@@ -1473,8 +1457,6 @@ type GatewayStatusChunk struct {
 	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`       // Order of this chunk
 	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`    // Total number of chunks
 	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`        // KV store identifier this agent is using
-	TenantId      string                  `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`             // Tenant UUID for multi-tenant routing
-	TenantSlug    string                  `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`       // Tenant slug for NATS subject prefixing
 	ConfigSource  string                  `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1580,20 +1562,6 @@ func (x *GatewayStatusChunk) GetKvStoreId() string {
 	return ""
 }
 
-func (x *GatewayStatusChunk) GetTenantId() string {
-	if x != nil {
-		return x.TenantId
-	}
-	return ""
-}
-
-func (x *GatewayStatusChunk) GetTenantSlug() string {
-	if x != nil {
-		return x.TenantSlug
-	}
-	return ""
-}
-
 func (x *GatewayStatusChunk) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
@@ -1609,13 +1577,11 @@ type GatewayServiceStatus struct {
 	Message       []byte                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
 	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
 	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
-	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`           // Agent ID for traceability
-	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`     // Gateway ID for traceability
-	Partition     string                 `protobuf:"bytes,8,opt,name=partition,proto3" json:"partition,omitempty"`                      // Partition identifier
-	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`                            // Source of the message: "status" or "results"
-	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`  // KV store identifier this service is using
-	TenantId      string                 `protobuf:"bytes,11,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`       // Tenant UUID for multi-tenant routing
-	TenantSlug    string                 `protobuf:"bytes,12,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"` // Tenant slug for NATS subject prefixing
+	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`          // Agent ID for traceability
+	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`    // Gateway ID for traceability
+	Partition     string                 `protobuf:"bytes,8,opt,name=partition,proto3" json:"partition,omitempty"`                     // Partition identifier
+	Source        string                 `protobuf:"bytes,9,opt,name=source,proto3" json:"source,omitempty"`                           // Source of the message: "status" or "results"
+	KvStoreId     string                 `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"` // KV store identifier this service is using
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1716,20 +1682,6 @@ func (x *GatewayServiceStatus) GetSource() string {
 func (x *GatewayServiceStatus) GetKvStoreId() string {
 	if x != nil {
 		return x.KvStoreId
-	}
-	return ""
-}
-
-func (x *GatewayServiceStatus) GetTenantId() string {
-	if x != nil {
-		return x.TenantId
-	}
-	return ""
-}
-
-func (x *GatewayServiceStatus) GetTenantSlug() string {
-	if x != nil {
-		return x.TenantSlug
 	}
 	return ""
 }
@@ -1861,8 +1813,6 @@ type AgentHelloResponse struct {
 	ServerTime           int64                  `protobuf:"varint,5,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`                                 // Server timestamp (for clock sync)
 	HeartbeatIntervalSec int32                  `protobuf:"varint,6,opt,name=heartbeat_interval_sec,json=heartbeatIntervalSec,proto3" json:"heartbeat_interval_sec,omitempty"` // Recommended status push interval in seconds
 	ConfigOutdated       bool                   `protobuf:"varint,7,opt,name=config_outdated,json=configOutdated,proto3" json:"config_outdated,omitempty"`                     // True if agent should fetch new config
-	TenantId             string                 `protobuf:"bytes,8,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`                                        // Tenant UUID (extracted from mTLS cert)
-	TenantSlug           string                 `protobuf:"bytes,9,opt,name=tenant_slug,json=tenantSlug,proto3" json:"tenant_slug,omitempty"`                                  // Tenant slug (extracted from mTLS cert)
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1944,20 +1894,6 @@ func (x *AgentHelloResponse) GetConfigOutdated() bool {
 		return x.ConfigOutdated
 	}
 	return false
-}
-
-func (x *AgentHelloResponse) GetTenantId() string {
-	if x != nil {
-		return x.TenantId
-	}
-	return ""
-}
-
-func (x *AgentHelloResponse) GetTenantSlug() string {
-	if x != nil {
-		return x.TenantSlug
-	}
-	return ""
 }
 
 // AgentConfigRequest is sent by the agent to fetch its configuration.
@@ -2872,7 +2808,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x15port_exhaustion_count\x18\n" +
 	" \x01(\x04R\x13portExhaustionCount\x120\n" +
 	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
-	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xea\x02\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\xb8\x02\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -2881,14 +2817,12 @@ const file_monitoring_proto_rawDesc = "" +
 	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1c\n" +
 	"\tpartition\x18\x05 \x01(\tR\tpartition\x12\x1b\n" +
 	"\tsource_ip\x18\x06 \x01(\tR\bsourceIp\x12\x1e\n" +
-	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\x12\x1b\n" +
-	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
-	"\vtenant_slug\x18\t \x01(\tR\n" +
-	"tenantSlug\x12#\n" +
+	"\vkv_store_id\x18\a \x01(\tR\tkvStoreId\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSource\"3\n" +
+	" \x01(\tR\fconfigSourceJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\"3\n" +
 	"\x15GatewayStatusResponse\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\xc7\x03\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\"\x95\x03\n" +
 	"\x12GatewayStatusChunk\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -2902,11 +2836,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\t \x01(\x05R\vtotalChunks\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreId\x12\x1b\n" +
-	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
-	"\vtenant_slug\x18\f \x01(\tR\n" +
-	"tenantSlug\x12#\n" +
-	"\rconfig_source\x18\r \x01(\tR\fconfigSource\"\x87\x03\n" +
+	" \x01(\tR\tkvStoreId\x12#\n" +
+	"\rconfig_source\x18\r \x01(\tR\fconfigSourceJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
 	"\x14GatewayServiceStatus\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
@@ -2919,10 +2850,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
 	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreId\x12\x1b\n" +
-	"\ttenant_id\x18\v \x01(\tR\btenantId\x12\x1f\n" +
-	"\vtenant_slug\x18\f \x01(\tR\n" +
-	"tenantSlug\"\x94\x03\n" +
+	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\x94\x03\n" +
 	"\x11AgentHelloRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -2937,7 +2865,7 @@ const file_monitoring_proto_rawDesc = "" +
 	" \x01(\tR\fconfigSource\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc2\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x02\n" +
 	"\x12AgentHelloResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x18\n" +
@@ -2947,10 +2875,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vserver_time\x18\x05 \x01(\x03R\n" +
 	"serverTime\x124\n" +
 	"\x16heartbeat_interval_sec\x18\x06 \x01(\x05R\x14heartbeatIntervalSec\x12'\n" +
-	"\x0fconfig_outdated\x18\a \x01(\bR\x0econfigOutdated\x12\x1b\n" +
-	"\ttenant_id\x18\b \x01(\tR\btenantId\x12\x1f\n" +
-	"\vtenant_slug\x18\t \x01(\tR\n" +
-	"tenantSlug\"V\n" +
+	"\x0fconfig_outdated\x18\a \x01(\bR\x0econfigOutdatedJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\"V\n" +
 	"\x12AgentConfigRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\"\xc8\x03\n" +

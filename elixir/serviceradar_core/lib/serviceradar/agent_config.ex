@@ -1,6 +1,6 @@
 defmodule ServiceRadar.AgentConfig do
   @moduledoc """
-  The AgentConfig domain manages tenant-aware configurations distributed to agents.
+  The AgentConfig domain manages deployment-scoped configurations distributed to agents.
 
   This domain provides a reusable pattern for generating, versioning, and distributing
   configurations to agents via the agent-gateway. It supports multiple config types

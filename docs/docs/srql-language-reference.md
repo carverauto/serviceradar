@@ -153,7 +153,6 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `message` | Event message |
 | `log_name` | Log name or subject |
 | `log_provider` | Log provider |
-| `tenant_id` | Tenant identifier |
 
 ### logs
 

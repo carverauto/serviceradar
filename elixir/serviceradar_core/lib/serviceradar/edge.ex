@@ -15,7 +15,6 @@ defmodule ServiceRadar.Edge do
 
   - `ServiceRadar.Edge.OnboardingPackage` - Edge deployment packages
   - `ServiceRadar.Edge.OnboardingEvent` - Package lifecycle events
-  - `ServiceRadar.Edge.TenantCA` - Per-tenant certificate authorities
   - `ServiceRadar.Edge.NatsCredential` - NATS credentials for collectors
   - `ServiceRadar.Edge.CollectorPackage` - Collector-specific deployment packages
   - `ServiceRadar.Edge.EdgeSite` - Edge deployment locations
@@ -44,7 +43,6 @@ defmodule ServiceRadar.Edge do
   resources do
     resource ServiceRadar.Edge.OnboardingPackage
     resource ServiceRadar.Edge.OnboardingEvent
-    resource ServiceRadar.Edge.TenantCA
     resource ServiceRadar.Edge.NatsCredential
     resource ServiceRadar.Edge.CollectorPackage
     resource ServiceRadar.Edge.EdgeSite

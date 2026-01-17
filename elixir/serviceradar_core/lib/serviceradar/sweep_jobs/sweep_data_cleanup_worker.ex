@@ -1,8 +1,8 @@
 defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   @moduledoc """
-  Tenant-scoped worker that cleans up old sweep execution data.
+  Worker that cleans up old sweep execution data.
 
-  This worker runs daily for each tenant to delete:
+  This worker runs daily to delete:
   - `SweepHostResult` records older than `host_results_retention_days` (default: 7)
   - `SweepGroupExecution` records older than `executions_retention_days` (default: 30)
 
@@ -15,7 +15,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   - A sweep group is created with `enabled: true`
   - A sweep group is enabled
 
-  The worker reschedules itself daily if there are sweep-related records for the tenant.
+  The worker reschedules itself daily if there are sweep-related records.
 
   ## Configuration
 
@@ -27,10 +27,10 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
         batch_size: 1000
   """
 
-  use ServiceRadar.Oban.TenantWorker,
-    queue_type: :maintenance,
+  use Oban.Worker,
+    queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3600, keys: [:tenant_id], states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult}
@@ -47,37 +47,34 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   @reschedule_interval_seconds 86_400
 
   @doc """
-  Schedules sweep data cleanup for a tenant if not already scheduled.
+  Schedules sweep data cleanup if not already scheduled.
 
   Called automatically when sweep groups are created or enabled.
   """
-  @spec ensure_scheduled(String.t()) :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
-  def ensure_scheduled(tenant_id) when is_binary(tenant_id) do
-    case check_existing_job(tenant_id) do
+  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  def ensure_scheduled do
+    case check_existing_job() do
       true ->
         {:ok, :already_scheduled}
 
       false ->
-        enqueue(tenant_id, %{})
+        %{} |> new() |> Oban.insert()
     end
   end
 
-  defp check_existing_job(tenant_id) do
+  defp check_existing_job do
     query =
       from(j in Oban.Job,
         where: j.worker == ^to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
-        where: fragment("? ->> 'tenant_id' = ?", j.meta, ^tenant_id),
         limit: 1
       )
 
     Repo.exists?(query)
   end
 
-  @impl ServiceRadar.Oban.TenantWorker
-  @spec perform_for_tenant(map(), String.t(), Oban.Job.t()) ::
-          :ok | {:ok, term()} | {:error, term()} | {:cancel, term()} | {:snooze, pos_integer()}
-  def perform_for_tenant(_args, tenant_id, _job) do
+  @impl Oban.Worker
+  def perform(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     host_results_days = Keyword.get(config, :host_results_retention_days, @default_host_results_retention_days)
@@ -88,35 +85,33 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     executions_cutoff = DateTime.add(DateTime.utc_now(), -executions_days * 86_400, :second)
 
     Logger.info(
-      "SweepDataCleanupWorker: Starting cleanup for tenant - " <>
+      "SweepDataCleanupWorker: Starting cleanup - " <>
         "host results older than #{host_results_days} days, " <>
-        "executions older than #{executions_days} days",
-      tenant_id: tenant_id
+        "executions older than #{executions_days} days"
     )
 
-    stats = cleanup_tenant(tenant_id, host_results_cutoff, executions_cutoff, batch_size)
+    stats = cleanup_data(host_results_cutoff, executions_cutoff, batch_size)
 
     Logger.info(
       "SweepDataCleanupWorker: Completed - " <>
         "deleted #{stats.host_results} host results, " <>
         "#{stats.executions} executions",
-      tenant_id: tenant_id,
       errors: stats.errors
     )
 
     # Reschedule for tomorrow
-    schedule_next_cleanup(tenant_id)
+    schedule_next_cleanup()
 
     :ok
   end
 
-  defp schedule_next_cleanup(tenant_id) do
-    enqueue_in(tenant_id, %{}, @reschedule_interval_seconds)
+  defp schedule_next_cleanup do
+    %{} |> new(schedule_in: @reschedule_interval_seconds) |> Oban.insert()
   end
 
-  defp cleanup_tenant(tenant_id, host_results_cutoff, executions_cutoff, batch_size) do
-    host_result_stats = cleanup_host_results(tenant_id, host_results_cutoff, batch_size)
-    execution_stats = cleanup_executions(tenant_id, executions_cutoff, batch_size)
+  defp cleanup_data(host_results_cutoff, executions_cutoff, batch_size) do
+    host_result_stats = cleanup_host_results(host_results_cutoff, batch_size)
+    execution_stats = cleanup_executions(executions_cutoff, batch_size)
 
     %{
       host_results: host_result_stats.deleted,
@@ -125,14 +120,13 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     }
   end
 
-  defp cleanup_host_results(tenant_id, cutoff, batch_size) do
-    cleanup_in_batches(tenant_id, SweepHostResult, :inserted_at, cutoff, batch_size)
+  defp cleanup_host_results(cutoff, batch_size) do
+    cleanup_in_batches(SweepHostResult, :inserted_at, cutoff, batch_size)
   end
 
-  defp cleanup_executions(tenant_id, cutoff, batch_size) do
+  defp cleanup_executions(cutoff, batch_size) do
     # Only delete completed/failed executions, not running ones
     cleanup_in_batches(
-      tenant_id,
       SweepGroupExecution,
       :started_at,
       cutoff,
@@ -141,10 +135,9 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     )
   end
 
-  defp cleanup_in_batches(tenant_id, resource, timestamp_field, cutoff, batch_size, extra_filter \\ nil) do
+  defp cleanup_in_batches(resource, timestamp_field, cutoff, batch_size, extra_filter \\ nil) do
     table = get_table_name(resource)
     do_cleanup_batch(
-      tenant_id,
       table,
       resource,
       timestamp_field,
@@ -155,10 +148,10 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     )
   end
 
-  defp do_cleanup_batch(tenant_id, table, resource, timestamp_field, cutoff, batch_size, extra_filter, acc) do
+  defp do_cleanup_batch(table, resource, timestamp_field, cutoff, batch_size, extra_filter, acc) do
     # Build query to find IDs of records to delete
     base_query =
-      from(r in {tenant_id <> "." <> table, resource},
+      from(r in {table, resource},
         where: field(r, ^timestamp_field) < ^cutoff,
         order_by: [asc: field(r, ^timestamp_field)],
         select: r.id,
@@ -180,20 +173,16 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
       ids when is_list(ids) ->
         # Delete by IDs
         delete_query =
-          from(r in {tenant_id <> "." <> table, resource},
+          from(r in {table, resource},
             where: r.id in ^ids
           )
 
         case Repo.delete_all(delete_query) do
           {count, _} ->
-            Logger.debug(
-              "SweepDataCleanupWorker: Deleted #{count} #{table} records",
-              tenant_id: tenant_id
-            )
+            Logger.debug("SweepDataCleanupWorker: Deleted #{count} #{table} records")
 
             # Continue with next batch
             do_cleanup_batch(
-              tenant_id,
               table,
               resource,
               timestamp_field,
@@ -208,7 +197,6 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     e ->
       Logger.warning(
         "SweepDataCleanupWorker: Error cleaning #{table}",
-        tenant_id: tenant_id,
         error: inspect(e)
       )
 

@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Observability.ZenRuleSeeder do
   @moduledoc """
-  Seeds default Zen rules for each tenant.
+  Seeds default Zen rules on startup.
+
+  In single-deployment architecture, the DB connection's
+  search_path determines which schema rules are seeded into.
   """
 
   use GenServer
@@ -9,8 +12,6 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.ZenRule
 
   @seed_delay_ms 5_000
@@ -33,32 +34,22 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   def seed_all do
     if repo_enabled?() do
-      # Tenant listing is cross-tenant, use platform actor
-      actor = SystemActor.platform(:zen_rule_seeder)
-      Tenant
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.select([:id, :slug])
-      |> Ash.read(actor: actor)
-      |> case do
-        {:ok, tenants} ->
-          Enum.each(tenants, &seed_for_tenant/1)
-
-        {:error, reason} ->
-          Logger.warning("Zen rule seed skipped: #{inspect(reason)}")
-      end
+      # DB connection's search_path determines the schema
+      seed_rules()
     end
   end
 
-  def seed_for_tenant(%Tenant{} = tenant) do
-    schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = SystemActor.for_tenant(tenant.id, :zen_rule_seeder)
+  defp seed_rules do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:zen_rule_seeder)
+    opts = [actor: actor]
 
-    ensure_defaults(default_zen_rules(), schema, actor)
+    ensure_defaults(default_zen_rules(), opts)
 
     :ok
   end
 
-  defp ensure_defaults(defaults, schema, actor) do
+  defp ensure_defaults(defaults, opts) do
     query =
       ZenRule
       |> Ash.Query.for_read(:read, %{})
@@ -73,48 +64,46 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         :stream_name
       ])
 
-    case Ash.read(query, actor: actor, tenant: schema) do
+    case Ash.read(query, opts) do
       {:ok, rules} ->
         existing =
           rules
           |> Enum.map(&{&1.name, &1.subject})
           |> MapSet.new()
 
-        existing = rename_legacy_rules(rules, existing, schema, actor)
+        existing = rename_legacy_rules(rules, existing, opts)
 
         Enum.each(defaults, fn attrs ->
-          seed_rule_if_missing(existing, attrs, schema, actor)
+          seed_rule_if_missing(existing, attrs, opts)
         end)
 
       {:error, reason} ->
+        schema = Keyword.get(opts, :schema, "unknown")
         Logger.warning("Failed to check Zen rule defaults for #{schema}: #{inspect(reason)}")
     end
   end
 
-  defp rename_legacy_rules(rules, existing, schema, actor) do
+  defp rename_legacy_rules(rules, existing, opts) do
     Enum.reduce(rules, existing, fn rule, acc ->
-      rename_legacy_rule(rule, acc, schema, actor)
+      rename_legacy_rule(rule, acc, opts)
     end)
   end
 
-  defp seed_rule_if_missing(existing, attrs, schema, actor) do
+  defp seed_rule_if_missing(existing, attrs, opts) do
     key = {attrs[:name], attrs[:subject]}
 
     if MapSet.member?(existing, key) do
       :ok
     else
-      create_rule(attrs, schema, actor)
+      create_rule(attrs, opts)
     end
   end
 
-  defp create_rule(attrs, schema, actor) do
-    changeset =
-      Ash.Changeset.for_create(ZenRule, :create, attrs,
-        tenant: schema,
-        actor: actor
-      )
+  defp create_rule(attrs, opts) do
+    changeset = Ash.Changeset.for_create(ZenRule, :create, attrs, opts)
+    schema = Keyword.get(opts, :schema, "unknown")
 
-    case Ash.create(changeset, actor: actor) do
+    case Ash.create(changeset) do
       {:ok, _} -> :ok
       {:error, reason} ->
         Logger.warning(
@@ -123,31 +112,28 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
     end
   end
 
-  defp rename_legacy_rule(rule, acc, schema, actor) do
+  defp rename_legacy_rule(rule, acc, opts) do
     case legacy_rule_name(rule.name) do
       nil -> acc
-      new_name -> rename_rule_if_missing(rule, new_name, acc, schema, actor)
+      new_name -> rename_rule_if_missing(rule, new_name, acc, opts)
     end
   end
 
-  defp rename_rule_if_missing(rule, new_name, existing, schema, actor) do
+  defp rename_rule_if_missing(rule, new_name, existing, opts) do
     key = {new_name, rule.subject}
 
     if MapSet.member?(existing, key) do
       existing
     else
-      do_rename_rule(rule, new_name, key, existing, schema, actor)
+      do_rename_rule(rule, new_name, key, existing, opts)
     end
   end
 
-  defp do_rename_rule(rule, new_name, key, existing, schema, actor) do
-    changeset =
-      Ash.Changeset.for_update(rule, :update, %{name: new_name},
-        tenant: schema,
-        actor: actor
-      )
+  defp do_rename_rule(rule, new_name, key, existing, opts) do
+    changeset = Ash.Changeset.for_update(rule, :update, %{name: new_name}, opts)
+    schema = Keyword.get(opts, :schema, "unknown")
 
-    case Ash.update(changeset, actor: actor) do
+    case Ash.update(changeset) do
       {:ok, _} ->
         MapSet.put(existing, key)
 

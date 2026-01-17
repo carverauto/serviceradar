@@ -26,8 +26,6 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   require Logger
 
   @heartbeat_interval :timer.seconds(30)
-  # Default dev tenant ID for mock cluster
-  @dev_tenant_id "00000000-0000-0000-0000-000000000001"
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -50,20 +48,18 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   Clear all mock data from the registries.
   """
   def teardown do
-    tenant_id = @dev_tenant_id
-
-    # Get all gateways and agents registered for the dev tenant
-    gateways = ServiceRadar.GatewayRegistry.find_gateways_for_tenant(tenant_id)
-    agents = ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
+    # Get all gateways and agents registered
+    gateways = ServiceRadar.GatewayRegistry.find_gateways()
+    agents = ServiceRadar.AgentRegistry.find_agents()
 
     for gateway <- gateways do
       gateway_id = Map.get(gateway, :gateway_id)
-      if gateway_id, do: ServiceRadar.GatewayRegistry.unregister_gateway(tenant_id, gateway_id)
+      if gateway_id, do: ServiceRadar.GatewayRegistry.unregister_gateway(gateway_id)
     end
 
     for agent <- agents do
       agent_id = Map.get(agent, :agent_id)
-      if agent_id, do: ServiceRadar.AgentRegistry.unregister_agent(tenant_id, agent_id)
+      if agent_id, do: ServiceRadar.AgentRegistry.unregister_agent(agent_id)
     end
 
     :ok
@@ -99,14 +95,13 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   @impl true
   def terminate(_reason, state) do
     Logger.info("[MockCluster] Shutting down, unregistering mock data")
-    tenant_id = @dev_tenant_id
 
     for gateway <- state.gateways do
-      ServiceRadar.GatewayRegistry.unregister_gateway(tenant_id, gateway.gateway_id)
+      ServiceRadar.GatewayRegistry.unregister_gateway(gateway.gateway_id)
     end
 
     for agent <- state.agents do
-      ServiceRadar.AgentRegistry.unregister_agent(tenant_id, agent.agent_id)
+      ServiceRadar.AgentRegistry.unregister_agent(agent.agent_id)
     end
 
     :ok
@@ -115,7 +110,6 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   # Private functions
 
   defp register_mock_gateways(count) do
-    tenant_id = @dev_tenant_id
     partitions = ["production", "staging", "edge-site-1"]
     domains = ["us-west", "us-east", "eu-west"]
 
@@ -130,13 +124,12 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
         status: :available
       }
 
-      case ServiceRadar.GatewayRegistry.register_gateway(tenant_id, gateway_id, gateway_info) do
+      case ServiceRadar.GatewayRegistry.register_gateway(gateway_id, gateway_info) do
         {:ok, _pid} ->
           Logger.debug("[MockCluster] Registered gateway: #{gateway_id}")
 
           %{
             gateway_id: gateway_id,
-            tenant_id: tenant_id,
             partition_id: partition,
             domain: domain,
             status: :available
@@ -154,7 +147,6 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   end
 
   defp register_mock_agents(count) do
-    tenant_id = @dev_tenant_id
     partitions = ["production", "staging", "edge-site-1"]
 
     capability_sets = [
@@ -179,13 +171,12 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
         status: status
       }
 
-      case ServiceRadar.AgentRegistry.register_agent(tenant_id, agent_id, agent_info) do
+      case ServiceRadar.AgentRegistry.register_agent(agent_id, agent_info) do
         {:ok, _pid} ->
           Logger.debug("[MockCluster] Registered agent: #{agent_id}")
 
           %{
             agent_id: agent_id,
-            tenant_id: tenant_id,
             partition_id: partition,
             capabilities: capabilities,
             status: status
@@ -200,14 +191,12 @@ defmodule ServiceRadarWebNG.Dev.MockCluster do
   end
 
   defp update_heartbeats(gateways, agents) do
-    tenant_id = @dev_tenant_id
-
     for gateway <- gateways do
-      ServiceRadar.GatewayRegistry.heartbeat(tenant_id, gateway.gateway_id)
+      ServiceRadar.GatewayRegistry.heartbeat(gateway.gateway_id)
     end
 
     for agent <- agents do
-      ServiceRadar.AgentRegistry.heartbeat(tenant_id, agent.agent_id)
+      ServiceRadar.AgentRegistry.heartbeat(agent.agent_id)
     end
   end
 

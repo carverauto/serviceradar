@@ -17,7 +17,7 @@ defmodule ServiceRadar.SPIFFE do
 
   Where:
   - `node-type` is one of: `core`, `gateway`, `agent`
-  - `partition-id` is the partition/tenant identifier
+  - `partition-id` is the partition identifier
   - `node-id` is the unique node identifier
 
   ## Configuration

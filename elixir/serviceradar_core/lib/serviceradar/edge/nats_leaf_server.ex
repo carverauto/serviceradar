@@ -10,12 +10,12 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   ## Certificate Types
 
   - **Leaf certificate**: Used for mTLS connection to SaaS NATS cluster
-    - CN: `leaf.{site_slug}.{tenant_slug}.serviceradar`
-    - Signed by tenant CA
+    - CN: `leaf.{site_slug}.serviceradar`
+    - Signed by deployment CA
 
   - **Server certificate**: Used for local client (collector) connections
-    - CN: `nats-server.{site_slug}.{tenant_slug}.serviceradar`
-    - Signed by tenant CA
+    - CN: `nats-server.{site_slug}.serviceradar`
+    - Signed by deployment CA
 
   ## State Machine
 
@@ -29,7 +29,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   The generated NATS leaf config follows `packaging/nats/config/nats-leaf.conf`:
   - JetStream enabled with domain "edge"
   - mTLS for upstream connection
-  - Tenant NATS account credentials
+  - NATS account credentials
   """
 
   use Ash.Resource,
@@ -39,7 +39,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.Workers.ProvisionLeafWorker
 
@@ -67,10 +66,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read]
 
@@ -83,23 +78,15 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
 
     create :create do
       description "Create NATS leaf server for an edge site"
-      accept [:edge_site_id, :tenant_id, :upstream_url, :local_listen]
+      accept [:edge_site_id, :upstream_url, :local_listen]
 
       # Trigger provisioning after creation
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue async provisioning
-          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ProvisionLeafWorker.enqueue(leaf_server.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, leaf_server}
-                {:error, reason} -> {:error, reason}
-              end
+          case ProvisionLeafWorker.enqueue(leaf_server.id) do
+            {:ok, _job} -> {:ok, leaf_server}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -177,17 +164,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn _changeset, leaf_server ->
           # Enqueue provisioning job
-          case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ProvisionLeafWorker.enqueue(leaf_server.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, leaf_server}
-                {:error, reason} -> {:error, reason}
-              end
+          case ProvisionLeafWorker.enqueue(leaf_server.id) do
+            {:ok, _job} -> {:ok, leaf_server}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -195,19 +174,16 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   policies do
-    # Super admins can manage all servers
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can manage all servers
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can read their tenant's servers
+    # Admins can read servers
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Create is done internally
@@ -220,24 +196,17 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       authorize_if always()
     end
 
-    # Reprovision requires tenant admin
+    # Reprovision requires admin
     policy action(:reprovision) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this server belongs to"
-    end
 
     attribute :edge_site_id, :uuid do
       allow_nil? false
@@ -294,7 +263,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       description "Encrypted PEM-encoded server private key"
     end
 
-    # CA chain (tenant CA + root CA)
+    # CA chain (deployment CA + root CA)
     attribute :ca_chain_pem, :string do
       allow_nil? true
       public? false
@@ -338,11 +307,6 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
       source_attribute :edge_site_id
       allow_nil? false
@@ -454,21 +418,16 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
         :offline -> :go_offline
       end
 
-    case TenantSchemas.schema_for_id(leaf_server.tenant_id) do
-      nil ->
+    actor = SystemActor.system(:nats_leaf_server)
+
+    case Ash.get(EdgeSite, leaf_server.edge_site_id, actor: actor) do
+      {:ok, site} when site.status != new_status ->
+        site
+        |> Ash.Changeset.for_update(action, %{})
+        |> Ash.update(actor: actor)
+
+      _ ->
         :ok
-
-      tenant_schema ->
-        actor = SystemActor.for_tenant(leaf_server.tenant_id, :nats_leaf_server)
-        case Ash.get(EdgeSite, leaf_server.edge_site_id, tenant: tenant_schema, actor: actor) do
-          {:ok, site} when site.status != new_status ->
-            site
-            |> Ash.Changeset.for_update(action, %{}, tenant: tenant_schema)
-            |> Ash.update(actor: actor)
-
-          _ ->
-            :ok
-        end
     end
   end
 end

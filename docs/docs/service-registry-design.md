@@ -1025,7 +1025,7 @@ Export service registry to service mesh control plane.
 Automatically revoke services that have been inactive for extended periods.
 
 ### Multi-Tenancy
-Extend registry to support multi-tenant deployments with namespace isolation.
+Extend registry to support dedicated deployments with namespace isolation.
 
 ---
 

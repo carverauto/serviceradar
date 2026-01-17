@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
   │       ├── nats-leaf-key.pem
   │       └── ca-chain.pem
   ├── creds/
-  │   └── tenant.creds
+  │   └── account.creds
   ├── setup.sh
   └── README.md
   ```
@@ -39,7 +39,6 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   - `edge_site` - The EdgeSite record
   - `leaf_server` - The NatsLeafServer record (with decrypted keys)
-  - `tenant` - The Tenant record
   - `nats_creds` - The decrypted NATS credentials content
 
   ## Options
@@ -51,9 +50,9 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
 
   `{:ok, tarball_binary}` or `{:error, reason}`
   """
-  @spec create_tarball(map(), map(), map(), String.t(), keyword()) ::
+  @spec create_tarball(map(), map(), String.t(), keyword()) ::
           {:ok, binary()} | {:error, term()}
-  def create_tarball(edge_site, leaf_server, tenant, nats_creds, opts \\ []) do
+  def create_tarball(edge_site, leaf_server, nats_creds, opts \\ []) do
     leaf_key_pem = Keyword.fetch!(opts, :leaf_key_pem)
     server_key_pem = Keyword.fetch!(opts, :server_key_pem)
 
@@ -76,13 +75,13 @@ defmodule ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator do
       {"#{bundle_name}/nats/certs/ca-chain.pem", leaf_server.ca_chain_pem},
 
       # NATS credentials
-      {"#{bundle_name}/creds/tenant.creds", nats_creds},
+      {"#{bundle_name}/creds/account.creds", nats_creds},
 
       # Setup script
       {"#{bundle_name}/setup.sh", NatsLeafConfigGenerator.generate_setup_script(edge_site)},
 
       # README
-      {"#{bundle_name}/README.md", NatsLeafConfigGenerator.generate_readme(edge_site, tenant)}
+      {"#{bundle_name}/README.md", NatsLeafConfigGenerator.generate_readme(edge_site)}
     ]
 
     # Validate all files have content

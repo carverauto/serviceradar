@@ -1,9 +1,13 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
+  @moduledoc """
+  In the single-deployment architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
+  """
+
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, OcsfEvent}
   alias ServiceRadar.Observability.{StatefulAlertEngine, StatefulAlertRule}
@@ -15,19 +19,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("stateful-alerts")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    schema = TenantSchemas.schema_for_id(tenant.tenant_id)
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
-
-    {:ok, tenant: tenant, schema: schema, actor: actor}
+    actor = %{id: "system", role: :admin}
+    {:ok, actor: actor}
   end
 
-  test "fires and resolves alerts based on bucketed counts", %{tenant: tenant, schema: schema, actor: actor} do
+  test "fires and resolves alerts based on bucketed counts", %{actor: actor} do
     {:ok, rule} =
       StatefulAlertRule
       |> Ash.Changeset.for_create(:create, %{
@@ -41,7 +37,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
         bucket_seconds: 60,
         cooldown_seconds: 60,
         renotify_seconds: 3600
-      }, tenant: schema, actor: actor)
+      }, actor: actor)
       |> Ash.create()
 
     base_time = DateTime.utc_now()
@@ -63,25 +59,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
               }
             }
           }
-        },
-        tenant_id: tenant.tenant_id
+        }
       }
     end
 
     events = [event.(base_time), event.(base_time)]
 
-    assert :ok = StatefulAlertEngine.evaluate_events(events, tenant.tenant_id, schema)
+    # In single-deployment mode, schema is determined by search_path
+    assert :ok = StatefulAlertEngine.evaluate_events(events, nil)
 
     events =
       OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     assert Enum.any?(events, fn event -> event.log_name == "alert.rule.threshold" end)
 
     alert =
       Alert
-      |> Ash.Query.for_read(:active, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
       |> Ash.read!()
       |> List.first()
 
@@ -89,9 +85,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert alert.status in [:pending, :acknowledged, :escalated]
 
     later = DateTime.add(base_time, 180, :second)
-    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], tenant.tenant_id, schema)
+    assert :ok = StatefulAlertEngine.evaluate_events([event.(later)], nil)
 
-    {:ok, resolved} = Alert.get_by_id(alert.id, tenant: schema, actor: actor)
+    {:ok, resolved} = Alert.get_by_id(alert.id, actor: actor)
     assert resolved.status == :resolved
   end
 end

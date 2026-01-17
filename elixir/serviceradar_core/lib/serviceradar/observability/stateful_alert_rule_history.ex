@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
   Evaluation history for stateful alert rules (fired/recovered/renotify/cooldown).
 
   Stored in a TimescaleDB hypertable with retention/compression managed by
-  tenant migrations.
+  schema migrations.
   """
 
   use Ash.Resource,
@@ -15,10 +15,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     table "stateful_alert_rule_history"
     repo ServiceRadar.Repo
     migrate? false
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -42,8 +38,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
         :group_key,
         :event_type,
         :alert_id,
-        :details,
-        :tenant_id
+        :details
       ]
 
       change fn changeset, _context ->
@@ -57,32 +52,25 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:record) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -122,11 +110,6 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
     attribute :details, :map do
       default %{}
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :created_at

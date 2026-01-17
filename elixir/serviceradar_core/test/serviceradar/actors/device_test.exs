@@ -9,69 +9,49 @@ defmodule ServiceRadar.Actors.DeviceTest do
   - Events are buffered and can be flushed
   - Health status transitions work properly
   - Hibernation and idle timeout function correctly
-  - Multi-tenant isolation is enforced
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.Device
   alias ServiceRadar.Actors.DeviceRegistry
-  alias ServiceRadar.Cluster.TenantRegistry
 
-  @moduletag :database
-
-  setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("device-actor")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    {:ok, tenant_id: tenant.tenant_id}
-  end
-
-  setup %{tenant_id: tenant_id} do
+  setup do
     unique_id = :erlang.unique_integer([:positive])
     device_id = "device-#{unique_id}"
     partition_id = "partition-#{unique_id}"
 
-    # Ensure tenant registry exists
-    TenantRegistry.ensure_registry(tenant_id)
-
-    # Wait for registry processes to start
-    Process.sleep(100)
+    # ProcessRegistry is started by the application supervision tree
 
     on_exit(fn ->
       # Cleanup: stop any device actors we started
-      DeviceRegistry.stop_all(tenant_id)
+      DeviceRegistry.stop_all()
     end)
 
     {:ok,
-      tenant_id: tenant_id,
       device_id: device_id,
       partition_id: partition_id,
       unique_id: unique_id
     }
   end
 
-  describe "DeviceRegistry.get_or_start/3" do
+  describe "DeviceRegistry.get_or_start/2" do
     test "starts a new device actor when none exists", ctx do
-      result = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      result = DeviceRegistry.get_or_start(ctx.device_id)
 
       assert {:ok, pid} = result
       assert Process.alive?(pid)
     end
 
     test "returns existing actor on subsequent calls", ctx do
-      {:ok, pid1} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
-      {:ok, pid2} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid1} = DeviceRegistry.get_or_start(ctx.device_id)
+      {:ok, pid2} = DeviceRegistry.get_or_start(ctx.device_id)
 
       assert pid1 == pid2
     end
 
     test "starts actor with partition_id", ctx do
       {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.tenant_id,
         ctx.device_id,
         partition_id: ctx.partition_id
       )
@@ -88,7 +68,6 @@ defmodule ServiceRadar.Actors.DeviceTest do
       }
 
       {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.tenant_id,
         ctx.device_id,
         identity: initial_identity
       )
@@ -99,23 +78,23 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
   end
 
-  describe "DeviceRegistry.lookup/2" do
-    test "returns :not_found when actor doesn't exist", ctx do
-      result = DeviceRegistry.lookup(ctx.tenant_id, "nonexistent-device")
+  describe "DeviceRegistry.lookup/1" do
+    test "returns :not_found when actor doesn't exist", _ctx do
+      result = DeviceRegistry.lookup("nonexistent-device")
       assert result == :not_found
     end
 
     test "returns {:ok, pid} when actor exists", ctx do
-      {:ok, expected_pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, expected_pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
-      result = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      result = DeviceRegistry.lookup(ctx.device_id)
       assert {:ok, ^expected_pid} = result
     end
   end
 
-  describe "DeviceRegistry.list_devices/1" do
+  describe "DeviceRegistry.list_devices/0" do
     test "returns empty list when no devices", ctx do
-      devices = DeviceRegistry.list_devices(ctx.tenant_id)
+      devices = DeviceRegistry.list_devices()
       # Filter out any devices we didn't create
       our_devices = Enum.filter(devices, &(&1.device_id == ctx.device_id))
       assert our_devices == []
@@ -126,10 +105,10 @@ defmodule ServiceRadar.Actors.DeviceTest do
       device_ids = for i <- 1..3, do: "device-list-#{ctx.unique_id}-#{i}"
 
       for id <- device_ids do
-        {:ok, _} = DeviceRegistry.get_or_start(ctx.tenant_id, id)
+        {:ok, _} = DeviceRegistry.get_or_start(id)
       end
 
-      devices = DeviceRegistry.list_devices(ctx.tenant_id)
+      devices = DeviceRegistry.list_devices()
       our_devices = Enum.filter(devices, &(&1.device_id in device_ids))
 
       assert length(our_devices) == 3
@@ -138,12 +117,11 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.get_state/1" do
     test "returns full state struct", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       state = Device.get_state(pid)
 
       assert %Device{} = state
-      assert state.tenant_id == ctx.tenant_id
       assert state.device_id == ctx.device_id
       assert is_map(state.identity)
       assert is_map(state.health)
@@ -153,7 +131,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.update_identity/2" do
     test "updates identity in state", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       :ok = Device.update_identity(pid, %{hostname: "new-hostname"})
 
@@ -163,7 +141,6 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
     test "merges with existing identity", ctx do
       {:ok, pid} = DeviceRegistry.get_or_start(
-        ctx.tenant_id,
         ctx.device_id,
         identity: %{hostname: "original", ip: "10.0.0.1"}
       )
@@ -178,7 +155,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.record_event/3" do
     test "buffers events in state", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       Device.record_event(pid, :test_event, %{data: "test"})
       Device.record_event(pid, :another_event, %{value: 42})
@@ -191,7 +168,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "includes timestamp in events", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       before = DateTime.utc_now()
       Device.record_event(pid, :timed_event, %{})
@@ -207,7 +184,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.record_health_check/2" do
     test "updates health status to healthy", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       Device.record_health_check(pid, %{
         available: true,
@@ -222,7 +199,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "updates health status to unhealthy on failure", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       Device.record_health_check(pid, %{
         available: false,
@@ -236,7 +213,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "tracks consecutive failures", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       for _ <- 1..3 do
         Device.record_health_check(pid, %{available: false})
@@ -248,7 +225,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
 
     test "resets consecutive failures on success", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       # Record failures
       for _ <- 1..3 do
@@ -267,7 +244,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.flush_events/1" do
     test "clears event buffer", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       Device.record_event(pid, :event1, %{})
       Device.record_event(pid, :event2, %{})
@@ -282,7 +259,7 @@ defmodule ServiceRadar.Actors.DeviceTest do
 
   describe "Device.touch/1" do
     test "updates last_seen timestamp", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
 
       before = Device.get_state(pid).last_seen
       Process.sleep(50)
@@ -294,104 +271,55 @@ defmodule ServiceRadar.Actors.DeviceTest do
     end
   end
 
-  describe "DeviceRegistry.stop/2" do
+  describe "DeviceRegistry.stop/1" do
     test "stops device actor", ctx do
-      {:ok, pid} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.get_or_start(ctx.device_id)
       assert Process.alive?(pid)
 
-      :ok = DeviceRegistry.stop(ctx.tenant_id, ctx.device_id)
+      :ok = DeviceRegistry.stop(ctx.device_id)
       Process.sleep(50)
 
       refute Process.alive?(pid)
     end
 
-    test "returns :not_found for non-existent device", ctx do
-      result = DeviceRegistry.stop(ctx.tenant_id, "nonexistent")
+    test "returns :not_found for non-existent device", _ctx do
+      result = DeviceRegistry.stop("nonexistent")
       assert result == :not_found
     end
   end
 
-  describe "multi-tenant isolation" do
-    test "device actors are isolated between tenants", ctx do
-      tenant_b = Ash.UUID.generate()
-      TenantRegistry.ensure_registry(tenant_b)
-      Process.sleep(100)
-
-      # Start device in tenant A
-      {:ok, pid_a} = DeviceRegistry.get_or_start(ctx.tenant_id, ctx.device_id)
-
-      # Same device_id in tenant B should create new actor
-      {:ok, pid_b} = DeviceRegistry.get_or_start(tenant_b, ctx.device_id)
-
-      assert pid_a != pid_b
-
-      # Lookup in wrong tenant returns not_found
-      assert DeviceRegistry.lookup(tenant_b, ctx.device_id) == {:ok, pid_b}
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == {:ok, pid_a}
-
-      # Cleanup
-      DeviceRegistry.stop_all(tenant_b)
-    end
-
-    test "list_devices only returns devices for specified tenant", ctx do
-      tenant_b = Ash.UUID.generate()
-      TenantRegistry.ensure_registry(tenant_b)
-      Process.sleep(100)
-
-      # Start devices in both tenants
-      {:ok, _} = DeviceRegistry.get_or_start(ctx.tenant_id, "device-a-#{ctx.unique_id}")
-      {:ok, _} = DeviceRegistry.get_or_start(tenant_b, "device-b-#{ctx.unique_id}")
-
-      # List should only return tenant's devices
-      devices_a = DeviceRegistry.list_devices(ctx.tenant_id)
-      devices_b = DeviceRegistry.list_devices(tenant_b)
-
-      device_ids_a = Enum.map(devices_a, & &1.device_id)
-      device_ids_b = Enum.map(devices_b, & &1.device_id)
-
-      assert "device-a-#{ctx.unique_id}" in device_ids_a
-      refute "device-b-#{ctx.unique_id}" in device_ids_a
-
-      assert "device-b-#{ctx.unique_id}" in device_ids_b
-      refute "device-a-#{ctx.unique_id}" in device_ids_b
-
-      # Cleanup
-      DeviceRegistry.stop_all(tenant_b)
-    end
-  end
-
   describe "convenience functions" do
-    test "DeviceRegistry.update_identity/3 starts actor if needed", ctx do
+    test "DeviceRegistry.update_identity/2 starts actor if needed", ctx do
       # Device doesn't exist yet
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
       # Update identity (should start actor)
-      :ok = DeviceRegistry.update_identity(ctx.tenant_id, ctx.device_id, %{
+      :ok = DeviceRegistry.update_identity(ctx.device_id, %{
         hostname: "lazy-start-host"
       })
 
       # Now it should exist
-      {:ok, pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
       identity = Device.get_identity(pid)
       assert identity.hostname == "lazy-start-host"
     end
 
-    test "DeviceRegistry.record_event/4 starts actor if needed", ctx do
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+    test "DeviceRegistry.record_event/3 starts actor if needed", ctx do
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
-      :ok = DeviceRegistry.record_event(ctx.tenant_id, ctx.device_id, :test, %{})
+      :ok = DeviceRegistry.record_event(ctx.device_id, :test, %{})
 
-      {:ok, _pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, _pid} = DeviceRegistry.lookup(ctx.device_id)
     end
 
-    test "DeviceRegistry.record_health_check/3 starts actor if needed", ctx do
-      assert DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id) == :not_found
+    test "DeviceRegistry.record_health_check/2 starts actor if needed", ctx do
+      assert DeviceRegistry.lookup(ctx.device_id) == :not_found
 
-      :ok = DeviceRegistry.record_health_check(ctx.tenant_id, ctx.device_id, %{
+      :ok = DeviceRegistry.record_health_check(ctx.device_id, %{
         available: true
       })
 
-      {:ok, pid} = DeviceRegistry.lookup(ctx.tenant_id, ctx.device_id)
+      {:ok, pid} = DeviceRegistry.lookup(ctx.device_id)
       health = Device.get_health(pid)
       assert health.status == :healthy
     end

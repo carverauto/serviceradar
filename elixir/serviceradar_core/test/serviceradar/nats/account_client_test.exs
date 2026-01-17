@@ -103,15 +103,15 @@ defmodule ServiceRadar.NATS.AccountClientTest do
     end
   end
 
-  describe "Proto.CreateTenantAccountRequest construction" do
-    test "builds request with tenant slug" do
-      request = %Proto.CreateTenantAccountRequest{
-        tenant_slug: "acme-corp",
+  describe "Proto.CreateAccountRequest construction" do
+    test "builds request with account name" do
+      request = %Proto.CreateAccountRequest{
+        account_name: "edge-account",
         limits: nil,
         subject_mappings: []
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.limits == nil
       assert request.subject_mappings == []
     end
@@ -122,8 +122,8 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         max_subscriptions: 1000
       }
 
-      request = %Proto.CreateTenantAccountRequest{
-        tenant_slug: "acme-corp",
+      request = %Proto.CreateAccountRequest{
+        account_name: "edge-account",
         limits: limits,
         subject_mappings: []
       }
@@ -136,8 +136,8 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         %Proto.SubjectMapping{from: "events.>", to: "acme-corp.events.>"}
       ]
 
-      request = %Proto.CreateTenantAccountRequest{
-        tenant_slug: "acme-corp",
+      request = %Proto.CreateAccountRequest{
+        account_name: "edge-account",
         limits: nil,
         subject_mappings: mappings
       }
@@ -150,7 +150,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
   describe "Proto.GenerateUserCredentialsRequest construction" do
     test "builds request with all fields" do
       request = %Proto.GenerateUserCredentialsRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         account_seed: "SATEST123",
         user_name: "collector-1",
         credential_type: :USER_CREDENTIAL_TYPE_COLLECTOR,
@@ -158,7 +158,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         expiration_seconds: 86_400
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.account_seed == "SATEST123"
       assert request.user_name == "collector-1"
       assert request.credential_type == :USER_CREDENTIAL_TYPE_COLLECTOR
@@ -169,21 +169,21 @@ defmodule ServiceRadar.NATS.AccountClientTest do
   describe "Proto.SignAccountJWTRequest construction" do
     test "builds request with revocations" do
       request = %Proto.SignAccountJWTRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         account_seed: "SATEST123",
         limits: nil,
         subject_mappings: [],
         revoked_user_keys: ["UABC123", "UDEF456"]
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.revoked_user_keys == ["UABC123", "UDEF456"]
     end
   end
 
-  describe "Proto.CreateTenantAccountResponse structure" do
+  describe "Proto.CreateAccountResponse structure" do
     test "has expected fields" do
-      response = %Proto.CreateTenantAccountResponse{
+      response = %Proto.CreateAccountResponse{
         account_public_key: "ATEST123",
         account_seed: "SATEST456",
         account_jwt: "eyJhbGciOiJlZDI1NTE5..."
@@ -250,7 +250,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
       functions = Proto.NATSAccountService.Stub.__info__(:functions)
       function_names = Enum.map(functions, fn {name, _arity} -> name end)
 
-      assert :create_tenant_account in function_names
+      assert :create_account in function_names
       assert :generate_user_credentials in function_names
       assert :sign_account_jwt in function_names
     end

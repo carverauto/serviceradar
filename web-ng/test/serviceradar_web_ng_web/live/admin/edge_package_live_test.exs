@@ -15,11 +15,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ "New Package"
     end
 
-    test "lists existing packages", %{conn: conn, user: user} do
+    test "lists existing packages", %{conn: conn} do
       {:ok, _} =
         OnboardingPackages.create(
           %{label: "test-display-pkg", component_type: :gateway},
-          tenant: user.tenant_id
+          []
         )
 
       {:ok, _lv, html} = live(conn, ~p"/admin/edge-packages")
@@ -131,7 +131,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
                result =~ "Failed"
     end
 
-    test "auto-generates component_id from label", %{conn: conn, user: user} do
+    test "auto-generates component_id from label", %{conn: conn} do
       # Create a package via the UI flow
       attrs = %{
         label: "Production Gateway 01",
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       {:ok, result} =
         OnboardingPackages.create(
           Map.put(attrs, :component_id, "gateway-production-gateway-01"),
-          tenant: user.tenant_id
+          []
         )
 
       assert result.package.component_id == "gateway-production-gateway-01"
@@ -151,15 +151,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   end
 
   describe "package filters" do
-    test "filters by status", %{conn: conn, user: user} do
+    test "filters by status", %{conn: conn} do
       {:ok, r1} =
         OnboardingPackages.create(
           %{label: "filter-test-issued", component_type: :gateway},
-          tenant: user.tenant_id
+          []
         )
 
       # Revoke one
-      OnboardingPackages.revoke(r1.package.id, tenant: user.tenant_id)
+      OnboardingPackages.revoke(r1.package.id, [])
 
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
 
@@ -173,11 +173,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ "revoked" or html =~ "Revoked"
     end
 
-    test "filters by component type", %{conn: conn, user: user} do
+    test "filters by component type", %{conn: conn} do
       {:ok, _} =
         OnboardingPackages.create(
           %{label: "filter-checker", component_type: :checker},
-          tenant: user.tenant_id
+          []
         )
 
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")
@@ -192,11 +192,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   end
 
   describe "package details modal" do
-    test "shows package details", %{conn: conn, user: user} do
+    test "shows package details", %{conn: conn} do
       {:ok, result} =
         OnboardingPackages.create(
           %{label: "detail-view-test", component_type: :gateway, notes: "Test notes here"},
-          tenant: user.tenant_id
+          []
         )
 
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/#{result.package.id}")
@@ -207,11 +207,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ "detail-view-test"
     end
 
-    test "closes details modal", %{conn: conn, user: user} do
+    test "closes details modal", %{conn: conn} do
       {:ok, result} =
         OnboardingPackages.create(
           %{label: "close-modal-test", component_type: :gateway},
-          tenant: user.tenant_id
+          []
         )
 
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/#{result.package.id}")
@@ -227,11 +227,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
   end
 
   describe "package actions" do
-    test "revokes a package", %{conn: conn, user: user} do
+    test "revokes a package", %{conn: conn} do
       {:ok, result} =
         OnboardingPackages.create(
           %{label: "revoke-test", component_type: :gateway},
-          tenant: user.tenant_id
+          []
         )
 
       {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages")

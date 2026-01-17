@@ -2,14 +2,18 @@ defmodule ServiceRadar.Policies do
   @moduledoc """
   Base policy macros and checks for ServiceRadar authorization.
 
-  Provides reusable policy patterns for RBAC and multi-tenancy.
+  Provides reusable policy patterns for RBAC.
+
+  ## Instance Isolation
+
+  Each instance deployment is fully isolated:
+  - DB connection's search_path determines the schema
 
   ## Roles
 
-  - `:viewer` - Read-only access to tenant data
-  - `:operator` - Can create and modify resources within tenant
-  - `:admin` - Full tenant management including user management
-  - `:super_admin` - Platform-wide access, bypasses all policies
+  - `:viewer` - Read-only access to instance data
+  - `:operator` - Can create and modify resources within instance
+  - `:admin` - Full instance management including user management
 
   ## Usage
 
@@ -17,38 +21,22 @@ defmodule ServiceRadar.Policies do
         use Ash.Resource, ...
 
         policies do
-          # Import common policies
           import ServiceRadar.Policies
 
-          # Super admin bypass
-          bypass always() do
-            authorize_if is_super_admin()
-          end
-
-          # Tenant isolation
+          # DB connection's search_path determines the schema
           policy action_type(:read) do
-            authorize_if tenant_matches()
+            authorize_if is_viewer()
           end
         end
       end
   """
 
   @doc """
-  Check if the actor has super_admin role.
-  Super admins bypass all tenant restrictions.
-  """
-  defmacro is_super_admin do
-    quote do
-      actor_attribute_equals(:role, :super_admin)
-    end
-  end
-
-  @doc """
   Check if the actor has admin role (or higher).
   """
   defmacro is_admin do
     quote do
-      expr(^actor(:role) in [:admin, :super_admin])
+      expr(^actor(:role) == :admin)
     end
   end
 
@@ -57,7 +45,7 @@ defmodule ServiceRadar.Policies do
   """
   defmacro is_operator do
     quote do
-      expr(^actor(:role) in [:operator, :admin, :super_admin])
+      expr(^actor(:role) in [:operator, :admin])
     end
   end
 
@@ -66,17 +54,7 @@ defmodule ServiceRadar.Policies do
   """
   defmacro is_viewer do
     quote do
-      expr(^actor(:role) in [:viewer, :operator, :admin, :super_admin])
-    end
-  end
-
-  @doc """
-  Check if the resource's tenant_id matches the actor's tenant_id.
-  Used for tenant isolation policies.
-  """
-  defmacro tenant_matches do
-    quote do
-      expr(tenant_id == ^actor(:tenant_id))
+      expr(^actor(:role) in [:viewer, :operator, :admin])
     end
   end
 
@@ -98,7 +76,7 @@ defmodule ServiceRadar.Policies do
   Check if the resource's partition_id matches the actor's partition context.
 
   If the actor has no partition_id set, access is allowed to all partitions
-  within their tenant (backward compatible behavior).
+  (backward compatible behavior).
 
   If the actor has a partition_id set, access is restricted to resources
   in that specific partition.
@@ -114,28 +92,6 @@ defmodule ServiceRadar.Policies do
       expr(
         is_nil(^actor(:partition_id)) or
           partition_id == ^actor(:partition_id)
-      )
-    end
-  end
-
-  @doc """
-  Combined check for tenant AND partition isolation.
-
-  Ensures the resource belongs to the actor's tenant AND is either:
-  - In the actor's specified partition, or
-  - Accessible because the actor has no partition restriction
-
-  ## Usage
-
-      policy action_type(:read) do
-        authorize_if tenant_and_partition_match()
-      end
-  """
-  defmacro tenant_and_partition_match do
-    quote do
-      expr(
-        tenant_id == ^actor(:tenant_id) and
-          (is_nil(^actor(:partition_id)) or partition_id == ^actor(:partition_id))
       )
     end
   end

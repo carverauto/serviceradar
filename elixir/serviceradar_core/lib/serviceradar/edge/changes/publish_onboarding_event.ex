@@ -9,10 +9,8 @@ defmodule ServiceRadar.Edge.Changes.PublishOnboardingEvent do
 
   @impl true
   def change(changeset, _opts, _context) do
-    tenant_schema = changeset.tenant
-
     Ash.Changeset.after_action(changeset, fn _changeset, event ->
-      OnboardingWriter.write(event, tenant_schema)
+      OnboardingWriter.write(event)
       {:ok, event}
     end)
   end

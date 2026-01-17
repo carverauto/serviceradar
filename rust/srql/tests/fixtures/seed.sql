@@ -135,7 +135,6 @@ INSERT INTO gateways (
         agent_count,
         checker_count,
         updated_at,
-        tenant_id,
         partition_id
     )
 SELECT 'gateway-1',
@@ -152,7 +151,6 @@ SELECT 'gateway-1',
     10,
     50,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000010'
 FROM base
 UNION ALL
@@ -170,7 +168,6 @@ SELECT 'gateway-2',
     5,
     25,
     base.now_ts,
-    '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000011'
 FROM base;
 WITH base AS (

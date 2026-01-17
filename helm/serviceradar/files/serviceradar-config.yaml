@@ -10,13 +10,16 @@
 {{- $gatewayPort := default 50052 $gatewayService.port -}}
 {{- $agentID := default "k8s-agent" $agentVals.agentId -}}
 {{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
-{{- $agentTenantSlug := default (default "platform" $gatewayVals.tenantSlug) $agentVals.tenantSlug -}}
-{{- $gatewayServiceName := ternary "serviceradar-agent-gateway" (printf "serviceradar-agent-gateway-%s" $agentTenantSlug) $gatewayVals.enabled -}}
+{{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
 {{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
-{{- $agentTenantCertDir := printf "/etc/serviceradar/certs/tenants/%s" $agentTenantSlug -}}
 {{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
 {{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
+{{- $appSchema := default "platform" .Values.cnpg.schema -}}
+{{- $searchPath := index $cnpgRuntime "search_path" -}}
+{{- if not $searchPath -}}
+  {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
+{{- end -}}
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $otelSA := .Values.spire.otelServiceAccount | default "serviceradar-otel" -}}
@@ -59,7 +62,7 @@ data:
           "ca_file": "/etc/serviceradar/cnpg/ca.crt"
         },
         "runtime_params": {
-          "search_path": "{{ default "public,ag_catalog,\\\"$user\\\"" (index $cnpgRuntime "search_path") }}"
+          "search_path": "{{ $searchPath }}"
         }
       },
       "reaper": {
@@ -351,14 +354,14 @@ data:
         },
         "gateway_security": {
           "mode": "mtls",
-          "cert_dir": "{{$agentTenantCertDir}}",
+          "cert_dir": "/etc/serviceradar/certs",
           "server_name": "serviceradar-agent-gateway",
           "role": "agent",
           "tls": {
             "cert_file": "{{$agentComponentCert}}",
             "key_file": "{{$agentComponentKey}}",
-            "ca_file": "ca-chain.pem",
-            "client_ca_file": "ca-chain.pem"
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
           }
         },
         "logging": {

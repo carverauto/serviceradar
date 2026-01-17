@@ -16,10 +16,6 @@ defmodule ServiceRadar.Identity.Token do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
   end

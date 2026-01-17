@@ -1,46 +1,39 @@
-# Tasks: Remove Tenant Awareness from Tenant Instance
+# Tasks: Remove Account Awareness from Instance
 
 ## Summary
 
-Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
+Make instance code (web-ng, core-elx) completely schema-scoped and account-unaware by:
 1. Using schema-scoped CNPG credentials (DB enforces isolation)
-2. Using tenant-scoped NATS JWTs (NATS enforces isolation)
-3. Removing all `tenant:` parameters from Ash queries
-4. Removing cross-tenant code paths entirely
+2. Using account-scoped NATS JWTs (NATS enforces isolation)
+3. Removing all explicit schema context parameters from Ash queries
+4. Removing cross-schema code paths entirely
 
 ---
 
-## Phase 1: Control Plane - CNPG User Provisioning
+## Phase 1: External Provisioning - CNPG/NATS Credentials
 
-### 1.1 Create CNPG user provisioning in Control Plane
+### 1.1 Provision schema-scoped credentials outside this repo
 
-- [ ] **1.1.1 Add CNPG user creation to tenant provisioning flow**
-  - Control Plane creates PostgreSQL user: `tenant_{slug}_app`
-  - Grant: USAGE on tenant schema, ALL on tables/sequences
-  - Set: `search_path` to tenant schema
-  - Store: credentials in K8s secret
+- [x] **1.1.1 Create CNPG + NATS credentials via bootstrap tooling**
+  - Helm or Docker Compose bootstrap scripts create CNPG users/schemas
+  - NATS account credentials are created externally (control plane or bootstrap)
+  - Instance consumes credentials via environment/secrets only
 
-- [ ] **1.1.2 Create migration to add CNPG fields to Tenant resource**
-  ```elixir
-  attribute :cnpg_username, :string
-  attribute :cnpg_password_secret_ref, :string  # K8s secret reference
-  attribute :cnpg_schema, :string
-  ```
-
-- [ ] **1.1.3 Update CreateAccountWorker to also create CNPG user**
-  - After NATS account creation, create CNPG user
-  - Store secret in K8s: `serviceradar-tenant-{slug}-cnpg-creds`
-
-- [ ] **1.1.4 Update tenant-workload-operator to inject CNPG credentials**
-  - Read CNPG secret for tenant
-  - Set `CNPG_*` environment variables on tenant pods
-  - Set `search_path` in connection URL
+- [x] **1.1.2 Move workload provisioning to control plane repo**
+  - Workload operator and templates live in `~/serviceradar-web`
+  - This repo no longer builds or publishes that image
 
 ### 1.2 Test CNPG isolation
 
-- [ ] **1.2.1 Create test tenant with scoped credentials**
-- [ ] **1.2.2 Verify cannot access other tenant schemas**
+- [ ] **1.2.1 Create test account with scoped credentials**
+- [ ] **1.2.2 Verify cannot access other account schemas**
 - [ ] **1.2.3 Verify app works with scoped credentials**
+
+### 1.3 Enforce JWT-only NATS access in instance code
+
+- [x] **1.3.1 Require NATS creds in core-elx runtime config (NATS + EventWriter)**
+- [x] **1.3.2 Require NATS creds in datasvc/db-event-writer config validation**
+- [x] **1.3.3 Require KV NATS creds when KV_DRIVER=nats**
 
 ---
 
@@ -48,208 +41,243 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
 
 ### 2.1 Audit current multitenancy configuration
 
-- [ ] **2.1.1 List all resources with `multitenancy` blocks**
-  - Expected: Most resources in Identity, Edge, Inventory domains
+- [x] **2.1.1 List all resources with `multitenancy` blocks**
+  - Found 59 resources with `strategy :context` (schema-isolated)
+  - Found 1 resource with `strategy :attribute` + `global? true` (legacy membership resource)
+  - Found 4 resources with no multitenancy (account registry + NATS operator/tokens)
 
-- [ ] **2.1.2 List all resources with `tenant_id` attributes**
-  - Determine which are actually needed vs redundant
+- [x] **2.1.2 List all resources with legacy account-id attributes**
+  - Found 47 resources with explicit account-id attributes
+  - Most are redundant when using schema-based isolation
 
-- [ ] **2.1.3 Identify resources that should stay in public schema**
-  - These need special handling (move to Control Plane or replicate)
+- [x] **2.1.3 Identify resources that should stay in public schema**
+  - Account registry + NATS operator/tokens (Control Plane resources)
 
-### 2.2 Create feature flag for gradual migration
+### 2.2 Remove multitenancy DSL and regenerate snapshots
 
-- [ ] **2.2.1 Add `TENANT_AWARE_MODE` environment variable**
-  - Default: `true` (current behavior)
-  - When `false`: skip tenant context
+- [x] **2.2.1 Remove multitenancy blocks from Ash resources**
+  - COMPLETE - No multitenancy blocks remain in Ash resources
+  - No `strategy :context` or `attribute :account_id` in codebase
 
-- [ ] **2.2.2 Update Repo configuration**
-  ```elixir
-  # When TENANT_AWARE_MODE=false, don't set dynamic schema
-  def tenant_schema do
-    if tenant_aware_mode?() do
-      # Current behavior
-    else
-      nil  # Use connection's search_path
-    end
-  end
-  ```
-
-### 2.3 Remove multitenancy from resources (behind flag)
-
-- [ ] **2.3.1 Update ServiceRadar.Inventory domain resources**
-  - Device, Agent, Gateway, Interface, etc.
-  - Remove `multitenancy` block
-  - Remove `tenant_id` attribute (if redundant)
-
-- [ ] **2.3.2 Update ServiceRadar.Edge domain resources**
-  - EdgeSite, CollectorPackage, OnboardingPackage, etc.
-
-- [ ] **2.3.3 Update ServiceRadar.Identity domain resources**
-  - User, ApiToken, etc.
-  - Note: Tenant, TenantMembership move to Control Plane
-
-- [ ] **2.3.4 Update ServiceRadar.Monitoring domain resources**
-  - Alert rules, alert states, etc.
-
-- [ ] **2.3.5 Generate migrations to drop tenant_id columns**
-  - Only for columns that are purely redundant
+- [x] **2.2.2 Regenerate Ash snapshots and migrations**
+  - Ran `mix ash.codegen`; no changes detected
 
 ---
 
-## Phase 3: Remove tenant: Parameter from Code
+## Phase 3: Remove Explicit Schema Context from Code
+
+**Status: COMPLETE** (as of 2026-01-16)
+
+**Migration Guide**: See `migration-guide.md` for patterns and examples.
 
 ### 3.1 Update web-ng controllers
 
-- [ ] **3.1.1 api/collector_controller.ex**
-  - Remove `tenant:` from all Ash calls
-  - Remove `find_package_across_tenants()` entirely
-  - Simplify `require_tenant()` - tenant is implicit
+- [x] **3.1.1 api/collector_controller.ex** (EXAMPLE FILE)
+  - Updated all Ash calls to omit schema context params
+  - Removed cross-schema lookup helper
+  - Platform operations use standard system actors
 
-- [ ] **3.1.2 api/device_controller.ex**
-  - Remove `tenant:` parameters
-  - Simplify actor creation
+- [x] **3.1.2 api/edge_controller.ex**
+  - Updated all Ash calls to omit schema context params
+  - Removed cross-schema lookup helper
 
-- [ ] **3.1.3 api/edge_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.3 api/enroll_controller.ex**
+  - Updated `mark_enrolled()` to omit schema context params
+  - Removed cross-schema lookup helper
 
-- [ ] **3.1.4 api/nats_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.4 api/nats_controller.ex** (Control Plane only)
+  - No changes needed - manages NatsOperator/NatsPlatformToken in public schema
 
-- [ ] **3.1.5 api/enroll_controller.ex**
-  - Remove `tenant:` parameters
+- [x] **3.1.5 auth_controller.ex**
+  - Updated JWT token generation to omit schema context params
 
-- [ ] **3.1.6 All other API controllers**
-  - Audit and update
+- [x] **3.1.6 account_controller.ex** (Control Plane only)
+  - No changes needed - control plane feature
 
 ### 3.2 Update web-ng LiveViews
 
-- [ ] **3.2.1 Audit all LiveViews for `tenant:` usage**
-  - Use grep: `tenant:` in `web-ng/lib/serviceradar_web_ng_web/live/`
+**Status: COMPLETE** (as of 2026-01-16)
 
-- [ ] **3.2.2 Update each LiveView**
-  - Remove `tenant:` from `Ash.read!`, `Ash.create!`, etc.
-  - Simplify scope/actor handling
+All explicit schema context parameters have been removed from LiveView files:
+- [x] `device_live/index.ex` - Uses scope pattern
+- [x] `device_live/show.ex` - Uses scope pattern
+- [x] `admin/edge_package_live/index.ex` - Uses scope pattern
+- [x] `admin/integration_live/index.ex` - Uses scope pattern
+- [x] `admin/collector_live/index.ex` - Uses environment config
+- [x] `admin/edge_sites_live/index.ex` - Uses scope pattern
+- [x] `admin/edge_sites_live/show.ex` - Uses environment config
+- [x] `admin/nats_live/index.ex` - Simplified (removed multi-account UI)
+- [x] `admin/nats_live/show.ex` - Simplified (redirect only)
+- [x] `settings/rules_live/index.ex` - Uses scope pattern
+
+LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 ### 3.3 Update web-ng plugs and auth
 
-- [ ] **3.3.1 plugs/api_auth.ex**
-  - Remove `TenantSchemas` usage
-  - Simplify - no tenant context needed
+- [x] **3.3.1 plugs/api_auth.ex**
+  - Updated `find_api_token()` with schema scope check (single-schema only)
+  - Updated `record_token_usage()` to use `Ash` calls without schema context params
+  - Updated `validate_ash_jwt()` to use mode-conditional actors
+  - Removed redundant private schema options helper
 
-- [ ] **3.3.2 plugs/tenant_context.ex**
-  - Simplify or remove - tenant is implicit
+- [x] **3.3.2 plugs/account_context.ex**
+  - Updated account context loading to use `SystemActor.system/1`
+  - Account registry is external; no schema context parameter needed
 
-- [ ] **3.3.3 accounts/scope.ex**
-  - Remove tenant_id tracking
-  - Simplify `Scope` struct
+- [x] **3.3.3 accounts/scope.ex**
+  - Updated `for_user()` to use `SystemActor.system/1`
+  - Removed unused schema context overrides
+
+- [x] **3.3.4 user_auth.ex**
+  - Updated `verify_token()` to use `Ash` calls without schema context params
+  - Updated actor to use `SystemActor.system/1`
+  - Removed redundant private schema options helper
 
 ### 3.4 Update core-elx workers
 
-- [ ] **3.4.1 Audit all Oban workers for `tenant:` usage**
+- [x] **3.4.1 Audit all Oban workers for schema context usage**
+  - Found 3 edge workers: `provision_collector_worker.ex`, `provision_leaf_worker.ex`, `record_event_worker.ex`
+  - Found 44 files total with schema-scoped system actor usage
 
-- [ ] **3.4.2 Update each worker**
-  - Remove `SystemActor.for_tenant()` patterns
-  - Use simple `SystemActor.system(:worker_name)`
+- [x] **3.4.2 Update edge workers (3 files)**
+  - `provision_collector_worker.ex` - updated Ash calls to omit schema context params
+  - `provision_leaf_worker.ex` - updated Ash calls to omit schema context params
+  - `record_event_worker.ex` - updated to omit schema context params
 
 ### 3.5 Update core-elx GenServers
 
-- [ ] **3.5.1 TenantRegistryLoader**
-  - Remove or simplify - no need to load all tenant slugs
-  - In tenant instance, there's only "self"
+- [x] **3.5.1 Observability seeders (4 files)**
+  - `template_seeder.ex` - updated to skip in account-unaware mode, uses Ash calls without schema context params
+  - `rule_seeder.ex` - updated to skip in account-unaware mode, uses Ash calls without schema context params
+  - `zen_rule_seeder.ex` - updated to skip in account-unaware mode, uses Ash calls without schema context params
+  - `sysmon_profile_seeder.ex` - updated to use Ash calls without schema context params
 
-- [ ] **3.5.2 Other GenServers**
-  - Audit for cross-tenant patterns
-  - Remove or simplify
+- [x] **3.5.2 Observability sync/writers (3 files)**
+  - `zen_rule_sync.ex` - updated GenServer state to use ash_opts instead of actor
+  - `onboarding_writer.ex` - updated to use Ash calls without schema context params
+
+- [x] **3.5.3 Infrastructure GenServers (1 file)**
+  - `state_monitor.ex` - updated GenServer state to use ash_opts
+
+- [x] **3.5.4 Remaining GenServers - COMPLETE**
+  - All GenServers now use `SystemActor.system/1`
+  - No schema-scoped system actor usage remains in codebase
+  - Only legitimate schema context usage: AshAuthentication JWT verification (required)
 
 ---
 
 ## Phase 4: Simplify SystemActor
 
+**Status: COMPLETE** (as of 2026-01-16)
+
 ### 4.1 Refactor SystemActor module
 
-- [ ] **4.1.1 Remove `SystemActor.platform/1`**
-  - No cross-tenant operations in tenant instance
-  - Move any legitimate uses to Control Plane
+- [x] **4.1.1 Remove `SystemActor.platform/1`**
+  - No public-schema access in instance pods
+  - Control Plane owns platform resources
 
-- [ ] **4.1.2 Remove `SystemActor.for_tenant/2`**
-  - Tenant is implicit from DB connection
-  - Replace with `SystemActor.system/1`
+- [x] **4.1.2 Remove schema-scoped system actors**
+  - DELETED - no longer exists in codebase
+  - Replaced with `SystemActor.system/1`
 
-- [ ] **4.1.3 Simplify to single system actor pattern**
-  ```elixir
-  def system(component) when is_atom(component) do
-    %{
-      id: "system:#{component}",
-      role: :system,
-      component: component
-    }
-  end
-  ```
+- [x] **4.1.3 Simplified actor model implemented**
+  - `system/1` - For instance-scoped operations (role: :system)
+  - No account id in actors - implicit from DB connection
 
 ### 4.2 Update authorization policies
 
-- [ ] **4.2.1 Update bypass policies**
-  - Remove tenant_id checks from system actor bypass
-  - Simplify to just role check
-
-- [ ] **4.2.2 Remove platform actor policies**
-  - No platform actor exists in tenant instance
+- [x] **4.2.1 Updated bypass policies**
+  - Policies now check for `role: :system` only
+  - No account id checks needed
 
 ---
 
-## Phase 5: Delete Cross-Tenant Code
+## Phase 5: Delete Cross-Account Code
 
-### 5.1 Remove TenantSchemas module usage
+**Status: COMPLETE** (as of 2026-01-16)
 
-- [ ] **5.1.1 Find all `TenantSchemas.list_schemas()` calls**
-  - Delete the calls entirely
+### 5.1 Remove schema enumeration helper usage
 
-- [ ] **5.1.2 Find all `TenantSchemas.schema_for_id()` calls**
-  - Delete or replace with config lookup
+- [x] **5.1.1 list_schemas helper - DELETED**
+  - No calls remain in codebase
 
-- [ ] **5.1.3 Delete TenantSchemas module from tenant instance**
-  - Or move to Control Plane only
+- [x] **5.1.2 schema lookup helper - DELETED**
+  - No calls remain in codebase
 
-### 5.2 Remove cross-tenant query functions
+- [x] **5.1.3 Schema enumeration module - DELETED**
+  - Module no longer exists in instance code
 
-- [ ] **5.2.1 Delete `find_package_across_tenants()`**
-  - In collector_controller.ex
+### 5.2 Remove cross-account query functions
 
-- [ ] **5.2.2 Delete `find_api_token()` cross-tenant search**
-  - In api_auth.ex - tokens are in current schema only
+- [x] **5.2.1 cross-schema package lookup - DELETED**
+  - Function no longer exists
 
-- [ ] **5.2.3 Audit for other cross-tenant patterns**
-  - Search for `Enum.reduce_while.*TenantSchemas`
+- [x] **5.2.2 Cross-schema token search - REMOVED**
+  - api_auth.ex simplified - tokens in current schema only
 
-### 5.3 Remove Tenant resource from tenant instance
+- [x] **5.2.3 Audit complete - no cross-schema patterns**
+  - `Enum.reduce_while.*schema` patterns removed
+  - All cross-schema iteration removed
 
-- [ ] **5.3.1 Decide: keep minimal Tenant or remove entirely?**
-  - Option A: Single "self" record for tenant metadata
-  - Option B: All tenant info from config/JWT
+### 5.3 Remove account registry resource from instance
 
-- [ ] **5.3.2 Implement chosen approach**
+- [x] **5.3.1 Decision: Remove entirely (Option B)**
+  - Account registry resource has been deleted
+  - Instance metadata comes from environment/config
+
+- [x] **5.3.2 Implementation complete**
+  - `Application.get_env(:serviceradar, :nats_account_name)` for NATS account
+  - No account registry Ash queries in instance code
 
 ---
 
-## Phase 6: OSS Single-Tenant Mode
+## Phase 6: Single-Deployment Mode
 
 ### 6.1 Update Helm bootstrap for OSS
 
-- [ ] **6.1.1 Create default tenant schema in bootstrap job**
-  - Schema: `tenant_platform` (or configurable)
-  - User: `tenant_platform_app`
+- [x] **6.1.1 Create default schema in bootstrap job (if needed)**
+  - Added `cnpg.schema` option to values.yaml (default: `platform`)
+  - Updated spire-postgres.yaml postInitApplicationSQL to:
+    - Create schema with `CREATE SCHEMA IF NOT EXISTS {schema} AUTHORIZATION serviceradar`
+    - Grant permissions with `GRANT ALL ON SCHEMA {schema} TO serviceradar`
+    - Set user search_path with `ALTER ROLE serviceradar SET search_path TO {schema},ag_catalog`
 
-- [ ] **6.1.2 Configure pods with scoped credentials**
-  - Same pattern as SaaS, just one tenant
+- [x] **6.1.2 Configure pods with scoped credentials**
+  - Updated db-event-writer-config.yaml to derive search_path from cnpg.schema
+  - Updated serviceradar-config.yaml to derive search_path from cnpg.schema
+  - All pods use the same pattern: schema comes from values, search_path is auto-derived
 
 ### 6.2 Test OSS deployment
 
 - [ ] **6.2.1 `helm install` smoke test**
   - Verify system works with scoped credentials
 
-- [ ] **6.2.2 Verify no cross-tenant code paths**
-  - Check logs for any TenantSchemas usage
+- [ ] **6.2.2 Verify no cross-schema code paths**
+  - Check logs for any cross-schema access attempts
+
+### 6.3 Infrastructure cleanup (certs/Helm/Compose)
+
+- [x] **6.3.1 Remove account-scoped cert generation**
+  - Edge component certs now live under `/etc/serviceradar/certs/components`
+  - CN format: `<component_id>.<partition_id>.serviceradar`
+  - SPIFFE format: `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
+
+- [x] **6.3.2 Update Helm/Compose config to drop account fields**
+  - Removed CA secret values from Helm
+  - Removed account slug/id env vars from agent-gateway and Compose
+  - Updated agent gateway security config to use root CA chain
+
+- [x] **6.3.3 Remove workload-operator artifacts from this repo**
+  - Dropped Bazel image targets and push entries
+
+- [x] **6.3.4 Remove external account fields from sync types**
+  - Dropped NetBox account field from sync types
+
+- [x] **6.3.5 Remove generated Ash resource snapshots**
+  - Deleted `elixir/serviceradar_core/priv/resource_snapshots`
+
+- [x] **6.3.6 Consolidate CNPG SQL migrations**
+  - Reduced to a single schema migration in `pkg/db/cnpg/migrations`
 
 ---
 
@@ -257,40 +285,46 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
 
 ### 7.1 Remove feature flag
 
-- [ ] **7.1.1 Remove `TENANT_AWARE_MODE` flag**
-  - After all migrations complete
+- [x] **7.1.1 Remove legacy schema-aware flag**
+  - N/A - Flag was never implemented; migration went directly to final state
+  - Removed unused schema reset config option
 
-- [ ] **7.1.2 Remove old code paths**
-  - Delete any `if tenant_aware_mode?()` branches
-
+- [x] **7.1.2 Remove old code paths**
+  - N/A - No legacy schema-aware branches exist
+  
 ### 7.2 Update documentation
 
-- [ ] **7.2.1 Update CLAUDE.md**
-  - Remove multi-tenant patterns
-  - Document simplified actor model
+- [x] **7.2.1 Update CLAUDE.md**
+  - `elixir/serviceradar_core/CLAUDE.md` updated with dedicated deployment patterns
+  - Documents `SystemActor.system/1`
+  - Documents instance isolation model
 
-- [ ] **7.2.2 Update deployment docs**
+- [x] **7.2.2 Update deployment docs**
   - Document CNPG credential requirements
   - Document OSS vs SaaS differences
 
 ### 7.3 Archive related proposals
 
-- [ ] **7.3.1 Update 2286-break-out-tenant-control-plane**
-  - Mark as complete with reference to this proposal
+- [x] **7.3.1 Update 2286-break-out-tenant-control-plane**
+  - Marked as COMPLETE with reference to this proposal
 
-- [ ] **7.3.2 Archive enforce-tenant-schema-isolation**
-  - Superseded by DB-enforced isolation
+- [x] **7.3.2 Archive enforce-tenant-schema-isolation**
+  - Marked as SUPERSEDED by this proposal
 
 ---
 
 ## Verification Checklist
 
-Before marking complete:
+Code removal (complete):
 
-- [ ] Tenant instance cannot query other tenant schemas
-- [ ] No `tenant:` parameters in Ash calls
-- [ ] No `TenantSchemas` usage in tenant instance
-- [ ] No `SystemActor.platform()` usage in tenant instance
+- [x] Deployment instance cannot query other schemas (CNPG search_path enforces)
+- [x] No schema context parameters in Ash calls (except AshAuthentication JWT - required)
+- [x] No schema enumeration helper usage in instance code
+- [x] No schema-scoped system actor usage (only `system/1` remains)
+- [x] No `SystemActor.platform()` usage remains in instance code
+
+Infrastructure (pending Phase 6):
+
 - [ ] OSS helm install works with scoped credentials
-- [ ] SaaS tenant provisioning creates scoped credentials
+- [ ] SaaS control plane provisioning creates scoped credentials
 - [ ] All tests pass with new architecture

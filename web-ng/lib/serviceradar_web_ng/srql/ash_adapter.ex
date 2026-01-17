@@ -6,8 +6,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   through Ash resources instead of the SQL path. This provides:
 
   - Policy enforcement via Ash.Policy.Authorizer
-  - Multi-tenancy support
   - Consistent authorization across web and API
+
+  This is a single-deployment instance UI. Schema context is implicit from
+  PostgreSQL search_path set by infrastructure.
 
   ## Supported Entities
 
@@ -54,8 +56,6 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   """
 
   require Logger
-
-  alias ServiceRadar.Cluster.TenantSchemas
 
   # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
@@ -236,8 +236,9 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     - `:sort` - Sort field and direction
     - `:limit` - Maximum results
     - `:cursor` - Pagination cursor
-  - `scope` - The scope for policy enforcement (contains actor, tenant, context)
-              Uses `Ash.Scope.ToOpts` protocol to extract actor/tenant
+  - `scope` - The scope for policy enforcement (contains actor and context).
+              Uses `Ash.Scope.ToOpts` protocol to extract actor.
+              Schema is implicit from PostgreSQL search_path.
 
   ## Returns
 
@@ -552,7 +553,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp apply_offset(query, _), do: query
 
   # Execute the query against the Ash domain
-  # Takes normalized scope map with :actor, :tenant, :context, :authorize? keys
+  # Takes normalized scope map with :actor, :context, :authorize? keys
   defp execute_query(_domain, query, scope_opts) do
     opts = scope_opts_to_keyword_list(scope_opts)
     Ash.read(query, opts)
@@ -635,19 +636,17 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp format_value(value) when is_struct(value), do: nil
   defp format_value(value), do: value
 
+  # Normalize scope to extract actor and authorization options.
+  # Schema context is implicit from PostgreSQL search_path in single-deployment setups.
   defp normalize_scope(nil, _resource), do: nil
 
-  defp normalize_scope(scope, resource) do
+  defp normalize_scope(scope, _resource) do
     actor = extract_scope_value(Ash.Scope.ToOpts.get_actor(scope))
-    tenant = extract_scope_value(Ash.Scope.ToOpts.get_tenant(scope))
     context = extract_scope_value(Ash.Scope.ToOpts.get_context(scope))
     authorize? = extract_scope_value(Ash.Scope.ToOpts.get_authorize?(scope))
 
-    normalized_tenant = normalize_tenant_for_resource(tenant, resource)
-
     %{}
     |> maybe_put(:actor, actor)
-    |> maybe_put(:tenant, normalized_tenant)
     |> maybe_put(:context, context)
     |> maybe_put(:authorize?, authorize?)
   end
@@ -658,21 +657,6 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp normalize_tenant_for_resource(nil, _resource), do: nil
-
-  defp normalize_tenant_for_resource(tenant, resource) do
-    case Ash.Resource.Info.multitenancy_strategy(resource) do
-      :context -> TenantSchemas.schema_for_tenant(tenant)
-      :attribute -> tenant_id_from(tenant)
-      _ -> tenant_id_from(tenant)
-    end
-  end
-
-  defp tenant_id_from(%{id: id}) when is_binary(id), do: id
-  defp tenant_id_from(%{"id" => id}) when is_binary(id), do: id
-  defp tenant_id_from(id) when is_binary(id), do: id
-  defp tenant_id_from(other), do: other
 
   defp normalize_page_results(%Ash.Page.Keyset{} = page), do: {page.results, page}
   defp normalize_page_results(%Ash.Page.Offset{} = page), do: {page.results, page}

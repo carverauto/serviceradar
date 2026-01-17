@@ -180,14 +180,15 @@ JWT structure:
 - Same codebase, different configuration
 - No need to understand multi-tenancy
 
-### Decision 4: Eliminate super_admin Role
+### Decision 4: Remove Platform-Admin Role
 
-**What**: Replace super_admin with JWT-based platform admin claims.
+**What**: Remove any platform-admin role from tenant instances. Platform
+operations are handled exclusively by the Control Plane.
 
 **Why**:
-- super_admin bypasses all policies - security risk
-- Platform admin capabilities should be explicit, not implicit
-- Control Plane APIs handle platform operations
+- Platform-admin bypasses all policies - security risk
+- Instance code should only need :admin/:operator/:viewer/:system
+- Platform operations belong in Control Plane services
 
 ## Risks / Trade-offs
 

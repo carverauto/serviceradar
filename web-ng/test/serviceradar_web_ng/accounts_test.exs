@@ -52,19 +52,15 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "register_user/1" do
     test "requires email to be set" do
-      {:error, error} =
-        Accounts.register_user(%{tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()})
+      # In a single deployment, schema context is implicit - only email is required
+      {:error, error} = Accounts.register_user(%{})
 
       # Ash returns Ash.Error, not Ecto.Changeset
       assert has_error?(error, :email)
     end
 
     test "validates email when given" do
-      {:error, error} =
-        Accounts.register_user(%{
-          email: "not valid",
-          tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()
-        })
+      {:error, error} = Accounts.register_user(%{email: "not valid"})
 
       assert has_error?(error, :email)
     end
@@ -72,23 +68,15 @@ defmodule ServiceRadarWebNG.AccountsTest do
     test "validates email uniqueness" do
       %{email: email} = user_fixture()
 
-      {:error, error} =
-        Accounts.register_user(%{
-          email: email,
-          tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()
-        })
+      {:error, error} = Accounts.register_user(%{email: email})
 
-      # Per-tenant uniqueness constraint reports field as :tenant_id, global reports :email
-      assert has_error?(error, :email) or has_error?(error, :tenant_id)
+      # Email uniqueness constraint
+      assert has_error?(error, :email)
 
       # Now try with the uppercased email too, to check that email case is ignored.
-      {:error, error} =
-        Accounts.register_user(%{
-          email: String.upcase(to_string(email)),
-          tenant_id: ServiceRadarWebNG.DataCase.test_tenant_id()
-        })
+      {:error, error} = Accounts.register_user(%{email: String.upcase(to_string(email))})
 
-      assert has_error?(error, :email) or has_error?(error, :tenant_id)
+      assert has_error?(error, :email)
     end
 
     test "registers users without password" do

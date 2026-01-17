@@ -102,31 +102,12 @@ See also
 - [Configuration Basics -> Network Sweep](./configuration.md#network-sweep) for file-based config reference
 - [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
-## Tenant Workload Operator
+## Deployment Provisioning
 
-Kubernetes deployments use the tenant workload operator to provision per-tenant
-agent gateways and zen consumers whenever core emits tenant lifecycle events.
-The operator listens on the `TENANT_PROVISIONING` JetStream stream, reconciles
-per-tenant Deployments/Services, and requests tenant NATS credentials from the
-core API to populate Secrets.
-
-Key values:
-- `tenantWorkloadOperator.enabled`: enable the operator (default true).
-- `tenantWorkloadOperator.nats.url`: NATS endpoint for JetStream.
-- `tenantWorkloadOperator.coreApi.url`: core API base URL (defaults to the web-ng service).
-- `tenantWorkloadOperator.defaultWorkloads`: optional list of workloads to deploy when events omit `workloads`.
-- `tenantWorkloadOperator.gatewayReplicas`: default replicas for the agent-gateway template.
-- `tenantWorkloadOperator.tenantCredsSecretTemplate`: Secret name template for per-tenant NATS creds.
-- `tenantWorkloadOperator.resyncInterval`: how often to reconcile existing workload sets (default `5m`).
-
-The operator uses the `api-key` value from the `serviceradar-secrets` Secret to
-authenticate to the core API. Ensure the secret generator job has run before
-bootstrapping the operator.
-
-Tenant workload CRDs are installed from `helm/serviceradar/crds/` and default
-templates are rendered by `helm/serviceradar/templates/tenant-workload-templates.yaml`.
-The operator consumes tenant lifecycle events, writes a `TenantWorkloadSet` per
-tenant, and reconciles those sets with the `TenantWorkloadTemplate` definitions.
+ServiceRadar does not provision per-customer workloads from inside the Helm chart.
+Each deployment is self-contained. In managed environments, a separate control
+plane provisions namespaces, CNPG accounts, and NATS accounts, then installs the
+chart for that deployment.
 
 ## Mapper Service Settings
 

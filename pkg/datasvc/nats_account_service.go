@@ -563,7 +563,7 @@ resolver: {
 }
 
 // GetOperatorInfo returns the current operator status and public key.
-// Used to verify the operator is initialized before tenant operations.
+// Used to verify the operator is initialized before account operations.
 func (s *NATSAccountServer) GetOperatorInfo(
 	ctx context.Context,
 	_ *proto.GetOperatorInfoRequest,
@@ -598,12 +598,12 @@ func (s *NATSAccountServer) ensureInitialized() (*accounts.AccountSigner, error)
 	return s.signer, nil
 }
 
-// CreateTenantAccount generates new account NKeys and a signed account JWT.
+// CreateAccount generates new account NKeys and a signed account JWT.
 // The returned account_seed should be stored encrypted by the caller (Elixir/AshCloak).
-func (s *NATSAccountServer) CreateTenantAccount(
+func (s *NATSAccountServer) CreateAccount(
 	ctx context.Context,
-	req *proto.CreateTenantAccountRequest,
-) (*proto.CreateTenantAccountResponse, error) {
+	req *proto.CreateAccountRequest,
+) (*proto.CreateAccountResponse, error) {
 	if err := s.authorizeRequest(ctx); err != nil {
 		return nil, err
 	}
@@ -615,8 +615,8 @@ func (s *NATSAccountServer) CreateTenantAccount(
 		return nil, err
 	}
 
-	if req.GetTenantSlug() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
+	if req.GetAccountName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_name is required")
 	}
 
 	// Convert proto limits to domain model
@@ -644,19 +644,19 @@ func (s *NATSAccountServer) CreateTenantAccount(
 		})
 	}
 
-	result, err := signer.CreateTenantAccount(req.GetTenantSlug(), limits, mappings, exports)
+	result, err := signer.CreateAccount(req.GetAccountName(), limits, mappings, exports)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create tenant account: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to create account: %v", err)
 	}
 
-	return &proto.CreateTenantAccountResponse{
+	return &proto.CreateAccountResponse{
 		AccountPublicKey: result.AccountPublicKey,
 		AccountSeed:      result.AccountSeed, // Caller stores this encrypted
 		AccountJwt:       result.AccountJWT,
 	}, nil
 }
 
-// GenerateUserCredentials creates NATS user credentials for a tenant's account.
+// GenerateUserCredentials creates NATS user credentials for an account.
 // Requires the account_seed (from Elixir storage) to sign the user JWT.
 func (s *NATSAccountServer) GenerateUserCredentials(
 	ctx context.Context,
@@ -666,8 +666,8 @@ func (s *NATSAccountServer) GenerateUserCredentials(
 		return nil, err
 	}
 
-	if req.GetTenantSlug() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
+	if req.GetAccountName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_name is required")
 	}
 	if req.GetAccountSeed() == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_seed is required")
@@ -686,7 +686,7 @@ func (s *NATSAccountServer) GenerateUserCredentials(
 	}
 
 	creds, err := accounts.GenerateUserCredentials(
-		req.GetTenantSlug(),
+		req.GetAccountName(),
 		req.GetAccountSeed(),
 		req.GetUserName(),
 		credType,
@@ -727,8 +727,8 @@ func (s *NATSAccountServer) SignAccountJWT(
 		return nil, err
 	}
 
-	if req.GetTenantSlug() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tenant_slug is required")
+	if req.GetAccountName() == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_name is required")
 	}
 	if req.GetAccountSeed() == "" {
 		return nil, status.Error(codes.InvalidArgument, "account_seed is required")
@@ -771,7 +771,7 @@ func (s *NATSAccountServer) SignAccountJWT(
 	}
 
 	accountPublicKey, accountJWT, err := signer.SignAccountJWT(
-		req.GetTenantSlug(),
+		req.GetAccountName(),
 		req.GetAccountSeed(),
 		limits,
 		mappings,

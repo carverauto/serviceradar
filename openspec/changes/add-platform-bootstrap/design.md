@@ -31,7 +31,7 @@ ServiceRadar requires a "zero-config" first-install experience where the platfor
 
 - External secret management integration (Vault, AWS Secrets Manager) - future enhancement
 - Multi-admin bootstrap - single admin is sufficient for first login
-- Custom admin role configuration - super_admin only
+- Custom admin role configuration - admin only
 
 ## Decisions
 

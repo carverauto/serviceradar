@@ -167,21 +167,13 @@ config :serviceradar_core, :spiffe,
 # Agent gateway does not start the core database or Oban.
 # Cluster coordination is handled by core-elx; the gateway only joins.
 
+# Each deployment runs its own gateway; isolation is handled by infrastructure.
 config :serviceradar_core,
   repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "false") in ~w(true 1 yes),
   vault_enabled: false,
   datasvc_enabled: false,
   cluster_enabled: System.get_env("CLUSTER_ENABLED", "true") in ~w(true 1 yes),
-  cluster_coordinator: false,
-  platform_tenant_id:
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-      System.get_env("PLATFORM_TENANT_ID") ||
-      System.get_env("GATEWAY_TENANT_ID"),
-  platform_tenant_slug:
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-      System.get_env("PLATFORM_TENANT_SLUG") ||
-      System.get_env("GATEWAY_TENANT_SLUG") ||
-      "platform"
+  cluster_coordinator: false
 
 config :serviceradar_core, Oban, false
 

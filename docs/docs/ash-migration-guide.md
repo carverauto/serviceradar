@@ -81,25 +81,17 @@ ServiceRadar.Infrastructure.Agent
 
 ### Required Migrations
 
-1. **Tenants table** - Multi-tenancy support
-2. **Tenant schemas** - Tenant-scoped tables live under `tenant_<slug>` schemas
-3. **User role column** - Role-based access control
-4. **API tokens table** - Programmatic API access
+1. **Instance schema** - Core tables for the single-deployment setup
+2. **User role column** - Role-based access control
+3. **API tokens table** - Programmatic API access
 
 Run migrations:
 ```bash
 mix ash.migrate
 ```
 
-Run tenant schema migrations (schema-based multitenancy):
-```bash
-mix ash.migrate --migrations-path priv/repo/tenant_migrations
-```
-
 If you rely on core-elx startup migrations, `ServiceRadar.Cluster.StartupMigrations`
-will run both the public and tenant migration paths when
-`SERVICERADAR_CORE_RUN_MIGRATIONS=true`. Tenant migrations are applied across
-`Repo.all_tenants/0`, so ensure tenant schemas exist before enabling this in production.
+will run the configured migration path when `SERVICERADAR_CORE_RUN_MIGRATIONS=true`.
 
 ### Data Migrations
 
@@ -151,7 +143,7 @@ API_RATE_LIMIT=1000  # requests per minute
 
 ### AshCloak Key Persistence and Validation
 
-AshCloak encrypts sensitive fields at rest (tenant contact info, tenant CA private keys,
+AshCloak encrypts sensitive fields at rest (account contact info, platform CA private keys,
 NATS account seeds, operator seeds). These encrypted values are stored in CNPG and can
 only be decrypted with the same platform key. If the key changes or is lost, the data
 becomes unreadable.
@@ -172,7 +164,7 @@ raise a decryption error.
 ```bash
 cd web-ng
 # Ensure CNPG_* and CLOAK_KEY or CLOAK_KEY_FILE are set for this environment.
-mix run -e 'alias ServiceRadar.Identity.Tenant; q = Tenant |> Ash.Query.for_read(:read); IO.inspect(Ash.read!(q, authorize?: false) |> Enum.take(1))'
+mix run -e 'alias ServiceRadar.Integrations.IntegrationSource; q = IntegrationSource |> Ash.Query.for_read(:read); IO.inspect(Ash.read!(q, authorize?: false) |> Enum.take(1))'
 ```
 
 If you see AshCloak decryption errors, the platform key does not match the key used
@@ -246,11 +238,11 @@ LiveViews must pass the actor to Ash operations:
 ```elixir
 def mount(_params, _session, socket) do
   actor = socket.assigns.current_scope.user
-  tenant_id = actor.tenant_id
 
+  # Schema context is implicit from the deployment (PostgreSQL search_path)
   {:ok, devices} =
     ServiceRadar.Inventory.Device
-    |> Ash.Query.for_read(:list, %{}, actor: actor, tenant: tenant_id)
+    |> Ash.Query.for_read(:list, %{}, actor: actor)
     |> Ash.read()
 
   {:ok, assign(socket, devices: devices)}
@@ -287,8 +279,7 @@ defmodule MyTest do
   use ServiceRadarWebNG.AshTestHelpers
 
   test "creates device" do
-    tenant = tenant_fixture()
-    actor = admin_actor(tenant)
+    actor = admin_actor()
 
     {:ok, device} =
       ServiceRadar.Inventory.Device
@@ -296,7 +287,7 @@ defmodule MyTest do
         uid: "test-device",
         hostname: "test.local",
         type_id: 1
-      }, actor: actor, tenant: tenant.id)
+      }, actor: actor)
       |> Ash.create()
 
     assert device.uid == "test-device"
@@ -310,8 +301,7 @@ Test authorization policies:
 
 ```elixir
 test "viewer cannot create devices" do
-  tenant = tenant_fixture()
-  viewer = viewer_actor(tenant)
+  viewer = viewer_actor()
 
   assert {:error, %Ash.Error.Forbidden{}} =
     ServiceRadar.Inventory.Device
@@ -319,7 +309,7 @@ test "viewer cannot create devices" do
       uid: "test",
       hostname: "test.local",
       type_id: 1
-    }, actor: viewer, tenant: tenant.id)
+    }, actor: viewer)
     |> Ash.create()
 end
 ```

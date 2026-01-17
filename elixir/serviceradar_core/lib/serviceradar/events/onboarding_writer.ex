@@ -11,14 +11,11 @@ defmodule ServiceRadar.Events.OnboardingWriter do
 
   require Logger
 
-  @spec write(OnboardingEvent.t(), String.t() | nil) :: :ok | {:error, term()}
-  def write(_event, nil), do: {:error, :missing_tenant_schema}
-
-  def write(%OnboardingEvent{} = event, tenant_schema) do
-    with {:ok, package} <- load_package(event, tenant_schema),
-         {:ok, tenant_id} <- fetch_tenant_id(package) do
-      payload = build_event_attrs(event, package, tenant_id)
-      InternalLogPublisher.publish("onboarding", payload, tenant_id: tenant_id)
+  @spec write(OnboardingEvent.t()) :: :ok | {:error, term()}
+  def write(%OnboardingEvent{} = event) do
+    with {:ok, package} <- load_package(event) do
+      payload = build_event_attrs(event, package)
+      InternalLogPublisher.publish("onboarding", payload)
     end
   rescue
     e ->
@@ -26,27 +23,16 @@ defmodule ServiceRadar.Events.OnboardingWriter do
       {:error, e}
   end
 
-  defp load_package(event, tenant_schema) do
-    # Extract tenant_id from the schema name (format: "tenant_<uuid>")
-    tenant_id = extract_tenant_id_from_schema(tenant_schema)
-    actor = SystemActor.for_tenant(tenant_id, :onboarding_writer)
+  defp load_package(event) do
+    actor = SystemActor.system(:onboarding_writer)
 
-    case Ash.get(OnboardingPackage, event.package_id, tenant: tenant_schema, actor: actor) do
+    case Ash.get(OnboardingPackage, event.package_id, actor: actor) do
       {:ok, package} -> {:ok, package}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp extract_tenant_id_from_schema("tenant_" <> uuid), do: uuid
-  defp extract_tenant_id_from_schema(_), do: nil
-
-  defp fetch_tenant_id(%OnboardingPackage{tenant_id: tenant_id}) when is_binary(tenant_id) do
-    {:ok, tenant_id}
-  end
-
-  defp fetch_tenant_id(_), do: {:error, :missing_tenant_id}
-
-  defp build_event_attrs(event, package, tenant_id) do
+  defp build_event_attrs(event, package) do
     activity_id = OCSF.activity_log_update()
     {status_id, severity_id, log_name} = classify_event(event.event_type)
     message = build_message(event, package)
@@ -75,8 +61,7 @@ defmodule ServiceRadar.Events.OnboardingWriter do
       log_name: log_name,
       log_provider: "serviceradar.core",
       log_level: log_level_for_severity(severity_id),
-      unmapped: build_unmapped(event, package),
-      tenant_id: tenant_id
+      unmapped: build_unmapped(event, package)
     }
   end
 

@@ -12,150 +12,39 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   broadcasts when a caller subscribes to an interface or performs a particular
   action.
 
+  Each deployment serves a single account. Schema context is implicit from the
+  database connection's search_path, so we only need to track the authenticated user.
+
   Feel free to extend the fields on this struct to fit the needs of
   growing application requirements.
   """
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Identity.User
 
-  require Ash.Query
-
-  defstruct user: nil, active_tenant: nil, tenant_memberships: []
+  defstruct user: nil
 
   @doc """
   Creates a scope for the given user.
 
-  Preloads the tenant relationship for display in the UI.
-  Returns nil if no user is given.
+  Returns a scope struct with the user, or nil user if not authenticated.
+  The schema context is implicit from the PostgreSQL search_path.
   """
-  # Function header for default values
-  def for_user(user, opts \\ [])
+  def for_user(user, _opts \\ [])
 
-  def for_user(%User{} = user, opts) do
-    require Logger
-    require Ash.Query
-    active_tenant_id = Keyword.get(opts, :active_tenant_id)
-
-    # Use platform actor for scope building - this is a cross-tenant operation
-    # that needs to load user relationships and memberships
-    actor = SystemActor.platform(:scope)
-
-    # Load tenant separately - Tenant is a global resource, no tenant context needed
-    user_with_tenant = Ash.load!(user, [:tenant], actor: actor, tenant: nil)
-
-    # Load memberships separately by querying TenantMembership directly.
-    # TenantMembership uses attribute-based multitenancy (tenant_id column),
-    # so we query by user_id without any tenant context to avoid the
-    # schema-string-as-UUID filter error.
-    memberships =
-      ServiceRadar.Identity.TenantMembership
-      |> Ash.Query.filter(user_id == ^user.id)
-      |> Ash.Query.load(:tenant)
-      |> Ash.read!(actor: actor)
-
-    user_with_data = %{user_with_tenant | memberships: memberships}
-
-    # Determine active tenant: from opts, membership, or user's default tenant.
-    active_tenant = resolve_active_tenant(user_with_data, active_tenant_id)
-
-    %__MODULE__{
-      user: user_with_data,
-      active_tenant: active_tenant,
-      tenant_memberships: user_with_data.memberships || []
-    }
+  def for_user(%User{} = user, _opts) do
+    %__MODULE__{user: user}
   end
 
   # Also accept map-like users (for backwards compatibility during transition)
-  def for_user(%{id: _, email: _} = user, opts) do
-    active_tenant_id =
-      Keyword.get(opts, :active_tenant_id) ||
-        Map.get(user, :tenant_id) ||
-        Map.get(user, "tenant_id")
-
-    active_tenant = fetch_tenant_by_id(active_tenant_id)
-
-    %__MODULE__{user: user, active_tenant: active_tenant, tenant_memberships: []}
+  def for_user(%{id: _, email: _} = user, _opts) do
+    %__MODULE__{user: user}
   end
 
-  def for_user(nil, _opts), do: %__MODULE__{user: nil, active_tenant: nil, tenant_memberships: []}
+  def for_user(nil, _opts), do: %__MODULE__{user: nil}
 
   @doc """
-  Returns the active tenant ID for use in Ash queries.
+  Returns true if the user has admin role.
   """
-  def tenant_id(%__MODULE__{active_tenant: %{id: id}}), do: id
-  def tenant_id(%__MODULE__{user: %{tenant_id: id}}), do: id
-  def tenant_id(_), do: nil
-
-  @doc """
-  Returns true if the user is a platform admin.
-
-  Platform admin access requires:
-  1. User has super_admin role
-  2. User is associated to the platform tenant (active tenant or membership)
-
-  This avoids hard-coding tenant slugs and ensures platform owners retain
-  visibility even when their active tenant is not the platform tenant.
-  """
-  def platform_admin?(%{
-        user: %{role: :super_admin},
-        active_tenant: active_tenant,
-        tenant_memberships: memberships
-      }) do
-    platform_active? =
-      case active_tenant do
-        %{is_platform_tenant: true} -> true
-        _ -> false
-      end
-
-    platform_member? =
-      Enum.any?(memberships || [], fn membership ->
-        case membership.tenant do
-          %{is_platform_tenant: true} -> true
-          _ -> false
-        end
-      end)
-
-    platform_active? || platform_member?
-  end
-
-  def platform_admin?(_), do: false
-
-  defp resolve_active_tenant(user_with_data, active_tenant_id) do
-    membership_tenant =
-      if active_tenant_id do
-        find_tenant_by_id(user_with_data.memberships, active_tenant_id)
-      end
-
-    membership_tenant ||
-      user_with_data.tenant ||
-      fetch_tenant_by_id(active_tenant_id || user_with_data.tenant_id)
-  end
-
-  defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
-    actor = SystemActor.platform(:scope)
-
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^tenant_id)
-    |> Ash.Query.select([:id, :slug, :name, :is_platform_tenant])
-    |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
-    end
-  end
-
-  defp fetch_tenant_by_id(_), do: nil
-
-  defp find_tenant_by_id(memberships, tenant_id) when is_list(memberships) do
-    Enum.find_value(memberships, fn membership ->
-      if to_string(membership.tenant_id) == to_string(tenant_id) do
-        membership.tenant
-      end
-    end)
-  end
-
-  defp find_tenant_by_id(_, _), do: nil
+  def admin?(%{user: %{role: :admin}}), do: true
+  def admin?(_), do: false
 end

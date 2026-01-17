@@ -2,7 +2,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   @moduledoc """
   Publishes infrastructure state logs to NATS JetStream for promotion.
 
-  Logs are published to tenant-scoped subjects following the pattern:
+  Logs are published to subjects following the pattern:
   `logs.internal.infrastructure.{event_type}`
 
   ## Event Types
@@ -20,7 +20,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
     "class_uid": 1008,
     "activity_id": 3,
     "message": "Gateway gateway-123 changed from healthy to degraded",
-    "tenant_id": "uuid",
     "log_name": "infra.state_change",
     "log_provider": "serviceradar.core",
     "timestamp": "2024-01-01T00:00:00Z"
@@ -33,8 +32,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       EventPublisher.publish_state_change(
         entity_type: :gateway,
         entity_id: "gateway-123",
-        tenant_id: tenant.id,
-        tenant_slug: tenant.slug,
         old_state: :healthy,
         new_state: :degraded,
         reason: :heartbeat_timeout
@@ -44,7 +41,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
       EventPublisher.on_state_transition(gateway, :healthy, :degraded, %{})
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.OCSF
 
@@ -63,8 +59,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   - `:entity_type` - The type of entity (required)
   - `:entity_id` - The entity's unique identifier (required)
-  - `:tenant_id` - The tenant UUID (required)
-  - `:tenant_slug` - The tenant slug for subject routing (required)
   - `:old_state` - Previous state (required)
   - `:new_state` - New state (required)
   - `:reason` - Why the state changed (optional)
@@ -75,8 +69,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   def publish_state_change(opts) do
     entity_type = Keyword.fetch!(opts, :entity_type)
     entity_id = Keyword.fetch!(opts, :entity_id)
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-    tenant_slug = Keyword.fetch!(opts, :tenant_slug)
     old_state = Keyword.fetch!(opts, :old_state)
     new_state = Keyword.fetch!(opts, :new_state)
     reason = Keyword.get(opts, :reason)
@@ -88,7 +80,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         :state_change,
         entity_type,
         entity_id,
-        tenant_id,
         partition_id,
         %{
           old_state: to_string(old_state),
@@ -98,7 +89,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:state_change, payload, tenant_id, tenant_slug)
+    publish_log(:state_change, payload)
   end
 
   @doc """
@@ -121,40 +112,24 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   def on_state_transition(record, old_state, new_state, context \\ %{}) do
     entity_type = entity_type_from_record(record)
     entity_id = entity_id_from_record(record)
-    tenant_id = Map.get(record, :tenant_id)
-
-    # Try to get tenant_slug from context or lookup
-    tenant_slug = context[:tenant_slug] || lookup_tenant_slug(tenant_id)
     partition_id = Map.get(record, :partition_id)
 
-    if tenant_id && tenant_slug do
-      publish_state_change(
-        entity_type: entity_type,
-        entity_id: entity_id,
-        tenant_id: tenant_id,
-        tenant_slug: tenant_slug,
-        partition_id: partition_id,
-        old_state: old_state,
-        new_state: new_state,
-        reason: context[:reason],
-        metadata: context[:metadata] || %{}
-      )
-    else
-      Logger.warning("Cannot publish state change log: missing tenant info",
-        entity_type: entity_type,
-        entity_id: entity_id
-      )
-
-      {:error, :missing_tenant}
-    end
+    publish_state_change(
+      entity_type: entity_type,
+      entity_id: entity_id,
+      partition_id: partition_id,
+      old_state: old_state,
+      new_state: new_state,
+      reason: context[:reason],
+      metadata: context[:metadata] || %{}
+    )
   end
 
   @doc """
   Publishes a registration log when a new entity is registered.
   """
-  @spec publish_registered(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
-          :ok | {:error, term()}
-  def publish_registered(entity_type, entity_id, tenant_id, tenant_slug, opts \\ []) do
+  @spec publish_registered(entity_type(), String.t(), keyword()) :: :ok | {:error, term()}
+  def publish_registered(entity_type, entity_id, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id)
     metadata = Keyword.get(opts, :metadata, %{})
     initial_state = Keyword.get(opts, :initial_state)
@@ -164,21 +139,19 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         :registered,
         entity_type,
         entity_id,
-        tenant_id,
         partition_id,
         %{initial_state: initial_state && to_string(initial_state)},
         metadata
       )
 
-    publish_log(:registered, payload, tenant_id, tenant_slug)
+    publish_log(:registered, payload)
   end
 
   @doc """
   Publishes a deregistration log when an entity is removed.
   """
-  @spec publish_deregistered(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
-          :ok | {:error, term()}
-  def publish_deregistered(entity_type, entity_id, tenant_id, tenant_slug, opts \\ []) do
+  @spec publish_deregistered(entity_type(), String.t(), keyword()) :: :ok | {:error, term()}
+  def publish_deregistered(entity_type, entity_id, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id)
     metadata = Keyword.get(opts, :metadata, %{})
     final_state = Keyword.get(opts, :final_state)
@@ -189,21 +162,19 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         :deregistered,
         entity_type,
         entity_id,
-        tenant_id,
         partition_id,
         %{final_state: final_state && to_string(final_state), reason: reason},
         metadata
       )
 
-    publish_log(:deregistered, payload, tenant_id, tenant_slug)
+    publish_log(:deregistered, payload)
   end
 
   @doc """
   Publishes a heartbeat timeout log.
   """
-  @spec publish_heartbeat_timeout(entity_type(), String.t(), String.t(), String.t(), keyword()) ::
-          :ok | {:error, term()}
-  def publish_heartbeat_timeout(entity_type, entity_id, tenant_id, tenant_slug, opts \\ []) do
+  @spec publish_heartbeat_timeout(entity_type(), String.t(), keyword()) :: :ok | {:error, term()}
+  def publish_heartbeat_timeout(entity_type, entity_id, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id)
     metadata = Keyword.get(opts, :metadata, %{})
     last_seen = Keyword.get(opts, :last_seen)
@@ -214,7 +185,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         :heartbeat_timeout,
         entity_type,
         entity_id,
-        tenant_id,
         partition_id,
         %{
           last_seen: last_seen && DateTime.to_iso8601(last_seen),
@@ -223,15 +193,15 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         metadata
       )
 
-    publish_log(:heartbeat_timeout, payload, tenant_id, tenant_slug)
+    publish_log(:heartbeat_timeout, payload)
   end
 
   @doc """
   Publishes a health change log (without full state transition).
   """
-  @spec publish_health_change(entity_type(), String.t(), String.t(), String.t(), boolean(), keyword()) ::
+  @spec publish_health_change(entity_type(), String.t(), boolean(), keyword()) ::
           :ok | {:error, term()}
-  def publish_health_change(entity_type, entity_id, tenant_id, tenant_slug, is_healthy, opts \\ []) do
+  def publish_health_change(entity_type, entity_id, is_healthy, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id)
     metadata = Keyword.get(opts, :metadata, %{})
     reason = Keyword.get(opts, :reason)
@@ -241,13 +211,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
         :health_change,
         entity_type,
         entity_id,
-        tenant_id,
         partition_id,
         %{is_healthy: is_healthy, reason: reason},
         metadata
       )
 
-    publish_log(:health_change, payload, tenant_id, tenant_slug)
+    publish_log(:health_change, payload)
   end
 
   @doc """
@@ -264,7 +233,7 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
 
   # Private functions
 
-  defp build_log_payload(event_type, entity_type, entity_id, tenant_id, partition_id, data, metadata) do
+  defp build_log_payload(event_type, entity_type, entity_id, partition_id, data, metadata) do
     activity_id = activity_for_event(event_type)
     severity_id = severity_for_event(event_type, data)
     status_id = status_for_event(event_type, data)
@@ -301,15 +270,14 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
           "partition_id" => partition_id
         }
         |> Map.merge(stringify_keys(data))
-        |> Map.merge(stringify_keys(metadata || %{})),
-      tenant_id: tenant_id
+        |> Map.merge(stringify_keys(metadata || %{}))
     }
   end
 
-  defp publish_log(event_type, payload, tenant_id, tenant_slug) do
+  defp publish_log(event_type, payload) do
     subject = "infrastructure.#{event_type}"
 
-    case InternalLogPublisher.publish(subject, payload, tenant_id: tenant_id, tenant_slug: tenant_slug) do
+    case InternalLogPublisher.publish(subject, payload) do
       :ok ->
         :telemetry.execute(
           [:serviceradar, :infrastructure, :log_published],
@@ -437,25 +405,4 @@ defmodule ServiceRadar.Infrastructure.EventPublisher do
   defp entity_id_from_record(%ServiceRadar.Infrastructure.Checker{id: id}), do: to_string(id)
   defp entity_id_from_record(%{id: id}), do: to_string(id)
   defp entity_id_from_record(_), do: nil
-
-  defp lookup_tenant_slug(nil), do: nil
-
-  defp lookup_tenant_slug(tenant_id) do
-    # Try to lookup tenant slug from cache or database
-    # This is a fallback - prefer passing tenant_slug in context
-    require Ash.Query
-
-    # Platform actor since we need to lookup tenant metadata
-    actor = SystemActor.platform(:event_publisher)
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(actor: actor) do
-      {:ok, [tenant | _]} -> to_string(tenant.slug)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
 end

@@ -21,7 +21,6 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNotifier do
     action = normalize_action(action_name, action_type)
 
     AuditWriter.write_async(
-      tenant_id: record.tenant_id,
       action: action,
       resource_type: "integration_source",
       resource_id: record.id,

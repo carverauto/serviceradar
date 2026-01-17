@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/tenant"
 )
 
 const (
@@ -25,13 +23,6 @@ const (
 	ocsfActivityLogCreate      = 1
 	ocsfVersion                = "1.7.0"
 	ocsfEventsSubject          = "events.ocsf.processed"
-
-	// EnvNATSTenantPrefixEnabled is the environment variable to enable tenant prefixing.
-	// When set to "true", all NATS subjects will be prefixed with the tenant slug.
-	EnvNATSTenantPrefixEnabled = "NATS_TENANT_PREFIX_ENABLED"
-
-	// DefaultTenant is used when no tenant is found in context and prefixing is enabled.
-	DefaultTenant = "default"
 
 	// Severity name constants for OCSF events.
 	severityInformational = "Informational"
@@ -50,19 +41,12 @@ var (
 	ErrEventPayloadNil = errors.New("event payload is nil")
 )
 
-// IsTenantPrefixEnabled returns true if NATS tenant prefixing is enabled via environment.
-func IsTenantPrefixEnabled() bool {
-	val := os.Getenv(EnvNATSTenantPrefixEnabled)
-	return val == "true" || val == "1" || val == "yes"
-}
-
 // EventPublisher provides methods for publishing OCSF events to NATS JetStream.
 type EventPublisher struct {
-	js              jetstream.JetStream
-	stream          string
-	subjects        []string
-	logger          zerolog.Logger
-	tenantPrefixing bool // Whether to prefix subjects with tenant slug
+	js       jetstream.JetStream
+	stream   string
+	subjects []string
+	logger   zerolog.Logger
 }
 
 type ocsfEvent struct {
@@ -94,41 +78,16 @@ type ocsfEvent struct {
 	LogVersion   string           `json:"log_version,omitempty"`
 	Unmapped     map[string]any   `json:"unmapped,omitempty"`
 	RawData      string           `json:"raw_data,omitempty"`
-	TenantID     string           `json:"tenant_id,omitempty"`
 }
 
 // NewEventPublisher creates a new EventPublisher for the specified stream.
-// Tenant prefixing is automatically determined by the NATS_TENANT_PREFIX_ENABLED env var.
 func NewEventPublisher(js jetstream.JetStream, streamName string, subjects []string) *EventPublisher {
 	return &EventPublisher{
-		js:              js,
-		stream:          streamName,
-		subjects:        append([]string(nil), subjects...),
-		logger:          logger.WithComponent("natsutil.events"),
-		tenantPrefixing: IsTenantPrefixEnabled(),
+		js:       js,
+		stream:   streamName,
+		subjects: append([]string(nil), subjects...),
+		logger:   logger.WithComponent("natsutil.events"),
 	}
-}
-
-// NewEventPublisherWithPrefixing creates an EventPublisher with explicit tenant prefix control.
-func NewEventPublisherWithPrefixing(
-	js jetstream.JetStream, streamName string, subjects []string, enablePrefixing bool) *EventPublisher {
-	return &EventPublisher{
-		js:              js,
-		stream:          streamName,
-		subjects:        append([]string(nil), subjects...),
-		logger:          logger.WithComponent("natsutil.events"),
-		tenantPrefixing: enablePrefixing,
-	}
-}
-
-// IsTenantPrefixingEnabled returns whether tenant prefixing is enabled for this publisher.
-func (p *EventPublisher) IsTenantPrefixingEnabled() bool {
-	return p.tenantPrefixing
-}
-
-// SetTenantPrefixing enables or disables tenant prefixing.
-func (p *EventPublisher) SetTenantPrefixing(enabled bool) {
-	p.tenantPrefixing = enabled
 }
 
 // PublishGatewayHealthEvent publishes a gateway health event to the events stream.
@@ -153,7 +112,7 @@ func (p *EventPublisher) PublishGatewayHealthEvent(
 
 	severityID, severity := severityForState(data.CurrentState)
 	message := fmt.Sprintf("Gateway %s state %s -> %s", data.GatewayID, data.PreviousState, data.CurrentState)
-	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity)
 	event.Unmapped = gatewayHealthUnmapped(data)
 
 	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
@@ -223,7 +182,7 @@ func (p *EventPublisher) PublishDeviceLifecycleEvent(ctx context.Context, data *
 
 	severityID, severity := severityForLifecycle(data)
 	message := fmt.Sprintf("Device %s %s", data.DeviceID, data.Action)
-	event := buildOCSFEvent(message, data.Timestamp, severityID, severity, data.TenantID)
+	event := buildOCSFEvent(message, data.Timestamp, severityID, severity)
 	event.Unmapped = deviceLifecycleUnmapped(data)
 
 	return p.publishEvent(ctx, ocsfEventsSubject, event, event.ID)
@@ -234,21 +193,18 @@ func (p *EventPublisher) publishEvent(ctx context.Context, subject string, event
 		return ErrEventPayloadNil
 	}
 
-	// Apply tenant prefix if enabled
-	qualifiedSubject := p.applyTenantPrefix(ctx, subject)
-
 	eventBytes, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event %s: %w", eventID, err)
 	}
 
-	ack, err := p.js.Publish(ctx, qualifiedSubject, eventBytes)
+	ack, err := p.js.Publish(ctx, subject, eventBytes)
 	if err != nil && isStreamMissingErr(err) {
-		if ensureErr := p.ensureStream(ctx, qualifiedSubject); ensureErr != nil {
-			return fmt.Errorf("failed to ensure stream for %s: %w", qualifiedSubject, ensureErr)
+		if ensureErr := p.ensureStream(ctx, subject); ensureErr != nil {
+			return fmt.Errorf("failed to ensure stream for %s: %w", subject, ensureErr)
 		}
 
-		ack, err = p.js.Publish(ctx, qualifiedSubject, eventBytes)
+		ack, err = p.js.Publish(ctx, subject, eventBytes)
 	}
 
 	if err != nil {
@@ -257,26 +213,11 @@ func (p *EventPublisher) publishEvent(ctx context.Context, subject string, event
 
 	p.logger.Debug().
 		Str("event_id", eventID).
-		Str("subject", qualifiedSubject).
+		Str("subject", subject).
 		Uint64("sequence", ack.Sequence).
 		Msg("Published event")
 
 	return nil
-}
-
-// applyTenantPrefix adds the tenant prefix to a subject if prefixing is enabled.
-// Extracts tenant from context; falls back to DefaultTenant if not found.
-func (p *EventPublisher) applyTenantPrefix(ctx context.Context, subject string) string {
-	if !p.tenantPrefixing {
-		return subject
-	}
-
-	tenantSlug := tenant.SlugFromContext(ctx)
-	if tenantSlug == "" {
-		tenantSlug = DefaultTenant
-	}
-
-	return tenant.PrefixChannelWithSlug(tenantSlug, subject)
 }
 
 // ConnectWithEventPublisher creates a NATS connection with JetStream and returns an EventPublisher.
@@ -531,7 +472,7 @@ func isStreamMissingErr(err error) bool {
 		errors.Is(err, nats.ErrNoResponders)
 }
 
-func buildOCSFEvent(message string, eventTime time.Time, severityID int, severity string, tenantID string) *ocsfEvent {
+func buildOCSFEvent(message string, eventTime time.Time, severityID int, severity string) *ocsfEvent {
 	if eventTime.IsZero() {
 		eventTime = time.Now().UTC()
 	}
@@ -555,7 +496,6 @@ func buildOCSFEvent(message string, eventTime time.Time, severityID int, severit
 		Actor:        map[string]any{"app_name": "serviceradar-core"},
 		LogName:      ocsfEventsSubject,
 		LogProvider:  "serviceradar-core",
-		TenantID:     tenantID,
 	}
 }
 

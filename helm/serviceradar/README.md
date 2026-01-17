@@ -56,8 +56,8 @@ To deploy edge agents:
 
 **Security Model:**
 - Edge agents communicate only via gRPC (no ERTS/Erlang distribution)
-- mTLS with tenant-specific certificates provides identity verification
-- Tenant isolation is enforced at the registry and database levels
+- mTLS with deployment-issued certificates provides identity verification
+- Isolation is enforced by deployment boundaries and database credentials
 
 For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge-agents.md).
 

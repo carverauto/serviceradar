@@ -3,7 +3,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   Reusable configuration templates for agent configs.
 
   Templates define the schema and default values for a specific config type.
-  They can be tenant-specific or platform-wide (admin_only: true).
+  They can be instance-specific or admin-only (admin_only: true).
   """
 
   use Ash.Resource,
@@ -15,10 +15,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   postgres do
     table "agent_config_templates"
     repo ServiceRadar.Repo
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -35,7 +31,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
         :enabled
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do
@@ -66,17 +61,14 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage templates
+    # Admins can manage templates
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
@@ -89,7 +81,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # All authenticated users in tenant can read non-admin templates
+    # All authenticated users in the instance can read non-admin templates
     policy action_type(:read) do
       authorize_if expr(admin_only == false)
       authorize_if actor_attribute_equals(:role, :admin)
@@ -98,12 +90,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this template belongs to"
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -163,6 +149,6 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   end
 
   identities do
-    identity :unique_name_per_tenant_and_type, [:tenant_id, :name, :config_type]
+    identity :unique_name_and_type, [:name, :config_type]
   end
 end

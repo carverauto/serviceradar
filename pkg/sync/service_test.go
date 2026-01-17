@@ -459,7 +459,7 @@ func TestBuildGatewayStatusChunks(t *testing.T) {
 		Timestamp:       12345,
 	}
 
-	statusChunks := service.buildGatewayStatusChunks([]*proto.ResultsChunk{chunk}, "tenant-1", "tenant-slug")
+	statusChunks := service.buildGatewayStatusChunks([]*proto.ResultsChunk{chunk})
 	require.Len(t, statusChunks, 1)
 
 	statusChunk := statusChunks[0]
@@ -470,8 +470,6 @@ func TestBuildGatewayStatusChunks(t *testing.T) {
 	assert.Equal(t, syncServiceType, serviceStatus.ServiceType)
 	assert.Equal(t, syncResultsSource, serviceStatus.Source)
 	assert.Equal(t, payload, serviceStatus.Message)
-	assert.Equal(t, "tenant-1", serviceStatus.TenantId)
-	assert.Equal(t, "tenant-slug", serviceStatus.TenantSlug)
 	assert.Equal(t, chunk.Timestamp, statusChunk.Timestamp)
 	assert.Equal(t, chunk.ChunkIndex, statusChunk.ChunkIndex)
 	assert.Equal(t, chunk.TotalChunks, statusChunk.TotalChunks)
@@ -538,41 +536,6 @@ func TestBuildResultsChunksSizeBudget(t *testing.T) {
 	assert.Equal(t, len(devices), decodedCount)
 }
 
-func TestGroupSourcesByTenantScope(t *testing.T) {
-	ctx := context.Background()
-	log := logger.NewTestLogger()
-
-	config := &Config{
-		AgentID:      "test-agent",
-		TenantID:     "tenant-default",
-		TenantSlug:   "default",
-		ListenAddr:   "localhost:0",
-		PollInterval: models.Duration(time.Minute),
-		Sources: map[string]*models.SourceConfig{
-			"source-a": {
-				Type:     "armis",
-				Endpoint: "https://example.com",
-			},
-		},
-	}
-
-	service, err := NewSimpleSyncService(ctx, config, map[string]IntegrationFactory{}, log)
-	require.NoError(t, err)
-
-	t.Run("platform scope requires tenant ids", func(t *testing.T) {
-		grouped, slugs := service.groupSourcesByTenant(config.Sources, "platform")
-		assert.Empty(t, grouped)
-		assert.Empty(t, slugs)
-	})
-
-	t.Run("tenant scope defaults to service tenant", func(t *testing.T) {
-		grouped, slugs := service.groupSourcesByTenant(config.Sources, "tenant")
-		assert.Len(t, grouped, 1)
-		assert.Contains(t, grouped, "tenant-default")
-		assert.Equal(t, "default", slugs["tenant-default"])
-	})
-}
-
 func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -621,7 +584,7 @@ func TestSourceSpecificNetworkBlacklist(t *testing.T) {
 
 	// Run discovery
 	ctx := context.Background()
-	allDeviceUpdates, discoveryErrors := service.runDiscoveryForIntegrations(ctx, "", "", service.sources)
+	allDeviceUpdates, discoveryErrors := service.runDiscoveryForIntegrations(ctx, service.sources)
 	require.Empty(t, discoveryErrors)
 
 	// Verify that results were filtered

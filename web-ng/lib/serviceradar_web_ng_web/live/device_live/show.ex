@@ -5,7 +5,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -224,9 +223,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_tags_for_edit(nil), do: ""
   defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
+
   defp format_tags_for_edit(tags) when is_map(tags) do
     Enum.map_join(tags, "\n", fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
   end
+
   defp format_tags_for_edit(_), do: ""
 
   @impl true
@@ -253,7 +254,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <span class="font-mono text-xs">{@device_uid}</span>
           </:subtitle>
           <:actions>
-            <.ui_button :if={@can_edit and not @editing} phx-click="toggle_edit" variant="outline" size="sm">
+            <.ui_button
+              :if={@can_edit and not @editing}
+              phx-click="toggle_edit"
+              variant="outline"
+              size="sm"
+            >
               <.icon name="hero-pencil" class="size-4" /> Edit
             </.ui_button>
             <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
@@ -264,8 +270,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
-          <!-- View Mode -->
+          
+    <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
             class="rounded-xl border border-base-200 bg-base-100 shadow-sm p-4"
@@ -280,8 +286,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
-
-          <!-- Edit Mode -->
+          
+    <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
             class="rounded-xl border border-primary/30 bg-base-100 shadow-sm"
@@ -341,13 +347,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   </label>
                   <select name="device[type]" class="select select-bordered select-sm">
                     <option value="">Select type...</option>
-                    <option value="server" selected={@device_form[:type].value == "server"}>Server</option>
-                    <option value="workstation" selected={@device_form[:type].value == "workstation"}>Workstation</option>
-                    <option value="router" selected={@device_form[:type].value == "router"}>Router</option>
-                    <option value="switch" selected={@device_form[:type].value == "switch"}>Switch</option>
-                    <option value="firewall" selected={@device_form[:type].value == "firewall"}>Firewall</option>
-                    <option value="printer" selected={@device_form[:type].value == "printer"}>Printer</option>
-                    <option value="other" selected={@device_form[:type].value == "other"}>Other</option>
+                    <option value="server" selected={@device_form[:type].value == "server"}>
+                      Server
+                    </option>
+                    <option value="workstation" selected={@device_form[:type].value == "workstation"}>
+                      Workstation
+                    </option>
+                    <option value="router" selected={@device_form[:type].value == "router"}>
+                      Router
+                    </option>
+                    <option value="switch" selected={@device_form[:type].value == "switch"}>
+                      Switch
+                    </option>
+                    <option value="firewall" selected={@device_form[:type].value == "firewall"}>
+                      Firewall
+                    </option>
+                    <option value="printer" selected={@device_form[:type].value == "printer"}>
+                      Printer
+                    </option>
+                    <option value="other" selected={@device_form[:type].value == "other"}>
+                      Other
+                    </option>
                   </select>
                 </div>
 
@@ -396,7 +416,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <div class="form-control mt-4">
                 <label class="label py-1">
                   <span class="label-text text-xs font-medium">Tags</span>
-                  <span class="label-text-alt text-xs text-base-content/50">One per line (key or key=value)</span>
+                  <span class="label-text-alt text-xs text-base-content/50">
+                    One per line (key or key=value)
+                  </span>
                 </label>
                 <textarea
                   name="device[tags]"
@@ -2063,27 +2085,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp load_sweep_results(scope, ip) when is_binary(ip) do
     actor = build_sweep_actor(scope)
+    require Ash.Query
 
-    case get_sweep_tenant(scope) do
-      nil ->
+    query =
+      SweepHostResult
+      |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(10)
+
+    case Ash.read(query, authorize?: true) do
+      {:ok, results} when results != [] ->
+        %{results: results, total: length(results)}
+
+      _ ->
         nil
-
-      tenant ->
-        require Ash.Query
-
-        query =
-          SweepHostResult
-          |> Ash.Query.for_read(:by_ip, %{ip: ip}, actor: actor, tenant: tenant)
-          |> Ash.Query.sort(inserted_at: :desc)
-          |> Ash.Query.limit(10)
-
-        case Ash.read(query, authorize?: true) do
-          {:ok, results} when results != [] ->
-            %{results: results, total: length(results)}
-
-          _ ->
-            nil
-        end
     end
   end
 
@@ -2095,24 +2110,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
-    end
-  end
-
-  defp get_sweep_tenant(scope) do
-    case Scope.tenant_id(scope) do
-      nil -> nil
-      tenant_id -> ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
     end
   end
 
@@ -2215,40 +2221,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # ---------------------------------------------------------------------------
 
   # Extract the user from scope to use as actor for Ash operations
-  defp get_sweep_actor(%Scope{user: user}), do: user
-  defp get_sweep_actor(_), do: nil
+  defp get_profile_actor(%{user: user}) when not is_nil(user), do: user
+  defp get_profile_actor(_), do: nil
 
   defp load_sysmon_profile_info(scope, device_uid) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = get_profile_actor(scope)
 
-    if is_nil(tenant_id) do
-      {nil, []}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = get_sweep_actor(scope)
+    # Load available profiles (for reference)
+    available_profiles = load_available_profiles(actor)
 
-      # Load available profiles (for reference)
-      available_profiles = load_available_profiles(tenant_schema, actor)
+    # Resolve the effective profile via SRQL targeting
+    profile = SysmonCompiler.resolve_profile(device_uid, actor)
 
-      # Resolve the effective profile via SRQL targeting
-      profile = SysmonCompiler.resolve_profile(tenant_schema, device_uid, nil, actor)
+    # Determine source based on profile type
+    source =
+      cond do
+        is_nil(profile) -> "default"
+        profile.is_default -> "default"
+        not is_nil(profile.target_query) -> "srql"
+        true -> "default"
+      end
 
-      # Determine source based on profile type
-      source =
-        cond do
-          is_nil(profile) -> "default"
-          profile.is_default -> "default"
-          not is_nil(profile.target_query) -> "srql"
-          true -> "default"
-        end
+    profile_info = %{
+      profile: profile,
+      source: source
+    }
 
-      profile_info = %{
-        profile: profile,
-        source: source
-      }
-
-      {profile_info, available_profiles}
-    end
+    {profile_info, available_profiles}
   rescue
     e ->
       require Logger
@@ -2256,43 +2255,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {nil, []}
   end
 
-  defp load_available_profiles(tenant_schema, actor) do
-    case Ash.read(SysmonProfile, action: :list_available, actor: actor, tenant: tenant_schema) do
+  defp load_available_profiles(actor) do
+    case Ash.read(SysmonProfile, action: :list_available, actor: actor) do
       {:ok, profiles} -> profiles
       {:error, _} -> []
     end
   end
 
   # RBAC helper - check if user can edit devices
-  defp can_edit_device?(%Scope{user: %{role: role}} = scope) do
-    admin_role?(role) || membership_admin?(scope.active_tenant, scope.tenant_memberships)
+  defp can_edit_device?(%{user: %{role: role}}) do
+    admin_role?(role)
   end
 
   defp can_edit_device?(_), do: false
 
-  defp admin_role?(role), do: role in [:admin, :super_admin]
-
-  defp membership_admin?(%{id: tenant_id}, memberships) do
-    Enum.any?(memberships || [], fn membership ->
-      to_string(membership.tenant_id) == to_string(tenant_id) and
-        membership.role in [:admin, :owner]
-    end)
-  end
-
-  defp membership_admin?(_, _), do: false
+  defp admin_role?(role), do: role in [:admin]
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = build_device_actor(scope)
 
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
-
-      # Parse tags from newline-separated string to map
-      attrs = %{
+    # Parse tags from newline-separated string to map
+    attrs =
+      %{
         hostname: params["hostname"],
         ip: params["ip"],
         vendor_name: params["vendor_name"],
@@ -2302,16 +2287,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> Map.new()
 
-      # First get the device, then update it
-      case Device.get_by_uid(device_uid, actor: actor, tenant: tenant_schema) do
-        {:ok, device} ->
-          device
-          |> Ash.Changeset.for_update(:update, attrs)
-          |> Ash.update(actor: actor, tenant: tenant_schema)
+    # First get the device, then update it
+    case Device.get_by_uid(device_uid, actor: actor) do
+      {:ok, device} ->
+        device
+        |> Ash.Changeset.for_update(:update, attrs)
+        |> Ash.update(actor: actor)
 
-        {:error, _} = error ->
-          error
-      end
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -2321,16 +2305,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
     end
   end

@@ -9,31 +9,6 @@ global:
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
 
-# Per-tenant configuration for multi-tenant deployments
-# Each tenant can have its own intermediate CA for edge component certificates
-tenants: {}
-  # Example tenant configuration:
-  # acme-corp:
-  #   ca:
-  #     # Option 1: Inline CA certificate and key (for dev/simple deployments)
-  #     certificate: |
-  #       -----BEGIN CERTIFICATE-----
-  #       ...
-  #       -----END CERTIFICATE-----
-  #     privateKey: |
-  #       -----BEGIN RSA PRIVATE KEY-----
-  #       ...
-  #       -----END RSA PRIVATE KEY-----
-  #     chain: |
-  #       -----BEGIN CERTIFICATE-----
-  #       ... (tenant CA + root CA)
-  #       -----END CERTIFICATE-----
-  #
-  #     # Option 2: Reference an ExternalSecret (for production with Vault/AWS Secrets Manager)
-  #     # externalSecretRef:
-  #     #   name: tenant-acme-corp-ca-external
-  #     #   refreshInterval: 1h
-
 image:
   registryPullSecret: ghcr-io-cred
   tags:
@@ -53,7 +28,6 @@ image:
     trapd: *appTag
     flowgger: *appTag
     zen: *appTag
-    tenantWorkloadOperator: *appTag
     rperfClient: *appTag
     faker: *appTag
     rperfChecker: *appTag
@@ -75,51 +49,6 @@ natsCreds:
   platform: ""
   system: ""
   operator: ""
-tenantWorkloadOperator:
-  # Disabled by default for OSS single-tenant deployments.
-  # Enable only for SaaS multi-tenant deployments with Control Plane.
-  # The tenant-workload-operator is managed by serviceradar-web in SaaS mode.
-  enabled: false
-  replicas: 1
-  resyncInterval: "5m"
-  gatewayReplicas: 1
-  templates:
-    agentGateway:
-      repository: ghcr.io/carverauto/serviceradar-agent-gateway
-    zenConsumer:
-      repository: ghcr.io/carverauto/serviceradar-zen
-  image:
-    repository: ghcr.io/carverauto/serviceradar-tenant-workload-operator
-    tag: ""
-  nats:
-    url: "tls://serviceradar-nats:4222"
-    credsSecret: ""
-    credsKey: "operator.creds"
-    tls:
-      caFile: "/etc/serviceradar/certs/root.pem"
-      certFile: "/etc/serviceradar/certs/client.pem"
-      keyFile: "/etc/serviceradar/certs/client-key.pem"
-      serverName: "serviceradar-nats"
-  eventStream: "TENANT_PROVISIONING"
-  eventSubject: "serviceradar.tenants.lifecycle.>"
-  eventConsumer: "tenant-workload-operator"
-  eventBatch: 10
-  eventWait: "10s"
-  # Optional default workloads when tenant events omit workloads. Example: ["agent-gateway", "zen-consumer"].
-  defaultWorkloads: []
-  tenantCredsSecretTemplate: "serviceradar-tenant-%s-nats-creds"
-  tenantCertsPVC: ""
-  tenantCertsSecret: ""
-  coreApi:
-    url: "http://serviceradar-web-ng:4000"
-    apiKeySecret: ""
-    apiKeySecretKey: "api-key"
-  trustDomain: ""
-  spireSocketHostPath: ""
-  clusterCoreService: "serviceradar-core-elx-headless"
-  clusterCoreNodeBasename: "serviceradar_core"
-  kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
-  kubernetesNodeBasename: "serviceradar_agent_gateway"
 checkerTemplates:
   # Enable checker template seeding into KV for edge onboarding
   enabled: true
@@ -198,8 +127,13 @@ cnpg:
   port: 5432
   database: serviceradar
   username: serviceradar
+  # Schema for application data. The app user's search_path is set to this schema.
+  # For OSS single-deployment mode, use "platform" (default).
+  # The schema is created automatically during bootstrap.
+  schema: platform
   runtimeParams:
-    search_path: "public,ag_catalog,\\\"$user\\\""
+    # search_path is set automatically based on cnpg.schema
+    search_path: ""
   credentialsSecret: serviceradar-db-credentials
   sslmode: verify-full
   certDir: /etc/serviceradar/certs
@@ -245,8 +179,6 @@ agentGateway:
   gatewayId: "gateway-platform"
   partitionId: "default"
   domain: "default"
-  tenantId: "00000000-0000-0000-0000-000000000000"
-  tenantSlug: "platform"
   capabilities: "icmp,tcp,http,grpc"
   clusterStrategy: "dns"
   clusterCoreService: "serviceradar-core-elx-headless"

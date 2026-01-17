@@ -38,7 +38,6 @@ defmodule ServiceRadar.Monitoring.Alert do
   }
 
   alias ServiceRadar.Oban.AshObanQueueResolver
-  alias ServiceRadar.Oban.TenantList
 
   postgres do
     table "alerts"
@@ -78,8 +77,6 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   oban do
-    list_tenants TenantList
-
     triggers do
       # Scheduled trigger for auto-escalation of pending alerts
       trigger :auto_escalate do
@@ -112,10 +109,6 @@ defmodule ServiceRadar.Monitoring.Alert do
         worker_module_name SendNotificationsWorker
       end
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -198,8 +191,7 @@ defmodule ServiceRadar.Monitoring.Alert do
         :threshold_value,
         :comparison,
         :metadata,
-        :tags,
-        :tenant_id
+        :tags
       ]
 
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
@@ -307,57 +299,39 @@ defmodule ServiceRadar.Monitoring.Alert do
   policies do
     # Import common policy checks
 
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION: Alerts contain sensitive operational data
-    # Must NEVER leak to other tenants
-
-    # Read access: Must be authenticated AND in same tenant
+    # Read access: authenticated users with appropriate roles
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Trigger alerts: Operators/admins in same tenant
+    # Trigger alerts: Operators/admins
     policy action(:trigger) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Acknowledge/resolve: Operators/admins in same tenant
+    # Acknowledge/resolve: Operators/admins
     policy action([:acknowledge, :resolve, :record_notification, :update_metadata]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Escalate/suppress/reopen: Admins only, same tenant
+    # Escalate/suppress/reopen: Admins only
     policy action([:escalate, :suppress, :reopen]) do
-      authorize_if expr(
-                     ^actor(:role) == :admin and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Send notification: Operators/admins in same tenant, or AshOban (no actor)
+    # Send notification: Operators/admins, or AshOban (no actor)
     policy action(:send_notification) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow AshOban scheduler (no actor) to send notifications
       authorize_if always()
@@ -365,7 +339,6 @@ defmodule ServiceRadar.Monitoring.Alert do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -531,13 +504,6 @@ defmodule ServiceRadar.Monitoring.Alert do
       default []
       public? true
       description "Alert tags for filtering"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this alert belongs to"
     end
 
     create_timestamp :created_at

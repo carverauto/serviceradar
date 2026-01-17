@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.ServiceCheck
 
   require Logger
@@ -43,7 +42,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   @impl true
   def handle_params(%{"uid" => uid}, _uri, socket) do
-    # Load database record first (source of truth for tenant_id)
+    actor = socket.assigns.current_scope.user
+
+    # Load database record
     db_agent =
       case srql_module().query("in:agents uid:\"#{escape_value(uid)}\" limit:1") do
         {:ok, %{"results" => [agent | _]}} when is_map(agent) ->
@@ -53,8 +54,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           nil
       end
 
-    tenant_id = agent_tenant_id(db_agent, socket.assigns.current_scope)
-    live_agent = lookup_registry_agent(tenant_id, uid)
+    live_agent = lookup_registry_agent(uid)
 
     Logger.debug(
       "[AgentShow] Looking up agent uid=#{inspect(uid)}, live_agent=#{inspect(live_agent != nil)}"
@@ -113,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       end
 
     # Load service checks for this agent
-    checks = load_checks_for_agent(uid, socket.assigns.current_scope)
+    checks = load_checks_for_agent(uid, actor)
 
     {:noreply,
      socket
@@ -126,26 +126,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
   end
 
-  defp agent_tenant_id(db_agent, current_scope) do
-    cond do
-      is_map(db_agent) && Map.has_key?(db_agent, "tenant_id") ->
-        Map.get(db_agent, "tenant_id")
-
-      match?(%{active_tenant: %{id: _}}, current_scope) ->
-        current_scope.active_tenant.id
-
-      match?(%{user: %{tenant_id: _}}, current_scope) ->
-        current_scope.user.tenant_id
-
-      true ->
-        nil
-    end
-  end
-
-  defp lookup_registry_agent(nil, _uid), do: nil
-
-  defp lookup_registry_agent(tenant_id, uid) do
-    case ServiceRadar.AgentRegistry.lookup(tenant_id, uid) do
+  defp lookup_registry_agent(uid) do
+    case ServiceRadar.AgentRegistry.lookup(uid) do
       [{pid, metadata} | _] ->
         metadata
         |> Map.put(:pid, pid)
@@ -213,19 +195,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
-  defp load_checks_for_agent(agent_uid, current_scope) do
-    tenant_id =
-      case current_scope do
-        %{active_tenant: %{id: tid}} when not is_nil(tid) -> tid
-        %{user: %{tenant_id: tid}} when not is_nil(tid) -> tid
-        _ -> nil
-      end
-
-    actor = SystemActor.for_tenant(tenant_id, :agent_live)
-
+  defp load_checks_for_agent(agent_uid, actor) do
     case ServiceCheck
          |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
-         |> Ash.read(tenant: tenant_id, actor: actor) do
+         |> Ash.read(actor: actor) do
       {:ok, checks} -> checks
       {:error, _} -> []
     end

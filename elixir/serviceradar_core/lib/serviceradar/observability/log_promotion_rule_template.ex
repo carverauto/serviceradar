@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   @moduledoc """
-  Tenant-scoped templates for log promotion rule presets.
+  Templates for log promotion rule presets.
   """
 
   use Ash.Resource,
@@ -11,10 +11,6 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   postgres do
     table "log_promotion_rule_templates"
     repo ServiceRadar.Repo
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -51,36 +47,29 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
   end
 
   identities do
-    identity :unique_name, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action([:create, :update, :destroy]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -113,11 +102,6 @@ defmodule ServiceRadar.Observability.LogPromotionRuleTemplate do
     attribute :event, :map do
       default %{}
       public? true
-    end
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
     end
 
     create_timestamp :inserted_at

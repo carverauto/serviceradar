@@ -13,6 +13,7 @@ func TestConfigValidateRejectsBucketHistoryTooLarge(t *testing.T) {
 	cfg := &Config{
 		ListenAddr:    "127.0.0.1:0",
 		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		BucketHistory: math.MaxUint8 + 1,
 		Security: &models.SecurityConfig{
 			Mode: models.SecurityMode("mtls"),
@@ -39,8 +40,9 @@ func TestConfigValidateRejectsBucketHistoryTooLarge(t *testing.T) {
 
 func TestConfigValidateAllowsSPIFFE(t *testing.T) {
 	cfg := &Config{
-		ListenAddr: "127.0.0.1:0",
-		NATSURL:    "nats://127.0.0.1:4222",
+		ListenAddr:    "127.0.0.1:0",
+		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
 			Mode:           models.SecurityMode("spiffe"),
 			TrustDomain:    "example.org",
@@ -66,8 +68,9 @@ func TestConfigValidateAllowsSPIFFE(t *testing.T) {
 
 func TestConfigValidateRejectsUnknownSecurityMode(t *testing.T) {
 	cfg := &Config{
-		ListenAddr: "127.0.0.1:0",
-		NATSURL:    "nats://127.0.0.1:4222",
+		ListenAddr:    "127.0.0.1:0",
+		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
 			Mode: models.SecurityMode("bogus"),
 		},
@@ -88,8 +91,9 @@ func TestConfigValidateRejectsUnknownSecurityMode(t *testing.T) {
 
 func TestConfigValidateRequiresNATSSecurity(t *testing.T) {
 	cfg := &Config{
-		ListenAddr: "127.0.0.1:0",
-		NATSURL:    "nats://127.0.0.1:4222",
+		ListenAddr:    "127.0.0.1:0",
+		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
 			Mode: models.SecurityMode("mtls"),
 			TLS: models.TLSConfig{
@@ -107,8 +111,9 @@ func TestConfigValidateRequiresNATSSecurity(t *testing.T) {
 
 func TestConfigValidateRejectsNonMTLSNATSSecurity(t *testing.T) {
 	cfg := &Config{
-		ListenAddr: "127.0.0.1:0",
-		NATSURL:    "nats://127.0.0.1:4222",
+		ListenAddr:    "127.0.0.1:0",
+		NATSURL:       "nats://127.0.0.1:4222",
+		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
 			Mode: models.SecurityMode("mtls"),
 			TLS: models.TLSConfig{

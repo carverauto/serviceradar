@@ -8,7 +8,7 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 
 ## Prerequisites
 
-- Armis API client credentials with read access to your tenant.
+- Armis API client credentials with read access to your account.
 - A ServiceRadar agent with outbound connectivity to the Armis API.
 - Armis credentials stored in the integration config (managed through the UI or API).
 
@@ -33,5 +33,5 @@ ServiceRadar ingests Armis device intelligence to enrich inventory, surface unma
 ## Troubleshooting
 
 - Authentication failures usually mean expired client secrets—rotate them in the integration config and confirm the agent is online.
-- Large tenants may hit rate limits; tune `page_size` and enable incremental sync by storing the `last_seen` cursor.
+- Large accounts may hit rate limits; tune `page_size` and enable incremental sync by storing the `last_seen` cursor.
 - For ingestion gaps, consult the [Troubleshooting Guide](./troubleshooting-guide.md#armis) and cross-check Faker vs. production statistics.

@@ -24,7 +24,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   - NATS credentials file (.creds)
   - Collector configuration (collector-specific)
-  - mTLS certificates (from tenant CA)
+  - mTLS certificates (from deployment CA)
   - Installation instructions
   """
 
@@ -35,7 +35,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     extensions: [AshStateMachine, AshCloak]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.PubSub
 
   postgres do
@@ -63,10 +62,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       transition :install, from: :downloaded, to: :installed
       transition :revoke, from: [:ready, :downloaded, :installed], to: :revoked
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -162,17 +157,9 @@ defmodule ServiceRadar.Edge.CollectorPackage do
           __MODULE__.broadcast_created(package)
 
           # Enqueue async provisioning
-          case TenantSchemas.schema_for_id(package.tenant_id) do
-            nil ->
-              {:error, :tenant_schema_not_found}
-
-            tenant_schema ->
-              case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id,
-                     tenant_schema: tenant_schema
-                   ) do
-                {:ok, _job} -> {:ok, package}
-                {:error, reason} -> {:error, reason}
-              end
+          case ServiceRadar.Edge.Workers.ProvisionCollectorWorker.enqueue(package.id) do
+            {:ok, _job} -> {:ok, package}
+            {:error, reason} -> {:error, reason}
           end
         end)
       end
@@ -281,21 +268,18 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       end
 
       # After revoking the package, revoke the NATS credential and broadcast
+      # Schema isolation is handled by the DB connection's search_path
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
           if package.nats_credential_id do
-            tenant_schema = TenantSchemas.schema_for_tenant(package.tenant_id)
-            actor = SystemActor.for_tenant(package.tenant_id, :collector_package)
+            actor = SystemActor.system(:collector_package)
             case Ash.get(ServiceRadar.Edge.NatsCredential, package.nats_credential_id,
-                   tenant: tenant_schema,
                    actor: actor
                  ) do
               {:ok, credential} when not is_nil(credential) ->
                 credential
-                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"},
-                  tenant: tenant_schema
-                )
+                |> Ash.Changeset.for_update(:revoke, %{reason: "Package revoked"})
                 |> Ash.update(actor: actor)
 
               _ ->
@@ -314,42 +298,30 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   policies do
-    # Super admins can manage all packages
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's packages
+    # Admins can manage packages
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:create) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:revoke) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this package belongs to"
-    end
 
     attribute :collector_type, :atom do
       allow_nil? false
@@ -462,7 +434,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     attribute :ca_chain_pem, :string do
       allow_nil? true
       public? false
-      description "PEM-encoded CA certificate chain (tenant CA + root CA)"
+      description "PEM-encoded CA certificate chain (deployment CA + root CA)"
     end
 
     attribute :config_overrides, :map do
@@ -483,11 +455,6 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
       source_attribute :nats_credential_id
       allow_nil? true
@@ -509,7 +476,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
   end
 
   identities do
-    identity :unique_user_name_per_tenant, [:tenant_id, :user_name]
+    identity :unique_user_name, [:user_name]
   end
 
   # PubSub broadcast helpers - delegates to ServiceRadar.Edge.PubSub

@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
   defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
 
   defp parse_bundle_pem(bundle_pem) when is_binary(bundle_pem) do
-    # The bundle format from create_with_tenant_cert is:
+    # The bundle format from create_with_platform_cert is:
     # # Component Certificate
     # -----BEGIN CERTIFICATE-----
     # ...
@@ -394,7 +394,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     **Delivered via GetConfig:**
     - Monitoring checks and schedules
     - Sweep configurations
-    - Tenant-specific settings
+    - Deployment-specific settings
 
     ## Quick Start
 

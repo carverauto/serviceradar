@@ -30,10 +30,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_active, action: :active
@@ -146,12 +142,7 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -178,7 +169,6 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -260,13 +250,6 @@ defmodule ServiceRadar.Identity.ApiToken do
     attribute :created_at, :utc_datetime do
       public? true
       description "When token was created"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this token belongs to"
     end
 
     # User who created the token

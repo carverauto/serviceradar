@@ -884,7 +884,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp service_name_value(_), do: nil
 
-  # Extract scope from socket for Ash policy enforcement (includes actor and tenant)
+  # Extract scope from socket for Ash policy enforcement (includes actor)
   defp get_scope(socket) do
     Map.get(socket.assigns, :current_scope)
   end

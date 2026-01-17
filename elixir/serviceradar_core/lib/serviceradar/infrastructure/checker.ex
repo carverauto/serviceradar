@@ -30,10 +30,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   state_machine do
     initial_states [:active, :paused, :disabled]
     default_initial_state :active
@@ -223,46 +219,32 @@ defmodule ServiceRadar.Infrastructure.Checker do
   policies do
     # Import common policy checks
 
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION: All operations require tenant match
-    # Checkers belong to a tenant and must not be accessible cross-tenant
-
-    # Read access: Must be authenticated AND in same tenant
+    # Read access
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create checkers: Operators/admins, enforces tenant from context
+    # Create checkers
     policy action(:create) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Update/enable/disable: Operators/admins in same tenant
+    # Update/enable/disable
     policy action([:update, :enable, :disable]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -375,12 +357,6 @@ defmodule ServiceRadar.Infrastructure.Checker do
       description "When checker was last updated"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this checker belongs to"
-    end
   end
 
   relationships do

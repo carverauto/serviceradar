@@ -17,7 +17,6 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
       {:ok, pid} = ServiceRadar.Edge.GatewayProcess.start_link(
         gateway_id: "gateway-uuid",
-        tenant_id: "tenant-uuid",
         partition_id: "partition-1"
       )
   """
@@ -32,8 +31,8 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   @type state :: %{
           gateway_id: String.t(),
-          tenant_id: String.t(),
           partition_id: String.t(),
+          domain: String.t() | nil,
           status: :idle | :executing,
           current_job: map() | nil,
           metrics: map()
@@ -150,13 +149,11 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def init(opts) do
     gateway_id = Keyword.fetch!(opts, :gateway_id)
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.get(opts, :partition_id, "default")
     domain = Keyword.get(opts, :domain)
 
     state = %{
       gateway_id: gateway_id,
-      tenant_id: tenant_id,
       partition_id: partition_id,
       domain: domain,
       status: :idle,
@@ -175,7 +172,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
     # Schedule health checks
     schedule_health_check()
 
-    Logger.info("Gateway #{gateway_id} started for tenant #{tenant_id}/#{partition_id}")
+    Logger.info("Gateway #{gateway_id} started for partition #{partition_id}")
 
     {:ok, state}
   end
@@ -223,8 +220,8 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   def handle_call(:status, _from, state) do
     status = %{
       gateway_id: state.gateway_id,
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
+      domain: state.domain,
       status: state.status,
       metrics: state.metrics
     }
@@ -245,7 +242,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def handle_info(:health_check, state) do
     # Update registry heartbeat + status so the scheduler has accurate availability
-    GatewayRegistry.update_value(state.tenant_id, state.gateway_id, fn meta ->
+    GatewayRegistry.update_value(state.gateway_id, fn meta ->
       base =
         case meta do
           m when is_map(m) -> m
@@ -263,7 +260,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
   @impl true
   def terminate(reason, state) do
     Logger.info("Gateway #{state.gateway_id} terminating: #{inspect(reason)}")
-    GatewayRegistry.unregister_gateway(state.tenant_id, state.gateway_id)
+    GatewayRegistry.unregister_gateway(state.gateway_id)
     :ok
   end
 
@@ -282,7 +279,6 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   defp register_gateway(state) do
     gateway_info = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       domain: state.domain,
       status: registry_status(state.status)
@@ -319,17 +315,17 @@ defmodule ServiceRadar.Edge.GatewayProcess do
     agents =
       if domain do
         # Try domain-based selection first
-        domain_agents = AgentRegistry.find_agents_for_domain(state.tenant_id, domain)
+        domain_agents = AgentRegistry.find_agents_for_domain(domain)
 
         if Enum.empty?(domain_agents) do
           # Fall back to partition-based selection
-          AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+          AgentRegistry.find_agents_for_partition(state.partition_id)
         else
           domain_agents
         end
       else
         # Use partition-based selection
-        AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+        AgentRegistry.find_agents_for_partition(state.partition_id)
       end
 
     # Filter to connected agents and pick one
@@ -457,7 +453,7 @@ defmodule ServiceRadar.Edge.GatewayProcess do
 
   defp find_agent_by_uid(state, agent_uid) do
     # Look up agents in the partition by UID
-    agents = AgentRegistry.find_agents_for_partition(state.tenant_id, state.partition_id)
+    agents = AgentRegistry.find_agents_for_partition(state.partition_id)
 
     Enum.find(agents, fn agent ->
       agent[:agent_id] == agent_uid or agent[:uid] == agent_uid

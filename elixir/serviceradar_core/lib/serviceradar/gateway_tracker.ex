@@ -1,10 +1,9 @@
 defmodule ServiceRadar.GatewayTracker do
   @moduledoc """
-  Platform-level tracker for agent gateways.
+  Instance-level tracker for agent gateways.
 
-  Unlike tenant-scoped registries, gateways are platform infrastructure that
-  serve all tenants. This tracker maintains a platform-wide view of all
-  registered gateways using ETS and PubSub for cluster-wide visibility.
+  This tracker maintains a local view of gateways within the instance using
+  ETS and PubSub for cluster-wide visibility.
 
   ## Usage
 

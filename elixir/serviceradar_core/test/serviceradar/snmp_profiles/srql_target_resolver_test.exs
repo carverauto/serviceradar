@@ -12,7 +12,6 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
@@ -24,48 +23,40 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert Code.ensure_loaded?(SrqlTargetResolver)
     end
 
-    test "exports resolve_for_device/3" do
-      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 3)
+    test "exports resolve_for_device/2" do
+      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 2)
     end
   end
 
-  describe "resolve_for_device/3 validation" do
-    test "returns error for nil device_uid" do
-      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device("tenant_test", nil, nil)
+  describe "resolve_for_device/2 validation" do
+    test "returns ok nil for nil device_uid" do
+      assert {:ok, nil} = SrqlTargetResolver.resolve_for_device(nil, nil)
     end
 
     test "returns error for invalid device_uid format" do
       actor = %{role: :system}
-      result = SrqlTargetResolver.resolve_for_device("tenant_test", "not-a-uuid", actor)
+      result = SrqlTargetResolver.resolve_for_device("not-a-uuid", actor)
       assert {:error, :invalid_device_uid} = result
     end
 
     test "returns error for malformed UUID" do
       actor = %{role: :system}
-      result = SrqlTargetResolver.resolve_for_device("tenant_test", "12345", actor)
+      result = SrqlTargetResolver.resolve_for_device("12345", actor)
       assert {:error, :invalid_device_uid} = result
     end
   end
 
-  describe "resolve_for_device/3 with profiles" do
+  describe "resolve_for_device/2 with profiles" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-resolver")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
-    test "returns nil when no targeting profiles exist", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "returns nil when no targeting profiles exist" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a default profile (not a targeting profile)
       {:ok, _default_profile} =
@@ -73,24 +64,20 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Default Profile", is_default: true},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
       device_uid = Ecto.UUID.generate()
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, nil} = result
     end
 
     @tag :integration
-    test "matches device with hostname query", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "matches device with hostname query" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -106,8 +93,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -121,24 +107,20 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             target_query: "in:devices hostname:test-router-01",
             priority: 10
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       assert matched_profile.id == profile.id
     end
 
     @tag :integration
-    test "returns nil when device does not match query", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "returns nil when device does not match query" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a device with different hostname
       device_uid = Ecto.UUID.generate()
@@ -154,8 +136,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -169,23 +150,19 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             target_query: "in:devices hostname:router-*",
             priority: 10
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, nil} = result
     end
 
     @tag :integration
-    test "resolves by priority - higher priority wins", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "resolves by priority - higher priority wins" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -201,8 +178,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -216,8 +192,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             target_query: "in:devices hostname:*-router-*",
             priority: 5
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -231,12 +206,11 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             target_query: "in:devices hostname:core-*",
             priority: 20
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       # High priority profile should be returned
@@ -245,12 +219,9 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "skips disabled profiles", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "skips disabled profiles" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -266,8 +237,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -282,8 +252,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             priority: 10,
             enabled: false
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -298,12 +267,11 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             priority: 5,
             enabled: true
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       # Should return the enabled profile, not the disabled one
@@ -311,12 +279,9 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
     end
 
     @tag :integration
-    test "skips profiles without target_query (non-targeting profiles)", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "skips profiles without target_query (non-targeting profiles)" do
+      # Schema determined by DB connection
+      actor = SystemActor.system(:test)
 
       # Create a device
       device_uid = Ecto.UUID.generate()
@@ -332,8 +297,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             created_time: DateTime.utc_now(),
             modified_time: DateTime.utc_now()
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -346,8 +310,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             name: "Manual Assignment Only",
             priority: 100
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -361,12 +324,11 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
             target_query: "in:devices hostname:device-*",
             priority: 10
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
-      result = SrqlTargetResolver.resolve_for_device(schema, device_uid, actor)
+      result = SrqlTargetResolver.resolve_for_device(device_uid, actor)
 
       assert {:ok, matched_profile} = result
       assert matched_profile.id == targeting_profile.id

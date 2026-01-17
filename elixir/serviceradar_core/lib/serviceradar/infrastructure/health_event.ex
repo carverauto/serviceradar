@@ -35,7 +35,7 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   3. Manual recording for external services
 
       # Record a health event
-      HealthEvent.record(:agent, "agent-uid", tenant_id, :healthy, :degraded,
+      HealthEvent.record(:agent, "agent-uid", :healthy, :degraded,
         reason: "high_latency",
         metadata: %{latency_ms: 500}
       )
@@ -43,10 +43,10 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   ## Querying History
 
       # Get health timeline for an entity
-      HealthEvent.timeline(:gateway, "gateway-001", tenant_id, last: 24, unit: :hour)
+      HealthEvent.timeline(:gateway, "gateway-001", last: 24, unit: :hour)
 
       # Get current health status
-      HealthEvent.current_status(:agent, "agent-uid", tenant_id)
+      HealthEvent.current_status(:agent, "agent-uid")
   """
 
   use Ash.Resource,
@@ -60,13 +60,8 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
 
     custom_indexes do
       index [:entity_type, :entity_id, :recorded_at]
-      index [:tenant_id, :recorded_at]
       index [:entity_type, :new_state, :recorded_at]
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -85,7 +80,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       accept [
         :entity_type,
         :entity_id,
-        :tenant_id,
         :old_state,
         :new_state,
         :reason,
@@ -99,9 +93,8 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
         # Calculate duration since last event for this entity
         entity_type = Ash.Changeset.get_attribute(changeset, :entity_type)
         entity_id = Ash.Changeset.get_attribute(changeset, :entity_id)
-        tenant_id = Ash.Changeset.get_attribute(changeset, :tenant_id)
 
-        case get_last_event(entity_type, entity_id, tenant_id) do
+        case get_last_event(entity_type, entity_id) do
           {:ok, %{recorded_at: last_recorded_at}} ->
             duration = DateTime.diff(DateTime.utc_now(), last_recorded_at, :second)
             Ash.Changeset.change_attribute(changeset, :duration_seconds, duration)
@@ -181,31 +174,27 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   end
 
   policies do
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read access: Must be in same tenant
+    # Read access: Authenticated users
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create: System/operator can record events
+    # Create: Operators/admins can record events
     policy action(:record) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -261,13 +250,6 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
       public? true
       description "Additional context (latency, error details, etc.)"
     end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this event belongs to"
-    end
   end
 
   calculations do
@@ -318,25 +300,20 @@ defmodule ServiceRadar.Infrastructure.HealthEvent do
   end
 
   # Helper function for duration calculation
-  defp get_last_event(entity_type, entity_id, tenant_id) do
+  defp get_last_event(entity_type, entity_id) do
     require Ash.Query
     alias ServiceRadar.Actors.SystemActor
 
-    if is_nil(tenant_id) or tenant_id == "" do
-      {:error, :tenant_id_missing}
-    else
-      # Tenant-scoped actor since we're querying within a specific tenant
-      actor = SystemActor.for_tenant(tenant_id, :health_event)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:health_event)
 
-      __MODULE__
-      |> Ash.Query.filter(
-        entity_type == ^entity_type and
-          entity_id == ^entity_id and
-          tenant_id == ^tenant_id
-      )
-      |> Ash.Query.sort(recorded_at: :desc)
-      |> Ash.Query.limit(1)
-      |> Ash.read_one(actor: actor)
-    end
+    __MODULE__
+    |> Ash.Query.filter(
+      entity_type == ^entity_type and
+        entity_id == ^entity_id
+    )
+    |> Ash.Query.sort(recorded_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
   end
 end

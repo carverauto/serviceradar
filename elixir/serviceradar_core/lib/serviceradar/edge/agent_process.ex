@@ -24,7 +24,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
       {:ok, pid} = ServiceRadar.Edge.AgentProcess.start_link(
         agent_id: "agent-uuid",
-        tenant_id: "tenant-uuid",
         partition_id: "partition-1",
         capabilities: [:icmp_sweep, :tcp_sweep]
       )
@@ -51,7 +50,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
   @type state :: %{
           agent_id: String.t(),
-          tenant_id: String.t(),
           partition_id: String.t(),
           capabilities: [atom()],
           channel: GRPC.Channel.t() | nil,
@@ -185,13 +183,11 @@ defmodule ServiceRadar.Edge.AgentProcess do
   @impl true
   def init(opts) do
     agent_id = Keyword.fetch!(opts, :agent_id)
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
     partition_id = Keyword.get(opts, :partition_id, "default")
     capabilities = Keyword.get(opts, :capabilities, [])
 
     state = %{
       agent_id: agent_id,
-      tenant_id: tenant_id,
       partition_id: partition_id,
       capabilities: capabilities,
       channel: nil,
@@ -208,7 +204,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
     # Schedule health checks
     schedule_health_check()
 
-    Logger.info("Agent #{agent_id} started for tenant #{tenant_id}/#{partition_id}")
+    Logger.info("Agent #{agent_id} started for partition #{partition_id}")
 
     {:ok, state}
   end
@@ -270,7 +266,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
   def handle_call(:status, _from, state) do
     status = %{
       agent_id: state.agent_id,
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       capabilities: state.capabilities,
       connected: state.connected,
@@ -345,7 +340,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
   def handle_info(:health_check, state) do
     if state.connected do
       # Update registry heartbeat
-      AgentRegistry.heartbeat(state.tenant_id, state.agent_id)
+      AgentRegistry.heartbeat(state.agent_id)
     end
 
     schedule_health_check()
@@ -362,7 +357,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
     end
 
     # Unregister from registry
-    AgentRegistry.unregister_agent(state.tenant_id, state.agent_id)
+    AgentRegistry.unregister_agent(state.agent_id)
 
     :ok
   end
@@ -388,12 +383,11 @@ defmodule ServiceRadar.Edge.AgentProcess do
       spiffe_id: nil
     }
 
-    AgentRegistry.register_agent(state.tenant_id, state.agent_id, agent_info)
+    AgentRegistry.register_agent(state.agent_id, agent_info)
   end
 
   defp update_registry_status(state, status) do
-    ServiceRadar.Cluster.TenantRegistry.update_value(
-      state.tenant_id,
+    ServiceRadar.ProcessRegistry.update_value(
       {:agent, state.agent_id},
       fn meta ->
         Map.put(meta, :status, status)

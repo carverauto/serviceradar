@@ -54,10 +54,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :list_active_for_device, action: :active_for_device, args: [:device_id]
@@ -200,7 +196,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -270,13 +265,6 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     attribute :replaced_by_alias_id, :uuid do
       public? true
       description "ID of the alias that replaced this one"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this alias belongs to"
     end
 
     create_timestamp :inserted_at

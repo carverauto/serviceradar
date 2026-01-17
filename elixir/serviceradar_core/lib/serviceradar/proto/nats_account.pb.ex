@@ -1,7 +1,18 @@
+defmodule Proto.UserCredentialType do
+  @moduledoc false
+
+  use Protobuf, enum: true, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
+
+  field :USER_CREDENTIAL_TYPE_UNSPECIFIED, 0
+  field :USER_CREDENTIAL_TYPE_COLLECTOR, 1
+  field :USER_CREDENTIAL_TYPE_SERVICE, 2
+  field :USER_CREDENTIAL_TYPE_ADMIN, 3
+end
+
 defmodule Proto.AccountLimits do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :max_connections, 1, type: :int64, json_name: "maxConnections"
   field :max_subscriptions, 2, type: :int64, json_name: "maxSubscriptions"
@@ -15,7 +26,7 @@ end
 defmodule Proto.SubjectMapping do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :from, 1, type: :string
   field :to, 2, type: :string
@@ -24,7 +35,7 @@ end
 defmodule Proto.StreamExport do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :subject, 1, type: :string
   field :name, 2, type: :string
@@ -33,7 +44,7 @@ end
 defmodule Proto.StreamImport do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :subject, 1, type: :string
   field :account_public_key, 2, type: :string, json_name: "accountPublicKey"
@@ -41,42 +52,36 @@ defmodule Proto.StreamImport do
   field :name, 4, type: :string
 end
 
-defmodule Proto.CreateTenantAccountRequest do
+defmodule Proto.CreateAccountRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
-  field :tenant_slug, 1, type: :string, json_name: "tenantSlug"
+  field :account_name, 1, type: :string, json_name: "accountName"
   field :limits, 2, type: Proto.AccountLimits
-  field :subject_mappings, 3, repeated: true, type: Proto.SubjectMapping, json_name: "subjectMappings"
+
+  field :subject_mappings, 3,
+    repeated: true,
+    type: Proto.SubjectMapping,
+    json_name: "subjectMappings"
+
   field :exports, 4, repeated: true, type: Proto.StreamExport
 end
 
-defmodule Proto.CreateTenantAccountResponse do
+defmodule Proto.CreateAccountResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :account_public_key, 1, type: :string, json_name: "accountPublicKey"
   field :account_seed, 2, type: :string, json_name: "accountSeed"
   field :account_jwt, 3, type: :string, json_name: "accountJwt"
 end
 
-defmodule Proto.UserCredentialType do
-  @moduledoc false
-
-  use Protobuf, enum: true, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
-
-  field :USER_CREDENTIAL_TYPE_UNSPECIFIED, 0
-  field :USER_CREDENTIAL_TYPE_COLLECTOR, 1
-  field :USER_CREDENTIAL_TYPE_SERVICE, 2
-  field :USER_CREDENTIAL_TYPE_ADMIN, 3
-end
-
 defmodule Proto.UserPermissions do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :publish_allow, 1, repeated: true, type: :string, json_name: "publishAllow"
   field :publish_deny, 2, repeated: true, type: :string, json_name: "publishDeny"
@@ -89,12 +94,17 @@ end
 defmodule Proto.GenerateUserCredentialsRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
-  field :tenant_slug, 1, type: :string, json_name: "tenantSlug"
+  field :account_name, 1, type: :string, json_name: "accountName"
   field :account_seed, 2, type: :string, json_name: "accountSeed"
   field :user_name, 3, type: :string, json_name: "userName"
-  field :credential_type, 4, type: Proto.UserCredentialType, json_name: "credentialType", enum: true
+
+  field :credential_type, 4,
+    type: Proto.UserCredentialType,
+    json_name: "credentialType",
+    enum: true
+
   field :permissions, 5, type: Proto.UserPermissions
   field :expiration_seconds, 6, type: :int64, json_name: "expirationSeconds"
 end
@@ -102,7 +112,7 @@ end
 defmodule Proto.GenerateUserCredentialsResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :user_public_key, 1, type: :string, json_name: "userPublicKey"
   field :user_jwt, 2, type: :string, json_name: "userJwt"
@@ -113,12 +123,17 @@ end
 defmodule Proto.SignAccountJWTRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
-  field :tenant_slug, 1, type: :string, json_name: "tenantSlug"
+  field :account_name, 1, type: :string, json_name: "accountName"
   field :account_seed, 2, type: :string, json_name: "accountSeed"
   field :limits, 3, type: Proto.AccountLimits
-  field :subject_mappings, 4, repeated: true, type: Proto.SubjectMapping, json_name: "subjectMappings"
+
+  field :subject_mappings, 4,
+    repeated: true,
+    type: Proto.SubjectMapping,
+    json_name: "subjectMappings"
+
   field :revoked_user_keys, 5, repeated: true, type: :string, json_name: "revokedUserKeys"
   field :exports, 6, repeated: true, type: Proto.StreamExport
   field :imports, 7, repeated: true, type: Proto.StreamImport
@@ -127,7 +142,7 @@ end
 defmodule Proto.SignAccountJWTResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :account_public_key, 1, type: :string, json_name: "accountPublicKey"
   field :account_jwt, 2, type: :string, json_name: "accountJwt"
@@ -136,7 +151,7 @@ end
 defmodule Proto.BootstrapOperatorRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :operator_name, 1, type: :string, json_name: "operatorName"
   field :existing_operator_seed, 2, type: :string, json_name: "existingOperatorSeed"
@@ -146,7 +161,7 @@ end
 defmodule Proto.BootstrapOperatorResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :operator_public_key, 1, type: :string, json_name: "operatorPublicKey"
   field :operator_seed, 2, type: :string, json_name: "operatorSeed"
@@ -159,13 +174,13 @@ end
 defmodule Proto.GetOperatorInfoRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 end
 
 defmodule Proto.GetOperatorInfoResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :operator_public_key, 1, type: :string, json_name: "operatorPublicKey"
   field :operator_name, 2, type: :string, json_name: "operatorName"
@@ -176,7 +191,7 @@ end
 defmodule Proto.PushAccountJWTRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :account_public_key, 1, type: :string, json_name: "accountPublicKey"
   field :account_jwt, 2, type: :string, json_name: "accountJwt"
@@ -185,27 +200,8 @@ end
 defmodule Proto.PushAccountJWTResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf, protoc_gen_elixir_version: "0.15.0", syntax: :proto3
 
   field :success, 1, type: :bool
   field :message, 2, type: :string
-end
-
-defmodule Proto.NATSAccountService.Service do
-  @moduledoc false
-
-  use GRPC.Service, name: "proto.NATSAccountService", protoc_gen_elixir_version: "0.13.0"
-
-  rpc(:BootstrapOperator, Proto.BootstrapOperatorRequest, Proto.BootstrapOperatorResponse)
-  rpc(:GetOperatorInfo, Proto.GetOperatorInfoRequest, Proto.GetOperatorInfoResponse)
-  rpc(:CreateTenantAccount, Proto.CreateTenantAccountRequest, Proto.CreateTenantAccountResponse)
-  rpc(:GenerateUserCredentials, Proto.GenerateUserCredentialsRequest, Proto.GenerateUserCredentialsResponse)
-  rpc(:SignAccountJWT, Proto.SignAccountJWTRequest, Proto.SignAccountJWTResponse)
-  rpc(:PushAccountJWT, Proto.PushAccountJWTRequest, Proto.PushAccountJWTResponse)
-end
-
-defmodule Proto.NATSAccountService.Stub do
-  @moduledoc false
-
-  use GRPC.Stub, service: Proto.NATSAccountService.Service
 end

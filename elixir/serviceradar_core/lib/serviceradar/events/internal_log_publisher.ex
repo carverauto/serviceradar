@@ -3,20 +3,16 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   Publishes internal OCSF log activity payloads to NATS as `logs.internal.*`.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.NATS.{Channels, Connection}
 
   require Logger
-  require Ash.Query
 
   @default_service_name "serviceradar.core"
 
   @spec publish(String.t(), map(), keyword()) :: :ok | {:error, term()}
   def publish(subject, payload, opts \\ []) when is_binary(subject) and is_map(payload) do
-    tenant_id = Keyword.get(opts, :tenant_id)
-    tenant_slug = Keyword.get(opts, :tenant_slug) || lookup_tenant_slug(tenant_id)
     service_name = Keyword.get(opts, :service_name, @default_service_name)
-    nats_subject = Channels.build("logs.internal.#{subject}", tenant_slug: tenant_slug)
+    nats_subject = Channels.build("logs.internal.#{subject}")
 
     payload = normalize_payload(payload, service_name)
 
@@ -75,21 +71,4 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   defp stringify_value(value) when is_map(value), do: stringify_keys(value)
   defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)
   defp stringify_value(value), do: value
-
-  defp lookup_tenant_slug(nil), do: nil
-
-  defp lookup_tenant_slug(tenant_id) do
-    # Platform actor since we need to lookup tenant metadata
-    actor = SystemActor.platform(:internal_log_publisher)
-
-    case ServiceRadar.Identity.Tenant
-         |> Ash.Query.filter(id == ^tenant_id)
-         |> Ash.Query.limit(1)
-         |> Ash.read(actor: actor) do
-      {:ok, [tenant | _]} -> to_string(tenant.slug)
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
 end

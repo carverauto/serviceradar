@@ -31,14 +31,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
     end
 
-    # Get tenant_id for scoping live agents
-    tenant_id = get_tenant_id(socket)
-
     {:ok,
      socket
      |> assign(:page_title, "Agents")
      |> assign(:agents, [])
-     |> assign(:live_agents, load_live_agents(tenant_id))
+     |> assign(:live_agents, load_live_agents())
      |> assign(:limit, @default_limit)
      |> SRQLPage.init("agents", default_limit: @default_limit)}
   end
@@ -90,52 +87,37 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   # Handle PubSub events for live agent updates
   @impl true
   def handle_info({:agent_registered, _metadata}, socket) do
-    tenant_id = get_tenant_id(socket)
-    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+    {:noreply, assign(socket, :live_agents, load_live_agents())}
   end
 
   def handle_info({:agent_disconnected, _agent_id}, socket) do
-    tenant_id = get_tenant_id(socket)
-    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+    {:noreply, assign(socket, :live_agents, load_live_agents())}
   end
 
   def handle_info({:agent_status_changed, _agent_id, _status}, socket) do
-    tenant_id = get_tenant_id(socket)
-    {:noreply, assign(socket, :live_agents, load_live_agents(tenant_id))}
+    {:noreply, assign(socket, :live_agents, load_live_agents())}
   end
 
   # Catch-all for other PubSub messages
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  # Get tenant_id from socket assigns for scoping
-  defp get_tenant_id(socket) do
-    case socket.assigns[:current_scope] do
-      %{active_tenant: %{id: id}} when not is_nil(id) -> id
-      %{user: %{tenant_id: id}} when not is_nil(id) -> id
-      _ -> nil
-    end
-  end
-
-  defp load_live_agents(tenant_id) do
-    if is_binary(tenant_id) and tenant_id != "" do
-      ServiceRadar.AgentRegistry.find_agents_for_tenant(tenant_id)
-      |> Enum.map(fn agent ->
-        %{
-          agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
-          tenant_id: Map.get(agent, :tenant_id),
-          partition_id: Map.get(agent, :partition_id),
-          gateway_node: Map.get(agent, :gateway_node),
-          capabilities: Map.get(agent, :capabilities, []),
-          status: Map.get(agent, :status, :unknown),
-          connected_at: Map.get(agent, :connected_at),
-          last_heartbeat: Map.get(agent, :last_heartbeat),
-          spiffe_identity: Map.get(agent, :spiffe_identity)
-        }
-      end)
-      |> Enum.sort_by(& &1.agent_id)
-    else
-      []
-    end
+  # Load all live agents from the registry
+  # Schema scoping is implicit via PostgreSQL search_path
+  defp load_live_agents do
+    ServiceRadar.AgentRegistry.find_agents()
+    |> Enum.map(fn agent ->
+      %{
+        agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
+        partition_id: Map.get(agent, :partition_id),
+        gateway_node: Map.get(agent, :gateway_node),
+        capabilities: Map.get(agent, :capabilities, []),
+        status: Map.get(agent, :status, :unknown),
+        connected_at: Map.get(agent, :connected_at),
+        last_heartbeat: Map.get(agent, :last_heartbeat),
+        spiffe_identity: Map.get(agent, :spiffe_identity)
+      }
+    end)
+    |> Enum.sort_by(& &1.agent_id)
   end
 
   @impl true

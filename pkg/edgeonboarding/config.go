@@ -253,7 +253,6 @@ func (b *Bootstrapper) generateAgentConfig(ctx context.Context, metadata map[str
 	// - kv_address: Agents get config from gateway via GetConfig
 	// - checker configs: Delivered via GetConfig
 	// - sweep configs: Delivered via GetConfig
-	// - tenant_id/slug: Derived from mTLS cert during Hello
 
 	// Serialize to JSON
 	configJSON, err := json.MarshalIndent(config, "", "  ")

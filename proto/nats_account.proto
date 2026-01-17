@@ -24,11 +24,11 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 //
 // This service is called by Elixir core (with platform mTLS credentials) to:
 // - Bootstrap the NATS operator (first-time platform setup)
-// - Generate new tenant account keys and sign account JWTs
-// - Generate user credentials signed with tenant account keys
+// - Generate new account keys and sign account JWTs
+// - Generate user credentials signed with account keys
 // - Re-sign account JWTs when claims change (revocations, limits)
 //
-// Elixir is responsible for storing tenant account data in CNPG.
+// Elixir is responsible for storing account data in CNPG.
 // datasvc holds only the operator key and performs cryptographic operations.
 service NATSAccountService {
   // BootstrapOperator initializes the NATS operator for the platform.
@@ -37,14 +37,14 @@ service NATSAccountService {
   rpc BootstrapOperator(BootstrapOperatorRequest) returns (BootstrapOperatorResponse) {}
 
   // GetOperatorInfo returns the current operator status and public key.
-  // Used to verify the operator is initialized before tenant operations.
+  // Used to verify the operator is initialized before account operations.
   rpc GetOperatorInfo(GetOperatorInfoRequest) returns (GetOperatorInfoResponse) {}
 
-  // CreateTenantAccount generates new account NKeys and a signed account JWT.
+  // CreateAccount generates new account NKeys and a signed account JWT.
   // The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
-  rpc CreateTenantAccount(CreateTenantAccountRequest) returns (CreateTenantAccountResponse) {}
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse) {}
 
-  // GenerateUserCredentials creates NATS user credentials for a tenant's account.
+  // GenerateUserCredentials creates NATS user credentials for an account.
   // Requires the account_seed to sign the user JWT.
   rpc GenerateUserCredentials(GenerateUserCredentialsRequest) returns (GenerateUserCredentialsResponse) {}
 
@@ -69,10 +69,10 @@ message AccountLimits {
   bool allow_wildcard_exports = 7; // Whether wildcard exports are allowed
 }
 
-// SubjectMapping defines how subjects are transformed for tenant isolation.
+// SubjectMapping defines how subjects are transformed for namespace isolation.
 message SubjectMapping {
   string from = 1;  // Source subject pattern (e.g., "logs.snmp")
-  string to = 2;    // Destination subject pattern (e.g., "{{tenant}}.logs.snmp")
+  string to = 2;    // Destination subject pattern (e.g., "{{namespace}}.logs.snmp")
 }
 
 // StreamExport defines a stream export subject for cross-account consumption.
@@ -89,17 +89,17 @@ message StreamImport {
   string name = 4;                // Optional import name
 }
 
-// CreateTenantAccountRequest is the request to create a new tenant NATS account.
-message CreateTenantAccountRequest {
-  string tenant_slug = 1;           // Unique tenant identifier (e.g., "acme-corp")
+// CreateAccountRequest is the request to create a new NATS account.
+message CreateAccountRequest {
+  string account_name = 1;          // Unique account identifier (e.g., "acme-corp")
   AccountLimits limits = 2;         // Optional resource limits
   repeated SubjectMapping subject_mappings = 3; // Optional custom subject mappings
   repeated StreamExport exports = 4; // Optional stream exports (defaults applied server-side)
 }
 
-// CreateTenantAccountResponse returns the generated account credentials.
+// CreateAccountResponse returns the generated account credentials.
 // The account_seed should be stored encrypted by the caller (Elixir/AshCloak).
-message CreateTenantAccountResponse {
+message CreateAccountResponse {
   string account_public_key = 1;    // The account's public NKey (starts with 'A')
   string account_seed = 2;          // The account's private seed (starts with 'SA') - STORE ENCRYPTED
   string account_jwt = 3;           // The signed account JWT
@@ -110,7 +110,7 @@ enum UserCredentialType {
   USER_CREDENTIAL_TYPE_UNSPECIFIED = 0;
   USER_CREDENTIAL_TYPE_COLLECTOR = 1;    // For edge collectors (flowgger, trapd, etc.)
   USER_CREDENTIAL_TYPE_SERVICE = 2;      // For internal services
-  USER_CREDENTIAL_TYPE_ADMIN = 3;        // For tenant admin access (limited)
+  USER_CREDENTIAL_TYPE_ADMIN = 3;        // For admin access (limited)
 }
 
 // UserPermissions defines publish/subscribe permissions for a user.
@@ -125,7 +125,7 @@ message UserPermissions {
 
 // GenerateUserCredentialsRequest is the request to create user credentials.
 message GenerateUserCredentialsRequest {
-  string tenant_slug = 1;              // Tenant the user belongs to
+  string account_name = 1;             // Account the user belongs to
   string account_seed = 2;             // Account's private seed for signing (from Elixir storage)
   string user_name = 3;                // Human-readable user identifier
   UserCredentialType credential_type = 4; // Type of credentials to generate
@@ -143,13 +143,13 @@ message GenerateUserCredentialsResponse {
 
 // SignAccountJWTRequest is used to regenerate an account JWT with updated claims.
 message SignAccountJWTRequest {
-  string tenant_slug = 1;              // Tenant identifier (used as account name)
+  string account_name = 1;             // Account identifier (used as account name)
   string account_seed = 2;             // Account's private seed (from Elixir storage)
   AccountLimits limits = 3;            // Current resource limits
   repeated SubjectMapping subject_mappings = 4; // Current subject mappings
   repeated string revoked_user_keys = 5; // Public keys of revoked users
   repeated StreamExport exports = 6;   // Optional stream exports (defaults applied server-side)
-  repeated StreamImport imports = 7;   // Stream imports from tenant accounts
+  repeated StreamImport imports = 7;   // Stream imports from other accounts
 }
 
 // SignAccountJWTResponse returns the newly signed account JWT.

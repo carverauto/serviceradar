@@ -69,7 +69,7 @@ type DeviceUpdate struct {
 	Source      DiscoverySource   `json:"source"`
 	AgentID     string            `json:"agent_id"`
 	GatewayID    string            `json:"gateway_id"`
-	Partition   string            `json:"partition,omitempty"`    // Optional partition for multi-tenant systems
+	Partition   string            `json:"partition,omitempty"`    // Optional partition for isolated deployments
 	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (gateway/agent/checker)
 	ServiceID   string            `json:"service_id,omitempty"`   // ID of the service component
 	Timestamp   time.Time         `json:"timestamp"`

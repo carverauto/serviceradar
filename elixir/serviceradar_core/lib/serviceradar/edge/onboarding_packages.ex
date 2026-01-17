@@ -14,12 +14,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Edge.TenantCA
-  alias ServiceRadar.Edge.TenantCA.Generator, as: CertGenerator
 
   @default_limit 100
   @default_join_token_ttl_seconds 86_400
@@ -57,10 +54,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   def list(filters \\ %{}, opts \\ []) do
     limit = Map.get(filters, :limit, @default_limit)
     actor = Keyword.get(opts, :actor)
-    tenant = resolve_tenant(opts)
 
     OnboardingPackage
-    |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant)
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> apply_filters(filters)
     |> Ash.Query.filter(expr(is_nil(deleted_at)))
     |> Ash.Query.sort(created_at: :desc)
@@ -88,9 +84,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   def get(id, opts \\ []) when is_binary(id) do
     actor = Keyword.get(opts, :actor)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts)
 
-    case Ash.get(OnboardingPackage, id, actor: actor, authorize?: authorize?, tenant: tenant) do
+    case Ash.get(OnboardingPackage, id, actor: actor, authorize?: authorize?) do
       {:ok, package} -> {:ok, package}
       {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
       {:error, _} -> {:error, :not_found}
@@ -136,7 +131,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts, attrs)
 
     # Generate tokens
     join_token = Crypto.generate_token()
@@ -159,8 +153,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       OnboardingPackage
       |> Ash.Changeset.for_create(:create, create_attrs,
         actor: actor,
-        authorize?: authorize?,
-        tenant: tenant
+        authorize?: authorize?
       )
       |> Ash.Changeset.force_change_attribute(:join_token_ciphertext, join_token_ciphertext)
       |> Ash.Changeset.force_change_attribute(:join_token_expires_at, join_expires)
@@ -172,8 +165,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         # Record creation event
         OnboardingEvents.record(package.id, :created,
           actor: get_actor_name(actor),
-          source_ip: source_ip,
-          tenant_id: package.tenant_id
+          source_ip: source_ip
         )
 
         {:ok,
@@ -210,9 +202,8 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     actor = Keyword.get(opts, :actor)
     source_ip = Keyword.get(opts, :source_ip)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts)
 
-    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant),
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_deliverable(package),
          :ok <- verify_download_token(package, download_token) do
       # Decrypt join token
@@ -228,16 +219,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       case package
            |> Ash.Changeset.for_update(:deliver, %{},
              actor: actor,
-             authorize?: authorize?,
-             tenant: tenant
+             authorize?: authorize?
            )
            |> Ash.update() do
         {:ok, updated_package} ->
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
-            source_ip: source_ip,
-            tenant_id: updated_package.tenant_id
+            source_ip: source_ip
           )
 
           {:ok,
@@ -262,15 +251,13 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts)
 
-    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant),
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_not_revoked(package) do
       case package
            |> Ash.Changeset.for_update(:revoke, %{reason: reason},
              actor: actor,
-             authorize?: authorize?,
-             tenant: tenant
+             authorize?: authorize?
            )
            |> Ash.update() do
         {:ok, updated_package} ->
@@ -278,8 +265,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :revoked,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason},
-            tenant_id: updated_package.tenant_id
+            details: %{reason: reason}
           )
 
           {:ok, updated_package}
@@ -299,16 +285,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     source_ip = Keyword.get(opts, :source_ip)
     reason = Keyword.get(opts, :reason)
     authorize? = Keyword.get(opts, :authorize?, true)
-    tenant = resolve_tenant(opts)
 
-    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?, tenant: tenant) do
+    with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?) do
       case package
            |> Ash.Changeset.for_update(
              :soft_delete,
              %{deleted_by: get_actor_name(actor), deleted_reason: reason},
              actor: actor,
-             authorize?: authorize?,
-             tenant: tenant
+             authorize?: authorize?
            )
            |> Ash.update() do
         {:ok, updated_package} ->
@@ -316,8 +300,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
           OnboardingEvents.record(package_id, :deleted,
             actor: get_actor_name(actor),
             source_ip: source_ip,
-            details: %{reason: reason},
-            tenant_id: updated_package.tenant_id
+            details: %{reason: reason}
           )
 
           {:ok, updated_package}
@@ -446,68 +429,39 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     |> Keyword.get(:default_metadata, %{})
   end
 
-  defp resolve_tenant(opts, attrs \\ %{}) do
-    tenant_value =
-      Keyword.get(opts, :tenant) ||
-        Keyword.get(opts, :tenant_id) ||
-        Map.get(attrs, :tenant_id) ||
-        Map.get(attrs, "tenant_id")
-
-    if is_nil(tenant_value) do
-      raise ArgumentError,
-            "Tenant could not be resolved - missing tenant identifier in options or attributes"
-    end
-
-    TenantSchemas.schema_for_tenant(tenant_value)
-  end
-
   @doc """
-  Generates a component certificate signed by the tenant's CA.
+  Generates a component certificate signed by the platform CA.
 
-  This creates a certificate with the CN format:
-  `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
-
-  And includes a SPIFFE URI SAN:
-  `spiffe://serviceradar.local/<component_type>/<tenant_slug>/<partition_id>/<component_id>`
+  In single-deployment mode, certificate generation is handled by
+  external infrastructure (SPIFFE/SPIRE, cert-manager). This function returns
+  an error indicating that the legacy certificate generation is not available.
 
   ## Parameters
 
-    * `tenant_id` - The tenant UUID
     * `component_id` - Unique component identifier
     * `component_type` - :gateway, :agent, :checker, or :sync
     * `partition_id` - Network partition identifier (default: "default")
-    * `opts` - Additional options:
-      * `:validity_days` - Certificate validity (default: 365)
-      * `:dns_names` - Additional DNS SANs
+    * `opts` - Additional options (ignored in single-deployment mode)
 
   ## Returns
 
-    * `{:ok, %{certificate_pem: pem, private_key_pem: pem, ca_chain_pem: pem, spiffe_id: string}}`
-    * `{:error, reason}`
+    * `{:error, :ca_not_available}` - Certificate generation not available
 
   """
-  @spec generate_component_certificate(String.t(), String.t(), atom(), String.t(), keyword()) ::
+  @spec generate_component_certificate(String.t(), atom(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def generate_component_certificate(tenant_id, component_id, component_type, partition_id \\ "default", opts \\ []) do
-    with {:ok, tenant_ca} <- get_tenant_ca(tenant_id),
-         {:ok, decrypted_ca} <- decrypt_ca_private_key(tenant_ca) do
-      CertGenerator.generate_component_cert(
-        decrypted_ca,
-        component_id,
-        component_type,
-        partition_id,
-        opts
-      )
-    end
+  def generate_component_certificate(_component_id, _component_type, _partition_id \\ "default", _opts \\ []) do
+    # In single-deployment mode, certificate generation is handled by
+    # external infrastructure (SPIFFE/SPIRE, cert-manager)
+    {:error, :ca_not_available}
   end
 
   @doc """
-  Creates a package with a component certificate signed by the tenant's CA.
+  Creates a package with a component certificate signed by the platform CA.
 
-  This is the preferred way to create packages for multi-tenant deployments.
-  It automatically:
-  1. Gets or generates the tenant's CA
-  2. Generates a component certificate signed by the tenant CA
+  This is the preferred way to create packages. It automatically:
+  1. Gets or generates the platform CA
+  2. Generates a component certificate signed by the platform CA
   3. Includes the certificate bundle in the package
 
   ## Options
@@ -517,11 +471,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     * `:cert_validity_days` - Component cert validity (default: 365)
 
   """
-  @spec create_with_tenant_cert(map(), keyword()) ::
+  @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def create_with_tenant_cert(attrs, opts \\ []) do
-    tenant_id = Keyword.fetch!(opts, :tenant)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def create_with_platform_cert(attrs, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
     cert_validity = Keyword.get(opts, :cert_validity_days, 365)
 
@@ -530,7 +482,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
     # Generate component certificate
     with {:ok, cert_data} <- generate_component_certificate(
-           tenant_id,
            component_id,
            component_type,
            partition_id,
@@ -550,12 +501,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       case create(attrs_with_cert, opts) do
         {:ok, result} ->
           # Update with the certificate bundle using system actor
-          actor = SystemActor.for_tenant(tenant_id, :onboarding_packages)
+          actor = SystemActor.system(:onboarding_packages)
           updated = result.package
             |> Ash.Changeset.for_update(:update_tokens, %{
               bundle_ciphertext: bundle_ciphertext,
               downstream_spiffe_id: cert_data.spiffe_id
-            }, actor: actor, tenant: tenant_schema)
+            }, actor: actor)
             |> Ash.update!()
 
           {:ok, Map.put(result, :package, updated)
@@ -563,50 +514,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
         error -> error
       end
-    end
-  end
-
-  # Gets the active tenant CA, generating one if it doesn't exist
-  defp get_tenant_ca(tenant_id) do
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
-    tenant_actor = SystemActor.for_tenant(tenant_id, :onboarding_packages)
-    # Tenant resource is cross-tenant, use platform actor
-    platform_actor = SystemActor.platform(:onboarding_packages)
-
-    case TenantCA
-         |> Ash.Query.set_tenant(tenant_schema)
-         |> Ash.Query.filter(tenant_id == ^tenant_id and status == :active)
-         |> Ash.read_one(actor: tenant_actor) do
-      {:ok, nil} ->
-        # No active CA, need to generate one
-        case Ash.get(ServiceRadar.Identity.Tenant, tenant_id, actor: platform_actor) do
-          {:ok, tenant} ->
-            # Use the action on Tenant to generate a CA
-            ServiceRadar.Identity.Tenant
-            |> Ash.ActionInput.for_action(:generate_ca, %{tenant: tenant})
-            |> Ash.run_action(actor: platform_actor)
-
-          error -> error
-        end
-
-      {:ok, ca} -> {:ok, ca}
-      error -> error
-    end
-  end
-
-  # Decrypts the CA private key for signing (AshCloak handles decryption)
-  defp decrypt_ca_private_key(tenant_ca) do
-    # Load with decryption - AshCloak will decrypt the private key
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_ca.tenant_id)
-    actor = SystemActor.for_tenant(tenant_ca.tenant_id, :onboarding_packages)
-
-    case Ash.get(TenantCA, tenant_ca.id,
-           tenant: tenant_schema,
-           actor: actor,
-           load: [:tenant]
-         ) do
-      {:ok, ca} -> {:ok, ca}
-      error -> error
     end
   end
 

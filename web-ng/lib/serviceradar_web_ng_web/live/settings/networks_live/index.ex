@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
-  alias ServiceRadarWebNG.Accounts.Scope
 
   alias ServiceRadar.SweepJobs.{
     CriteriaQuery,
@@ -100,13 +99,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
-    tenant_id = Scope.tenant_id(scope)
 
     if connected?(socket) do
-      # Subscribe to tenant-specific sweep updates
-      if tenant_id do
-        SweepPubSub.subscribe(tenant_id)
-      end
+      # Subscribe to sweep updates for this instance
+      SweepPubSub.subscribe()
 
       # Refresh active scans periodically (fallback for any missed events)
       :timer.send_interval(@refresh_interval, self(), :refresh_active_scans)
@@ -1257,7 +1253,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <div class="text-xs text-base-content/60">
             <span class="text-success">{@hosts_available}</span>
             <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span> of        {@hosts_processed} hosts</span>
+            <span> of            {@hosts_processed} hosts</span>
           </div>
           <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
             {@batch_info}
@@ -2340,8 +2336,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp transform_ports_to_array(params) do
     case Map.get(params, "ports") do
-      nil -> params
-      "" -> Map.put(params, "ports", [])
+      nil ->
+        params
+
+      "" ->
+        Map.put(params, "ports", [])
+
       value when is_binary(value) ->
         ports =
           value
@@ -2352,8 +2352,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         Map.put(params, "ports", ports)
 
-      value when is_list(value) -> params
-      _ -> params
+      value when is_list(value) ->
+        params
+
+      _ ->
+        params
     end
   end
 

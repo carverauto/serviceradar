@@ -7,7 +7,7 @@ defmodule ServiceRadar.Events.PubSub do
 
   ## Topics
 
-  - `serviceradar:events:<tenant_id>` - OCSF event updates for a tenant
+  - `serviceradar:events` - OCSF event updates
 
   ## Events
 
@@ -15,24 +15,18 @@ defmodule ServiceRadar.Events.PubSub do
   """
 
   @pubsub ServiceRadar.PubSub
+  @events_topic "serviceradar:events"
 
   @doc """
-  Build the per-tenant OCSF events topic.
+  Returns the OCSF events topic.
   """
-  def topic(tenant_id) when is_binary(tenant_id) and tenant_id != "" do
-    "serviceradar:events:#{tenant_id}"
-  end
-
-  def topic(_), do: nil
+  def topic, do: @events_topic
 
   @doc """
-  Broadcast an OCSF event to the per-tenant topic.
+  Broadcast an OCSF event to the events topic.
   """
-  def broadcast_event(%{tenant_id: tenant_id} = event) do
-    case topic(tenant_id) do
-      nil -> :ok
-      topic -> safe_broadcast(topic, {:ocsf_event, event})
-    end
+  def broadcast_event(event) when is_map(event) do
+    safe_broadcast(@events_topic, {:ocsf_event, event})
   end
 
   defp safe_broadcast(topic, event) do

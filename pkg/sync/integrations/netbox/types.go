@@ -70,10 +70,6 @@ type Device struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"role"`
-	Tenant struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	} `json:"tenant"`
 	Site struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`

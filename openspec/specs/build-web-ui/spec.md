@@ -55,6 +55,18 @@ The web-ng UI MUST provide an interface for administrators to create, view, edit
   - Thresholds (optional: warning/critical levels for CPU, Memory, Disk)
 - **AND** they can save the profile
 
+#### Scenario: Target query input updates builder
+- **GIVEN** an admin editing a sysmon profile with the query builder open
+- **WHEN** they paste a valid SRQL target query into the Target Query input
+- **THEN** the builder filters update to match the parsed query
+- **AND** the builder indicates the query is applied
+
+#### Scenario: Unsupported SRQL leaves builder unsynced
+- **GIVEN** the query builder is open
+- **WHEN** the admin enters a target query that includes unsupported SRQL clauses
+- **THEN** the Target Query input value is preserved
+- **AND** the builder indicates it is not applied to the query
+
 #### Scenario: Edit existing profile
 - **GIVEN** an existing profile "High Performance"
 - **WHEN** the admin clicks "Edit" on that profile

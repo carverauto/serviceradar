@@ -13,7 +13,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   - `poll_interval`: Default polling interval for targets (e.g., 60 seconds)
   - `timeout`: SNMP request timeout (e.g., 5 seconds)
   - `retries`: Number of retry attempts on failure
-  - `is_default`: Whether this is the default profile for the tenant
+  - `is_default`: Whether this is the default profile for the instance
   - `enabled`: Whether this profile is available for use
   - `target_query`: SRQL query for device targeting
   - `priority`: Priority for resolution order (higher = evaluated first)
@@ -30,7 +30,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
 
   ## Default Profile
 
-  Each tenant has exactly one default profile (is_default: true). When no targeting
+  Each instance has exactly one default profile (is_default: true). When no targeting
   profile matches a device, the default profile is used (if SNMP monitoring is needed).
 
   ## Usage
@@ -59,10 +59,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -79,7 +75,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
         :priority
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SNMPProfiles.Changes.ValidateSrqlQuery
     end
 
@@ -100,7 +95,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     end
 
     update :set_as_default do
-      description "Set this profile as the default for the tenant"
+      description "Set this profile as the default for the instance"
       accept []
       require_atomic? false
 
@@ -130,7 +125,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     end
 
     read :get_default do
-      description "Get the default profile for the tenant"
+      description "Get the default profile for the instance"
       get? true
       filter expr(is_default == true)
     end
@@ -146,10 +141,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -178,11 +170,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
 
   attributes do
     uuid_v7_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -223,7 +210,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       allow_nil? false
       default false
       public? true
-      description "Whether this is the default profile for the tenant"
+      description "Whether this is the default profile for the instance"
     end
 
     attribute :enabled, :boolean do
@@ -257,6 +244,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 end

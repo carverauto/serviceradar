@@ -1,12 +1,16 @@
 defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   @moduledoc """
   Tests for discovery_sources propagation through the sync ingestor.
+
+  In schema-agnostic mode, the DB schema is set by CNPG search_path credentials.
+  Tests use TestSupport for schema isolation.
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.{Device, SyncIngestor}
   alias ServiceRadar.TestSupport
 
@@ -16,26 +20,14 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("discovery-sources")
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:discovery_sources_test)
 
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
-    actor = %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-
-    {:ok, tenant_id: tenant_id, tenant_slug: tenant_slug, actor: actor}
+    {:ok, actor: actor}
   end
 
   describe "discovery_sources propagation" do
     test "device discovered by armis has discovery_sources populated", %{
-      tenant_id: tenant_id,
       actor: actor
     } do
       armis_id = "armis-#{System.unique_integer([:positive])}"
@@ -50,18 +42,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         "metadata" => %{"armis_device_id" => armis_id}
       }
 
-      assert :ok = SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["armis"]
     end
 
     test "device discovered by netbox has discovery_sources populated", %{
-      tenant_id: tenant_id,
       actor: actor
     } do
       netbox_id = "netbox-#{System.unique_integer([:positive])}"
@@ -76,18 +67,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         "metadata" => %{"netbox_device_id" => netbox_id}
       }
 
-      assert :ok = SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["netbox"]
     end
 
     test "device discovered by multiple sources has merged discovery_sources", %{
-      tenant_id: tenant_id,
       actor: actor
     } do
       armis_id = "armis-#{System.unique_integer([:positive])}"
@@ -104,7 +94,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         "metadata" => %{"armis_device_id" => armis_id}
       }
 
-      assert :ok = SyncIngestor.ingest_updates([armis_update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([armis_update], actor: actor)
 
       # Second discovery from netbox (same device by MAC)
       netbox_update = %{
@@ -115,19 +105,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         "metadata" => %{"netbox_device_id" => netbox_id}
       }
 
-      assert :ok = SyncIngestor.ingest_updates([netbox_update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([netbox_update], actor: actor)
 
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       # Should have both sources, order may vary
       assert Enum.sort(device.discovery_sources) == ["armis", "netbox"]
     end
 
     test "device without source field gets 'unknown' as discovery_source", %{
-      tenant_id: tenant_id,
       actor: actor
     } do
       ip = "10.0.5.#{unique_octet()}"
@@ -140,18 +129,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
         # No "source" field
       }
 
-      assert :ok = SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       assert device.discovery_sources == ["unknown"]
     end
 
     test "duplicate source updates do not create duplicate entries", %{
-      tenant_id: tenant_id,
       actor: actor
     } do
       armis_id = "armis-#{System.unique_integer([:positive])}"
@@ -167,13 +155,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       }
 
       # Ingest the same update twice
-      assert :ok = SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
-      assert :ok = SyncIngestor.ingest_updates([update], tenant_id, actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
       {:ok, [device]} =
         Device
         |> Ash.Query.filter(ip == ^ip)
-        |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+        |> Ash.read(actor: actor)
 
       # Should only have one "armis" entry, not duplicated
       assert device.discovery_sources == ["armis"]

@@ -4,7 +4,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
 
   SNMPOIDTemplate provides predefined sets of OIDs for common monitoring scenarios.
   Templates are organized by vendor and can be either built-in (shipped with the
-  product) or custom (created by tenant admins).
+  product) or custom (created by admins).
 
   ## Attributes
 
@@ -64,10 +64,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -80,7 +76,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
         :oids
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change fn changeset, _context ->
         # Custom templates are never builtin
         Ash.Changeset.force_change_attribute(changeset, :is_builtin, false)
@@ -126,10 +121,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -159,12 +151,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
 
   attributes do
     uuid_v7_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? true
-      public? true
-      description "Tenant ID (nil for built-in templates)"
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -208,6 +194,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   end
 
   identities do
-    identity :unique_name_per_vendor_tenant, [:tenant_id, :vendor, :name]
+    identity :unique_name_per_vendor, [:vendor, :name]
   end
 end

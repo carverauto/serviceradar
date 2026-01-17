@@ -628,7 +628,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <div>
                   <p class="text-sm font-medium">Default Profile</p>
                   <p class="text-xs text-base-content/70 mt-1">
-                    This is the default profile for your tenant. It will be applied to all devices
+                    This is the default profile for your account. It will be applied to all devices
                     that don't match any other profile's targeting query.
                   </p>
                 </div>
@@ -1303,8 +1303,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp transform_csv_to_array(params, field) do
     case Map.get(params, field) do
-      nil -> params
-      "" -> Map.put(params, field, [])
+      nil ->
+        params
+
+      "" ->
+        Map.put(params, field, [])
+
       value when is_binary(value) ->
         array =
           value
@@ -1314,8 +1318,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
         Map.put(params, field, array)
 
-      value when is_list(value) -> params
-      _ -> params
+      value when is_list(value) ->
+        params
+
+      _ ->
+        params
     end
   end
 end

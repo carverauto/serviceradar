@@ -43,7 +43,6 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
 
   require Logger
 
@@ -52,19 +51,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("OtelMetrics batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_metric_rows(schema, rows)
-      end
+      insert_metric_rows(rows)
     end
   rescue
     e ->
@@ -92,9 +85,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_metric_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_metric_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
@@ -134,4 +129,5 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     # For now, skip protobuf messages
     nil
   end
+
 end

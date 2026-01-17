@@ -3,9 +3,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   # Use ServiceRadar.Repo directly for Ecto.Adapters.SQL operations
   # (The wrapper module ServiceRadarWebNG.Repo doesn't work with SQL adapter functions)
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.AshAdapter
   alias ServiceRadarWebNG.SRQL.Native
 
@@ -278,73 +276,13 @@ defmodule ServiceRadarWebNG.SRQL do
     {:error, :invalid_srql_translation}
   end
 
-  defp execute_translation_with_params(sql, params, translation, scope) do
-    scope
-    |> tenant_schema_for_scope()
-    |> case do
-      nil ->
-        run_sql(sql, params)
-        |> build_translation_response(translation)
-
-      schema ->
-        run_sql_in_schema(sql, params, schema)
-        |> build_translation_response(translation)
-    end
-  end
-
-  defp tenant_schema_for_scope(nil), do: nil
-
-  defp tenant_schema_for_scope(%Scope{active_tenant: active_tenant})
-       when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
-  defp tenant_schema_for_scope(%Scope{} = scope) do
-    scope
-    |> Scope.tenant_id()
-    |> tenant_schema_for_scope()
-  end
-
-  defp tenant_schema_for_scope(%{active_tenant: active_tenant}) when not is_nil(active_tenant) do
-    safe_schema_for_tenant(active_tenant)
-  end
-
-  defp tenant_schema_for_scope(%{tenant_id: tenant_id}) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
-  end
-
-  defp tenant_schema_for_scope(tenant_id) when is_binary(tenant_id) do
-    safe_schema_for_tenant(tenant_id)
-  end
-
-  defp tenant_schema_for_scope(_), do: nil
-
-  defp safe_schema_for_tenant(tenant) do
-    TenantSchemas.schema_for_tenant(tenant)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp run_query_in_schema(sql, params, schema) do
-    search_path = build_search_path(schema)
-
-    case Ecto.Adapters.SQL.query(Repo, "SET LOCAL search_path = #{search_path}", []) do
-      {:ok, _} -> Ecto.Adapters.SQL.query(Repo, sql, params)
-      {:error, reason} -> {:error, {:search_path_failed, reason}}
-    end
+  defp execute_translation_with_params(sql, params, translation, _scope) do
+    run_sql(sql, params)
+    |> build_translation_response(translation)
   end
 
   defp run_sql(sql, params) do
     Ecto.Adapters.SQL.query(Repo, sql, params)
-  end
-
-  defp run_sql_in_schema(sql, params, schema) do
-    Repo.transaction(fn -> run_query_in_schema(sql, params, schema) end)
-    |> case do
-      {:ok, {:ok, result}} -> {:ok, result}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp build_translation_response({:ok, result}, translation) do
@@ -353,10 +291,6 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp build_translation_response({:error, reason}, _translation) do
     {:error, reason}
-  end
-
-  defp build_search_path(schema) do
-    ~s("#{schema}",ag_catalog,pg_catalog,"$user",public)
   end
 
   defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do

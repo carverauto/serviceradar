@@ -51,8 +51,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
       trigger :expire_packages do
@@ -66,10 +64,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         worker_module_name ServiceRadar.Edge.OnboardingPackage.ExpirePackagesWorker
       end
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -121,13 +115,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         :downstream_spiffe_id
       ]
 
-      # Set tenant_id from multitenancy context
-      change fn changeset, _context ->
-        case changeset.tenant do
-          nil -> changeset
-          tenant_id -> Ash.Changeset.force_change_attribute(changeset, :tenant_id, tenant_id)
-        end
-      end
     end
 
     update :update_tokens do
@@ -186,19 +173,13 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   policies do
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION is enforced by schema-based multitenancy (:context)
-    # The tenant context passed to actions automatically filters records
-    # Policies here only check role-based access
+    # Schema isolation is enforced by the DB connection's search_path.
+    # Policies here only check role-based access.
 
     # Read access: Admins/operators can read
     policy action_type(:read) do
@@ -232,7 +213,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -401,13 +381,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :notes, :string do
       public? true
       description "Admin notes"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this package belongs to"
     end
 
     create_timestamp :created_at

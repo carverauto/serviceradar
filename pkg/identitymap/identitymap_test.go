@@ -15,9 +15,9 @@ const testMACAddress = "aa:bb:cc:dd:ee:ff"
 func TestBuildKeys(t *testing.T) {
 	mac := testMACAddress
 	update := &models.DeviceUpdate{
-		DeviceID:  "tenant-a:1.2.3.4",
+		DeviceID:  "partition-a:1.2.3.4",
 		IP:        "1.2.3.4",
-		Partition: "tenant-a",
+		Partition: "partition-a",
 		MAC:       &mac,
 		Metadata: map[string]string{
 			"armis_device_id":  "armis-123",
@@ -31,9 +31,9 @@ func TestBuildKeys(t *testing.T) {
 	keys := BuildKeys(update)
 
 	assert.ElementsMatch(t, []Key{
-		{Kind: KindDeviceID, Value: "tenant-a:1.2.3.4"},
+		{Kind: KindDeviceID, Value: "partition-a:1.2.3.4"},
 		{Kind: KindIP, Value: "1.2.3.4"},
-		{Kind: KindPartitionIP, Value: "tenant-a:1.2.3.4"},
+		{Kind: KindPartitionIP, Value: "partition-a:1.2.3.4"},
 		{Kind: KindArmisID, Value: "armis-123"},
 		{Kind: KindNetboxID, Value: "nb-42"},
 		{Kind: KindNetboxID, Value: "123"},
@@ -51,20 +51,20 @@ func TestBuildKeysIncludesIPWhenDistinct(t *testing.T) {
 	update := &models.DeviceUpdate{
 		DeviceID:  "device-123",
 		IP:        "10.0.0.5",
-		Partition: "tenant-a",
+		Partition: "partition-a",
 		MAC:       &mac,
 	}
 
 	keys := BuildKeys(update)
 
 	assert.Contains(t, keys, Key{Kind: KindIP, Value: "10.0.0.5"})
-	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "tenant-a:10.0.0.5"})
+	assert.Contains(t, keys, Key{Kind: KindPartitionIP, Value: "partition-a:10.0.0.5"})
 }
 
 func TestMarshalRoundtrip(t *testing.T) {
 	rec := &Record{
-		CanonicalDeviceID: "tenant-a:canonical",
-		Partition:         "tenant-a",
+		CanonicalDeviceID: "partition-a:canonical",
+		Partition:         "partition-a",
 		MetadataHash:      "abc123",
 		UpdatedAt:         time.UnixMilli(1700000000000).UTC(),
 		Attributes: map[string]string{
@@ -124,11 +124,11 @@ func TestKeyPathVariantsIncludesLegacy(t *testing.T) {
 	assert.Equal(t, "device_canonical_map/mac/AA=3ABB=3ACC=3ADD=3AEE=3AFF", variants[0])
 	assert.Equal(t, "device_canonical_map/mac/AA:BB:CC:DD:EE:FF", variants[1])
 
-	keyDevice := Key{Kind: KindDeviceID, Value: "tenant-a:1.2.3.4"}
+	keyDevice := Key{Kind: KindDeviceID, Value: "partition-a:1.2.3.4"}
 	variants = keyDevice.KeyPathVariants("")
 	require.Len(t, variants, 2)
-	assert.Equal(t, "device_canonical_map/device-id/tenant-a=3A1.2.3.4", variants[0])
-	assert.Equal(t, "device_canonical_map/device-id/tenant-a:1.2.3.4", variants[1])
+	assert.Equal(t, "device_canonical_map/device-id/partition-a=3A1.2.3.4", variants[0])
+	assert.Equal(t, "device_canonical_map/device-id/partition-a:1.2.3.4", variants[1])
 }
 
 func TestSanitizeKeyPath(t *testing.T) {
@@ -138,8 +138,8 @@ func TestSanitizeKeyPath(t *testing.T) {
 	)
 
 	assert.Equal(t,
-		"device_canonical_map/device-id/tenant-a=3A1.2.3.4",
-		SanitizeKeyPath(" /device_canonical_map//device-id//tenant-a:1.2.3.4 "),
+		"device_canonical_map/device-id/partition-a=3A1.2.3.4",
+		SanitizeKeyPath(" /device_canonical_map//device-id//partition-a:1.2.3.4 "),
 	)
 
 	assert.Empty(t, SanitizeKeyPath(""))
@@ -150,9 +150,9 @@ func TestHashIdentityMetadataIgnoresNoise(t *testing.T) {
 	host := "sensor01"
 	mac := testMACAddress
 	update := &models.DeviceUpdate{
-		DeviceID:  "tenant-a:1.2.3.4",
+		DeviceID:  "partition-a:1.2.3.4",
 		IP:        "1.2.3.4",
-		Partition: "tenant-a",
+		Partition: "partition-a",
 		Hostname:  &host,
 		MAC:       &mac,
 		Source:    models.DiscoverySourceNetbox,

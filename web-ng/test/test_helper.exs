@@ -1,4 +1,4 @@
-ExUnit.start(exclude: [:pending_multitenancy_investigation])
+ExUnit.start()
 
 {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
 
@@ -110,7 +110,6 @@ _ =
       {"agent_count", "integer"},
       {"checker_count", "integer"},
       {"updated_at", "timestamptz"},
-      {"tenant_id", "uuid"},
       {"partition_id", "uuid"}
     ],
     fn {col, type} ->

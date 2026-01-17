@@ -36,10 +36,10 @@ type AccountLimits struct {
 	AllowWildcardExports bool  `json:"allow_wildcard_exports"`
 }
 
-// SubjectMapping defines how subjects are transformed for tenant isolation.
+// SubjectMapping defines how subjects are transformed for namespace isolation.
 type SubjectMapping struct {
 	From string `json:"from"` // Source subject pattern
-	To   string `json:"to"`   // Destination subject pattern with {{tenant}} placeholder
+	To   string `json:"to"`   // Destination subject pattern with {{namespace}} placeholder
 }
 
 // StreamExport defines a stream export for cross-account consumption.
@@ -56,9 +56,9 @@ type StreamImport struct {
 	Name             string `json:"name"`
 }
 
-// TenantAccountResult contains the generated account credentials.
+// AccountResult contains the generated account credentials.
 // The AccountSeed should be stored encrypted by the caller.
-type TenantAccountResult struct {
+type AccountResult struct {
 	AccountPublicKey string `json:"account_public_key"`
 	AccountSeed      string `json:"account_seed"` // Store encrypted!
 	AccountJWT       string `json:"account_jwt"`
@@ -69,7 +69,7 @@ type TenantAccountResult struct {
 type AccountSigner struct {
 	operator *Operator
 
-	// Default subject mappings applied to all tenant accounts.
+	// Default subject mappings applied to all accounts.
 	defaultSubjectMappings []SubjectMapping
 	defaultStreamExports   []StreamExport
 }
@@ -80,40 +80,40 @@ func NewAccountSigner(operator *Operator) *AccountSigner {
 		operator: operator,
 		defaultSubjectMappings: []SubjectMapping{
 			// Common event subjects
-			{From: "events.>", To: "{{tenant}}.events.>"},
+			{From: "events.>", To: "{{namespace}}.events.>"},
 
 			// Flowgger (syslog collector)
-			{From: "logs.syslog.>", To: "{{tenant}}.logs.syslog.>"},
+			{From: "logs.syslog.>", To: "{{namespace}}.logs.syslog.>"},
 
 			// Trapd (SNMP trap receiver)
-			{From: "logs.snmp.>", To: "{{tenant}}.logs.snmp.>"},
+			{From: "logs.snmp.>", To: "{{namespace}}.logs.snmp.>"},
 
 			// NetFlow/sFlow/IPFIX collector
-			{From: "netflow.>", To: "{{tenant}}.netflow.>"},
+			{From: "netflow.>", To: "{{namespace}}.netflow.>"},
 
 			// OpenTelemetry collector
-			{From: "otel.>", To: "{{tenant}}.otel.>"},
+			{From: "otel.>", To: "{{namespace}}.otel.>"},
 
 			// Legacy/generic subjects
-			{From: "logs.>", To: "{{tenant}}.logs.>"},
-			{From: "telemetry.>", To: "{{tenant}}.telemetry.>"},
+			{From: "logs.>", To: "{{namespace}}.logs.>"},
+			{From: "telemetry.>", To: "{{namespace}}.telemetry.>"},
 		},
 		defaultStreamExports: []StreamExport{
-			{Name: "tenant-logs", Subject: "{{tenant}}.logs.>"},
-			{Name: "tenant-events", Subject: "{{tenant}}.events.>"},
-			{Name: "tenant-otel", Subject: "{{tenant}}.otel.>"},
+			{Name: "account-logs", Subject: "{{namespace}}.logs.>"},
+			{Name: "account-events", Subject: "{{namespace}}.events.>"},
+			{Name: "account-otel", Subject: "{{namespace}}.otel.>"},
 		},
 	}
 }
 
-// CreateTenantAccount generates new account NKeys and a signed account JWT.
+// CreateAccount generates new account NKeys and a signed account JWT.
 // The returned AccountSeed should be stored encrypted by the caller.
-func (s *AccountSigner) CreateTenantAccount(
-	tenantSlug string,
+func (s *AccountSigner) CreateAccount(
+	accountName string,
 	limits *AccountLimits,
 	customMappings []SubjectMapping,
 	customExports []StreamExport,
-) (*TenantAccountResult, error) {
+) (*AccountResult, error) {
 	// Generate account key pair
 	accountSeed, accountPublicKey, err := GenerateAccountKey()
 	if err != nil {
@@ -121,12 +121,12 @@ func (s *AccountSigner) CreateTenantAccount(
 	}
 
 	// Create and sign account JWT
-	accountJWT, err := s.signAccountJWT(tenantSlug, accountPublicKey, limits, customMappings, customExports, nil, nil)
+	accountJWT, err := s.signAccountJWT(accountName, accountPublicKey, limits, customMappings, customExports, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign account JWT: %w", err)
 	}
 
-	return &TenantAccountResult{
+	return &AccountResult{
 		AccountPublicKey: accountPublicKey,
 		AccountSeed:      accountSeed,
 		AccountJWT:       accountJWT,
@@ -136,7 +136,7 @@ func (s *AccountSigner) CreateTenantAccount(
 // SignAccountJWT regenerates an account JWT with updated claims.
 // Use this when revocations or limits change.
 func (s *AccountSigner) SignAccountJWT(
-	tenantSlug string,
+	accountName string,
 	accountSeed string,
 	limits *AccountLimits,
 	customMappings []SubjectMapping,
@@ -156,7 +156,7 @@ func (s *AccountSigner) SignAccountJWT(
 	}
 
 	// Sign with operator
-	accountJWT, err := s.signAccountJWT(tenantSlug, accountPublicKey, limits, customMappings, customExports, customImports, revokedUserKeys)
+	accountJWT, err := s.signAccountJWT(accountName, accountPublicKey, limits, customMappings, customExports, customImports, revokedUserKeys)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to sign account JWT: %w", err)
 	}
@@ -166,7 +166,7 @@ func (s *AccountSigner) SignAccountJWT(
 
 // signAccountJWT creates and signs an account JWT with the operator key.
 func (s *AccountSigner) signAccountJWT(
-	tenantSlug string,
+	accountName string,
 	accountPublicKey string,
 	limits *AccountLimits,
 	customMappings []SubjectMapping,
@@ -176,7 +176,7 @@ func (s *AccountSigner) signAccountJWT(
 ) (string, error) {
 	// Create account claims
 	claims := jwt.NewAccountClaims(accountPublicKey)
-	claims.Name = tenantSlug
+	claims.Name = accountName
 
 	// Apply limits
 	if limits != nil {
@@ -188,13 +188,13 @@ func (s *AccountSigner) signAccountJWT(
 	if len(customMappings) > 0 {
 		mappings = append(mappings, customMappings...)
 	}
-	applySubjectMappings(claims, tenantSlug, mappings)
+	applySubjectMappings(claims, accountName, mappings)
 
 	exports := s.defaultStreamExports
 	if len(customExports) > 0 {
 		exports = append(exports, customExports...)
 	}
-	applyStreamExports(claims, tenantSlug, exports)
+	applyStreamExports(claims, accountName, exports)
 
 	if len(customImports) > 0 {
 		applyStreamImports(claims, customImports)
@@ -241,13 +241,13 @@ func applyLimitsToClaims(claims *jwt.AccountClaims, limits *AccountLimits) {
 	claims.Limits.WildcardExports = limits.AllowWildcardExports
 }
 
-func applySubjectMappings(claims *jwt.AccountClaims, tenantSlug string, mappings []SubjectMapping) {
+func applySubjectMappings(claims *jwt.AccountClaims, accountName string, mappings []SubjectMapping) {
 	if claims.Mappings == nil {
 		claims.Mappings = make(jwt.Mapping)
 	}
 	for _, mapping := range mappings {
-		// Replace {{tenant}} placeholder with actual tenant slug
-		to := strings.ReplaceAll(mapping.To, "{{tenant}}", tenantSlug)
+		// Replace {{namespace}} placeholder with actual account name
+		to := strings.ReplaceAll(mapping.To, "{{namespace}}", accountName)
 
 		// Add mapping to claims
 		claims.Mappings[jwt.Subject(mapping.From)] = []jwt.WeightedMapping{
@@ -256,12 +256,12 @@ func applySubjectMappings(claims *jwt.AccountClaims, tenantSlug string, mappings
 	}
 }
 
-func applyStreamExports(claims *jwt.AccountClaims, tenantSlug string, exports []StreamExport) {
+func applyStreamExports(claims *jwt.AccountClaims, accountName string, exports []StreamExport) {
 	if claims.Exports == nil {
 		claims.Exports = jwt.Exports{}
 	}
 	for _, export := range exports {
-		subject := strings.ReplaceAll(export.Subject, "{{tenant}}", tenantSlug)
+		subject := strings.ReplaceAll(export.Subject, "{{namespace}}", accountName)
 		if subject == "" {
 			continue
 		}

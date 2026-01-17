@@ -35,7 +35,7 @@ func TestGenerateUserCredentials_Basic(t *testing.T) {
 	accountSeed := createTestAccount(t)
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"test-user",
 		CredentialTypeCollector,
@@ -84,7 +84,7 @@ func TestGenerateUserCredentials_WithExpiration(t *testing.T) {
 	expirationSeconds := int64(3600) // 1 hour
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"test-user",
 		CredentialTypeCollector,
@@ -122,7 +122,7 @@ func TestGenerateUserCredentials_CollectorType(t *testing.T) {
 	accountSeed := createTestAccount(t)
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"collector-1",
 		CredentialTypeCollector,
@@ -167,7 +167,7 @@ func TestGenerateUserCredentials_ServiceType(t *testing.T) {
 	accountSeed := createTestAccount(t)
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"service-1",
 		CredentialTypeService,
@@ -183,15 +183,15 @@ func TestGenerateUserCredentials_ServiceType(t *testing.T) {
 		t.Fatalf("jwt.DecodeUserClaims() error = %v", err)
 	}
 
-	// Verify service permissions (broader tenant scope)
+	// Verify service permissions (broader namespace scope)
 	pubAllow := claims.Pub.Allow
-	if !contains(pubAllow, "test-tenant.>") {
-		t.Error("Service should have 'test-tenant.>' publish permission")
+	if !contains(pubAllow, "test-ns.>") {
+		t.Error("Service should have 'test-ns.>' publish permission")
 	}
 
 	subAllow := claims.Sub.Allow
-	if !contains(subAllow, "test-tenant.>") {
-		t.Error("Service should have 'test-tenant.>' subscribe permission")
+	if !contains(subAllow, "test-ns.>") {
+		t.Error("Service should have 'test-ns.>' subscribe permission")
 	}
 
 	// Verify higher response limit for services
@@ -206,7 +206,7 @@ func TestGenerateUserCredentials_AdminType(t *testing.T) {
 	accountSeed := createTestAccount(t)
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"admin-1",
 		CredentialTypeAdmin,
@@ -224,13 +224,13 @@ func TestGenerateUserCredentials_AdminType(t *testing.T) {
 
 	// Verify admin permissions (limited publish, broader subscribe)
 	pubAllow := claims.Pub.Allow
-	if !contains(pubAllow, "test-tenant.admin.>") {
-		t.Error("Admin should have 'test-tenant.admin.>' publish permission")
+	if !contains(pubAllow, "test-ns.admin.>") {
+		t.Error("Admin should have 'test-ns.admin.>' publish permission")
 	}
 
 	subAllow := claims.Sub.Allow
-	if !contains(subAllow, "test-tenant.>") {
-		t.Error("Admin should have 'test-tenant.>' subscribe permission")
+	if !contains(subAllow, "test-ns.>") {
+		t.Error("Admin should have 'test-ns.>' subscribe permission")
 	}
 }
 
@@ -247,7 +247,7 @@ func TestGenerateUserCredentials_CustomPermissions(t *testing.T) {
 	}
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"custom-user",
 		CredentialTypeCollector, // Base type, will be overridden
@@ -304,7 +304,7 @@ func TestGenerateUserCredentials_CustomPermissions(t *testing.T) {
 
 func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 	_, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		"invalid-seed",
 		"test-user",
 		CredentialTypeCollector,
@@ -319,7 +319,7 @@ func TestGenerateUserCredentials_InvalidAccountSeed(t *testing.T) {
 func TestGenerateUserCredentials_WrongKeyType(t *testing.T) {
 	// Use operator seed instead of account seed
 	_, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		testOperatorSeed,
 		"test-user",
 		CredentialTypeCollector,
@@ -339,7 +339,7 @@ func TestGenerateUserCredentials_JWTSignedByAccount(t *testing.T) {
 	accountPubKey, _ := kp.PublicKey()
 
 	creds, err := GenerateUserCredentials(
-		"test-tenant",
+		"test-ns",
 		accountSeed,
 		"test-user",
 		CredentialTypeCollector,
@@ -372,7 +372,7 @@ func TestGenerateUserCredentials_UniqueKeys(t *testing.T) {
 	}
 	for i := 0; i < iterations; i++ {
 		c, err := GenerateUserCredentials(
-			"test-tenant",
+			"test-ns",
 			accountSeed,
 			"test-user",
 			CredentialTypeCollector,

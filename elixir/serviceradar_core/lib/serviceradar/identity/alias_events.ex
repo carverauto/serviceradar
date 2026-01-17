@@ -342,7 +342,6 @@ defmodule ServiceRadar.Identity.AliasEvents do
   ## Options
 
   - `:actor` - Actor for authorization context
-  - `:tenant_id` - Required tenant ID for new aliases
   - `:confirm_threshold` - Sightings required to confirm (default: 3)
   """
   @spec process_and_persist([device_update()], keyword()) ::
@@ -352,37 +351,31 @@ defmodule ServiceRadar.Identity.AliasEvents do
   def process_and_persist([], _opts), do: {:ok, []}
 
   def process_and_persist(updates, opts) when is_list(updates) do
-    tenant_id = Keyword.get(opts, :tenant_id)
     actor = Keyword.get(opts, :actor)
     confirm_threshold = Keyword.get(opts, :confirm_threshold, 3)
-
-    if is_nil(tenant_id) do
-      {:error, :tenant_id_required}
-    else
-      events = build_device_alias_events(updates, tenant_id, actor, confirm_threshold)
-      {:ok, events}
-    end
+    events = build_device_alias_events(updates, actor, confirm_threshold)
+    {:ok, events}
   end
 
-  defp process_device_aliases(update, tenant_id, actor, confirm_threshold) do
+  defp process_device_aliases(update, actor, confirm_threshold) do
     record = AliasRecord.from_metadata(update.metadata)
 
     record
     |> alias_values()
     |> Enum.flat_map(fn {type, value} ->
-      case process_alias(update, type, value, tenant_id, actor, confirm_threshold) do
+      case process_alias(update, type, value, actor, confirm_threshold) do
         nil -> []
         event -> [event]
       end
     end)
   end
 
-  defp build_device_alias_events(updates, tenant_id, actor, confirm_threshold) do
+  defp build_device_alias_events(updates, actor, confirm_threshold) do
     updates
     |> Enum.filter(&has_alias_metadata?(&1.metadata))
     |> deduplicate_by_device_id()
     |> Enum.flat_map(fn update ->
-      process_device_aliases(update, tenant_id, actor, confirm_threshold)
+      process_device_aliases(update, actor, confirm_threshold)
     end)
   end
 
@@ -397,7 +390,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
     |> Enum.reject(fn {_type, value} -> is_nil(value) or value == "" end)
   end
 
-  defp process_alias(update, alias_type, alias_value, tenant_id, actor, confirm_threshold) do
+  defp process_alias(update, alias_type, alias_value, actor, confirm_threshold) do
     alias ServiceRadar.Identity.DeviceAliasState
 
     # Try to find existing alias
@@ -408,7 +401,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
 
       {:ok, []} ->
         # Create new alias
-        handle_new_alias(update, alias_type, alias_value, tenant_id, actor)
+        handle_new_alias(update, alias_type, alias_value, actor)
 
       {:error, _reason} ->
         nil
@@ -452,7 +445,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
     end
   end
 
-  defp handle_new_alias(update, alias_type, alias_value, tenant_id, actor) do
+  defp handle_new_alias(update, alias_type, alias_value, actor) do
     alias ServiceRadar.Identity.DeviceAliasState
 
     attrs = %{
@@ -463,8 +456,7 @@ defmodule ServiceRadar.Identity.AliasEvents do
       metadata: %{
         "source" => "alias_detection",
         "first_update_timestamp" => DateTime.to_iso8601(update.timestamp || DateTime.utc_now())
-      },
-      tenant_id: tenant_id
+      }
     }
 
     case DeviceAliasState.create_detected(attrs, actor: actor) do

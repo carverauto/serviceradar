@@ -18,12 +18,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   alias ServiceRadar.Edge.OnboardingPackage
 
   describe "package creation" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "can create a package with required fields", %{tenant: tenant} do
+    test "can create a package with required fields" do
       result =
         OnboardingPackage
         |> Ash.Changeset.for_create(
@@ -34,9 +29,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             component_type: :gateway,
             site: "datacenter-1"
           },
-          actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -45,25 +38,24 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert package.component_id == "test-gateway-001"
       assert package.component_type == :gateway
       assert package.status == :issued
-      assert package.tenant_id == tenant.id
     end
 
-    test "creates package with default issued status", %{tenant: tenant} do
-      package = onboarding_package_fixture(tenant)
+    test "creates package with default issued status" do
+      package = onboarding_package_fixture()
 
       assert package.status == :issued
     end
 
-    test "supports all component types", %{tenant: tenant} do
+    test "supports all component types" do
       for component_type <- [:gateway, :agent, :checker] do
-        package = onboarding_package_fixture(tenant, %{component_type: component_type})
+        package = onboarding_package_fixture(%{component_type: component_type})
         assert package.component_type == component_type
       end
     end
 
-    test "supports all security modes", %{tenant: tenant} do
+    test "supports all security modes" do
       for mode <- [:spire, :mtls] do
-        package = onboarding_package_fixture(tenant, %{security_mode: mode})
+        package = onboarding_package_fixture(%{security_mode: mode})
         assert package.security_mode == mode
       end
     end
@@ -71,17 +63,16 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "deliver transition" do
     setup do
-      tenant = tenant_fixture()
-      package = onboarding_package_fixture(tenant)
-      {:ok, tenant: tenant, package: package}
+      package = onboarding_package_fixture()
+      {:ok, package: package}
     end
 
-    test "admin can deliver issued package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "admin can deliver issued package", %{package: package} do
+      actor = admin_actor()
 
       result =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:ok, delivered} = result
@@ -89,31 +80,31 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert delivered.delivered_at != nil
     end
 
-    test "operator can deliver issued package", %{tenant: tenant, package: package} do
-      actor = operator_actor(tenant)
+    test "operator can deliver issued package", %{package: package} do
+      actor = operator_actor()
 
       result =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:ok, delivered} = result
       assert delivered.status == :delivered
     end
 
-    test "cannot deliver already delivered package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "cannot deliver already delivered package", %{package: package} do
+      actor = admin_actor()
 
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Try to deliver again
       result =
         delivered
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -122,21 +113,20 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "activate transition" do
     setup do
-      tenant = tenant_fixture()
-      package = onboarding_package_fixture(tenant)
-      actor = admin_actor(tenant)
+      package = onboarding_package_fixture()
+      actor = admin_actor()
 
       # First deliver the package
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
-      {:ok, tenant: tenant, delivered_package: delivered}
+      {:ok, delivered_package: delivered}
     end
 
-    test "admin can activate delivered package", %{tenant: tenant, delivered_package: package} do
-      actor = admin_actor(tenant)
+    test "admin can activate delivered package", %{delivered_package: package} do
+      actor = admin_actor()
 
       result =
         package
@@ -146,8 +136,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             activated_from_ip: "192.168.1.100",
             last_seen_spiffe_id: "spiffe://example.org/gateway/test"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -158,34 +147,33 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert activated.last_seen_spiffe_id == "spiffe://example.org/gateway/test"
     end
 
-    test "cannot activate from issued state (must deliver first)", %{tenant: tenant} do
-      actor = admin_actor(tenant)
-      issued_package = onboarding_package_fixture(tenant)
+    test "cannot activate from issued state (must deliver first)" do
+      actor = admin_actor()
+      issued_package = onboarding_package_fixture()
 
       result =
         issued_package
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
     end
 
     test "cannot activate already activated package", %{
-      tenant: tenant,
       delivered_package: package
     } do
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       # First activate
       {:ok, activated} =
         package
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to activate again
       result =
         activated
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
@@ -194,20 +182,16 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "revoke transition" do
     setup do
-      tenant = tenant_fixture()
-      package = onboarding_package_fixture(tenant)
-      {:ok, tenant: tenant, package: package}
+      package = onboarding_package_fixture()
+      {:ok, package: package}
     end
 
-    test "admin can revoke issued package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "admin can revoke issued package", %{package: package} do
+      actor = admin_actor()
 
       result =
         package
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Security concern"}, actor: actor)
         |> Ash.update()
 
       assert {:ok, revoked} = result
@@ -215,63 +199,54 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert revoked.revoked_at != nil
     end
 
-    test "admin can revoke delivered package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "admin can revoke delivered package", %{package: package} do
+      actor = admin_actor()
 
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Then revoke
       result =
         delivered
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Compromised credentials"}, actor: actor)
         |> Ash.update()
 
       assert {:ok, revoked} = result
       assert revoked.status == :revoked
     end
 
-    test "cannot revoke activated package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "cannot revoke activated package", %{package: package} do
+      actor = admin_actor()
 
       # Deliver then activate
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to revoke activated package
       result =
         activated
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Too late"}, actor: actor)
         |> Ash.update()
 
       assert {:error, _} = result
     end
 
-    test "operator cannot revoke packages", %{tenant: tenant, package: package} do
-      actor = operator_actor(tenant)
+    test "operator cannot revoke packages", %{package: package} do
+      actor = operator_actor()
 
       result =
         package
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:revoke, %{reason: "Should fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -280,71 +255,58 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "expire transition" do
     setup do
-      tenant = tenant_fixture()
-      package = onboarding_package_fixture(tenant)
-      {:ok, tenant: tenant, package: package}
+      package = onboarding_package_fixture()
+      {:ok, package: package}
     end
 
-    test "can expire issued package", %{tenant: tenant, package: package} do
+    test "can expire issued package", %{package: package} do
       # Expiration is usually triggered by AshOban, so use system actor
       result =
         package
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:ok, expired} = result
       assert expired.status == :expired
     end
 
-    test "can expire delivered package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "can expire delivered package", %{package: package} do
+      actor = admin_actor()
 
       # First deliver
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       # Then expire
       result =
         delivered
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:ok, expired} = result
       assert expired.status == :expired
     end
 
-    test "cannot expire activated package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "cannot expire activated package", %{package: package} do
+      actor = admin_actor()
 
       # Deliver then activate
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       # Try to expire activated package
       result =
         activated
-        |> Ash.Changeset.for_update(:expire, %{},
-          actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
         |> Ash.update()
 
       assert {:error, _} = result
@@ -353,13 +315,12 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "soft_delete transition" do
     setup do
-      tenant = tenant_fixture()
-      package = onboarding_package_fixture(tenant)
-      {:ok, tenant: tenant, package: package}
+      package = onboarding_package_fixture()
+      {:ok, package: package}
     end
 
-    test "admin can soft delete package", %{tenant: tenant, package: package} do
-      actor = admin_actor(tenant)
+    test "admin can soft delete package", %{package: package} do
+      actor = admin_actor()
 
       result =
         package
@@ -369,8 +330,7 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
             deleted_by: "admin@example.com",
             deleted_reason: "Cleanup"
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -381,22 +341,19 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       assert deleted.deleted_reason == "Cleanup"
     end
 
-    test "can soft delete from any state", %{tenant: tenant} do
-      actor = admin_actor(tenant)
+    test "can soft delete from any state" do
+      actor = admin_actor()
 
       for initial_state <- [:issued, :delivered, :activated, :revoked, :expired] do
-        package = onboarding_package_fixture(tenant)
+        package = onboarding_package_fixture()
 
         # Transition to target state
-        package = transition_to_state(package, initial_state, actor, tenant.id)
+        package = transition_to_state(package, initial_state, actor)
 
         # Soft delete should work from any state
         result =
           package
-          |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"},
-            actor: actor,
-            tenant: tenant.id
-          )
+          |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "admin"}, actor: actor)
           |> Ash.update()
 
         assert {:ok, deleted} = result
@@ -404,15 +361,12 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       end
     end
 
-    test "operator cannot soft delete packages", %{tenant: tenant, package: package} do
-      actor = operator_actor(tenant)
+    test "operator cannot soft delete packages", %{package: package} do
+      actor = operator_actor()
 
       result =
         package
-        |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:soft_delete, %{deleted_by: "operator"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
@@ -421,49 +375,42 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       # Create packages in different states
-      issued = onboarding_package_fixture(tenant, %{label: "Issued Package"})
+      issued = onboarding_package_fixture(%{label: "Issued Package"})
 
       {:ok, delivered} =
-        onboarding_package_fixture(tenant, %{label: "Delivered Package"})
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        onboarding_package_fixture(%{label: "Delivered Package"})
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
-        onboarding_package_fixture(tenant, %{label: "Activated Package"})
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        onboarding_package_fixture(%{label: "Activated Package"})
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
         |> elem(1)
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, revoked} =
-        onboarding_package_fixture(tenant, %{label: "Revoked Package"})
-        |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, tenant: tenant.id)
+        onboarding_package_fixture(%{label: "Revoked Package"})
+        |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
         |> Ash.update()
 
-      {:ok,
-       tenant: tenant,
-       issued: issued,
-       delivered: delivered,
-       activated: activated,
-       revoked: revoked}
+      {:ok, issued: issued, delivered: delivered, activated: activated, revoked: revoked}
     end
 
     test "active action returns only usable packages", %{
-      tenant: tenant,
       issued: issued,
       delivered: delivered,
       activated: activated,
       revoked: revoked
     } do
-      actor = operator_actor(tenant)
+      actor = operator_actor()
 
       {:ok, active} =
-        Ash.read(OnboardingPackage, action: :active, actor: actor, tenant: tenant.id)
+        Ash.read(OnboardingPackage, action: :active, actor: actor)
 
       ids = Enum.map(active, & &1.id)
 
@@ -475,152 +422,97 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
   end
 
   describe "calculations" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "is_usable returns true for issued and delivered", %{tenant: tenant} do
-      actor = admin_actor(tenant)
-
-      issued = onboarding_package_fixture(tenant)
+    test "is_usable returns true for issued and delivered" do
+      actor = admin_actor()
+      issued = onboarding_package_fixture()
 
       {:ok, [loaded]} =
         OnboardingPackage
         |> Ash.Query.filter(id == ^issued.id)
         |> Ash.Query.load(:is_usable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_usable == true
 
       # Deliver and check again
       {:ok, delivered} =
         issued
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =
         OnboardingPackage
         |> Ash.Query.filter(id == ^delivered.id)
         |> Ash.Query.load(:is_usable)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_usable == true
     end
 
-    test "is_terminal returns true for terminal states", %{tenant: tenant} do
-      actor = admin_actor(tenant)
+    test "is_terminal returns true for terminal states" do
+      actor = admin_actor()
 
       # Activate a package
-      package = onboarding_package_fixture(tenant)
+      package = onboarding_package_fixture()
 
       {:ok, delivered} =
         package
-        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, activated} =
         delivered
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       {:ok, [loaded]} =
         OnboardingPackage
         |> Ash.Query.filter(id == ^activated.id)
         |> Ash.Query.load(:is_terminal)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.is_terminal == true
     end
   end
 
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-edge"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-edge"})
-
-      package_a = onboarding_package_fixture(tenant_a, %{label: "Package A"})
-      package_b = onboarding_package_fixture(tenant_b, %{label: "Package B"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, package_a: package_a, package_b: package_b}
-    end
-
-    test "user cannot see packages from other tenant", %{
-      tenant_a: tenant_a,
-      package_a: package_a,
-      package_b: package_b
-    } do
-      actor = operator_actor(tenant_a)
-
-      {:ok, packages} = Ash.read(OnboardingPackage, actor: actor, tenant: tenant_a.id)
-      ids = Enum.map(packages, & &1.id)
-
-      assert package_a.id in ids
-      refute package_b.id in ids
-    end
-
-    test "user cannot revoke package from other tenant", %{
-      tenant_a: tenant_a,
-      package_b: package_b
-    } do
-      actor = admin_actor(tenant_a)
-
-      result =
-        package_b
-        |> Ash.Changeset.for_update(:revoke, %{reason: "Attacker action"},
-          actor: actor,
-          tenant: tenant_a.id
-        )
-        |> Ash.update()
-
-      # Should fail - either Forbidden or StaleRecord (record not found in tenant context)
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
-    end
-  end
-
   # Helper function to transition package to a specific state
-  defp transition_to_state(package, :issued, _actor, _tenant_id), do: package
+  defp transition_to_state(package, :issued, _actor), do: package
 
-  defp transition_to_state(package, :delivered, actor, tenant_id) do
+  defp transition_to_state(package, :delivered, actor) do
     {:ok, delivered} =
       package
-      |> Ash.Changeset.for_update(:deliver, %{}, actor: actor, tenant: tenant_id)
+      |> Ash.Changeset.for_update(:deliver, %{}, actor: actor)
       |> Ash.update()
 
     delivered
   end
 
-  defp transition_to_state(package, :activated, actor, tenant_id) do
+  defp transition_to_state(package, :activated, actor) do
     package
-    |> transition_to_state(:delivered, actor, tenant_id)
+    |> transition_to_state(:delivered, actor)
     |> then(fn p ->
       {:ok, activated} =
         p
-        |> Ash.Changeset.for_update(:activate, %{}, actor: actor, tenant: tenant_id)
+        |> Ash.Changeset.for_update(:activate, %{}, actor: actor)
         |> Ash.update()
 
       activated
     end)
   end
 
-  defp transition_to_state(package, :revoked, actor, tenant_id) do
+  defp transition_to_state(package, :revoked, actor) do
     {:ok, revoked} =
       package
-      |> Ash.Changeset.for_update(:revoke, %{}, actor: actor, tenant: tenant_id)
+      |> Ash.Changeset.for_update(:revoke, %{}, actor: actor)
       |> Ash.update()
 
     revoked
   end
 
-  defp transition_to_state(package, :expired, _actor, tenant_id) do
+  defp transition_to_state(package, :expired, _actor) do
     {:ok, expired} =
       package
-      |> Ash.Changeset.for_update(:expire, %{},
-        actor: system_actor(),
-        authorize?: false,
-        tenant: tenant_id
-      )
+      |> Ash.Changeset.for_update(:expire, %{}, actor: system_actor())
       |> Ash.update()
 
     expired

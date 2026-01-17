@@ -35,12 +35,12 @@ graph LR
 
 **Common Name (CN):**
 ```
-<agent_id>.<partition_id>.<tenant_slug>.serviceradar
+<agent_id>.<partition_id>.serviceradar
 ```
 
 **SPIFFE ID (SAN URI):**
 ```
-spiffe://serviceradar.local/agent/<tenant_slug>/<partition_id>/<agent_id>
+spiffe://serviceradar.local/agent/<partition_id>/<agent_id>
 ```
 
 ## Deployment

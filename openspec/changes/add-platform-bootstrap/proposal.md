@@ -40,7 +40,7 @@ Add `ServiceRadar.Platform.Bootstrap` GenServer that runs at application startup
 
 - Email: Configurable via `PLATFORM_ADMIN_EMAIL` env var (default: `admin@serviceradar.local`)
 - Password: Random 24-character alphanumeric + symbols
-- Role: `:super_admin` (platform-wide access)
+- Role: `:admin` (instance-wide access)
 - Tenant: Default tenant
 
 ### 4. Credential Storage

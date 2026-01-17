@@ -19,8 +19,8 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   # Get all built-in templates
   templates = BuiltinTemplates.all()
 
-  # Seed templates into database
-  BuiltinTemplates.seed!(tenant_id, actor)
+  # Seed templates into database (schema is determined by DB connection's search_path)
+  BuiltinTemplates.seed!(actor)
   ```
   """
 
@@ -80,19 +80,20 @@ defmodule ServiceRadar.SNMPProfiles.BuiltinTemplates do
   def for_vendor(_), do: []
 
   @doc """
-  Seeds all built-in templates into the database for a tenant.
+  Seeds all built-in templates into the database.
   Skips templates that already exist.
-  """
-  @spec seed!(String.t(), map()) :: {:ok, integer()} | {:error, term()}
-  def seed!(tenant_schema, actor) do
-    templates = all()
 
+  The schema is determined by the DB connection's search_path.
+  """
+  @spec seed!(map()) :: {:ok, integer()} | {:error, term()}
+  def seed!(actor) do
+    templates = all()
     results =
       Enum.map(templates, fn template ->
         attrs = Map.put(template, :is_builtin, true)
 
         SNMPOIDTemplate
-        |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_schema)
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
         |> Ash.create(actor: actor)
         |> classify_seed_result()
       end)

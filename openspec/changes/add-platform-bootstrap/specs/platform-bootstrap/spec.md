@@ -55,7 +55,7 @@ The system SHALL create a default tenant on first install with well-known attrib
 
 ### Requirement: Admin User Creation
 
-The system SHALL create a super_admin user in the default tenant with a cryptographically secure random password.
+The system SHALL create an admin user in the default tenant with a cryptographically secure random password.
 
 #### Scenario: Admin user created with random password
 
@@ -63,7 +63,7 @@ The system SHALL create a super_admin user in the default tenant with a cryptogr
 - **AND** default tenant exists or is created
 - **THEN** the system SHALL create a user with:
   - Email: value of `PLATFORM_ADMIN_EMAIL` env var (default: `admin@serviceradar.local`)
-  - Role: `:super_admin`
+  - Role: `:admin`
   - Tenant: default tenant
   - Password: 24-character random string
 
@@ -84,15 +84,15 @@ The system SHALL create a super_admin user in the default tenant with a cryptogr
 
 ### Requirement: First User Promotion
 
-The system SHALL promote the first user created in a fresh install to platform owner with super_admin privileges.
+The system SHALL promote the first user created in a fresh install to instance admin with admin privileges.
 
 #### Scenario: First user becomes platform owner
 
 - **WHEN** a user is created and no other users exist
-- **AND** a platform tenant exists (`is_platform_tenant: true`)
-- **THEN** the user SHALL be created with role `:super_admin`
-- **AND** the platform tenant SHALL be updated with `owner_id` set to that user
-- **AND** an owner TenantMembership SHALL be created for the platform tenant
+- **AND** a default tenant exists
+- **THEN** the user SHALL be created with role `:admin`
+- **AND** the default tenant SHALL be updated with `owner_id` set to that user
+- **AND** an owner TenantMembership SHALL be created for the default tenant
 
 ### Requirement: Secure Password Generation
 

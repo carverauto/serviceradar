@@ -7,9 +7,9 @@ defmodule ServiceRadarAgentGateway.Config do
 
   ## Platform Infrastructure
 
-  The agent gateway is platform infrastructure that serves all tenants and
-  all partitions. This module stores only the gateway's own identity.
-  Tenant and partition context flows through each gRPC request via mTLS.
+  The agent gateway is platform infrastructure that serves all partitions.
+  This module stores only the gateway's own identity. Context flows through
+  each gRPC request via mTLS.
 
   ## Usage
 

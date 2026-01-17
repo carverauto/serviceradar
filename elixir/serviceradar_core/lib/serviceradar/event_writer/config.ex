@@ -117,23 +117,13 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc """
   Returns the default stream configurations.
 
-  Subject patterns use `*` prefix to capture all tenant-prefixed messages:
-  - `*.events.>` matches `acme-corp.events.ocsf.processed`, `xyz-inc.events.ocsf.processed`, etc.
-  - `*.logs.>` matches `acme-corp.logs.syslog.processed`, `xyz-inc.logs.otel`, etc.
-  - Legacy non-prefixed subjects (`events.>`, `logs.>`) are also supported for backward compatibility
+  Subjects are unprefixed in single-deployment deployments.
   """
   @spec default_streams() :: [stream_config()]
   def default_streams do
     [
       %{
         name: "EVENTS",
-        subject: "*.events.>",
-        processor: ServiceRadar.EventWriter.Processors.Events,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "EVENTS_LEGACY",
         subject: "events.>",
         processor: ServiceRadar.EventWriter.Processors.Events,
         batch_size: 100,
@@ -141,13 +131,6 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_METRICS",
-        subject: "*.otel.metrics.>",
-        processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "OTEL_METRICS_LEGACY",
         subject: "otel.metrics.>",
         processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
         batch_size: 100,
@@ -155,13 +138,6 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "OTEL_TRACES",
-        subject: "*.otel.traces.>",
-        processor: ServiceRadar.EventWriter.Processors.OtelTraces,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "OTEL_TRACES_LEGACY",
         subject: "otel.traces.>",
         processor: ServiceRadar.EventWriter.Processors.OtelTraces,
         batch_size: 100,
@@ -169,13 +145,6 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       %{
         name: "LOGS",
-        subject: "*.logs.>",
-        processor: ServiceRadar.EventWriter.Processors.Logs,
-        batch_size: 100,
-        batch_timeout: 1_000
-      },
-      %{
-        name: "LOGS_LEGACY",
         subject: "logs.>",
         processor: ServiceRadar.EventWriter.Processors.Logs,
         batch_size: 100,

@@ -30,40 +30,31 @@ defmodule ServiceRadar.Cluster.StartupMigrationsTest do
   end
 
   test "run! executes configured migration hooks when enabled" do
-    {:ok, tracker} = Agent.start_link(fn -> %{public: 0, tenant: 0} end)
+    {:ok, tracker} = Agent.start_link(fn -> %{run: 0} end)
 
     on_exit(fn ->
       Agent.stop(tracker)
     end)
 
-    public_fun = fn ->
+    migrations_fun = fn ->
       Agent.update(tracker, fn state ->
-        Map.update!(state, :public, fn value -> value + 1 end)
-      end)
-      :ok
-    end
-
-    tenant_fun = fn ->
-      Agent.update(tracker, fn state ->
-        Map.update!(state, :tenant, fn value -> value + 1 end)
+        Map.update!(state, :run, fn value -> value + 1 end)
       end)
       :ok
     end
 
     assert :ok =
              StartupMigrations.run!(
-               public_migrations: public_fun,
-               tenant_migrations: tenant_fun
+               migrations: migrations_fun
              )
 
-    assert %{public: 1, tenant: 1} = Agent.get(tracker, & &1)
+    assert %{run: 1} = Agent.get(tracker, & &1)
   end
 
   test "run! fails fast when a migration hook raises" do
     assert_raise RuntimeError, "boom", fn ->
       StartupMigrations.run!(
-        public_migrations: fn -> raise "boom" end,
-        tenant_migrations: fn -> :ok end
+        migrations: fn -> raise "boom" end
       )
     end
   end

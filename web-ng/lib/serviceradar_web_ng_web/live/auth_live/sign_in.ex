@@ -56,7 +56,6 @@ defmodule ServiceRadarWebNGWeb.AuthLive.SignIn do
           path={~p"/users/log-in"}
           register_path={~p"/users/register"}
           auth_routes_prefix="/auth"
-          current_tenant={@current_tenant}
           overrides={[
             ServiceRadarWebNGWeb.AuthOverrides,
             AshAuthentication.Phoenix.Overrides.Default

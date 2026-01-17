@@ -42,7 +42,7 @@
 - [x] 3.1 Add `is_platform_tenant` boolean attribute to Tenant resource with unique partial index
 - [x] 3.2 Create UniquePlatformTenant validation module ensuring only one platform tenant exists
 - [x] 3.3 Add database migration for is_platform_tenant column (sets Default Tenant as platform tenant)
-- [x] 3.4 Update Scope.platform_admin?() to require BOTH super_admin role AND active_tenant.is_platform_tenant
+- [x] 3.4 Update Scope.platform_admin?() to require BOTH admin role AND active_tenant.is_platform_tenant
 - [x] 3.5 Fix Scope.for_user/2 to properly load tenant memberships without Ash.Query.for_read()
 - [x] 3.6 Gate infrastructure tabs (nodes, gateways) to platform admins only in InfrastructureLive
 - [x] 3.7 Show only Connected Agents tab to non-platform tenant users

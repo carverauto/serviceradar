@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Infrastructure do
   @moduledoc """
-  The Infrastructure domain manages gateways, agents, network partitions, and platform NATS configuration.
+  The Infrastructure domain manages gateways, agents, network partitions, and health tracking.
 
   This domain is responsible for:
   - Gateway management and health tracking
@@ -8,9 +8,6 @@ defmodule ServiceRadar.Infrastructure do
   - Checker configuration
   - Network partition management for overlapping IP spaces
   - Health event history for all entities
-  - NATS operator management (bootstrap, configuration)
-  - Platform bootstrap tokens
-
   ## Resources
 
   - `ServiceRadar.Infrastructure.Gateway` - Gateway nodes (job orchestrators)
@@ -18,10 +15,6 @@ defmodule ServiceRadar.Infrastructure do
   - `ServiceRadar.Infrastructure.Checker` - Service check types
   - `ServiceRadar.Infrastructure.Partition` - Network partitions
   - `ServiceRadar.Infrastructure.HealthEvent` - Health state change history
-  - `ServiceRadar.Infrastructure.NatsOperator` - NATS operator (singleton)
-  - `ServiceRadar.Infrastructure.NatsServiceAccount` - Platform service NATS accounts
-  - `ServiceRadar.Infrastructure.NatsPlatformToken` - One-time platform bootstrap tokens
-
   ## Distributed Architecture
 
   Gateways register with Horde.Registry on startup and receive job assignments
@@ -45,9 +38,6 @@ defmodule ServiceRadar.Infrastructure do
     resource(ServiceRadar.Infrastructure.Checker)
     resource(ServiceRadar.Infrastructure.Partition)
     resource(ServiceRadar.Infrastructure.HealthEvent)
-    resource(ServiceRadar.Infrastructure.NatsOperator)
-    resource(ServiceRadar.Infrastructure.NatsServiceAccount)
-    resource(ServiceRadar.Infrastructure.NatsPlatformToken)
   end
 
   authorization do

@@ -5,6 +5,9 @@ defmodule ServiceRadar.Repo do
   Uses AshPostgres for Ash resource persistence. The database connection
   is configured via the :serviceradar_core application config.
 
+  Schema isolation is handled by the database connection's `search_path`,
+  set by CNPG scoped credentials. The application code is schema-agnostic.
+
   ## Inherited Ecto.Repo Functions
 
   This module inherits all standard Ecto.Repo functions via AshPostgres.Repo,
@@ -22,7 +25,15 @@ defmodule ServiceRadar.Repo do
     %Version{major: 15, minor: 0, patch: 0}
   end
 
+  @doc """
+  Returns schemas for migrations.
+
+  In single-deployment setups, the schema is set by the DB connection's
+  search_path so there is nothing to enumerate.
+  """
   def all_tenants do
-    ServiceRadar.Cluster.TenantSchemas.list_schemas()
+    # Schema is set by DB connection's search_path (CNPG credentials)
+    # No need to enumerate schemas
+    []
   end
 end

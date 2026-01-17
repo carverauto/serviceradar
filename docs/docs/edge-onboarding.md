@@ -24,8 +24,8 @@ This guide explains how to deploy ServiceRadar edge components (gateways, agents
 4. Click **Create Package**
 
 The system automatically:
-- Generates a tenant CA if this is your first package
-- Creates a component certificate signed by your tenant CA
+- Uses the deployment CA provided by infrastructure
+- Creates a component certificate signed by the deployment CA
 - Bundles everything into a downloadable package
 
 ### 2. Deploy the Component
@@ -179,16 +179,16 @@ This will:
 ### Automatic CA Generation
 
 When you create your first edge package, the system automatically generates:
-- A tenant-specific intermediate CA (valid for 10 years)
+- A deployment-specific intermediate CA (valid for 10 years)
 - Signed by the platform root CA
 
-Subsequent packages reuse this tenant CA.
+Subsequent packages reuse this CA.
 
 ### Certificate Format
 
 Component certificates follow the naming convention:
 ```
-<component_id>.<partition_id>.<tenant_slug>.serviceradar
+<component_id>.<partition_id>.serviceradar
 ```
 
 For example:
@@ -198,7 +198,7 @@ gateway-prod-01.datacenter-west.acme-corp.serviceradar
 
 ### Certificate Validity
 
-- **Tenant CA**: 10 years
+- **Deployment CA**: 10 years
 - **Component certificates**: 365 days
 - **Join tokens**: 24 hours (configurable)
 - **Download tokens**: 24 hours (configurable)

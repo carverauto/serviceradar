@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   require Ash.Query
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
@@ -419,16 +418,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp update_tags_for_uids(scope, uids, new_tags) do
+  defp update_tags_for_uids(_scope, uids, new_tags) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.filter(uid in ^uids)
 
-    case Ash.count(query, scope: scope) do
+    case Ash.count(query) do
       {:ok, existing_count} ->
         requested_count = length(uids)
-        result = bulk_update_tags(query, new_tags, scope)
+        result = bulk_update_tags(query, new_tags)
         handle_bulk_update_result(result, existing_count, requested_count)
 
       {:error, error} ->
@@ -436,9 +435,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
-  defp bulk_update_tags(query, new_tags, scope) do
+  defp bulk_update_tags(query, new_tags) do
     Ash.bulk_update(query, :update, %{},
-      scope: scope,
       return_records?: false,
       return_errors?: true,
       atomic_update: %{
@@ -552,8 +550,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </.link>
           </div>
         </div>
-
-        <!-- Quick Filters -->
+        
+    <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
           <.link
@@ -782,15 +780,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       
     <!-- Add Device Modal -->
       <.add_device_modal :if={@show_add_device_modal} form={@add_device_form} />
-
-      <!-- Import CSV Modal -->
+      
+    <!-- Import CSV Modal -->
       <.import_csv_modal
         :if={@show_import_modal}
         uploads={@uploads}
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
       />
-
+      
     <!-- Bulk Edit Modal -->
       <.bulk_edit_modal
         :if={@show_bulk_edit_modal}
@@ -822,7 +820,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           Add a new device to your inventory. For automatic discovery, use Network Sweeps.
         </p>
 
-        <.form for={@form} id="add-device-form" phx-change="validate_device" phx-submit="save_device" class="space-y-4">
+        <.form
+          for={@form}
+          id="add-device-form"
+          phx-change="validate_device"
+          phx-submit="save_device"
+          class="space-y-4"
+        >
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Hostname</span>
@@ -916,8 +920,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         <p class="py-2 text-sm text-base-content/70">
           Upload a CSV file to bulk import devices into your inventory.
         </p>
-
-        <!-- Error Display -->
+        
+    <!-- Error Display -->
         <div :if={@csv_errors != []} class="alert alert-error my-4">
           <.icon name="hero-exclamation-circle" class="size-5" />
           <div>
@@ -929,8 +933,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </ul>
           </div>
         </div>
-
-        <!-- CSV Format Guide (collapsed when preview is shown) -->
+        
+    <!-- CSV Format Guide (collapsed when preview is shown) -->
         <div :if={is_nil(@csv_preview)} class="my-4 p-4 bg-base-200/50 rounded-lg">
           <h4 class="font-medium text-sm mb-2">CSV Format</h4>
           <p class="text-xs text-base-content/70 mb-3">
@@ -970,20 +974,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </table>
           </div>
         </div>
-
-        <!-- File Upload -->
+        
+    <!-- File Upload -->
         <.form for={%{}} phx-change="validate_csv" phx-submit="preview_csv" class="space-y-4">
           <div class="form-control">
             <label class="label">
               <span class="label-text font-medium">Upload CSV File</span>
               <span class="label-text-alt text-base-content/50">Max 5MB</span>
             </label>
-            <.live_file_input upload={@uploads.csv_file} class="file-input file-input-bordered w-full" />
+            <.live_file_input
+              upload={@uploads.csv_file}
+              class="file-input file-input-bordered w-full"
+            />
             <%= for entry <- @uploads.csv_file.entries do %>
               <div class="mt-2 flex items-center gap-2 text-sm">
                 <.icon name="hero-document-text" class="size-4 text-primary" />
                 <span>{entry.client_name}</span>
-                <span class="text-base-content/50">({Float.round(entry.client_size / 1024, 1)} KB)</span>
+                <span class="text-base-content/50">
+                  ({Float.round(entry.client_size / 1024, 1)} KB)
+                </span>
                 <%= for err <- upload_errors(@uploads.csv_file, entry) do %>
                   <span class="text-error text-xs">{error_to_string(err)}</span>
                 <% end %>
@@ -992,13 +1001,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
 
           <div :if={is_nil(@csv_preview)} class="flex justify-end">
-            <button type="submit" class="btn btn-outline btn-sm" disabled={@uploads.csv_file.entries == []}>
+            <button
+              type="submit"
+              class="btn btn-outline btn-sm"
+              disabled={@uploads.csv_file.entries == []}
+            >
               <.icon name="hero-eye" class="size-4" /> Preview
             </button>
           </div>
         </.form>
-
-        <!-- Preview Table -->
+        
+    <!-- Preview Table -->
         <div :if={is_list(@csv_preview) and @csv_preview != []} class="mt-4">
           <div class="flex items-center justify-between mb-2">
             <h4 class="font-medium text-sm">
@@ -1743,15 +1756,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp parse_page_param(params) do
     case params["page"] do
-      nil -> 1
-      "" -> 1
+      nil ->
+        1
+
+      "" ->
+        1
+
       page when is_binary(page) ->
         case Integer.parse(page) do
           {n, _} when n > 0 -> n
           _ -> 1
         end
-      page when is_integer(page) and page > 0 -> page
-      _ -> 1
+
+      page when is_integer(page) and page > 0 ->
+        page
+
+      _ ->
+        1
     end
   end
 
@@ -1841,12 +1862,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
   # This function returns an empty map for profiles_by_device and just the default profile.
-  defp load_sysmon_profiles_for_devices(scope, _devices) do
+  defp load_sysmon_profiles_for_devices(_scope, _devices) do
     # Load default profile for display purposes
     default_profile =
       SysmonProfile
       |> Ash.Query.for_read(:get_default, %{})
-      |> Ash.read_one(scope: scope)
+      |> Ash.read_one()
       |> case do
         {:ok, profile} -> profile
         _ -> nil
@@ -1955,28 +1976,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp import_devices(scope, devices) do
-    tenant_id = Scope.tenant_id(scope)
-
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
-      do_import_devices(devices, actor, tenant_schema)
-    end
+    actor = build_device_actor(scope)
+    do_import_devices(devices, actor)
   end
 
-  defp do_import_devices(devices, actor, tenant_schema) do
+  defp do_import_devices(devices, actor) do
     {created, skipped, errors} =
       Enum.reduce(devices, {0, 0, []}, fn device_data, acc ->
-        process_device_import(device_data, actor, tenant_schema, acc)
+        process_device_import(device_data, actor, acc)
       end)
 
     if errors == [], do: {:ok, {created, skipped}}, else: {:error, Enum.reverse(errors)}
   end
 
-  defp process_device_import(device_data, actor, tenant_schema, {created, skipped, errors}) do
-    case create_single_device(device_data, actor, tenant_schema) do
+  defp process_device_import(device_data, actor, {created, skipped, errors}) do
+    case create_single_device(device_data, actor) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -1990,32 +2004,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp create_device(scope, params) do
-    tenant_id = Scope.tenant_id(scope)
+    actor = build_device_actor(scope)
 
-    if is_nil(tenant_id) do
-      {:error, :no_tenant}
-    else
-      tenant_schema = ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id)
-      actor = build_device_actor(scope)
+    # Build device data from form params
+    device_data = %{
+      hostname: params["hostname"],
+      ip: params["ip"],
+      type: params["type"],
+      tags: parse_form_tags(params["tags"])
+    }
 
-      # Build device data from form params
-      device_data = %{
-        hostname: params["hostname"],
-        ip: params["ip"],
-        type: params["type"],
-        tags: parse_form_tags(params["tags"])
-      }
-
-      create_single_device(device_data, actor, tenant_schema)
-    end
+    create_single_device(device_data, actor)
   end
 
-  defp create_single_device(device_data, actor, tenant_schema) do
+  defp create_single_device(device_data, actor) do
     # Generate a UID based on IP (or use a UUID)
     uid = generate_device_uid(device_data.ip)
 
     # First check if device already exists
-    case Device.get_by_uid(uid, actor: actor, tenant: tenant_schema) do
+    case Device.get_by_uid(uid, actor: actor) do
       {:ok, _existing} ->
         {:error, :already_exists}
 
@@ -2023,25 +2030,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         # Device doesn't exist, create it
         now = DateTime.utc_now()
 
-        attrs = %{
-          uid: uid,
-          hostname: device_data.hostname,
-          ip: device_data.ip,
-          name: device_data.hostname || device_data.ip,
-          type: device_data[:type],
-          type_id: parse_type_id(device_data[:type]),
-          tags: normalize_tags(device_data[:tags]),
-          discovery_sources: ["manual"],
-          first_seen_time: now,
-          last_seen_time: now,
-          created_time: now
-        }
-        |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-        |> Map.new()
+        attrs =
+          %{
+            uid: uid,
+            hostname: device_data.hostname,
+            ip: device_data.ip,
+            name: device_data.hostname || device_data.ip,
+            type: device_data[:type],
+            type_id: parse_type_id(device_data[:type]),
+            tags: normalize_tags(device_data[:tags]),
+            discovery_sources: ["manual"],
+            first_seen_time: now,
+            last_seen_time: now,
+            created_time: now
+          }
+          |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+          |> Map.new()
 
         Device
         |> Ash.Changeset.for_create(:create, attrs)
-        |> Ash.create(actor: actor, tenant: tenant_schema)
+        |> Ash.create(actor: actor)
 
       {:error, _} = error ->
         error
@@ -2076,6 +2084,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp normalize_tags(nil), do: %{}
   defp normalize_tags(tags) when is_map(tags), do: tags
+
   defp normalize_tags(tags) when is_list(tags) do
     Enum.reduce(tags, %{}, fn tag, acc ->
       case String.split(tag, "=", parts: 2) do
@@ -2084,10 +2093,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       end
     end)
   end
+
   defp normalize_tags(_), do: %{}
 
   defp parse_form_tags(nil), do: []
   defp parse_form_tags(""), do: []
+
   defp parse_form_tags(tags_string) when is_binary(tags_string) do
     tags_string
     |> String.split("\n")
@@ -2101,16 +2112,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         %{
           id: user.id,
           email: user.email,
-          role: user.role,
-          tenant_id: Scope.tenant_id(scope)
+          role: user.role
         }
 
       _ ->
         %{
           id: "system",
           email: "system@serviceradar",
-          role: :admin,
-          tenant_id: Scope.tenant_id(scope)
+          role: :admin
         }
     end
   end
@@ -2127,8 +2136,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_device_error(%Ash.Error.Changes.InvalidAttribute{
+         field: field,
+         message: msg
+       }),
+       do: "#{field}: #{msg}"
 
   defp format_single_device_error(%Ash.Error.Changes.Required{field: field}),
     do: "#{field} is required"

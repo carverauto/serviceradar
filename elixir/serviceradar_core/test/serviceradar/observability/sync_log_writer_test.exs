@@ -1,9 +1,13 @@
 defmodule ServiceRadar.Observability.SyncLogWriterTest do
+  @moduledoc """
+  In the single-deployment architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
+  """
+
   use ExUnit.Case, async: false
 
   @moduletag :integration
 
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.{Log, SyncLogWriter}
@@ -15,26 +19,15 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("sync-log")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    schema = TenantSchemas.schema_for_id(tenant.tenant_id)
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
-
-    {:ok, tenant: tenant, schema: schema, actor: actor}
+    actor = %{id: "system", role: :admin}
+    {:ok, actor: actor}
   end
 
   test "writes sync lifecycle logs without creating OCSF events", %{
-    tenant: tenant,
-    schema: schema,
     actor: actor
   } do
     source = %IntegrationSource{
       id: Ash.UUID.generate(),
-      tenant_id: tenant.tenant_id,
       name: "Armis",
       source_type: :armis,
       agent_id: "agent-1",
@@ -53,7 +46,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
     logs =
       Log
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     sync_logs =
@@ -74,7 +67,7 @@ defmodule ServiceRadar.Observability.SyncLogWriterTest do
 
     events =
       OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.read!()
 
     assert events == []

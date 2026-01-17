@@ -10,7 +10,6 @@ defmodule ServiceRadar.Events.AuditWriter do
 
       # Synchronous write
       AuditWriter.write(
-        tenant_id: tenant_id,
         action: :create,
         resource_type: "integration_source",
         resource_id: source.id,
@@ -21,18 +20,12 @@ defmodule ServiceRadar.Events.AuditWriter do
 
       # Async write (fire and forget)
       AuditWriter.write_async(
-        tenant_id: tenant_id,
         action: :update,
         resource_type: "user",
         resource_id: user.id,
         resource_name: user.email,
         actor: admin
       )
-
-  ## Tenant Routing
-
-  Events are published to a tenant-prefixed subject when possible.
-  The tenant slug is resolved from `tenant_id` when not provided.
 
   ## Actions
 
@@ -47,7 +40,6 @@ defmodule ServiceRadar.Events.AuditWriter do
 
   ## Required Options
 
-  - `:tenant_id` - UUID of the tenant
   - `:action` - Atom describing the action (:create, :update, :delete, etc.)
   - `:resource_type` - String identifying the resource type (e.g., "user", "integration_source")
   - `:resource_id` - String or UUID of the resource
@@ -70,8 +62,6 @@ defmodule ServiceRadar.Events.AuditWriter do
   @type severity :: :informational | :low | :medium | :high | :critical
 
   @type opts :: [
-          tenant_id: Ecto.UUID.t(),
-          tenant_slug: String.t() | nil,
           action: action(),
           resource_type: String.t(),
           resource_id: String.t() | Ecto.UUID.t(),
@@ -90,10 +80,7 @@ defmodule ServiceRadar.Events.AuditWriter do
   @spec write(opts()) :: :ok | {:error, term()}
   def write(opts) do
     with {:ok, event} <- build_event(opts) do
-      InternalLogPublisher.publish("audit", event,
-        tenant_id: event.tenant_id,
-        tenant_slug: Keyword.get(opts, :tenant_slug)
-      )
+      InternalLogPublisher.publish("audit", event)
     end
   rescue
     e ->
@@ -126,8 +113,7 @@ defmodule ServiceRadar.Events.AuditWriter do
   """
   @spec build_event(opts()) :: {:ok, map()} | {:error, term()}
   def build_event(opts) do
-    with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
-         {:ok, action} <- fetch_required(opts, :action),
+    with {:ok, action} <- fetch_required(opts, :action),
          {:ok, resource_type} <- fetch_required(opts, :resource_type),
          {:ok, resource_id} <- fetch_required(opts, :resource_id) do
       resource_name = Keyword.get(opts, :resource_name)
@@ -177,7 +163,6 @@ defmodule ServiceRadar.Events.AuditWriter do
         log_version: nil,
         unmapped: build_unmapped(resource_type, resource_id, action_verb, details),
         raw_data: nil,
-        tenant_id: tenant_id,
         created_at: now
       }
 

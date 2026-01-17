@@ -24,8 +24,6 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
       EventBatcher.queue_event(:state_change, %{
         entity_type: :agent,
         entity_id: "agent-123",
-        tenant_id: "tenant-uuid",
-        tenant_slug: "acme",
         old_state: :connected,
         new_state: :degraded
       })
@@ -80,15 +78,13 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
   ## Parameters
 
   - `event_type` - Type of event (:state_change, :heartbeat, :health_change)
-  - `event_data` - Map with event details (entity_type, entity_id, tenant_id, etc.)
+  - `event_data` - Map with event details (entity_type, entity_id, etc.)
 
   ## Example
 
       EventBatcher.queue_event(:state_change, %{
         entity_type: :gateway,
         entity_id: "gateway-001",
-        tenant_id: "uuid",
-        tenant_slug: "acme",
         old_state: :healthy,
         new_state: :degraded,
         reason: :heartbeat_timeout
@@ -240,8 +236,6 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
     EventPublisher.publish_state_change(
       entity_type: data.entity_type,
       entity_id: data.entity_id,
-      tenant_id: data.tenant_id,
-      tenant_slug: data.tenant_slug,
       partition_id: Map.get(data, :partition_id),
       old_state: data.old_state,
       new_state: data.new_state,
@@ -254,8 +248,6 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
     EventPublisher.publish_health_change(
       data.entity_type,
       data.entity_id,
-      data.tenant_id,
-      data.tenant_slug,
       data.is_healthy,
       partition_id: Map.get(data, :partition_id),
       reason: Map.get(data, :reason),
@@ -267,8 +259,6 @@ defmodule ServiceRadar.Infrastructure.EventBatcher do
     EventPublisher.publish_heartbeat_timeout(
       data.entity_type,
       data.entity_id,
-      data.tenant_id,
-      data.tenant_slug,
       partition_id: Map.get(data, :partition_id),
       last_seen: Map.get(data, :last_seen),
       current_state: Map.get(data, :current_state),

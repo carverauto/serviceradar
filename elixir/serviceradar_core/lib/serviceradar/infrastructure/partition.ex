@@ -24,10 +24,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :get_by_slug, action: :by_slug, args: [:slug]
@@ -125,46 +121,30 @@ defmodule ServiceRadar.Infrastructure.Partition do
   policies do
     # Import common policy checks
 
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION: Partitions define network boundaries for a tenant
-    # Must never be accessible cross-tenant
-
-    # Read access: Must be authenticated AND in same tenant
+    # Read access
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create partitions: Admins only, enforces tenant from context
+    # Create partitions: Admins only
     policy action(:create) do
-      authorize_if expr(
-                     ^actor(:role) == :admin and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Update/enable/disable: Admins only, same tenant
+    # Update/enable/disable: Admins only
     policy action([:update, :enable, :disable]) do
-      authorize_if expr(
-                     ^actor(:role) == :admin and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -257,12 +237,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
       description "When partition was last updated"
     end
 
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this partition belongs to"
-    end
   end
 
   relationships do
@@ -307,6 +281,6 @@ defmodule ServiceRadar.Infrastructure.Partition do
   end
 
   identities do
-    identity :unique_slug_per_tenant, [:tenant_id, :slug]
+    identity :unique_slug, [:slug]
   end
 end

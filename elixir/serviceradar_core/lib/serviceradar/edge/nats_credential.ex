@@ -4,13 +4,13 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
   This resource tracks NATS user credentials issued to edge collectors
   (flowgger, trapd, netflow, otel). Each credential is scoped to a specific
-  tenant and can be revoked if compromised.
+  account and can be revoked if compromised.
 
   ## Credential Types
 
   - `:collector` - For edge collectors (flowgger, trapd, netflow, otel)
   - `:service` - For internal services
-  - `:admin` - For tenant admin access (limited)
+  - `:admin` - For admin access (limited)
 
   ## Collector Types
 
@@ -48,10 +48,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
       transition :revoke, from: :active, to: :revoked
       transition :expire, from: :active, to: :expired
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -126,42 +122,32 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   policies do
-    # Super admins can manage all credentials
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can manage all credentials
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's credentials
+    # Admins can manage credentials
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:create) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action(:revoke) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this credential belongs to"
-    end
 
     attribute :user_name, :string do
       allow_nil? false
@@ -240,11 +226,6 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     belongs_to :onboarding_package, ServiceRadar.Edge.OnboardingPackage do
       source_attribute :onboarding_package_id
       allow_nil? true

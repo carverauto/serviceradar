@@ -6,15 +6,16 @@ defmodule ServiceRadar.Application do
   - Database connection pool (Repo)
   - Oban job processor
   - Cluster supervisor (libcluster + Horde)
-  - Per-tenant TenantRegistry (Horde registries + DynamicSupervisors)
+  - ProcessRegistry (singleton Horde registry + DynamicSupervisor)
 
-  ## Multi-Tenant Process Isolation
+  ## Instance Isolation
 
-  The TenantRegistry provides per-tenant Horde registries and DynamicSupervisors
-  for multi-tenant process isolation. Edge components (gateways, agents) can only
-  discover processes within their tenant, preventing cross-tenant enumeration.
+  Each instance runs its own ERTS cluster with isolated resources.
+  Isolation is handled by infrastructure (separate deployments, databases,
+  NATS credentials).
 
-  GatewayRegistry and AgentRegistry delegate to TenantRegistry for all operations.
+  ProcessRegistry provides a singleton Horde registry for cross-node
+  process discovery within a single instance.
 
   This application can run standalone or as a dependency of
   serviceradar_web or serviceradar_agent_gateway.
@@ -30,7 +31,7 @@ defmodule ServiceRadar.Application do
   - `:cluster_coordinator` - Whether to run ClusterSupervisor/ClusterHealth (default: same as cluster_enabled)
     - core-elx: true (it's the coordinator)
     - web-ng, agent-gateway: false (they join cluster but don't coordinate)
-  - `:registries_enabled` - Whether to start TenantRegistry (default: true)
+  - `:registries_enabled` - Whether to start ProcessRegistry (default: true)
   - `:start_ash_oban_scheduler` - Whether to start AshOban schedulers (default: false)
     - Only core-elx should set this to true
   - `:status_handler_enabled` - Whether to start StatusHandler for agent push results (default: false)
@@ -71,14 +72,8 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
-        # Per-tenant Oban supervisors (after Oban)
-        tenant_oban_supervisor_child(),
-
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
-
-        # Per-tenant Oban queue management (after Oban, before registries)
-        tenant_queues_child(),
 
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
@@ -86,19 +81,13 @@ defmodule ServiceRadar.Application do
         # NATS JetStream connection for event publishing
         nats_connection_child(),
 
-        # Tenant lifecycle JetStream stream bootstrap
-        tenant_lifecycle_stream_child(),
-
-        # NATS operator auto-bootstrap (runs once at startup)
-        nats_operator_bootstrap_child(),
-
         # Event batcher for high-frequency NATS events
         event_batcher_child(),
 
         # Task supervisor for sync ingestion work
         sync_ingestor_task_supervisor_child(),
 
-        # Tenant sync ingestion queue/coalescer
+        # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
         # Results router for agent-gateway push results
@@ -116,13 +105,10 @@ defmodule ServiceRadar.Application do
         # Horde registries (always started for registration support)
         registry_children(),
 
-        # Platform tenant bootstrap (requires repo + Ash + TenantRegistry ETS)
-        ServiceRadar.Identity.PlatformTenantBootstrap,
-
         # Template seeding for rule builder defaults
         template_seeder_child(),
 
-        # Zen rule defaults for tenant onboarding
+        # Zen rule defaults for deployment onboarding
         zen_rule_seeder_child(),
 
         # Log promotion and stateful alert rule defaults
@@ -201,25 +187,6 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp tenant_queues_child do
-    # Only start TenantQueues if Oban is enabled
-    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
-         Application.get_env(:serviceradar_core, Oban) do
-      ServiceRadar.Oban.TenantQueues
-    else
-      nil
-    end
-  end
-
-  defp tenant_oban_supervisor_child do
-    if Application.get_env(:serviceradar_core, :oban_enabled, true) &&
-         Application.get_env(:serviceradar_core, Oban) do
-      ServiceRadar.Oban.TenantSupervisor
-    else
-      nil
-    end
-  end
-
   defp sync_ingestor_task_supervisor_child do
     {Task.Supervisor, name: ServiceRadar.SyncIngestor.TaskSupervisor}
   end
@@ -230,26 +197,24 @@ defmodule ServiceRadar.Application do
 
   defp registry_children do
     if Application.get_env(:serviceradar_core, :registries_enabled, true) do
-      [
-        # Per-tenant Horde registries and DynamicSupervisors
-        # TenantRegistry manages per-tenant process isolation (Option D hybrid approach)
-        # GatewayRegistry and AgentRegistry now delegate to TenantRegistry
-        ServiceRadar.Cluster.TenantRegistry,
-        # Platform-level gateway tracker (gateways serve all tenants)
-        ServiceRadar.GatewayTracker,
-        # Agent tracker for Go agents that push status to gateways
-        ServiceRadar.AgentTracker,
-        # Identity cache for device lookups (ETS-based with TTL)
-        ServiceRadar.Identity.IdentityCache,
-        # Agent config cache (ETS-based)
-        ServiceRadar.AgentConfig.ConfigCache,
-        # Agent config server (compilation orchestration)
-        ServiceRadar.AgentConfig.ConfigServer,
-        # Preload tenant slug mappings for edge resolution
-        ServiceRadar.Cluster.TenantRegistryLoader,
-        # DataService client for KV operations (used to push config to Go/Rust services)
-        datasvc_client_child()
-      ]
+      # ProcessRegistry provides Horde registry + DynamicSupervisor as child_specs
+      process_registry_specs = ServiceRadar.ProcessRegistry.child_specs()
+
+      process_registry_specs ++
+        [
+          # Gateway tracker (ETS-based)
+          ServiceRadar.GatewayTracker,
+          # Agent tracker for Go agents that push status to gateways
+          ServiceRadar.AgentTracker,
+          # Identity cache for device lookups (ETS-based with TTL)
+          ServiceRadar.Identity.IdentityCache,
+          # Agent config cache (ETS-based)
+          ServiceRadar.AgentConfig.ConfigCache,
+          # Agent config server (compilation orchestration)
+          ServiceRadar.AgentConfig.ConfigServer,
+          # DataService client for KV operations (used to push config to Go/Rust services)
+          datasvc_client_child()
+        ]
     else
       []
     end
@@ -359,29 +324,11 @@ defmodule ServiceRadar.Application do
     end
   end
 
-  defp tenant_lifecycle_stream_child do
-    if nats_enabled?() do
-      ServiceRadar.NATS.TenantLifecycleStreamBootstrap
-    else
-      nil
-    end
-  end
-
   defp nats_enabled? do
     case System.get_env("NATS_ENABLED") do
       nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
-    end
-  end
-
-  defp nats_operator_bootstrap_child do
-    # Only run auto-bootstrap if datasvc is enabled (we need it to bootstrap)
-    # and if repo is enabled (we need to store the operator record)
-    if datasvc_enabled?() and Application.get_env(:serviceradar_core, :repo_enabled, true) do
-      ServiceRadar.NATS.OperatorBootstrap
-    else
-      nil
     end
   end
 

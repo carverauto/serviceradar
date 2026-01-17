@@ -89,7 +89,7 @@ ServiceRadar is a distributed network monitoring and observability platform that
 - [ ] **SSO Integration**: Complete single sign-on support (OAuth2/OIDC)
 - [ ] **SAML Integration**: SAML 2.0 for enterprise identity federation
 - [ ] **Advanced RBAC**: Granular role-based access control
-- [ ] **Multi-Tenancy**: Tenant isolation and resource quotas
+- [ ] **Control Plane Provisioning**: Automated per-deployment provisioning and resource quotas
 - [ ] **Audit Logging**: Comprehensive audit trail for compliance
 
 ### SIEM & Security

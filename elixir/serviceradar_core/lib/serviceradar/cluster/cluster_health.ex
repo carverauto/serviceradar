@@ -194,7 +194,7 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   defp safe_count(registry) do
-    # GatewayRegistry and AgentRegistry are modules that delegate to TenantRegistry
+    # GatewayRegistry and AgentRegistry are modules that delegate to ProcessRegistry
     # They don't have a GenServer process, so we call count() directly
     registry.count()
   rescue
@@ -284,13 +284,13 @@ defmodule ServiceRadar.ClusterHealth do
   end
 
   # Sync Horde registry members with current cluster nodes
-  # Per-tenant registries use members: :auto and sync automatically
+  # ProcessRegistry uses members: :auto and syncs automatically
   defp sync_horde_members do
-    # With TenantRegistry architecture, each tenant's Horde registry
+    # With singleton ProcessRegistry architecture, the Horde registry
     # uses members: :auto configuration which handles sync automatically
     # No manual sync is needed
     all_nodes = [Node.self() | Node.list()]
-    Logger.debug("Cluster has #{length(all_nodes)} nodes - per-tenant registries sync automatically")
+    Logger.debug("Cluster has #{length(all_nodes)} nodes - ProcessRegistry syncs automatically")
   end
 
 end

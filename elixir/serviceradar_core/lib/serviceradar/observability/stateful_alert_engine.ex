@@ -6,7 +6,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   use GenServer
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.{Alert, AlertGenerator, OcsfEvent, WebhookNotifier}
   alias ServiceRadar.Observability.{
@@ -14,38 +13,36 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     StatefulAlertRuleHistory,
     StatefulAlertRuleState
   }
+  alias ServiceRadar.ProcessRegistry
 
   require Logger
 
   @rules_cache_ms :timer.seconds(60)
 
-  @spec evaluate_logs([map()], String.t(), String.t()) :: :ok | {:error, term()}
-  def evaluate_logs(rows, tenant_id, schema) when is_list(rows) do
-    with {:ok, _} <- ensure_started(tenant_id, schema) do
-      call(tenant_id, {:evaluate_logs, rows})
+  @spec evaluate_logs([map()]) :: :ok | {:error, term()}
+  def evaluate_logs(rows) when is_list(rows) do
+    with {:ok, _} <- ensure_started() do
+      call({:evaluate_logs, rows})
     end
   end
 
-  @spec evaluate_events([map()], String.t(), String.t()) :: :ok | {:error, term()}
-  def evaluate_events(events, tenant_id, schema) when is_list(events) do
-    with {:ok, _} <- ensure_started(tenant_id, schema) do
-      call(tenant_id, {:evaluate_events, events})
+  @spec evaluate_events([map()]) :: :ok | {:error, term()}
+  def evaluate_events(events) when is_list(events) do
+    with {:ok, _} <- ensure_started() do
+      call({:evaluate_events, events})
     end
   end
 
-  def start_link(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-    schema = Keyword.fetch!(opts, :schema)
-
-    GenServer.start_link(__MODULE__, %{tenant_id: tenant_id, schema: schema},
-      name: via_tuple(tenant_id)
-    )
+  def start_link(_opts \\ []) do
+    GenServer.start_link(__MODULE__, %{}, name: via_tuple())
   end
 
   @impl true
   def init(state) do
     table = :ets.new(:stateful_alert_rule_state, [:set, :private])
-    state = Map.merge(state, %{table: table, rules: [], rules_loaded_at: nil})
+    # Simple actor - DB connection's search_path determines the schema
+    ash_opts = [actor: SystemActor.system(:alert_engine)]
+    state = Map.merge(state, %{table: table, rules: [], rules_loaded_at: nil, ash_opts: ash_opts})
 
     load_state_snapshots(state)
 
@@ -78,48 +75,43 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {:reply, {:error, error}, state}
   end
 
-  defp call(tenant_id, message) do
-    GenServer.call(via_tuple(tenant_id), message, :timer.seconds(15))
+  defp call(message) do
+    GenServer.call(via_tuple(), message, :timer.seconds(15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
   end
 
-  defp ensure_started(tenant_id, schema) do
-    with {:ok, _} <- TenantRegistry.ensure_registry(tenant_id) do
-      case lookup_engine(tenant_id) do
-        nil ->
-          child_spec = %{
-            id: {:stateful_alert_engine, tenant_id},
-            start: {__MODULE__, :start_link, [[tenant_id: tenant_id, schema: schema]]},
-            restart: :permanent,
-            type: :worker
-          }
+  defp ensure_started do
+    case lookup_engine() do
+      nil ->
+        child_spec = %{
+          id: :stateful_alert_engine,
+          start: {__MODULE__, :start_link, [[]]},
+          restart: :permanent,
+          type: :worker
+        }
 
-          case TenantRegistry.start_child(tenant_id, child_spec) do
-            {:ok, pid} -> {:ok, pid}
-            {:error, {:already_started, pid}} -> {:ok, pid}
-            {:error, reason} -> {:error, reason}
-          end
+        case ProcessRegistry.start_child(child_spec) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+          {:error, reason} -> {:error, reason}
+        end
 
-        pid ->
-          {:ok, pid}
-      end
+      pid ->
+        {:ok, pid}
     end
   end
 
-  defp lookup_engine(tenant_id) do
-    registry = TenantRegistry.registry_name(tenant_id)
-
-    case Horde.Registry.lookup(registry, {:stateful_alert_engine, tenant_id}) do
+  defp lookup_engine do
+    case ProcessRegistry.lookup(:stateful_alert_engine) do
       [{pid, _}] -> pid
       _ -> nil
     end
   end
 
-  defp via_tuple(tenant_id) do
-    registry = TenantRegistry.registry_name(tenant_id)
-    {:via, Horde.Registry, {registry, {:stateful_alert_engine, tenant_id}}}
+  defp via_tuple do
+    ProcessRegistry.via(:stateful_alert_engine)
   end
 
   defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do
@@ -137,12 +129,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp load_rules(state) do
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     rules =
       StatefulAlertRule
-      |> Ash.Query.for_read(:active, %{}, tenant: state.schema)
-      |> Ash.read(actor: actor)
+      |> Ash.Query.for_read(:active, %{})
+      |> Ash.read(state.ash_opts)
       |> unwrap_page()
 
     updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
@@ -158,11 +148,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp unwrap_page(_), do: []
 
   defp load_state_snapshots(state) do
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     StatefulAlertRuleState
-    |> Ash.Query.for_read(:read, %{}, tenant: state.schema)
-    |> Ash.read(actor: actor)
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.read(state.ash_opts)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -180,7 +168,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp normalize_snapshot(snapshot) do
     %{
       rule_id: snapshot.rule_id,
-      tenant_id: snapshot.tenant_id,
       group_key: snapshot.group_key,
       group_values: snapshot.group_values || %{},
       window_seconds: snapshot.window_seconds,
@@ -223,23 +210,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp maybe_process_event_rule(_event, _rule, _state), do: :ok
 
   defp process_record(rule, record, state) do
-    tenant_id = record[:tenant_id] || record["tenant_id"]
+    case build_group(rule.group_by, record) do
+      {:ok, group_key, group_values} ->
+        key = {rule.id, group_key}
+        snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
+        updated = update_snapshot(snapshot, rule, record)
+        flushed = maybe_flush_snapshot(updated, rule, state)
+        :ets.insert(state.table, {key, flushed})
 
-    if is_nil(tenant_id) do
-      Logger.warning("Skipping stateful alert evaluation; record missing tenant_id")
-      :ok
-    else
-      case build_group(rule.group_by, record) do
-        {:ok, group_key, group_values} ->
-          key = {rule.id, group_key}
-          snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
-          updated = update_snapshot(snapshot, rule, record)
-          flushed = maybe_flush_snapshot(updated, rule, state)
-          :ets.insert(state.table, {key, flushed})
-
-        :error ->
-          :ok
-      end
+      :error ->
+        :ok
     end
   end
 
@@ -251,7 +231,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       _ ->
         %{
           rule_id: rule.id,
-          tenant_id: record[:tenant_id] || record["tenant_id"],
           group_key: group_key,
           group_values: group_values,
           window_seconds: rule.window_seconds,
@@ -285,7 +264,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       |> Map.put(:last_seen_at, now)
       |> Map.put(:bucket_changed, bucket_changed)
       |> Map.put(:window_count, window_count)
-      |> Map.put_new(:tenant_id, record[:tenant_id] || record["tenant_id"])
       |> Map.put_new(:flush_required, false)
 
     handle_threshold(snapshot, rule, record, now)
@@ -392,14 +370,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       last_fired_at: snapshot.last_fired_at,
       last_notification_at: snapshot.last_notification_at,
       cooldown_until: snapshot.cooldown_until,
-      alert_id: snapshot.alert_id,
-      tenant_id: state.tenant_id
+      alert_id: snapshot.alert_id
     }
 
-    actor = SystemActor.for_tenant(state.tenant_id, :alert_engine)
-
     StatefulAlertRuleState
-    |> Ash.Changeset.for_create(:upsert, params, tenant: state.schema, actor: actor)
+    |> Ash.Changeset.for_create(:upsert, params, state.ash_opts)
     |> Ash.create()
     |> case do
       {:ok, _} -> :ok
@@ -410,61 +385,40 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp create_event_and_alert(rule, snapshot, record, now) do
-    tenant_id = record[:tenant_id] || record["tenant_id"] || snapshot.tenant_id
+    event = build_event(rule, snapshot, record, now)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    if is_nil(tenant_id) do
-      {:error, :missing_tenant_id}
-    else
-      schema = tenant_schema(rule, tenant_id)
-      event = build_event(rule, snapshot, record, now, tenant_id)
+    with {:ok, ocsf_event} <- record_event(event, actor) do
+      case AlertGenerator.from_event(ocsf_event, actor: actor, alert: rule.alert) do
+        {:ok, %Alert{} = alert} ->
+          record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
+          {:ok, alert.id}
 
-      with {:ok, ocsf_event} <- record_event(event, schema, tenant_id) do
-        case AlertGenerator.from_event(ocsf_event, tenant: schema, alert: rule.alert) do
-          {:ok, %Alert{} = alert} ->
-            record_history(rule, snapshot, :fired, now, alert.id, %{"event_id" => ocsf_event.id})
-            {:ok, alert.id}
+        {:ok, :skipped} ->
+          {:error, :alert_disabled}
 
-          {:ok, :skipped} ->
-            {:error, :alert_disabled}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
 
-  defp record_event(attrs, schema, tenant_id) do
-    actor = SystemActor.for_tenant(tenant_id, :alert_engine)
-
+  defp record_event(attrs, actor) do
+    # DB connection's search_path determines the schema
     OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, tenant: schema, actor: actor)
-    |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id)
+    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
     |> Ash.create()
   end
 
   defp resolve_alert(alert_id, rule, snapshot, now) when is_binary(alert_id) do
-    tenant_id = snapshot.tenant_id
-    schema = tenant_schema(rule, tenant_id)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    case schema do
-      nil -> :ok
-      _ -> resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now)
-    end
-  end
-
-  defp resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
-
-  defp resolve_alert_record(alert_id, schema, tenant_id, rule, snapshot, now) do
-    actor = SystemActor.for_tenant(tenant_id, :alert_engine)
-
-    case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
+    case Alert.get_by_id(alert_id, actor: actor) do
       {:ok, alert} ->
         alert
-        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"},
-          tenant: schema,
-          actor: actor
-        )
+        |> Ash.Changeset.for_update(:resolve, %{resolved_by: "system"}, actor: actor)
         |> Ash.update()
         |> case do
           {:ok, _} ->
@@ -481,41 +435,34 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp send_renotify(alert_id, _rule, snapshot, now) when is_binary(alert_id) do
-    tenant_id = snapshot.tenant_id
-    schema = tenant_schema(nil, tenant_id)
+  defp resolve_alert(_alert_id, _rule, _snapshot, _now), do: :ok
 
-    if is_nil(schema) do
-      {:error, :missing_tenant_schema}
-    else
-      actor = SystemActor.for_tenant(tenant_id, :alert_engine)
+  defp send_renotify(alert_id, _rule, _snapshot, now) when is_binary(alert_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-      case Alert.get_by_id(alert_id, tenant: schema, actor: actor) do
-        {:ok, alert} ->
-          alert_key = %WebhookNotifier.Alert{
-            level: severity_to_level(alert.severity),
-            title: alert.title,
-            message: alert.description,
-            timestamp: DateTime.to_iso8601(now),
-            gateway_id: "core",
-            service_name: nil,
-            details: alert.metadata || %{}
-          }
+    case Alert.get_by_id(alert_id, actor: actor) do
+      {:ok, alert} ->
+        alert_key = %WebhookNotifier.Alert{
+          level: severity_to_level(alert.severity),
+          title: alert.title,
+          message: alert.description,
+          timestamp: DateTime.to_iso8601(now),
+          gateway_id: "core",
+          service_name: nil,
+          details: alert.metadata || %{}
+        }
 
-          _ = WebhookNotifier.send_alert(alert_key)
+        _ = WebhookNotifier.send_alert(alert_key)
 
-          alert
-          |> Ash.Changeset.for_update(:record_notification, %{},
-            tenant: schema,
-            actor: actor
-          )
-          |> Ash.update()
+        alert
+        |> Ash.Changeset.for_update(:record_notification, %{}, actor: actor)
+        |> Ash.update()
 
-          :ok
+        :ok
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -527,7 +474,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp severity_to_level(:info), do: :info
   defp severity_to_level(_), do: :warning
 
-  defp build_event(rule, snapshot, record, now, tenant_id) do
+  defp build_event(rule, snapshot, record, now) do
     activity_id = OCSF.activity_log_create()
     class_uid = OCSF.class_event_log_activity()
     category_uid = OCSF.category_system_activity()
@@ -566,23 +513,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       actor: OCSF.build_actor(app_name: "serviceradar.core", process: "stateful_alert_engine"),
       log_name: rule.event["log_name"] || rule.event[:log_name] || "alert.rule.threshold",
       log_provider: "serviceradar.core",
-      log_level: log_level_for_severity(severity_id),
-      unmapped:
-        %{
-          "rule_id" => to_string(rule.id),
-          "rule_name" => rule.name,
-          "group_key" => snapshot.group_key,
-          "group_values" => snapshot.group_values,
-          "threshold" => rule.threshold,
-          "window_seconds" => rule.window_seconds,
-          "bucket_seconds" => rule.bucket_seconds,
-          "window_count" => snapshot.window_count,
-          "cooldown_seconds" => rule.cooldown_seconds,
-          "renotify_seconds" => rule.renotify_seconds
-        }
-        |> Map.merge(source),
-      tenant_id: tenant_id
+      log_level: log_level_for_severity(severity_id)
     }
+    |> Map.put(:unmapped, build_unmapped(rule, snapshot, source))
+  end
+
+  defp build_unmapped(rule, snapshot, source) do
+    %{
+      "rule_id" => to_string(rule.id),
+      "rule_name" => rule.name,
+      "group_key" => snapshot.group_key,
+      "group_values" => snapshot.group_values,
+      "threshold" => rule.threshold,
+      "window_seconds" => rule.window_seconds,
+      "bucket_seconds" => rule.bucket_seconds,
+      "window_count" => snapshot.window_count,
+      "cooldown_seconds" => rule.cooldown_seconds,
+      "renotify_seconds" => rule.renotify_seconds
+    }
+    |> Map.merge(source)
   end
 
   defp severity_id(alert_overrides) do
@@ -615,32 +564,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp record_history(rule, snapshot, event_type, now, alert_id, details) do
-    schema = tenant_schema(rule, snapshot.tenant_id)
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:alert_engine)
 
-    if is_nil(schema) do
-      :error
-    else
-      actor = SystemActor.for_tenant(snapshot.tenant_id, :alert_engine)
+    params = %{
+      event_time: now,
+      rule_id: rule.id,
+      group_key: snapshot.group_key,
+      event_type: event_type,
+      alert_id: alert_id,
+      details: details
+    }
 
-      params = %{
-        event_time: now,
-        rule_id: rule.id,
-        group_key: snapshot.group_key,
-        event_type: event_type,
-        alert_id: alert_id,
-        details: details,
-        tenant_id: snapshot.tenant_id
-      }
-
-      StatefulAlertRuleHistory
-      |> Ash.Changeset.for_create(:record, params, tenant: schema, actor: actor)
-      |> Ash.create()
-      |> case do
-        {:ok, _} -> :ok
-        {:error, reason} ->
-          Logger.warning("Failed to record rule history: #{inspect(reason)}")
-          :error
-      end
+    StatefulAlertRuleHistory
+    |> Ash.Changeset.for_create(:record, params, actor: actor)
+    |> Ash.create()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, reason} ->
+        Logger.warning("Failed to record rule history: #{inspect(reason)}")
+        :error
     end
   end
 
@@ -936,12 +879,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     |> Enum.reduce(%{}, fn {key, value}, acc ->
       Map.put(acc, to_string(key), value)
     end)
-  end
-
-  defp tenant_schema(_rule, nil), do: nil
-
-  defp tenant_schema(_rule, tenant_id) do
-    ServiceRadar.Cluster.TenantSchemas.schema_for_tenant(tenant_id)
   end
 
   defp add_seconds(%DateTime{} = dt, seconds) when is_integer(seconds) do

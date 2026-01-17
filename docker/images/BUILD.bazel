@@ -717,44 +717,6 @@ oci_load(
 )
 
 pkg_tar(
-    name = "tenant_workload_operator_layer_amd64",
-    files = {
-        "//cmd/tenant-workload-operator:tenant-workload-operator": "usr/local/bin/serviceradar-tenant-workload-operator",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-tenant-workload-operator": "0755",
-    },
-    empty_dirs = [
-        "var/log/serviceradar",
-    ],
-    package_dir = "/",
-)
-
-oci_image(
-    name = "tenant_workload_operator_image_amd64",
-    base = "@alpine_3_20_linux_amd64//:alpine_3_20_linux_amd64",
-    tars = [
-        ":alpine_netutils_rootfs_amd64",
-        ":common_tools_amd64",
-        ":tenant_workload_operator_layer_amd64",
-    ],
-    cmd = ["/usr/local/bin/serviceradar-tenant-workload-operator"],
-    env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    },
-    workdir = "/",
-    labels = {
-        "org.opencontainers.image.title": "serviceradar-tenant-workload-operator",
-    },
-)
-
-oci_load(
-    name = "tenant_workload_operator_image_amd64_tar",
-    image = ":tenant_workload_operator_image_amd64",
-    repo_tags = ["ghcr.io/carverauto/serviceradar-tenant-workload-operator:local"],
-)
-
-pkg_tar(
     name = "mapper_layer_amd64",
     files = {
         "//cmd/mapper:mapper": "usr/local/bin/serviceradar-mapper",

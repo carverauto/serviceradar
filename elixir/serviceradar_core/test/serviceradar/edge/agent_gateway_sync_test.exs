@@ -3,12 +3,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   Tests for the AgentGatewaySync module.
 
   Tests agent enrollment, device creation, and heartbeat operations.
+  Tests run against the schema determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -16,35 +16,24 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   @moduletag :integration
 
   setup_all do
-    tenant = ServiceRadar.TestSupport.create_tenant_schema!("agent-gateway-sync")
-
-    on_exit(fn ->
-      ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+    ServiceRadar.TestSupport.start_core!()
+    :ok
   end
 
-  setup %{tenant_id: tenant_id, tenant_slug: tenant_slug} do
+  setup do
     unique_id = :erlang.unique_integer([:positive])
     agent_id = "test-agent-#{unique_id}"
-    schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-    actor = SystemActor.for_tenant(tenant_id, :test)
+    actor = SystemActor.system(:test)
 
     {:ok,
-     tenant_id: tenant_id,
-     tenant_slug: tenant_slug,
      agent_id: agent_id,
-     schema: schema,
      actor: actor,
      unique_id: unique_id}
   end
 
-  describe "ensure_device_for_agent/3" do
+  describe "ensure_device_for_agent/2" do
     test "creates device for new agent", %{
-      tenant_id: tenant_id,
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -56,13 +45,13 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["sysmon", "icmp"]
       }
 
-      result = AgentGatewaySync.ensure_device_for_agent(agent_id, tenant_id, attrs)
+      result = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
       assert {:ok, device_uid} = result
       assert is_binary(device_uid)
 
       # Verify device was created
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert device.hostname == "test-host-#{agent_id}"
       assert device.ip == "192.168.1.100"
       assert device.agent_id == agent_id
@@ -71,9 +60,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
 
     test "updates existing device on subsequent enrollment", %{
-      tenant_id: tenant_id,
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -86,7 +73,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       }
 
       # First enrollment
-      {:ok, device_uid1} = AgentGatewaySync.ensure_device_for_agent(agent_id, tenant_id, attrs)
+      {:ok, device_uid1} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
       # Second enrollment with updated info
       updated_attrs = %{
@@ -98,22 +85,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["sysmon", "icmp", "sweep"]
       }
 
-      {:ok, device_uid2} = AgentGatewaySync.ensure_device_for_agent(agent_id, tenant_id, updated_attrs)
+      {:ok, device_uid2} = AgentGatewaySync.ensure_device_for_agent(agent_id, updated_attrs)
 
       # Should be the same device
       assert device_uid1 == device_uid2
 
       # Verify device was updated
-      {:ok, device} = Device.get_by_uid(device_uid2, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid2, actor: actor)
       assert device.hostname == "test-host-updated"
       assert device.ip == "192.168.1.102"
       assert "sysmon" in device.discovery_sources
     end
 
     test "sets discovery_sources based on capabilities", %{
-      tenant_id: tenant_id,
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       # Agent without sysmon capability
@@ -126,17 +111,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       }
 
       {:ok, device_uid} =
-        AgentGatewaySync.ensure_device_for_agent(agent_id_no_sysmon, tenant_id, attrs_no_sysmon)
+        AgentGatewaySync.ensure_device_for_agent(agent_id_no_sysmon, attrs_no_sysmon)
 
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert "agent" in device.discovery_sources
       refute "sysmon" in device.discovery_sources
     end
 
     test "handles agent with system_monitor capability", %{
-      tenant_id: tenant_id,
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       agent_id = "agent-system-monitor-#{unique_id}"
@@ -147,18 +130,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["system_monitor", "icmp"]
       }
 
-      {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, tenant_id, attrs)
+      {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
 
-      {:ok, device} = Device.get_by_uid(device_uid, tenant: schema, actor: actor)
+      {:ok, device} = Device.get_by_uid(device_uid, actor: actor)
       assert "sysmon" in device.discovery_sources
     end
   end
 
-  describe "upsert_agent/3" do
+  describe "upsert_agent/2" do
     test "creates new agent record", %{
-      tenant_id: tenant_id,
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       attrs = %{
@@ -169,12 +150,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         port: 50_051
       }
 
-      result = AgentGatewaySync.upsert_agent(agent_id, tenant_id, attrs)
+      result = AgentGatewaySync.upsert_agent(agent_id, attrs)
 
       assert :ok = result
 
       # Verify agent was created
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.name == "Test Agent"
       assert agent.version == "1.0.0"
       assert "icmp" in agent.capabilities
@@ -182,9 +163,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
 
     test "updates existing agent record", %{
-      tenant_id: tenant_id,
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       # Create initial agent
@@ -194,7 +173,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["icmp"]
       }
 
-      :ok = AgentGatewaySync.upsert_agent(agent_id, tenant_id, initial_attrs)
+      :ok = AgentGatewaySync.upsert_agent(agent_id, initial_attrs)
 
       # Update agent
       updated_attrs = %{
@@ -203,21 +182,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["icmp", "tcp", "sysmon"]
       }
 
-      :ok = AgentGatewaySync.upsert_agent(agent_id, tenant_id, updated_attrs)
+      :ok = AgentGatewaySync.upsert_agent(agent_id, updated_attrs)
 
       # Verify agent was updated
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.name == "Updated Name"
       assert agent.version == "2.0.0"
       assert "sysmon" in agent.capabilities
     end
   end
 
-  describe "heartbeat_agent/3" do
+  describe "heartbeat_agent/2" do
     test "updates agent heartbeat with config_source", %{
-      tenant_id: tenant_id,
       agent_id: agent_id,
-      schema: schema,
       actor: actor
     } do
       # First create the agent
@@ -227,7 +204,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["sysmon"]
       }
 
-      :ok = AgentGatewaySync.upsert_agent(agent_id, tenant_id, create_attrs)
+      :ok = AgentGatewaySync.upsert_agent(agent_id, create_attrs)
 
       # Send heartbeat with config_source
       heartbeat_attrs = %{
@@ -236,10 +213,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         config_source: :remote
       }
 
-      :ok = AgentGatewaySync.heartbeat_agent(agent_id, tenant_id, heartbeat_attrs)
+      :ok = AgentGatewaySync.heartbeat_agent(agent_id, heartbeat_attrs)
 
       # Verify agent was updated
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.is_healthy == true
       assert agent.config_source == :remote
       assert "sysmon" in agent.capabilities
@@ -247,9 +224,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
 
     test "heartbeat creates agent if not exists", %{
-      tenant_id: tenant_id,
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       new_agent_id = "new-heartbeat-agent-#{unique_id}"
@@ -259,51 +234,32 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         is_healthy: true
       }
 
-      :ok = AgentGatewaySync.heartbeat_agent(new_agent_id, tenant_id, attrs)
+      :ok = AgentGatewaySync.heartbeat_agent(new_agent_id, attrs)
 
       # Verify agent was created
-      {:ok, agent} = Agent.get_by_uid(new_agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(new_agent_id, actor: actor)
       assert agent.is_healthy == true
     end
 
     test "heartbeat with local config_source", %{
-      tenant_id: tenant_id,
       unique_id: unique_id,
-      schema: schema,
       actor: actor
     } do
       agent_id = "local-config-agent-#{unique_id}"
 
       # Create agent first
-      :ok = AgentGatewaySync.upsert_agent(agent_id, tenant_id, %{name: "Local Config Agent"})
+      :ok = AgentGatewaySync.upsert_agent(agent_id, %{name: "Local Config Agent"})
 
       # Heartbeat with local config
       :ok =
-        AgentGatewaySync.heartbeat_agent(agent_id, tenant_id, %{
+        AgentGatewaySync.heartbeat_agent(agent_id, %{
           config_source: :local,
           is_healthy: true
         })
 
-      {:ok, agent} = Agent.get_by_uid(agent_id, tenant: schema, actor: actor)
+      {:ok, agent} = Agent.get_by_uid(agent_id, actor: actor)
       assert agent.config_source == :local
     end
   end
 
-  describe "get_platform_tenant_info/0" do
-    test "returns tenant info when configured" do
-      # This depends on application config, so we just verify the function exists
-      # and returns the expected shape
-      result = AgentGatewaySync.get_platform_tenant_info()
-
-      case result do
-        {:ok, info} ->
-          assert Map.has_key?(info, :tenant_id)
-          assert Map.has_key?(info, :tenant_slug)
-
-        {:error, :not_ready} ->
-          # This is acceptable if platform tenant isn't configured
-          assert true
-      end
-    end
-  end
 end
