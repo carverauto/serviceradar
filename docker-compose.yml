@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   cert-generator:
     image: alpine:3.20
@@ -424,6 +422,8 @@ services:
     depends_on:
       cert-permissions-fixer:
         condition: service_completed_successfully
+      core-elx:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/bin/serviceradar_agent_gateway", "pid"]
       interval: 30s
@@ -551,15 +551,8 @@ services:
       - zen-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/zen.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/zen.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/zen-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
@@ -568,6 +561,12 @@ services:
         condition: service_started
       datasvc:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50040 --attempts 1 --interval 1s --quiet"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -612,6 +611,12 @@ services:
         condition: service_started
       cnpg:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50041 --attempts 1 --interval 1s --quiet"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -707,6 +712,8 @@ services:
       cloak-keygen:
         condition: service_completed_successfully
       cnpg:
+        condition: service_healthy
+      core-elx:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f serviceradar_web_ng >/dev/null"]
