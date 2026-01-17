@@ -37,6 +37,8 @@ struct SecurityConfig {
 struct Config {
     nats_url: String,
     #[serde(default)]
+    nats_creds_file: Option<String>,
+    #[serde(default)]
     domain: Option<String>,
     stream_name: String,
     consumer_name: String,
@@ -70,6 +72,12 @@ async fn connect_nats(cfg: &Config) -> Result<jetstream::Context> {
         }
         if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
             opts = opts.add_client_certificate(PathBuf::from(cert), PathBuf::from(key));
+        }
+    }
+    if let Some(creds_file) = &cfg.nats_creds_file {
+        let creds_path = creds_file.trim();
+        if !creds_path.is_empty() {
+            opts = opts.credentials_file(PathBuf::from(creds_path)).await?;
         }
     }
     let client = opts.connect(&cfg.nats_url).await?;
