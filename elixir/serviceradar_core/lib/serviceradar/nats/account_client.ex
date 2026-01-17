@@ -129,7 +129,7 @@ defmodule ServiceRadar.NATS.AccountClient do
 
     * `:collector` - For edge collectors (flowgger, trapd, etc.) - can publish events
     * `:service` - For internal services - broader pub/sub within tenant scope
-    * `:admin` - For tenant admin access - limited publish, can subscribe
+    * `:admin` - For admin access - limited publish, can subscribe
 
   ## Options
 

@@ -147,11 +147,9 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   policies do
-    # Super admins can manage all sites
-    bypass always() do
-    end
+    # System actors can manage all sites
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end

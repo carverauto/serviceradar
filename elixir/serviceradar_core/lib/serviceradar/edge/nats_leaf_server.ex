@@ -184,11 +184,9 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   end
 
   policies do
-    # Super admins can manage all servers
-    bypass always() do
-    end
+    # System actors can manage all servers
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -208,7 +206,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       authorize_if always()
     end
 
-    # Reprovision requires tenant admin
+    # Reprovision requires admin
     policy action(:reprovision) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

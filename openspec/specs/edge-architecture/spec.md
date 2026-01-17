@@ -122,3 +122,108 @@ Gateway registry entries SHALL include tenant identifiers and SHALL be used for 
 - **THEN** the registry entry includes the tenant identifier
 - **AND** scheduling/routing queries only consider gateways for the same tenant
 
+### Requirement: Platform SPIFFE mTLS for internal gRPC
+Platform services that communicate with datasvc via gRPC (web-ng, core-elx) SHALL support SPIFFE SVID-based mTLS inside Kubernetes clusters. Datasvc SHALL validate SPIFFE identities for those clients. When SPIFFE Workload API mode is enabled, Elixir services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
+
+#### Scenario: SPIFFE-enabled web-ng connects to datasvc
+- **GIVEN** SPIFFE is enabled for the cluster
+- **AND** web-ng has access to the SPIRE agent socket
+- **WHEN** web-ng establishes a gRPC channel to datasvc
+- **THEN** the connection uses a SPIFFE SVID for client authentication
+- **AND** datasvc validates the SPIFFE identity of web-ng
+
+#### Scenario: SPIFFE Workload API supplies SVIDs for Elixir services
+- **GIVEN** SPIFFE Workload API mode is enabled
+- **AND** the SPIRE agent socket is available in the pod
+- **WHEN** web-ng or core-elx needs a gRPC client certificate
+- **THEN** the service fetches an X.509 SVID and bundle from the Workload API
+- **AND** the resulting mTLS credentials are used for the gRPC connection
+
+#### Scenario: SPIFFE disabled uses file-based mTLS
+- **GIVEN** SPIFFE is disabled for the deployment
+- **WHEN** web-ng connects to datasvc
+- **THEN** web-ng uses file-based mTLS certificates configured via environment variables
+- **AND** the connection succeeds without SPIFFE dependencies
+
+### Requirement: Helm deploys agent-gateway with edge mTLS
+Helm installs SHALL deploy serviceradar-agent-gateway when enabled in values. The workload SHALL serve edge-facing gRPC over tenant-issued mTLS certificates. The gateway SHALL NOT use SPIFFE identities. Deployments that disable the gateway SHALL not render gateway workloads.
+
+#### Scenario: Agent-gateway is deployed by Helm
+- **GIVEN** a Helm install with agent-gateway enabled
+- **WHEN** the chart is rendered and applied
+- **THEN** a serviceradar-agent-gateway Deployment and Service are created
+- **AND** the gateway pod reaches Ready state
+
+#### Scenario: Gateway workload omits SPIRE socket
+- **GIVEN** the agent-gateway workload is deployed
+- **WHEN** the pod specification is inspected
+- **THEN** the SPIRE agent socket is not mounted
+- **AND** the gateway serves edge gRPC using tenant-issued mTLS only
+
+#### Scenario: Gateway disabled removes workloads
+- **GIVEN** a Helm install with agent-gateway disabled
+- **WHEN** the chart is rendered
+- **THEN** no serviceradar-agent-gateway Deployment or Service is created
+
+### Requirement: Agent-gateway uses tenant CA for edge mTLS
+The agent-gateway SHALL use tenant-issued mTLS certificates for edge agent connections and MUST reject edge connections that are not signed by the expected tenant CA. The gateway's internal control-plane communication SHALL use ERTS where applicable and does not require SPIFFE.
+
+#### Scenario: Gateway uses tenant CA for edge mTLS
+- **GIVEN** an edge agent presents a certificate signed by the tenant CA
+- **WHEN** the agent connects to the gateway
+- **THEN** the mTLS handshake succeeds
+- **AND** the gateway derives tenant identity from the certificate
+
+#### Scenario: Gateway rejects unknown tenant CA
+- **GIVEN** an edge agent presents a certificate signed by an unknown CA
+- **WHEN** the agent connects to the gateway
+- **THEN** the gateway rejects the connection
+
+### Requirement: Results ingestion uses gRPC/ERTS routing
+The system SHALL ingest sync and sweep results through the gRPC/ERTS results pipeline, with agent-gateway forwarding results directly to core without requiring NATS for ingestion.
+
+#### Scenario: Sync results ingestion via gRPC
+- **GIVEN** an agent streams sync results through the gateway
+- **WHEN** the gateway forwards the results to core
+- **THEN** core SHALL enqueue the sync payload through the results ingestion pipeline
+- **AND** the ingest SHALL succeed without NATS dependencies
+
+#### Scenario: Sweep results ingestion via gRPC
+- **GIVEN** an agent streams sweep results through the gateway
+- **WHEN** the gateway forwards the results to core
+- **THEN** core SHALL ingest sweep data and update device inventory
+- **AND** the ingest SHALL succeed without NATS dependencies
+
+### Requirement: Results routing is explicit by result type
+The core results pipeline SHALL route sync and sweep results by type using dedicated handlers instead of relying on generic status handling.
+
+#### Scenario: Results routing selects the correct handler
+- **GIVEN** core receives a gRPC results payload tagged as `sync`
+- **WHEN** the results pipeline processes the payload
+- **THEN** it SHALL dispatch to the sync ingestor
+- **AND** sweep payloads SHALL dispatch to the sweep ingestor
+
+### Requirement: Sysmon metrics ingestion via gRPC
+The system SHALL ingest sysmon metrics delivered over gRPC status updates into the tenant-scoped CNPG hypertables (`cpu_metrics`, `cpu_cluster_metrics`, `memory_metrics`, `disk_metrics`, and `process_metrics`).
+
+#### Scenario: Sysmon metrics persisted for the agent device
+- **GIVEN** an agent streams a `sysmon-metrics` status payload for tenant `platform`
+- **WHEN** the gateway forwards the status update to core
+- **THEN** core SHALL resolve the agent's device identifier
+- **AND** core SHALL insert the parsed metrics into the `tenant_platform` hypertables
+
+#### Scenario: Device mapping unavailable
+- **GIVEN** an agent streams a `sysmon-metrics` status payload but has no linked device record
+- **WHEN** the gateway forwards the status update to core
+- **THEN** core SHALL ingest the metrics with a safe fallback device identifier or leave it null
+- **AND** the ingest SHALL NOT fail due to missing device linkage
+
+### Requirement: Sysmon payload size handling
+The gateway SHALL accept `sysmon-metrics` payloads larger than the default status message limit and forward them without truncation.
+
+#### Scenario: Large sysmon payload
+- **GIVEN** a `sysmon-metrics` status payload larger than 4KB
+- **WHEN** the gateway processes the message
+- **THEN** the payload SHALL be accepted up to the configured sysmon limit
+- **AND** the payload SHALL be forwarded to core intact
+

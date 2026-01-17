@@ -111,9 +111,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)

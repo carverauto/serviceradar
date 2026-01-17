@@ -160,10 +160,6 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-    end
-
     # Read access for authenticated users
     # DB connection's search_path determines the schema.
     policy action_type(:read) do

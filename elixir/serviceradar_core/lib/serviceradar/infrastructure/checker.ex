@@ -223,11 +223,7 @@ defmodule ServiceRadar.Infrastructure.Checker do
   policies do
     # Import common policy checks
 
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end

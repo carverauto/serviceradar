@@ -4,7 +4,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
 
   SNMPOIDTemplate provides predefined sets of OIDs for common monitoring scenarios.
   Templates are organized by vendor and can be either built-in (shipped with the
-  product) or custom (created by tenant admins).
+  product) or custom (created by admins).
 
   ## Attributes
 
@@ -125,9 +125,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)

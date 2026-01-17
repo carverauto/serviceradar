@@ -68,8 +68,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   policies do
-    # System actors bypass all policies
-    # (tenant isolation is enforced via PostgreSQL schema)
+    # (schema isolation is enforced via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end

@@ -67,10 +67,6 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-    end
-
     # Admins and operators can read events
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)

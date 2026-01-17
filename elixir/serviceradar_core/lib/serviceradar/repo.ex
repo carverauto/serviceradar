@@ -26,10 +26,10 @@ defmodule ServiceRadar.Repo do
   end
 
   @doc """
-  Returns all tenant schemas for migrations and cross-tenant operations.
+  Returns tenant schemas for migrations.
 
-  In tenant instance deployments, the schema is set by DB connection's
-  search_path so there's no need to enumerate tenants.
+  In tenant instance deployments, the schema is set by the DB connection's
+  search_path so there is nothing to enumerate.
   """
   def all_tenants do
     # Schema is set by DB connection's search_path (CNPG credentials)

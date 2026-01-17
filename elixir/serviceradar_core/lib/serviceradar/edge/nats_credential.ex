@@ -10,7 +10,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
   - `:collector` - For edge collectors (flowgger, trapd, netflow, otel)
   - `:service` - For internal services
-  - `:admin` - For tenant admin access (limited)
+  - `:admin` - For admin access (limited)
 
   ## Collector Types
 
@@ -126,11 +126,9 @@ defmodule ServiceRadar.Edge.NatsCredential do
   end
 
   policies do
-    # Super admins can manage all credentials
-    bypass always() do
-    end
+    # System actors can manage all credentials
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end

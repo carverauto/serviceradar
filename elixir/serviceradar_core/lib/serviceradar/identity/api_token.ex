@@ -146,11 +146,7 @@ defmodule ServiceRadar.Identity.ApiToken do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end

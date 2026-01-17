@@ -225,29 +225,25 @@ defmodule ServiceRadar.Inventory.Device do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Read access: authenticated users (tenant isolation via context multitenancy)
+    # Read access: authenticated users (schema isolation via search_path)
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :viewer)
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create devices: operators/admins (tenant isolation via context multitenancy)
+    # Create devices: operators/admins (schema isolation via search_path)
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Update devices: operators/admins (tenant isolation via context multitenancy)
+    # Update devices: operators/admins (schema isolation via search_path)
     policy action_type(:update) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)

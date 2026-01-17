@@ -241,3 +241,69 @@ The system SHALL record OCSF Event Log Activity entries when an integration sour
 - **THEN** the tenant `ocsf_events` table SHALL include start and finish entries
 - **AND** the events SHALL include the integration source ID and result
 
+### Requirement: Device Tags Map
+
+The system SHALL store user-defined device tags in `ocsf_devices.tags` as a JSONB map of key/value pairs.
+
+#### Scenario: Persist tag keys and values
+- **GIVEN** a user applies tags `env=prod` and `critical` to a device
+- **WHEN** the device record is saved
+- **THEN** `ocsf_devices.tags` SHALL include `env` with value `"prod"`
+- **AND** tags without values SHALL be stored with an empty string value
+
+---
+
+### Requirement: Bulk Tag Application
+
+The system SHALL allow users to apply tags to multiple devices via bulk edit.
+
+#### Scenario: Bulk apply tags to selected devices
+- **GIVEN** a user selects multiple devices in the inventory list
+- **WHEN** they use the bulk editor to add tags
+- **THEN** the selected devices SHALL receive those tags
+
+---
+
+### Requirement: Tags Exposed for Sweep Targeting
+
+The system SHALL expose device tags for sweep group targeting and query evaluation.
+
+#### Scenario: Target devices by tag in sweep group
+- **GIVEN** a sweep group targeting rule `tags.env = 'prod'`
+- **WHEN** the group is compiled for a sweep config
+- **THEN** only devices with `ocsf_devices.tags.env = 'prod'` SHALL be included
+
+### Requirement: Conflict-Safe Sync Upserts
+The system SHALL upsert device inventory records for sync updates so concurrent batches do not drop updates when devices already exist.
+
+#### Scenario: Duplicate device across concurrent batches
+- **WHEN** two sync batches include updates for the same device UID
+- **THEN** device ingestion SHALL complete without duplicate key errors
+- **AND** the device record SHALL be updated using the latest ingested fields
+
+### Requirement: Discovery Source Propagation
+
+The system SHALL populate the `discovery_sources` field in `ocsf_devices` with the integration source type(s) that discovered each device.
+
+#### Scenario: Device discovered by Armis integration
+- **GIVEN** a device update received from the Armis sync integration with `source: "armis"`
+- **WHEN** the device is processed by the SyncIngestor
+- **THEN** the `ocsf_devices` record SHALL have `discovery_sources` containing `["armis"]`
+
+#### Scenario: Device discovered by NetBox integration
+- **GIVEN** a device update received from the NetBox sync integration with `source: "netbox"`
+- **WHEN** the device is processed by the SyncIngestor
+- **THEN** the `ocsf_devices` record SHALL have `discovery_sources` containing `["netbox"]`
+
+#### Scenario: Device discovered by multiple sources
+- **GIVEN** a device first discovered by Armis with `source: "armis"`
+- **AND** the same device is later discovered by NetBox with `source: "netbox"`
+- **WHEN** both updates are processed by the SyncIngestor
+- **THEN** the `ocsf_devices` record SHALL have `discovery_sources` containing `["armis", "netbox"]`
+- **AND** the array SHALL contain no duplicate entries
+
+#### Scenario: Device update with missing source field
+- **GIVEN** a device update received without a `source` field
+- **WHEN** the device is processed by the SyncIngestor
+- **THEN** the `ocsf_devices` record SHALL have `discovery_sources` containing `["unknown"]`
+

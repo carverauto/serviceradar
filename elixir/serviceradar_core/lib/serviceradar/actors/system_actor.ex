@@ -13,9 +13,9 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   ## Why Not authorize?: false?
 
-  Using `authorize?: false` bypasses ALL authorization policies including
-  tenant isolation. This creates security vulnerabilities where background
-  operations could inadvertently access cross-tenant data.
+  Using `authorize?: false` bypasses ALL authorization policies. This creates
+  security vulnerabilities where background operations could access data
+  without role checks.
 
   System actors ensure:
   1. Authorization policies are properly evaluated
@@ -63,7 +63,7 @@ defmodule ServiceRadar.Actors.SystemActor do
   ## When to Use
 
   Use `system/1` in tenant instance code where the DB connection's
-  search_path is set by CNPG credentials (tenant isolation is implicit).
+  search_path is set by CNPG credentials (schema isolation is implicit).
   """
   @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}
   def system(component) when is_atom(component) do

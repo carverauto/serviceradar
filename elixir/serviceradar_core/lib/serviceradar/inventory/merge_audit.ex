@@ -84,10 +84,6 @@ defmodule ServiceRadar.Inventory.MergeAudit do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-    end
-
     # Read access for authenticated users
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
