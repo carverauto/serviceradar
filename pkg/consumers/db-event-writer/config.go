@@ -11,6 +11,7 @@ import (
 var (
 	ErrMissingListenAddr     = errors.New("listen_addr is required")
 	ErrMissingNATSURL        = errors.New("nats_url is required")
+	ErrMissingNATSCredsFile  = errors.New("nats_creds_file is required for NATS JWT auth")
 	ErrMissingStreamName     = errors.New("stream_name is required")
 	ErrMissingConsumerName   = errors.New("consumer_name is required")
 	ErrMissingTableName      = errors.New("table is required")
@@ -55,6 +56,10 @@ func (c *DBEventWriterConfig) Validate() error {
 
 	if c.NATSURL == "" {
 		errs = append(errs, ErrMissingNATSURL)
+	}
+
+	if strings.TrimSpace(c.NATSCredsFile) == "" {
+		errs = append(errs, ErrMissingNATSCredsFile)
 	}
 
 	if c.StreamName == "" {

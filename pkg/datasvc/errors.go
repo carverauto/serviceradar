@@ -32,6 +32,7 @@ var (
 	errNATSReconnectDisabled  = errors.New("kv: nats reconnect unavailable")
 	errListenAddrRequired     = errors.New("listen_addr is required")
 	errNatsURLRequired        = errors.New("nats_url is required")
+	errNATSCredsRequired      = errors.New("nats_creds_file is required for NATS JWT auth")
 	errSecurityRequired       = errors.New("security configuration is required for mTLS")
 	errNATSSecurityRequired   = errors.New("nats_security configuration is required")
 	errCertFileRequired       = errors.New("tls.cert_file is required for mTLS")

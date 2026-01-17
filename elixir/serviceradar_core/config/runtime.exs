@@ -198,11 +198,20 @@ if config_env() == :prod do
     peer: Oban.Peers.Database
 
   # Core NATS connection configuration
+  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
   nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
   nats_uri = URI.parse(nats_url)
   nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
   nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
   cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+  nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
+  if nats_enabled && nats_creds_file in [nil, ""] do
+    raise """
+    NATS_CREDS_FILE is required for NATS JWT auth.
+    Generate or provision JWT credentials and set NATS_CREDS_FILE.
+    """
+  end
 
   nats_tls_config =
     if nats_tls_enabled do
@@ -222,7 +231,7 @@ if config_env() == :prod do
     port: nats_uri.port || 4222,
     user: System.get_env("NATS_USER"),
     password: {:system, "NATS_PASSWORD"},
-    creds_file: System.get_env("NATS_CREDS_FILE"),
+    creds_file: nats_creds_file,
     tls: nats_tls_config
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
@@ -230,6 +239,14 @@ if config_env() == :prod do
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
   if event_writer_enabled do
+    event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+    if event_writer_creds in [nil, ""] do
+      raise """
+      EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
+      Generate or provision JWT credentials and set EVENT_WRITER_NATS_CREDS_FILE.
+      """
+    end
+
     nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
     nats_uri = URI.parse(nats_url)
 
@@ -259,7 +276,7 @@ if config_env() == :prod do
         port: nats_uri.port || 4222,
         user: System.get_env("EVENT_WRITER_NATS_USER"),
         password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
-        creds_file: System.get_env("EVENT_WRITER_NATS_CREDS_FILE"),
+        creds_file: event_writer_creds,
         tls: nats_tls_config
       ],
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),

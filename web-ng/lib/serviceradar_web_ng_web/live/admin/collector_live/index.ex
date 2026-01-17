@@ -245,7 +245,10 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
         </div>
 
-        <.account_status_card account_status={@account_status} account_public_key={@account_public_key} />
+        <.account_status_card
+          account_status={@account_status}
+          account_public_key={@account_public_key}
+        />
 
         <.ui_panel>
           <:header>

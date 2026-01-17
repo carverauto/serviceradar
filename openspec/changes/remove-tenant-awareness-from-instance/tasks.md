@@ -29,6 +29,12 @@ Make instance code (web-ng, core-elx) completely schema-scoped and account-unawa
 - [ ] **1.2.2 Verify cannot access other account schemas**
 - [ ] **1.2.3 Verify app works with scoped credentials**
 
+### 1.3 Enforce JWT-only NATS access in instance code
+
+- [x] **1.3.1 Require NATS creds in core-elx runtime config (NATS + EventWriter)**
+- [x] **1.3.2 Require NATS creds in datasvc/db-event-writer config validation**
+- [x] **1.3.3 Require KV NATS creds when KV_DRIVER=nats**
+
 ---
 
 ## Phase 2: Remove Multitenancy from Ash Resources

@@ -55,6 +55,9 @@ func (c *Config) validateRequiredFields() error {
 	if c.NATSURL == "" {
 		return errNatsURLRequired
 	}
+	if strings.TrimSpace(c.NATSCredsFile) == "" {
+		return errNATSCredsRequired
+	}
 
 	return nil
 }
