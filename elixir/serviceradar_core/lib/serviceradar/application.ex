@@ -198,7 +198,13 @@ defmodule ServiceRadar.Application do
   defp registry_children do
     if Application.get_env(:serviceradar_core, :registries_enabled, true) do
       # ProcessRegistry provides Horde registry + DynamicSupervisor as child_specs
-      process_registry_specs = ServiceRadar.ProcessRegistry.child_specs()
+      process_registry_specs =
+        if Process.whereis(ServiceRadar.ProcessRegistry.registry_name()) ||
+             Process.whereis(ServiceRadar.ProcessRegistry.supervisor_name()) do
+          []
+        else
+          ServiceRadar.ProcessRegistry.child_specs()
+        end
 
       process_registry_specs ++
         [

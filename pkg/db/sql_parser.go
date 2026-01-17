@@ -124,11 +124,3 @@ func parseDollarTag(content string) (string, int) {
 func isDollarTagChar(ch byte) bool {
 	return ch == '_' || unicode.IsLetter(rune(ch)) || unicode.IsDigit(rune(ch))
 }
-
-func extractVersion(filename string) string {
-	parts := strings.Split(filename, "_")
-	if len(parts) == 0 {
-		return filename
-	}
-	return parts[0]
-}

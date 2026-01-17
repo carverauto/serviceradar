@@ -388,7 +388,7 @@ defmodule ServiceRadar.Edge.AgentProcess do
 
   defp update_registry_status(state, status) do
     ServiceRadar.ProcessRegistry.update_value(
-      {:agent, state.agent_id},
+      {:agent, state.agent_id, Node.self()},
       fn meta ->
         Map.put(meta, :status, status)
       end

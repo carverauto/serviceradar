@@ -56,73 +56,21 @@ upgrade the database:
    objects. Finish with `scripts/test.sh` (or another `spire-agent api fetch`)
    to prove workloads can still mint SVIDs.
 
-## Running CNPG migrations
+## Running Ash migrations
 
-The Timescale schema (`pkg/db/cnpg/migrations/*.sql`) now ships inside the
-`cmd/tools/cnpg-migrate` helper, so you no longer need to exec into pods or copy
-SQL files around to hydrate a fresh serviceradar database. Configure the connection
-via environment variables and call either `make cnpg-migrate` or the Bazel
-binary:
+ServiceRadar schema is owned by Ash migrations in
+`elixir/serviceradar_core/priv/repo/migrations/`. In cluster deployments,
+core-elx applies them on startup when `SERVICERADAR_CORE_RUN_MIGRATIONS=true`.
 
-- `CNPG_HOST`/`CNPG_PORT` – target endpoint (defaults to `127.0.0.1:5432`)
-- `CNPG_DATABASE` – serviceradar database name (`serviceradar` in the demo cluster)
-- `CNPG_USERNAME`/`CNPG_PASSWORD` or `CNPG_PASSWORD_FILE`
-- Optional TLS knobs: `CNPG_CERT_DIR`, `CNPG_CA_FILE`, `CNPG_CERT_FILE`,
-  `CNPG_KEY_FILE`, and `CNPG_SSLMODE`
-- When CNPG requires client certs, db-event-writer must use the CNPG client
-  certificate bundle (`cnpg-client.pem`/`cnpg-client-key.pem`) instead of the
-  service certificate to avoid TLS handshake failures.
-- Advanced tuning: `CNPG_APP_NAME`, `CNPG_MAX_CONNS`, `CNPG_MIN_CONNS`,
-  `CNPG_STATEMENT_TIMEOUT`, `CNPG_HEALTH_CHECK_PERIOD`, or
-  repeated `--runtime-param key=value` flags (pass them via
-  `make cnpg-migrate ARGS="--runtime-param work_mem=64MB"`).
-
-### Demo quickstart
+To run migrations manually from the repo:
 
 ```bash
-# 1) Port-forward to the RW service
-kubectl port-forward -n demo svc/cnpg-rw 55432:5432 >/tmp/cnpg-forward.log &
-
-# 2) Export connection details (superuser secret works for schema changes)
-export CNPG_HOST=127.0.0.1
-export CNPG_PORT=55432
-export CNPG_DATABASE=serviceradar
-export CNPG_USERNAME=postgres
-export CNPG_PASSWORD="$(kubectl get secret -n demo cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)"
-
-# 3) Run the migrations (same binary behind `bazel run //cmd/tools/cnpg-migrate:cnpg-migrate`)
-make cnpg-migrate
+cd elixir/serviceradar_core
+mix ash.migrate
 ```
 
-The tool logs each migration file before executing it and exits non-zero if any
-statement fails, making it safe to run in CI/CD or during demo refreshes.
-
-### Running migrations from `serviceradar-tools`
-
-The `serviceradar-tools` image now bundles `cnpg-migrate`, so you can run the
-schema updates entirely inside the cluster—useful for `demo-staging` rehearsals:
-
-```bash
-# Use Bazel to build + push the updated toolbox image before rolling:
-bazel run --config=remote //docker/images:tools_image_amd64_push
-
-# Update k8s/demo/staging/kustomization.yaml so the `images:` stanza
-# points at the new sha tag from the push output, for example:
-#   - name: ghcr.io/carverauto/serviceradar-tools
-#     newTag: sha-$(git rev-parse HEAD)
-
-# After redeploying the toolbox, exec into it and run migrations:
-kubectl exec -n demo-staging deploy/serviceradar-tools -- \
-  env CNPG_HOST=cnpg-rw.demo-staging.svc.cluster.local \
-      CNPG_DATABASE=serviceradar \
-      CNPG_USERNAME=postgres \
-      CNPG_PASSWORD="$(kubectl get secret -n demo-staging cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)" \
-      cnpg-migrate --app-name serviceradar-tools
-```
-
-Adjust the credentials/flags if you run against a read/write replica or use a
-service-specific role. The command prints each migration it applies so you can
-capture the log alongside other staging validation artifacts.
+Ensure the usual `CNPG_*` environment variables are set if you are pointing at
+a remote CNPG instance or a port-forwarded database.
 
 ## Enabling TimescaleDB + AGE in the serviceradar database
 
@@ -452,7 +400,7 @@ What the script does:
 - Deletes PVCs labeled `cnpg.io/cluster=cnpg` so the next apply provisions clean volumes
 - Reapplies `k8s/demo/base/spire` to recreate the CNPG cluster and SPIRE dependencies
 - Waits for `cnpg-{0,1,2}` to become Ready and confirms the custom `serviceradar-cnpg` image is running
-- Runs `cnpg-migrate` (with the superuser secret mounted) to seed the telemetry schema
+- Relies on core-elx startup migrations (`SERVICERADAR_CORE_RUN_MIGRATIONS=true`) to seed the schema
 - Restarts `serviceradar-core`, `serviceradar-agent`, and the writers so they reconnect to the new database
 
 After the reset:
@@ -462,7 +410,7 @@ After the reset:
 3. Hard-refresh the dashboards so cached device totals drop.
 4. If the issue stemmed from leftover WAL or chunk bloat, capture `timescaledb_information.hypertable_detailed_size('timeseries_metrics')` before and after to document the improvement.
 
-Run the script in staging first; it is idempotent and leaves the namespace with a fully bootstrapped CNPG instance that matches the schema in `pkg/db/cnpg/migrations`.
+Run the script in staging first; it is idempotent and leaves the namespace with a fully bootstrapped CNPG instance that matches the Ash migrations.
 
 ## CNPG Client From `serviceradar-tools`
 
@@ -473,14 +421,13 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
   cnpg-info
   cnpg-sql "SELECT count(*) FROM unified_devices"
   cnpg-sql "SELECT hypertable_name, total_bytes/1024/1024 AS mb FROM timescaledb_information.hypertable_detailed_size ORDER BY total_bytes DESC LIMIT 5"
-  cnpg-migrate --app-name serviceradar-tools
   ```
 - You can run any of those without an interactive shell:
   ```bash
   kubectl exec -n demo deploy/serviceradar-tools -- \
     cnpg-sql "SELECT NOW()"
   ```
-- Outside the cluster, port-forward the RW service and export the `CNPG_*` environment variables before running `make cnpg-migrate` or `psql`. The helpers respect `CNPG_PASSWORD_FILE`, so you can pass `/etc/serviceradar/cnpg/superuser-password` directly instead of copying secrets to your laptop.
+- Outside the cluster, port-forward the RW service and export the `CNPG_*` environment variables before running `mix ash.migrate` (from `elixir/serviceradar_core`) or `psql`. The helpers respect `CNPG_PASSWORD_FILE`, so you can pass `/etc/serviceradar/cnpg/superuser-password` directly instead of copying secrets to your laptop.
 - JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-kv` for quick config or replay checks.
 
 ## Sweep Config Distribution
@@ -618,12 +565,13 @@ kubectl exec -n demo deploy/serviceradar-tools -- \
 kubectl exec -n demo deploy/serviceradar-tools -- \
   cnpg-sql "SELECT gateway_id, COUNT(*) FROM unified_devices GROUP BY gateway_id ORDER BY count DESC"
 
-# Port-forward CNPG locally and run migrations from your laptop
+# Port-forward CNPG locally and run Ash migrations from your laptop
 kubectl port-forward -n demo svc/cnpg-rw 55432:5432 &
 export CNPG_HOST=127.0.0.1 CNPG_PORT=55432 CNPG_DATABASE=serviceradar
 export CNPG_USERNAME=postgres
 export CNPG_PASSWORD=$(kubectl get secret -n demo cnpg-superuser -o jsonpath='{.data.password}' | base64 -d)
-make cnpg-migrate
+cd elixir/serviceradar_core
+mix ash.migrate
 ```
 
 Keep this document up to date as we refine the tooling around the agents and the demo environment.

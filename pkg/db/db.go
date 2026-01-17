@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -64,7 +62,7 @@ type DB struct {
 	deviceUpdatesMu *sync.Mutex
 }
 
-// New creates a new CNPG-backed database connection and initializes the schema.
+// New creates a new CNPG-backed database connection.
 func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logger) (Service, error) {
 	if config == nil {
 		return nil, fmt.Errorf("%w: database configuration missing", ErrFailedOpenDB)
@@ -79,15 +77,6 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 		return nil, fmt.Errorf("%w: CNPG configuration not provided", ErrFailedOpenDB)
 	}
 
-	if shouldRunDBMigrations() {
-		if err := RunCNPGMigrations(ctx, cnpgPool, log); err != nil {
-			cnpgPool.Close()
-			return nil, fmt.Errorf("failed to run CNPG migrations: %w", err)
-		}
-	} else {
-		log.Info().Msg("Skipping CNPG migrations (ENABLE_DB_MIGRATIONS=false)")
-	}
-
 	db := &DB{
 		pgPool:          cnpgPool,
 		executor:        cnpgPool, // Default to pool
@@ -96,23 +85,6 @@ func New(ctx context.Context, config *models.CoreServiceConfig, log logger.Logge
 	}
 
 	return db, nil
-}
-
-func shouldRunDBMigrations() bool {
-	val, ok := os.LookupEnv("ENABLE_DB_MIGRATIONS")
-	if !ok {
-		return true
-	}
-
-	val = strings.TrimSpace(strings.ToLower(val))
-	switch val {
-	case "", "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
 }
 
 func (db *DB) cnpgConfigured() bool {

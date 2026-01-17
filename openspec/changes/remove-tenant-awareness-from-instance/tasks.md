@@ -249,11 +249,16 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 ### 6.2 Test OSS deployment
 
-- [ ] **6.2.1 `helm install` smoke test**
-  - Verify system works with scoped credentials
+- [x] **6.2.1 `helm install` smoke test**
+  - Verified schema `platform` created with correct ownership (serviceradar user)
+  - Verified user `serviceradar` has USAGE and CREATE privileges on schema
+  - Verified user's search_path set to `platform, ag_catalog`
+  - Fixed: Made CNPG_CERT_FILE/KEY_FILE conditional on requireClientCert
+  - Fixed: Added default pg_hba rules allowing SSL without client certs
 
 - [ ] **6.2.2 Verify no cross-schema code paths**
-  - Check logs for any cross-schema access attempts
+  - Blocked by NATS credentials configuration issue
+  - Schema isolation verified at DB level; app startup blocked on NATS
 
 ### 6.3 Infrastructure cleanup (certs/Helm/Compose)
 
@@ -277,7 +282,8 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
   - Deleted `elixir/serviceradar_core/priv/resource_snapshots`
 
 - [x] **6.3.6 Consolidate CNPG SQL migrations**
-  - Reduced to a single schema migration in `pkg/db/cnpg/migrations`
+  - Removed Go CNPG migrations and runner
+  - Ash rebuild migration is the single source of schema creation
 
 ---
 

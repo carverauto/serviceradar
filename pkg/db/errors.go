@@ -29,7 +29,7 @@ var (
 	ErrFailedToScan   = errors.New("failed to scan")
 	ErrFailedToQuery  = errors.New("failed to query")
 	ErrFailedToInsert = errors.New("failed to insert")
-	ErrFailedToInit   = errors.New("failed to initialize schema")
+	ErrFailedToInit   = errors.New("failed to initialize database")
 	ErrFailedOpenDB   = errors.New("failed to open database")
 
 	// Auth.
@@ -66,16 +66,6 @@ var (
 	ErrTimeseriesColumnRequired    = errors.New("timeseries column is required")
 	ErrTimeseriesColumnUnsupported = errors.New("unsupported timeseries column")
 	ErrNetflowMetricNil            = errors.New("netflow metric is nil")
-
-	// Registry validation errors.
-
-	ErrGatewayStatusNil              = errors.New("gateway status nil")
-	ErrGatewayIDMissing              = errors.New("gateway id is required")
-	ErrServiceStatusNil             = errors.New("service status nil")
-	ErrServiceStatusGatewayIDMissing = errors.New("service status gateway id is required")
-	ErrServiceNil                   = errors.New("service nil")
-	ErrServiceGatewayIDMissing       = errors.New("service gateway id required")
-	ErrServiceRegistrationEventNil  = errors.New("service registration event is nil")
 
 	// Sweep validation errors.
 

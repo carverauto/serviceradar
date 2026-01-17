@@ -127,10 +127,6 @@ demo-staging-web: ## Push web-ng image (latest) and restart serviceradar-web-ng 
 demo-staging-core: ## Push core image (latest) and restart serviceradar-core in demo-staging
 	@./scripts/demo-staging-core.sh demo-staging
 
-.PHONY: cnpg-migrate
-cnpg-migrate: ## Apply CNPG migrations (set CNPG_* vars or pass ARGS="--host ...")
-	@$(GO) run ./cmd/tools/cnpg-migrate $(ARGS)
-
 .PHONY: cnpg-smoke
 cnpg-smoke: ## Run CNPG API smoke tests (set NAMESPACE=<ns>, default demo-staging)
 	@NS=$(if $(NAMESPACE),$(NAMESPACE),demo-staging); \

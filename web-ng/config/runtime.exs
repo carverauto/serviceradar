@@ -195,6 +195,7 @@ if config_env() != :test do
   # web-ng only processes jobs, it doesn't schedule them
   oban_config = [
     repo: ServiceRadar.Repo,
+    prefix: "platform",
     queues: [
       default: oban_default_queue_limit,
       maintenance: oban_maintenance_queue_limit,

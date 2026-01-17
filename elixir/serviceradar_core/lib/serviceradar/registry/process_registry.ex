@@ -7,18 +7,18 @@ defmodule ServiceRadar.ProcessRegistry do
 
   ## Usage
 
-      # Register a gateway
-      ProcessRegistry.register({:gateway, "gateway-001"}, %{status: :available})
+      # Register a gateway (per-node key)
+      ProcessRegistry.register({:gateway, "gateway-001", node()}, %{status: :available})
 
-      # Lookup
-      ProcessRegistry.lookup({:gateway, "gateway-001"})
+      # Lookup all gateway instances
+      ProcessRegistry.lookup_gateway("gateway-001")
 
       # Find all gateways
       ProcessRegistry.select_by_type(:gateway)
   """
 
   @registry_name __MODULE__
-  @supervisor_name ServiceRadar.ProcessRegistry.Supervisor
+  @supervisor_name ServiceRadar.ProcessSupervisor
 
   @doc """
   Child specs for the supervision tree.
@@ -79,12 +79,12 @@ defmodule ServiceRadar.ProcessRegistry do
 
   ## Parameters
 
-    - `key` - Registration key (e.g., `{:gateway, "gateway-001"}`)
+    - `key` - Registration key (e.g., `{:gateway, "gateway-001", node()}`)
     - `metadata` - Process metadata
 
   ## Examples
 
-      ProcessRegistry.register({:gateway, "gateway-001"}, %{
+      ProcessRegistry.register({:gateway, "gateway-001", node()}, %{
         partition_id: "partition-1",
         status: :available
       })
@@ -139,8 +139,11 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec select_by_type(atom()) :: [{term(), pid(), map()}]
   def select_by_type(type) do
-    # Match keys that start with the type atom
+    # Match keys that start with the type atom and include the node key
     match_spec = [
+      {{{type, :"$1", :"$2"}, :"$3", :"$4"},
+       [],
+       [{{{{type, :"$1", :"$2"}}, :"$3", :"$4"}}]},
       {{{type, :"$1"}, :"$2", :"$3"}, [], [{{{{type, :"$1"}}, :"$2", :"$3"}}]}
     ]
 
@@ -180,7 +183,7 @@ defmodule ServiceRadar.ProcessRegistry do
 
   ## Examples
 
-      GenServer.start_link(MyWorker, args, name: ProcessRegistry.via({:gateway, "gw-001"}))
+      GenServer.start_link(MyWorker, args, name: ProcessRegistry.via({:gateway, "gw-001", node()}))
   """
   @spec via(term()) :: {:via, module(), {atom(), term()}}
   def via(key) do
@@ -202,15 +205,23 @@ defmodule ServiceRadar.ProcessRegistry do
   @doc """
   Registers a gateway in the registry.
   """
-  @spec register_gateway(String.t(), map()) :: {:ok, pid()} | {:error, term()}
-  def register_gateway(gateway_id, metadata) do
+  @spec register_gateway(String.t(), map(), node()) :: {:ok, pid()} | {:error, term()}
+  def register_gateway(gateway_id, metadata, node \\ Node.self()) do
     full_metadata =
       metadata
       |> Map.put(:type, :gateway)
       |> Map.put(:registered_at, DateTime.utc_now())
       |> Map.put(:last_heartbeat, DateTime.utc_now())
 
-    register({:gateway, gateway_id}, full_metadata)
+    register({:gateway, gateway_id, node}, full_metadata)
+  end
+
+  @doc """
+  Unregisters a gateway instance from the registry.
+  """
+  @spec unregister_gateway(String.t(), node()) :: :ok
+  def unregister_gateway(gateway_id, node \\ Node.self()) do
+    unregister({:gateway, gateway_id, node})
   end
 
   @doc """
@@ -225,6 +236,19 @@ defmodule ServiceRadar.ProcessRegistry do
   end
 
   @doc """
+  Looks up all gateway instances for a gateway ID.
+  """
+  @spec lookup_gateway(String.t()) :: [{pid(), map()}]
+  def lookup_gateway(gateway_id) when is_binary(gateway_id) do
+    match_spec = [
+      {{{:gateway, gateway_id, :"$1"}, :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]},
+      {{{:gateway, gateway_id}, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(@registry_name, match_spec)
+  end
+
+  @doc """
   Finds available gateways.
   """
   @spec find_available_gateways() :: [map()]
@@ -236,9 +260,9 @@ defmodule ServiceRadar.ProcessRegistry do
   @doc """
   Updates heartbeat for a gateway.
   """
-  @spec gateway_heartbeat(String.t()) :: :ok | :error
-  def gateway_heartbeat(gateway_id) do
-    case update_value({:gateway, gateway_id}, fn meta ->
+  @spec gateway_heartbeat(String.t(), node()) :: :ok | :error
+  def gateway_heartbeat(gateway_id, node \\ Node.self()) do
+    case update_value({:gateway, gateway_id, node}, fn meta ->
            %{meta | last_heartbeat: DateTime.utc_now()}
          end) do
       {_new, _old} -> :ok
@@ -253,15 +277,23 @@ defmodule ServiceRadar.ProcessRegistry do
   @doc """
   Registers an agent in the registry.
   """
-  @spec register_agent(String.t(), map()) :: {:ok, pid()} | {:error, term()}
-  def register_agent(agent_id, metadata) do
+  @spec register_agent(String.t(), map(), node()) :: {:ok, pid()} | {:error, term()}
+  def register_agent(agent_id, metadata, node \\ Node.self()) do
     full_metadata =
       metadata
       |> Map.put(:type, :agent)
       |> Map.put(:registered_at, DateTime.utc_now())
       |> Map.put(:last_heartbeat, DateTime.utc_now())
 
-    register({:agent, agent_id}, full_metadata)
+    register({:agent, agent_id, node}, full_metadata)
+  end
+
+  @doc """
+  Unregisters an agent instance from the registry.
+  """
+  @spec unregister_agent(String.t(), node()) :: :ok
+  def unregister_agent(agent_id, node \\ Node.self()) do
+    unregister({:agent, agent_id, node})
   end
 
   @doc """
@@ -276,11 +308,24 @@ defmodule ServiceRadar.ProcessRegistry do
   end
 
   @doc """
+  Looks up all agent instances for an agent ID.
+  """
+  @spec lookup_agent(String.t()) :: [{pid(), map()}]
+  def lookup_agent(agent_id) when is_binary(agent_id) do
+    match_spec = [
+      {{{:agent, agent_id, :"$1"}, :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]},
+      {{{:agent, agent_id}, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}
+    ]
+
+    Horde.Registry.select(@registry_name, match_spec)
+  end
+
+  @doc """
   Updates heartbeat for an agent.
   """
-  @spec agent_heartbeat(String.t()) :: :ok | :error
-  def agent_heartbeat(agent_id) do
-    case update_value({:agent, agent_id}, fn meta ->
+  @spec agent_heartbeat(String.t(), node()) :: :ok | :error
+  def agent_heartbeat(agent_id, node \\ Node.self()) do
+    case update_value({:agent, agent_id, node}, fn meta ->
            %{meta | last_heartbeat: DateTime.utc_now()}
          end) do
       {_new, _old} -> :ok

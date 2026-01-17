@@ -54,6 +54,7 @@ var (
 	errUnsupportedPrivateKey = errors.New("unsupported private key type")
 	errUnsupportedConfigType = errors.New("unsupported config type")
 	errFailedToParseCACert   = errors.New("failed to parse CA cert")
+	errKVNATSCredsRequired   = errors.New("KV_NATS_CREDS_FILE is required for NATS JWT auth")
 )
 
 const (
@@ -734,7 +735,7 @@ func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVSt
 
 	credsFile := strings.TrimSpace(os.Getenv("KV_NATS_CREDS_FILE"))
 	if credsFile == "" {
-		return nil, fmt.Errorf("KV_NATS_CREDS_FILE is required for NATS JWT auth")
+		return nil, errKVNATSCredsRequired
 	}
 	opts = append(opts, nats.UserCredentials(credsFile))
 

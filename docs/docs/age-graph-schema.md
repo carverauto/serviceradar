@@ -6,7 +6,7 @@ This document captures the canonical AGE graph schema (`serviceradar`), ID forma
 - Graph name: `serviceradar`
 - Extensions: `age` (plus `timescaledb`)
 - Database defaults: `search_path=ag_catalog,"$user",public`; `graph_path` may be absent in the current CNPG build, so Cypher calls must always pass the graph name explicitly.
-- Role grants (migration `00000000000012_age_graph_bootstrap.up.sql`):
+- Role grants (Ash rebuild migration `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs`):
   - `GRANT USAGE ON SCHEMA ag_catalog` and `EXECUTE` on its functions to the `serviceradar` role.
   - `GRANT USAGE` on graph schema `serviceradar`, `ALL PRIVILEGES` on its tables, and default privileges for future tables to the `serviceradar` role.
 
