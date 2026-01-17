@@ -104,7 +104,7 @@ spec:
         - name: CORE_CERT_DIR
           value: {{ default "/etc/serviceradar/certs" .Values.coreClient.certDir | quote }}
         - name: ENABLE_DB_MIGRATIONS
-          value: "false"
+          value: {{ default "true" .Values.dbEventWriter.enableMigrations | quote }}
         - name: LOG_LEVEL
           value: "info"
         resources:

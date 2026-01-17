@@ -58,7 +58,8 @@ func (c *DBEventWriterConfig) Validate() error {
 		errs = append(errs, ErrMissingNATSURL)
 	}
 
-	if strings.TrimSpace(c.NATSCredsFile) == "" {
+	// NATSCredsFile is only required when using JWT auth, not mTLS
+	if strings.TrimSpace(c.NATSCredsFile) == "" && !c.usesMTLSForNATS() {
 		errs = append(errs, ErrMissingNATSCredsFile)
 	}
 
@@ -99,6 +100,11 @@ func (c *DBEventWriterConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// usesMTLSForNATS returns true if the configuration uses mTLS for NATS instead of JWT auth
+func (c *DBEventWriterConfig) usesMTLSForNATS() bool {
+	return c.NATSSecurity != nil && c.NATSSecurity.Mode == models.SecurityModeMTLS
 }
 
 // GetStreams returns the stream configurations, handling both legacy and new formats

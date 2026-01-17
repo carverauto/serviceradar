@@ -13,7 +13,10 @@
   {{- $superPass = (b64dec $existingSuper.data.password) }}
 {{- end }}
 {{- $cnpg := default (dict) .Values.cnpg }}
-{{- $clientCASecret := $cnpg.clientCASecret }}
+{{- $clientCASecret := default "" $cnpg.clientCASecret }}
+{{- if and (not $clientCASecret) $cnpg.requireClientCert }}
+  {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
+{{- end }}
 {{- $existingAppCreds := (lookup "v1" "Secret" $ns "serviceradar-db-credentials") }}
 {{- $appUser := default "serviceradar" $cnpg.username }}
 {{- $appPass := default "" $cnpg.password }}

@@ -9,7 +9,6 @@ go_library(
         "cnpg_device_updates_retry.go",
         "cnpg_discovery.go",
         "cnpg_identity_engine.go",
-        "cnpg_migrate.go",
         "cnpg_netflow.go",
         "cnpg_observability.go",
         "cnpg_metrics.go",
@@ -41,9 +40,6 @@ go_library(
         "services.go",
         "sweep.go",
     ],
-    embedsrcs = glob([
-        "cnpg/migrations/*.sql",
-    ]),
     importpath = "github.com/carverauto/serviceradar/pkg/db",
     visibility = ["//visibility:public"],
     deps = [

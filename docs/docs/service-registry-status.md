@@ -47,21 +47,11 @@ This document tracks the implementation status of the service registry extension
 - [x] ArchiveInactive() - Long-term retention management
 - [x] refreshGatewayCache() - 5-minute cache refresh
 
-### Database Schema (Migration 9)
+### Database Schema (Ash Rebuild Migration)
 
-**Schema (00000000000009_service_registry.up.sql)** - ✅ **COMPLETE**
-- [x] Extended `gateways` stream with registry fields
-- [x] Created `agents` stream (versioned_kv)
-- [x] Created `checkers` stream (versioned_kv)
-- [x] Created `service_registration_events` stream (90-day TTL)
-- [x] NO TTL on registry streams (lifecycle via status field)
-- [x] All streams use versioned_kv mode for automatic version management
-
-**Design Decision**: Used **versioned_kv streams** instead of ReplacingMergeTree tables
-- ✅ **Better choice for CNPG** - native versioned key-value support
-- ✅ Automatic version management via `_tp_time`
-- ✅ Simpler updates (just INSERT, engine handles deduplication)
-- ✅ Better integration with streaming architecture
+**Schema (Ash rebuild migration 20260117090000_rebuild_schema.exs)** - ✅ **COMPLETE**
+- [x] Registry persistence is defined in the Ash-managed schema migration
+- [x] See the migration file for current table definitions and indexes
 
 ---
 
@@ -438,7 +428,7 @@ if s.edgeOnboarding != nil { ... }
 - `pkg/registry/service_models.go` - Data models
 - `pkg/registry/service_registry.go` - Core implementation
 - `pkg/registry/service_registry_queries.go` - Query methods
-- `pkg/db/migrations/00000000000009_service_registry.up.sql` - Database schema
+- `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs` - Database schema (Ash rebuild migration)
 - GH-1909: Edge onboarding: support agents and checkers
 - GH-1915 / serviceradar-57: Create common onboarding library
 - GH-1891: Implement zero-touch onboarding

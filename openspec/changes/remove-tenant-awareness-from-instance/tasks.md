@@ -282,7 +282,8 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
   - Deleted `elixir/serviceradar_core/priv/resource_snapshots`
 
 - [x] **6.3.6 Consolidate CNPG SQL migrations**
-  - Reduced to a single schema migration in `pkg/db/cnpg/migrations`
+  - Removed Go CNPG migrations and runner
+  - Ash rebuild migration is the single source of schema creation
 
 ---
 

@@ -29,7 +29,7 @@ var (
 	ErrFailedToScan   = errors.New("failed to scan")
 	ErrFailedToQuery  = errors.New("failed to query")
 	ErrFailedToInsert = errors.New("failed to insert")
-	ErrFailedToInit   = errors.New("failed to initialize schema")
+	ErrFailedToInit   = errors.New("failed to initialize database")
 	ErrFailedOpenDB   = errors.New("failed to open database")
 
 	// Auth.

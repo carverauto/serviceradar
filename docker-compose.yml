@@ -69,32 +69,6 @@ services:
           - cnpg-rw
     restart: unless-stopped
 
-  cnpg-migrate:
-    image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG:-latest}
-    container_name: serviceradar-cnpg-migrate
-    command: ["cnpg-migrate"]
-    environment:
-      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD=${CNPG_PASSWORD:-serviceradar}
-      - CNPG_SSLMODE=${CNPG_SSL_MODE:-verify-full}
-      - CNPG_CERT_DIR=/etc/serviceradar/certs
-      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
-      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
-    volumes:
-      - cert-data:/etc/serviceradar/certs:ro
-    depends_on:
-      cert-permissions-fixer:
-        condition: service_completed_successfully
-      cnpg:
-        condition: service_healthy
-    restart: "no"
-    networks:
-      - serviceradar-net
-
   cert-permissions-fixer:
     image: alpine:3.20
     container_name: serviceradar-cert-permissions-fixer-mtls
@@ -197,8 +171,8 @@ services:
         condition: service_completed_successfully
       cnpg:
         condition: service_healthy
-      cnpg-migrate:
-        condition: service_completed_successfully
+      core-elx:
+        condition: service_healthy
       nats:
         condition: service_started
     healthcheck:
@@ -760,7 +734,7 @@ services:
       cert-permissions-fixer:
         condition: service_completed_successfully
       web-ng:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s

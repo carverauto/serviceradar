@@ -18,7 +18,7 @@ defmodule ServiceRadar.ProcessRegistry do
   """
 
   @registry_name __MODULE__
-  @supervisor_name ServiceRadar.ProcessRegistry.Supervisor
+  @supervisor_name ServiceRadar.ProcessSupervisor
 
   @doc """
   Child specs for the supervision tree.

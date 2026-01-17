@@ -2,6 +2,7 @@
 {{- $cnpg := default (dict) .Values.cnpg }}
 {{- $cnpgRuntime := default (dict) $cnpg.runtimeParams }}
 {{- $appSchema := default "platform" $cnpg.schema }}
+{{- $requireClientCert := default false $cnpg.requireClientCert }}
 {{- $searchPath := $cnpgRuntime.search_path }}
 {{- if not $searchPath }}
   {{- $searchPath = printf "%s,ag_catalog" $appSchema }}
@@ -47,8 +48,10 @@ data:
           "search_path": "{{ $searchPath }}"
         },
         "tls": {
+{{- if $requireClientCert }}
           "cert_file": "{{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) }}",
           "key_file": "{{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) }}",
+{{- end }}
           "ca_file": {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
         }
       },

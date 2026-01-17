@@ -25,15 +25,4 @@ defmodule ServiceRadar.Repo do
     %Version{major: 15, minor: 0, patch: 0}
   end
 
-  @doc """
-  Returns schemas for migrations.
-
-  In single-deployment setups, the schema is set by the DB connection's
-  search_path so there is nothing to enumerate.
-  """
-  def all_tenants do
-    # Schema is set by DB connection's search_path (CNPG credentials)
-    # No need to enumerate schemas
-    []
-  end
 end

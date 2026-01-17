@@ -21,7 +21,7 @@ defimpl Ash.Scope.ToOpts, for: ServiceRadarWebNG.Accounts.Scope do
   def get_actor(%{user: user}), do: {:ok, user}
 
   @doc """
-  Return :error to indicate no explicit schema override is needed.
+  Return :error to indicate no explicit override is needed.
   """
   def get_tenant(_), do: :error
 

@@ -77,6 +77,7 @@ config :spark,
 config :serviceradar_core, Oban,
   engine: Oban.Engines.Basic,
   repo: ServiceRadar.Repo,
+  prefix: "platform",
   queues: [
     default: 10,
     alerts: 5,

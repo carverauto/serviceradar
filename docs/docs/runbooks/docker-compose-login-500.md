@@ -45,9 +45,9 @@ the Docker Compose stack up on a freshly rebooted dev host.
    docker compose logs core --tail 20
    docker compose logs web-ng  --tail 20
    ```
-4. If the data directory was removed, run `make cnpg-migrate` (with
-   `CNPG_HOST=localhost CNPG_PORT=55432` if you port-forwarded) so the Timescale
-   schema is reseeded immediately.
+4. If the data directory was removed, run `mix ash.migrate` from
+   `elixir/serviceradar_core` (with the same `CNPG_*` env vars if you
+   port-forwarded) so the schema is reseeded immediately.
 
 ### UI Port Reminder
 By default the compose Caddy proxy binds to host ports `80` and `443`. If the
