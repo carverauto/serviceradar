@@ -283,18 +283,19 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp lookup_specific_gateway(gateway_id) do
     case GatewayRegistry.lookup(gateway_id) do
-      [] ->
-        {:error, :gateway_not_found}
+      [] -> {:error, :gateway_not_found}
+      entries -> find_available_gateway(entries)
+    end
+  end
 
-      entries ->
-        case Enum.find(entries, fn {_pid, metadata} -> metadata[:status] == :available end) do
-          {pid, metadata} ->
-            # Include the PID in the returned metadata for cross-node dispatch
-            {:ok, Map.put(metadata, :pid, pid)}
+  defp find_available_gateway(entries) do
+    case Enum.find(entries, fn {_pid, metadata} -> metadata[:status] == :available end) do
+      {pid, metadata} ->
+        # Include the PID in the returned metadata for cross-node dispatch
+        {:ok, Map.put(metadata, :pid, pid)}
 
-          nil ->
-            {:error, :gateway_not_available}
-        end
+      nil ->
+        {:error, :gateway_not_available}
     end
   end
 
@@ -347,24 +348,27 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp resolve_gateway_pid_from_registry(gateway) do
     gid = gateway[:gateway_id] || gateway[:id]
+    if gid, do: lookup_gateway_pid(gid), else: nil
+  end
 
-    if gid do
-      case GatewayRegistry.lookup(gid) do
-        [] ->
-          nil
+  defp lookup_gateway_pid(gid) do
+    case GatewayRegistry.lookup(gid) do
+      [] -> nil
+      entries -> find_available_gateway_pid(entries)
+    end
+  end
 
-        entries ->
-          case Enum.find(entries, fn {_pid, meta} -> meta[:status] == :available end) do
-            {pid, _meta} when is_pid(pid) -> pid
-            nil ->
-              case List.first(entries) do
-                {pid, _meta} when is_pid(pid) -> pid
-                _ -> nil
-              end
-          end
-      end
-    else
-      nil
+  defp find_available_gateway_pid(entries) do
+    case Enum.find(entries, fn {_pid, meta} -> meta[:status] == :available end) do
+      {pid, _meta} when is_pid(pid) -> pid
+      nil -> first_gateway_pid(entries)
+    end
+  end
+
+  defp first_gateway_pid(entries) do
+    case List.first(entries) do
+      {pid, _meta} when is_pid(pid) -> pid
+      _ -> nil
     end
   end
 

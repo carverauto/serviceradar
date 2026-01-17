@@ -2053,9 +2053,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp format_ports_input(""), do: ""
 
   defp format_ports_input(ports) when is_list(ports) do
-    ports
-    |> Enum.map(&to_string/1)
-    |> Enum.join(", ")
+    Enum.map_join(ports, ", ", &to_string/1)
   end
 
   defp format_ports_input(value) when is_binary(value), do: value
