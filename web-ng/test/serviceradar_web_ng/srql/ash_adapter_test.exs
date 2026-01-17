@@ -74,10 +74,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
 
   describe "query/3 - devices" do
     setup do
-      tenant = tenant_fixture()
-
       device1 =
-        device_fixture(tenant, %{
+        device_fixture( %{
           uid: "device-001",
           hostname: "server1.local",
           ip: "192.168.1.1",
@@ -87,7 +85,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
         })
 
       device2 =
-        device_fixture(tenant, %{
+        device_fixture( %{
           uid: "device-002",
           hostname: "server2.local",
           ip: "192.168.1.2",
@@ -97,7 +95,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
         })
 
       device3 =
-        device_fixture(tenant, %{
+        device_fixture( %{
           uid: "device-003",
           hostname: "server3.local",
           ip: "192.168.1.3",
@@ -106,11 +104,11 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
           type_id: 1
         })
 
-      {:ok, tenant: tenant, device1: device1, device2: device2, device3: device3}
+      {:ok, device1: device1, device2: device2, device3: device3}
     end
 
-    test "returns all devices with no filters", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "returns all devices with no filters", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       assert is_list(response["results"])
@@ -118,8 +116,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert response["pagination"]["limit"] == 100
     end
 
-    test "filters by eq operator", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "filters by eq operator", %{device1: device1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "uid", op: "eq", value: device1.uid}]
@@ -131,8 +129,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert hd(response["results"])["uid"] == device1.uid
     end
 
-    test "filters by neq operator", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "filters by neq operator", %{device1: device1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "uid", op: "neq", value: device1.uid}]
@@ -144,8 +142,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       refute device1.uid in uids
     end
 
-    test "filters by gt operator on type_id", %{tenant: tenant, device2: device2} do
-      actor = viewer_actor(tenant)
+    test "filters by gt operator on type_id", %{device2: device2} do
+      actor = viewer_actor()
 
       # type_id 2 (Desktop) > type_id 1 (Server)
       params = %{
@@ -159,8 +157,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert device2.uid in uids
     end
 
-    test "filters by gte operator", %{tenant: tenant, device1: device1, device2: device2} do
-      actor = viewer_actor(tenant)
+    test "filters by gte operator", %{device1: device1, device2: device2} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "type_id", op: "gte", value: 1}]
@@ -175,8 +173,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert device2.uid in uids
     end
 
-    test "filters by lt operator", %{tenant: tenant, device1: device1, device2: device2} do
-      actor = viewer_actor(tenant)
+    test "filters by lt operator", %{device1: device1, device2: device2} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "type_id", op: "lt", value: 2}]
@@ -191,8 +189,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       refute device2.uid in uids
     end
 
-    test "filters by lte operator", %{tenant: tenant, device1: device1, device3: device3} do
-      actor = viewer_actor(tenant)
+    test "filters by lte operator", %{device1: device1, device3: device3} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "type_id", op: "lte", value: 1}]
@@ -207,8 +205,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert device3.uid in uids
     end
 
-    test "filters by contains operator on hostname", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "filters by contains operator on hostname", %{device1: device1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "hostname", op: "contains", value: "server1"}]
@@ -220,8 +218,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert device1.uid in uids
     end
 
-    test "filters by in operator", %{tenant: tenant, device1: device1, device2: device2} do
-      actor = viewer_actor(tenant)
+    test "filters by in operator", %{device1: device1, device2: device2} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "uid", op: "in", value: [device1.uid, device2.uid]}]
@@ -235,13 +233,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert length(uids) == 2
     end
 
-    test "filters by boolean field", %{
-      tenant: tenant,
-      device1: device1,
-      device2: device2,
-      device3: device3
-    } do
-      actor = viewer_actor(tenant)
+    test "filters by boolean field", %{device1: device1, device2: device2, device3: device3} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "is_available", op: "eq", value: true}]
@@ -255,8 +248,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       refute device3.uid in uids
     end
 
-    test "combines multiple filters", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "combines multiple filters", %{device1: device1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [
@@ -272,8 +265,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert device1.uid in uids
     end
 
-    test "sorts by field ascending", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "sorts by field ascending", %{} do
+      actor = viewer_actor()
 
       params = %{
         sort: %{field: "uid", dir: "asc"}
@@ -285,8 +278,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert uids == Enum.sort(uids)
     end
 
-    test "sorts by field descending", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "sorts by field descending", %{} do
+      actor = viewer_actor()
 
       params = %{
         sort: %{field: "uid", dir: "desc"}
@@ -298,8 +291,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert uids == Enum.sort(uids, :desc)
     end
 
-    test "limits results", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "limits results", %{} do
+      actor = viewer_actor()
 
       params = %{limit: 2}
 
@@ -309,8 +302,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert response["pagination"]["limit"] == 2
     end
 
-    test "handles string keyed filter params", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "handles string keyed filter params", %{device1: device1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{"field" => "uid", "op" => "eq", "value" => device1.uid}]
@@ -322,8 +315,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert hd(response["results"])["uid"] == device1.uid
     end
 
-    test "handles string keyed sort params", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "handles string keyed sort params", %{} do
+      actor = viewer_actor()
 
       params = %{
         sort: %{"field" => "uid", "dir" => "desc"}
@@ -338,23 +331,22 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
 
   describe "query/3 - gateways" do
     setup do
-      tenant = tenant_fixture()
-      gateway1 = gateway_fixture(tenant, %{id: "gateway-001"})
-      gateway2 = gateway_fixture(tenant, %{id: "gateway-002"})
+      gateway1 = gateway_fixture(%{id: "gateway-001"})
+      gateway2 = gateway_fixture(%{id: "gateway-002"})
 
-      {:ok, tenant: tenant, gateway1: gateway1, gateway2: gateway2}
+      {:ok, gateway1: gateway1, gateway2: gateway2}
     end
 
-    test "returns all gateways", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "returns all gateways", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("gateways", %{}, actor)
 
       assert is_list(response["results"])
       assert length(response["results"]) >= 2
     end
 
-    test "filters gateways by id", %{tenant: tenant, gateway1: gateway1} do
-      actor = viewer_actor(tenant)
+    test "filters gateways by id", %{gateway1: gateway1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "id", op: "eq", value: gateway1.id}]
@@ -369,24 +361,23 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
 
   describe "query/3 - agents" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
       agent1 = agent_fixture(gateway, %{uid: "agent-001", name: "Agent One"})
       agent2 = agent_fixture(gateway, %{uid: "agent-002", name: "Agent Two"})
 
-      {:ok, tenant: tenant, gateway: gateway, agent1: agent1, agent2: agent2}
+      {:ok, gateway: gateway, agent1: agent1, agent2: agent2}
     end
 
-    test "returns all agents", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "returns all agents", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("agents", %{}, actor)
 
       assert is_list(response["results"])
       assert length(response["results"]) >= 2
     end
 
-    test "filters agents by uid", %{tenant: tenant, agent1: agent1} do
-      actor = viewer_actor(tenant)
+    test "filters agents by uid", %{agent1: agent1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "uid", op: "eq", value: agent1.uid}]
@@ -398,8 +389,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert hd(response["results"])["uid"] == agent1.uid
     end
 
-    test "filters agents by name contains", %{tenant: tenant, agent1: agent1} do
-      actor = viewer_actor(tenant)
+    test "filters agents by name contains", %{agent1: agent1} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "name", op: "contains", value: "One"}]
@@ -412,64 +403,31 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
     end
   end
 
-  describe "query/3 - tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-srql"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-srql"})
-
-      device_a = device_fixture(tenant_a, %{uid: "device-tenant-a"})
-      device_b = device_fixture(tenant_b, %{uid: "device-tenant-b"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, device_a: device_a, device_b: device_b}
-    end
-
-    test "user can only see devices from their tenant", %{
-      tenant_a: tenant_a,
-      device_a: device_a,
-      device_b: device_b
-    } do
-      actor = viewer_actor(tenant_a)
-      {:ok, response} = AshAdapter.query("devices", %{}, actor)
-
-      uids = Enum.map(response["results"], & &1["uid"])
-      assert device_a.uid in uids
-      refute device_b.uid in uids
-    end
-
-    test "query with no actor raises Forbidden error", %{} do
-      # Without actor, should raise Forbidden error due to domain require_actor? true
-      assert_raise Ash.Error.Forbidden, fn ->
-        AshAdapter.query("devices", %{}, nil)
-      end
-    end
-  end
-
   describe "query/3 - policy enforcement" do
     setup do
-      tenant = tenant_fixture()
-      device = device_fixture(tenant)
+      device = device_fixture()
 
-      {:ok, tenant: tenant, device: device}
+      {:ok, device: device}
     end
 
-    test "viewer can read devices", %{tenant: tenant, device: device} do
-      actor = viewer_actor(tenant)
+    test "viewer can read devices", %{device: device} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
       assert device.uid in uids
     end
 
-    test "admin can read devices", %{tenant: tenant, device: device} do
-      actor = admin_actor(tenant)
+    test "admin can read devices", %{device: device} do
+      actor = admin_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
       assert device.uid in uids
     end
 
-    test "operator can read devices", %{tenant: tenant, device: device} do
-      actor = operator_actor(tenant)
+    test "operator can read devices", %{device: device} do
+      actor = operator_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       uids = Enum.map(response["results"], & &1["uid"])
@@ -479,21 +437,19 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
 
   describe "query/3 - response format" do
     setup do
-      tenant = tenant_fixture()
-
       device =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "format-test",
           hostname: "format.local",
           first_seen_time: DateTime.utc_now(),
           last_seen_time: DateTime.utc_now()
         })
 
-      {:ok, tenant: tenant, device: device}
+      {:ok, device: device}
     end
 
-    test "response has correct structure", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "response has correct structure", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       assert Map.has_key?(response, "results")
@@ -507,8 +463,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert is_nil(response["error"])
     end
 
-    test "pagination has expected fields", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "pagination has expected fields", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("devices", %{limit: 10}, actor)
 
       pagination = response["pagination"]
@@ -518,8 +474,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert pagination["limit"] == 10
     end
 
-    test "datetime fields are ISO8601 formatted", %{tenant: tenant, device: device} do
-      actor = viewer_actor(tenant)
+    test "datetime fields are ISO8601 formatted", %{device: device} do
+      actor = viewer_actor()
 
       params = %{
         filters: [%{field: "uid", op: "eq", value: device.uid}]
@@ -541,8 +497,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       end
     end
 
-    test "result fields are string keyed", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "result fields are string keyed", %{} do
+      actor = viewer_actor()
       {:ok, response} = AshAdapter.query("devices", %{}, actor)
 
       result = hd(response["results"])
@@ -555,14 +511,20 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
   end
 
   describe "query/3 - error handling" do
+    test "query with no actor raises Forbidden error" do
+      # Without actor, should raise Forbidden error due to domain require_actor? true
+      assert_raise Ash.Error.Forbidden, fn ->
+        AshAdapter.query("devices", %{}, nil)
+      end
+    end
+
     test "returns error for unknown entity" do
       result = AshAdapter.query("unknown_entity", %{}, system_actor())
       assert {:error, {:unknown_entity, "unknown_entity"}} = result
     end
 
     test "handles invalid filter field gracefully" do
-      tenant = tenant_fixture()
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       # This should not crash, just skip the invalid filter
       params = %{
@@ -576,8 +538,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
     end
 
     test "handles invalid sort field gracefully" do
-      tenant = tenant_fixture()
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       params = %{
         sort: %{field: "nonexistent_sort_field", dir: "asc"}
@@ -590,8 +551,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
     end
 
     test "handles malformed filter gracefully" do
-      tenant = tenant_fixture()
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       # Missing required keys
       params = %{

@@ -17,8 +17,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/devices" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _device = device_fixture(tenant, %{hostname: "test-host"})
+      _device = device_fixture( %{hostname: "test-host"})
 
       %{conn: conn}
     end
@@ -46,8 +45,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/devices/:uid" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _device = device_fixture(tenant, %{uid: "unique-device-uid"})
+      _device = device_fixture( %{uid: "unique-device-uid"})
 
       %{conn: conn}
     end
@@ -62,8 +60,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/gateways" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _gateway = gateway_fixture(tenant)
+      _gateway = gateway_fixture()
 
       %{conn: conn}
     end
@@ -89,8 +86,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/gateways/:id" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _gateway = gateway_fixture(tenant)
+      _gateway = gateway_fixture()
 
       %{conn: conn}
     end
@@ -105,8 +101,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _agent = agent_fixture(tenant)
+      _agent = agent_fixture(gateway)
 
       %{conn: conn}
     end
@@ -132,8 +127,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents/:uid" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _agent = agent_fixture(tenant, %{uid: "unique-agent-uid"})
+      _agent = agent_fixture(gateway, %{uid: "unique-agent-uid"})
 
       %{conn: conn}
     end
@@ -148,8 +142,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents/by-gateway/:gateway_id" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
       _agent = agent_fixture(gateway, %{gateway_id: gateway.id})
 
       %{conn: conn, gateway: gateway}
@@ -173,8 +166,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _check = service_check_fixture(tenant)
+      _check = service_check_fixture()
 
       %{conn: conn}
     end
@@ -200,9 +192,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks/enabled" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
       # All checks default to enabled, so just create one
-      _check = tenant_service_check_fixture(tenant)
+      _check = tenant_service_check_fixture()
 
       %{conn: conn}
     end
@@ -218,8 +209,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks/failing" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _check = tenant_service_check_fixture(tenant)
+      _check = tenant_service_check_fixture()
 
       %{conn: conn}
     end
@@ -283,8 +273,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/alerts" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture()
 
       %{conn: conn}
     end
@@ -310,8 +299,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/alerts/active" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture()
 
       %{conn: conn}
     end
@@ -327,8 +315,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/alerts/pending" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture()
 
       %{conn: conn}
     end
@@ -391,8 +378,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "PATCH /api/v2/alerts/:id/acknowledge" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture()
 
       %{conn: conn}
     end
@@ -412,8 +398,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "PATCH /api/v2/alerts/:id/resolve" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      _alert = tenant_alert_fixture(tenant)
+      _alert = tenant_alert_fixture()
 
       %{conn: conn}
     end
@@ -452,7 +437,6 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "JSON:API response format" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
       _device = tenant_device_fixture(tenant)
 
       %{conn: conn}

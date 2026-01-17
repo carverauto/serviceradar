@@ -8,7 +8,6 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   - Read actions (by_id, active, by_status, recently_seen)
   - Calculations (is_online, status_color, display_name)
   - Policy enforcement
-  - Tenant isolation
   - Partition isolation
   """
   use ServiceRadarWebNG.DataCase, async: false
@@ -19,12 +18,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   alias ServiceRadar.Infrastructure.Gateway
 
   describe "gateway registration" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "can register a gateway with required fields", %{tenant: _tenant} do
+    test "can register a gateway with required fields" do
       result =
         Gateway
         |> Ash.Changeset.for_create(
@@ -46,7 +40,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert gateway.is_healthy == true
     end
 
-    test "sets timestamps on registration", %{tenant: _tenant} do
+    test "sets timestamps on registration" do
       gateway = gateway_fixture()
 
       assert gateway.first_registered != nil
@@ -55,7 +49,7 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert DateTime.diff(DateTime.utc_now(), gateway.first_registered, :second) < 60
     end
 
-    test "gateway starts with default values", %{tenant: _tenant} do
+    test "gateway starts with default values" do
       gateway = gateway_fixture()
 
       assert gateway.is_healthy == true
@@ -66,13 +60,12 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
   describe "update actions" do
     setup do
-      tenant = tenant_fixture()
       gateway = gateway_fixture()
-      {:ok, tenant: tenant, gateway: gateway}
+      {:ok, gateway: gateway}
     end
 
-    test "operator can update gateway metadata", %{tenant: tenant, gateway: gateway} do
-      actor = operator_actor(tenant)
+    test "operator can update gateway metadata", %{gateway: gateway} do
+      actor = operator_actor()
 
       result =
         gateway
@@ -94,8 +87,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.updated_at != nil
     end
 
-    test "viewer can update gateway metadata", %{tenant: tenant, gateway: gateway} do
-      actor = viewer_actor(tenant)
+    test "viewer can update gateway metadata", %{gateway: gateway} do
+      actor = viewer_actor()
 
       result =
         gateway
@@ -106,8 +99,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.agent_count == 1
     end
 
-    test "heartbeat updates last_seen and health status", %{tenant: tenant, gateway: gateway} do
-      actor = operator_actor(tenant)
+    test "heartbeat updates last_seen and health status", %{gateway: gateway} do
+      actor = operator_actor()
       original_last_seen = gateway.last_seen
 
       Process.sleep(1100)
@@ -131,13 +124,12 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
   describe "status management" do
     setup do
-      tenant = tenant_fixture()
       gateway = gateway_fixture()
-      {:ok, tenant: tenant, gateway: gateway}
+      {:ok, gateway: gateway}
     end
 
-    test "admin can start draining gateway", %{tenant: tenant, gateway: gateway} do
-      actor = admin_actor(tenant)
+    test "admin can start draining gateway", %{gateway: gateway} do
+      actor = admin_actor()
 
       {:ok, updated} =
         gateway
@@ -149,8 +141,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.status == :draining
     end
 
-    test "admin can degrade gateway", %{tenant: tenant, gateway: gateway} do
-      actor = admin_actor(tenant)
+    test "admin can degrade gateway", %{gateway: gateway} do
+      actor = admin_actor()
 
       {:ok, updated} =
         gateway
@@ -161,8 +153,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert updated.status == :degraded
     end
 
-    test "admin can deactivate gateway", %{tenant: tenant, gateway: gateway} do
-      actor = admin_actor(tenant)
+    test "admin can deactivate gateway", %{gateway: gateway} do
+      actor = admin_actor()
 
       {:ok, updated} =
         gateway
@@ -176,8 +168,6 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
-
       # Active and healthy gateway
       gateway_active = gateway_fixture(%{id: "gateway-active"})
 
@@ -189,11 +179,11 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
         )
         |> Ash.update()
 
-      {:ok, tenant: tenant, gateway_active: gateway_active, gateway_degraded: gateway_degraded}
+      {:ok, gateway_active: gateway_active, gateway_degraded: gateway_degraded}
     end
 
-    test "by_id returns specific gateway", %{tenant: tenant, gateway_active: gateway} do
-      actor = viewer_actor(tenant)
+    test "by_id returns specific gateway", %{gateway_active: gateway} do
+      actor = viewer_actor()
 
       {:ok, found} =
         Gateway
@@ -204,11 +194,10 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     end
 
     test "active action returns only healthy active gateways", %{
-      tenant: tenant,
       gateway_active: active,
       gateway_degraded: degraded
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, gateways} = Ash.read(Gateway, action: :active, actor: actor)
       ids = Enum.map(gateways, & &1.id)
@@ -217,8 +206,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       refute degraded.id in ids
     end
 
-    test "by_status filters by status", %{tenant: tenant, gateway_degraded: degraded} do
-      actor = viewer_actor(tenant)
+    test "by_status filters by status", %{gateway_degraded: degraded} do
+      actor = viewer_actor()
 
       {:ok, gateways} =
         Gateway
@@ -231,13 +220,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
   end
 
   describe "calculations" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "status_color returns correct colors", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "status_color returns correct colors" do
+      actor = viewer_actor()
 
       # Active healthy gateway - should be green
       active = gateway_fixture(%{id: "gateway-green"})
@@ -251,8 +235,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       assert loaded.status_color == "green"
     end
 
-    test "display_name uses component_id or id", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "display_name uses component_id or id" do
+      actor = viewer_actor()
 
       # With component_id
       with_component =
@@ -286,66 +270,8 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
     end
   end
 
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-gateway"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-gateway"})
-
-      gateway_a = gateway_fixture(%{id: "gateway-a"})
-      gateway_b = gateway_fixture(%{id: "gateway-b"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, gateway_a: gateway_a, gateway_b: gateway_b}
-    end
-
-    test "user cannot see gateways from other tenant", %{
-      tenant_a: tenant_a,
-      gateway_a: gateway_a,
-      gateway_b: gateway_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, gateways} = Ash.read(Gateway, actor: actor)
-      ids = Enum.map(gateways, & &1.id)
-
-      assert gateway_a.id in ids
-      refute gateway_b.id in ids
-    end
-
-    test "user cannot update gateway from other tenant", %{
-      tenant_a: tenant_a,
-      gateway_b: gateway_b
-    } do
-      actor = operator_actor(tenant_a)
-
-      result =
-        gateway_b
-        |> Ash.Changeset.for_update(:update, %{agent_count: 999},
-          actor: actor
-        )
-        |> Ash.update()
-
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
-    end
-
-    test "user cannot get gateway from other tenant by id", %{
-      tenant_a: tenant_a,
-      gateway_b: gateway_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, result} =
-        Gateway
-        |> Ash.Query.for_read(:by_id, %{id: gateway_b.id}, actor: actor)
-        |> Ash.read_one()
-
-      assert result == nil
-    end
-  end
-
   describe "partition isolation" do
     setup do
-      tenant = tenant_fixture()
       partition_a = partition_fixture(%{slug: "partition-a-test"})
       partition_b = partition_fixture(%{slug: "partition-b-test"})
 
@@ -357,15 +283,14 @@ defmodule ServiceRadar.Infrastructure.GatewayTest do
       # For now, we test with partition_id filter in actor context
 
       {:ok,
-       tenant: tenant,
        partition_a: partition_a,
        partition_b: partition_b,
        gateway_a: gateway_a,
        gateway_b: gateway_b}
     end
 
-    test "can read gateways without partition context", %{tenant: tenant, gateway_a: gateway_a} do
-      actor = viewer_actor(tenant)
+    test "can read gateways without partition context", %{gateway_a: gateway_a} do
+      actor = viewer_actor()
 
       {:ok, gateways} = Ash.read(Gateway, actor: actor)
       ids = Enum.map(gateways, & &1.id)

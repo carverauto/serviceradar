@@ -15,15 +15,9 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   require Ash.Query
 
   alias ServiceRadar.Monitoring.Alert
-  alias ServiceRadarWebNG.Repo
 
   describe "alert creation" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "can trigger an alert with required fields", %{tenant: _tenant} do
+    test "can trigger an alert with required fields" do
       actor = system_actor()
       # Note: Create policy authorization is tested separately
       # Here we test the action functionality
@@ -47,13 +41,13 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert alert.triggered_at != nil
     end
 
-    test "creates alert with default pending status", %{tenant: _tenant} do
+    test "creates alert with default pending status" do
       alert = alert_fixture()
 
       assert alert.status == :pending
     end
 
-    test "sets triggered_at timestamp on creation", %{tenant: _tenant} do
+    test "sets triggered_at timestamp on creation" do
       alert = alert_fixture()
 
       # Verify triggered_at is set and is recent (within last minute)
@@ -61,7 +55,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert DateTime.diff(DateTime.utc_now(), alert.triggered_at, :second) < 60
     end
 
-    test "supports all severity levels", %{tenant: _tenant} do
+    test "supports all severity levels" do
       for severity <- [:info, :warning, :critical, :emergency] do
         alert = alert_fixture(%{severity: severity})
         assert alert.severity == severity
@@ -71,13 +65,12 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "acknowledge transition" do
     setup do
-      tenant = tenant_fixture()
       alert = alert_fixture()
-      {:ok, tenant: tenant, alert: alert}
+      {:ok, alert: alert}
     end
 
-    test "operator can acknowledge pending alert", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "operator can acknowledge pending alert", %{alert: alert} do
+      actor = operator_actor()
 
       result =
         alert
@@ -96,8 +89,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert updated.acknowledged_at != nil
     end
 
-    test "admin can acknowledge pending alert", %{tenant: tenant, alert: alert} do
-      actor = admin_actor(tenant)
+    test "admin can acknowledge pending alert", %{alert: alert} do
+      actor = admin_actor()
 
       {:ok, updated} =
         alert
@@ -113,8 +106,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert updated.status == :acknowledged
     end
 
-    test "viewer cannot acknowledge alert", %{tenant: tenant, alert: alert} do
-      actor = viewer_actor(tenant)
+    test "viewer cannot acknowledge alert", %{alert: alert} do
+      actor = viewer_actor()
 
       result =
         alert
@@ -130,8 +123,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert {:error, %Ash.Error.Forbidden{}} = result
     end
 
-    test "cannot acknowledge already acknowledged alert", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "cannot acknowledge already acknowledged alert", %{alert: alert} do
+      actor = operator_actor()
 
       # First acknowledge
       {:ok, acknowledged} =
@@ -163,13 +156,12 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "resolve transition" do
     setup do
-      tenant = tenant_fixture()
       alert = alert_fixture()
-      {:ok, tenant: tenant, alert: alert}
+      {:ok, alert: alert}
     end
 
-    test "can resolve from pending state", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "can resolve from pending state", %{alert: alert} do
+      actor = operator_actor()
 
       {:ok, resolved} =
         alert
@@ -189,8 +181,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert resolved.resolved_at != nil
     end
 
-    test "can resolve from acknowledged state", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "can resolve from acknowledged state", %{alert: alert} do
+      actor = operator_actor()
 
       # First acknowledge
       {:ok, acknowledged} =
@@ -219,8 +211,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert resolved.status == :resolved
     end
 
-    test "can resolve from escalated state", %{tenant: tenant, alert: alert} do
-      actor = admin_actor(tenant)
+    test "can resolve from escalated state", %{alert: alert} do
+      actor = admin_actor()
 
       # First escalate
       {:ok, escalated} =
@@ -249,8 +241,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert resolved.status == :resolved
     end
 
-    test "cannot resolve already resolved alert", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "cannot resolve already resolved alert", %{alert: alert} do
+      actor = operator_actor()
 
       # First resolve
       {:ok, resolved} =
@@ -282,13 +274,12 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "escalate transition" do
     setup do
-      tenant = tenant_fixture()
       alert = alert_fixture()
-      {:ok, tenant: tenant, alert: alert}
+      {:ok, alert: alert}
     end
 
-    test "admin can escalate pending alert", %{tenant: tenant, alert: alert} do
-      actor = admin_actor(tenant)
+    test "admin can escalate pending alert", %{alert: alert} do
+      actor = admin_actor()
 
       {:ok, escalated} =
         alert
@@ -307,9 +298,9 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert escalated.escalation_level == 1
     end
 
-    test "escalation increments escalation_level", %{tenant: tenant} do
+    test "escalation increments escalation_level" do
       # Create an alert with existing escalation level
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       alert = alert_fixture()
 
@@ -348,8 +339,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert second.escalation_level == 2
     end
 
-    test "operator cannot escalate alerts (admin only)", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "operator cannot escalate alerts (admin only)", %{alert: alert} do
+      actor = operator_actor()
 
       result =
         alert
@@ -365,9 +356,9 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert {:error, %Ash.Error.Forbidden{}} = result
     end
 
-    test "can escalate from acknowledged state", %{tenant: tenant, alert: alert} do
-      operator = operator_actor(tenant)
-      admin = admin_actor(tenant)
+    test "can escalate from acknowledged state", %{alert: alert} do
+      operator = operator_actor()
+      admin = admin_actor()
 
       # First acknowledge as operator
       {:ok, acknowledged} =
@@ -377,7 +368,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             acknowledged_by: "operator@example.com"
           },
-          actor: operator,
+          actor: operator
         )
         |> Ash.update()
 
@@ -389,7 +380,7 @@ defmodule ServiceRadar.Monitoring.AlertTest do
           %{
             reason: "Needs attention"
           },
-          actor: admin,
+          actor: admin
         )
         |> Ash.update()
 
@@ -399,13 +390,12 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "suppress transition" do
     setup do
-      tenant = tenant_fixture()
       alert = alert_fixture()
-      {:ok, tenant: tenant, alert: alert}
+      {:ok, alert: alert}
     end
 
-    test "admin can suppress pending alert", %{tenant: tenant, alert: alert} do
-      actor = admin_actor(tenant)
+    test "admin can suppress pending alert", %{alert: alert} do
+      actor = admin_actor()
       suppress_until = DateTime.add(DateTime.utc_now(), 3600, :second)
 
       {:ok, suppressed} =
@@ -423,8 +413,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert suppressed.suppressed_until != nil
     end
 
-    test "operator cannot suppress alerts", %{tenant: tenant, alert: alert} do
-      actor = operator_actor(tenant)
+    test "operator cannot suppress alerts", %{alert: alert} do
+      actor = operator_actor()
       suppress_until = DateTime.add(DateTime.utc_now(), 3600, :second)
 
       result =
@@ -444,9 +434,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "reopen transition" do
     setup do
-      tenant = tenant_fixture()
       alert = alert_fixture()
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       # Resolve the alert first
       {:ok, resolved} =
@@ -460,11 +449,11 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      {:ok, tenant: tenant, resolved_alert: resolved}
+      {:ok, resolved_alert: resolved}
     end
 
-    test "admin can reopen resolved alert", %{tenant: tenant, resolved_alert: alert} do
-      actor = admin_actor(tenant)
+    test "admin can reopen resolved alert", %{resolved_alert: alert} do
+      actor = admin_actor()
 
       {:ok, reopened} =
         alert
@@ -482,8 +471,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       assert reopened.resolved_by == nil
     end
 
-    test "operator cannot reopen alerts", %{tenant: tenant, resolved_alert: alert} do
-      actor = operator_actor(tenant)
+    test "operator cannot reopen alerts", %{resolved_alert: alert} do
+      actor = operator_actor()
 
       result =
         alert
@@ -502,12 +491,10 @@ defmodule ServiceRadar.Monitoring.AlertTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
-
       # Create alerts in different states
       pending = alert_fixture(%{title: "Pending Alert"})
 
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       {:ok, acknowledged} =
         alert_fixture(%{title: "Acknowledged Alert"})
@@ -523,16 +510,15 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         )
         |> Ash.update()
 
-      {:ok, tenant: tenant, pending: pending, acknowledged: acknowledged, resolved: resolved}
+      {:ok, pending: pending, acknowledged: acknowledged, resolved: resolved}
     end
 
     test "active action returns non-resolved alerts", %{
-      tenant: tenant,
       pending: pending,
       acknowledged: acknowledged,
       resolved: resolved
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, active} = Ash.read(Alert, action: :active, actor: actor)
       ids = Enum.map(active, & &1.id)
@@ -543,11 +529,10 @@ defmodule ServiceRadar.Monitoring.AlertTest do
     end
 
     test "pending action returns only pending alerts", %{
-      tenant: tenant,
       pending: pending,
       acknowledged: acknowledged
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, page} = Ash.read(Alert, action: :pending, actor: actor)
       # The :pending action uses keyset pagination, so extract results
@@ -560,13 +545,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
   end
 
   describe "calculations" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "severity_color returns correct colors", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "severity_color returns correct colors" do
+      actor = viewer_actor()
 
       for {severity, expected_color} <- [
             {:emergency, "red"},
@@ -586,8 +566,8 @@ defmodule ServiceRadar.Monitoring.AlertTest do
       end
     end
 
-    test "is_actionable returns true for active states", %{tenant: tenant} do
-      actor = admin_actor(tenant)
+    test "is_actionable returns true for active states" do
+      actor = admin_actor()
       alert = alert_fixture()
 
       {:ok, [pending]} =
@@ -613,60 +593,6 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         |> Ash.read(actor: actor)
 
       assert loaded.is_actionable == false
-    end
-  end
-
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-alert"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-alert"})
-
-      alert_a = alert_fixture(%{title: "Alert A"})
-
-      # Switch to tenant_b context to create alert_b
-      Repo.put_tenant(tenant_b.slug)
-      alert_b = alert_fixture(%{title: "Alert B"})
-
-      # Switch back to tenant_a for tests
-      Repo.put_tenant(tenant_a.slug)
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, alert_a: alert_a, alert_b: alert_b}
-    end
-
-    test "user cannot see alerts from other tenant", %{
-      tenant_a: tenant_a,
-      alert_a: alert_a,
-      alert_b: alert_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, alerts} = Ash.read(Alert, actor: actor)
-      ids = Enum.map(alerts, & &1.id)
-
-      assert alert_a.id in ids
-      refute alert_b.id in ids
-    end
-
-    test "user cannot acknowledge alert from other tenant", %{
-      tenant_a: tenant_a,
-      alert_b: alert_b
-    } do
-      actor = operator_actor(tenant_a)
-
-      result =
-        alert_b
-        |> Ash.Changeset.for_update(
-          :acknowledge,
-          %{
-            acknowledged_by: "attacker@example.com"
-          },
-          actor: actor
-        )
-        |> Ash.update()
-
-      # Should fail - either Forbidden or StaleRecord (record not found in tenant context)
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
     end
   end
 end

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   Test helpers and macros for testing Ash authorization policies.
 
   Provides convenient assertions for testing that policies correctly
-  allow or deny actions based on actor roles and tenant membership.
+  allow or deny actions based on actor roles.
 
   ## Usage
 
@@ -11,20 +11,18 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
       use ServiceRadarWebNG.AshTestHelpers
 
       describe "Device policies" do
-        test "admin can read devices in their tenant" do
-          tenant = tenant_fixture()
-          device = device_fixture(tenant)
-          actor = admin_actor(tenant)
+        test "admin can read devices" do
+          device = device_fixture()
+          actor = admin_actor()
 
-          assert_authorized :read, Device, actor, tenant
+          assert_authorized :read, Device, actor
         end
 
         test "viewer cannot update devices" do
-          tenant = tenant_fixture()
-          device = device_fixture(tenant)
-          actor = viewer_actor(tenant)
+          device = device_fixture()
+          actor = viewer_actor()
 
-          refute_authorized :update, Device, actor, tenant, device
+          refute_authorized :update, Device, actor, device
         end
       end
   """
@@ -44,22 +42,21 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   ## Examples
 
       # Check read authorization on a resource type
-      assert_authorized(:read, Device, actor, tenant)
+      assert_authorized(:read, Device, actor)
 
       # Check update authorization on a specific record
-      assert_authorized(:update, Device, actor, tenant, device)
+      assert_authorized(:update, Device, actor, device)
 
       # Check create authorization
-      assert_authorized(:create, Device, actor, tenant)
+      assert_authorized(:create, Device, actor)
   """
-  defmacro assert_authorized(action, resource, actor, tenant, record \\ nil) do
+  defmacro assert_authorized(action, resource, actor, record \\ nil) do
     quote do
       result =
         ServiceRadarWebNG.PolicyTestHelpers.check_authorization(
           unquote(action),
           unquote(resource),
           unquote(actor),
-          unquote(tenant),
           unquote(record)
         )
 
@@ -70,7 +67,6 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
         {:unauthorized, reason} ->
           flunk("""
           Expected #{inspect(unquote(actor).role)} to be authorized for #{unquote(action)} on #{inspect(unquote(resource))}
-          Tenant: #{inspect(unquote(tenant).id)}
           Record: #{inspect(unquote(record))}
           Reason: #{inspect(reason)}
           """)
@@ -84,19 +80,15 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   ## Examples
 
       # Check that viewer cannot update
-      refute_authorized(:update, Device, viewer_actor, tenant, device)
-
-      # Check that user from other tenant cannot read
-      refute_authorized(:read, Device, other_tenant_actor, tenant)
+      refute_authorized(:update, Device, viewer_actor, device)
   """
-  defmacro refute_authorized(action, resource, actor, tenant, record \\ nil) do
+  defmacro refute_authorized(action, resource, actor, record \\ nil) do
     quote do
       result =
         ServiceRadarWebNG.PolicyTestHelpers.check_authorization(
           unquote(action),
           unquote(resource),
           unquote(actor),
-          unquote(tenant),
           unquote(record)
         )
 
@@ -104,7 +96,6 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
         :authorized ->
           flunk("""
           Expected #{inspect(unquote(actor).role)} to be DENIED for #{unquote(action)} on #{inspect(unquote(resource))}
-          Tenant: #{inspect(unquote(tenant).id)}
           Record: #{inspect(unquote(record))}
           But action was authorized.
           """)
@@ -119,10 +110,9 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   Checks if an actor is authorized to perform an action.
   Returns :authorized or {:unauthorized, reason}.
   """
-  def check_authorization(action, resource, actor, _tenant, record \\ nil)
+  def check_authorization(action, resource, actor, record \\ nil)
 
-  def check_authorization(:read, resource, actor, _tenant, _record) do
-    # In a tenant instance, DB connection's search_path determines the schema
+  def check_authorization(:read, resource, actor, _record) do
     case Ash.can?({resource, :read}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
@@ -132,8 +122,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:create, resource, actor, _tenant, _record) do
-    # In a tenant instance, DB connection's search_path determines the schema
+  def check_authorization(:create, resource, actor, _record) do
     case Ash.can?({resource, :create}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
@@ -143,8 +132,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:update, _resource, actor, _tenant, record) when not is_nil(record) do
-    # In a tenant instance, DB connection's search_path determines the schema
+  def check_authorization(:update, _resource, actor, record) when not is_nil(record) do
     case Ash.can?({record, :update}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
@@ -154,8 +142,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(:destroy, _resource, actor, _tenant, record) when not is_nil(record) do
-    # In a tenant instance, DB connection's search_path determines the schema
+  def check_authorization(:destroy, _resource, actor, record) when not is_nil(record) do
     case Ash.can?({record, :destroy}, actor) do
       {:ok, true} -> :authorized
       {:ok, false} -> {:unauthorized, :forbidden}
@@ -165,8 +152,7 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     end
   end
 
-  def check_authorization(action, resource, actor, _tenant, record) do
-    # In a tenant instance, DB connection's search_path determines the schema
+  def check_authorization(action, resource, actor, record) do
     target = if record, do: {record, action}, else: {resource, action}
 
     case Ash.can?(target, actor) do
@@ -179,56 +165,19 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
   end
 
   @doc """
-  Tests that cross-tenant access is denied.
-  Creates resources in one tenant and tries to access from another.
-
-  NOTE: In a tenant-instance model, cross-tenant isolation is handled at the
-  infrastructure level (CNPG credentials set PostgreSQL search_path).
-  Each tenant gets their own deployment with separate DB connections.
-  This macro is kept for reference but may not be meaningful in this context.
-
-  ## Example
-
-      test "cross-tenant isolation" do
-        assert_tenant_isolation(Device, :read)
-      end
-  """
-  defmacro assert_tenant_isolation(resource, _action) do
-    quote do
-      import ServiceRadarWebNG.AshTestHelpers
-
-      # In a tenant instance, we just verify that reads work with actor authorization
-      actor = admin_actor()
-
-      # In a tenant instance, DB connection's search_path determines the schema
-      result = Ash.read(unquote(resource), actor: actor)
-
-      case result do
-        {:ok, _resources} ->
-          # Read succeeded with proper authorization
-          assert true
-
-        {:error, _} ->
-          # Error is also acceptable
-          assert true
-      end
-    end
-  end
-
-  @doc """
-  Helper to create a resource for a given tenant.
+  Helper to create a resource for testing.
   Routes to the appropriate fixture function based on resource type.
   """
-  def create_resource_for_tenant(resource, tenant) do
+  def create_resource(resource) do
     import ServiceRadarWebNG.AshTestHelpers
 
     case resource do
-      ServiceRadar.Inventory.Device -> device_fixture(tenant)
-      ServiceRadar.Infrastructure.Gateway -> gateway_fixture(tenant)
-      ServiceRadar.Identity.User -> user_fixture(tenant)
-      ServiceRadar.Monitoring.Alert -> alert_fixture(tenant)
-      ServiceRadar.Monitoring.ServiceCheck -> service_check_fixture(tenant)
-      ServiceRadar.Edge.OnboardingPackage -> onboarding_package_fixture(tenant)
+      ServiceRadar.Inventory.Device -> device_fixture()
+      ServiceRadar.Infrastructure.Gateway -> gateway_fixture()
+      ServiceRadar.Identity.User -> user_fixture()
+      ServiceRadar.Monitoring.Alert -> alert_fixture()
+      ServiceRadar.Monitoring.ServiceCheck -> service_check_fixture()
+      ServiceRadar.Edge.OnboardingPackage -> onboarding_package_fixture()
       _ -> raise "Unknown resource type: #{inspect(resource)}"
     end
   end
@@ -251,18 +200,16 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
     quote do
       import ServiceRadarWebNG.AshTestHelpers
 
-      tenant = tenant_fixture()
-
       record =
-        ServiceRadarWebNG.PolicyTestHelpers.create_resource_for_tenant(unquote(resource), tenant)
+        ServiceRadarWebNG.PolicyTestHelpers.create_resource(unquote(resource))
 
       # Test each role
       for role <- [:admin, :operator, :viewer] do
         actor =
           case role do
-            :admin -> admin_actor(tenant)
-            :operator -> operator_actor(tenant)
-            :viewer -> viewer_actor(tenant)
+            :admin -> admin_actor()
+            :operator -> operator_actor()
+            :viewer -> viewer_actor()
           end
 
         for action <- unquote(actions) do
@@ -273,7 +220,6 @@ defmodule ServiceRadarWebNG.PolicyTestHelpers do
               action,
               unquote(resource),
               actor,
-              tenant,
               record
             )
 

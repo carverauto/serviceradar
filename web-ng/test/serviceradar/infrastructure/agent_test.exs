@@ -8,7 +8,6 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   - Read actions (by_uid, by_gateway, connected, by_status)
   - Calculations (type_name, display_name, is_online, status_color)
   - Policy enforcement
-  - Tenant isolation
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
@@ -19,12 +18,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "agent registration" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
-      {:ok, tenant: tenant, gateway: gateway}
+      gateway = gateway_fixture()
+      {:ok, gateway: gateway}
     end
 
-    test "can register an agent with required fields", %{tenant: _tenant, gateway: gateway} do
+    test "can register an agent with required fields", %{gateway: gateway} do
       result =
         Agent
         |> Ash.Changeset.for_create(
@@ -48,7 +46,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.is_healthy == true
     end
 
-    test "can register agent as already connected", %{tenant: _tenant, gateway: gateway} do
+    test "can register agent as already connected", %{gateway: gateway} do
       {:ok, agent} =
         Agent
         |> Ash.Changeset.for_create(
@@ -65,7 +63,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert agent.is_healthy == true
     end
 
-    test "sets timestamps on registration", %{tenant: _tenant, gateway: gateway} do
+    test "sets timestamps on registration", %{gateway: gateway} do
       agent = agent_fixture(gateway)
 
       assert agent.first_seen_time != nil
@@ -74,7 +72,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert DateTime.diff(DateTime.utc_now(), agent.first_seen_time, :second) < 60
     end
 
-    test "supports all OCSF agent type IDs", %{tenant: _tenant, gateway: gateway} do
+    test "supports all OCSF agent type IDs", %{gateway: gateway} do
       for type_id <- [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 99] do
         unique = System.unique_integer([:positive])
 
@@ -88,20 +86,18 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "state machine - connection lifecycle" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
       # Start with agent in connecting state
       # starts in :connecting by default
       agent = agent_fixture(gateway)
-      {:ok, tenant: tenant, gateway: gateway, agent: agent}
+      {:ok, gateway: gateway, agent: agent}
     end
 
     test "can establish connection from connecting state", %{
-      tenant: tenant,
       gateway: gateway,
       agent: agent
     } do
-      actor = operator_actor(tenant)
+      actor = operator_actor()
 
       {:ok, connected} =
         agent
@@ -115,8 +111,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert connected.last_seen_time != nil
     end
 
-    test "can mark connection as failed from connecting state", %{tenant: tenant, agent: agent} do
-      actor = operator_actor(tenant)
+    test "can mark connection as failed from connecting state", %{agent: agent} do
+      actor = operator_actor()
 
       {:ok, disconnected} =
         agent
@@ -129,8 +125,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "state machine - health degradation" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
 
       # Create agent in connected state
       {:ok, agent} =
@@ -145,11 +140,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, gateway: gateway, agent: agent}
+      {:ok, gateway: gateway, agent: agent}
     end
 
-    test "admin can degrade connected agent", %{tenant: tenant, agent: agent} do
-      actor = admin_actor(tenant)
+    test "admin can degrade connected agent", %{agent: agent} do
+      actor = admin_actor()
 
       {:ok, degraded} =
         agent
@@ -160,8 +155,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert degraded.is_healthy == false
     end
 
-    test "admin can restore health from degraded state", %{tenant: tenant, agent: agent} do
-      actor = admin_actor(tenant)
+    test "admin can restore health from degraded state", %{agent: agent} do
+      actor = admin_actor()
 
       # First degrade
       {:ok, degraded} =
@@ -179,8 +174,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert restored.is_healthy == true
     end
 
-    test "operator can degrade agent", %{tenant: tenant, agent: agent} do
-      actor = operator_actor(tenant)
+    test "operator can degrade agent", %{agent: agent} do
+      actor = operator_actor()
 
       result =
         agent
@@ -194,8 +189,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "state machine - disconnection" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
 
       {:ok, agent} =
         Agent
@@ -209,11 +203,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, gateway: gateway, agent: agent}
+      {:ok, gateway: gateway, agent: agent}
     end
 
-    test "can lose connection from connected state", %{tenant: tenant, agent: agent} do
-      actor = operator_actor(tenant)
+    test "can lose connection from connected state", %{agent: agent} do
+      actor = operator_actor()
 
       {:ok, disconnected} =
         agent
@@ -224,8 +218,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert disconnected.gateway_id == nil
     end
 
-    test "can reconnect from disconnected state", %{tenant: tenant, agent: agent} do
-      actor = operator_actor(tenant)
+    test "can reconnect from disconnected state", %{agent: agent} do
+      actor = operator_actor()
 
       # First disconnect
       {:ok, disconnected} =
@@ -245,8 +239,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "state machine - unavailable" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
 
       {:ok, agent} =
         Agent
@@ -260,11 +253,11 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         )
         |> Ash.create()
 
-      {:ok, tenant: tenant, gateway: gateway, agent: agent}
+      {:ok, gateway: gateway, agent: agent}
     end
 
-    test "admin can mark agent as unavailable", %{tenant: tenant, agent: agent} do
-      actor = admin_actor(tenant)
+    test "admin can mark agent as unavailable", %{agent: agent} do
+      actor = admin_actor()
 
       {:ok, unavailable} =
         agent
@@ -277,8 +270,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert unavailable.is_healthy == false
     end
 
-    test "admin can recover agent from unavailable state", %{tenant: tenant, agent: agent} do
-      actor = admin_actor(tenant)
+    test "admin can recover agent from unavailable state", %{agent: agent} do
+      actor = admin_actor()
 
       # First mark unavailable
       {:ok, unavailable} =
@@ -295,8 +288,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert recovering.status == :connecting
     end
 
-    test "cannot transition to invalid state", %{tenant: tenant, agent: agent} do
-      actor = admin_actor(tenant)
+    test "cannot transition to invalid state", %{agent: agent} do
+      actor = admin_actor()
 
       # Agent is in :connected state, cannot transition to :connecting via reconnect
       # (reconnect is only valid from :disconnected)
@@ -311,8 +304,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
+      gateway = gateway_fixture()
 
       # Connected agent
       {:ok, agent_connected} =
@@ -331,14 +323,13 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       agent_connecting = agent_fixture(gateway, %{uid: "agent-connecting-read"})
 
       {:ok,
-       tenant: tenant,
        gateway: gateway,
        agent_connected: agent_connected,
        agent_connecting: agent_connecting}
     end
 
-    test "by_uid returns specific agent", %{tenant: tenant, agent_connected: agent} do
-      actor = viewer_actor(tenant)
+    test "by_uid returns specific agent", %{agent_connected: agent} do
+      actor = viewer_actor()
 
       {:ok, found} =
         Agent
@@ -349,11 +340,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     end
 
     test "by_gateway returns agents for specific gateway", %{
-      tenant: tenant,
       gateway: gateway,
       agent_connected: agent
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, agents} =
         Agent
@@ -367,11 +357,10 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     end
 
     test "connected action returns only connected healthy agents", %{
-      tenant: tenant,
       agent_connected: connected,
       agent_connecting: connecting
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, agents} = Ash.read(Agent, action: :connected, actor: actor)
       uids = Enum.map(agents, & &1.uid)
@@ -380,8 +369,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       refute connecting.uid in uids
     end
 
-    test "by_status filters by status", %{tenant: tenant, agent_connecting: connecting} do
-      actor = viewer_actor(tenant)
+    test "by_status filters by status", %{agent_connecting: connecting} do
+      actor = viewer_actor()
 
       {:ok, agents} =
         Agent
@@ -395,13 +384,12 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   describe "calculations" do
     setup do
-      tenant = tenant_fixture()
-      gateway = gateway_fixture(tenant)
-      {:ok, tenant: tenant, gateway: gateway}
+      gateway = gateway_fixture()
+      {:ok, gateway: gateway}
     end
 
-    test "type_name returns correct OCSF type names", %{tenant: tenant, gateway: gateway} do
-      actor = viewer_actor(tenant)
+    test "type_name returns correct OCSF type names", %{gateway: gateway} do
+      actor = viewer_actor()
 
       type_map = %{
         0 => "Unknown",
@@ -427,8 +415,8 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       end
     end
 
-    test "display_name uses name, then host, then uid", %{tenant: tenant, gateway: gateway} do
-      actor = viewer_actor(tenant)
+    test "display_name uses name, then host, then uid", %{gateway: gateway} do
+      actor = viewer_actor()
 
       # Agent with name
       agent_named =
@@ -464,10 +452,9 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
     end
 
     test "status_color returns correct colors for each status", %{
-      tenant: tenant,
       gateway: gateway
     } do
-      actor = admin_actor(tenant)
+      actor = admin_actor()
 
       # Connected healthy = green
       {:ok, agent} =
@@ -489,64 +476,6 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
-    end
-  end
-
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-agent"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-agent"})
-
-      gateway_a = gateway_fixture(tenant_a)
-      gateway_b = gateway_fixture(tenant_b)
-
-      agent_a = agent_fixture(gateway_a, %{uid: "agent-a"})
-      agent_b = agent_fixture(gateway_b, %{uid: "agent-b"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, agent_a: agent_a, agent_b: agent_b}
-    end
-
-    test "user cannot see agents from other tenant", %{
-      tenant_a: tenant_a,
-      agent_a: agent_a,
-      agent_b: agent_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, agents} = Ash.read(Agent, actor: actor)
-      uids = Enum.map(agents, & &1.uid)
-
-      assert agent_a.uid in uids
-      refute agent_b.uid in uids
-    end
-
-    test "user cannot update agent from other tenant", %{
-      tenant_a: tenant_a,
-      agent_b: agent_b
-    } do
-      actor = operator_actor(tenant_a)
-
-      result =
-        agent_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor)
-        |> Ash.update()
-
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
-    end
-
-    test "user cannot get agent from other tenant by uid", %{
-      tenant_a: tenant_a,
-      agent_b: agent_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, result} =
-        Agent
-        |> Ash.Query.for_read(:by_uid, %{uid: agent_b.uid}, actor: actor)
-        |> Ash.read_one()
-
-      assert result == nil
     end
   end
 end
