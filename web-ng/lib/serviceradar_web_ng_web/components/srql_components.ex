@@ -74,6 +74,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       assigns.columns
       |> normalize_columns(assigns.rows, assigns.max_columns)
 
+    columns =
+      if Enum.any?(assigns.rows, fn row -> is_map(row) and Map.has_key?(row, "_sparkline") end) do
+        columns ++ ["_sparkline"]
+      else
+        columns
+      end
+
     assigns = assign(assigns, :columns, columns)
 
     ~H"""
@@ -87,7 +94,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           <tr>
             <%= for col <- @columns do %>
               <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
-                {col}
+                <%= if col == "_sparkline" do %>
+                  Trend
+                <% else %>
+                  {col}
+                <% end %>
               </th>
             <% end %>
           </tr>
@@ -106,7 +117,11 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
             <tr id={"#{@id}-row-#{idx}"} class="hover:bg-base-200/40">
               <%= for col <- @columns do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
-                  <.srql_cell col={col} value={Map.get(row, col)} />
+                  <%= if col == "_sparkline" do %>
+                    <.srql_sparkline points={Map.get(row, "_sparkline")} />
+                  <% else %>
+                    <.srql_cell col={col} value={Map.get(row, col)} />
+                  <% end %>
                 </td>
               <% end %>
             </tr>
@@ -254,6 +269,26 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp ensure_positive_max(value) when is_number(value) and value > 0, do: value
   defp ensure_positive_max(_value), do: 1.0
+
+  attr :points, :list, default: []
+
+  def srql_sparkline(assigns) do
+    assigns = assign(assigns, :spark, sparkline(assigns.points))
+
+    ~H"""
+    <div class="w-24 h-6">
+      <svg viewBox="0 0 400 120" class="w-full h-full">
+        <polyline
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          class="text-primary"
+          points={@spark}
+        />
+      </svg>
+    </div>
+    """
+  end
 
   defp sparkline(points) when is_list(points) do
     values = Enum.map(points, fn {_dt, v} -> v end)

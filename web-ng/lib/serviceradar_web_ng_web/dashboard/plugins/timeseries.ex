@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   @behaviour ServiceRadarWebNGWeb.Dashboard.Plugin
 
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
+  alias ServiceRadarWebNGWeb.SRQL.Viz
 
   @max_series 6
   @max_points 200
@@ -27,6 +28,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     end)
   end
 
+  def supports?(%{"results" => results}) when is_list(results) do
+    match?({:timeseries, _}, Viz.infer(results))
+  end
+
   def supports?(_), do: false
 
   @impl true
@@ -35,6 +40,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     with {:ok, spec} <- parse_timeseries_spec(viz),
          {:ok, series_points} <- extract_series_points(results, spec) do
       {:ok, %{spec: spec, series_points: series_points}}
+    end
+  end
+
+  def build(%{"results" => results} = _srql_response) when is_list(results) do
+    case infer_timeseries_spec(results) do
+      {:ok, spec} ->
+        with {:ok, series_points} <- extract_series_points(results, spec) do
+          {:ok, %{spec: spec, series_points: series_points}}
+        end
+
+      _ ->
+        {:error, :invalid_response}
     end
   end
 
@@ -61,6 +78,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
   end
 
   defp parse_timeseries_spec(_), do: {:error, :missing_suggestions}
+
+  defp infer_timeseries_spec(results) when is_list(results) do
+    case Viz.infer(results) do
+      {:timeseries, %{x: x, y: y}} -> {:ok, %{x: x, y: y, series: nil}}
+      _ -> {:error, :missing_timeseries}
+    end
+  end
 
   defp extract_series_points(results, %{x: x, y: y, series: series_key}) do
     rows =
