@@ -193,7 +193,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   @doc """
   Generates the README for the edge site bundle.
   """
-  @spec generate_readme(map(), map()) :: String.t()
+  @spec generate_readme(map()) :: String.t()
   def generate_readme(edge_site) do
     """
     # NATS Leaf Server Bundle

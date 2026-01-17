@@ -67,7 +67,7 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can read version history
+    # Admins can read version history
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

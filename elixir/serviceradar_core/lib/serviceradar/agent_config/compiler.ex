@@ -5,7 +5,7 @@ defmodule ServiceRadar.AgentConfig.Compiler do
   Each config type (sweep, poller, checker) implements this behaviour to compile
   configurations from Ash resources into JSON format that agents expect.
 
-  Tenant isolation is handled by the database connection's search_path.
+  Schema isolation is handled by the database connection's search_path.
 
   ## Implementing a Compiler
 

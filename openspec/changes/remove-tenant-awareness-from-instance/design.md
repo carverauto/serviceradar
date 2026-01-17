@@ -9,7 +9,7 @@
 │                        Control Plane (serviceradar-web)                 │
 │  - Account provisioning, billing, signup                                │
 │  - Creates CNPG users/schemas, NATS accounts                           │
-│  - Deploys per-account stacks in tenant namespaces                     │
+│  - Deploys per-account stacks in account namespaces                    │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                     ┌───────────────┼───────────────┐
@@ -43,26 +43,26 @@
 - **NATS is shared** - isolation via account-scoped JWT accounts
 - **Instance pods don't know about other accounts** - credentials only allow their data
 
-ServiceRadar uses PostgreSQL schema-based isolation where each account has its own schema (e.g., `account_abc123`). Currently, the application code maintains tenant awareness by:
+ServiceRadar uses PostgreSQL schema-based isolation where each account has its own schema (e.g., `account_abc123`). Currently, the application code maintains schema awareness by:
 
 1. Passing `tenant: schema` to every Ash query
 2. Using `SystemActor.for_tenant(tenant_id, :component)` for scoped operations
-3. Tracking tenant context through `Scope` structs in the request lifecycle
+3. Tracking schema context through `Scope` structs in the request lifecycle
 
-This design document outlines how to eliminate tenant awareness from the Tenant Instance, making isolation database-enforced rather than application-enforced.
+This design document outlines how to eliminate schema/tenant context tracking from instance code, making isolation database-enforced rather than application-enforced.
 
 ## Goals
 
-- **Simplify application code** - No tenant tracking, no `tenant:` params
-- **DB-enforced isolation** - Impossible to access other tenants' data
+- **Simplify application code** - No schema tracking, no `tenant:` params
+- **DB-enforced isolation** - Impossible to access other accounts' data
 - **Same code for OSS/SaaS** - Single codebase works for both deployment modes
-- **Secure by default** - Can't accidentally leak data across tenants
+- **Secure by default** - Can't accidentally leak data across accounts
 
 ## Non-Goals
 
-- Changing the Control Plane architecture (it still needs multi-tenant access)
-- Modifying the NATS tenant isolation (already JWT-based)
-- Changing the frontend UX (tenant switcher removal is separate)
+- Changing the Control Plane architecture (it still needs multi-account access)
+- Modifying the NATS account isolation (already JWT-based)
+- Changing the frontend UX (account switcher removal is separate)
 
 ## Decisions
 
@@ -94,7 +94,7 @@ postgresql://account_abc123_app:secret@cnpg-cluster:5432/serviceradar?search_pat
 ```
 
 **Alternatives Considered:**
-- Row-Level Security (RLS): More complex, still requires tenant_id tracking in app
+- Row-Level Security (RLS): More complex, still requires legacy `tenant_id` tracking in app
 - Separate databases per account: Higher operational overhead, harder to share resources
 
 ### Decision 2: Remove Multitenancy from Ash Resources
@@ -126,20 +126,20 @@ end
 **Why This Works:**
 - PostgreSQL's `search_path` determines which schema is used for unqualified table names
 - When app connects as `account_abc123_app` with `search_path=account_abc123`, all queries go to that schema
-- Ash doesn't need to know about tenants - it's transparent
+- Ash doesn't need to know about schemas - it's transparent
 
 ### Decision 3: Simplify Actor Model
 
 **Current Actors:**
 ```elixir
-# Tenant-scoped system actor
+# Legacy schema-scoped system actor
 actor = SystemActor.for_tenant(tenant_id, :my_worker)
 Ash.read!(query, actor: actor, tenant: schema)
 ```
 
 **Target Actors:**
 ```elixir
-# System actor for background jobs (no tenant context needed)
+# System actor for background jobs (no schema context needed)
 actor = SystemActor.system(:my_worker)
 Ash.read!(query, actor: actor)  # Uses connection's schema
 
@@ -165,28 +165,26 @@ Ash.read!(query, actor: actor)  # Uses connection's schema
 }
 ```
 
-No `tenant_id` in actors - it's implicit from the database connection.
+No `tenant_id` in actors - schema is implicit from the database connection.
 
 ### Decision 4: Handle Shared/Global Resources
 
-Some resources currently live in the `public` schema and are accessed across tenants:
-- `tenants` - Tenant metadata
+Some resources currently live in the `public` schema and are accessed across accounts:
 - `nats_operators` - NATS operator config
 - `nats_platform_tokens` - Platform NATS tokens
 
 **Options:**
 
-1. **Move to Control Plane only** - Tenant instance doesn't need these
-2. **Replicate to tenant schema** - Copy needed config at provisioning time
+1. **Move to Control Plane only** - Instance doesn't need these
+2. **Replicate to account schema** - Copy needed config at provisioning time
 3. **Read-only access to public** - Grant SELECT on specific tables
 
 **Decision:** Option 1 for most, Option 2 for essential config.
 
-- `tenants` table: Not needed in tenant instance. Tenant info comes from config/JWT.
-- `nats_operators`: Tenant doesn't manage operators. NATS creds come from Control Plane.
-- Tenant-specific config: Stored in tenant schema at provisioning time.
+- `nats_operators`: Instance doesn't manage operators. NATS creds come from Control Plane.
+- Account-specific config: Stored in account schema at provisioning time.
 
-### Decision 5: OSS Single-Tenant Mode
+### Decision 5: OSS Single-Deployment Mode
 
 For OSS deployments, there's one account. Two options:
 
@@ -197,7 +195,7 @@ For OSS deployments, there's one account. Two options:
 
 - Helm bootstrap job creates the schema and user
 - Connection uses `account_platform` search_path
-- Code is identical to SaaS tenant instance
+- Code is identical to SaaS instance
 - Easy to migrate OSS to SaaS later (just change credentials)
 
 ## Database Schema Changes
@@ -241,7 +239,7 @@ This is a **BREAKING** change for any external tools that rely on `tenant_id`.
 
 ### Risk: Cross-Tenant Queries Become Impossible
 
-**Mitigation:** This is the goal. Any legitimate cross-tenant operation belongs in the Control Plane.
+**Mitigation:** This is the goal. Any legitimate cross-account operation belongs in the Control Plane.
 
 ### Risk: Migration Complexity for Existing SaaS
 
@@ -249,14 +247,14 @@ This is a **BREAKING** change for any external tools that rely on `tenant_id`.
 1. Create new schema-scoped users first
 2. Deploy new instances with new credentials
 3. Old instances continue working until cutover
-4. Controlled migration per tenant
+4. Controlled migration per account
 
 ### Risk: Debugging Harder Without Tenant Context
 
 **Mitigation:**
 - Tenant ID still available in JWT claims
-- Logs can include tenant from config/environment
-- Database user name includes tenant ID
+- Logs can include account id from config/environment
+- Database user name includes account id
 
 ### Trade-off: More Database Users
 
@@ -283,9 +281,9 @@ Creating a PostgreSQL user per account increases DB overhead slightly.
 
 ### Phase 3: Infrastructure Cleanup
 
-1. Remove tenant-scoped cert generation and CA hierarchy
-2. Update Helm/Compose config to drop tenant fields
-3. Remove tenant-workload-operator artifacts from this repo
+1. Remove account-scoped cert generation and CA hierarchy
+2. Update Helm/Compose config to drop account fields
+3. Remove workload-operator artifacts from this repo
 
 ### Phase 4: Schema Cleanup
 
@@ -302,7 +300,7 @@ Creating a PostgreSQL user per account increases DB overhead slightly.
 
 If issues arise:
 1. Redeploy with old credentials (superuser)
-2. Deploy previous release of the tenant-aware code
+2. Deploy previous release of the schema-aware code
 3. Old code paths still work
 
 Keep both code paths available for one release cycle.
@@ -313,6 +311,6 @@ Keep both code paths available for one release cycle.
 
 2. **Connection Pooling**: Does PgBouncer work with schema-scoped users?
 
-3. **Monitoring**: How do we monitor per-tenant database usage with separate users?
+3. **Monitoring**: How do we monitor per-account database usage with separate users?
 
-4. **Secrets Rotation**: How do we rotate tenant database credentials?
+4. **Secrets Rotation**: How do we rotate account database credentials?

@@ -5,7 +5,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   Provides discovery and management of device actors.
   Device actors are started on-demand when first accessed via `get_or_start/2`.
 
-  ## Tenant Isolation
+  ## Schema Isolation
 
   Each deployment is isolated at the infrastructure level.
   DB connection's search_path determines the schema.

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   @moduledoc """
   Builds sync configuration payloads for agents from IntegrationSource data.
 
-  Tenant isolation is handled by the database connection's search_path.
+  Schema isolation is handled by the database connection's search_path.
   """
 
   require Ash.Query

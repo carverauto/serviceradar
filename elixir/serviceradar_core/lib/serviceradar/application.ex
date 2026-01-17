@@ -87,7 +87,7 @@ defmodule ServiceRadar.Application do
         # Task supervisor for sync ingestion work
         sync_ingestor_task_supervisor_child(),
 
-        # Tenant sync ingestion queue/coalescer
+        # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
         # Results router for agent-gateway push results

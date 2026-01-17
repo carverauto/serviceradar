@@ -68,7 +68,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage templates
+    # Admins can manage templates
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

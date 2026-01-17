@@ -6,7 +6,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInvalidationNotifier do
   this notifier invalidates the relevant cache entries and publishes NATS events
   for cluster-wide invalidation.
 
-  Tenant isolation is handled by the database connection's search_path.
+  Schema isolation is handled by the database connection's search_path.
   """
 
   use Ash.Notifier

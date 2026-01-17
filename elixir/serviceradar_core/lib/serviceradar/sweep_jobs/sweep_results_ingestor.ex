@@ -23,7 +23,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         "last_sweep_time" => "2024-01-01T00:00:00Z"
       }
 
-  ## Tenant-Unaware Architecture
+  ## Schema Isolation
 
   This module operates in schema-agnostic mode where the database connection's
   search_path (set by CNPG credentials) determines the schema.

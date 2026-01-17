@@ -96,7 +96,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage config instances
+    # Admins can manage config instances
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
