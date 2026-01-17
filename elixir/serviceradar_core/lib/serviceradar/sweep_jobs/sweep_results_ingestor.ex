@@ -25,7 +25,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   ## Tenant-Unaware Architecture
 
-  This module operates in tenant-unaware mode where the database connection's
+  This module operates in schema-agnostic mode where the database connection's
   search_path (set by CNPG credentials) determines the schema.
 
   ## Usage

@@ -7,7 +7,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
 
   ## Tenant Isolation
 
-  Each tenant deployment is isolated at the infrastructure level.
+  Each deployment is isolated at the infrastructure level.
   DB connection's search_path determines the schema.
 
   ## Usage

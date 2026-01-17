@@ -2,10 +2,10 @@
 #
 #     mix run priv/repo/seeds.exs
 #
-# This seeds file is for the tenant instance UI (web-ng).
-# In the single-tenant-per-deployment model, each deployment serves
-# one tenant. The tenant context is implicit from the PostgreSQL
-# schema (configured via CNPG search_path).
+# This seeds file is for the dedicated deployment UI (web-ng).
+# In the single-deployment model, each deployment serves one account.
+# The schema context is implicit from the PostgreSQL search_path
+# configured by infrastructure.
 
 alias ServiceRadar.Identity.User
 

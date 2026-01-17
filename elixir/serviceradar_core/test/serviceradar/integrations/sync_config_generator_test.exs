@@ -2,7 +2,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   @moduledoc """
   Integration tests for sync config generation.
 
-  In single-tenant-per-deployment architecture, tenant isolation is handled
+  In single-deployment architecture, schema isolation is handled
   by PostgreSQL search_path. Tests run against the single schema.
   """
 
@@ -21,7 +21,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   end
 
   test "agent sync config only includes sources assigned to the agent" do
-    # In single-tenant mode, tenant is implicit from DB connection's search_path
+    # In single-deployment mode, schema context is implicit from DB connection's search_path
     agent_a = create_agent!("agent-a")
     agent_b = create_agent!("agent-b")
 

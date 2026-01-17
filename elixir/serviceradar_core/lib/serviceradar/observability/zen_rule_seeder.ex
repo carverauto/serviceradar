@@ -2,7 +2,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   @moduledoc """
   Seeds default Zen rules on startup.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema rules are seeded into.
   """
 
@@ -78,7 +78,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
         end)
 
       {:error, reason} ->
-        schema = Keyword.get(opts, :tenant, "unknown")
+        schema = Keyword.get(opts, :schema, "unknown")
         Logger.warning("Failed to check Zen rule defaults for #{schema}: #{inspect(reason)}")
     end
   end
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   defp create_rule(attrs, opts) do
     changeset = Ash.Changeset.for_create(ZenRule, :create, attrs, opts)
-    schema = Keyword.get(opts, :tenant, "unknown")
+    schema = Keyword.get(opts, :schema, "unknown")
 
     case Ash.create(changeset) do
       {:ok, _} -> :ok
@@ -131,7 +131,7 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
 
   defp do_rename_rule(rule, new_name, key, existing, opts) do
     changeset = Ash.Changeset.for_update(rule, :update, %{name: new_name}, opts)
-    schema = Keyword.get(opts, :tenant, "unknown")
+    schema = Keyword.get(opts, :schema, "unknown")
 
     case Ash.update(changeset) do
       {:ok, _} ->

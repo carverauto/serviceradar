@@ -29,7 +29,7 @@ Edge agents are Go binaries that run on monitored hosts outside the Kubernetes c
   ```bash
   openssl x509 -in /etc/serviceradar/certs/svid.pem -noout -dates
   ```
-- **Wrong CN format**: Verify the CN matches `<agent_id>.<partition_id>.<tenant_slug>.serviceradar`:
+- **Wrong CN format**: Verify the CN matches `<agent_id>.<partition_id>.serviceradar`:
   ```bash
   openssl x509 -in /etc/serviceradar/certs/svid.pem -noout -subject
   ```
@@ -43,7 +43,7 @@ Edge agents are Go binaries that run on monitored hosts outside the Kubernetes c
     https://core.example.com/api/v2/agents/<agent-uid>
   ```
 - **Status stuck at "connecting"**: Check gateway logs for gRPC errors. The agent may be connecting but failing health checks.
-- **Wrong tenant**: Agent certificates are tenant-specific. Verify the tenant slug in the certificate CN matches the expected tenant.
+- **Wrong account**: Agent certificates are deployment-specific. Verify the certificate CN matches the expected deployment.
 
 ### gRPC Diagnostics
 

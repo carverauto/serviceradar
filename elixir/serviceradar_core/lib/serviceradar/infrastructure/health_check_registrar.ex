@@ -114,7 +114,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
       registered_services: %{}
     }
 
-    # Subscribe to agent registration events (global topic for all tenants)
+    # Subscribe to agent registration events (global topic for all deployments)
     Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
 
     # Subscribe to gateway registration events

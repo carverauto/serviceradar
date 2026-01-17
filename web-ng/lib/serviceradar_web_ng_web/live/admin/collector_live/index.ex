@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
   @moduledoc """
   LiveView for managing collector packages.
 
-  This is a tenant instance UI - each instance serves ONE tenant.
-  The tenant context is implicit from the PostgreSQL search_path.
+  This is a single-deployment UI - each instance serves one account.
+  Schema context is implicit from the PostgreSQL search_path.
 
   Admin view for:
   - Creating collector packages (flowgger, trapd, netflow, otel)
@@ -49,7 +49,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       |> assign(:created_download_token, nil)
       |> assign(:filter_status, nil)
       |> assign(:filter_type, nil)
-      |> load_tenant_status(actor)
+      |> load_account_status(actor)
       |> load_packages(actor)
       |> load_credentials(actor)
       |> load_edge_sites(actor)
@@ -165,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
     {:noreply,
      socket
-     |> load_tenant_status(actor)
+     |> load_account_status(actor)
      |> load_packages(actor)
      |> load_credentials(actor)}
   end
@@ -207,9 +207,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     {:noreply, load_credentials(socket, actor)}
   end
 
-  def handle_info({:tenant_nats_updated, _status}, socket) do
+  def handle_info({:nats_status_updated, _status}, socket) do
     actor = get_actor(socket)
-    {:noreply, load_tenant_status(socket, actor)}
+    {:noreply, load_account_status(socket, actor)}
   end
 
   # Catch-all for unhandled messages
@@ -227,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           <div>
             <h1 class="text-2xl font-semibold text-base-content">Collectors</h1>
             <p class="text-sm text-base-content/60">
-              Manage NATS-connected data collectors for your tenant.
+              Manage NATS-connected data collectors for your account.
             </p>
           </div>
           <div class="flex gap-2">
@@ -238,14 +238,14 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               variant="primary"
               size="sm"
               phx-click="open_create_modal"
-              disabled={@tenant_status != :ready}
+              disabled={@account_status != :ready}
             >
               <.icon name="hero-plus" class="size-4" /> New Collector
             </.ui_button>
           </div>
         </div>
 
-        <.tenant_status_card tenant_status={@tenant_status} tenant_public_key={@tenant_public_key} />
+        <.account_status_card account_status={@account_status} account_public_key={@account_public_key} />
 
         <.ui_panel>
           <:header>
@@ -287,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
               <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
                 <div class="text-sm font-semibold text-base-content">No collectors found</div>
                 <p class="mt-1 text-xs text-base-content/60">
-                  <%= if @tenant_status != :ready do %>
+                  <%= if @account_status != :ready do %>
                     Your NATS account is being provisioned. Please wait...
                   <% else %>
                     Create a new collector package to start sending data.
@@ -428,17 +428,17 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     """
   end
 
-  defp tenant_status_card(assigns) do
+  defp account_status_card(assigns) do
     ~H"""
     <div class="alert">
       <div class="flex items-center gap-3">
-        <%= case @tenant_status do %>
+        <%= case @account_status do %>
           <% :ready -> %>
             <.icon name="hero-check-circle" class="size-6 text-success" />
             <div>
               <div class="font-semibold">NATS Account Ready</div>
               <div class="text-xs text-base-content/60 font-mono">
-                {String.slice(@tenant_public_key || "", 0, 20)}...
+                {String.slice(@account_public_key || "", 0, 20)}...
               </div>
             </div>
           <% :pending -> %>
@@ -766,15 +766,15 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
 
   # Data loading
 
-  defp load_tenant_status(socket, _actor) do
-    # In single-tenant-per-deployment mode, NATS account is provisioned by the control plane.
+  defp load_account_status(socket, _actor) do
+    # In single-deployment mode, NATS account is provisioned by the control plane.
     # The account is configured via environment variables and is always ready when the
     # instance is deployed.
     nats_configured? = Application.get_env(:serviceradar, :nats_url) != nil
 
     socket
-    |> assign(:tenant_status, if(nats_configured?, do: :ready, else: :pending))
-    |> assign(:tenant_public_key, Application.get_env(:serviceradar, :nats_account_public_key))
+    |> assign(:account_status, if(nats_configured?, do: :ready, else: :pending))
+    |> assign(:account_public_key, Application.get_env(:serviceradar, :nats_account_public_key))
   end
 
   defp load_packages(socket, actor) do

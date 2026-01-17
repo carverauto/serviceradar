@@ -3,7 +3,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
   Tests for the SysmonCompiler module.
 
   Tests config compilation, validation, and profile resolution.
-  In the tenant-instance architecture, tests run against the single schema
+  In the single-deployment architecture, tests run against the single schema
   determined by PostgreSQL search_path.
   """
 

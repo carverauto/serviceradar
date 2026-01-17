@@ -1,3 +1,3 @@
 -- DEPRECATED: This down migration is now a no-op.
--- The otel_trace_summaries materialized view is now managed in tenant schemas.
+-- The otel_trace_summaries materialized view is now managed in schemas.
 -- See: elixir/serviceradar_core/priv/repo/migrations/

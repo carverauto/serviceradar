@@ -1,6 +1,6 @@
 defmodule ServiceRadar.NATS.Channels do
   @moduledoc """
-  NATS channel management for single-tenant instances.
+  NATS channel management for single-deployment instances.
 
   Channels are unprefixed because each deployment is isolated at the NATS
   account level.

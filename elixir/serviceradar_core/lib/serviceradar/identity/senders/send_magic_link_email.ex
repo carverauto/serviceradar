@@ -6,7 +6,7 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
 
   ## Instance Isolation
 
-  In the instance-only architecture, each deployment serves a single tenant.
+  In the instance-only architecture, each deployment serves a single account.
   The magic link URL uses the configured base_url directly without complex
   routing - infrastructure handles schema isolation.
   """

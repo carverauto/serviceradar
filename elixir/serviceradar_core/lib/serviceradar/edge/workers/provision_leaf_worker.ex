@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   @moduledoc """
   Oban worker for provisioning NATS leaf server configuration.
 
-  In single-tenant-per-deployment mode:
+  In single-deployment mode:
   - Certificate generation is handled by external infrastructure (SPIFFE/SPIRE, cert-manager)
   - The worker updates the NatsLeafServer record with a config checksum
 
@@ -26,7 +26,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   def perform(%Oban.Job{args: %{"leaf_server_id" => leaf_server_id}}) do
     Logger.info("Provisioning NATS leaf server: #{leaf_server_id}")
 
-    # In single-tenant mode, certificate generation is handled by external infrastructure
+    # In single-deployment mode, certificate generation is handled by external infrastructure
     with {:ok, leaf_server} <- load_leaf_server(leaf_server_id),
          {:ok, edge_site} <- load_edge_site(leaf_server.edge_site_id),
          {:ok, config_checksum} <- compute_config_checksum(leaf_server, edge_site),
@@ -73,7 +73,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
 
   defp compute_config_checksum(leaf_server, edge_site) do
     # Compute checksum of configuration-relevant data
-    # In single-tenant mode, we just track the basic config
+    # In single-deployment mode, we just track the basic config
     data =
       :erlang.term_to_binary(%{
         upstream_url: leaf_server.upstream_url,
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionLeafWorker do
   end
 
   defp update_leaf_server(leaf_server, config_checksum) do
-    # In single-tenant mode, TLS certificates are provisioned by external infrastructure
+    # In single-deployment mode, TLS certificates are provisioned by external infrastructure
     # We only update the config checksum to indicate the leaf server is ready
     actor = SystemActor.system(:provision_leaf)
 

@@ -5,7 +5,7 @@ defmodule ServiceRadar.SysmonProfiles.Changes.SetAsDefault do
   Before setting a profile as default, this change finds and unsets
   any existing default profile using the :unset_default action.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema is affected.
   """
 

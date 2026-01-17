@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNG.Dev.ClusterDebug do
   @moduledoc """
   Cluster debugging utilities for development.
 
-  This is a single-tenant instance - each deployment serves ONE tenant.
-  The tenant is implicit from PostgreSQL search_path.
+  This is a single-deployment instance. Schema context is implicit from
+  PostgreSQL search_path.
 
   ## Usage in IEx
 

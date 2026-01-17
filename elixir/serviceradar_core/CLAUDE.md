@@ -14,7 +14,7 @@ A Credo check will flag any usage of `authorize?: false` in the codebase.
 
 #### Instance-Scoped Operations
 
-For operations within the tenant instance (DB search_path determines the schema):
+For operations within the deployment (DB search_path determines the schema):
 
 ```elixir
 alias ServiceRadar.Actors.SystemActor
@@ -54,13 +54,9 @@ end
 
 ## Instance Isolation Model
 
-Each tenant deployment is fully isolated:
+Each deployment is fully isolated:
 
-- Each tenant gets their own deployment (agent-gateway, web-ng, core-elx)
+- Each account gets its own deployment (agent-gateway, web-ng, core-elx)
 - CNPG credentials set PostgreSQL's `search_path` for schema isolation
 - DB connection's search_path determines the schema
-- No cross-tenant access is possible at the instance level
-
-### Schema-Isolated Resources
-
-All resources use `multitenancy strategy: :context` and are isolated by PostgreSQL schema boundaries set via the database connection's search_path.
+- No cross-deployment access is possible at the instance level

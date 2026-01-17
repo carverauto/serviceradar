@@ -33,8 +33,7 @@ defmodule ServiceRadarAgentGateway.Application do
   - `GATEWAY_CAPABILITIES` - Comma-separated list of capabilities (icmp, tcp, http, etc.)
   - `CLUSTER_HOSTS` - Comma-separated list of cluster nodes to join
 
-  Note: Tenant context is derived per-request from mTLS certificates.
-  The gateway is platform infrastructure serving all tenants.
+  Note: Request context is derived from mTLS certificates.
 
   ## Architecture
 
@@ -114,7 +113,7 @@ defmodule ServiceRadarAgentGateway.Application do
       if registries_enabled do
         [
           # Registration worker - registers this gateway in the distributed registry.
-          # Gateways are platform-level; tenant context is derived per-request via mTLS.
+          # Gateways are platform-level; request context is derived per-request via mTLS.
           {ServiceRadar.Gateway.RegistrationWorker,
            partition_id: partition_id, gateway_id: gateway_id, domain: domain, entity_type: :gateway},
           # Register gateway for platform-wide visibility (Infrastructure UI).
@@ -164,7 +163,7 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp get_grpc_ssl_opts do
-    # Agent gateway serves edge gRPC using tenant-issued mTLS certificates.
+    # Agent gateway serves edge gRPC using deployment-issued mTLS certificates.
     get_mounted_ssl_opts()
   end
 

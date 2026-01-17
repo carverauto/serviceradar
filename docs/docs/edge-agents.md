@@ -5,7 +5,7 @@ title: Edge Agents
 
 # Edge Agents
 
-Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure, tenant-isolated monitoring.
+Edge agents are Go binaries that run on monitored hosts outside the Kubernetes cluster. They communicate with the Agent-Gateway via gRPC with mTLS for secure, deployment-isolated monitoring.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ Edge agents use a secure, isolated communication model:
 | Property | Implementation |
 |----------|----------------|
 | **Transport** | gRPC with mTLS (TLS 1.3) |
-| **Identity** | Tenant-specific X.509 certificates |
+| **Identity** | Deployment-specific X.509 certificates |
 | **Isolation** | No ERTS/Erlang distribution access |
 | **Authorization** | SPIFFE ID verification |
 
@@ -45,7 +45,7 @@ Edge agents use a secure, isolated communication model:
 
 - Join the ERTS cluster (they are Go binaries, not Erlang nodes)
 - Execute RPC calls on Core or Agent-Gateway nodes
-- Access Horde registries or enumerate other tenants' agents
+- Access Horde registries or enumerate other deployments' agents
 - Connect to the database directly
 - Access internal APIs without proper mTLS certificates
 
@@ -55,12 +55,12 @@ Edge agent certificates use the following format:
 
 **Common Name (CN):**
 ```
-<agent_id>.<partition_id>.<tenant_slug>.serviceradar
+<agent_id>.<partition_id>.serviceradar
 ```
 
 **SPIFFE ID (SAN URI):**
 ```
-spiffe://serviceradar.local/agent/<tenant_slug>/<partition_id>/<agent_id>
+spiffe://serviceradar.local/agent/<partition_id>/<agent_id>
 ```
 
 ## Deployment
@@ -120,7 +120,7 @@ Create the agent configuration file (`/etc/serviceradar/agent.json`):
 
 ### 4. Install Certificates
 
-Copy the tenant-specific certificates to the agent:
+Copy the deployment-specific certificates to the agent:
 
 ```bash
 mkdir -p /etc/serviceradar/certs
@@ -226,7 +226,7 @@ openssl x509 -in svid.pem -noout -dates
 
 # Verify CN format
 openssl x509 -in svid.pem -noout -subject
-# Should show: CN = agent-edge-01.partition-1.tenant-slug.serviceradar
+# Should show: CN = agent-edge-01.partition-1.serviceradar
 ```
 
 ### Registry Issues
@@ -239,10 +239,10 @@ curl https://core.example.com/api/v2/agents/agent-edge-01 \
 
 ## Instance Isolation
 
-Each tenant deployment is fully isolated at the infrastructure level:
+Each deployment is fully isolated at the infrastructure level:
 
 1. **Certificate-based Identity**: Deployment identity embedded in certificate CN
-2. **Deployment Isolation**: Each tenant gets their own deployment (separate Kubernetes namespace)
+2. **Deployment Isolation**: Each account gets its own deployment (separate Kubernetes namespace)
 3. **Database Isolation**: PostgreSQL schema isolation via CNPG search_path
 
 Agents connect to their deployment's gateway and cannot access other deployments.

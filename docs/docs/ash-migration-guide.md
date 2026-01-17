@@ -81,7 +81,7 @@ ServiceRadar.Infrastructure.Agent
 
 ### Required Migrations
 
-1. **Instance schema** - Core tables for the single-tenant deployment
+1. **Instance schema** - Core tables for the single-deployment setup
 2. **User role column** - Role-based access control
 3. **API tokens table** - Programmatic API access
 
@@ -143,7 +143,7 @@ API_RATE_LIMIT=1000  # requests per minute
 
 ### AshCloak Key Persistence and Validation
 
-AshCloak encrypts sensitive fields at rest (tenant contact info, tenant CA private keys,
+AshCloak encrypts sensitive fields at rest (account contact info, platform CA private keys,
 NATS account seeds, operator seeds). These encrypted values are stored in CNPG and can
 only be decrypted with the same platform key. If the key changes or is lost, the data
 becomes unreadable.

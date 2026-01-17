@@ -2,7 +2,7 @@
 
 ## Why
 
-The current Tenant Instance codebase (`web-ng`, `core-elx`) is deeply tenant-aware despite the architectural goal of having each instance only see its own data. This creates several problems:
+The current ServiceRadar instance codebase (`web-ng`, `core-elx`) is deeply tenant-aware despite the architectural goal of having each instance only see its own data. This creates several problems:
 
 1. **Security by Convention, Not Enforcement**: Tenant isolation relies on application code correctly passing `tenant:` parameters to every Ash query. A single missed parameter could leak data.
 
@@ -50,14 +50,14 @@ This proposal finishes that work.
 ```
 ┌─────────────────────────────────────────────────┐
 │              Tenant Instance App                │
-│  DB credentials: tenant_abc_app                 │
-│  Can see: tenant_abc schema ONLY                │
+│  DB credentials: account_abc_app                │
+│  Can see: account_abc schema ONLY               │
 │  Tracks: nothing - implicit isolation           │
 └─────────────────────────────────────────────────┘
          ↓
 ┌─────────────────────────────────────────────────┐
 │     PostgreSQL                                  │
-│  [tenant_abc] │ tenant_def │ tenant_xyz │ public│
+│  [account_abc] │ account_def │ account_xyz │ public│
 │   (visible)   │  (hidden)  │  (hidden)  │       │
 └─────────────────────────────────────────────────┘
 ```
@@ -83,9 +83,9 @@ This proposal finishes that work.
    - Remove `multitenancy strategy: :attribute` from resources
    - Tables live in the schema, no tenant_id column needed
 
-5. **Simplify `Tenant` resource**
-   - In tenant instance: single row representing "self"
-   - Or remove entirely - tenant info comes from config/JWT
+5. **Remove `Tenant` resource**
+   - Tenant instance does not query a tenant table
+   - Instance metadata comes from config/JWT only
 
 6. **Remove cross-tenant code paths**
    - `find_package_across_tenants()` - delete
@@ -117,13 +117,13 @@ The **Control Plane** (`serviceradar-web/`) becomes responsible for:
 ### Affected Specs
 
 - `enforce-tenant-schema-isolation` - Superseded by DB-enforced isolation
-- `add-tenant-workload-operator` - Control Plane creates scoped credentials
+- Control plane provisioning (serviceradar-web) creates scoped credentials
 - `2286-break-out-tenant-control-plane` - This completes that vision
 
 ### **BREAKING** Changes
 
 1. **Database credentials must be schema-scoped** - Existing deployments need credential rotation
-2. **Tenant Instance cannot access other tenants** - By design
+2. **Instance cannot access other accounts** - By design
 3. **`SystemActor.platform()` removed** - No replacement in tenant instance
 4. **`TenantSchemas` module removed** - No replacement in tenant instance
 

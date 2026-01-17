@@ -524,9 +524,9 @@ Use these starting points when the embedded sync runtime is streaming large devi
 
 | Workload | POOL_SIZE | DATABASE_QUEUE_TARGET_MS / INTERVAL_MS | SYNC_INGESTOR_COALESCE_MS | SYNC_INGESTOR_QUEUE_MAX_CHUNKS | SYNC_INGESTOR_MAX_INFLIGHT | SYNC_INGESTOR_BATCH_CONCURRENCY |
 | --- | --- | --- | --- | --- | --- | --- |
-| Small (single tenant, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
-| Medium (5-10 tenants, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
-| Large (10-20 tenants, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
+| Small (single deployment, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
+| Medium (5-10 deployments, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
+| Large (10-20 deployments, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
 
 **Adjustments**
 - If you see `queue_timeout` errors, either raise `POOL_SIZE` (if CNPG can accept more) or raise `DATABASE_QUEUE_TARGET_MS`/`DATABASE_QUEUE_INTERVAL_MS` so requests wait longer.

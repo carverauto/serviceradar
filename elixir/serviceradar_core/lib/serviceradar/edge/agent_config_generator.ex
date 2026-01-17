@@ -8,11 +8,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   3. Computing a version hash for cache validation
   4. Supporting `not_modified` responses when config hasn't changed
 
-  ## Tenant-Unaware Architecture
+  ## Schema Isolation
 
-  This module operates in tenant-unaware mode where the database connection's
-  search_path (set by CNPG credentials) determines the schema. Each instance
-  serves only one tenant.
+  The database connection's search_path (set by CNPG credentials) determines
+  the schema for this deployment.
 
   ## Config Versioning
 
@@ -70,7 +69,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   Loads all enabled service checks assigned to this agent from the database
   and returns them in a format suitable for the AgentConfigResponse proto.
 
-  The tenant schema is determined by the DB connection's search_path.
+  The schema is determined by the DB connection's search_path.
 
   ## Parameters
 
@@ -106,7 +105,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   3. Returns `:not_modified` if the hash matches `current_version`
   4. Returns `{:ok, config}` if the config has changed
 
-  The tenant schema is determined by the DB connection's search_path.
+  The schema is determined by the DB connection's search_path.
 
   ## Parameters
 

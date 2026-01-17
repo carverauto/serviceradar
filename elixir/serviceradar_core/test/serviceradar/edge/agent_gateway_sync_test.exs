@@ -3,8 +3,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   Tests for the AgentGatewaySync module.
 
   Tests agent enrollment, device creation, and heartbeat operations.
-  In the tenant-instance architecture, tests run against the single schema
-  determined by PostgreSQL search_path.
+  Tests run against the schema determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
@@ -263,20 +262,4 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
   end
 
-  describe "get_platform_tenant_info/0" do
-    test "returns tenant info when configured" do
-      # This depends on application config, so we just verify the function exists
-      # and returns the expected shape
-      result = AgentGatewaySync.get_platform_tenant_info()
-
-      case result do
-        {:ok, info} ->
-          assert Map.has_key?(info, :tenant_slug)
-
-        {:error, :not_ready} ->
-          # This is acceptable if platform tenant isn't configured
-          assert true
-      end
-    end
-  end
 end

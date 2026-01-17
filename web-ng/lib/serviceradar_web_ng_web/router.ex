@@ -242,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
 
-      # Connected agents view (tenant-scoped, visible to all authenticated users)
+      # Connected agents view (instance-scoped, visible to all authenticated users)
       live "/agents", AgentLive.Index, :index
       live "/agents/:uid", AgentLive.Show, :show
 

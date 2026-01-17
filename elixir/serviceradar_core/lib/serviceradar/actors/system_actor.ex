@@ -7,7 +7,7 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   ## Usage
 
-      # For tenant instance code (search_path determines schema)
+      # For single-deployment instance code (search_path determines schema)
       actor = SystemActor.system(:state_monitor)
       Gateway |> Ash.read(actor: actor)
 
@@ -39,9 +39,9 @@ defmodule ServiceRadar.Actors.SystemActor do
         }
 
   @doc """
-  Creates a system actor for tenant-unaware mode.
+  Creates a system actor for schema-agnostic mode.
 
-  In tenant-unaware mode, the tenant is implicit from the database connection's
+  In schema-agnostic mode, schema context is implicit from the database connection's
   `search_path`.
 
   The actor will have:
@@ -62,7 +62,7 @@ defmodule ServiceRadar.Actors.SystemActor do
 
   ## When to Use
 
-  Use `system/1` in tenant instance code where the DB connection's
+  Use `system/1` in single-deployment instance code where the DB connection's
   search_path is set by CNPG credentials (schema isolation is implicit).
   """
   @spec system(component()) :: %{id: String.t(), email: String.t(), role: :system}

@@ -56,7 +56,7 @@ defmodule ServiceRadar.StatusHandler do
   defp process(_status), do: :ok
 
   defp process_legacy_results(%{service_type: "sync"} = status) do
-    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    # In schema-agnostic mode, DB schema is set by CNPG search_path
     schedule_sync_ingestion(status)
   end
 

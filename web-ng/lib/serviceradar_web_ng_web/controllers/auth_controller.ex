@@ -11,11 +11,11 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   The token is stored under the subject token key (e.g., `"user_token"`) and can be retrieved
   for verification using `AshAuthentication.Jwt.verify/2`.
 
-  ## Tenant Context
+  ## Schema Context
 
-  In a tenant instance UI, each instance serves ONE tenant. The tenant is implicit from
-  the PostgreSQL search_path configured for the instance. No tenant identifier needs to be stored
-  in the session or JWT claims.
+  In a single-deployment UI, schema context is implicit from the PostgreSQL search_path
+  configured for the instance. No deployment identifier needs to be stored in the session
+  or JWT claims.
   """
 
   use ServiceRadarWebNGWeb, :controller

@@ -57,31 +57,22 @@ graph TB
 
 ## Instance Isolation
 
-ServiceRadar uses a **single-tenant-per-deployment** model where each tenant gets their own
-isolated deployment. Resources are isolated by PostgreSQL schema (via CNPG search_path) at
-the infrastructure level, not by application-level tenant identifier fields.
+ServiceRadar uses a **dedicated-deployment** model where each deployment is isolated.
+Resources are isolated by PostgreSQL schema (via CNPG search_path) at the
+infrastructure level, not by application-level identifiers.
 
-- Each deployment connects to a tenant-specific PostgreSQL schema
-- No cross-tenant access is possible at the instance level
+- Each deployment connects to a dedicated PostgreSQL schema
+- No cross-deployment access is possible at the instance level
 - CNPG credentials configure the database connection's `search_path`
-
-```elixir
-multitenancy do
-  strategy :context
-end
-```
-
-The `tenant` option is passed from the actor's tenant context and enforced in policies.
 
 ## Domain Modules
 
 ### ServiceRadar.Identity
 
-User authentication and tenant management.
+User authentication and account access.
 
 | Resource | Description | Key Actions |
 |----------|-------------|-------------|
-| `Tenant` | Organization/account | `create`, `update`, `read` |
 | `User` | User accounts | `register_with_password`, `sign_in_with_password`, `update_role` |
 | `ApiToken` | API access tokens | `create`, `validate`, `revoke`, `record_use` |
 
@@ -146,8 +137,8 @@ Edge device onboarding and lifecycle.
 
 ## Background Jobs (AshOban)
 
-Tenant-triggered jobs run from per-tenant Oban schemas; platform maintenance jobs remain in
-the public Oban schema.
+Deployment-triggered jobs run from the public Oban schema; platform maintenance jobs remain
+in the same default schema.
 
 ServiceRadar uses AshOban for scheduled background processing:
 
@@ -168,7 +159,6 @@ elixir/serviceradar_core/
 ├── lib/serviceradar/
 │   ├── identity.ex           # Identity domain
 │   ├── identity/
-│   │   ├── tenant.ex
 │   │   ├── user.ex
 │   │   └── api_token.ex
 │   ├── inventory.ex          # Inventory domain

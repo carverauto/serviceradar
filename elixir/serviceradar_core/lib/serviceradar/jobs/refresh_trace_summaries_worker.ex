@@ -2,7 +2,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   @moduledoc """
   Oban worker that refreshes the otel_trace_summaries materialized view.
 
-  In the tenant-instance architecture, refreshes the view in the current schema
+  In the single-deployment architecture, refreshes the view in the current schema
   (determined by PostgreSQL search_path set by CNPG credentials).
   """
 

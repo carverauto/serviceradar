@@ -2,7 +2,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorConcurrencyTest do
   @moduledoc """
   Integration coverage for concurrent sync ingestor upserts.
 
-  In tenant-unaware mode, the DB schema is set by CNPG search_path credentials.
+  In schema-agnostic mode, the DB schema is set by CNPG search_path credentials.
   Tests use TestSupport for schema isolation.
   """
 

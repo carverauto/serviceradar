@@ -8,7 +8,7 @@ defmodule ServiceRadar.Identity.Users do
   This module serves as a facade over the Ash User resource, providing a familiar
   API while leveraging Ash's authorization and authentication features.
 
-  In the tenant-unaware architecture, each instance serves only one tenant and
+  In the schema-agnostic architecture, each instance serves only one account and
   PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
   """
 

@@ -286,7 +286,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       allow_nil? false
       public? true
       default false
-      description "Whether this is the default profile for the tenant"
+      description "Whether this is the default profile for this deployment"
     end
 
     attribute :enabled, :boolean do

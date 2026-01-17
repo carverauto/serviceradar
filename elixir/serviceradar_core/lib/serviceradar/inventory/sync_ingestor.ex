@@ -5,7 +5,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   Optimized for bulk operations to handle large batches efficiently.
   Uses batch DB queries and bulk upserts instead of one-by-one processing.
 
-  In tenant-unaware mode, operates as a single instance since the DB schema
+  In schema-agnostic mode, operates as a single instance since the DB schema
   is set by CNPG search_path credentials.
   """
 

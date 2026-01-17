@@ -2,8 +2,7 @@ defmodule ServiceRadarAgentGateway.ConfigTest do
   @moduledoc """
   Tests for agent gateway configuration.
 
-  In the tenant-instance architecture, Config stores only the gateway's own identity
-  (gateway_id, domain, capabilities). Tenant context flows through each request via mTLS.
+  Config stores only the gateway's own identity (gateway_id, domain, capabilities).
   """
 
   use ExUnit.Case, async: true

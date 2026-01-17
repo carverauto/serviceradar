@@ -497,16 +497,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   end
 
   defp generate_bundle(site, leaf_server) do
-    # In single-tenant-per-deployment mode, tenant info comes from environment
-    tenant_info = get_tenant_info()
-
     with {:ok, nats_creds} <- get_nats_creds(),
          {:ok, leaf_key_pem} <- decrypt_leaf_key(leaf_server),
          {:ok, server_key_pem} <- decrypt_server_key(leaf_server) do
       EdgeSiteBundleGenerator.create_tarball(
         site,
         leaf_server,
-        tenant_info,
         nats_creds,
         leaf_key_pem: leaf_key_pem,
         server_key_pem: server_key_pem
@@ -514,16 +510,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     end
   end
 
-  defp get_tenant_info do
-    # In single-tenant-per-deployment mode, tenant info comes from environment
-    %{
-      name: Application.get_env(:serviceradar, :tenant_name, "ServiceRadar"),
-      slug: Application.get_env(:serviceradar, :tenant_slug, "default")
-    }
-  end
-
   defp get_nats_creds do
-    # In single-tenant mode, NATS credentials come from environment configuration
+    # In single-deployment mode, NATS credentials come from environment configuration
     # In production, these would be provisioned by the control plane
     nats_jwt = Application.get_env(:serviceradar, :nats_account_jwt)
 

@@ -9,7 +9,7 @@ defmodule ServiceRadar.Actors.Telemetry do
   - Health status distribution
   - Memory usage
 
-  In the tenant-unaware architecture, each instance serves only one tenant
+  In the schema-agnostic architecture, each instance serves only one account
   and PostgreSQL schema isolation handles multi-tenancy at the infrastructure level.
 
   ## Metrics

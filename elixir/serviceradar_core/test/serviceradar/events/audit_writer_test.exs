@@ -2,7 +2,7 @@ defmodule ServiceRadar.Events.AuditWriterTest do
   @moduledoc """
   Integration coverage for audit event writes.
 
-  In the tenant-instance architecture, tests run against the single schema
+  In the single-deployment architecture, tests run against the single schema
   determined by PostgreSQL search_path.
   """
 

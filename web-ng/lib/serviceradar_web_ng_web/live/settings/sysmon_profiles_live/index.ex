@@ -628,7 +628,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                 <div>
                   <p class="text-sm font-medium">Default Profile</p>
                   <p class="text-xs text-base-content/70 mt-1">
-                    This is the default profile for your tenant. It will be applied to all devices
+                    This is the default profile for your account. It will be applied to all devices
                     that don't match any other profile's targeting query.
                   </p>
                 </div>

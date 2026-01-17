@@ -5,7 +5,7 @@ defmodule ServiceRadar.SweepJobs.SweepPubSub do
   Broadcasts to `ServiceRadar.PubSub` when available. If PubSub is not running,
   broadcasts are ignored.
 
-  In tenant-unaware mode, operates as a single instance since the DB schema
+  In schema-agnostic mode, operates as a single instance since the DB schema
   is set by CNPG search_path credentials.
 
   ## Topics

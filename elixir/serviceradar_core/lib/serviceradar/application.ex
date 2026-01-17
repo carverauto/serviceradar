@@ -108,7 +108,7 @@ defmodule ServiceRadar.Application do
         # Template seeding for rule builder defaults
         template_seeder_child(),
 
-        # Zen rule defaults for tenant onboarding
+        # Zen rule defaults for deployment onboarding
         zen_rule_seeder_child(),
 
         # Log promotion and stateful alert rule defaults

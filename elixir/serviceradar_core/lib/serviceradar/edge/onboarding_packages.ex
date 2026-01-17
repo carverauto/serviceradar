@@ -432,7 +432,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   @doc """
   Generates a component certificate signed by the platform CA.
 
-  In single-tenant-per-deployment mode, certificate generation is handled by
+  In single-deployment mode, certificate generation is handled by
   external infrastructure (SPIFFE/SPIRE, cert-manager). This function returns
   an error indicating that the legacy certificate generation is not available.
 
@@ -441,19 +441,19 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     * `component_id` - Unique component identifier
     * `component_type` - :gateway, :agent, :checker, or :sync
     * `partition_id` - Network partition identifier (default: "default")
-    * `opts` - Additional options (ignored in single-tenant mode)
+    * `opts` - Additional options (ignored in single-deployment mode)
 
   ## Returns
 
-    * `{:error, :tenant_ca_not_available}` - Certificate generation not available
+    * `{:error, :ca_not_available}` - Certificate generation not available
 
   """
   @spec generate_component_certificate(String.t(), atom(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def generate_component_certificate(_component_id, _component_type, _partition_id \\ "default", _opts \\ []) do
-    # In single-tenant-per-deployment mode, certificate generation is handled by
+    # In single-deployment mode, certificate generation is handled by
     # external infrastructure (SPIFFE/SPIRE, cert-manager)
-    {:error, :tenant_ca_not_available}
+    {:error, :ca_not_available}
   end
 
   @doc """

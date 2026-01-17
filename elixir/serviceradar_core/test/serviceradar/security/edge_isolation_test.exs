@@ -69,7 +69,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
     end
 
     test "Horde registries are not accessible from non-ERTS processes" do
-      # In tenant-unaware architecture, ProcessRegistry is a singleton Horde
+      # In schema-agnostic architecture, ProcessRegistry is a singleton Horde
       # Verify the registry is a local Horde.Registry process
       registry_name = ProcessRegistry.registry_name()
 
@@ -101,7 +101,7 @@ defmodule ServiceRadar.Security.EdgeIsolationTest do
       agent_id = "go-agent-test-#{:erlang.unique_integer([:positive])}"
 
       # ProcessRegistry is started by the application supervision tree
-      # No per-tenant registry initialization needed
+      # No per-deployment registry initialization needed
 
       # Register a Go agent with gRPC details
       {:ok, _pid} = AgentRegistry.register_agent(agent_id, %{

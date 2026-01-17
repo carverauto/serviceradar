@@ -41,7 +41,7 @@ ServiceRadar follows a dual-track roadmap:
 | Network Engineers | AT&T, Verizon, T-Mobile | Carrier-grade network monitoring |
 | Platform Operators | United Airlines, American Airlines | Airport/operations network management |
 | Energy Grid Operators | Duke Energy, Pacific Gas & Electric | SCADA and grid infrastructure monitoring |
-| MSP Engineers | Regional managed service providers | Multi-tenant customer network management |
+| MSP Engineers | Regional managed service providers | Dedicated deployment customer network management |
 | IoT Platform Teams | Industrial IoT, smart city platforms | Large device fleet monitoring (10k-1M devices) |
 | Security Operations | Internet companies (Cloudflare-scale) | Network-layer SIEM integration |
 
@@ -51,7 +51,7 @@ ServiceRadar follows a dual-track roadmap:
 
 ServiceRadar provides secure-by-design network management for cloud-native environments:
 
-- **Multi-tenant isolation**: Agent/gateway/checker architecture supporting overlapping IP spaces and separate security domains
+- **Deployment isolation**: Agent/gateway/checker architecture supporting overlapping IP spaces and separate security domains
 - **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via SPIFFE/SPIRE
 - **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability, using OCSF for events and OTEL for logs
 - **Stream processing**: CNPG/Timescale for real-time data processing and analysis
@@ -81,7 +81,7 @@ ServiceRadar provides secure-by-design network management for cloud-native envir
 #### Intended Organizations
 
 **Primary targets:**
-- **MSPs**: Multi-tenant service providers requiring strict tenant isolation (50-1000+ customers)
+- **MSPs**: Managed service providers requiring strict deployment isolation (50-1000+ customers)
 - **Telecommunications**: Carriers managing 10k-1M+ network elements
 - **Energy & Utilities**: Smart grid, SCADA, and distributed asset monitoring
 - **Airlines**: Airport operations, flight systems, distributed site networks
@@ -93,7 +93,7 @@ ServiceRadar provides secure-by-design network management for cloud-native envir
 - Multi-site or geographically distributed networks
 - Hybrid infrastructure (on-premises + cloud)
 - Compliance requirements (GDPR, PCI-DSS, SOC 2)
-- Multi-tenant or MSP business model
+- Dedicated deployment or MSP business model
 
 #### End User Research
 
@@ -155,12 +155,12 @@ docker compose up -d
 - Real-time metrics visualization
 - SRQL query builder for ad-hoc analysis
 - Alert configuration and management
-- User and tenant management
+- User and account management
 
 **Coming soon (Q4 2025-Q1 2026):**
 - ZenEngine rule editor (visual workflow builder)
 - Configuration management via NATS KV
-- Multi-tenant admin portal
+- Deployment admin portal
 - Custom dashboard builder
 
 **UX characteristics:**
@@ -205,10 +205,10 @@ ServiceRadar provides its own:
 - **serviceradar-flowgger**: High-performance syslog/GELF receiver
 - Both forward to NATS JetStream for processing and storage in CNPG/Timescale
 
-**Multi-tenant architecture:**
-- RBAC with tenant-scoped queries
-- Kubernetes NetworkPolicies per tenant namespace
-- Separate data retention policies per tenant
+**Dedicated deployment architecture:**
+- RBAC with deployment-scoped queries
+- Kubernetes NetworkPolicies per deployment namespace
+- Separate data retention policies per deployment
 - Isolated agent/gateway deployments
 
 ---
@@ -223,7 +223,7 @@ ServiceRadar provides its own:
 | **Event-Driven Scalability** | NATS JetStream messaging, async processing | Horizontal scaling, fault isolation, OCSF/OTEL payloads |
 | **Fault Tolerant** | Distributed gateways, circuit breakers, retry logic | 99.9% availability during component failures           |
 | **Cloud Native** | SPIFFE/SPIRE identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral                        |
-| **Multi-tenant Isolation** | RBAC, network policies, tenant-scoped queries | Security compliance, MSP-ready                         |
+| **Deployment Isolation** | RBAC, network policies, deployment-scoped queries | Security compliance, MSP-ready                         |
 
 #### Architecture Requirements
 
@@ -339,11 +339,11 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 - Role validation on every API call
 - gRPC middleware validates mTLS certs + roles
 
-**Single-Tenant-per-Deployment isolation:**
-- Each tenant gets their own isolated deployment
+**Dedicated deployment isolation:**
+- Each account gets its own isolated deployment
 - CNPG credentials set PostgreSQL `search_path` for schema isolation
-- Separate NATS accounts per tenant with namespace-based subject mapping
-- Separate encryption keys per tenant (roadmap)
+- Separate NATS accounts per deployment with namespace-based subject mapping
+- Separate encryption keys per deployment (roadmap)
 
 #### Sovereignty and Data Residency
 
@@ -352,7 +352,7 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 | **Data Locality** | Deploy in specific regions, no data egress |
 | **Edge Processing** | NATS hub/leaf topology for local aggregation |
 | **No SaaS Dependencies** | Self-hosted, no phone-home |
-| **Configurable Retention** | Per-tenant TTLs, customer-controlled purges |
+| **Configurable Retention** | Per-deployment TTLs, customer-controlled purges |
 
 **Compliance-ready features:**
 - GDPR: Right to erasure, data export APIs
@@ -380,7 +380,7 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 - Edge proxy: Multiple replicas behind a load balancer or ingress controller
 
 **Data collection:**
-- Multiple gateway instances per tenant
+- Multiple gateway instances per deployment
 - Agent failover to backup gateways
 - Erlang/BEAM distributed gateways (roadmap Q2 2026)
 
@@ -457,7 +457,7 @@ Client → Edge Proxy (TLS) → Core/Web UI/SRQL → Microservices
 | Endpoint | Purpose | Protocol | Auth |
 |----------|---------|----------|------|
 | `/api/v1/devices` | Device CRUD | REST/JSON | JWT + RBAC |
-| `/api/v1/query` | SRQL ad-hoc queries | REST/JSON | JWT + tenant scope |
+| `/api/v1/query` | SRQL ad-hoc queries | REST/JSON | JWT + deployment scope |
 | `/api/v1/metrics` | Metrics retrieval | REST/JSON | JWT + RBAC |
 | `/api/v1/auth` | Authentication | REST/JSON | Basic or OAuth2 |
 | `/api/v1/kv/*` | Configuration mgmt | REST/JSON | JWT + admin role |
@@ -620,8 +620,7 @@ curl http://localhost:8080/health
 # Create first admin user
 kubectl exec -it serviceradar-tools -- serviceradar-cli user create \
   --username admin \
-  --role admin \
-  --tenant default
+  --role admin
 
 # Add first device for monitoring
 curl -X POST https://serviceradar.example.com/api/v1/devices \
@@ -655,7 +654,7 @@ curl -X POST https://serviceradar.example.com/api/v1/devices \
 | Tenet | Implementation | Evidence |
 |-------|----------------|----------|
 | **Secure Defaults** | mTLS enforced, non-root containers, no default passwords | All services require explicit config |
-| **Least Privilege** | RBAC per tenant, SPIFFE workload IDs, read-only filesystems | Service accounts scoped minimally |
+| **Least Privilege** | RBAC per deployment, SPIFFE workload IDs, read-only filesystems | Service accounts scoped minimally |
 | **Immutability** | Signed multi-stage Docker images, read-only root filesystems | Cosign signatures on all images |
 | **Shift Left Security** | CodeQL SAST, Trivy container scans in CI | Automated pre-merge checks |
 | **Transparency** | SBOM in releases, public security advisories | GitHub Security tab |
@@ -832,7 +831,7 @@ kubectl delete namespace serviceradar
 | **Services** | Yes | N/A |
 | **ConfigMaps/Secrets** | Yes | N/A |
 | **PVCs** | No (data safety) | `kubectl delete pvc` if desired |
-| **CRDs** | No (cluster-wide) | `kubectl delete crd serviceradartenant.serviceradar.io` |
+| **CRDs** | No (cluster-wide) | N/A |
 
 ### Rollout, Upgrade and Rollback Planning
 
@@ -998,7 +997,7 @@ features:
 | Pattern | Implementation | Example |
 |---------|----------------|---------|
 | **Circuit Breaker** | gRPC clients fail-open after 5 consecutive failures | Gateway → Agent connection |
-| **Bulkhead** | Separate goroutine pools per tenant | Core API request handling |
+| **Bulkhead** | Separate goroutine pools per deployment | Core API request handling |
 | **Retry with Backoff** | Exponential backoff, max 5 attempts, 30s max delay | Database queries |
 | **Timeout** | 30s for external calls, 10s for internal gRPC | All API calls |
 | **Rate Limiting** | 1000 req/min per user (edge proxy) | API gateway |
@@ -1422,7 +1421,7 @@ ServiceRadar is a production-ready, cloud-native network management platform cur
 - Carrier-grade scalability (100k+ devices validated through load testing)
 - Security-first design (mTLS, RBAC, memory-safe languages)
 - Cloud-native integration (Kubernetes, SPIFFE, OCSF, NATS, OpenTelemetry)
-- Multi-tenant architecture suitable for MSP deployments
+- Dedicated deployment architecture suitable for MSP deployments
 
 **Current limitations:**
 - Helm chart maturity (ETA: Q4 2025)

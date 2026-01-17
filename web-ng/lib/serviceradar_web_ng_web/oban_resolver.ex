@@ -2,8 +2,8 @@ defmodule ServiceRadarWebNGWeb.ObanResolver do
   @moduledoc """
   Resolver for Oban Web dashboard authentication and authorization.
 
-  This is a tenant instance UI - each instance serves one tenant.
-  Access is controlled by user role only - no tenant routing needed.
+  This is a single-deployment UI.
+  Access is controlled by user role only - no routing needed.
   """
 
   @behaviour Oban.Web.Resolver

@@ -2,9 +2,9 @@ defmodule ServiceRadarWebNGWeb.Plugs.ApiAuth do
   @moduledoc """
   API authentication plug supporting API keys, bearer tokens, and Ash API tokens.
 
-  This is a tenant instance UI - each instance serves ONE tenant. The tenant context
-  is implicit from the database connection's search_path, so this plug only validates
-  authentication and does not perform tenant validation.
+  This is a single-deployment UI. Schema context is implicit from the database
+  connection's search_path, so this plug only validates authentication and does not
+  perform additional routing.
 
   Checks for authentication in the following order:
   1. `Authorization: Bearer <token>` header (JWT session token)

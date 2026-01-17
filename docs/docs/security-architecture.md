@@ -5,7 +5,7 @@ title: Security Architecture
 
 # Security Architecture
 
-This document describes the security architecture of ServiceRadar, with a focus on edge isolation and multi-tenant security.
+This document describes the security architecture of ServiceRadar, with a focus on edge isolation and dedicated deployment security.
 
 ## Overview
 
@@ -78,35 +78,35 @@ All edge connections require valid mTLS certificates:
 
 **Certificate Format:**
 ```
-CN: <component_id>.<partition_id>.<tenant_slug>.serviceradar
-SAN: spiffe://serviceradar.local/<type>/<tenant_slug>/<partition_id>/<id>
+CN: <component_id>.<partition_id>.serviceradar
+SAN: spiffe://serviceradar.local/<type>/<partition_id>/<id>
 ```
 
 **Verification Chain:**
 1. TLS handshake validates certificate signature
-2. TenantResolver extracts tenant_slug from CN
+2. CN yields component_id and partition_id
 3. SPIFFE ID validates component type authorization
-4. Tenant context set for all subsequent operations
+4. Component identity is used for all subsequent operations
 
-**Verified by**: `MTLSTenantValidationTest` (22 tests)
+**Verified by**: mTLS identity validation tests
 
-### 4. Instance Isolation (Single-Tenant-per-Deployment)
+### 4. Instance Isolation (Dedicated Deployment)
 
-Each tenant deployment is fully isolated at the infrastructure level:
+Each deployment is fully isolated at the infrastructure level:
 
 | Level | Mechanism | Enforcement |
 |-------|-----------|-------------|
-| Deployment | Separate Kubernetes namespace | One instance per tenant |
+| Deployment | Separate Kubernetes namespace | One instance per deployment |
 | Database | PostgreSQL schema isolation | CNPG search_path configuration |
 | Network | Service mesh isolation | mTLS + network policies |
 | Secrets | Per-deployment secrets | Kubernetes secrets per namespace |
 
 **Security Properties:**
 
-- No cross-tenant access is possible at the instance level
+- No cross-deployment access is possible at the instance level
 - Database connection's `search_path` enforces schema boundaries
 - Each deployment has its own NATS account with isolated subjects
-- No tenant identifiers in application code - isolation is at infrastructure level
+- No deployment identifiers in application code - isolation is at infrastructure level
 
 ### 5. SPIFFE Identity Plane
 
@@ -157,7 +157,7 @@ spiffe://serviceradar.local/<node_type>/<partition_id>/<node_id>
 **Threat**: Compromised agent tries to enumerate other deployment's agents
 
 **Mitigation**:
-- Each tenant deployment is fully isolated
+- Each deployment is fully isolated
 - Registry queries are instance-scoped (no cross-deployment access possible)
 - mTLS certificate binds deployment identity
 
@@ -219,15 +219,15 @@ mix test test/serviceradar/security/ --trace
 
 **Test Coverage:**
 - `edge_isolation_test.exs` - 7 tests
-- `mtls_tenant_validation_test.exs` - 22 tests
-- `cross_tenant_access_test.exs` - 14 tests
+- mTLS identity validation tests
+- Cross-deployment access tests
 
 **Total: 43 security validation tests**
 
 ## Configuration Checklist
 
 - [ ] SPIFFE trust domain configured (`spire.trustDomain`)
-- [ ] Tenant CAs generated for all tenants
+- [ ] CAs generated for all deployments
 - [ ] Agent certificates use correct CN format
 - [ ] mTLS enabled on gRPC endpoints
 - [ ] Firewall blocks ERTS ports from edge

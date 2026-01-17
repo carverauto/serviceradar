@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   Delegates to ServiceRadar.Edge.OnboardingEvents Ash-based implementation
   while maintaining backwards compatibility with existing callers.
 
-  This is a single-tenant instance - tenant context is implicit from the
+  This is a single-deployment instance - schema context is implicit from the
   PostgreSQL search_path set by infrastructure.
 
   ## Async Recording

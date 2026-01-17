@@ -154,13 +154,6 @@ if config_env() == :prod do
     status_handler_enabled:
       System.get_env("STATUS_HANDLER_ENABLED", "true") in ~w(true 1 yes)
 
-  platform_tenant_slug =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-      System.get_env("PLATFORM_TENANT_SLUG") ||
-      "platform"
-
-  config :serviceradar_core, :platform_tenant_slug, platform_tenant_slug
-
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
 

@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.SyncLogWriterTest do
   @moduledoc """
-  In the tenant-instance architecture, tests run against the single schema
+  In the single-deployment architecture, tests run against the single schema
   determined by PostgreSQL search_path.
   """
 

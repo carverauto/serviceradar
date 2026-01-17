@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.SyncLogWriter do
   @moduledoc """
-  Writes integration sync lifecycle updates into the tenant OTEL logs table.
+  Writes integration sync lifecycle updates into the schema OTEL logs table.
   """
 
   alias ServiceRadar.Actors.SystemActor

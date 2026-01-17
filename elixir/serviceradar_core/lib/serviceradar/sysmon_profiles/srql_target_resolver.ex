@@ -5,7 +5,7 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
   This module evaluates SRQL `target_query` fields on profiles to determine
   which profile should apply to a given device.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema is queried.
 
   ## Resolution Process

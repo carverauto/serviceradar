@@ -1,3 +1,3 @@
 -- DEPRECATED: This down migration is now a no-op.
--- Device groups are now managed in tenant schemas.
+-- Device groups are now managed in schemas.
 -- See: elixir/serviceradar_core/priv/repo/migrations/

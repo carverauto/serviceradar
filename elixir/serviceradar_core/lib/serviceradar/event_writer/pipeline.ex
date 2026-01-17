@@ -81,7 +81,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_message(_processor, %Message{} = message, _context) do
     subject = message.metadata[:subject]
 
-    # Subjects are unprefixed in single-tenant deployments.
+    # Subjects are unprefixed in single-deployment deployments.
     base_subject = normalize_subject(subject)
 
     # Route message to appropriate batcher based on base subject

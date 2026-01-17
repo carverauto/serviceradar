@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   @moduledoc """
   Oban worker for provisioning NATS credentials for collector packages.
 
-  In single-tenant-per-deployment mode:
+  In single-deployment mode:
   - NATS account configuration comes from environment variables
   - TLS certificates are handled by external infrastructure (SPIFFE/SPIRE, cert-manager)
   - The worker generates NATS user credentials via datasvc gRPC
@@ -60,7 +60,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
     Logger.info("Provisioning credentials for collector package #{package_id} (attempt #{attempt}/#{max})")
 
-    # In single-tenant mode, NATS config comes from environment
+    # In single-deployment mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_status(package),
          {:ok, _package} <- mark_provisioning(package),
@@ -145,19 +145,19 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp get_nats_config do
-    # In single-tenant-per-deployment mode, NATS configuration comes from environment
-    tenant_slug = Application.get_env(:serviceradar, :tenant_slug)
+    # In single-deployment mode, NATS configuration comes from environment
+    account_name = Application.get_env(:serviceradar, :nats_account_name)
     account_seed = Application.get_env(:serviceradar, :nats_account_seed)
 
     cond do
-      is_nil(tenant_slug) or tenant_slug == "" ->
+      is_nil(account_name) or account_name == "" ->
         {:error, :nats_not_configured}
 
       is_nil(account_seed) or account_seed == "" ->
         {:error, :account_seed_not_found}
 
       true ->
-        {:ok, %{tenant_slug: tenant_slug, account_seed: account_seed}}
+        {:ok, %{account_name: account_name, account_seed: account_seed}}
     end
   end
 
@@ -166,7 +166,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
     permissions = build_permissions_for_collector(package.collector_type)
 
     AccountClient.generate_user_credentials(
-      nats_config.tenant_slug,
+      nats_config.account_name,
       nats_config.account_seed,
       package.user_name,
       :collector,
@@ -175,7 +175,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp build_permissions_for_collector(collector_type) do
-    # Collectors publish to simple subjects without any tenant prefix.
+    # Collectors publish to simple subjects without any deployment prefix.
     # NATS account isolation enforces separation without subject rewriting.
 
     case collector_type do
@@ -235,7 +235,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   defp mark_ready(package, credential_id, nats_creds_content) do
-    # In single-tenant mode, TLS certificates are handled by external infrastructure
+    # In single-deployment mode, TLS certificates are handled by external infrastructure
     # (SPIFFE/SPIRE, cert-manager). We only set the NATS credentials.
     actor = SystemActor.system(:provision_collector)
 

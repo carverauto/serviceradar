@@ -5,7 +5,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   These rules are created by default so the instance has working rules for
   common use cases like missed sweep detection out of the box.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema rules are seeded into.
   """
 
@@ -80,7 +80,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         end)
 
       {:error, reason} ->
-        schema = Keyword.get(opts, :tenant, "unknown")
+        schema = Keyword.get(opts, :schema, "unknown")
         Logger.warning("Failed to check rule defaults for #{resource} in #{schema}: #{inspect(reason)}")
     end
   end
@@ -95,7 +95,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   defp create_rule(resource, attrs, opts) do
     changeset = Ash.Changeset.for_create(resource, :create, attrs, opts)
-    schema = Keyword.get(opts, :tenant, "unknown")
+    schema = Keyword.get(opts, :schema, "unknown")
 
     case Ash.create(changeset) do
       {:ok, _} ->

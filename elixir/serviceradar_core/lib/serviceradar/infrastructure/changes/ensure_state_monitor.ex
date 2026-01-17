@@ -6,7 +6,7 @@ defmodule ServiceRadar.Infrastructure.Changes.EnsureStateMonitor do
   this change ensures that the StateMonitor GenServer is running to
   monitor their health.
 
-  In tenant-unaware mode, the StateMonitor is started as a singleton by
+  In schema-agnostic mode, the StateMonitor is started as a singleton by
   the application supervisor. This change just verifies it's running.
   """
 
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Infrastructure.Changes.EnsureStateMonitor do
   def atomic(_changeset, _opts, _context), do: :ok
 
   defp ensure_state_monitor_running do
-    # In tenant-unaware mode, StateMonitor is a singleton started by the supervisor
+    # In schema-agnostic mode, StateMonitor is a singleton started by the supervisor
     case StateMonitor.whereis() do
       nil ->
         Logger.warning("StateMonitor is not running - infrastructure monitoring may be degraded")

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Edge.PubSub do
   application (e.g., web-ng). If the PubSub is not running, broadcasts
   are silently ignored.
 
-  DB connection's search_path determines the schema - each tenant gets their own deployment.
+  DB connection's search_path determines the schema for this deployment.
 
   ## Topics
 

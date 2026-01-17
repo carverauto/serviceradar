@@ -5,7 +5,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   Each instance gets a single default profile with `is_default: true` that is used
   when no explicit device or tag assignment exists.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema the profile is seeded into.
   """
 

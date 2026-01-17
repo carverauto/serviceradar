@@ -20,21 +20,21 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       {:ok, admin: admin, operator: operator, viewer: viewer}
     end
 
-    test "admin can read users in their tenant", %{admin: admin} do
+    test "admin can read users", %{admin: admin} do
       actor = actor_for_user(admin)
 
       {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
-    test "operator can read users in their tenant", %{operator: operator} do
+    test "operator can read users", %{operator: operator} do
       actor = actor_for_user(operator)
 
       {:ok, users} = Ash.read(User, actor: actor)
       refute Enum.empty?(users)
     end
 
-    test "viewer can read users in their tenant", %{viewer: viewer} do
+    test "viewer can read users", %{viewer: viewer} do
       actor = actor_for_user(viewer)
 
       {:ok, users} = Ash.read(User, actor: actor)
@@ -50,7 +50,7 @@ defmodule ServiceRadar.IdentityPoliciesTest do
       {:ok, admin: admin, target_user: target_user}
     end
 
-    test "admin can update role of users in their tenant", %{
+    test "admin can update user roles", %{
       admin: admin,
       target_user: target
     } do

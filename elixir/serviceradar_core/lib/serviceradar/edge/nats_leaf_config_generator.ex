@@ -18,7 +18,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   - `/etc/nats/certs/nats-leaf.pem` - Leaf certificate for upstream
   - `/etc/nats/certs/nats-leaf-key.pem` - Leaf private key
   - `/etc/nats/certs/ca-chain.pem` - CA certificate chain
-  - `/etc/nats/creds/tenant.creds` - NATS account credentials
+  - `/etc/nats/creds/account.creds` - NATS account credentials
   """
 
   @doc """
@@ -84,8 +84,8 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
             {
                 url: "#{leaf_server.upstream_url}"
 
-                # Use tenant NATS account credentials
-                credentials: "/etc/nats/creds/tenant.creds"
+                # Use NATS account credentials
+                credentials: "/etc/nats/creds/account.creds"
 
                 # mTLS configuration for leaf-to-SaaS connection
                 tls {
@@ -141,7 +141,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     # Copy credentials
     echo "Installing credentials..."
-    cp creds/tenant.creds /etc/nats/creds/
+    cp creds/account.creds /etc/nats/creds/
 
     # Set permissions
     chmod 600 /etc/nats/certs/*.pem
@@ -194,12 +194,11 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
   Generates the README for the edge site bundle.
   """
   @spec generate_readme(map(), map()) :: String.t()
-  def generate_readme(edge_site, tenant) do
+  def generate_readme(edge_site) do
     """
     # NATS Leaf Server Bundle
 
     **Site:** #{edge_site.name}
-    **Tenant:** #{tenant.name}
     **Generated:** #{DateTime.utc_now() |> DateTime.to_iso8601()}
 
     ## Contents
@@ -211,7 +210,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
       - `nats-leaf.pem` - Leaf certificate for upstream connection
       - `nats-leaf-key.pem` - Leaf private key
       - `ca-chain.pem` - CA certificate chain
-    - `creds/tenant.creds` - NATS account credentials
+    - `creds/account.creds` - NATS account credentials
     - `setup.sh` - Automated setup script
     - `README.md` - This file
 

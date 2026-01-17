@@ -1,7 +1,7 @@
 # Migration Guide: Tenant-Unaware Instance
 
-This guide explains how to update code for the final tenant-unaware model. Tenant
-isolation is enforced by PostgreSQL search_path; no tenant context is passed in
+This guide explains how to update code for the final tenant-unaware model. Isolation
+is enforced by PostgreSQL search_path; no tenant context is passed in
 application code.
 
 ## Overview
@@ -9,7 +9,7 @@ application code.
 - Remove all `tenant:` parameters from Ash operations.
 - Remove `TenantSchemas` usage and any cross-tenant iteration.
 - Use `SystemActor.system/1` for background operations.
-- Control Plane owns tenant provisioning and cross-tenant operations.
+- Control Plane owns account provisioning and cross-account operations.
 
 ## Pattern 1: Tenant-Scoped Ash Operations
 
@@ -29,7 +29,7 @@ packages = Ash.read!(query, actor: actor)
 
 ## Pattern 2: Cross-Tenant Operations
 
-### Before (cross-tenant lookup)
+### Before (cross-schema lookup)
 
 ```elixir
 defp find_package_across_tenants(package_id) do
@@ -42,8 +42,8 @@ end
 
 ### After (remove entirely)
 
-Delete cross-tenant helpers. Tenant instances operate only on their own schema.
-Cross-tenant operations live in the Control Plane.
+Delete cross-schema helpers. Instances operate only on their own schema.
+Cross-account operations live in the Control Plane.
 
 ## Pattern 3: AshAuthentication JWT Verification
 

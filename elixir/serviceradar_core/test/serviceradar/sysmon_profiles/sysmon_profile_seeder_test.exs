@@ -4,7 +4,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeederTest do
 
   Unit tests verify module structure.
   Integration tests (tagged :integration) verify actual profile seeding.
-  In the tenant-instance architecture, tests run against the single schema
+  In the single-deployment architecture, tests run against the single schema
   determined by PostgreSQL search_path.
   """
 

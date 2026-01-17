@@ -38,18 +38,18 @@ For Docker deployments, edit `docker/compose/mapper.docker.json` and restart the
 
 ## Creating Jobs
 
-1. Configure integrations in the UI under **Integrations -> New Source** for each tenant.
+1. Configure integrations in the UI under **Integrations -> New Source** for each deployment.
 2. Onboard a sync-capable agent and ensure it can reach agent-gateway over mTLS.
 3. Core delivers source configs via `GetConfig`, and the agent streams device updates back through agent-gateway.
 
 ## Reviewing Results
 
 - Discovery events and device updates flow through DIRE before reaching the inventory tables. Use SRQL to inspect recent device updates or inventory changes.
-- Sync-originated updates carry tenant context derived from mTLS; verify correct tenancy by querying per-tenant inventory views.
+- Sync-originated updates carry deployment context derived from mTLS; verify correct scoping by querying inventory views for this deployment.
 - Mapper outputs continue to populate interface and topology tables (`discovered_interfaces`, `topology_discovery_events`).
 
 ## Best Practices
 
 - Whitelist management networks and respect change windows - discovery traffic can look suspicious to IDS tools.
-- Keep integration sources scoped per tenant and validate mTLS identity before onboarding edge agents.
+- Keep integration sources scoped per deployment and validate mTLS identity before onboarding edge agents.
 - Combine sync, Mapper, and OTEL signals to build full-stack visibility from day one.

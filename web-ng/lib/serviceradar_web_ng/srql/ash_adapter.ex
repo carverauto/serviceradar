@@ -8,8 +8,8 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   - Policy enforcement via Ash.Policy.Authorizer
   - Consistent authorization across web and API
 
-  This is a single-tenant instance UI - each deployment serves ONE tenant.
-  The tenant is implicit from PostgreSQL search_path set by infrastructure.
+  This is a single-deployment instance UI. Schema context is implicit from
+  PostgreSQL search_path set by infrastructure.
 
   ## Supported Entities
 
@@ -637,7 +637,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   defp format_value(value), do: value
 
   # Normalize scope to extract actor and authorization options.
-  # Tenant is implicit from PostgreSQL search_path in single-tenant deployments.
+  # Schema context is implicit from PostgreSQL search_path in single-deployment setups.
   defp normalize_scope(nil, _resource), do: nil
 
   defp normalize_scope(scope, _resource) do

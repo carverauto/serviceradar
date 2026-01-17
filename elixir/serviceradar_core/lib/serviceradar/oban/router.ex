@@ -2,8 +2,8 @@ defmodule ServiceRadar.Oban.Router do
   @moduledoc """
   Routes Oban inserts to the Oban instance.
 
-  In a tenant-instance architecture, each instance has a single Oban instance.
-  All jobs use the default Oban instance - no tenant routing needed.
+  In a single-deployment architecture, each instance has a single Oban instance.
+  All jobs use the default Oban instance - no routing needed.
   """
 
   def insert(changeset, opts \\ []) do

@@ -59,7 +59,7 @@ defmodule ServiceRadar.ResultsRouter do
   defp process(_status), do: :ok
 
   defp handle_sync_results(status) do
-    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    # In schema-agnostic mode, DB schema is set by CNPG search_path
     schedule_sync_ingestion(status)
   end
 
@@ -75,7 +75,7 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp handle_sweep_results(status) do
-    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    # In schema-agnostic mode, DB schema is set by CNPG search_path
     with {:ok, payload} <- decode_payload(status[:message]),
          {:ok, results, execution_id, sweep_group_id} <- sweep_results(payload) do
       actor = SystemActor.system(:sweep_ingestor)
@@ -99,7 +99,7 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp handle_sysmon_metrics(status) do
-    # In tenant-unaware mode, DB schema is set by CNPG search_path
+    # In schema-agnostic mode, DB schema is set by CNPG search_path
     with {:ok, payload} <- decode_payload(status[:message]) do
       sysmon_ingestor().ingest(payload, status)
     else

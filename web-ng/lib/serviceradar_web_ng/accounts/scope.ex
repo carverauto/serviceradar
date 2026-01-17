@@ -12,9 +12,8 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   broadcasts when a caller subscribes to an interface or performs a particular
   action.
 
-  This is a tenant instance UI - each instance serves ONE tenant. The tenant
-  context is implicit from the database connection's search_path, so we only
-  need to track the authenticated user.
+  Each deployment serves a single account. Schema context is implicit from the
+  database connection's search_path, so we only need to track the authenticated user.
 
   Feel free to extend the fields on this struct to fit the needs of
   growing application requirements.
@@ -28,7 +27,7 @@ defmodule ServiceRadarWebNG.Accounts.Scope do
   Creates a scope for the given user.
 
   Returns a scope struct with the user, or nil user if not authenticated.
-  The tenant context is implicit from the PostgreSQL search_path.
+  The schema context is implicit from the PostgreSQL search_path.
   """
   def for_user(user, _opts \\ [])
 

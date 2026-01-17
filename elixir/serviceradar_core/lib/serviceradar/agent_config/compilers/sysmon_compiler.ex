@@ -9,7 +9,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   When resolving which profile applies to a device:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default tenant profile (fallback)
+  2. Default profile (fallback)
 
   Profiles use `target_query` (SRQL) to define which devices they apply to.
   Example: `target_query: "in:devices tags.role:database"` matches all devices
@@ -97,7 +97,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   Resolution order:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default profile for tenant
+  2. Default profile
 
   Returns the matching SysmonProfile or nil if no profile matches.
   """
@@ -172,7 +172,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     }
   end
 
-  # Get the default profile for the tenant
+  # Get the default profile
   defp get_default_profile(actor) do
     query =
       SysmonProfile

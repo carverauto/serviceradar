@@ -10,12 +10,12 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   ## Certificate Types
 
   - **Leaf certificate**: Used for mTLS connection to SaaS NATS cluster
-    - CN: `leaf.{site_slug}.{tenant_slug}.serviceradar`
-    - Signed by tenant CA
+    - CN: `leaf.{site_slug}.serviceradar`
+    - Signed by deployment CA
 
   - **Server certificate**: Used for local client (collector) connections
-    - CN: `nats-server.{site_slug}.{tenant_slug}.serviceradar`
-    - Signed by tenant CA
+    - CN: `nats-server.{site_slug}.serviceradar`
+    - Signed by deployment CA
 
   ## State Machine
 
@@ -29,7 +29,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
   The generated NATS leaf config follows `packaging/nats/config/nats-leaf.conf`:
   - JetStream enabled with domain "edge"
   - mTLS for upstream connection
-  - Tenant NATS account credentials
+  - NATS account credentials
   """
 
   use Ash.Resource,
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       description "Encrypted PEM-encoded server private key"
     end
 
-    # CA chain (tenant CA + root CA)
+    # CA chain (deployment CA + root CA)
     attribute :ca_chain_pem, :string do
       allow_nil? true
       public? false

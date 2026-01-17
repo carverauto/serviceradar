@@ -14,12 +14,12 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
 
 ### 1.1 Create CNPG user provisioning in Control Plane
 
-- [x] **1.1.1 Add CNPG user creation to tenant provisioning flow**
+- [x] **1.1.1 Add CNPG user creation to account provisioning flow**
   - Created `CNPG.Provisioner` module for PostgreSQL user/schema management
   - Created `CreateCnpgUserWorker` Oban worker for async provisioning
-  - Creates PostgreSQL user: `tenant_{slug}_app`
-  - Grants: USAGE on tenant schema, ALL on tables/sequences
-  - Sets: `search_path` to tenant schema
+  - Creates PostgreSQL user: `account_{slug}_app`
+  - Grants: USAGE on account schema, ALL on tables/sequences
+  - Sets: `search_path` to account schema
   - Stores: credentials in K8s secret via `K8s.SecretManager`
 
 - [x] **1.1.2 Create migration to add CNPG fields to Tenant resource**
@@ -27,21 +27,19 @@ Make tenant instance code (web-ng, core-elx) completely tenant-unaware by:
   - Created migration `20260115100000_add_cnpg_user_fields.exs`
   - Updated `set_cnpg_ready` action to accept new fields
 
-- [x] **1.1.3 Wire up tenant provisioning to create CNPG user**
+- [x] **1.1.3 Wire up account provisioning to create CNPG user**
   - Updated `TenantController.create/2` to enqueue `CreateCnpgUserWorker`
   - CNPG provisioning runs in parallel with NATS provisioning
   - Added `cnpg_provisioning` queue to Oban config
 
-- [x] **1.1.4 Update tenant-workload-operator to inject CNPG credentials**
-  - Added `TemplateCNPGCreds` struct with `enabled` and `envPrefix` fields
-  - Updated `TenantWorkloadTemplate` CRD to include `cnpgCreds` field
-  - Injects DB credentials as env vars: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SCHEMA`, `DB_URL`
-  - Uses `secretKeyRef` to reference K8s secret created by Control Plane
+- [x] **1.1.4 Move workload provisioning to control plane repo**
+  - Tenant workload operator and templates live in `~/serviceradar-web`
+  - This repo no longer builds or publishes that image
 
 ### 1.2 Test CNPG isolation
 
-- [ ] **1.2.1 Create test tenant with scoped credentials**
-- [ ] **1.2.2 Verify cannot access other tenant schemas**
+- [ ] **1.2.1 Create test account with scoped credentials**
+- [ ] **1.2.2 Verify cannot access other account schemas**
 - [ ] **1.2.3 Verify app works with scoped credentials**
 
 ---
@@ -268,33 +266,50 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 - [x] **5.3.1 Decision: Remove entirely (Option B)**
   - Identity.Tenant resource has been deleted
-  - Tenant info comes from environment config
+  - Instance metadata comes from environment/config
 
 - [x] **5.3.2 Implementation complete**
-  - `Application.get_env(:serviceradar, :tenant_slug)` for NATS account name
-  - `Application.get_env(:serviceradar, :tenant_name)` for display
+  - `Application.get_env(:serviceradar, :nats_account_name)` for NATS account
   - No Tenant Ash resource queries in tenant instance
 
 ---
 
-## Phase 6: OSS Single-Tenant Mode
+## Phase 6: Single-Deployment Mode
 
 ### 6.1 Update Helm bootstrap for OSS
 
-- [ ] **6.1.1 Create default tenant schema in bootstrap job**
-  - Schema: `tenant_platform` (or configurable)
-  - User: `tenant_platform_app`
+- [ ] **6.1.1 Create default schema in bootstrap job (if needed)**
+  - Schema: configurable (or use `public`)
+  - User: deployment-scoped DB user
 
 - [ ] **6.1.2 Configure pods with scoped credentials**
-  - Same pattern as SaaS, just one tenant
+  - Same pattern as SaaS, just one deployment
 
 ### 6.2 Test OSS deployment
 
 - [ ] **6.2.1 `helm install` smoke test**
   - Verify system works with scoped credentials
 
-- [ ] **6.2.2 Verify no cross-tenant code paths**
-  - Check logs for any TenantSchemas usage
+- [ ] **6.2.2 Verify no cross-schema code paths**
+  - Check logs for any cross-schema access attempts
+
+### 6.3 Infrastructure cleanup (certs/Helm/Compose)
+
+- [x] **6.3.1 Remove tenant-scoped cert generation**
+  - Edge component certs now live under `/etc/serviceradar/certs/components`
+  - CN format: `<component_id>.<partition_id>.serviceradar`
+  - SPIFFE format: `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
+
+- [x] **6.3.2 Update Helm/Compose config to drop tenant fields**
+  - Removed tenant CA secret and tenant values from Helm
+  - Removed tenant slug/id env vars from agent-gateway and Compose
+  - Updated agent gateway security config to use root CA chain
+
+- [x] **6.3.3 Remove tenant-workload-operator artifacts from this repo**
+  - Dropped Bazel image targets and push entries
+
+- [x] **6.3.4 Remove external tenant fields from sync types**
+  - Dropped NetBox `tenant` field from sync types
 
 ---
 
@@ -317,7 +332,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
   - Documents `SystemActor.system/1`
   - Documents instance isolation model
 
-- [ ] **7.2.2 Update deployment docs**
+- [x] **7.2.2 Update deployment docs**
   - Document CNPG credential requirements
   - Document OSS vs SaaS differences
 
@@ -335,7 +350,7 @@ LiveViews now use `scope:` pattern which extracts actor via `Ash.Scope.ToOpts`.
 
 Code removal (complete):
 
-- [x] Tenant instance cannot query other tenant schemas (CNPG search_path enforces)
+- [x] Deployment instance cannot query other schemas (CNPG search_path enforces)
 - [x] No `tenant:` parameters in Ash calls (except AshAuthentication JWT - required)
 - [x] No `TenantSchemas` usage in tenant instance
 - [x] No `SystemActor.for_tenant()` usage (only `system/1` remains)
@@ -344,5 +359,5 @@ Code removal (complete):
 Infrastructure (pending Phase 6):
 
 - [ ] OSS helm install works with scoped credentials
-- [ ] SaaS tenant provisioning creates scoped credentials
+- [ ] SaaS control plane provisioning creates scoped credentials
 - [ ] All tests pass with new architecture

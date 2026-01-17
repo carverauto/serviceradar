@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.StatefulAlertRuleHistory do
   Evaluation history for stateful alert rules (fired/recovered/renotify/cooldown).
 
   Stored in a TimescaleDB hypertable with retention/compression managed by
-  tenant migrations.
+  schema migrations.
   """
 
   use Ash.Resource,

@@ -14,12 +14,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   Component identity (component_id, partition_id, component_type) is extracted
   from the mTLS client certificate. The certificate contains:
-  - CN: `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
+  - CN: `<component_id>.<partition_id>.serviceradar`
   - SPIFFE URI SAN: `spiffe://serviceradar.local/<component_type>/...`
 
-  In the tenant-instance architecture, each tenant has their own deployment.
-  Tenant isolation is handled by infrastructure (NATS credentials, DB search_path),
-  not by the gateway validating tenant_slug.
+  Deployments are isolated at the infrastructure level; the gateway does not
+  validate any deployment identifier in the certificate.
 
   ## Protocol
 
@@ -60,7 +59,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   Handle an agent hello/enrollment request.
 
   Called by the agent on startup to announce itself and register with the gateway.
-  Validates the mTLS certificate, extracts tenant identity, and registers the agent.
+  Validates the mTLS certificate, extracts component identity, and registers the agent.
   """
   @spec hello(Monitoring.AgentHelloRequest.t(), GRPC.Server.Stream.t()) ::
           Monitoring.AgentHelloResponse.t()
@@ -86,7 +85,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     Logger.info("Agent hello received: agent_id=#{agent_id}, version=#{version}")
     Logger.debug("Agent capabilities: #{inspect(capabilities)}")
 
-    # Extract tenant from mTLS certificate (secure source of truth)
+    # Extract identity from mTLS certificate (secure source of truth)
     identity = extract_identity_from_stream(stream)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
@@ -97,7 +96,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     ensure_device_for_agent(identity, agent_id, partition_id, request, get_peer_ip(stream))
     ensure_agent_registered(identity, agent_id, partition_id, capabilities, stream)
 
-    # Registration is stored in the tenant registry and DB; acceptance remains cert-based.
+    # Registration is stored in the registry and DB; acceptance remains cert-based.
 
     # Check if config is outdated (placeholder - always false for now)
     # TODO: Implement config versioning in core-elx
@@ -112,9 +111,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       gateway_id: gateway_id(),
       server_time: System.os_time(:second),
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
-      config_outdated: config_outdated,
-      # Proto field kept for backwards compatibility - not used in tenant-instance architecture
-      tenant_slug: ""
+      config_outdated: config_outdated
     }
   end
 
@@ -150,7 +147,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.debug("Agent config request: agent_id=#{agent_id}, version=#{config_version}")
 
-    # Extract tenant from mTLS certificate for authorization
+    # Extract identity from mTLS certificate for authorization
     identity = extract_identity_from_stream(stream)
     {identity, component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
@@ -251,7 +248,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         message: "too many service statuses in one request (max: #{@max_services_per_request})"
     end
 
-    # Extract tenant from mTLS certificate (secure source of truth)
+    # Extract identity from mTLS certificate (secure source of truth)
     identity = extract_identity_from_stream(stream)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
     partition = resolve_partition(identity, request.partition)
@@ -323,7 +320,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   def stream_status(request_stream, stream) do
     Logger.debug("Starting streaming status reception")
 
-    # Extract tenant from mTLS certificate once for all chunks
+    # Extract identity from mTLS certificate once for all chunks
     identity = extract_identity_from_stream(stream)
     peer_ip = get_peer_ip(stream)
 
@@ -462,8 +459,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
-    # In tenant-instance architecture, validation is done by mTLS certificate verification.
-    # Each tenant has their own deployment, so tenant isolation is inherent to the architecture.
+    # Validation is done by mTLS certificate verification and deployment isolation.
 
     service_name =
       case service.service_name do
@@ -955,7 +951,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Extract component identity from the gRPC stream's mTLS certificate
   # Returns component_id, partition_id, and component_type.
-  # Tenant isolation is handled by infrastructure (NATS credentials, DB search_path).
+  # Deployment isolation is handled by infrastructure (NATS credentials, DB search_path).
   defp extract_identity_from_stream(stream) do
     with {:ok, cert_der} <- get_peer_cert(stream),
          {:ok, identity} <- ComponentIdentityResolver.resolve_from_cert(cert_der) do

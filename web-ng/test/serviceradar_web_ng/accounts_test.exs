@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNG.AccountsTest do
 
   describe "register_user/1" do
     test "requires email to be set" do
-      # In a tenant instance, tenant context is implicit - only email is required
+      # In a single deployment, schema context is implicit - only email is required
       {:error, error} = Accounts.register_user(%{})
 
       # Ash returns Ash.Error, not Ecto.Changeset

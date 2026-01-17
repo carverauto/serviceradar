@@ -28,16 +28,16 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 - **Never** access `changeset.data` fields that don't exist - use `changeset.data.field_name` pattern
 - **Never** use `Ash.Changeset.get_data/1` or `Ash.Changeset.get_data/2` - these don't exist in Ash 3.x. Use `changeset.data` directly
 
-### Single-Tenant-per-Deployment Isolation
+### Dedicated Deployment Isolation
 
-ServiceRadar uses a single-tenant-per-deployment model:
-- Each tenant gets their own isolated deployment (web-ng, core-elx, agent-gateway)
+ServiceRadar uses a dedicated-deployment model:
+- Each deployment is isolated (web-ng, core-elx, agent-gateway)
 - CNPG credentials set PostgreSQL's `search_path` for schema isolation at infrastructure level
-- No tenant identifier fields in application code - isolation is handled by the database connection
+- No deployment identifier fields in application code - isolation is handled by the database connection
 
-#### Passing tenant context via Ash.Scope
+#### Passing scope via Ash.Scope
 
-**Always** use the `scope:` option instead of separate `actor:` and `tenant:` options. The `Ash.Scope.ToOpts` protocol extracts actor and tenant automatically:
+**Always** use the `scope:` option instead of threading separate `actor:` options. The `Ash.Scope.ToOpts` protocol extracts actor automatically:
 
 ```elixir
 # In LiveViews - get scope from socket assigns
@@ -51,11 +51,11 @@ Ash.create(changeset, scope: scope)
 srql_module.query(query, %{scope: scope})
 ```
 
-**Never** thread actor and tenant as separate parameters:
+**Never** thread actor as a separate parameter:
 ```elixir
 # DON'T DO THIS - deprecated pattern
-Ash.read(query, actor: actor, tenant: tenant)
-my_helper(socket, actor, tenant)
+Ash.read(query, actor: actor)
+my_helper(socket, actor)
 
 # DO THIS INSTEAD
 Ash.read(query, scope: scope)
@@ -64,13 +64,13 @@ my_helper(socket, scope)
 
 The scope struct (`ServiceRadarWebNG.Accounts.Scope`) contains:
 - `user` - the current user (actor)
-- Tenant context is implicit from the database connection's search_path (single-tenant-per-deployment)
+- Schema context is implicit from the database connection's search_path (dedicated deployment)
 
 ### Domains
 
 | Domain | Location | Resources |
 |--------|----------|-----------|
-| `ServiceRadar.Identity` | `serviceradar_core` | Tenant, User, ApiToken |
+| `ServiceRadar.Identity` | `serviceradar_core` | User, ApiToken |
 | `ServiceRadar.Inventory` | `serviceradar_core` | Device, DeviceGroup, Interface |
 | `ServiceRadar.Infrastructure` | `serviceradar_core` | Partition, Gateway, Agent, Checker |
 | `ServiceRadar.Monitoring` | `serviceradar_core` | PollingSchedule, ServiceCheck, Alert, Event |

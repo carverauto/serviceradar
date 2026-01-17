@@ -16,7 +16,7 @@ The embedded sync runtime:
 - Fetches data from external systems like CMDB, IPAM, or security tools.
 - Pushes device updates to the agent-gateway over gRPC using chunked
   `StreamStatus`.
-- Receives its runtime configuration from Core via `GetConfig` (per tenant).
+- Receives its runtime configuration from Core via `GetConfig` (per deployment).
 - Runs with the agent's minimal bootstrap config; all integration data is
   delivered dynamically.
 
@@ -38,7 +38,7 @@ graph TD
 ## Configuration Delivery
 
 Integration sources are created in the UI under **Integrations -> New Source**.
-Each tenant only sees its own sources, and the agent receives them over
+Each deployment only sees its own sources, and the agent receives them over
 `GetConfig`. The embedded sync runtime stores this configuration in memory and
 reloads it when updates arrive.
 
@@ -110,9 +110,9 @@ Use these starting points when the embedded sync runtime is streaming large devi
 
 | Workload | POOL_SIZE | DATABASE_QUEUE_TARGET_MS / INTERVAL_MS | SYNC_INGESTOR_COALESCE_MS | SYNC_INGESTOR_QUEUE_MAX_CHUNKS | SYNC_INGESTOR_MAX_INFLIGHT | SYNC_INGESTOR_BATCH_CONCURRENCY |
 | --- | --- | --- | --- | --- | --- | --- |
-| Small (single tenant, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
-| Medium (5-10 tenants, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
-| Large (10-20 tenants, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
+| Small (single deployment, <= 50k devices) | 40 | 2000 / 2000 | 250 | 10 | 2 | 2 |
+| Medium (5-10 deployments, <= 500k devices) | 60-80 | 3000 / 3000 | 250-500 | 10-20 | 3-4 | 2-4 |
+| Large (10-20 deployments, >= 1M devices) | 80-120 | 5000 / 5000 | 500 | 20-40 | 4-6 | 3-6 |
 
 **Adjustments**
 - If you see `queue_timeout` errors, either raise `POOL_SIZE` (if CNPG can accept more) or raise `DATABASE_QUEUE_TARGET_MS`/`DATABASE_QUEUE_INTERVAL_MS` so requests wait longer.
@@ -124,7 +124,7 @@ Use these starting points when the embedded sync runtime is streaming large devi
 If you previously deployed `serviceradar-sync` as a standalone service, migrate
 to the embedded sync runtime inside `serviceradar-agent`:
 
-1. Install or upgrade an agent in the tenant network and confirm it registers
+1. Install or upgrade an agent in the deployment network and confirm it registers
    with agent-gateway.
 2. Remove the standalone sync process (systemd/compose/helm) and revoke any
    sync-specific certificates.
@@ -138,13 +138,13 @@ Standalone `sync.json` files and KV/datasvc dependencies are no longer used.
 ## Multi-Tenant Behavior
 
 - Tenant identity is derived from the agent's mTLS identity.
-- The agent only receives sources scoped to its tenant.
+- The agent only receives sources scoped to its deployment.
 - Tenant IDs in payloads are trusted only when derived from mTLS.
 
 ## Troubleshooting
 
 - **No config returned**: Verify the agent can reach agent-gateway and the cert
   identity is valid.
-- **Tenant mismatch**: Ensure the agent uses the correct tenant certificate.
+- **Deployment mismatch**: Ensure the agent uses the correct deployment certificate.
 - **gRPC size errors**: Confirm chunk size stays under ~3MB, or raise gRPC max
   message sizes via environment variables.

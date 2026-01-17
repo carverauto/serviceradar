@@ -96,8 +96,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       source_ip: status[:source_ip]
     }
 
-    # In tenant-instance architecture, tenant is implicit from deployment
-    ServiceRadar.AgentTracker.track_agent(agent_id, "default", metadata)
+    ServiceRadar.AgentTracker.track_agent(agent_id, metadata)
   rescue
     # AgentTracker may not be available (e.g., during tests)
     _ -> :ok

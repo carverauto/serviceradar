@@ -104,14 +104,14 @@ defmodule ServiceRadar.NATS.AccountClientTest do
   end
 
   describe "Proto.CreateAccountRequest construction" do
-    test "builds request with tenant slug" do
+    test "builds request with account name" do
       request = %Proto.CreateAccountRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         limits: nil,
         subject_mappings: []
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.limits == nil
       assert request.subject_mappings == []
     end
@@ -123,7 +123,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
       }
 
       request = %Proto.CreateAccountRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         limits: limits,
         subject_mappings: []
       }
@@ -137,7 +137,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
       ]
 
       request = %Proto.CreateAccountRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         limits: nil,
         subject_mappings: mappings
       }
@@ -150,7 +150,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
   describe "Proto.GenerateUserCredentialsRequest construction" do
     test "builds request with all fields" do
       request = %Proto.GenerateUserCredentialsRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         account_seed: "SATEST123",
         user_name: "collector-1",
         credential_type: :USER_CREDENTIAL_TYPE_COLLECTOR,
@@ -158,7 +158,7 @@ defmodule ServiceRadar.NATS.AccountClientTest do
         expiration_seconds: 86_400
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.account_seed == "SATEST123"
       assert request.user_name == "collector-1"
       assert request.credential_type == :USER_CREDENTIAL_TYPE_COLLECTOR
@@ -169,14 +169,14 @@ defmodule ServiceRadar.NATS.AccountClientTest do
   describe "Proto.SignAccountJWTRequest construction" do
     test "builds request with revocations" do
       request = %Proto.SignAccountJWTRequest{
-        tenant_slug: "acme-corp",
+        account_name: "edge-account",
         account_seed: "SATEST123",
         limits: nil,
         subject_mappings: [],
         revoked_user_keys: ["UABC123", "UDEF456"]
       }
 
-      assert request.tenant_slug == "acme-corp"
+      assert request.account_name == "edge-account"
       assert request.revoked_user_keys == ["UABC123", "UDEF456"]
     end
   end

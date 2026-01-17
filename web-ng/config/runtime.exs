@@ -387,7 +387,7 @@ if config_env() == :prod do
 
   # Control Plane JWT configuration
   # Used to validate JWTs issued by the SaaS Control Plane.
-  # In OSS/single-tenant deployments, this can be left unconfigured.
+  # In OSS/single-deployment setups, this can be left unconfigured.
   control_plane_public_key = System.get_env("CONTROL_PLANE_PUBLIC_KEY")
   control_plane_public_key_file = System.get_env("CONTROL_PLANE_PUBLIC_KEY_FILE")
 
@@ -412,18 +412,11 @@ if config_env() == :prod do
       )
       |> Keyword.put(
         :audience,
-        System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-tenant-instance")
+        System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-deployment")
       )
 
     config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
   end
-
-  # Default tenant for Control Plane workload routing
-  default_tenant =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT") ||
-      "00000000-0000-0000-0000-000000000000"
-
-  config :serviceradar_core, :default_tenant, default_tenant
 
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do

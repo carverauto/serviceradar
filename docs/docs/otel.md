@@ -20,7 +20,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 ## Pipeline Configuration
 
 1. Point OTEL Collectors at the ServiceRadar OTLP endpoint.
-2. Configure resource attributes (`service.name`, `deployment.environment`, `tenant`) so SRQL filters can scope telemetry.
+2. Configure resource attributes (`service.name`, `deployment.environment`, `account`) so SRQL filters can scope telemetry.
 3. Enable span metrics export if you plan to correlate traces with SNMP or NetFlow (see the [SRQL reference](./srql-language-reference.md)).
 
 ## Storage and Querying

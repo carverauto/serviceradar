@@ -10,10 +10,8 @@
 {{- $gatewayPort := default 50052 $gatewayService.port -}}
 {{- $agentID := default "k8s-agent" $agentVals.agentId -}}
 {{- $agentPartition := default (default "default" $gatewayVals.partitionId) $agentVals.partitionId -}}
-{{- $agentTenantSlug := default (default "platform" $gatewayVals.tenantSlug) $agentVals.tenantSlug -}}
-{{- $gatewayServiceName := ternary "serviceradar-agent-gateway" (printf "serviceradar-agent-gateway-%s" $agentTenantSlug) $gatewayVals.enabled -}}
+{{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
 {{- $gatewayAddress := default (printf "%s:%v" $gatewayServiceName $gatewayPort) $agentVals.gatewayAddress -}}
-{{- $agentTenantCertDir := printf "/etc/serviceradar/certs/tenants/%s" $agentTenantSlug -}}
 {{- $agentComponentCert := printf "components/%s-%s-chain.pem" $agentID $agentPartition -}}
 {{- $agentComponentKey := printf "components/%s-%s-key.pem" $agentID $agentPartition -}}
 {{- $cnpgRuntime := default (dict) .Values.cnpg.runtimeParams -}}
@@ -351,14 +349,14 @@ data:
         },
         "gateway_security": {
           "mode": "mtls",
-          "cert_dir": "{{$agentTenantCertDir}}",
+          "cert_dir": "/etc/serviceradar/certs",
           "server_name": "serviceradar-agent-gateway",
           "role": "agent",
           "tls": {
             "cert_file": "{{$agentComponentCert}}",
             "key_file": "{{$agentComponentKey}}",
-            "ca_file": "ca-chain.pem",
-            "client_ca_file": "ca-chain.pem"
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
           }
         },
         "logging": {

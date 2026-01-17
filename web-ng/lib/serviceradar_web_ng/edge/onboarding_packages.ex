@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   Delegates to ServiceRadar.Edge.OnboardingPackages Ash-based implementation
   while maintaining backwards compatibility with existing callers.
 
-  This is a single-tenant instance - tenant context is implicit from the
+  This is a single-deployment instance - schema context is implicit from the
   PostgreSQL search_path set by infrastructure.
   """
 
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   2. Generates a component certificate signed by the platform CA
   3. Includes the encrypted certificate bundle in the package
 
-  The certificate CN follows the format: `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
+  The certificate CN follows the format: `<component_id>.<partition_id>.serviceradar`
 
   ## Options
 

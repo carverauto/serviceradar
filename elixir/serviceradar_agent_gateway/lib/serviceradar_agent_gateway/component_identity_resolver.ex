@@ -2,23 +2,21 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   @moduledoc """
   Extracts component identity from mTLS client certificates.
 
-  In the tenant-instance architecture, each tenant has their own agent-gateway
-  deployment. This module extracts component identity (component_id, partition_id,
-  component_type) from certificates without any tenant awareness - tenant isolation
-  is handled by infrastructure (NATS credentials, DB search_path).
+  Each deployment has its own agent-gateway instance. This module extracts
+  component identity (component_id, partition_id, component_type) from certificates
+  without any additional deployment metadata.
 
   ## Certificate CN Format
 
   Edge component certificates use the format:
-  `<component_id>.<partition_id>.<tenant_slug>.serviceradar`
+  `<component_id>.<partition_id>.serviceradar`
 
-  We extract `component_id` and `partition_id` from the CN, ignoring the tenant_slug
-  since tenant isolation is handled at the infrastructure level.
+  We extract `component_id` and `partition_id` from the CN.
 
   ## SPIFFE ID Format
 
   Component type is extracted from the SPIFFE URI SAN:
-  `spiffe://serviceradar.local/<component_type>/<tenant_slug>/<partition_id>/<component_id>`
+  `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
   """
 
   require Logger
@@ -33,7 +31,7 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   Resolves component identity from a DER-encoded client certificate.
 
   Returns component_id, partition_id, and optionally component_type.
-  Does NOT return or use any tenant information.
+  Does NOT return or use any deployment metadata.
   """
   @spec resolve_from_cert(binary()) :: {:ok, component_identity()} | {:error, atom()}
   def resolve_from_cert(cert_der) when is_binary(cert_der) do
@@ -81,14 +79,13 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
     end
   end
 
-  # Parse CN format: <component_id>.<partition_id>.<tenant_slug>.serviceradar
-  # We only extract component_id and partition_id, ignoring tenant_slug
+  # Parse CN format: <component_id>.<partition_id>.serviceradar
   defp parse_cn(cn) do
     case String.split(cn, ".") do
-      [component_id, partition_id, _tenant_slug, "serviceradar"] ->
+      [component_id, partition_id, "serviceradar"] ->
         {:ok, %{component_id: component_id, partition_id: partition_id}}
 
-      [component_id, partition_id, _tenant_slug | rest] when length(rest) >= 1 ->
+      [component_id, partition_id, "serviceradar" | _rest] ->
         # Handle cases like "serviceradar.local" suffix
         {:ok, %{component_id: component_id, partition_id: partition_id}}
 
@@ -99,7 +96,7 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   end
 
   # Extract component_type from SPIFFE URI in certificate extensions
-  # Format: spiffe://serviceradar.local/<component_type>/<tenant_slug>/<partition_id>/<component_id>
+  # Format: spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>
   defp extract_component_type({:OTPCertificate, tbs_cert, _, _}) do
     extensions = elem(tbs_cert, 10) || []
 

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
   @moduledoc """
   Syncs Zen rules to the datasvc KV store after create/update/destroy.
 
-  In tenant-unaware mode, the ZenRuleSync GenServer is started as a singleton
+  In schema-agnostic mode, the ZenRuleSync GenServer is started as a singleton
   by the application supervisor.
   """
 
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
   end
 
   defp ensure_zen_sync_running do
-    # In tenant-unaware mode, ZenRuleSync is a singleton started by the supervisor
+    # In schema-agnostic mode, ZenRuleSync is a singleton started by the supervisor
     case ZenRuleSync.whereis() do
       nil ->
         Logger.warning("ZenRuleSync is not running - rule sync may be degraded")

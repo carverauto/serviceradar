@@ -2,7 +2,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
   @moduledoc """
   Tests for sync ingestion queue behavior.
 
-  In tenant-unaware mode, operates as a single queue since the DB schema
+  In schema-agnostic mode, operates as a single queue since the DB schema
   is set by CNPG search_path credentials.
   """
 

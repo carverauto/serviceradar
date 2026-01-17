@@ -2,13 +2,13 @@ defmodule ServiceRadar.Identity.PolicyTest do
   @moduledoc """
   Policy test suite for authorization and role-based access control.
 
-  ## Tenant Instance Model
+  ## Single-Tenant Instance Model
 
-  In a tenant-instance model, each tenant has their own deployment with separate
-  database schemas. Tenant isolation is enforced at the infrastructure level via
-  PostgreSQL search_path set by CNPG credentials.
+  In a single-deployment model, each instance has its own database schema.
+  Schema isolation is enforced at the infrastructure level via PostgreSQL search_path
+  set by CNPG credentials.
 
-  These tests verify role-based access control within a single tenant instance:
+  These tests verify role-based access control:
   - viewer/operator/admin permissions
   - Profile update authorization
   - Role change authorization
@@ -28,7 +28,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
     email = attrs[:email] || "user#{System.unique_integer([:positive])}@example.com"
     role = attrs[:role] || :viewer
 
-    # In tenant-instance model, users are created in the schema determined by DB connection
+    # Users are created in the schema determined by the DB connection's search_path
     {:ok, user} =
       Ash.Changeset.for_create(User, :create, %{
         email: email,
@@ -60,7 +60,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
       %{viewer: viewer, operator: operator, admin: admin}
     end
 
-    test "viewer can read users in tenant", %{viewer: viewer, admin: admin} do
+    test "viewer can read users", %{viewer: viewer, admin: admin} do
       actor = actor_for(viewer)
 
       {:ok, users} = Ash.read(User, actor: actor)
@@ -103,7 +103,7 @@ defmodule ServiceRadar.Identity.PolicyTest do
       assert {:error, %Ash.Error.Forbidden{}} = result
     end
 
-    test "admin CAN change roles within same tenant", %{admin: admin, viewer: viewer} do
+    test "admin can change user roles", %{admin: admin, viewer: viewer} do
       actor = actor_for(admin)
 
       {:ok, updated} =

@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   # Private helpers
 
   defp enroll_with_token(package_id, token_secret, source_ip) do
-    # In a tenant instance, DB connection's search_path determines the schema
+    # In a single deployment, DB connection's search_path determines the schema
     case find_package(package_id) do
       {:ok, package} ->
         do_enrollment(package, token_secret, source_ip)
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp mark_enrolled(package, source_ip) do
-    # In a tenant instance, DB connection's search_path determines the schema
+    # In a single deployment, DB connection's search_path determines the schema
     actor = SystemActor.system(:enroll_controller)
 
     package
@@ -238,7 +238,7 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   end
 
   defp find_package(package_id) do
-    # In a tenant instance, DB connection's search_path determines the schema
+    # In a single deployment, DB connection's search_path determines the schema
     actor = SystemActor.system(:enroll_controller)
 
     case CollectorPackage

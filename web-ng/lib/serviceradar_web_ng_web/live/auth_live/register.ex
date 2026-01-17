@@ -2,15 +2,15 @@ defmodule ServiceRadarWebNGWeb.AuthLive.Register do
   @moduledoc """
   Registration page.
 
-  In single-tenant-per-deployment architecture, user registration is handled
+  In the dedicated deployment architecture, user registration is handled
   by the administrator. New user registration is not available through the web UI.
-  Users are created by the control plane when a new tenant deployment is provisioned.
+  Users are created by the control plane when a new deployment is provisioned.
   """
   use ServiceRadarWebNGWeb, :live_view
 
   @impl true
   def mount(_params, _session, socket) do
-    # In single-tenant mode, registration is not available via web UI
+    # In single-deployment mode, registration is not available via web UI
     {:ok, assign(socket, error: nil)}
   end
 

@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> assign(:creating, false)
            |> put_flash(
              :error,
-             "Failed to generate tenant certificate authority. Please try again."
+             "Failed to generate certificate authority. Please try again."
            )}
 
         {:error, %Ash.Error.Invalid{} = error} ->
@@ -715,10 +715,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
     # Extract component info from SPIFFE ID
-    # spiffe://serviceradar.local/<type>/<tenant>/<partition>/<component>
+    # spiffe://serviceradar.local/<type>/<partition>/<component>
     case String.split(spiffe_id, "/") do
-      [_, _, _, _type, tenant, partition, component] ->
-        "#{component}.#{partition}.#{tenant}.serviceradar"
+      [_, _, _, _type, partition, component] ->
+        "#{component}.#{partition}.serviceradar"
 
       _ ->
         spiffe_id

@@ -2,7 +2,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   @moduledoc """
   Tests for discovery_sources propagation through the sync ingestor.
 
-  In tenant-unaware mode, the DB schema is set by CNPG search_path credentials.
+  In schema-agnostic mode, the DB schema is set by CNPG search_path credentials.
   Tests use TestSupport for schema isolation.
   """
 

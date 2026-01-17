@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   @impl true
   def handle_params(%{"gateway_id" => gateway_id}, _uri, socket) do
     # First check Horde registry for live gateway
-    # Tenant is implicit from PostgreSQL search_path in this tenant instance
+    # Schema context is implicit from PostgreSQL search_path in this deployment
     all_gateways = ServiceRadar.GatewayRegistry.find_gateways()
 
     live_gateway =

@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_user(conn, user, _opts \\ []) do
-    # In a tenant instance, DB connection's search_path determines the schema
+    # In a single deployment, DB connection's search_path determines the schema
     # Generate an Ash JWT token for the user
     {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{})
 
@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.ConnCase do
   It returns an updated `conn`.
   """
   def log_in_api_user(conn, user, _opts \\ []) do
-    # In a tenant instance, DB connection's search_path determines the schema
+    # In a single deployment, DB connection's search_path determines the schema
     # Generate an Ash JWT token for the user
     {:ok, token, _claims} = AshAuthentication.Jwt.token_for_user(user, %{})
 

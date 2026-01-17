@@ -695,7 +695,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     }
   end
 
-  # In a tenant instance, all jobs are visible (no tenant filtering needed)
+  # In a single deployment, all jobs are visible (no filtering needed)
   defp load_job_counts(_scope) do
     total = JobCatalog.list_all_jobs() |> length()
     %{total: total}
@@ -871,8 +871,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp parse_timestamp_to_ms(_), do: nil
 
-  # In a tenant instance UI, all agents belong to this tenant (via PostgreSQL search_path)
-  # so no tenant filtering is needed - we show all agents from the cache.
+  # In a single-deployment UI, all agents belong to this deployment (via PostgreSQL search_path)
+  # so no filtering is needed - we show all agents from the cache.
   defp compute_connected_agents(agents_cache) do
     now_ms = System.system_time(:millisecond)
 

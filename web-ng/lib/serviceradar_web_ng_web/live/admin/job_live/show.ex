@@ -731,7 +731,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     end
   end
 
-  # In a tenant instance, admin users can see Oban Web
+  # In a single deployment, admin users can see Oban Web
   defp show_oban_web?(%{user: %{role: role}}) do
     role in [:admin]
   end

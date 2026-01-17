@@ -6,9 +6,8 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   using AshAuthentication JWT tokens stored in the session by
   `AshAuthentication.Phoenix.Controller.store_in_session/2`.
 
-  This is a tenant instance UI - each instance serves ONE tenant. The tenant
-  context is implicit from the database connection's search_path, so we only
-  need to track the authenticated user.
+  This is a single-deployment UI. Schema context is implicit from the database
+  connection's search_path, so we only need to track the authenticated user.
   """
 
   use ServiceRadarWebNGWeb, :verified_routes
@@ -213,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
 
   defp maybe_store_return_to(conn), do: conn
 
-  # In a tenant instance UI, Oban access is granted to admin users
+  # In a single-deployment UI, Oban access is granted to admin users
   defp oban_access?(%Scope{user: %{role: role}}) do
     role in [:admin]
   end

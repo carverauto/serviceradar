@@ -21,12 +21,12 @@ defmodule ServiceRadar.NATS.AccountClient do
   ## Usage
 
       # Create a new account
-      {:ok, result} = AccountClient.create_tenant_account("acme-corp")
-      # result.account_seed should be encrypted and stored in Tenant
+      {:ok, result} = AccountClient.create_account("edge-account")
+      # result.account_seed should be encrypted and stored securely
 
       # Generate user credentials (requires decrypted account seed)
       {:ok, creds} = AccountClient.generate_user_credentials(
-        "acme-corp",
+        "edge-account",
         account_seed,
         "collector-1",
         :collector
@@ -34,7 +34,7 @@ defmodule ServiceRadar.NATS.AccountClient do
 
       # Re-sign account JWT (for revocations or limit changes)
       {:ok, result} = AccountClient.sign_account_jwt(
-        "acme-corp",
+        "edge-account",
         account_seed,
         revoked_user_keys: ["UABC..."]
       )
@@ -62,7 +62,7 @@ defmodule ServiceRadar.NATS.AccountClient do
         }
 
   @doc """
-  Create a new NATS account for a tenant.
+  Create a new NATS account.
 
   Returns the account credentials. The `account_seed` should be encrypted
   (via AshCloak) before storing in the database.
@@ -76,20 +76,20 @@ defmodule ServiceRadar.NATS.AccountClient do
 
   ## Examples
 
-      {:ok, result} = AccountClient.create_tenant_account("acme-corp")
-      # Store result.account_seed encrypted in Tenant.nats_account_seed_ciphertext
+      {:ok, result} = AccountClient.create_account("edge-account")
+      # Store result.account_seed encrypted in secure storage
 
-      {:ok, result} = AccountClient.create_tenant_account("acme-corp",
+      {:ok, result} = AccountClient.create_account("edge-account",
         limits: %{max_connections: 100, max_subscriptions: 1000}
       )
   """
-  @spec create_tenant_account(String.t(), keyword()) ::
+  @spec create_account(String.t(), keyword()) ::
           {:ok, create_result()} | {:error, term()}
-  def create_tenant_account(tenant_slug, opts \\ []) do
+  def create_account(account_name, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.CreateAccountRequest{
-      account_name: tenant_slug,
+      account_name: account_name,
       limits: build_limits(opts[:limits]),
       subject_mappings: build_subject_mappings(opts[:subject_mappings]),
       exports: build_stream_exports(opts[:exports])
@@ -107,28 +107,27 @@ defmodule ServiceRadar.NATS.AccountClient do
 
         {:error, %GRPC.RPCError{} = error} ->
           Logger.error(
-            "gRPC error creating tenant account for #{tenant_slug}: #{GRPC.RPCError.message(error)}"
+            "gRPC error creating account #{account_name}: #{GRPC.RPCError.message(error)}"
           )
 
           {:error, {:grpc_error, GRPC.RPCError.message(error)}}
 
         {:error, reason} ->
-          Logger.error("Error creating tenant account for #{tenant_slug}: #{inspect(reason)}")
+          Logger.error("Error creating account #{account_name}: #{inspect(reason)}")
           {:error, reason}
       end
     end
   end
 
   @doc """
-  Generate NATS user credentials for a tenant's account.
+  Generate NATS user credentials for an account.
 
-  The `account_seed` must be the decrypted seed from the tenant's stored
-  `nats_account_seed_ciphertext` field.
+  The `account_seed` must be the decrypted seed from stored configuration.
 
   ## Credential Types
 
     * `:collector` - For edge collectors (flowgger, trapd, etc.) - can publish events
-    * `:service` - For internal services - broader pub/sub within tenant scope
+    * `:service` - For internal services - broader pub/sub within account scope
     * `:admin` - For admin access - limited publish, can subscribe
 
   ## Options
@@ -140,14 +139,14 @@ defmodule ServiceRadar.NATS.AccountClient do
   ## Examples
 
       {:ok, creds} = AccountClient.generate_user_credentials(
-        "acme-corp",
+        "edge-account",
         account_seed,
         "flowgger-collector-1",
         :collector
       )
 
       {:ok, creds} = AccountClient.generate_user_credentials(
-        "acme-corp",
+        "edge-account",
         account_seed,
         "event-writer",
         :service,
@@ -156,11 +155,11 @@ defmodule ServiceRadar.NATS.AccountClient do
   """
   @spec generate_user_credentials(String.t(), String.t(), String.t(), credential_type(), keyword()) ::
           {:ok, user_credentials()} | {:error, term()}
-  def generate_user_credentials(tenant_slug, account_seed, user_name, credential_type, opts \\ []) do
+  def generate_user_credentials(account_name, account_seed, user_name, credential_type, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.GenerateUserCredentialsRequest{
-      account_name: tenant_slug,
+      account_name: account_name,
       account_seed: account_seed,
       user_name: user_name,
       credential_type: credential_type_to_proto(credential_type),
@@ -177,14 +176,14 @@ defmodule ServiceRadar.NATS.AccountClient do
 
         {:error, %GRPC.RPCError{} = error} ->
           Logger.error(
-            "gRPC error generating user credentials for #{tenant_slug}/#{user_name}: #{GRPC.RPCError.message(error)}"
+            "gRPC error generating user credentials for #{account_name}/#{user_name}: #{GRPC.RPCError.message(error)}"
           )
 
           {:error, {:grpc_error, GRPC.RPCError.message(error)}}
 
         {:error, reason} ->
           Logger.error(
-            "Error generating user credentials for #{tenant_slug}/#{user_name}: #{inspect(reason)}"
+            "Error generating user credentials for #{account_name}/#{user_name}: #{inspect(reason)}"
           )
 
           {:error, reason}
@@ -219,8 +218,7 @@ defmodule ServiceRadar.NATS.AccountClient do
   - Updating account limits
   - Adding custom subject mappings
 
-  The `account_seed` must be the decrypted seed from the tenant's stored
-  `nats_account_seed_ciphertext` field.
+  The `account_seed` must be the decrypted seed from stored configuration.
 
   ## Options
 
@@ -228,33 +226,33 @@ defmodule ServiceRadar.NATS.AccountClient do
     * `:subject_mappings` - Updated subject mappings
     * `:revoked_user_keys` - List of user public keys to revoke
     * `:exports` - Stream exports for cross-account consumption
-    * `:imports` - Stream imports from tenant accounts
+    * `:imports` - Stream imports from external accounts
     * `:timeout` - gRPC call timeout in milliseconds
 
   ## Examples
 
       # Revoke a user's credentials
       {:ok, result} = AccountClient.sign_account_jwt(
-        "acme-corp",
+        "edge-account",
         account_seed,
         revoked_user_keys: ["UABC123..."]
       )
-      # Update tenant.nats_account_jwt with result.account_jwt
+      # Update stored account_jwt with result.account_jwt
 
       # Update limits
       {:ok, result} = AccountClient.sign_account_jwt(
-        "acme-corp",
+        "edge-account",
         account_seed,
         limits: %{max_connections: 200}
       )
   """
   @spec sign_account_jwt(String.t(), String.t(), keyword()) ::
           {:ok, sign_result()} | {:error, term()}
-  def sign_account_jwt(tenant_slug, account_seed, opts \\ []) do
+  def sign_account_jwt(account_name, account_seed, opts \\ []) do
     timeout = opts[:timeout] || @default_timeout
 
     request = %Proto.SignAccountJWTRequest{
-      account_name: tenant_slug,
+      account_name: account_name,
       account_seed: account_seed,
       limits: build_limits(opts[:limits]),
       subject_mappings: build_subject_mappings(opts[:subject_mappings]),
@@ -274,13 +272,13 @@ defmodule ServiceRadar.NATS.AccountClient do
 
         {:error, %GRPC.RPCError{} = error} ->
           Logger.error(
-            "gRPC error signing account JWT for #{tenant_slug}: #{GRPC.RPCError.message(error)}"
+            "gRPC error signing account JWT for #{account_name}: #{GRPC.RPCError.message(error)}"
           )
 
           {:error, {:grpc_error, GRPC.RPCError.message(error)}}
 
         {:error, reason} ->
-          Logger.error("Error signing account JWT for #{tenant_slug}: #{inspect(reason)}")
+          Logger.error("Error signing account JWT for #{account_name}: #{inspect(reason)}")
           {:error, reason}
       end
     end
@@ -360,8 +358,8 @@ defmodule ServiceRadar.NATS.AccountClient do
   @doc """
   Bootstrap the NATS operator for the platform.
 
-  This initializes the NATS operator which is the root of trust for all tenant
-  account JWTs. Should be called once during initial platform setup.
+  This initializes the NATS operator which is the root of trust for all account
+  JWTs. Should be called once during initial platform setup.
 
   ## Options
 

@@ -246,7 +246,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               <%= if @is_admin do %>
                 Cluster nodes and agent gateways
               <% else %>
-                Agents connected to your tenant
+                Agents connected to your account
               <% end %>
             </p>
           </div>
@@ -878,7 +878,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
   defp parse_timestamp_to_ms(_), do: nil
 
   # Compute connected agents from local cache with activity status
-  # Tenant filtering is implicit via PostgreSQL search_path (single-tenant instance)
+  # Schema context is implicit via PostgreSQL search_path
   defp compute_connected_agents(agents_cache) do
     # Use wall-clock time (system_time) for accurate distributed staleness detection
     now_ms = System.system_time(:millisecond)

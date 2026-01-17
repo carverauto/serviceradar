@@ -2,7 +2,7 @@ defmodule ServiceRadar.ProcessRegistry do
   @moduledoc """
   Singleton Horde registry for process discovery.
 
-  Each tenant deployment runs its own ERTS cluster with isolated resources.
+  Each deployment runs its own ERTS cluster with isolated resources.
   This single registry handles all process registration for the local instance.
 
   ## Usage

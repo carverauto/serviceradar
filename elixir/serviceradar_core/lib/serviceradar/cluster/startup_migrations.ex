@@ -2,7 +2,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @moduledoc """
   Runs database migrations on startup.
 
-  In the tenant-instance architecture, migrations run against the single schema
+  In the single-deployment architecture, migrations run against the single schema
   determined by the PostgreSQL search_path (set by CNPG credentials).
 
   This task is intended for core-elx only and will fail fast if migrations

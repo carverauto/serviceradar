@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   @moduledoc """
-  In the tenant-instance architecture, tests run against the single schema
+  In the single-deployment architecture, tests run against the single schema
   determined by PostgreSQL search_path.
   """
 
@@ -65,7 +65,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     events = [event.(base_time), event.(base_time)]
 
-    # In single-tenant mode, schema is determined by search_path
+    # In single-deployment mode, schema is determined by search_path
     assert :ok = StatefulAlertEngine.evaluate_events(events, nil)
 
     events =

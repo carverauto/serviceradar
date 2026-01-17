@@ -7,7 +7,7 @@ defmodule ServiceRadar.AgentRegistryTest do
   - gRPC addresses can be looked up by agent ID
   - Registry properly supports gateway discovery of agents
 
-  Note: Each tenant instance runs its own ERTS cluster with isolated
+  Note: Each single-deployment instance runs its own ERTS cluster with isolated
   resources. Tenant isolation is handled by infrastructure (separate
   deployments with PostgreSQL search_path determining the schema).
   """

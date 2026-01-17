@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   @moduledoc """
   LiveView for managing edge sites and NATS operations.
 
-  In single-tenant-per-deployment architecture:
+  In single-deployment architecture:
   - Creating edge sites (deployment locations)
   - Viewing NATS leaf server status
   - Downloading configuration bundles

@@ -48,8 +48,8 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
   Returns a system actor that bypasses all authorization.
   Used for creating test fixtures without policy restrictions.
 
-  In a tenant instance, tenant isolation is handled by PostgreSQL search_path,
-  not by actor.
+  In single-deployment mode, schema isolation is handled by
+  PostgreSQL search_path (set via CNPG credentials), not by actor.
   """
   def system_actor do
     %{

@@ -23,8 +23,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
      can be deployed to edge/bare metal/Docker/K8s. They join the ERTS cluster
      via libcluster and register their processes in Horde.
 
-  4. **Ash Multi-tenancy**: Uses `partition_id` as the tenant attribute to enforce
-     data isolation at the framework level.
+  4. **Schema isolation**: Uses `partition_id` to enforce data isolation at the
+     framework level.
 
   5. **Distributed Observer**: Run `:observer.start()` to visualize processes
     across all nodes, including remote edge gateways behind firewalls.

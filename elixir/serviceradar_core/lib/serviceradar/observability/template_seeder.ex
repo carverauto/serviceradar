@@ -2,7 +2,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   @moduledoc """
   Seeds default rule templates on startup.
 
-  In single-tenant-per-deployment architecture, the DB connection's
+  In single-deployment architecture, the DB connection's
   search_path determines which schema templates are seeded into.
   """
 
@@ -170,7 +170,7 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
         MapSet.put(existing, key)
 
       {:error, reason} ->
-        schema = Keyword.get(opts, :tenant, "unknown")
+        schema = Keyword.get(opts, :schema, "unknown")
 
         Logger.warning(
           "Failed to rename Zen template #{template.name} for #{schema}: #{inspect(reason)}"

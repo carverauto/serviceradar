@@ -24,7 +24,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
 
   - NATS credentials file (.creds)
   - Collector configuration (collector-specific)
-  - mTLS certificates (from tenant CA)
+  - mTLS certificates (from deployment CA)
   - Installation instructions
   """
 
@@ -268,7 +268,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       end
 
       # After revoking the package, revoke the NATS credential and broadcast
-      # Tenant isolation is handled by the DB connection's search_path
+      # Schema isolation is handled by the DB connection's search_path
       change fn changeset, _context ->
         Ash.Changeset.after_action(changeset, fn changeset, package ->
           # Revoke associated NATS credential
@@ -434,7 +434,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     attribute :ca_chain_pem, :string do
       allow_nil? true
       public? false
-      description "PEM-encoded CA certificate chain (tenant CA + root CA)"
+      description "PEM-encoded CA certificate chain (deployment CA + root CA)"
     end
 
     attribute :config_overrides, :map do

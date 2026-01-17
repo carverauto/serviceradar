@@ -4,7 +4,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
 
   This resource tracks NATS user credentials issued to edge collectors
   (flowgger, trapd, netflow, otel). Each credential is scoped to a specific
-  tenant and can be revoked if compromised.
+  account and can be revoked if compromised.
 
   ## Credential Types
 

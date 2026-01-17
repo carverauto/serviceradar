@@ -2,7 +2,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   @moduledoc """
   Parses sysmon metric payloads and ingests them into hypertables.
 
-  In tenant-unaware mode, operates as a single instance since the DB schema
+  In schema-agnostic mode, operates as a single instance since the DB schema
   is set by CNPG search_path credentials.
   """
 

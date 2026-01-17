@@ -13,17 +13,14 @@ defmodule ServiceRadarWebNG.DataCase do
   by setting `use ServiceRadarWebNG.DataCase, async: true`, although
   this option is not recommended for other databases.
 
-  ## Tenant Instance Model
+  ## Single-Tenant Instance Model
 
-  In a tenant instance, the tenant schema is determined by PostgreSQL search_path
-  set via CNPG credentials. For tests, we use the default tenant schema from config.
+  In a single-deployment architecture, the schema is determined by
+  PostgreSQL search_path set via CNPG credentials. No dynamic schema handling
+  is needed for tests.
   """
 
   use ExUnit.CaseTemplate
-
-  # In single-tenant-per-deployment architecture, the schema is determined by
-  # the database connection's search_path (set via CNPG credentials).
-  @test_tenant_slug "default"
 
   using do
     quote do
@@ -54,19 +51,14 @@ defmodule ServiceRadarWebNG.DataCase do
   @doc """
   Ensures the test schema is ready for testing.
 
-  In single-tenant-per-deployment architecture, the schema is determined by
+  In single-deployment architecture, the schema is determined by
   the database connection's search_path (set via CNPG credentials).
   No dynamic schema creation is needed.
   """
   def ensure_test_schema do
-    # Schema is determined by DB connection's search_path in single-tenant mode
+    # Schema is determined by DB connection's search_path in single-deployment mode
     :ok
   end
-
-  @doc """
-  Returns the test tenant slug for schema operations.
-  """
-  def test_tenant_slug, do: @test_tenant_slug
 
   @doc """
   A helper that transforms changeset errors into a map of messages.

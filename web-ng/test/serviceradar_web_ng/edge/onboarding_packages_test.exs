@@ -254,7 +254,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     end
   end
 
-  describe "create_with_tenant_cert/2" do
+  describe "create_with_platform_cert/2" do
     test "creates package with certificate data", _context do
       attrs = %{
         label: "test-gateway-cert",
@@ -262,7 +262,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         component_id: "gateway-test-cert"
       }
 
-      result = OnboardingPackages.create_with_tenant_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs)
 
       case result do
         {:ok, package_result} ->
@@ -288,20 +288,20 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       end
     end
 
-    test "delegates to core create_with_tenant_cert function", _context do
+    test "delegates to core create_with_platform_cert function", _context do
       attrs = %{label: "test-delegation", component_type: :gateway}
 
       # The function should either succeed or fail gracefully
-      result = OnboardingPackages.create_with_tenant_cert(attrs)
+      result = OnboardingPackages.create_with_platform_cert(attrs)
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
 
-    test "passes tenant option to underlying function", _context do
-      attrs = %{label: "test-tenant-option", component_type: :checker}
+    test "passes options to underlying function", _context do
+      attrs = %{label: "test-options", component_type: :checker}
 
-      # Call with explicit tenant - should not raise
-      result = OnboardingPackages.create_with_tenant_cert(attrs)
+      # Call with options - should not raise
+      result = OnboardingPackages.create_with_platform_cert(attrs)
 
       # Verify the function completed without argument errors
       assert is_tuple(result)
@@ -318,19 +318,19 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   end
 
   describe "certificate generation (external infrastructure)" do
-    # NOTE: In single-tenant-per-deployment mode, certificate generation is handled by
+    # NOTE: In single-deployment mode, certificate generation is handled by
     # external infrastructure (SPIFFE/SPIRE, cert-manager). These tests verify that
     # the functions return appropriate errors indicating this.
 
-    test "create_with_tenant_cert returns error for unavailable CA", _context do
+    test "create_with_platform_cert returns error for unavailable CA", _context do
       attrs = %{
         label: "ca-test",
         component_type: :gateway,
         component_id: "gateway-ca-test"
       }
 
-      # In single-tenant mode, this should return an error since TenantCA is not available
-      result = OnboardingPackages.create_with_tenant_cert(attrs)
+      # In single-deployment mode, this should return an error since CA generation is not available
+      result = OnboardingPackages.create_with_platform_cert(attrs)
 
       assert match?({:error, _}, result)
     end

@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Observability.LogPromotion do
   @moduledoc """
-  Promotion pipeline from logs to OCSF events using per-tenant rules.
+  Promotion pipeline from logs to OCSF events using per-deployment rules.
   """
 
   require Logger

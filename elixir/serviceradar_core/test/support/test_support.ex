@@ -2,7 +2,7 @@ defmodule ServiceRadar.TestSupport do
   @moduledoc """
   Test support utilities for ServiceRadar Core.
 
-  In the tenant-instance architecture, each deployment is single-tenant.
+  In the single-deployment architecture, each deployment is single-deployment.
   The PostgreSQL search_path (set by CNPG credentials) determines the schema.
   """
 

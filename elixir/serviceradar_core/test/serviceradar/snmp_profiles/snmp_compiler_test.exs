@@ -91,7 +91,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns profile config when default profile exists" do
-      # Create a default profile - tenant schema determined by DB connection
+      # Create a default profile - schema determined by DB connection
       actor = SystemActor.system(:test)
 
       {:ok, profile} =

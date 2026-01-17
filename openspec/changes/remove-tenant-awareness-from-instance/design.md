@@ -7,15 +7,15 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Control Plane (serviceradar-web)                 │
-│  - Tenant provisioning, billing, signup                                 │
+│  - Account provisioning, billing, signup                                │
 │  - Creates CNPG users/schemas, NATS accounts                           │
-│  - Deploys tenant pods via tenant-workload-operator                    │
+│  - Deploys per-account stacks in tenant namespaces                     │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                     ┌───────────────┼───────────────┐
                     ▼               ▼               ▼
          ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-         │  Tenant A    │  │  Tenant B    │  │  Tenant C    │
+         │  Account A   │  │  Account B   │  │  Account C   │
          │  Pods:       │  │  Pods:       │  │  Pods:       │
          │  - core-elx  │  │  - core-elx  │  │  - core-elx  │
          │  - web-ng    │  │  - web-ng    │  │  - web-ng    │
@@ -29,21 +29,21 @@
 │                        Shared Infrastructure                            │
 │  ┌─────────────────────────────┐  ┌─────────────────────────────────┐  │
 │  │  CNPG (PostgreSQL)          │  │  NATS                           │  │
-│  │  - tenant_a schema          │  │  - Account A (JWT isolated)     │  │
-│  │  - tenant_b schema          │  │  - Account B (JWT isolated)     │  │
-│  │  - tenant_c schema          │  │  - Account C (JWT isolated)     │  │
+│  │  - account_a schema         │  │  - Account A (JWT isolated)     │  │
+│  │  - account_b schema         │  │  - Account B (JWT isolated)     │  │
+│  │  - account_c schema         │  │  - Account C (JWT isolated)     │  │
 │  │  (isolated by DB user)      │  │  (isolated by account JWT)      │  │
 │  └─────────────────────────────┘  └─────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Points:**
-- Each tenant gets their **own pods** (core-elx, web-ng, agent-gateway, zen)
+- Each account gets its **own pods** (core-elx, web-ng, agent-gateway, zen)
 - **CNPG is shared** - isolation via schema-scoped PostgreSQL users
-- **NATS is shared** - isolation via tenant-scoped JWT accounts
-- **Tenant pods don't know about other tenants** - credentials only allow their data
+- **NATS is shared** - isolation via account-scoped JWT accounts
+- **Instance pods don't know about other accounts** - credentials only allow their data
 
-ServiceRadar uses PostgreSQL schema-based multi-tenancy where each tenant has their own schema (e.g., `tenant_abc123`). Currently, the application code maintains tenant awareness by:
+ServiceRadar uses PostgreSQL schema-based isolation where each account has its own schema (e.g., `account_abc123`). Currently, the application code maintains tenant awareness by:
 
 1. Passing `tenant: schema` to every Ash query
 2. Using `SystemActor.for_tenant(tenant_id, :component)` for scoped operations
@@ -68,34 +68,34 @@ This design document outlines how to eliminate tenant awareness from the Tenant 
 
 ### Decision 1: Schema-Scoped PostgreSQL Users
 
-Each tenant instance connects to PostgreSQL with credentials that only have access to that tenant's schema.
+Each deployment instance connects to PostgreSQL with credentials that only have access to its schema.
 
 **Implementation:**
 
 ```sql
--- Control Plane creates this for each tenant
-CREATE USER tenant_abc123_app WITH PASSWORD 'generated-secret';
+-- Control Plane creates this for each account
+CREATE USER account_abc123_app WITH PASSWORD 'generated-secret';
 
--- Grant access only to tenant's schema
-GRANT USAGE ON SCHEMA tenant_abc123 TO tenant_abc123_app;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA tenant_abc123 TO tenant_abc123_app;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA tenant_abc123 TO tenant_abc123_app;
+-- Grant access only to account schema
+GRANT USAGE ON SCHEMA account_abc123 TO account_abc123_app;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA account_abc123 TO account_abc123_app;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA account_abc123 TO account_abc123_app;
 
 -- Set default search path
-ALTER USER tenant_abc123_app SET search_path TO tenant_abc123;
+ALTER USER account_abc123_app SET search_path TO account_abc123;
 
 -- Revoke access to other schemas (explicit, though USAGE not granted anyway)
-REVOKE ALL ON SCHEMA public FROM tenant_abc123_app;
+REVOKE ALL ON SCHEMA public FROM account_abc123_app;
 ```
 
 **Connection String:**
 ```
-postgresql://tenant_abc123_app:secret@cnpg-cluster:5432/serviceradar?search_path=tenant_abc123
+postgresql://account_abc123_app:secret@cnpg-cluster:5432/serviceradar?search_path=account_abc123
 ```
 
 **Alternatives Considered:**
 - Row-Level Security (RLS): More complex, still requires tenant_id tracking in app
-- Separate databases per tenant: Higher operational overhead, harder to share resources
+- Separate databases per account: Higher operational overhead, harder to share resources
 
 ### Decision 2: Remove Multitenancy from Ash Resources
 
@@ -125,7 +125,7 @@ end
 
 **Why This Works:**
 - PostgreSQL's `search_path` determines which schema is used for unqualified table names
-- When app connects as `tenant_abc123_app` with `search_path=tenant_abc123`, all queries go to that schema
+- When app connects as `account_abc123_app` with `search_path=account_abc123`, all queries go to that schema
 - Ash doesn't need to know about tenants - it's transparent
 
 ### Decision 3: Simplify Actor Model
@@ -188,15 +188,15 @@ Some resources currently live in the `public` schema and are accessed across ten
 
 ### Decision 5: OSS Single-Tenant Mode
 
-For OSS deployments, there's one tenant. Two options:
+For OSS deployments, there's one account. Two options:
 
-1. **Use "platform" tenant schema** - Same as today but simplified
-2. **Use "public" schema directly** - No tenant schema at all
+1. **Use a default schema** - Same as today but simplified
+2. **Use "public" schema directly** - No dedicated schema at all
 
-**Decision:** Option 1 - Use a default tenant schema (e.g., `tenant_platform`).
+**Decision:** Option 1 - Use a default schema (e.g., `account_platform`).
 
 - Helm bootstrap job creates the schema and user
-- Connection uses `tenant_platform` search_path
+- Connection uses `account_platform` search_path
 - Code is identical to SaaS tenant instance
 - Easy to migrate OSS to SaaS later (just change credentials)
 
@@ -208,7 +208,7 @@ None. The `tenant_id` column becomes unnecessary when using schema-based isolati
 
 **Before:**
 ```sql
-CREATE TABLE tenant_abc.devices (
+CREATE TABLE account_abc.devices (
   id UUID PRIMARY KEY,
   tenant_id UUID NOT NULL,  -- Redundant!
   name TEXT,
@@ -218,9 +218,9 @@ CREATE TABLE tenant_abc.devices (
 
 **After:**
 ```sql
-CREATE TABLE tenant_abc.devices (
+CREATE TABLE account_abc.devices (
   id UUID PRIMARY KEY,
-  -- No tenant_id needed - table is in tenant's schema
+-- No tenant_id needed - table is in account schema
   name TEXT,
   ...
 );
@@ -229,9 +229,9 @@ CREATE TABLE tenant_abc.devices (
 ### Migration for Existing Schemas
 
 ```sql
--- For each tenant schema, drop the tenant_id column
-ALTER TABLE tenant_abc.devices DROP COLUMN tenant_id;
-ALTER TABLE tenant_abc.agents DROP COLUMN tenant_id;
+-- For each account schema, drop the tenant_id column
+ALTER TABLE account_abc.devices DROP COLUMN tenant_id;
+ALTER TABLE account_abc.agents DROP COLUMN tenant_id;
 -- etc.
 ```
 
@@ -260,36 +260,13 @@ This is a **BREAKING** change for any external tools that rely on `tenant_id`.
 
 ### Trade-off: More Database Users
 
-Creating a PostgreSQL user per tenant increases DB overhead slightly.
+Creating a PostgreSQL user per account increases DB overhead slightly.
 
 **Mitigation:** PostgreSQL handles thousands of users efficiently. CNPG can manage user secrets via K8s.
 
 ## Migration Plan
 
-### Phase 1: Code Preparation (No Breaking Changes)
-
-1. Add feature flag: `TENANT_AWARE_MODE=true` (default)
-2. When flag is false:
-   - Skip `tenant:` parameter in Ash calls
-   - Use simplified `SystemActor.system()`
-   - Ignore multitenancy config
-3. Test with flag=false in dev environment
-
-### Phase 2: Remove Multitenancy Config
-
-1. Remove `multitenancy` blocks from Ash resources
-2. Remove `tenant_id` attributes where redundant
-3. Generate migrations to drop `tenant_id` columns
-4. Update policies to not reference tenant_id
-
-### Phase 3: Control Plane Credential Provisioning
-
-1. Update Control Plane to create schema-scoped users
-2. Store credentials in K8s secrets
-3. Update tenant-workload-operator to inject credentials
-4. Test with single tenant
-
-### Phase 4: Remove Tenant-Aware Code
+### Phase 1: Remove Tenant-Aware Code
 
 1. Delete `TenantSchemas` module
 2. Simplify `SystemActor` module
@@ -297,17 +274,35 @@ Creating a PostgreSQL user per tenant increases DB overhead slightly.
 4. Delete `find_*_across_tenants()` functions
 5. Remove `Scope.tenant_id()` usage
 
-### Phase 5: Cleanup
+### Phase 2: Control Plane Credential Provisioning
 
-1. Remove feature flag
+1. Create schema-scoped users per account
+2. Store credentials in K8s secrets
+3. Inject credentials via control plane deployment tooling
+4. Test with single deployment
+
+### Phase 3: Infrastructure Cleanup
+
+1. Remove tenant-scoped cert generation and CA hierarchy
+2. Update Helm/Compose config to drop tenant fields
+3. Remove tenant-workload-operator artifacts from this repo
+
+### Phase 4: Schema Cleanup
+
+1. Remove `tenant_id` attributes where redundant
+2. Generate migrations to drop `tenant_id` columns
+3. Update policies to not reference tenant_id
+
+### Phase 5: Documentation + Archive
+
+1. Update deployment docs
 2. Archive related OpenSpec changes
-3. Update documentation
 
 ## Rollback Plan
 
 If issues arise:
 1. Redeploy with old credentials (superuser)
-2. Re-enable `TENANT_AWARE_MODE=true`
+2. Deploy previous release of the tenant-aware code
 3. Old code paths still work
 
 Keep both code paths available for one release cycle.

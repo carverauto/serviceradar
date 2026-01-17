@@ -254,7 +254,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   Options:
     - `:alert` - map of overrides (title, description, severity, metadata)
-    - `:tenant` - tenant schema name (optional)
     - `:actor` - Ash actor to use for policy checks (optional)
   """
   @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}

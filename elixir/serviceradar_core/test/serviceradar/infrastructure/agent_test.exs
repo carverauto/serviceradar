@@ -53,7 +53,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
     test "creates agent with SPIFFE identity", %{actor: actor, unique_id: unique_id} do
       agent_uid = "agent-spiffe-#{unique_id}"
-      spiffe_id = "spiffe://serviceradar.local/agent/test-tenant/default/#{agent_uid}"
+      spiffe_id = "spiffe://serviceradar.local/agent/test-account/default/#{agent_uid}"
 
       {:ok, agent} =
         Agent

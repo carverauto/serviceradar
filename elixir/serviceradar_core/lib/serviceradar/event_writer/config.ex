@@ -117,7 +117,7 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc """
   Returns the default stream configurations.
 
-  Subjects are unprefixed in single-tenant deployments.
+  Subjects are unprefixed in single-deployment deployments.
   """
   @spec default_streams() :: [stream_config()]
   def default_streams do
