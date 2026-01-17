@@ -17,7 +17,6 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvents, as: AshEvents
   alias ServiceRadar.Edge.OnboardingEvent
-  alias ServiceRadarWebNGWeb.TenantResolver
 
   @doc """
   Lists events for a specific package, ordered by time descending.
@@ -108,18 +107,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingEvents do
   # Private helpers
 
   defp build_opts(opts) do
-    tenant_schema = TenantResolver.default_tenant_schema()
-
-    unless tenant_schema do
-      raise ArgumentError, "no default tenant configured for this instance"
-    end
-
     actor = Keyword.get(opts, :actor) || system_actor()
 
     opts
     |> Keyword.put(:actor, actor)
     |> Keyword.put_new(:actor_user, actor)
-    |> Keyword.put(:tenant, tenant_schema)
   end
 
   defp system_actor do

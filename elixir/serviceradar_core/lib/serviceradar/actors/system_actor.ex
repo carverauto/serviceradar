@@ -11,18 +11,6 @@ defmodule ServiceRadar.Actors.SystemActor do
       actor = SystemActor.system(:state_monitor)
       Gateway |> Ash.read(actor: actor)
 
-      # For platform-wide operations (bootstrap, tenant management)
-      actor = SystemActor.platform(:tenant_bootstrap)
-      Tenant |> Ash.read(actor: actor)
-
-  ## When to Use Each Type
-
-  - `system/1` - Use in tenant instance code where the DB connection's
-    search_path is set by CNPG credentials (tenant-unaware mode).
-
-  - `platform/1` - Use for cross-tenant operations in the public schema
-    (tenant management, operator bootstrap, etc.)
-
   ## Why Not authorize?: false?
 
   Using `authorize?: false` bypasses ALL authorization policies including
@@ -39,7 +27,7 @@ defmodule ServiceRadar.Actors.SystemActor do
   System actors are maps with the following fields:
   - `id` - Unique identifier (e.g., "system:state_monitor")
   - `email` - Descriptive email for audit logs (e.g., "state-monitor@system.serviceradar")
-  - `role` - Either `:system` or `:super_admin` (platform-wide)
+  - `role` - `:system`
   """
 
   @type component :: atom()
@@ -49,57 +37,6 @@ defmodule ServiceRadar.Actors.SystemActor do
           email: String.t(),
           role: :system
         }
-
-  @type platform_actor :: %{
-          id: String.t(),
-          email: String.t(),
-          role: :super_admin
-        }
-
-  @doc """
-  Creates a platform-level system actor for cross-tenant operations.
-
-  The actor will have:
-  - `role: :super_admin` - Full access across all tenants
-
-  ## Important
-
-  Only use for legitimate cross-tenant operations like:
-  - Platform bootstrap (before tenants exist)
-  - Tenant management operations
-  - Cross-tenant analytics or reporting
-  - Seeding default data across tenants
-
-  Regular tenant operations should use `system/1` instead.
-
-  ## Parameters
-
-  - `component` - Atom identifying the system component (e.g., `:tenant_bootstrap`, `:operator_bootstrap`)
-
-  ## Examples
-
-      iex> SystemActor.platform(:tenant_bootstrap)
-      %{
-        id: "platform:tenant_bootstrap",
-        email: "tenant-bootstrap@platform.serviceradar",
-        role: :super_admin
-      }
-
-      iex> SystemActor.platform(:operator_bootstrap)
-      %{
-        id: "platform:operator_bootstrap",
-        email: "operator-bootstrap@platform.serviceradar",
-        role: :super_admin
-      }
-  """
-  @spec platform(component()) :: platform_actor()
-  def platform(component) when is_atom(component) do
-    %{
-      id: "platform:#{component}",
-      email: "#{component_to_email(component)}@platform.serviceradar",
-      role: :super_admin
-    }
-  end
 
   @doc """
   Creates a system actor for tenant-unaware mode.
@@ -156,7 +93,6 @@ defmodule ServiceRadar.Actors.SystemActor do
   """
   @spec system_actor?(any()) :: boolean()
   def system_actor?(%{role: :system}), do: true
-  def system_actor?(%{role: :super_admin, id: "platform:" <> _}), do: true
   def system_actor?(_), do: false
 
   # Converts an atom component name to an email-friendly string

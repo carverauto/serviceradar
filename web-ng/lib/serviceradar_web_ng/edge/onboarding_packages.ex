@@ -12,7 +12,6 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadarWebNGWeb.TenantResolver
 
   @type filter :: %{
           optional(:status) => [String.t()],
@@ -207,17 +206,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   # Private helpers
 
   defp build_opts(opts) do
-    tenant_schema = TenantResolver.default_tenant_schema()
-
-    unless tenant_schema do
-      raise ArgumentError, "no default tenant configured for this instance"
-    end
-
     actor = Keyword.get(opts, :actor) || system_actor()
 
     opts
     |> Keyword.put(:actor, actor)
-    |> Keyword.put(:tenant, tenant_schema)
   end
 
   defp normalize_filters(filters) do

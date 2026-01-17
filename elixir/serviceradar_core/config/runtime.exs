@@ -128,9 +128,6 @@ if config_env() == :prod do
   config :serviceradar_core,
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
-  config :serviceradar_core,
-    reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
-
   sync_ingestor_batch_concurrency =
     System.get_env("SYNC_INGESTOR_BATCH_CONCURRENCY")
     |> case do

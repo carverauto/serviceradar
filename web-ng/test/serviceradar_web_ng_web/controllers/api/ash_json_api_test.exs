@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  import ServiceRadarWebNG.MultiTenantFixtures
+  use ServiceRadarWebNG.AshTestHelpers
 
   # Use API bearer token authentication
   setup :register_and_log_in_api_user
@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/devices" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _device = tenant_device_fixture(tenant, %{hostname: "test-host"})
+      _device = device_fixture(tenant, %{hostname: "test-host"})
 
       %{conn: conn}
     end
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/devices/:uid" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _device = tenant_device_fixture(tenant, %{uid: "unique-device-uid"})
+      _device = device_fixture(tenant, %{uid: "unique-device-uid"})
 
       %{conn: conn}
     end
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/gateways" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _gateway = tenant_gateway_fixture(tenant)
+      _gateway = gateway_fixture(tenant)
 
       %{conn: conn}
     end
@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/gateways/:id" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _gateway = tenant_gateway_fixture(tenant)
+      _gateway = gateway_fixture(tenant)
 
       %{conn: conn}
     end
@@ -106,7 +106,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/agents" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _agent = tenant_agent_fixture(tenant)
+      _agent = agent_fixture(tenant)
 
       %{conn: conn}
     end
@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/agents/:uid" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _agent = tenant_agent_fixture(tenant, %{uid: "unique-agent-uid"})
+      _agent = agent_fixture(tenant, %{uid: "unique-agent-uid"})
 
       %{conn: conn}
     end
@@ -149,8 +149,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/agents/by-gateway/:gateway_id" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
-      _agent = tenant_agent_fixture(tenant, %{gateway_id: gateway.id})
+      gateway = gateway_fixture(tenant)
+      _agent = agent_fixture(gateway, %{gateway_id: gateway.id})
 
       %{conn: conn, gateway: gateway}
     end
@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
   describe "GET /api/v2/service-checks" do
     setup %{conn: conn} do
       tenant = tenant_fixture()
-      _check = tenant_service_check_fixture(tenant)
+      _check = service_check_fixture(tenant)
 
       %{conn: conn}
     end

@@ -1,9 +1,12 @@
 defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   @moduledoc """
-  Seeds default sysmon profile for each tenant.
+  Seeds the default sysmon profile.
 
-  Each tenant gets a single default profile with `is_default: true` that is used
+  Each instance gets a single default profile with `is_default: true` that is used
   when no explicit device or tag assignment exists.
+
+  In single-tenant-per-deployment architecture, the DB connection's
+  search_path determines which schema the profile is seeded into.
   """
 
   require Logger
@@ -13,55 +16,48 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfileSeeder do
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
   @doc """
-  Seeds the default sysmon profile for a tenant.
+  Seeds the default sysmon profile for the current instance.
 
-  Called during tenant creation via InitializeTenantInfrastructure.
+  Can be called during bootstrap or manually to ensure the default profile exists.
   """
-  @spec seed_for_tenant(map()) :: :ok | {:error, term()}
-  def seed_for_tenant(%{slug: _} = tenant) do
-    # DB connection's search_path determines the schema
+  @spec seed() :: :ok | {:error, term()}
+  def seed do
     actor = SystemActor.system(:sysmon_profile_seeder)
     opts = [actor: actor]
 
-    ensure_default_profile(opts, tenant.slug)
+    ensure_default_profile(opts)
   end
 
-  defp ensure_default_profile(opts, tenant_slug) do
+  defp ensure_default_profile(opts) do
     query = Ash.Query.for_read(SysmonProfile, :get_default, %{})
 
     case Ash.read_one(query, opts) do
       {:ok, nil} ->
         # No default profile exists, create one
-        create_default_profile(opts, tenant_slug)
+        create_default_profile(opts)
 
       {:ok, _profile} ->
         # Default profile already exists
-        Logger.debug("Default sysmon profile already exists for tenant: #{tenant_slug}")
+        Logger.debug("Default sysmon profile already exists")
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to check for default sysmon profile for #{tenant_slug}: #{inspect(reason)}"
-        )
-
+        Logger.warning("Failed to check for default sysmon profile: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp create_default_profile(opts, tenant_slug) do
+  defp create_default_profile(opts) do
     attrs = default_profile_attrs()
     changeset = Ash.Changeset.for_create(SysmonProfile, :create, attrs, opts)
 
     case Ash.create(changeset) do
-      {:ok, profile} ->
-        Logger.info("Created default sysmon profile for tenant: #{tenant_slug}")
-        {:ok, profile}
+      {:ok, _profile} ->
+        Logger.info("Created default sysmon profile")
+        :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to create default sysmon profile for #{tenant_slug}: #{inspect(reason)}"
-        )
-
+        Logger.warning("Failed to create default sysmon profile: #{inspect(reason)}")
         {:error, reason}
     end
   end

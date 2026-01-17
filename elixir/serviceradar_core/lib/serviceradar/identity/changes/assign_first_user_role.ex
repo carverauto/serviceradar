@@ -1,11 +1,11 @@
 defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
   @moduledoc """
-  Assigns super_admin role to the first user registered.
+  Assigns admin role to the first user registered.
 
   When a user registers and is the first user, they are automatically granted
-  super_admin role. Subsequent users get the default viewer role.
+  admin role. Subsequent users get the default viewer role.
 
-  This ensures every deployment has at least one super_admin who can manage
+  This ensures every deployment has at least one admin who can manage
   the users and settings.
 
   DB connection's search_path determines the schema.
@@ -24,11 +24,11 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
       # Check if role is already explicitly set
       case Ash.Changeset.get_attribute(changeset, :role) do
         nil ->
-          maybe_assign_super_admin(changeset)
+          maybe_assign_admin(changeset)
 
         :viewer ->
           # Default was applied, check if we should override
-          maybe_assign_super_admin(changeset)
+          maybe_assign_admin(changeset)
 
         _other_role ->
           # Role was explicitly set, don't override
@@ -37,11 +37,11 @@ defmodule ServiceRadar.Identity.Changes.AssignFirstUserRole do
     end
   end
 
-  defp maybe_assign_super_admin(changeset) do
+  defp maybe_assign_admin(changeset) do
     # DB connection's search_path determines the schema
     if first_user?() do
-      Logger.info("Assigning super_admin role to first user")
-      Ash.Changeset.force_change_attribute(changeset, :role, :super_admin)
+      Logger.info("Assigning admin role to first user")
+      Ash.Changeset.force_change_attribute(changeset, :role, :admin)
     else
       changeset
     end

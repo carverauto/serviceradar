@@ -108,8 +108,5 @@ config :serviceradar_core,
 config :serviceradar_core,
   run_startup_migrations: false
 
-config :serviceradar_core,
-  reset_tenant_schemas: false
-
 # Import environment specific config
 import_config "#{config_env()}.exs"

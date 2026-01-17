@@ -52,42 +52,20 @@ defmodule ServiceRadar.Policies.Checks do
     defp get_role(_), do: nil
   end
 
-  defmodule ActorIsSuperAdmin do
-    @moduledoc """
-    Check if the actor is a super admin.
-    Super admins bypass all restrictions.
-    """
-    use Ash.Policy.SimpleCheck
-
-    @impl true
-    def describe(_opts), do: "actor is super admin"
-
-    @impl true
-    def match?(nil, _opts, _context), do: false
-
-    def match?(actor, _opts, _context) do
-      get_role(actor) == :super_admin
-    end
-
-    defp get_role(%{role: role}) when is_atom(role), do: role
-    defp get_role(%{role: role}) when is_binary(role), do: String.to_existing_atom(role)
-    defp get_role(_), do: nil
-  end
-
   defmodule ActorIsAdmin do
     @moduledoc """
-    Check if the actor is an admin (or super admin).
+    Check if the actor is an admin.
     """
     use Ash.Policy.SimpleCheck
 
     @impl true
-    def describe(_opts), do: "actor is admin or super admin"
+    def describe(_opts), do: "actor is admin"
 
     @impl true
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, _opts, _context) do
-      get_role(actor) in [:admin, :super_admin]
+      get_role(actor) == :admin
     end
 
     defp get_role(%{role: role}) when is_atom(role), do: role
@@ -97,18 +75,18 @@ defmodule ServiceRadar.Policies.Checks do
 
   defmodule ActorIsOperator do
     @moduledoc """
-    Check if the actor is an operator (or higher).
+    Check if the actor is an operator or admin.
     """
     use Ash.Policy.SimpleCheck
 
     @impl true
-    def describe(_opts), do: "actor is operator, admin, or super admin"
+    def describe(_opts), do: "actor is operator or admin"
 
     @impl true
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, _opts, _context) do
-      get_role(actor) in [:operator, :admin, :super_admin]
+      get_role(actor) in [:operator, :admin]
     end
 
     defp get_role(%{role: role}) when is_atom(role), do: role

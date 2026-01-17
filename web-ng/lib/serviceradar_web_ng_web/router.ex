@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
   end
@@ -29,7 +28,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
   end
@@ -61,7 +59,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :ash_json_api do
     plug :accepts, ["json"]
     plug :fetch_session
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
     plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
@@ -103,23 +100,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Package actions
     post "/edge-packages/:id/revoke", EdgeController, :revoke
 
-    # NATS platform administration (super admin)
-    post "/nats/bootstrap-token", NatsController, :generate_bootstrap_token
-    post "/nats/bootstrap", NatsController, :bootstrap
-    get "/nats/status", NatsController, :status
-    get "/nats/tenants", NatsController, :tenants
-    post "/nats/tenants/:id/reprovision", NatsController, :reprovision
-
-    # Workload credentials (operator) - tenant is implicit from instance config
-    post "/workloads/credentials", TenantWorkloadController, :credentials
-
-    # Collector package management (tenant admin)
+    # Collector package management
     get "/collectors", CollectorController, :index
     post "/collectors", CollectorController, :create
     get "/collectors/:id", CollectorController, :show
     post "/collectors/:id/revoke", CollectorController, :revoke
 
-    # Tenant NATS account & credentials
+    # NATS account & credentials
     get "/nats/account", CollectorController, :account_status
     get "/nats/credentials", CollectorController, :credentials
   end
@@ -199,8 +186,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/integrations/:id", Admin.IntegrationLive.Index, :show
       live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
-      live "/nats", Admin.NatsLive.Index, :index
-      live "/nats/tenants/:id", Admin.NatsLive.Show, :show
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
       live "/edge-sites", Admin.EdgeSitesLive.Index, :index
@@ -350,7 +335,6 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   # Set the Ash actor from the current user for policy enforcement
   # Includes partition context from request header or session
-  # Tenant context is set by ResolveTenant plug (single-tenant instance)
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
       %Scope{user: user} when not is_nil(user) ->

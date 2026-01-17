@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Observability.ZenRuleSeeder do
   @moduledoc """
-  Seeds default Zen rules for each tenant.
+  Seeds default Zen rules on startup.
+
+  In single-tenant-per-deployment architecture, the DB connection's
+  search_path determines which schema rules are seeded into.
   """
 
   use GenServer
@@ -32,17 +35,11 @@ defmodule ServiceRadar.Observability.ZenRuleSeeder do
   def seed_all do
     if repo_enabled?() do
       # DB connection's search_path determines the schema
-      # Seed rules for the current tenant schema
-      seed_for_current_tenant()
+      seed_rules()
     end
   end
 
-  def seed_for_tenant(_tenant) do
-    # DB connection's search_path determines the schema
-    seed_for_current_tenant()
-  end
-
-  defp seed_for_current_tenant do
+  defp seed_rules do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:zen_rule_seeder)
     opts = [actor: actor]

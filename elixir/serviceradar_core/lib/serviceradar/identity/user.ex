@@ -9,7 +9,6 @@ defmodule ServiceRadar.Identity.User do
   - `:viewer` - Read-only access to tenant data
   - `:operator` - Can create and modify resources
   - `:admin` - Full tenant management including user management
-  - `:super_admin` - Platform-wide access (not tenant-scoped)
 
   ## Authentication
 
@@ -143,7 +142,7 @@ defmodule ServiceRadar.Identity.User do
     end
 
     read :admins do
-      filter expr(role in [:admin, :super_admin])
+      filter expr(role == :admin)
     end
 
     read :get_by_subject do
@@ -278,11 +277,6 @@ defmodule ServiceRadar.Identity.User do
       authorize_if always()
     end
 
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
     # System actors can perform all operations (tenant isolation via schema)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -359,7 +353,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin, :super_admin]
+      constraints one_of: [:viewer, :operator, :admin]
       description "User's role for authorization"
     end
 

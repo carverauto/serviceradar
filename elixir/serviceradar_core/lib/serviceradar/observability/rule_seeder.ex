@@ -1,9 +1,12 @@
 defmodule ServiceRadar.Observability.RuleSeeder do
   @moduledoc """
-  Seeds default LogPromotionRules and StatefulAlertRules for each tenant.
+  Seeds default LogPromotionRules and StatefulAlertRules on startup.
 
-  These rules are created by default so tenants have working rules for
+  These rules are created by default so the instance has working rules for
   common use cases like missed sweep detection out of the box.
+
+  In single-tenant-per-deployment architecture, the DB connection's
+  search_path determines which schema rules are seeded into.
   """
 
   use GenServer
@@ -36,17 +39,11 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   def seed_all do
     if repo_enabled?() do
       # DB connection's search_path determines the schema
-      # Seed rules for the current tenant schema
-      seed_for_current_tenant()
+      seed_rules()
     end
   end
 
-  def seed_for_tenant(_tenant) do
-    # DB connection's search_path determines the schema
-    seed_for_current_tenant()
-  end
-
-  defp seed_for_current_tenant do
+  defp seed_rules do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:rule_seeder)
     opts = [actor: actor]

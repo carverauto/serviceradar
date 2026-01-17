@@ -36,11 +36,6 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
         label: "Edge Sites",
         href: "/admin/edge-sites",
         active: String.starts_with?(assigns.current_path || "", "/admin/edge-sites")
-      },
-      %{
-        label: "NATS",
-        href: "/admin/nats",
-        active: String.starts_with?(assigns.current_path || "", "/admin/nats")
       }
     ]
 

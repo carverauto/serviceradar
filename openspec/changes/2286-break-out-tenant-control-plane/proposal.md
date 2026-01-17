@@ -1,5 +1,13 @@
 # Change: Break out Tenant/SaaS Control Plane
 
+**Status: COMPLETE** (as of 2026-01-16)
+
+This proposal has been implemented through multiple follow-on changes:
+- `remove-tenant-awareness-from-instance` - Removed multi-tenant code from tenant instance
+- `fix-authorize-bypass-security-debt` - Removed authorize?: false usage
+- Control Plane moved to private `serviceradar-web` repository
+- Tenant instance now uses single-tenant-per-deployment architecture
+
 ## Why
 The current architecture conflates the SaaS control plane with the tenant runtime, leading to complexity in `core-elx` where it possesses "super power" access over the entire database. This violates strict tenant isolation boundaries and complicates the codebase with mixed multi-tenant logic.
 

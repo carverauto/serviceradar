@@ -93,3 +93,31 @@ Platform administrators with special certificates SHALL have cross-tenant access
 - **WHEN** platform admin accesses tenant resources
 - **THEN** the access is logged with admin identity and tenant accessed
 
+### Requirement: Tenant-scoped gateway certificates
+Gateway instances SHALL present tenant-scoped certificates signed by the tenant's intermediate CA, and gateways SHALL accept only agent certificates signed by the same tenant CA.
+
+#### Scenario: Tenant gateway cert validation
+- **GIVEN** a gateway for tenant "acme" presents a tenant-scoped certificate
+- **WHEN** an agent for tenant "acme" connects
+- **THEN** the mTLS handshake succeeds
+- **AND** the gateway validates the agent cert against tenant "acme" CA
+
+#### Scenario: Cross-tenant agent rejected
+- **GIVEN** a gateway for tenant "acme"
+- **WHEN** an agent with tenant "beta" certificate connects
+- **THEN** the mTLS handshake fails
+- **AND** the gateway rejects the connection
+
+### Requirement: Schema-Per-Tenant Data Isolation
+The system SHALL create a dedicated PostgreSQL schema for each tenant and store all tenant-scoped data exclusively within that schema.
+
+#### Scenario: Tenant schema created on provisioning
+- **WHEN** a tenant is created
+- **THEN** a schema named `tenant_<tenant_slug>` SHALL be created
+- **AND** tenant migrations SHALL be applied to that schema before the tenant is usable
+
+#### Scenario: Platform tenant uses its own schema
+- **WHEN** the platform tenant is provisioned
+- **THEN** the schema `tenant_platform` SHALL exist
+- **AND** platform tenant data SHALL be stored in that schema, not public
+

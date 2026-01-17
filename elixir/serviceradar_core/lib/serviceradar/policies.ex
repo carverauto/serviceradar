@@ -14,7 +14,6 @@ defmodule ServiceRadar.Policies do
   - `:viewer` - Read-only access to tenant data
   - `:operator` - Can create and modify resources within tenant
   - `:admin` - Full tenant management including user management
-  - `:super_admin` - Platform-wide access, bypasses all policies
 
   ## Usage
 
@@ -23,10 +22,6 @@ defmodule ServiceRadar.Policies do
 
         policies do
           import ServiceRadar.Policies
-
-          bypass always() do
-            authorize_if is_super_admin()
-          end
 
           # DB connection's search_path determines the schema
           policy action_type(:read) do
@@ -37,21 +32,11 @@ defmodule ServiceRadar.Policies do
   """
 
   @doc """
-  Check if the actor has super_admin role.
-  Super admins bypass all restrictions.
-  """
-  defmacro is_super_admin do
-    quote do
-      actor_attribute_equals(:role, :super_admin)
-    end
-  end
-
-  @doc """
   Check if the actor has admin role (or higher).
   """
   defmacro is_admin do
     quote do
-      expr(^actor(:role) in [:admin, :super_admin])
+      expr(^actor(:role) == :admin)
     end
   end
 
@@ -60,7 +45,7 @@ defmodule ServiceRadar.Policies do
   """
   defmacro is_operator do
     quote do
-      expr(^actor(:role) in [:operator, :admin, :super_admin])
+      expr(^actor(:role) in [:operator, :admin])
     end
   end
 
@@ -69,7 +54,7 @@ defmodule ServiceRadar.Policies do
   """
   defmacro is_viewer do
     quote do
-      expr(^actor(:role) in [:viewer, :operator, :admin, :super_admin])
+      expr(^actor(:role) in [:viewer, :operator, :admin])
     end
   end
 

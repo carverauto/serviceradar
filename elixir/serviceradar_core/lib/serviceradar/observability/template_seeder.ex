@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Observability.TemplateSeeder do
   @moduledoc """
-  Seeds default rule templates for each tenant.
+  Seeds default rule templates on startup.
+
+  In single-tenant-per-deployment architecture, the DB connection's
+  search_path determines which schema templates are seeded into.
   """
 
   use GenServer
@@ -36,17 +39,11 @@ defmodule ServiceRadar.Observability.TemplateSeeder do
   def seed_all do
     if repo_enabled?() do
       # DB connection's search_path determines the schema
-      # Seed templates for the current tenant schema
-      seed_for_current_tenant()
+      seed_templates()
     end
   end
 
-  def seed_for_tenant(_tenant) do
-    # DB connection's search_path determines the schema
-    seed_for_current_tenant()
-  end
-
-  defp seed_for_current_tenant do
+  defp seed_templates do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:template_seeder)
     opts = [actor: actor]

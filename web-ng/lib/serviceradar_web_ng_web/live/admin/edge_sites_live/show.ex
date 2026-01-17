@@ -8,23 +8,22 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   require Ash.Query
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.EdgeSite
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNg.Edge.EdgeSiteBundleGenerator
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    actor = get_actor(socket)
+    scope = socket.assigns.current_scope
 
-    case load_site(id, actor) do
+    case load_site(id, scope) do
       {:ok, site} ->
         socket =
           socket
           |> assign(:page_title, site.name)
           |> assign(:site, site)
           |> assign(:leaf_server, site.nats_leaf_server)
-          |> load_collectors(id)
+          |> load_collectors(id, scope)
 
         {:ok, socket}
 
@@ -40,9 +39,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
   def handle_event("download_bundle", _params, socket) do
     site = socket.assigns.site
     leaf_server = socket.assigns.leaf_server
-    actor = get_actor(socket)
 
-    case generate_bundle(site, leaf_server, actor) do
+    case generate_bundle(site, leaf_server) do
       {:ok, tarball} ->
         filename = EdgeSiteBundleGenerator.bundle_filename(site)
 
@@ -61,13 +59,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   def handle_event("regenerate_config", _params, socket) do
     leaf_server = socket.assigns.leaf_server
+    scope = socket.assigns.current_scope
 
-    case regenerate_config(leaf_server) do
+    case regenerate_config(leaf_server, scope) do
       {:ok, _updated} ->
         site_id = socket.assigns.site.id
-        actor = get_actor(socket)
 
-        case load_site(site_id, actor) do
+        case load_site(site_id, scope) do
           {:ok, site} ->
             {:noreply,
              socket
@@ -86,8 +84,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   def handle_event("update_nats_url", %{"nats_leaf_url" => url}, socket) do
     site = socket.assigns.site
+    scope = socket.assigns.current_scope
 
-    case update_site(site, %{nats_leaf_url: url}) do
+    case update_site(site, %{nats_leaf_url: url}, scope) do
       {:ok, updated_site} ->
         {:noreply,
          socket
@@ -101,9 +100,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   def handle_event("delete_site", _params, socket) do
     site = socket.assigns.site
-    actor = get_actor(socket)
+    scope = socket.assigns.current_scope
 
-    case Ash.destroy(site, actor: actor) do
+    case Ash.destroy(site, scope: scope) do
       :ok ->
         {:noreply,
          socket
@@ -459,27 +458,25 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
 
   # Data loading
 
-  defp load_site(id, actor) do
+  defp load_site(id, scope) do
     case EdgeSite
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^id)
          |> Ash.Query.load(:nats_leaf_server)
-         |> Ash.read_one(actor: actor) do
+         |> Ash.read_one(scope: scope) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, site} -> {:ok, site}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp load_collectors(socket, site_id) do
-    actor = get_actor(socket)
-
+  defp load_collectors(socket, site_id, scope) do
     collectors =
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(edge_site_id == ^site_id)
            |> Ash.Query.sort(inserted_at: :desc)
-           |> Ash.read(actor: actor) do
+           |> Ash.read(scope: scope) do
         {:ok, packages} -> packages
         {:error, _} -> []
       end
@@ -487,24 +484,19 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     assign(socket, :collectors, collectors)
   end
 
-  defp update_site(site, attrs) do
-    # Note: actor should be passed from calling context for proper authorization
-    actor = SystemActor.platform(:edge_sites_live)
-
+  defp update_site(site, attrs, scope) do
     site
     |> Ash.Changeset.for_update(:update, attrs)
-    |> Ash.update(actor: actor)
+    |> Ash.update(scope: scope)
   end
 
-  defp regenerate_config(leaf_server) do
-    actor = SystemActor.platform(:edge_sites_live)
-
+  defp regenerate_config(leaf_server, scope) do
     leaf_server
     |> Ash.Changeset.for_update(:reprovision, %{})
-    |> Ash.update(actor: actor)
+    |> Ash.update(scope: scope)
   end
 
-  defp generate_bundle(site, leaf_server, _actor) do
+  defp generate_bundle(site, leaf_server) do
     # In single-tenant-per-deployment mode, tenant info comes from environment
     tenant_info = get_tenant_info()
 
@@ -567,13 +559,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
     case leaf_server.server_key_pem_ciphertext do
       nil -> {:error, :no_server_key}
       ciphertext -> ServiceRadar.Vault.decrypt(ciphertext)
-    end
-  end
-
-  defp get_actor(socket) do
-    case socket.assigns[:current_scope] do
-      %{user: user} when not is_nil(user) -> user
-      _ -> nil
     end
   end
 

@@ -40,7 +40,7 @@ if Code.ensure_loaded?(Credo.Check) do
       category: :warning,
       explanations: [
         check: """
-        Avoid `authorize?: false` - use SystemActor.for_tenant/2 or SystemActor.platform/1 instead.
+        Avoid `authorize?: false` - use SystemActor.system/1 or SystemActor.platform/1 instead.
         See ServiceRadar.Actors.SystemActor for the proper pattern.
         """
       ]
@@ -94,7 +94,7 @@ if Code.ensure_loaded?(Credo.Check) do
       format_issue(
         issue_meta,
         message:
-          "Avoid `authorize?: false` - use SystemActor.for_tenant/2 or SystemActor.platform/1 instead",
+          "Avoid `authorize?: false` - use SystemActor.system/1 or SystemActor.platform/1 instead",
         trigger: "authorize?: false",
         line_no: line_no
       )
