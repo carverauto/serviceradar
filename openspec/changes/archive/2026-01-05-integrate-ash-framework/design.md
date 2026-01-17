@@ -78,7 +78,7 @@ The goal is to migrate control plane functionality from Go to Elixir, eventually
 multitenancy do
   strategy :attribute
   attribute :tenant_id
-  global? true  # Allow global reads for super-admins
+  global? true  # Allow global reads for system admins
 end
 ```
 
@@ -109,7 +109,7 @@ end
 - Policies evaluated at resource level, cannot be bypassed
 - Field-level policies for sensitive data
 - Audit-friendly policy definitions
-- Bypass for super-admin emergencies
+- Bypass for system-admin emergencies
 
 **Example policy structure**:
 ```elixir

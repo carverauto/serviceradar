@@ -129,7 +129,7 @@ defmodule ServiceRadar.Edge.NatsCredential do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's credentials
+    # Admins can manage credentials
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

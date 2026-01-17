@@ -181,7 +181,7 @@ defmodule ServiceRadar.Edge.NatsLeafServer do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can read their tenant's servers
+    # Admins can read servers
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

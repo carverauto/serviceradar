@@ -75,12 +75,6 @@ defmodule ServiceRadar.SysmonProfiles.SrqlTargetResolver do
 
   def resolve_for_device(nil, _actor), do: {:ok, nil}
 
-  # Backwards compatibility - ignore tenant_schema parameter
-  @doc false
-  def resolve_for_device(_tenant_schema, device_uid, actor) do
-    resolve_for_device(device_uid, actor)
-  end
-
   # Load all profiles with SRQL targeting, ordered by priority
   defp load_targeting_profiles(actor) do
     query =

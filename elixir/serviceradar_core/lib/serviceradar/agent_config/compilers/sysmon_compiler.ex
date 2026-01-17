@@ -111,7 +111,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   defp try_srql_targeting(nil, _actor), do: nil
 
   defp try_srql_targeting(device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(nil, device_uid, actor) do
+    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
       {:ok, profile} ->
         profile
 

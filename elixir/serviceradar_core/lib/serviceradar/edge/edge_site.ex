@@ -61,7 +61,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
     defaults [:read, :destroy]
 
     read :by_slug do
-      description "Find edge site by tenant and slug"
+      description "Find edge site by slug"
       argument :slug, :string, allow_nil?: false
       get? true
       filter expr(slug == ^arg(:slug))
@@ -150,7 +150,7 @@ defmodule ServiceRadar.Edge.EdgeSite do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's sites
+    # Admins can manage sites
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

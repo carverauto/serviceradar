@@ -23,12 +23,8 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolverTest do
       assert Code.ensure_loaded?(SrqlTargetResolver)
     end
 
-    test "exports resolve_for_device/2 (primary API)" do
+    test "exports resolve_for_device/2" do
       assert function_exported?(SrqlTargetResolver, :resolve_for_device, 2)
-    end
-
-    test "exports resolve_for_device/3 (backwards compatibility)" do
-      assert function_exported?(SrqlTargetResolver, :resolve_for_device, 3)
     end
   end
 

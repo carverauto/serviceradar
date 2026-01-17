@@ -109,7 +109,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # All authenticated users in tenant can read
+    # All authenticated users in the instance can read
     policy action_type(:read) do
       authorize_if always()
     end

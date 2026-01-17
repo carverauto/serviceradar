@@ -6,7 +6,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   action is triggered. It handles:
 
   1. Creating a PollJob record to track execution
-  2. Finding an available gateway for the schedule's partition/tenant
+  2. Finding an available gateway for the schedule's partition
   3. Loading the service checks associated with the schedule
   4. Dispatching the job to the gateway
   5. Transitioning the PollJob through states and recording results

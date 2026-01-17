@@ -27,14 +27,14 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     {:ok, unique_id: unique_id}
   end
 
-  describe "record_state_change/4" do
+  describe "record_state_change/3" do
     test "creates a HealthEvent record for agent state transition", %{
             unique_id: unique_id
     } do
       entity_id = "agent-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded,
           reason: :high_latency,
@@ -56,7 +56,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "gateway-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:gateway, entity_id, nil,
+        HealthTracker.record_state_change(:gateway, entity_id,
           old_state: :healthy,
           new_state: :degraded,
           reason: :heartbeat_timeout
@@ -74,7 +74,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "checker-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:checker, entity_id, nil,
+        HealthTracker.record_state_change(:checker, entity_id,
           old_state: :active,
           new_state: :failing,
           reason: :consecutive_failures,
@@ -93,25 +93,25 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       # Record multiple state changes
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           new_state: :connecting
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connecting,
           new_state: :connected
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded,
           reason: :high_latency
         )
 
       # Query timeline
-      {:ok, events} = HealthTracker.timeline(:agent, entity_id, nil, hours: 1)
+      {:ok, events} = HealthTracker.timeline(:agent, entity_id, hours: 1)
 
       assert length(events) == 3
       # Most recent first
@@ -122,7 +122,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "agent-node-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           new_state: :connected,
           node: "node-1@serviceradar.local"
         )
@@ -134,7 +134,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "agent-default-node-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           new_state: :connected
         )
 
@@ -153,7 +153,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, topic)
 
       {:ok, event} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded,
           reason: :high_latency
@@ -175,7 +175,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, topic)
 
       {:ok, _event} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           new_state: :connected,
           broadcast: false
         )
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
   end
 
-  describe "current_status/3" do
+  describe "current_status/2" do
     test "returns the most recent health event for an entity", %{
             unique_id: unique_id
     } do
@@ -193,24 +193,24 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       # Record several events
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           new_state: :connecting
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connecting,
           new_state: :connected
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, entity_id, nil,
+        HealthTracker.record_state_change(:agent, entity_id,
           old_state: :connected,
           new_state: :degraded
         )
 
       # Get current status
-      {:ok, current} = HealthTracker.current_status(:agent, entity_id, nil)
+      {:ok, current} = HealthTracker.current_status(:agent, entity_id)
 
       assert current.new_state == :degraded
     end
@@ -218,13 +218,13 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     test "returns nil for entity with no events", %{unique_id: unique_id} do
       entity_id = "agent-no-events-#{unique_id}"
 
-      {:ok, current} = HealthTracker.current_status(:agent, entity_id, nil)
+      {:ok, current} = HealthTracker.current_status(:agent, entity_id)
 
       assert current == nil
     end
   end
 
-  describe "record_health_check/4" do
+  describe "record_health_check/3" do
     test "records state change when health status changes", %{
             unique_id: unique_id
     } do
@@ -232,7 +232,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       # First health check - healthy
       {:ok, event} =
-        HealthTracker.record_health_check(:custom, entity_id, nil,
+        HealthTracker.record_health_check(:custom, entity_id,
           healthy: true,
           latency_ms: 50
         )
@@ -241,7 +241,7 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       # Second health check - unhealthy
       {:ok, event2} =
-        HealthTracker.record_health_check(:custom, entity_id, nil,
+        HealthTracker.record_health_check(:custom, entity_id,
           healthy: false,
           latency_ms: 5000,
           error: "timeout"
@@ -258,13 +258,13 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
       # First health check
       {:ok, _} =
-        HealthTracker.record_health_check(:custom, entity_id, nil,
+        HealthTracker.record_health_check(:custom, entity_id,
           healthy: true
         )
 
       # Second health check - same status
       result =
-        HealthTracker.record_health_check(:custom, entity_id, nil,
+        HealthTracker.record_health_check(:custom, entity_id,
           healthy: true
         )
 
@@ -272,12 +272,12 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
   end
 
-  describe "heartbeat/4" do
+  describe "heartbeat/3" do
     test "records first heartbeat as new event", %{unique_id: unique_id} do
       entity_id = "core-#{unique_id}"
 
       {:ok, event} =
-        HealthTracker.heartbeat(:core, entity_id, nil,
+        HealthTracker.heartbeat(:core, entity_id,
           healthy: true,
           metadata: %{version: "1.0.0"}
         )
@@ -293,10 +293,10 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "core-unchanged-#{unique_id}"
 
       # First heartbeat
-      {:ok, _} = HealthTracker.heartbeat(:core, entity_id, nil, healthy: true)
+      {:ok, _} = HealthTracker.heartbeat(:core, entity_id, healthy: true)
 
       # Second heartbeat - same state
-      result = HealthTracker.heartbeat(:core, entity_id, nil, healthy: true)
+      result = HealthTracker.heartbeat(:core, entity_id, healthy: true)
 
       assert result == {:ok, :unchanged}
     end
@@ -305,37 +305,37 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
       entity_id = "core-change-#{unique_id}"
 
       # First heartbeat - healthy
-      {:ok, _} = HealthTracker.heartbeat(:core, entity_id, nil, healthy: true)
+      {:ok, _} = HealthTracker.heartbeat(:core, entity_id, healthy: true)
 
       # Second heartbeat - degraded
-      {:ok, event} = HealthTracker.heartbeat(:core, entity_id, nil, healthy: false)
+      {:ok, event} = HealthTracker.heartbeat(:core, entity_id, healthy: false)
 
       assert event.new_state == :degraded
       assert event.old_state == :healthy
     end
   end
 
-  describe "summary/1" do
+  describe "summary/0" do
     test "returns health summary grouped by entity type and state", %{
             unique_id: unique_id
     } do
       # Create events for different entity types
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, "agent-sum-1-#{unique_id}", nil,
+        HealthTracker.record_state_change(:agent, "agent-sum-1-#{unique_id}",
           new_state: :connected
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, "agent-sum-2-#{unique_id}", nil,
+        HealthTracker.record_state_change(:agent, "agent-sum-2-#{unique_id}",
           new_state: :degraded
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:gateway, "gateway-sum-1-#{unique_id}", nil,
+        HealthTracker.record_state_change(:gateway, "gateway-sum-1-#{unique_id}",
           new_state: :healthy
         )
 
-      {:ok, summary} = HealthTracker.summary(nil)
+      {:ok, summary} = HealthTracker.summary()
 
       assert is_map(summary)
       assert Map.has_key?(summary, :agent)
@@ -344,20 +344,20 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
     end
   end
 
-  describe "recent_events/2" do
+  describe "recent_events/1" do
     test "returns recent events across all entities", %{unique_id: unique_id} do
       # Create some events
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, "agent-recent-#{unique_id}", nil,
+        HealthTracker.record_state_change(:agent, "agent-recent-#{unique_id}",
           new_state: :connected
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:gateway, "gateway-recent-#{unique_id}", nil,
+        HealthTracker.record_state_change(:gateway, "gateway-recent-#{unique_id}",
           new_state: :healthy
         )
 
-      {:ok, events} = HealthTracker.recent_events(nil, limit: 10)
+      {:ok, events} = HealthTracker.recent_events(limit: 10)
 
       assert length(events) >= 2
       assert Enum.all?(events, &is_struct(&1, HealthEvent))
@@ -365,32 +365,18 @@ defmodule ServiceRadar.Infrastructure.HealthTrackerTest do
 
     test "can filter by entity_type", %{unique_id: unique_id} do
       {:ok, _} =
-        HealthTracker.record_state_change(:agent, "agent-filter-#{unique_id}", nil,
+        HealthTracker.record_state_change(:agent, "agent-filter-#{unique_id}",
           new_state: :connected
         )
 
       {:ok, _} =
-        HealthTracker.record_state_change(:gateway, "gateway-filter-#{unique_id}", nil,
+        HealthTracker.record_state_change(:gateway, "gateway-filter-#{unique_id}",
           new_state: :healthy
         )
 
-      {:ok, events} = HealthTracker.recent_events(nil, entity_type: :agent, limit: 100)
+      {:ok, events} = HealthTracker.recent_events(entity_type: :agent, limit: 100)
 
       assert Enum.all?(events, &(&1.entity_type == :agent))
-    end
-  end
-
-  describe "error handling" do
-    test "returns error for invalid tenant schema", %{unique_id: unique_id} do
-      entity_id = "agent-invalid-#{unique_id}"
-      invalid_tenant = "non-existent-tenant-id"
-
-      result =
-        HealthTracker.record_state_change(:agent, entity_id, invalid_tenant,
-          new_state: :connected
-        )
-
-      assert {:error, :tenant_schema_not_found} = result
     end
   end
 end

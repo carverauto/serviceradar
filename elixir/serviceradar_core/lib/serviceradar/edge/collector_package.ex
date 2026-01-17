@@ -303,7 +303,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's packages
+    # Admins can manage packages
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end

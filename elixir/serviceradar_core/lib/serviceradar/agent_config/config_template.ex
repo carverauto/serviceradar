@@ -3,7 +3,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
   Reusable configuration templates for agent configs.
 
   Templates define the schema and default values for a specific config type.
-  They can be tenant-specific or platform-wide (admin_only: true).
+  They can be instance-specific or admin-only (admin_only: true).
   """
 
   use Ash.Resource,
@@ -81,7 +81,7 @@ defmodule ServiceRadar.AgentConfig.ConfigTemplate do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # All authenticated users in tenant can read non-admin templates
+    # All authenticated users in the instance can read non-admin templates
     policy action_type(:read) do
       authorize_if expr(admin_only == false)
       authorize_if actor_attribute_equals(:role, :admin)
