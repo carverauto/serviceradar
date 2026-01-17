@@ -11,7 +11,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - **Manual updates** - Admin/operator actions
 
   Health events are persisted to `health_events`, published as `logs.internal.*`
-  payloads on NATS for promotion, and broadcast via per-tenant PubSub topics.
+  payloads on NATS for promotion, and broadcast via PubSub topics.
 
   ## Architecture
 
@@ -45,33 +45,32 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   ## Usage
 
       # Record a state change from any source
-      HealthTracker.record_state_change(:agent, "agent-uid", tenant_id,
+      HealthTracker.record_state_change(:agent, "agent-uid",
         old_state: :connected,
         new_state: :degraded,
         reason: :high_latency
       )
 
       # Record health check result from gRPC
-      HealthTracker.record_health_check(:datasvc, "datasvc-node-1", tenant_id,
+      HealthTracker.record_health_check(:datasvc, "datasvc-node-1",
         healthy: false,
         latency_ms: 5000,
         error: "timeout"
       )
 
       # Record service heartbeat
-      HealthTracker.heartbeat(:core, node_id, tenant_id,
+      HealthTracker.heartbeat(:core, node_id,
         healthy: true,
         metadata: %{version: "1.0.0", uptime_seconds: 3600}
       )
 
       # Query health status
-      HealthTracker.current_status(:gateway, "gateway-001", tenant_id)
-      HealthTracker.timeline(:agent, "agent-uid", tenant_id, hours: 24)
-      HealthTracker.summary(tenant_id)
+      HealthTracker.current_status(:gateway, "gateway-001")
+      HealthTracker.timeline(:agent, "agent-uid", hours: 24)
+      HealthTracker.summary()
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Events.HealthWriter
   alias ServiceRadar.Infrastructure.{HealthEvent, HealthPubSub}
 
@@ -84,19 +83,11 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
     Application.get_env(:serviceradar_core, :repo_enabled, true)
   end
 
-  defp valid_tenant_id?(tenant_id) when is_binary(tenant_id) and tenant_id != "", do: true
-  defp valid_tenant_id?(_tenant_id), do: false
-
-  defp ensure_tracking_ready(tenant_id) do
-    cond do
-      not repo_enabled?() ->
-        {:error, :repo_disabled}
-
-      not valid_tenant_id?(tenant_id) ->
-        {:error, :tenant_id_missing}
-
-      true ->
-        :ok
+  defp ensure_tracking_ready do
+    if repo_enabled?() do
+      :ok
+    else
+      {:error, :repo_disabled}
     end
   end
 
@@ -121,22 +112,23 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:metadata` - Additional context
   - `:broadcast` - Whether to broadcast via PubSub (default: true)
   """
-  @spec record_state_change(entity_type(), String.t(), String.t(), keyword()) ::
+  @spec record_state_change(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
-  def record_state_change(entity_type, entity_id, tenant_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready(tenant_id) do
+  def record_state_change(entity_type, entity_id, opts \\ []) do
+    with :ok <- ensure_tracking_ready() do
       new_state = Keyword.fetch!(opts, :new_state)
       old_state = Keyword.get(opts, :old_state)
       reason = Keyword.get(opts, :reason)
       node = Keyword.get(opts, :node, to_string(node()))
       metadata = Keyword.get(opts, :metadata, %{})
       broadcast = Keyword.get(opts, :broadcast, true)
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
       attrs = %{
         entity_type: entity_type,
         entity_id: entity_id,
-        tenant_id: tenant_id,
         old_state: old_state,
         new_state: new_state,
         reason: reason,
@@ -145,17 +137,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
       }
 
       result =
-        case tenant_schema do
-          nil ->
-            {:error, :tenant_schema_not_found}
-
-          schema ->
-            actor = SystemActor.for_tenant(tenant_id, :health_tracker)
-
-            HealthEvent
-            |> Ash.Changeset.for_create(:record, attrs, tenant: schema)
-            |> Ash.create(actor: actor)
-        end
+        HealthEvent
+        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+        |> Ash.create()
 
       case result do
         {:ok, event} ->
@@ -199,10 +183,10 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:error` - Error message if unhealthy
   - `:metadata` - Additional context
   """
-  @spec record_health_check(entity_type(), String.t(), String.t(), keyword()) ::
+  @spec record_health_check(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:error, term()}
-  def record_health_check(entity_type, entity_id, tenant_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready(tenant_id) do
+  def record_health_check(entity_type, entity_id, opts \\ []) do
+    with :ok <- ensure_tracking_ready() do
       healthy = Keyword.fetch!(opts, :healthy)
       latency_ms = Keyword.get(opts, :latency_ms)
       error = Keyword.get(opts, :error)
@@ -213,14 +197,14 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
       # Get previous state to detect changes
       old_state =
-        case current_status(entity_type, entity_id, tenant_id) do
+        case current_status(entity_type, entity_id) do
           {:ok, %{new_state: prev}} -> prev
           _ -> nil
         end
 
       # Only record if state changed (or first event)
       if old_state != new_state do
-        record_state_change(entity_type, entity_id, tenant_id,
+        record_state_change(entity_type, entity_id,
           old_state: old_state,
           new_state: new_state,
           reason: if(healthy, do: :health_check_passed, else: :health_check_failed),
@@ -254,10 +238,10 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:healthy` - Whether the service is healthy (default: true)
   - `:metadata` - Additional context (version, uptime, etc.)
   """
-  @spec heartbeat(entity_type(), String.t(), String.t(), keyword()) ::
+  @spec heartbeat(entity_type(), String.t(), keyword()) ::
           {:ok, struct()} | {:ok, :unchanged} | {:error, term()}
-  def heartbeat(entity_type, entity_id, tenant_id, opts \\ []) do
-    with :ok <- ensure_tracking_ready(tenant_id) do
+  def heartbeat(entity_type, entity_id, opts \\ []) do
+    with :ok <- ensure_tracking_ready() do
       healthy = Keyword.get(opts, :healthy, true)
       metadata = Keyword.get(opts, :metadata, %{})
 
@@ -265,14 +249,14 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
 
       # Get previous state
       old_state =
-        case current_status(entity_type, entity_id, tenant_id) do
+        case current_status(entity_type, entity_id) do
           {:ok, %{new_state: prev}} -> prev
           _ -> nil
         end
 
       # Record event if state changed or first heartbeat
       if old_state != new_state or old_state == nil do
-        record_state_change(entity_type, entity_id, tenant_id,
+        record_state_change(entity_type, entity_id,
           old_state: old_state,
           new_state: new_state,
           reason: :heartbeat,
@@ -293,31 +277,23 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   @doc """
   Gets the current (most recent) health status for an entity.
   """
-  @spec current_status(entity_type(), String.t(), String.t()) ::
+  @spec current_status(entity_type(), String.t()) ::
           {:ok, struct()} | {:ok, nil} | {:error, term()}
-  def current_status(entity_type, entity_id, tenant_id) do
+  def current_status(entity_type, entity_id) do
     require Ash.Query
 
-    with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+    with :ok <- ensure_tracking_ready() do
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
-
-        schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
-
-          HealthEvent
-          |> Ash.Query.filter(
-            entity_type == ^entity_type and
-              entity_id == ^entity_id and
-              tenant_id == ^tenant_id
-          )
-          |> Ash.Query.sort(recorded_at: :desc)
-          |> Ash.Query.limit(1)
-          |> Ash.read_one(actor: actor, tenant: schema)
-      end
+      HealthEvent
+      |> Ash.Query.filter(
+        entity_type == ^entity_type and
+          entity_id == ^entity_id
+      )
+      |> Ash.Query.sort(recorded_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ash.read_one(actor: actor)
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
     end
@@ -331,76 +307,60 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - `:hours` - Number of hours of history (default: 24)
   - `:limit` - Maximum events to return (default: 100)
   """
-  @spec timeline(entity_type(), String.t(), String.t(), keyword()) ::
+  @spec timeline(entity_type(), String.t(), keyword()) ::
           {:ok, [struct()]} | {:error, term()}
-  def timeline(entity_type, entity_id, tenant_id, opts \\ []) do
+  def timeline(entity_type, entity_id, opts \\ []) do
     hours = Keyword.get(opts, :hours, 24)
     limit = Keyword.get(opts, :limit, 100)
 
     since = DateTime.add(DateTime.utc_now(), -hours, :hour)
 
-    with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
-
+    with :ok <- ensure_tracking_ready() do
       require Ash.Query
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-        schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
-
-          HealthEvent
-          |> Ash.Query.filter(
-            entity_type == ^entity_type and
-              entity_id == ^entity_id and
-              tenant_id == ^tenant_id and
-              recorded_at >= ^since
-          )
-          |> Ash.Query.sort(recorded_at: :desc)
-          |> Ash.Query.limit(limit)
-          |> Ash.read(actor: actor, tenant: schema)
-      end
+      HealthEvent
+      |> Ash.Query.filter(
+        entity_type == ^entity_type and
+          entity_id == ^entity_id and
+          recorded_at >= ^since
+      )
+      |> Ash.Query.sort(recorded_at: :desc)
+      |> Ash.Query.limit(limit)
+      |> Ash.read(actor: actor)
     else
       {:error, reason} -> return_with_skip(entity_type, entity_id, reason)
     end
   end
 
   @doc """
-  Gets a health summary for a tenant.
+  Gets a health summary.
 
   Returns counts by entity type and current state.
   """
-  @spec summary(String.t()) :: {:ok, map()} | {:error, term()}
-  def summary(tenant_id) do
+  @spec summary() :: {:ok, map()} | {:error, term()}
+  def summary do
     require Ash.Query
 
-    with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
+    with :ok <- ensure_tracking_ready() do
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
       # Get the most recent event for each entity
       # This is a simplified approach - for production, use a materialized view
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      case HealthEvent
+           |> Ash.Query.sort(recorded_at: :desc)
+           |> Ash.read(actor: actor) do
+        {:ok, events} ->
+          {:ok, build_summary(events)}
 
-        schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
-
-          case HealthEvent
-               |> Ash.Query.filter(tenant_id == ^tenant_id)
-               |> Ash.Query.sort(recorded_at: :desc)
-               |> Ash.read(actor: actor, tenant: schema) do
-            {:ok, events} ->
-              {:ok, build_summary(events)}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
+        {:error, reason} ->
+          {:error, reason}
       end
     else
-      {:error, reason} -> return_with_skip(:summary, "tenant", reason)
+      {:error, reason} -> return_with_skip(:summary, "all", reason)
     end
   end
 
@@ -421,54 +381,40 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   end
 
   @doc """
-  Gets recent health events across all entities in a tenant.
+  Gets recent health events across all entities.
 
   ## Options
 
   - `:limit` - Maximum events to return (default: 50)
   - `:entity_type` - Filter by entity type (optional)
   """
-  @spec recent_events(String.t(), keyword()) :: {:ok, [struct()]} | {:error, term()}
-  def recent_events(tenant_id, opts \\ []) do
+  @spec recent_events(keyword()) :: {:ok, [struct()]} | {:error, term()}
+  def recent_events(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     entity_type = Keyword.get(opts, :entity_type)
 
-    with :ok <- ensure_tracking_ready(tenant_id) do
-      tenant_schema = safe_schema_for_tenant(tenant_id)
-
+    with :ok <- ensure_tracking_ready() do
       require Ash.Query
 
-      case tenant_schema do
-        nil ->
-          {:error, :tenant_schema_not_found}
+      # Simple actor - DB connection's search_path determines the schema
+      actor = SystemActor.system(:health_tracker)
 
-        schema ->
-          actor = SystemActor.for_tenant(tenant_id, :health_tracker)
+      query =
+        HealthEvent
+        |> Ash.Query.sort(recorded_at: :desc)
+        |> Ash.Query.limit(limit)
 
-          query =
-            HealthEvent
-            |> Ash.Query.filter(tenant_id == ^tenant_id)
-            |> Ash.Query.sort(recorded_at: :desc)
-            |> Ash.Query.limit(limit)
+      query =
+        if entity_type do
+          Ash.Query.filter(query, entity_type == ^entity_type)
+        else
+          query
+        end
 
-          query =
-            if entity_type do
-              Ash.Query.filter(query, entity_type == ^entity_type)
-            else
-              query
-            end
-
-          Ash.read(query, actor: actor, tenant: schema)
-      end
+      Ash.read(query, actor: actor)
     else
-      {:error, reason} -> return_with_skip(:recent, "tenant", reason)
+      {:error, reason} -> return_with_skip(:recent, "all", reason)
     end
-  end
-
-  defp safe_schema_for_tenant(tenant_id) do
-    TenantSchemas.schema_for_tenant(tenant_id)
-  rescue
-    ArgumentError -> nil
   end
 
   defp return_with_skip(entity_type, entity_id, reason) do

@@ -3,8 +3,8 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
   Ash change that schedules alert state cleanup when a stateful alert rule is created.
 
   When a stateful alert rule is created, this change ensures that the
-  StatefulAlertCleanupWorker is scheduled for the tenant to clean up stale
-  alert rule state snapshots.
+  StatefulAlertCleanupWorker is scheduled to clean up stale alert rule
+  state snapshots.
   """
 
   use Ash.Resource.Change
@@ -25,21 +25,17 @@ defmodule ServiceRadar.Observability.Changes.ScheduleAlertCleanup do
   def atomic(_changeset, _opts, _context), do: :ok
 
   defp schedule_cleanup(record) do
-    case StatefulAlertCleanupWorker.ensure_scheduled(record.tenant_id) do
+    case StatefulAlertCleanupWorker.ensure_scheduled() do
       {:ok, :already_scheduled} ->
-        Logger.debug("Alert cleanup already scheduled for tenant",
-          tenant_id: record.tenant_id
-        )
+        Logger.debug("Alert cleanup already scheduled")
 
       {:ok, _job} ->
-        Logger.info("Scheduled alert cleanup for tenant",
-          tenant_id: record.tenant_id,
+        Logger.info("Scheduled alert cleanup",
           rule_id: record.id
         )
 
       {:error, reason} ->
         Logger.error("Failed to schedule alert cleanup",
-          tenant_id: record.tenant_id,
           rule_id: record.id,
           reason: inspect(reason)
         )

@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   Generates downloadable installation bundles for collector edge components.
 
   A collector bundle contains everything needed to configure an already-installed collector:
-  - NATS credentials file (.creds) for tenant-isolated messaging
+  - NATS credentials file (.creds) for account-isolated messaging
   - mTLS certificates for secure communication
   - Collector configuration file (TOML for flowgger/otel, JSON for trapd/netflow)
   - Update script to copy files and restart the service
@@ -431,8 +431,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     ## Security Notes
 
     - The private key and NATS credentials should be kept secure (mode 600)
-    - Credentials authenticate this collector to your tenant's NATS account
-    - All messages are automatically tagged with your tenant identity
+    - Credentials authenticate this collector to your NATS account
+    - All messages are scoped to this deployment's account
     - mTLS ensures encrypted, authenticated communication
 
     ## Troubleshooting

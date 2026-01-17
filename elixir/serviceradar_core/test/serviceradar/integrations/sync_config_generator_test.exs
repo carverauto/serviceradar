@@ -1,6 +1,9 @@
 defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   @moduledoc """
-  Integration tests for sync config generation and tenant isolation.
+  Integration tests for sync config generation.
+
+  In single-deployment architecture, schema isolation is handled
+  by PostgreSQL search_path. Tests run against the single schema.
   """
 
   use ExUnit.Case, async: false
@@ -9,7 +12,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
   require Ash.Query
 
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.{IntegrationSource, SyncConfigGenerator}
 
@@ -19,19 +21,16 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
   end
 
   test "agent sync config only includes sources assigned to the agent" do
-    tenant_a = create_tenant!("tenant-a")
-    tenant_b = create_tenant!("tenant-b")
+    # In single-deployment mode, schema context is implicit from DB connection's search_path
+    agent_a = create_agent!("agent-a")
+    agent_b = create_agent!("agent-b")
 
-    agent_a = create_agent!(tenant_a, "agent-a")
-    agent_b = create_agent!(tenant_b, "agent-b")
-
-    source_a = create_source!(tenant_a, agent_a.uid, "source-a")
-    _source_b = create_source!(tenant_b, agent_b.uid, "source-b")
+    source_a = create_source!(agent_a.uid, "source-a")
+    _source_b = create_source!(agent_b.uid, "source-b")
 
     assert {:ok, payload} =
              SyncConfigGenerator.get_config_if_changed(
                agent_a.uid,
-               to_string(tenant_a.id),
                ""
              )
 
@@ -39,41 +38,24 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     sources = config["sources"]
 
     assert config["agent_id"] == agent_a.uid
-    assert config["tenant_id"] == to_string(tenant_a.id)
     assert Map.has_key?(sources, source_a.name)
   end
 
-  defp create_tenant!(slug_prefix) do
-    suffix = System.unique_integer([:positive])
-    slug = "#{slug_prefix}-#{suffix}"
-    name = "#{slug_prefix}-name-#{suffix}"
-
-    Tenant
-    |> Ash.Changeset.for_create(:create, %{name: name, slug: slug}, authorize?: false)
-    |> Ash.create(authorize?: false)
-    |> case do
-      {:ok, tenant} -> tenant
-      {:error, reason} -> raise "failed to create tenant: #{inspect(reason)}"
-    end
-  end
-
-  defp create_agent!(tenant, uid) do
+  defp create_agent!(uid) do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid},
-      actor: system_actor(tenant.id),
-      tenant: tenant.id,
-      authorize?: false
+      actor: system_actor()
     )
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: system_actor())
     |> case do
       {:ok, agent} -> agent
       {:error, reason} -> raise "failed to create agent: #{inspect(reason)}"
     end
   end
 
-  defp create_source!(tenant, agent_id, name) do
+  defp create_source!(agent_id, name) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
-    actor = system_actor(tenant.id)
+    actor = system_actor()
 
     IntegrationSource
     |> Ash.Changeset.for_create(
@@ -84,24 +66,22 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
         endpoint: endpoint,
         agent_id: agent_id
       },
-      actor: actor,
-      tenant: tenant.id,
-      authorize?: false
+      actor: actor
     )
     |> Ash.Changeset.set_argument(:credentials, %{token: "secret"})
-    |> Ash.create(authorize?: false)
+    |> Ash.create(actor: actor)
     |> case do
       {:ok, source} -> source
       {:error, reason} -> raise "failed to create integration source: #{inspect(reason)}"
     end
   end
 
-  defp system_actor(tenant_id) do
+  defp system_actor do
+    # DB connection's search_path determines the schema
     %{
       id: "system",
       email: "system@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
   end
 end

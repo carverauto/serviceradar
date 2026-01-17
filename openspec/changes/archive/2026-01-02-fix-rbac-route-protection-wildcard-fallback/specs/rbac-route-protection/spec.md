@@ -5,7 +5,7 @@ When `rbac.route_protection` contains both wildcard patterns (for example `/api/
 
 #### Scenario: Exact match missing method falls back to wildcard protection
 - **GIVEN** `rbac.route_protection` includes `/api/admin/*: ["admin"]`
-- **AND** `rbac.route_protection` includes an exact entry for `/api/admin/users` with method-specific roles that only define `POST: ["superadmin"]`
+- **AND** `rbac.route_protection` includes an exact entry for `/api/admin/users` with method-specific roles that only define `POST: ["operator"]`
 - **WHEN** a request is made to `GET /api/admin/users`
 - **THEN** the required roles include `admin` (from the wildcard protection)
 
@@ -14,9 +14,9 @@ When an exact path entry defines roles for the requested HTTP method, those role
 
 #### Scenario: Exact match method roles override wildcard roles
 - **GIVEN** `rbac.route_protection` includes `/api/admin/*: ["admin"]`
-- **AND** `rbac.route_protection` includes an exact entry for `/api/admin/users` with method-specific roles that define `POST: ["superadmin"]`
+- **AND** `rbac.route_protection` includes an exact entry for `/api/admin/users` with method-specific roles that define `POST: ["operator"]`
 - **WHEN** a request is made to `POST /api/admin/users`
-- **THEN** the required roles include `superadmin`
+- **THEN** the required roles include `operator`
 - **AND** the required roles do not fall back to `admin` for that request
 
 ### Requirement: RBAC includes regression tests for route protection resolution

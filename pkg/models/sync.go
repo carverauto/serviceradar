@@ -21,9 +21,6 @@ type SourceConfig struct {
 	GatewayID  string `json:"gateway_id,omitempty"`
 	Partition string `json:"partition,omitempty"`
 
-	// Tenant scoping data from control plane (used for platform sync fan-out).
-	TenantID      string `json:"tenant_id,omitempty"`
-	TenantSlug    string `json:"tenant_slug,omitempty"`
 	SyncServiceID string `json:"sync_service_id,omitempty"`
 
 	// SweepInterval allows configuring how often agents should sweep the

@@ -1,10 +1,9 @@
 defmodule ServiceRadar.Observability.SyncLogWriter do
   @moduledoc """
-  Writes integration sync lifecycle updates into the tenant OTEL logs table.
+  Writes integration sync lifecycle updates into the schema OTEL logs table.
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Observability.{Log, LogPromotion}
 
@@ -20,50 +19,26 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
     write_log(source, :finished, opts)
   end
 
-  defp write_log(%IntegrationSource{tenant_id: nil}, _stage, _opts) do
-    {:error, :missing_tenant_id}
-  end
+  defp write_log(%IntegrationSource{} = source, stage, opts) do
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:sync_log_writer)
+    attrs = build_log_attrs(source, stage, opts)
 
-  defp write_log(%IntegrationSource{tenant_id: tenant_id} = source, stage, opts) do
-    tenant_id_str = to_string(tenant_id)
+    Log
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+    |> Ash.create()
+    |> case do
+      {:ok, log} ->
+        LogPromotion.promote([log])
+        :ok
 
-    with {:ok, schema} <- resolve_schema(tenant_id_str) do
-      attrs = build_log_attrs(source, stage, opts)
-      # Tenant-scoped actor for log creation
-      actor = SystemActor.for_tenant(tenant_id_str, :sync_log_writer)
-
-      Log
-      |> Ash.Changeset.for_create(:create, attrs, tenant: schema)
-      |> Ash.Changeset.force_change_attribute(:tenant_id, tenant_id_str)
-      |> Ash.create(actor: actor)
-      |> case do
-        {:ok, log} ->
-          LogPromotion.promote([log], tenant_id_str, schema)
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   rescue
     e ->
       Logger.warning("Failed to write sync ingestion log: #{inspect(e)}")
       {:error, e}
-  end
-
-  defp resolve_schema(nil), do: {:error, :missing_tenant_id}
-
-  defp resolve_schema(tenant_id) do
-    tenant_id_str = to_string(tenant_id)
-
-    case TenantSchemas.schema_for_id(tenant_id_str) do
-      nil ->
-        Logger.error("Could not resolve tenant schema for tenant_id: #{tenant_id_str}")
-        {:error, {:unknown_tenant, tenant_id_str}}
-
-      schema ->
-        {:ok, schema}
-    end
   end
 
   defp build_log_attrs(source, stage, opts) do

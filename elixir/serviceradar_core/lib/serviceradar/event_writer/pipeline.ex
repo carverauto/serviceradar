@@ -26,8 +26,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
-  alias ServiceRadar.EventWriter.TenantContext
-  alias ServiceRadar.NATS.Channels
 
   @doc """
   Starts the Broadway pipeline.
@@ -83,115 +81,63 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   def handle_message(_processor, %Message{} = message, _context) do
     subject = message.metadata[:subject]
 
-    # Extract tenant from subject prefix (e.g., "acme-corp.events.ocsf.processed")
-    {tenant_slug, base_subject} = extract_tenant_from_subject(subject)
+    # Subjects are unprefixed in single-deployment deployments.
+    base_subject = normalize_subject(subject)
 
-    # Route message to appropriate batcher based on base subject (without tenant prefix)
+    # Route message to appropriate batcher based on base subject
     batcher = determine_batcher(base_subject)
 
-    # Add tenant to message metadata for batch processing
-    updated_metadata =
-      message.metadata
-      |> Map.put(:tenant_slug, tenant_slug)
-      |> Map.put(:base_subject, base_subject)
+    # Add base_subject to metadata for batch processing
+    updated_metadata = Map.put(message.metadata, :base_subject, base_subject)
 
     message
     |> Map.put(:metadata, updated_metadata)
     |> Message.put_batcher(batcher)
   end
 
-  # Extracts tenant slug from subject prefix using NATS.Channels.parse/1
-  defp extract_tenant_from_subject(subject) when is_binary(subject) do
-    case Channels.parse(subject) do
-      {:ok, tenant_slug, base_subject} ->
-        {tenant_slug, base_subject}
+  defp normalize_subject(subject) when is_binary(subject), do: subject
+  defp normalize_subject(_), do: ""
 
-      {:error, _} ->
-        # Invalid channel format, return as-is with no tenant
-        {nil, subject}
-    end
-  end
-
-  defp extract_tenant_from_subject(_), do: {nil, ""}
-
+  # DB connection's search_path determines the schema
   @impl true
   def handle_batch(batcher, messages, batch_info, _context) do
     processor = get_processor(batcher)
-
-    # Extract tenant from first message metadata (all messages in batch should have same tenant)
-    # Fall back to TenantContext.current_tenant() for backward compatibility
-    tenant_id = extract_batch_tenant(messages) || TenantContext.current_tenant()
-
-    if is_nil(tenant_id) do
-      Logger.warning("EventWriter batch has no tenant context, using 'default'",
-        message_count: length(messages),
-        batcher: batcher
-      )
-
-      # Use "default" tenant for messages without tenant prefix (backward compatibility)
-      process_batch_with_tenant("default", processor, batcher, messages, batch_info)
-    else
-      process_batch_with_tenant(tenant_id, processor, batcher, messages, batch_info)
-    end
-  end
-
-  # Extract tenant from first message in batch
-  defp extract_batch_tenant([first | _]) do
-    first.metadata[:tenant_slug]
-  end
-
-  defp extract_batch_tenant(_), do: nil
-
-  defp process_batch_with_tenant(tenant_id, processor, batcher, messages, batch_info) do
     start_time = System.monotonic_time(:millisecond)
 
-    result =
-      TenantContext.with_tenant(tenant_id, fn ->
-        processor.process_batch(messages)
-      end)
+    result = processor.process_batch(messages)
 
     duration = System.monotonic_time(:millisecond) - start_time
 
     case result do
-      {:ok, {:ok, count}} ->
+      {:ok, count} ->
         :telemetry.execute(
           [:serviceradar, :event_writer, :batch_processed],
           %{count: count, duration: duration, batch_size: length(messages)},
-          %{stream: batcher, processor: processor, batch_key: batch_info.batch_key, tenant: tenant_id}
+          %{stream: batcher, processor: processor, batch_key: batch_info.batch_key}
         )
 
         Logger.debug("Processed batch",
           batcher: batcher,
           count: count,
-          duration_ms: duration,
-          tenant_id: tenant_id
+          duration_ms: duration
         )
 
         messages
 
-      {:ok, {:error, reason}} ->
+      {:error, reason} ->
         :telemetry.execute(
           [:serviceradar, :event_writer, :batch_failed],
           %{count: length(messages)},
-          %{stream: batcher, processor: processor, reason: inspect(reason), tenant: tenant_id}
+          %{stream: batcher, processor: processor, reason: inspect(reason)}
         )
 
         Logger.error("Batch processing failed",
           batcher: batcher,
           reason: inspect(reason),
-          message_count: length(messages),
-          tenant_id: tenant_id
-        )
-
-        Enum.map(messages, &Message.failed(&1, reason))
-
-      {:error, :missing_tenant_id} ->
-        Logger.error("Batch processing failed: missing tenant ID",
-          batcher: batcher,
           message_count: length(messages)
         )
 
-        Enum.map(messages, &Message.failed(&1, :missing_tenant_id))
+        Enum.map(messages, &Message.failed(&1, reason))
     end
   end
 

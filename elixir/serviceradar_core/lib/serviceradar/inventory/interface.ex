@@ -50,10 +50,6 @@ defmodule ServiceRadar.Inventory.Interface do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :list_by_device, action: :by_device, args: [:device_id]
     define :get_by_device_and_index, action: :by_device_and_index, args: [:device_id, :if_index]
@@ -95,20 +91,12 @@ defmodule ServiceRadar.Inventory.Interface do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Read access: Authenticated users can read interfaces
-    # Note: Full tenant isolation requires joining to device table
-    # For now, allow reads for any authenticated user with a role
+    # Read access for authenticated users
+    # DB connection's search_path determines the schema.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end
   end
-
-  # Note: discovered_interfaces doesn't have tenant_id; schema isolation handles tenancy.
 
   attributes do
     # Composite primary key: timestamp + device_id + if_index

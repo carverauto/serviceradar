@@ -18,7 +18,6 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadarWebNG.Edge.EnrollmentToken
 
@@ -65,9 +64,10 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
   # Private helpers
 
   defp enroll_with_token(package_id, token_secret, source_ip) do
-    case find_package_across_tenants(package_id) do
-      {:ok, package, tenant_schema} ->
-        do_enrollment(package, token_secret, source_ip, tenant_schema)
+    # In a single deployment, DB connection's search_path determines the schema
+    case find_package(package_id) do
+      {:ok, package} ->
+        do_enrollment(package, token_secret, source_ip)
 
       {:error, reason} ->
         {:error, reason}
@@ -118,12 +118,12 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     |> json(%{error: "enrollment failed"})
   end
 
-  defp do_enrollment(package, token_secret, source_ip, tenant_schema) do
+  defp do_enrollment(package, token_secret, source_ip) do
     with :ok <- validate_package_ready(package),
          :ok <- validate_token(package, token_secret),
          :ok <- validate_not_already_enrolled(package),
          {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, _updated} <- mark_enrolled(package, source_ip, tenant_schema) do
+         {:ok, _updated} <- mark_enrolled(package, source_ip) do
       {:ok, build_enrollment_response(package, creds_content)}
     end
   end
@@ -181,13 +181,14 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     end
   end
 
-  defp mark_enrolled(package, source_ip, tenant_schema) do
-    actor = SystemActor.platform(:enroll_controller)
+  defp mark_enrolled(package, source_ip) do
+    # In a single deployment, DB connection's search_path determines the schema
+    actor = SystemActor.system(:enroll_controller)
 
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:source_ip, source_ip)
-    |> Ash.update(actor: actor, tenant: tenant_schema)
+    |> Ash.update(actor: actor)
   end
 
   defp build_enrollment_response(package, nats_creds) do
@@ -236,25 +237,18 @@ defmodule ServiceRadarWebNG.Api.EnrollController do
     encode_yaml(config)
   end
 
-  defp find_package_across_tenants(package_id) do
-    actor = SystemActor.platform(:enroll_controller)
+  defp find_package(package_id) do
+    # In a single deployment, DB connection's search_path determines the schema
+    actor = SystemActor.system(:enroll_controller)
 
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
-      case CollectorPackage
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(actor: actor, tenant: schema) do
-        {:ok, nil} ->
-          {:cont, {:error, :not_found}}
-
-        {:ok, package} ->
-          {:halt, {:ok, package, schema}}
-
-        {:error, error} ->
-          {:halt, {:error, error}}
-      end
-    end)
+    case CollectorPackage
+         |> Ash.Query.for_read(:read)
+         |> Ash.Query.filter(id == ^package_id)
+         |> Ash.read_one(actor: actor) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, package} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp add_collector_defaults(config, :flowgger) do

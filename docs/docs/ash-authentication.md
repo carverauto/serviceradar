@@ -135,10 +135,9 @@ Users have a `role` attribute determining their permissions:
 
 | Role | Description | Capabilities |
 |------|-------------|--------------|
-| `viewer` | Read-only access | View resources in their tenant |
+| `viewer` | Read-only access | View resources in the deployment |
 | `operator` | Standard operator | Create, update resources |
-| `admin` | Tenant administrator | Full tenant management |
-| `super_admin` | Platform administrator | Cross-tenant access, system config |
+| `admin` | Administrator | Full instance management |
 
 **Role Assignment:**
 ```elixir
@@ -203,9 +202,13 @@ config :serviceradar_core,
   "exp": 1703606400,
   "jti": "unique_token_id",
   "purpose": "user",
-  "tenant_id": "tenant_uuid"
+  "role": "admin"
 }
 ```
+
+Note: In the single-deployment model, schema context is implicit from the deployment itself.
+Tokens don't include deployment identifiers - PostgreSQL schema isolation (via CNPG search_path)
+handles boundaries.
 
 ## API Token Management
 

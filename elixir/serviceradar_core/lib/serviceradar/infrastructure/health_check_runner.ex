@@ -2,14 +2,14 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   @moduledoc """
   High-frequency health check runner for gRPC-based service checks.
 
-  Runs per-tenant and performs sub-minute health checks via gateways to agents.
-  AshOban can only schedule per-minute, so this GenServer handles high-frequency
-  checks (e.g., every 5 seconds).
+  Performs sub-minute health checks via gateways to agents. AshOban can only
+  schedule per-minute, so this GenServer handles high-frequency checks
+  (e.g., every 5 seconds).
 
   ## Architecture
 
       ┌─────────────────┐
-      │ HealthCheckRunner │ (per-tenant GenServer)
+      │ HealthCheckRunner │ (singleton GenServer)
       └────────┬────────┘
                │ gRPC via gateway
                ▼
@@ -36,8 +36,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
 
   ## Usage
 
-      # Start runner for a tenant
-      {:ok, pid} = HealthCheckRunner.start_link(tenant_id: "tenant-uuid")
+      # Get or start the runner
+      {:ok, pid} = HealthCheckRunner.get_or_start()
 
       # Register a service for health checking
       HealthCheckRunner.register_service(pid, %{
@@ -64,12 +64,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   @default_results_interval :timer.minutes(1)
   @check_timeout :timer.seconds(10)
 
-  defstruct [
-    :tenant_id,
-    :tenant_slug,
-    services: %{},
-    timers: %{}
-  ]
+  defstruct services: %{},
+            timers: %{}
 
   @type service_config :: %{
           service_id: String.t(),
@@ -86,18 +82,16 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   # =============================================================================
 
   @doc """
-  Starts or gets the health check runner for a tenant.
+  Starts or gets the health check runner.
 
-  If a runner already exists for the tenant, returns {:ok, pid}.
+  If a runner already exists, returns {:ok, pid}.
   Otherwise starts a new runner under the DynamicSupervisor.
   """
-  @spec get_or_start(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
-  def get_or_start(tenant_id, opts \\ []) do
-    name = via_tuple(tenant_id)
-
-    case GenServer.whereis(name) do
+  @spec get_or_start(keyword()) :: {:ok, pid()} | {:error, term()}
+  def get_or_start(opts \\ []) do
+    case GenServer.whereis(__MODULE__) do
       nil ->
-        start_for_tenant(tenant_id, opts)
+        start_runner(opts)
 
       pid ->
         {:ok, pid}
@@ -105,19 +99,13 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   end
 
   @doc """
-  Starts a new health check runner for a tenant.
+  Starts a new health check runner.
   """
-  @spec start_for_tenant(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
-  def start_for_tenant(tenant_id, opts \\ []) do
-    tenant_slug = Keyword.get(opts, :tenant_slug)
-
+  @spec start_runner(keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_runner(opts \\ []) do
     child_spec = %{
-      id: {__MODULE__, tenant_id},
-      start: {__MODULE__, :start_link, [[
-        tenant_id: tenant_id,
-        tenant_slug: tenant_slug,
-        name: via_tuple(tenant_id)
-      ]]},
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
       restart: :transient
     }
 
@@ -128,11 +116,11 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   end
 
   @doc """
-  Stops the health check runner for a tenant.
+  Stops the health check runner.
   """
-  @spec stop_for_tenant(String.t()) :: :ok | {:error, :not_found}
-  def stop_for_tenant(tenant_id) do
-    case GenServer.whereis(via_tuple(tenant_id)) do
+  @spec stop() :: :ok | {:error, :not_found}
+  def stop do
+    case GenServer.whereis(__MODULE__) do
       nil ->
         {:error, :not_found}
 
@@ -144,22 +132,12 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     end
   end
 
-  defp via_tuple(tenant_id) do
-    {:via, Registry, {ServiceRadar.LocalRegistry, {__MODULE__, tenant_id}}}
-  end
-
   @doc """
-  Starts the health check runner for a tenant (called by supervisor).
+  Starts the health check runner (called by supervisor).
   """
-  def start_link(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-    tenant_slug = Keyword.get(opts, :tenant_slug)
-    name = Keyword.get(opts, :name)
-
-    GenServer.start_link(__MODULE__, %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    }, name: name)
+  def start_link(opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, opts, name: name)
   end
 
   @doc """
@@ -209,12 +187,10 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
   # =============================================================================
 
   @impl true
-  def init(%{tenant_id: tenant_id, tenant_slug: tenant_slug}) do
-    Logger.info("Starting HealthCheckRunner for tenant: #{tenant_id}")
+  def init(_opts) do
+    Logger.info("Starting HealthCheckRunner")
 
     state = %__MODULE__{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug,
       services: %{},
       timers: %{}
     }
@@ -266,7 +242,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
         Logger.warning("Service #{service_id} not registered for health checks")
 
       service ->
-        run_health_check(state.tenant_id, service)
+        run_health_check(service)
     end
 
     {:noreply, state}
@@ -281,7 +257,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
       service ->
         # Run the check asynchronously
         Task.start(fn ->
-          run_health_check(state.tenant_id, service)
+          run_health_check(service)
         end)
 
         # Reschedule
@@ -300,7 +276,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
       service ->
         # Run the results poll asynchronously
         Task.start(fn ->
-          run_results_check(state.tenant_id, service)
+          run_results_check(service)
         end)
 
         # Reschedule
@@ -370,12 +346,12 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     %{state | timers: new_timers}
   end
 
-  defp run_health_check(tenant_id, service) do
+  defp run_health_check(service) do
     Logger.debug("Running health check for #{service.service_id}")
 
     start_time = System.monotonic_time(:millisecond)
 
-    result = execute_grpc_health_check(tenant_id, service)
+    result = execute_grpc_health_check(service)
 
     duration = System.monotonic_time(:millisecond) - start_time
 
@@ -385,7 +361,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
         HealthTracker.record_health_check(
           service.service_type,
           service.service_id,
-          tenant_id,
           healthy: status == :serving,
           latency_ms: duration,
           metadata: %{check_type: :grpc_health}
@@ -395,7 +370,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
         HealthTracker.record_health_check(
           service.service_type,
           service.service_id,
-          tenant_id,
           healthy: false,
           latency_ms: duration,
           error: inspect(reason),
@@ -415,19 +389,19 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     )
   end
 
-  defp run_results_check(tenant_id, service) do
+  defp run_results_check(service) do
     Logger.debug("Running results check for #{service.service_id}")
 
     start_time = System.monotonic_time(:millisecond)
 
-    result = execute_grpc_get_results(tenant_id, service)
+    result = execute_grpc_get_results(service)
 
     duration = System.monotonic_time(:millisecond) - start_time
 
     case result do
       {:ok, results} ->
         # Process and record results
-        process_check_results(tenant_id, service, results)
+        process_check_results(service, results)
 
       {:error, reason} ->
         Logger.warning("Failed to get results for #{service.service_id}: #{inspect(reason)}")
@@ -445,9 +419,9 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     )
   end
 
-  defp execute_grpc_health_check(tenant_id, service) do
+  defp execute_grpc_health_check(service) do
     # Find a gateway that can reach this agent
-    case find_gateway_for_agent(tenant_id, service.agent_uid) do
+    case find_gateway_for_agent(service.agent_uid) do
       {:ok, gateway_id} ->
         # Make gRPC call through the gateway
         # The gateway will forward to the agent, which checks the service
@@ -458,8 +432,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     end
   end
 
-  defp execute_grpc_get_results(tenant_id, service) do
-    case find_gateway_for_agent(tenant_id, service.agent_uid) do
+  defp execute_grpc_get_results(service) do
+    case find_gateway_for_agent(service.agent_uid) do
       {:ok, gateway_id} ->
         call_gateway_get_results(gateway_id, service)
 
@@ -468,10 +442,10 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
     end
   end
 
-  defp find_gateway_for_agent(tenant_id, _agent_uid) do
-    # Look up available gateways for this tenant
+  defp find_gateway_for_agent(_agent_uid) do
+    # Look up available gateways
     # The gateway will find the appropriate agent
-    case GatewayRegistry.find_available_gateways(tenant_id) do
+    case GatewayRegistry.find_available_gateways() do
       [gateway | _rest] ->
         # For now, use first available gateway
         # TODO: Could be smarter about routing to the right gateway based on agent_uid
@@ -505,7 +479,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRunner do
       {:error, reason}
   end
 
-  defp process_check_results(_tenant_id, _service, _results) do
+  defp process_check_results(_service, _results) do
     # Process results from GetResults call
     # This would update metrics, trigger alerts, etc.
     # Implementation depends on what the service returns

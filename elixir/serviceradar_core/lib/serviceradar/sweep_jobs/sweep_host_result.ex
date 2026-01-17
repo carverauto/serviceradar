@@ -40,19 +40,15 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :execution_id],
+      index [:execution_id],
         name: "sweep_host_results_execution_idx"
 
-      index [:tenant_id, :ip],
+      index [:ip],
         name: "sweep_host_results_ip_idx"
 
-      index [:tenant_id, :status],
+      index [:status],
         name: "sweep_host_results_status_idx"
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -71,7 +67,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :device_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     create :bulk_create do
@@ -89,7 +84,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
         :device_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     read :by_execution do
@@ -132,12 +126,9 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -160,12 +151,6 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this result belongs to"
-    end
 
     attribute :ip, :string do
       allow_nil? false

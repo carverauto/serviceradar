@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package accounts provides NATS account and user management for multi-tenant isolation.
+// Package accounts provides NATS account and user management for namespace isolation.
 // It uses NATS JWT and NKeys for cryptographic identity and authorization.
 package accounts
 

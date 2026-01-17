@@ -9,7 +9,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   When resolving which profile applies to a device:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default tenant profile (fallback)
+  2. Default profile (fallback)
 
   Profiles use `target_query` (SRQL) to define which devices they apply to.
   Example: `target_query: "in:devices tags.role:database"` matches all devices
@@ -45,7 +45,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SysmonProfiles.SrqlTargetResolver
   alias ServiceRadar.SysmonProfiles.SysmonProfile
 
@@ -58,13 +57,13 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   end
 
   @impl true
-  def compile(tenant_id, _partition, agent_id, opts \\ []) do
-    actor = opts[:actor] || SystemActor.for_tenant(tenant_id, :sysmon_compiler)
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  def compile(_partition, _agent_id, opts \\ []) do
+    # DB connection's search_path determines the schema
+    actor = opts[:actor] || SystemActor.system(:sysmon_compiler)
     device_uid = opts[:device_uid]
 
     # Resolve the profile for this agent/device
-    profile = resolve_profile(tenant_schema, device_uid, agent_id, actor)
+    profile = resolve_profile(device_uid, actor)
 
     if profile do
       config = compile_profile(profile)
@@ -98,22 +97,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
 
   Resolution order:
   1. SRQL targeting profiles (ordered by priority, highest first)
-  2. Default profile for tenant
+  2. Default profile
 
   Returns the matching SysmonProfile or nil if no profile matches.
   """
-  @spec resolve_profile(String.t(), String.t() | nil, String.t() | nil, map()) ::
-          SysmonProfile.t() | nil
-  def resolve_profile(tenant_schema, device_uid, _agent_id, actor) do
-    try_srql_targeting(tenant_schema, device_uid, actor) ||
-      get_default_profile(tenant_schema, actor)
+  @spec resolve_profile(String.t() | nil, map()) :: SysmonProfile.t() | nil
+  def resolve_profile(device_uid, actor) do
+    try_srql_targeting(device_uid, actor) ||
+      get_default_profile(actor)
   end
 
   # Try to find a matching profile via SRQL targeting
-  defp try_srql_targeting(_tenant_schema, nil, _actor), do: nil
+  defp try_srql_targeting(nil, _actor), do: nil
 
-  defp try_srql_targeting(tenant_schema, device_uid, actor) do
-    case SrqlTargetResolver.resolve_for_device(tenant_schema, device_uid, actor) do
+  defp try_srql_targeting(device_uid, actor) do
+    case SrqlTargetResolver.resolve_for_device(device_uid, actor) do
       {:ok, profile} ->
         profile
 
@@ -174,11 +172,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     }
   end
 
-  # Get the default profile for the tenant
-  defp get_default_profile(tenant_schema, actor) do
+  # Get the default profile
+  defp get_default_profile(actor) do
     query =
       SysmonProfile
-      |> Ash.Query.for_read(:get_default, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:get_default, %{})
 
     case Ash.read_one(query, actor: actor) do
       {:ok, profile} -> profile

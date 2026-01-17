@@ -24,7 +24,7 @@ In the UI you can:
 
 ### Templates
 
-Templates are tenant-scoped presets. Each tenant starts with default templates
+Templates are account-scoped presets. Each account starts with default templates
 and can edit or add new ones. Use templates to prefill new rules, then tweak
 the specifics before saving.
 

@@ -9,7 +9,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.Observability.StatefulAlertEngine
 
   require Logger
@@ -19,19 +18,13 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("OCSF events batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_event_rows(schema, rows)
-      end
+      insert_event_rows(rows)
     end
   rescue
     e ->
@@ -40,16 +33,11 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata} = message) do
-    tenant_id = TenantContext.resolve_tenant_id(message)
-
-    with tenant_id when not is_nil(tenant_id) <- tenant_id,
-         {:ok, json} <- Jason.decode(data) do
-      parse_event(json, metadata, data, tenant_id)
-    else
-      nil ->
-        Logger.error("OCSF event missing tenant_id", subject: metadata[:subject])
-        nil
+  def parse_message(%{data: data, metadata: metadata}) do
+    # DB connection's search_path determines the schema
+    case Jason.decode(data) do
+      {:ok, json} ->
+        parse_event(json, metadata, data)
 
       {:error, _} ->
         Logger.debug("Failed to parse events message as JSON")
@@ -65,19 +53,22 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_event_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_event_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
       {count, _} ->
-        maybe_evaluate_stateful_rules(rows, schema)
+        maybe_evaluate_stateful_rules(rows)
         {:ok, count}
     end
   end
 
-  defp parse_event(json, metadata, raw_data, tenant_id) when is_map(json) do
+  # DB connection's search_path determines the schema
+  defp parse_event(json, metadata, raw_data) when is_map(json) do
     case required_event_fields(json) do
       {:ok,
        %{
@@ -119,7 +110,6 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
           log_version: parse_string(json["log_version"]),
           unmapped: jsonb_or_empty_map(json["unmapped"]),
           raw_data: parse_string_or(json["raw_data"], raw_data),
-          tenant_id: tenant_id,
           created_at: DateTime.utc_now()
         }
 
@@ -132,7 +122,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     end
   end
 
-  defp parse_event(_json, _metadata, _raw_data, _tenant_id), do: nil
+  defp parse_event(_json, _metadata, _raw_data), do: nil
 
   defp required_event_fields(json) do
     with {:ok, id} <- fetch_required_string(json, "id"),
@@ -194,26 +184,14 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp severity_name(6), do: "Fatal"
   defp severity_name(_), do: "Unknown"
 
-  defp maybe_evaluate_stateful_rules([], _schema), do: :ok
+  defp maybe_evaluate_stateful_rules([]), do: :ok
 
-  defp maybe_evaluate_stateful_rules(rows, schema) do
-    tenant_id =
-      case rows do
-        [%{tenant_id: tenant_id} | _] -> tenant_id
-        _ -> TenantContext.current_tenant_id()
-      end
-
-    if is_nil(tenant_id) do
-      Logger.warning("Skipping stateful alert evaluation; missing tenant_id")
-      :ok
-    else
-      case StatefulAlertEngine.evaluate_events(rows, tenant_id, schema) do
-        :ok -> :ok
-        {:error, reason} ->
-          Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
-          :ok
-      end
+  defp maybe_evaluate_stateful_rules(rows) do
+    case StatefulAlertEngine.evaluate_events(rows) do
+      :ok -> :ok
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
+        :ok
     end
   end
-
 end

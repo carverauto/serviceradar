@@ -18,8 +18,6 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
       event_opts = [
         entity_type: :gateway,
         entity_id: "gateway-123",
-        tenant_id: "tenant-uuid",
-        tenant_slug: "acme",
         partition_id: "partition-uuid",
         old_state: :healthy,
         new_state: :degraded,
@@ -36,13 +34,11 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     end
 
     test "requires all mandatory fields" do
-      # Missing tenant_slug should raise
+      # Missing entity_id should raise
       assert_raise KeyError, fn ->
         EventPublisher.publish_state_change(
           entity_type: :gateway,
-          entity_id: "gateway-123",
-          tenant_id: "tenant-uuid",
-          # missing tenant_slug
+          # missing entity_id
           old_state: :healthy,
           new_state: :degraded
         )
@@ -73,14 +69,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     end
   end
 
-  describe "publish_registered/5" do
+  describe "publish_registered/4" do
     test "builds correct event for registration" do
       result =
         EventPublisher.publish_registered(
           :gateway,
           "gateway-123",
-          "tenant-uuid",
-          "acme",
           initial_state: :healthy,
           partition_id: "partition-uuid"
         )
@@ -90,14 +84,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     end
   end
 
-  describe "publish_deregistered/5" do
+  describe "publish_deregistered/4" do
     test "builds correct event for deregistration" do
       result =
         EventPublisher.publish_deregistered(
           :agent,
           "agent-456",
-          "tenant-uuid",
-          "acme",
           final_state: :disconnected,
           reason: "shutdown"
         )
@@ -107,14 +99,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     end
   end
 
-  describe "publish_heartbeat_timeout/5" do
+  describe "publish_heartbeat_timeout/4" do
     test "builds correct event for heartbeat timeout" do
       result =
         EventPublisher.publish_heartbeat_timeout(
           :gateway,
           "gateway-123",
-          "tenant-uuid",
-          "acme",
           last_seen: DateTime.utc_now(),
           current_state: :healthy
         )
@@ -124,14 +114,12 @@ defmodule ServiceRadar.Infrastructure.EventPublisherTest do
     end
   end
 
-  describe "publish_health_change/6" do
+  describe "publish_health_change/5" do
     test "builds correct event for health change" do
       result =
         EventPublisher.publish_health_change(
           :checker,
           "checker-789",
-          "tenant-uuid",
-          "acme",
           false,
           reason: "consecutive_failures"
         )

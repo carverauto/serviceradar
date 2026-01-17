@@ -17,17 +17,13 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :config_type, :partition],
-        name: "agent_config_instances_tenant_type_partition_idx"
+      index [:config_type, :partition],
+        name: "agent_config_instances_type_partition_idx"
 
-      index [:tenant_id, :config_type, :agent_id],
+      index [:config_type, :agent_id],
         where: "agent_id IS NOT NULL",
-        name: "agent_config_instances_tenant_type_agent_idx"
+        name: "agent_config_instances_type_agent_idx"
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -42,7 +38,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
         :source_ids
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.AgentConfig.Changes.ComputeConfigHash
       change ServiceRadar.AgentConfig.Changes.IncrementVersion
     end
@@ -94,17 +89,14 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage config instances
+    # Admins can manage config instances
     policy action_type(:create) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
@@ -117,7 +109,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
       authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # All authenticated users in tenant can read
+    # All authenticated users in the instance can read
     policy action_type(:read) do
       authorize_if always()
     end
@@ -125,12 +117,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this config belongs to"
-    end
 
     attribute :config_type, :atom do
       allow_nil? false
@@ -222,6 +208,6 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   end
 
   identities do
-    identity :unique_config_per_agent, [:tenant_id, :config_type, :partition, :agent_id]
+    identity :unique_config_per_agent, [:config_type, :partition, :agent_id]
   end
 end

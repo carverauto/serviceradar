@@ -59,10 +59,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -85,7 +81,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
       argument :priv_password, :string, allow_nil?: true, sensitive?: true
 
       change manage_relationship(:snmp_profile_id, :snmp_profile, type: :append)
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SNMPProfiles.Changes.EncryptCredentials
     end
 
@@ -112,10 +107,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   end
 
   policies do
-    # Super admins and system actors bypass all checks
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors bypass all checks
 
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
@@ -142,11 +134,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
 
   attributes do
     uuid_v7_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-    end
 
     attribute :name, :string do
       allow_nil? false

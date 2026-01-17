@@ -1,24 +1,13 @@
 defmodule ServiceRadar.Observability.ZenRuleSync do
   @moduledoc """
-  Tenant-scoped GenServer that synchronizes Zen rules to the datasvc KV store.
+  GenServer that synchronizes Zen rules to the datasvc KV store.
 
-  Each tenant has their own ZenRuleSync process that reconciles rules on startup
-  and at regular intervals. This ensures tenant isolation - a tenant's process
-  can only access and sync that tenant's rules.
-
-  ## Starting
-
-  ZenRuleSync is automatically started when:
-  - A Zen rule is created for a tenant
-  - Manually via `ensure_started/1`
+  Reconciles rules on startup and at regular intervals.
 
   ## Usage
 
-      # Ensure sync is running for a tenant
-      ZenRuleSync.ensure_started(tenant_id)
-
       # Sync a specific rule
-      ZenRuleSync.sync_rule(rule, tenant_id: tenant_id)
+      ZenRuleSync.sync_rule(rule)
   """
 
   use GenServer
@@ -26,84 +15,35 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantRegistry
   alias ServiceRadar.DataService.Client
   alias ServiceRadar.Observability.ZenRule
 
   @reconcile_delay_ms 5_000
   @reconcile_interval_ms :timer.minutes(5)
 
-  defstruct [:tenant_id, :tenant_schema, :actor]
+  defstruct [:ash_opts]
 
   # ============================================================================
   # Public API
   # ============================================================================
 
   @doc """
-  Ensures ZenRuleSync is running for a tenant, starting it if necessary.
+  Returns the PID of the ZenRuleSync, or nil if not running.
   """
-  @spec ensure_started(String.t()) :: {:ok, pid()} | {:error, term()}
-  def ensure_started(tenant_id) when is_binary(tenant_id) do
-    case whereis(tenant_id) do
-      nil ->
-        start_for_tenant(tenant_id)
-
-      pid ->
-        {:ok, pid}
-    end
-  end
-
-  @doc """
-  Returns the PID of the ZenRuleSync for a tenant, or nil if not running.
-  """
-  @spec whereis(String.t()) :: pid() | nil
-  def whereis(tenant_id) when is_binary(tenant_id) do
-    case TenantRegistry.lookup(tenant_id, {:zen_rule_sync, tenant_id}) do
-      [{pid, _meta}] -> pid
-      [] -> nil
-    end
-  end
-
-  @doc """
-  Starts ZenRuleSync for a tenant under the tenant's supervisor.
-  """
-  @spec start_for_tenant(String.t()) :: {:ok, pid()} | {:error, term()}
-  def start_for_tenant(tenant_id) when is_binary(tenant_id) do
-    child_spec = %{
-      id: {:zen_rule_sync, tenant_id},
-      start: {__MODULE__, :start_link, [[tenant_id: tenant_id]]},
-      type: :worker,
-      restart: :transient
-    }
-
-    case TenantRegistry.start_child(tenant_id, child_spec) do
-      {:ok, pid} ->
-        Logger.info("Started ZenRuleSync for tenant", tenant_id: tenant_id)
-        {:ok, pid}
-
-      {:error, {:already_started, pid}} ->
-        {:ok, pid}
-
-      {:error, reason} = error ->
-        Logger.error("Failed to start ZenRuleSync",
-          tenant_id: tenant_id,
-          reason: inspect(reason)
-        )
-
-        error
-    end
+  @spec whereis() :: pid() | nil
+  def whereis do
+    GenServer.whereis(__MODULE__)
   end
 
   @doc """
   Syncs a rule to the KV store.
   """
   @spec sync_rule(ZenRule.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def sync_rule(%ZenRule{} = rule, opts \\ []) do
-    tenant_id = rule.tenant_id
-    tenant_schema = Keyword.get(opts, :tenant_schema) || tenant_id
-
+  def sync_rule(%ZenRule{} = rule, _opts \\ []) do
     if datasvc_available?() do
-      sync_rule_impl(rule, tenant_schema)
+      # DB connection's search_path determines the schema
+      opts = [actor: SystemActor.system(:zen_rule_sync)]
+      sync_rule_impl(rule, opts)
     else
       {:error, :datasvc_unavailable}
     end
@@ -130,11 +70,11 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   end
 
   @doc """
-  Triggers an immediate reconciliation for a tenant.
+  Triggers an immediate reconciliation.
   """
-  @spec reconcile(String.t()) :: :ok
-  def reconcile(tenant_id) when is_binary(tenant_id) do
-    case whereis(tenant_id) do
+  @spec reconcile() :: :ok
+  def reconcile do
+    case whereis() do
       nil -> :ok
       pid -> GenServer.cast(pid, :reconcile)
     end
@@ -145,28 +85,19 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   # ============================================================================
 
   def start_link(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-    GenServer.start_link(__MODULE__, opts, name: via_tuple(tenant_id))
-  end
-
-  defp via_tuple(tenant_id) do
-    {:via, Horde.Registry, {TenantRegistry.registry_name(tenant_id), {:zen_rule_sync, tenant_id}}}
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl true
-  def init(opts) do
-    tenant_id = Keyword.fetch!(opts, :tenant_id)
-    tenant_schema = Keyword.get(opts, :tenant_schema, tenant_id)
-
-    Logger.info("ZenRuleSync starting", tenant_id: tenant_id)
+  def init(_opts) do
+    Logger.info("ZenRuleSync starting")
 
     # Schedule first reconciliation
     Process.send_after(self(), :reconcile, @reconcile_delay_ms)
 
+    # DB connection's search_path determines the schema
     {:ok, %__MODULE__{
-      tenant_id: tenant_id,
-      tenant_schema: tenant_schema,
-      actor: SystemActor.for_tenant(tenant_id, :zen_rule_sync)
+      ash_opts: [actor: SystemActor.system(:zen_rule_sync)]
     }}
   end
 
@@ -189,24 +120,19 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   defp do_reconcile(state) do
     if repo_enabled?() && datasvc_available?() do
-      reconcile_tenant(state)
+      reconcile_rules(state)
     end
   end
 
-  defp reconcile_tenant(state) do
-    query =
-      ZenRule
-      |> Ash.Query.for_read(:active, %{}, tenant: state.tenant_schema)
+  defp reconcile_rules(state) do
+    query = Ash.Query.for_read(ZenRule, :active, %{})
 
-    case Ash.read(query, actor: state.actor) do
+    case Ash.read(query, state.ash_opts) do
       {:ok, rules} ->
         Enum.each(rules, &sync_rule_with_logging(&1, state))
 
       {:error, reason} ->
-        Logger.warning("Failed to load zen rules",
-          tenant_id: state.tenant_id,
-          reason: inspect(reason)
-        )
+        Logger.warning("Failed to load zen rules", reason: inspect(reason))
     end
   end
 
@@ -217,7 +143,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
       {:error, reason} ->
         Logger.warning("Zen rule reconcile failed",
-          tenant_id: state.tenant_id,
           rule_id: rule.id,
           reason: inspect(reason)
         )
@@ -226,7 +151,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
       unexpected ->
         Logger.warning("Zen rule reconcile returned unexpected result",
-          tenant_id: state.tenant_id,
           rule_id: rule.id,
           result: inspect(unexpected)
         )
@@ -236,7 +160,6 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
   rescue
     error ->
       Logger.error("Zen rule reconcile crashed",
-        tenant_id: state.tenant_id,
         rule_id: rule.id,
         error: Exception.format(:error, error, __STACKTRACE__)
       )
@@ -244,25 +167,19 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
       :ok
   end
 
-  # Internal sync with actor from GenServer state
+  # Internal sync with opts from GenServer state
   defp sync_rule_with_actor(%ZenRule{} = rule, state) do
-    sync_rule_impl(rule, state.tenant_schema, state.actor)
+    sync_rule_impl(rule, state.ash_opts)
   end
 
-  defp sync_rule_impl(%ZenRule{} = rule, tenant_schema) do
-    # Create actor for public API calls that don't have GenServer state
-    actor = SystemActor.for_tenant(rule.tenant_id, :zen_rule_sync)
-    sync_rule_impl(rule, tenant_schema, actor)
-  end
-
-  defp sync_rule_impl(%ZenRule{} = rule, tenant_schema, actor) do
+  defp sync_rule_impl(%ZenRule{} = rule, opts) when is_list(opts) do
     if rule.enabled do
       key = kv_key(rule)
 
       with {:ok, payload} <- Jason.encode(rule.compiled_jdm),
            :ok <- Client.put(key, payload),
            {:ok, _value, revision} <- Client.get_with_revision(key),
-           :ok <- update_kv_revision(rule, revision, tenant_schema, actor) do
+           :ok <- update_kv_revision(rule, revision, opts) do
         {:ok, revision}
       else
         {:error, %Jason.EncodeError{} = error} ->
@@ -279,13 +196,14 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
     end
   end
 
-  defp update_kv_revision(%ZenRule{} = rule, revision, tenant_schema, actor) do
+  defp update_kv_revision(%ZenRule{} = rule, revision, opts) do
     rule
-    |> Ash.Changeset.for_update(:set_kv_revision, %{kv_revision: revision},
-      tenant: tenant_schema,
-      context: %{skip_zen_sync: true}
+    |> Ash.Changeset.for_update(
+      :set_kv_revision,
+      %{kv_revision: revision},
+      Keyword.put(opts, :context, %{skip_zen_sync: true})
     )
-    |> Ash.update(actor: actor)
+    |> Ash.update()
     |> case do
       {:ok, _updated} -> :ok
       {:error, reason} -> {:error, reason}

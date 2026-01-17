@@ -37,7 +37,7 @@ defmodule ServiceRadarCoreElx.Application do
     # The following are started by serviceradar_core when cluster_enabled=true:
     # - ServiceRadar.ClusterSupervisor (libcluster + Horde)
     # - ServiceRadar.ClusterHealth
-    # - TenantRegistry (for per-tenant registries)
+    # - ProcessRegistry (singleton Horde registry + DynamicSupervisor)
     #
     # AshOban scheduler is started when :start_ash_oban_scheduler = true
 

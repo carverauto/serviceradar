@@ -38,8 +38,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger to execute due polling schedules
       trigger :execute_schedules do
@@ -53,10 +51,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
         worker_module_name ServiceRadar.Monitoring.PollingSchedule.ExecuteSchedulesWorker
       end
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -296,12 +290,7 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -329,7 +318,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -474,13 +462,6 @@ defmodule ServiceRadar.Monitoring.PollingSchedule do
       default %{}
       public? true
       description "Additional metadata"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this schedule belongs to"
     end
 
     create_timestamp :created_at

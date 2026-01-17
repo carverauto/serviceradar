@@ -6,7 +6,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   When an agent registers and reports its monitored services, this process:
   1. Receives the registration event via PubSub
   2. Extracts the services the agent monitors
-  3. Registers each service with the tenant's HealthCheckRunner
+  3. Registers each service with the HealthCheckRunner
   4. Unregisters services when agents disconnect
 
   ## Architecture
@@ -22,7 +22,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
                │
                ▼
       ┌─────────────────────────┐
-      │   HealthCheckRunner     │ (per-tenant, registers services)
+      │   HealthCheckRunner     │ (singleton, registers services)
       └─────────────────────────┘
 
   ## Monitored Service Types
@@ -73,17 +73,17 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
 
   Use this when onboarding a new service outside of the agent registration flow.
   """
-  @spec register_service(String.t(), map()) :: :ok | {:error, term()}
-  def register_service(tenant_id, service_config) do
-    GenServer.call(__MODULE__, {:register_service, tenant_id, service_config})
+  @spec register_service(map()) :: :ok | {:error, term()}
+  def register_service(service_config) do
+    GenServer.call(__MODULE__, {:register_service, service_config})
   end
 
   @doc """
   Manually unregisters a service from health checking.
   """
-  @spec unregister_service(String.t(), String.t()) :: :ok
-  def unregister_service(tenant_id, service_id) do
-    GenServer.call(__MODULE__, {:unregister_service, tenant_id, service_id})
+  @spec unregister_service(String.t()) :: :ok
+  def unregister_service(service_id) do
+    GenServer.call(__MODULE__, {:unregister_service, service_id})
   end
 
   @doc """
@@ -114,7 +114,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
       registered_services: %{}
     }
 
-    # Subscribe to agent registration events (global topic for all tenants)
+    # Subscribe to agent registration events (global topic for all deployments)
     Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
 
     # Subscribe to gateway registration events
@@ -126,13 +126,13 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   end
 
   @impl true
-  def handle_call({:register_service, tenant_id, service_config}, _from, state) do
-    result = do_register_service(tenant_id, service_config, state)
+  def handle_call({:register_service, service_config}, _from, state) do
+    result = do_register_service(service_config)
     {:reply, result, state}
   end
 
-  def handle_call({:unregister_service, tenant_id, service_id}, _from, state) do
-    result = do_unregister_service(tenant_id, service_id)
+  def handle_call({:unregister_service, service_id}, _from, state) do
+    result = do_unregister_service(service_id)
     {:reply, result, state}
   end
 
@@ -157,16 +157,9 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     {:noreply, state}
   end
 
-  def handle_info({:agent_disconnected, agent_id, tenant_id}, state) do
-    Logger.info("Agent disconnected: #{agent_id}")
-    state = handle_agent_disconnected(agent_id, tenant_id, state)
-    {:noreply, state}
-  end
-
   def handle_info({:agent_disconnected, agent_id}, state) do
-    # Legacy format without tenant_id - try to find tenant from registered services
-    Logger.info("Agent disconnected (legacy): #{agent_id}")
-    state = handle_agent_disconnected_legacy(agent_id, state)
+    Logger.info("Agent disconnected: #{agent_id}")
+    state = handle_agent_disconnected(agent_id, state)
     {:noreply, state}
   end
 
@@ -181,11 +174,6 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     {:noreply, state}
   end
 
-  def handle_info({:gateway_disconnected, _gateway_id, _tenant_id}, state) do
-    Logger.debug("Gateway disconnected event received")
-    {:noreply, state}
-  end
-
   def handle_info(msg, state) do
     Logger.debug("HealthCheckRegistrar received unknown message: #{inspect(msg)}")
     {:noreply, state}
@@ -196,23 +184,22 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
   # =============================================================================
 
   defp handle_agent_registered(agent_info, state) do
-    tenant_id = agent_info[:tenant_id]
     agent_id = agent_info[:agent_id]
     services = agent_info[:monitored_services] || []
 
-    if tenant_id && Enum.any?(services) do
-      # Get or start the HealthCheckRunner for this tenant
-      case HealthCheckRunner.get_or_start(tenant_id) do
+    if Enum.any?(services) do
+      # Get or start the HealthCheckRunner
+      case HealthCheckRunner.get_or_start() do
         {:ok, _pid} ->
           # Register each service the agent monitors
-          service_ids = register_agent_services(tenant_id, agent_id, services, state)
+          service_ids = register_agent_services(agent_id, services, state)
 
           # Track registered services for this agent
           new_registered = Map.put(state.registered_services, agent_id, service_ids)
           %{state | registered_services: new_registered}
 
         {:error, reason} ->
-          Logger.warning("Failed to start HealthCheckRunner for tenant #{tenant_id}: #{inspect(reason)}")
+          Logger.warning("Failed to start HealthCheckRunner: #{inspect(reason)}")
           state
       end
     else
@@ -221,7 +208,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     end
   end
 
-  defp handle_agent_disconnected(agent_id, tenant_id, state) do
+  defp handle_agent_disconnected(agent_id, state) do
     # Get the services we registered for this agent
     case Map.get(state.registered_services, agent_id) do
       nil ->
@@ -229,7 +216,7 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
 
       service_ids ->
         # Unregister each service
-        unregister_agent_services(tenant_id, service_ids)
+        unregister_agent_services(service_ids)
 
         # Remove from tracking
         new_registered = Map.delete(state.registered_services, agent_id)
@@ -237,25 +224,11 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     end
   end
 
-  defp handle_agent_disconnected_legacy(agent_id, state) do
-    # Without tenant_id, we can't unregister properly
-    # Just remove from our tracking
-    case Map.get(state.registered_services, agent_id) do
-      nil ->
-        state
-
-      _service_ids ->
-        Logger.warning("Agent #{agent_id} disconnected but cannot unregister services (no tenant_id)")
-        new_registered = Map.delete(state.registered_services, agent_id)
-        %{state | registered_services: new_registered}
-    end
-  end
-
-  defp register_agent_services(tenant_id, agent_id, services, state) do
+  defp register_agent_services(agent_id, services, state) do
     Enum.map(services, fn service ->
       service_config = build_service_config(service, agent_id, state)
 
-      case do_register_service(tenant_id, service_config, state) do
+      case do_register_service(service_config) do
         :ok ->
           Logger.info("Registered service #{service_config.service_id} for health checking")
           service_config.service_id
@@ -268,9 +241,9 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp unregister_agent_services(tenant_id, service_ids) do
+  defp unregister_agent_services(service_ids) do
     Enum.each(service_ids, fn service_id ->
-      do_unregister_service(tenant_id, service_id)
+      do_unregister_service(service_id)
     end)
   end
 
@@ -318,8 +291,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     "#{type}-#{id}"
   end
 
-  defp do_register_service(tenant_id, service_config, _state) do
-    case HealthCheckRunner.get_or_start(tenant_id) do
+  defp do_register_service(service_config) do
+    case HealthCheckRunner.get_or_start() do
       {:ok, pid} ->
         HealthCheckRunner.register_service(pid, service_config)
 
@@ -328,11 +301,8 @@ defmodule ServiceRadar.Infrastructure.HealthCheckRegistrar do
     end
   end
 
-  defp do_unregister_service(tenant_id, service_id) do
-    # Use the same via_tuple pattern as HealthCheckRunner
-    name = {:via, Registry, {ServiceRadar.LocalRegistry, {HealthCheckRunner, tenant_id}}}
-
-    case GenServer.whereis(name) do
+  defp do_unregister_service(service_id) do
+    case GenServer.whereis(HealthCheckRunner) do
       nil ->
         :ok
 

@@ -9,15 +9,14 @@ import (
 )
 
 var (
-	errOCSFEventMissingID        = errors.New("ocsf event missing id")
-	errOCSFEventMissingTenantID  = errors.New("ocsf event missing tenant_id")
-	errOCSFEventMissingClassUID  = errors.New("ocsf event missing class_uid")
-	errOCSFEventMissingCategory  = errors.New("ocsf event missing category_uid")
-	errOCSFEventMissingTypeUID   = errors.New("ocsf event missing type_uid")
-	errOCSFEventMissingActivity  = errors.New("ocsf event missing activity_id")
+	errOCSFEventMissingID       = errors.New("ocsf event missing id")
+	errOCSFEventMissingClassUID = errors.New("ocsf event missing class_uid")
+	errOCSFEventMissingCategory = errors.New("ocsf event missing category_uid")
+	errOCSFEventMissingTypeUID  = errors.New("ocsf event missing type_uid")
+	errOCSFEventMissingActivity = errors.New("ocsf event missing activity_id")
 )
 
-func parseOCSFEvent(payload []byte, fallbackTenantID string) (*models.OCSFEventRow, error) {
+func parseOCSFEvent(payload []byte) (*models.OCSFEventRow, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return nil, err
@@ -52,7 +51,6 @@ func parseOCSFEvent(payload []byte, fallbackTenantID string) (*models.OCSFEventR
 		LogVersion:   rawString(raw, "log_version"),
 		Unmapped:     rawJSON(raw, "unmapped"),
 		RawData:      rawString(raw, "raw_data"),
-		TenantID:     rawString(raw, "tenant_id", "tenantId"),
 		CreatedAt:    time.Now().UTC(),
 	}
 
@@ -68,15 +66,9 @@ func parseOCSFEvent(payload []byte, fallbackTenantID string) (*models.OCSFEventR
 		row.SeverityID = 1
 	}
 
-	if row.TenantID == "" {
-		row.TenantID = fallbackTenantID
-	}
-
 	switch {
 	case row.ID == "":
 		return nil, errOCSFEventMissingID
-	case row.TenantID == "":
-		return nil, errOCSFEventMissingTenantID
 	case row.ClassUID == 0:
 		return nil, errOCSFEventMissingClassUID
 	case row.CategoryUID == 0:

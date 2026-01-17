@@ -12,7 +12,7 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
     max_attempts: 3,
     unique: [period: 60, keys: [:package_id, :event_type, :event_time]]
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Oban.Router
 
@@ -20,8 +20,8 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
   def perform(%Oban.Job{args: args}) do
     event_time = parse_event_time(args["event_time"])
 
-    # Create a system actor for background job authorization
-    actor = build_system_actor(args["actor"])
+    # Simple actor - DB connection's search_path determines the schema
+    actor = SystemActor.system(:record_event)
 
     attrs = %{
       event_time: event_time,
@@ -32,13 +32,8 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
       details_json: args["details"] || %{}
     }
 
-    tenant_schema =
-      args
-      |> Map.get("tenant_schema")
-      |> TenantSchemas.schema_for_tenant()
-
     case OnboardingEvent
-         |> Ash.Changeset.for_create(:record, attrs, actor: actor, tenant: tenant_schema)
+         |> Ash.Changeset.for_create(:record, attrs, actor: actor)
          |> Ash.create() do
       {:ok, _event} -> :ok
       {:error, error} -> {:error, error}
@@ -60,8 +55,7 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
       "event_time" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "actor" => Keyword.get(opts, :actor),
       "source_ip" => Keyword.get(opts, :source_ip),
-      "details" => Keyword.get(opts, :details, %{}),
-      "tenant_schema" => Keyword.get(opts, :tenant_schema)
+      "details" => Keyword.get(opts, :details, %{})
     }
 
     %{args: args}
@@ -79,14 +73,4 @@ defmodule ServiceRadar.Edge.Workers.RecordEventWorker do
   end
 
   defp parse_event_time(ts), do: ts
-
-  # Build a system actor struct for background job authorization
-  # This provides admin-level access for event recording
-  defp build_system_actor(actor_name) do
-    %{
-      id: "system",
-      email: actor_name || "system@serviceradar",
-      role: :admin
-    }
-  end
 end

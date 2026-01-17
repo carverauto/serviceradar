@@ -2,37 +2,33 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   @moduledoc """
   Registry for device actors with lazy initialization.
 
-  Provides discovery and management of device actors within tenant registries.
-  Device actors are started on-demand when first accessed via `get_or_start/3`.
+  Provides discovery and management of device actors.
+  Device actors are started on-demand when first accessed via `get_or_start/2`.
 
-  ## Multi-Tenant Isolation
+  ## Schema Isolation
 
-  Device actors are registered in per-tenant Horde registries managed by
-  `ServiceRadar.Cluster.TenantRegistry`. This ensures:
-
-  - Devices can only be accessed within their tenant
-  - Cross-tenant device enumeration is prevented
-  - Each tenant has isolated device actor state
+  Each deployment is isolated at the infrastructure level.
+  DB connection's search_path determines the schema.
 
   ## Usage
 
       # Get or start a device actor (lazy initialization)
-      {:ok, pid} = DeviceRegistry.get_or_start("tenant-id", "device-id")
+      {:ok, pid} = DeviceRegistry.get_or_start("device-id")
 
       # With partition context
-      {:ok, pid} = DeviceRegistry.get_or_start("tenant-id", "device-id", partition_id: "partition-1")
+      {:ok, pid} = DeviceRegistry.get_or_start("device-id", partition_id: "partition-1")
 
       # Lookup existing actor
-      case DeviceRegistry.lookup("tenant-id", "device-id") do
+      case DeviceRegistry.lookup("device-id") do
         {:ok, pid} -> Device.get_state(pid)
         :not_found -> # Device actor not running
       end
 
-      # Find all active device actors for a tenant
-      devices = DeviceRegistry.list_devices("tenant-id")
+      # Find all active device actors
+      devices = DeviceRegistry.list_devices()
 
       # Count active device actors
-      count = DeviceRegistry.count("tenant-id")
+      count = DeviceRegistry.count()
 
   ## Lazy Initialization
 
@@ -44,7 +40,7 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   """
 
   alias ServiceRadar.Actors.Device
-  alias ServiceRadar.Cluster.TenantRegistry
+  alias ServiceRadar.ProcessRegistry
 
   require Logger
 
@@ -61,22 +57,21 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
 
   ## Examples
 
-      {:ok, pid} = DeviceRegistry.get_or_start("tenant-uuid", "device-001")
+      {:ok, pid} = DeviceRegistry.get_or_start("device-001")
 
-      {:ok, pid} = DeviceRegistry.get_or_start("tenant-uuid", "device-001",
+      {:ok, pid} = DeviceRegistry.get_or_start("device-001",
         partition_id: "partition-1",
         identity: %{hostname: "server-01", ip: "10.0.0.1"}
       )
   """
-  @spec get_or_start(String.t(), String.t(), keyword()) ::
-          {:ok, pid()} | {:error, term()}
-  def get_or_start(tenant_id, device_id, opts \\ []) when is_binary(tenant_id) and is_binary(device_id) do
-    case lookup(tenant_id, device_id) do
+  @spec get_or_start(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
+  def get_or_start(device_id, opts \\ []) when is_binary(device_id) do
+    case lookup(device_id) do
       {:ok, pid} ->
         {:ok, pid}
 
       :not_found ->
-        start_device_actor(tenant_id, device_id, opts)
+        start_device_actor(device_id, opts)
     end
   end
 
@@ -85,9 +80,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
 
   Returns `{:ok, pid}` if the actor exists, `:not_found` otherwise.
   """
-  @spec lookup(String.t(), String.t()) :: {:ok, pid()} | :not_found
-  def lookup(tenant_id, device_id) when is_binary(tenant_id) and is_binary(device_id) do
-    case TenantRegistry.lookup(tenant_id, {:device, device_id}) do
+  @spec lookup(String.t()) :: {:ok, pid()} | :not_found
+  def lookup(device_id) when is_binary(device_id) do
+    case ProcessRegistry.lookup({:device, device_id}) do
       [{pid, _metadata}] when is_pid(pid) ->
         if Process.alive?(pid) do
           {:ok, pid}
@@ -101,13 +96,13 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   end
 
   @doc """
-  Lists all active device actors for a tenant.
+  Lists all active device actors.
 
   Returns a list of maps with device metadata and pid.
   """
-  @spec list_devices(String.t()) :: [map()]
-  def list_devices(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.select_by_type(tenant_id, :device)
+  @spec list_devices() :: [map()]
+  def list_devices do
+    ProcessRegistry.select_by_type(:device)
     |> Enum.map(fn {key, pid, metadata} ->
       Map.merge(metadata, %{key: key, pid: pid, device_id: elem(key, 1)})
     end)
@@ -115,20 +110,20 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   end
 
   @doc """
-  Lists device actors for a specific partition within a tenant.
+  Lists device actors for a specific partition.
   """
-  @spec list_devices_for_partition(String.t(), String.t()) :: [map()]
-  def list_devices_for_partition(tenant_id, partition_id) when is_binary(tenant_id) do
-    list_devices(tenant_id)
+  @spec list_devices_for_partition(String.t()) :: [map()]
+  def list_devices_for_partition(partition_id) do
+    list_devices()
     |> Enum.filter(&(&1[:partition_id] == partition_id))
   end
 
   @doc """
-  Counts active device actors for a tenant.
+  Counts active device actors.
   """
-  @spec count(String.t()) :: non_neg_integer()
-  def count(tenant_id) when is_binary(tenant_id) do
-    TenantRegistry.count_by_type(tenant_id, :device)
+  @spec count() :: non_neg_integer()
+  def count do
+    ProcessRegistry.count_by_type(:device)
   end
 
   @doc """
@@ -136,9 +131,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
 
   The actor will flush pending events before stopping.
   """
-  @spec stop(String.t(), String.t()) :: :ok | :not_found
-  def stop(tenant_id, device_id) when is_binary(tenant_id) and is_binary(device_id) do
-    case lookup(tenant_id, device_id) do
+  @spec stop(String.t()) :: :ok | :not_found
+  def stop(device_id) when is_binary(device_id) do
+    case lookup(device_id) do
       {:ok, pid} ->
         Device.stop(pid)
         :ok
@@ -149,13 +144,13 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   end
 
   @doc """
-  Stops all device actors for a tenant.
+  Stops all device actors.
 
-  Use with caution - typically for tenant cleanup.
+  Use with caution - typically for cleanup.
   """
-  @spec stop_all(String.t()) :: :ok
-  def stop_all(tenant_id) when is_binary(tenant_id) do
-    list_devices(tenant_id)
+  @spec stop_all() :: :ok
+  def stop_all do
+    list_devices()
     |> Enum.each(fn %{pid: pid} ->
       try do
         Device.stop(pid)
@@ -172,9 +167,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
 
   Convenience function that doesn't start the actor if not running.
   """
-  @spec get_state_if_running(String.t(), String.t()) :: Device.t() | nil
-  def get_state_if_running(tenant_id, device_id) do
-    case lookup(tenant_id, device_id) do
+  @spec get_state_if_running(String.t()) :: Device.t() | nil
+  def get_state_if_running(device_id) do
+    case lookup(device_id) do
       {:ok, pid} -> Device.get_state(pid)
       :not_found -> nil
     end
@@ -183,22 +178,22 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   @doc """
   Gets device health if actor is running, nil otherwise.
   """
-  @spec get_health_if_running(String.t(), String.t()) :: Device.health_state() | nil
-  def get_health_if_running(tenant_id, device_id) do
-    case lookup(tenant_id, device_id) do
+  @spec get_health_if_running(String.t()) :: Device.health_state() | nil
+  def get_health_if_running(device_id) do
+    case lookup(device_id) do
       {:ok, pid} -> Device.get_health(pid)
       :not_found -> nil
     end
   end
 
   @doc """
-  Broadcasts a command to all device actors for a tenant.
+  Broadcasts a command to all device actors.
 
-  Useful for config refresh or other tenant-wide operations.
+  Useful for config refresh or other operations.
   """
-  @spec broadcast(String.t(), term()) :: :ok
-  def broadcast(tenant_id, message) when is_binary(tenant_id) do
-    list_devices(tenant_id)
+  @spec broadcast(term()) :: :ok
+  def broadcast(message) do
+    list_devices()
     |> Enum.each(fn %{pid: pid} ->
       send(pid, message)
     end)
@@ -209,9 +204,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   @doc """
   Updates identity for a device, starting the actor if needed.
   """
-  @spec update_identity(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def update_identity(tenant_id, device_id, identity_updates) do
-    case get_or_start(tenant_id, device_id) do
+  @spec update_identity(String.t(), map()) :: :ok | {:error, term()}
+  def update_identity(device_id, identity_updates) do
+    case get_or_start(device_id) do
       {:ok, pid} -> Device.update_identity(pid, identity_updates)
       {:error, _} = error -> error
     end
@@ -220,9 +215,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   @doc """
   Records an event for a device, starting the actor if needed.
   """
-  @spec record_event(String.t(), String.t(), atom(), map()) :: :ok | {:error, term()}
-  def record_event(tenant_id, device_id, event_type, event_data) do
-    case get_or_start(tenant_id, device_id) do
+  @spec record_event(String.t(), atom(), map()) :: :ok | {:error, term()}
+  def record_event(device_id, event_type, event_data) do
+    case get_or_start(device_id) do
       {:ok, pid} ->
         Device.record_event(pid, event_type, event_data)
         :ok
@@ -235,9 +230,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   @doc """
   Records a health check result for a device, starting the actor if needed.
   """
-  @spec record_health_check(String.t(), String.t(), map()) :: :ok | {:error, term()}
-  def record_health_check(tenant_id, device_id, check_result) do
-    case get_or_start(tenant_id, device_id) do
+  @spec record_health_check(String.t(), map()) :: :ok | {:error, term()}
+  def record_health_check(device_id, check_result) do
+    case get_or_start(device_id) do
       {:ok, pid} ->
         Device.record_health_check(pid, check_result)
         :ok
@@ -251,14 +246,13 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
   # Private Functions
   # ===========================================================================
 
-  defp start_device_actor(tenant_id, device_id, opts) do
+  defp start_device_actor(device_id, opts) do
     child_spec = %{
       id: {:device, device_id},
       start:
         {Device, :start_link,
          [
            [
-             tenant_id: tenant_id,
              device_id: device_id,
              partition_id: Keyword.get(opts, :partition_id),
              identity: Keyword.get(opts, :identity, %{})
@@ -268,9 +262,9 @@ defmodule ServiceRadar.Actors.DeviceRegistry do
       type: :worker
     }
 
-    case TenantRegistry.start_child(tenant_id, child_spec) do
+    case ProcessRegistry.start_child(child_spec) do
       {:ok, pid} ->
-        Logger.debug("Started device actor: #{device_id} for tenant: #{tenant_id}")
+        Logger.debug("Started device actor: #{device_id}")
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->

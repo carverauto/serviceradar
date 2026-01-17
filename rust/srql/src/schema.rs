@@ -103,7 +103,6 @@ diesel::table! {
         agent_count -> Nullable<Int4>,
         checker_count -> Nullable<Int4>,
         updated_at -> Nullable<Timestamptz>,
-        tenant_id -> Uuid,
         partition_id -> Nullable<Uuid>,
     }
 }

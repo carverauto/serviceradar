@@ -173,7 +173,3 @@ config :serviceradar_web_ng, :api_auth,
 
 # Set env for serviceradar_core (enables Vault fallback key in dev)
 config :serviceradar_core, env: :dev
-
-# Enable platform tenant bootstrap in dev mode
-# This ensures the platform tenant is created and zen rules are seeded
-config :serviceradar_core, platform_tenant_bootstrap_enabled: true

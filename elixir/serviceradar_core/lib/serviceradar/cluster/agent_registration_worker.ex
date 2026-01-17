@@ -33,7 +33,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @heartbeat_interval :timer.seconds(30)
   @stale_threshold :timer.minutes(2)
 
-  defstruct [:tenant_id, :partition_id, :agent_id, :gateway_id, :capabilities, :status, :registered_at]
+  defstruct [:partition_id, :agent_id, :gateway_id, :capabilities, :status, :registered_at]
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -41,14 +41,12 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   @impl true
   def init(opts) do
-    tenant_id = Keyword.get(opts, :tenant_id, default_tenant_id())
     partition_id = Keyword.fetch!(opts, :partition_id)
     agent_id = Keyword.fetch!(opts, :agent_id)
     gateway_id = Keyword.get(opts, :gateway_id)
     capabilities = Keyword.get(opts, :capabilities, [])
 
     state = %__MODULE__{
-      tenant_id: tenant_id,
       partition_id: partition_id,
       agent_id: agent_id,
       gateway_id: gateway_id,
@@ -61,7 +59,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
     case register_agent(state) do
       {:ok, _pid} ->
         Logger.info(
-          "Agent registered: tenant=#{tenant_id} partition=#{partition_id} agent_id=#{agent_id} gateway=#{gateway_id || "none"} node=#{Node.self()}"
+          "Agent registered: partition=#{partition_id} agent_id=#{agent_id} gateway=#{gateway_id || "none"} node=#{Node.self()}"
         )
 
         schedule_heartbeat()
@@ -104,7 +102,6 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
   @impl true
   def handle_call(:get_info, _from, state) do
     info = %{
-      tenant_id: state.tenant_id,
       partition_id: state.partition_id,
       agent_id: state.agent_id,
       gateway_id: state.gateway_id,
@@ -119,12 +116,12 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
   @impl true
   def terminate(_reason, state) do
-    Logger.info("Agent unregistering: #{state.agent_id} for tenant: #{state.tenant_id}")
-    ServiceRadar.AgentRegistry.unregister_agent(state.tenant_id, state.agent_id)
+    Logger.info("Agent unregistering: #{state.agent_id}")
+    ServiceRadar.AgentRegistry.unregister_agent(state.agent_id)
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "agent:registrations:#{state.tenant_id}",
+      "agent:registrations",
       {:agent_unregistered, state.agent_id}
     )
 
@@ -189,18 +186,16 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
       status: state.status
     }
 
-    # Use the new tenant-scoped registration API
-    ServiceRadar.AgentRegistry.register_agent(state.tenant_id, state.agent_id, metadata)
+    ServiceRadar.AgentRegistry.register_agent(state.agent_id, metadata)
   end
 
   defp update_heartbeat(state) do
-    ServiceRadar.AgentRegistry.heartbeat(state.tenant_id, state.agent_id)
+    ServiceRadar.AgentRegistry.heartbeat(state.agent_id)
   end
 
   defp update_status(state) do
-    # Update status via TenantRegistry
-    ServiceRadar.Cluster.TenantRegistry.update_value(
-      state.tenant_id,
+    # Update status via ProcessRegistry
+    ServiceRadar.ProcessRegistry.update_value(
       {:agent, state.agent_id},
       fn meta ->
         %{meta | status: state.status, last_heartbeat: DateTime.utc_now()}
@@ -209,7 +204,7 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
 
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
-      "agent:registrations:#{state.tenant_id}",
+      "agent:registrations",
       {:agent_status_changed, state.agent_id, state.status}
     )
   end
@@ -231,11 +226,5 @@ defmodule ServiceRadar.Agent.RegistrationWorker do
         diff = DateTime.diff(DateTime.utc_now(), last_heartbeat, :millisecond)
         diff > @stale_threshold
     end
-  end
-
-  # Get default tenant ID from environment or config
-  defp default_tenant_id do
-    System.get_env("AGENT_TENANT_ID") ||
-      Application.get_env(:serviceradar_core, :default_tenant_id, "00000000-0000-0000-0000-000000000000")
   end
 end

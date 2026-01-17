@@ -5,18 +5,14 @@ defmodule ServiceRadarWebNG.InfrastructureTest do
   alias ServiceRadarWebNG.Repo
 
   test "list_gateways returns gateways ordered by last_seen desc" do
-    {:ok, tenant_uuid} = Ecto.UUID.dump(test_tenant_id())
-
     Repo.insert_all("gateways", [
       %{
         gateway_id: "test-gateway-1",
-        last_seen: ~U[2025-01-01 00:00:00Z],
-        tenant_id: tenant_uuid
+        last_seen: ~U[2025-01-01 00:00:00Z]
       },
       %{
         gateway_id: "test-gateway-2",
-        last_seen: ~U[2025-02-01 00:00:00Z],
-        tenant_id: tenant_uuid
+        last_seen: ~U[2025-02-01 00:00:00Z]
       }
     ])
 

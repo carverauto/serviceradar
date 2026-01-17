@@ -10,35 +10,34 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   use ServiceRadarWebNGWeb.ConnCase, async: true
 
-  import ServiceRadarWebNG.MultiTenantFixtures
+  use ServiceRadarWebNG.AshTestHelpers
 
   # Use API bearer token authentication
   setup :register_and_log_in_api_user
 
   describe "GET /api/v2/devices" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant, %{hostname: "test-host"})
+      _device = device_fixture(%{hostname: "test-host"})
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
-    test "returns a list of devices", %{conn: conn, device: _device} do
+    test "returns a list of devices", %{conn: conn} do
       conn = get(conn, ~p"/api/v2/devices")
       response = json_response(conn, 200)
 
       assert is_map(response)
       assert is_list(response["data"])
-      # The device may or may not be in the list depending on tenant isolation
+      # The device may or may not be in the list depending on auth context
       # but the endpoint should return valid JSON:API format
       assert Map.has_key?(response, "data")
     end
 
-    test "returns empty list for unauthenticated request (tenant isolation)" do
+    test "returns empty list for unauthenticated request" do
       conn = build_conn()
       conn = get(conn, ~p"/api/v2/devices")
 
-      # API allows unauthenticated access but returns empty due to tenant isolation
+      # API allows unauthenticated access but returns empty without auth context
       response = json_response(conn, 200)
       assert response["data"] == []
     end
@@ -46,10 +45,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/devices/:uid" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant, %{uid: "unique-device-uid"})
+      _device = device_fixture(%{uid: "unique-device-uid"})
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
     test "returns error for non-existent device", %{conn: conn} do
@@ -62,10 +60,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/gateways" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
+      _gateway = gateway_fixture()
 
-      %{conn: conn, tenant: tenant, gateway: gateway}
+      %{conn: conn}
     end
 
     test "returns a list of gateways", %{conn: conn} do
@@ -77,11 +74,11 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "data")
     end
 
-    test "returns empty list for unauthenticated request (tenant isolation)" do
+    test "returns empty list for unauthenticated request" do
       conn = build_conn()
       conn = get(conn, ~p"/api/v2/gateways")
 
-      # API allows unauthenticated access but returns empty due to tenant isolation
+      # API allows unauthenticated access but returns empty without auth context
       response = json_response(conn, 200)
       assert response["data"] == []
     end
@@ -89,10 +86,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/gateways/:id" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
+      _gateway = gateway_fixture()
 
-      %{conn: conn, tenant: tenant, gateway: gateway}
+      %{conn: conn}
     end
 
     test "returns error for non-existent gateway", %{conn: conn} do
@@ -105,10 +101,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      agent = tenant_agent_fixture(tenant)
+      gateway = gateway_fixture()
+      _agent = agent_fixture(gateway)
 
-      %{conn: conn, tenant: tenant, agent: agent}
+      %{conn: conn}
     end
 
     test "returns a list of agents", %{conn: conn} do
@@ -120,11 +116,11 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "data")
     end
 
-    test "returns empty list for unauthenticated request (tenant isolation)" do
+    test "returns empty list for unauthenticated request" do
       conn = build_conn()
       conn = get(conn, ~p"/api/v2/agents")
 
-      # API allows unauthenticated access but returns empty due to tenant isolation
+      # API allows unauthenticated access but returns empty without auth context
       response = json_response(conn, 200)
       assert response["data"] == []
     end
@@ -132,10 +128,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents/:uid" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      agent = tenant_agent_fixture(tenant, %{uid: "unique-agent-uid"})
+      gateway = gateway_fixture()
+      _agent = agent_fixture(gateway, %{uid: "unique-agent-uid"})
 
-      %{conn: conn, tenant: tenant, agent: agent}
+      %{conn: conn}
     end
 
     test "returns error for non-existent agent", %{conn: conn} do
@@ -148,11 +144,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/agents/by-gateway/:gateway_id" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      gateway = tenant_gateway_fixture(tenant)
-      agent = tenant_agent_fixture(tenant, %{gateway_id: gateway.id})
+      gateway = gateway_fixture()
+      _agent = agent_fixture(gateway, %{gateway_id: gateway.id})
 
-      %{conn: conn, tenant: tenant, gateway: gateway, agent: agent}
+      %{conn: conn, gateway: gateway}
     end
 
     test "returns agents for a gateway", %{conn: conn, gateway: gateway} do
@@ -173,10 +168,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      check = tenant_service_check_fixture(tenant)
+      _check = service_check_fixture()
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns a list of service checks", %{conn: conn} do
@@ -188,11 +182,11 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "data")
     end
 
-    test "returns empty list for unauthenticated request (tenant isolation)" do
+    test "returns empty list for unauthenticated request" do
       conn = build_conn()
       conn = get(conn, ~p"/api/v2/service-checks")
 
-      # API allows unauthenticated access but returns empty due to tenant isolation
+      # API allows unauthenticated access but returns empty without auth context
       response = json_response(conn, 200)
       assert response["data"] == []
     end
@@ -200,11 +194,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks/enabled" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
       # All checks default to enabled, so just create one
-      check = tenant_service_check_fixture(tenant)
+      _check = service_check_fixture()
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns enabled service checks", %{conn: conn} do
@@ -218,10 +211,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/service-checks/failing" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      check = tenant_service_check_fixture(tenant)
+      _check = service_check_fixture()
 
-      %{conn: conn, tenant: tenant, check: check}
+      %{conn: conn}
     end
 
     test "returns failing service checks", %{conn: conn} do
@@ -257,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert conn.status in [201, 403]
     end
 
-    test "returns error for unauthenticated request (no tenant)" do
+    test "returns error for unauthenticated request" do
       conn = build_conn()
 
       params = %{
@@ -276,17 +268,16 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
         |> put_req_header("content-type", "application/vnd.api+json")
         |> post(~p"/api/v2/service-checks", params)
 
-      # Without a tenant, creation should fail (403) or succeed with validation error
+      # Without authentication, creation should fail (403) or succeed with validation error
       assert conn.status in [400, 403]
     end
   end
 
   describe "GET /api/v2/alerts" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = alert_fixture()
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns a list of alerts", %{conn: conn} do
@@ -298,11 +289,11 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert Map.has_key?(response, "data")
     end
 
-    test "returns empty list for unauthenticated request (tenant isolation)" do
+    test "returns empty list for unauthenticated request" do
       conn = build_conn()
       conn = get(conn, ~p"/api/v2/alerts")
 
-      # API allows unauthenticated access but returns empty due to tenant isolation
+      # API allows unauthenticated access but returns empty without auth context
       response = json_response(conn, 200)
       assert response["data"] == []
     end
@@ -310,10 +301,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/alerts/active" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = alert_fixture()
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns active alerts", %{conn: conn} do
@@ -327,10 +317,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "GET /api/v2/alerts/pending" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = alert_fixture()
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns pending alerts", %{conn: conn} do
@@ -366,7 +355,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
       assert conn.status in [201, 400, 403]
     end
 
-    test "returns error for unauthenticated request (no tenant)" do
+    test "returns error for unauthenticated request" do
       conn = build_conn()
 
       params = %{
@@ -384,17 +373,16 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
         |> put_req_header("content-type", "application/vnd.api+json")
         |> post(~p"/api/v2/alerts", params)
 
-      # Without a tenant, creation should fail (403) or succeed with validation error
+      # Without authentication, creation should fail (403) or succeed with validation error
       assert conn.status in [400, 403]
     end
   end
 
   describe "PATCH /api/v2/alerts/:id/acknowledge" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = alert_fixture()
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns error for non-existent alert", %{conn: conn} do
@@ -412,10 +400,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "PATCH /api/v2/alerts/:id/resolve" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      alert = tenant_alert_fixture(tenant)
+      _alert = alert_fixture()
 
-      %{conn: conn, tenant: tenant, alert: alert}
+      %{conn: conn}
     end
 
     test "returns error for non-existent alert", %{conn: conn} do
@@ -452,10 +439,9 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
   describe "JSON:API response format" do
     setup %{conn: conn} do
-      tenant = tenant_fixture()
-      device = tenant_device_fixture(tenant)
+      _device = device_fixture(%{uid: "device-json-api"})
 
-      %{conn: conn, tenant: tenant, device: device}
+      %{conn: conn}
     end
 
     test "includes proper JSON:API structure", %{conn: conn} do
@@ -480,30 +466,6 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiTest do
 
       # Response should be well-formed
       assert is_map(response)
-    end
-  end
-
-  describe "tenant isolation" do
-    test "users cannot see resources from other tenants", %{conn: conn} do
-      # Create two tenants with devices
-      tenant_a = tenant_fixture(%{slug: "tenant-isolation-a"})
-      tenant_b = tenant_fixture(%{slug: "tenant-isolation-b"})
-
-      _device_a = tenant_device_fixture(tenant_a, %{uid: "device-tenant-a"})
-      _device_b = tenant_device_fixture(tenant_b, %{uid: "device-tenant-b"})
-
-      # The authenticated user may be from a different tenant
-      # The API should only return resources the user has access to
-      conn = get(conn, ~p"/api/v2/devices")
-      response = json_response(conn, 200)
-
-      # Verify the response format is correct
-      assert is_map(response)
-      assert is_list(response["data"])
-
-      # Tenant isolation is enforced - this is a basic smoke test
-      # More specific tests are in the policy test suite
-      refute is_nil(response["data"])
     end
   end
 end

@@ -2,14 +2,13 @@ defmodule ServiceRadar.Identity.User do
   @moduledoc """
   User resource for authentication and authorization.
 
-  Maps to the tenant-scoped `ng_users` table with multi-tenancy support.
+  Maps to the instance-scoped `ng_users` table.
 
   ## Roles
 
-  - `:viewer` - Read-only access to tenant data
+  - `:viewer` - Read-only access to instance data
   - `:operator` - Can create and modify resources
-  - `:admin` - Full tenant management including user management
-  - `:super_admin` - Platform-wide access (not tenant-scoped)
+  - `:admin` - Full instance management including user management
 
   ## Authentication
 
@@ -82,13 +81,8 @@ defmodule ServiceRadar.Identity.User do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_email, action: :by_email, args: [:email]
-    define :get_by_email_and_tenant, action: :by_email_and_tenant, args: [:email, :tenant_id]
   end
 
   actions do
@@ -96,10 +90,8 @@ defmodule ServiceRadar.Identity.User do
 
     create :create do
       description "Register a new user with email only (magic link flow)"
-      accept [:email, :display_name, :tenant_id, :role]
-      change ServiceRadar.Identity.Changes.AssignDefaultTenant
+      accept [:email, :display_name, :role]
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
-      change ServiceRadar.Identity.Changes.CreateTenantMembership
       primary? true
     end
 
@@ -120,9 +112,7 @@ defmodule ServiceRadar.Identity.User do
       upsert_identity :email
       upsert_fields [:email]
 
-      change ServiceRadar.Identity.Changes.AssignDefaultTenant
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
-      change ServiceRadar.Identity.Changes.CreateTenantMembership
       change AshAuthentication.Strategy.MagicLink.SignInChange
 
       change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
@@ -147,15 +137,8 @@ defmodule ServiceRadar.Identity.User do
       filter expr(email == ^arg(:email))
     end
 
-    read :by_email_and_tenant do
-      argument :email, :ci_string, allow_nil?: false
-      argument :tenant_id, :uuid, allow_nil?: false
-      get? true
-      filter expr(email == ^arg(:email) and tenant_id == ^arg(:tenant_id))
-    end
-
     read :admins do
-      filter expr(role in [:admin, :super_admin])
+      filter expr(role == :admin)
     end
 
     read :get_by_subject do
@@ -167,11 +150,9 @@ defmodule ServiceRadar.Identity.User do
 
     create :register_with_password do
       description "Register a new user with email and password"
-      accept [:email, :display_name, :tenant_id]
+      accept [:email, :display_name]
 
-      change ServiceRadar.Identity.Changes.AssignDefaultTenant
       change ServiceRadar.Identity.Changes.AssignFirstUserRole
-      change ServiceRadar.Identity.Changes.CreateTenantMembership
 
       argument :password, :string do
         allow_nil? false
@@ -191,14 +172,10 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update do
-      # Non-atomic: global before_action checks tenant_id immutability
-      require_atomic? false
       accept [:display_name]
     end
 
     update :update_email do
-      # Non-atomic: global before_action checks tenant_id immutability
-      require_atomic? false
       accept [:email]
       # Mark email as confirmed since this action is called after token-based
       # verification in the Accounts context
@@ -206,8 +183,6 @@ defmodule ServiceRadar.Identity.User do
     end
 
     update :update_role do
-      # Non-atomic: global before_action checks tenant_id immutability
-      require_atomic? false
       accept [:role]
     end
 
@@ -298,20 +273,15 @@ defmodule ServiceRadar.Identity.User do
       authorize_if always()
     end
 
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Users can read themselves OR other users in the same tenant
-    # Combined into one policy to ensure proper OR behavior
+    # Users can read themselves or admins can read any user
     policy action_type(:read) do
-      authorize_if expr(id == ^actor(:id) or tenant_id == ^actor(:tenant_id))
+      authorize_if expr(id == ^actor(:id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     # Registration is allowed without an actor (public action)
@@ -347,33 +317,11 @@ defmodule ServiceRadar.Identity.User do
 
     # Only admins can change roles
     policy action(:update_role) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id) and ^actor(:role) == :admin)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    # SECURITY: tenant_id is IMMUTABLE after creation
-    # This is a critical multi-tenancy security control - defense in depth
-    # Uses before_action to run AFTER all changes have been applied to the changeset
-    change before_action(fn changeset, _context ->
-             if changeset.action_type == :update do
-               # Check if tenant_id is in the changes map
-               case Map.get(changeset.attributes, :tenant_id) do
-                 nil ->
-                   # Not being changed, that's fine
-                   changeset
-
-                 _new_value ->
-                   # Someone is trying to change tenant_id - block it
-                   Ash.Changeset.add_error(changeset,
-                     field: :tenant_id,
-                     message: "cannot be changed - tenant assignment is permanent"
-                   )
-               end
-             else
-               changeset
-             end
-           end)
   end
 
   attributes do
@@ -382,7 +330,7 @@ defmodule ServiceRadar.Identity.User do
     attribute :email, :ci_string do
       allow_nil? false
       public? true
-      description "User email address (unique within a tenant)"
+      description "User email address (unique within the instance)"
       constraints match: ~r/^[^\s]+@[^\s]+$/
     end
 
@@ -401,7 +349,7 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? false
       default :viewer
       public? true
-      constraints one_of: [:viewer, :operator, :admin, :super_admin]
+      constraints one_of: [:viewer, :operator, :admin]
       description "User's role for authorization"
     end
 
@@ -415,38 +363,11 @@ defmodule ServiceRadar.Identity.User do
       description "When the user last authenticated (for sudo mode)"
     end
 
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? true
-      description "Owning tenant ID (stored for auditing)"
-    end
-
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
 
   relationships do
-    # Primary tenant (for backwards compatibility and default context)
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      allow_nil? false
-      attribute_type :uuid
-      source_attribute :tenant_id
-    end
-
-    # Memberships allow explicit role mapping across tenants
-    has_many :memberships, ServiceRadar.Identity.TenantMembership do
-      source_attribute :id
-      destination_attribute :user_id
-      public? true
-    end
-
-    # All tenants the user belongs to via memberships
-    many_to_many :tenants, ServiceRadar.Identity.Tenant do
-      through ServiceRadar.Identity.TenantMembership
-      source_attribute_on_join_resource :user_id
-      destination_attribute_on_join_resource :tenant_id
-      public? true
-    end
   end
 
   calculations do
@@ -469,7 +390,7 @@ defmodule ServiceRadar.Identity.User do
 
   identities do
     # Email identity required by AshAuthentication for password/magic_link strategies.
-    # Email uniqueness is enforced per-tenant schema.
+    # Email uniqueness is enforced per instance schema.
     identity :email, [:email]
   end
 end

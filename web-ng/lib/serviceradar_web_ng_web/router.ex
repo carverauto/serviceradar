@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :put_root_layout, html: {ServiceRadarWebNGWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
   end
@@ -29,7 +28,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug :accepts, ["json"]
     plug :fetch_session
     plug :protect_from_forgery
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :require_authenticated_user
   end
@@ -61,7 +59,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :ash_json_api do
     plug :accepts, ["json"]
     plug :fetch_session
-    plug ServiceRadarWebNGWeb.Plugs.ResolveTenant
     plug :fetch_current_scope_for_user
     plug :set_ash_actor
     plug ServiceRadarWebNGWeb.Plugs.ApiErrorHandler
@@ -103,23 +100,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Package actions
     post "/edge-packages/:id/revoke", EdgeController, :revoke
 
-    # NATS platform administration (super admin)
-    post "/nats/bootstrap-token", NatsController, :generate_bootstrap_token
-    post "/nats/bootstrap", NatsController, :bootstrap
-    get "/nats/status", NatsController, :status
-    get "/nats/tenants", NatsController, :tenants
-    post "/nats/tenants/:id/reprovision", NatsController, :reprovision
-
-    # Tenant workload credentials (operator)
-    post "/tenant-workloads/:id/credentials", TenantWorkloadController, :credentials
-
-    # Collector package management (tenant admin)
+    # Collector package management
     get "/collectors", CollectorController, :index
     post "/collectors", CollectorController, :create
     get "/collectors/:id", CollectorController, :show
     post "/collectors/:id/revoke", CollectorController, :revoke
 
-    # Tenant NATS account & credentials
+    # NATS account & credentials
     get "/nats/account", CollectorController, :account_status
     get "/nats/credentials", CollectorController, :credentials
   end
@@ -199,8 +186,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/integrations/:id", Admin.IntegrationLive.Index, :show
       live "/integrations/:id/edit", Admin.IntegrationLive.Index, :edit
       live "/cluster", Admin.ClusterLive.Index, :index
-      live "/nats", Admin.NatsLive.Index, :index
-      live "/nats/tenants/:id", Admin.NatsLive.Show, :show
       live "/collectors", Admin.CollectorLive.Index, :index
       live "/collectors/:id", Admin.CollectorLive.Index, :show
       live "/edge-sites", Admin.EdgeSitesLive.Index, :index
@@ -257,7 +242,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live "/devices", DeviceLive.Index, :index
       live "/devices/:uid", DeviceLive.Show, :show
 
-      # Connected agents view (tenant-scoped, visible to all authenticated users)
+      # Connected agents view (instance-scoped, visible to all authenticated users)
       live "/agents", AgentLive.Index, :index
       live "/agents/:uid", AgentLive.Show, :show
 
@@ -313,7 +298,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
 
     post "/users/update-password", UserSessionController, :update_password
-    post "/tenants/switch/:tenant_id", TenantController, :switch
   end
 
   scope "/", ServiceRadarWebNGWeb do
@@ -349,17 +333,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     end
   end
 
-  # Set the Ash actor and tenant from the current user for policy enforcement
+  # Set the Ash actor from the current user for policy enforcement
   # Includes partition context from request header or session
   defp set_ash_actor(conn, _opts) do
     case conn.assigns[:current_scope] do
-      %Scope{user: user} = scope when not is_nil(user) ->
+      %Scope{user: user} when not is_nil(user) ->
         partition_id = get_partition_id_from_request(conn)
-        tenant_id = Scope.tenant_id(scope)
 
         actor = %{
           id: user.id,
-          tenant_id: tenant_id,
           role: user.role,
           email: user.email
         }
@@ -370,19 +352,6 @@ defmodule ServiceRadarWebNGWeb.Router do
         |> assign(:ash_actor, actor)
         |> assign(:current_partition_id, partition_id)
         |> Ash.PlugHelpers.set_actor(actor)
-        |> maybe_set_tenant(tenant_id)
-
-      _ ->
-        conn
-    end
-  end
-
-  defp maybe_set_tenant(conn, nil), do: conn
-
-  defp maybe_set_tenant(conn, tenant_id) do
-    case ServiceRadarWebNGWeb.TenantResolver.schema_for_tenant_id(tenant_id) do
-      tenant_schema when is_binary(tenant_schema) ->
-        Ash.PlugHelpers.set_tenant(conn, tenant_schema)
 
       _ ->
         conn

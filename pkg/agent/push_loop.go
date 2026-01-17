@@ -204,7 +204,7 @@ func (p *PushLoop) startSync(ctx context.Context) {
 	}()
 }
 
-func (p *PushLoop) markSyncEnrolled(tenantID, tenantSlug string) {
+func (p *PushLoop) markSyncEnrolled() {
 	p.syncMu.Lock()
 	syncer := p.syncer
 	p.syncMu.Unlock()
@@ -213,7 +213,7 @@ func (p *PushLoop) markSyncEnrolled(tenantID, tenantSlug string) {
 		return
 	}
 
-	syncer.MarkGatewayEnrolled(tenantID, tenantSlug)
+	syncer.MarkGatewayEnrolled()
 }
 
 func (p *PushLoop) stopSync(ctx context.Context) {
@@ -244,8 +244,6 @@ func (p *PushLoop) buildSyncConfig() *syncsvc.Config {
 		Logging:         cfg.Logging,
 		GatewayAddr:     cfg.GatewayAddr,
 		GatewaySecurity: cfg.GatewaySecurity,
-		TenantID:        cfg.TenantID,
-		TenantSlug:      cfg.TenantSlug,
 		Partition:       cfg.Partition,
 	}
 
@@ -381,20 +379,16 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
-	tenantID := p.server.config.TenantID
-	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
 
 	req := &proto.GatewayStatusRequest{
-		Services:   statuses,
-		GatewayId:  "", // Will be set by the gateway
-		AgentId:    agentID,
-		Timestamp:  time.Now().UnixNano(),
-		Partition:  partition,
-		SourceIp:   p.getSourceIP(),
-		KvStoreId:  kvStoreID,
-		TenantId:   tenantID,
-		TenantSlug: tenantSlug,
+		Services:  statuses,
+		GatewayId: "", // Will be set by the gateway
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  p.getSourceIP(),
+		KvStoreId: kvStoreID,
 	}
 
 	resp, err := p.gateway.PushStatus(ctx, req)
@@ -415,8 +409,6 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
-	tenantID := p.server.config.TenantID
-	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
 
 	// Build a single chunk for sysmon metrics
@@ -430,8 +422,6 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 		IsFinal:     true,
 		ChunkIndex:  0,
 		TotalChunks: 1,
-		TenantId:    tenantID,
-		TenantSlug:  tenantSlug,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -751,8 +741,6 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
-	tenantID := p.server.config.TenantID
-	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
 
 	return &proto.GatewayServiceStatus{
@@ -766,8 +754,6 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		Partition:    partition,
 		Source:       "status",
 		KvStoreId:    kvStoreID,
-		TenantId:     tenantID,
-		TenantSlug:   tenantSlug,
 	}
 }
 
@@ -782,8 +768,6 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
-	tenantID := p.server.config.TenantID
-	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
 
 	return &proto.GatewayServiceStatus{
@@ -797,8 +781,6 @@ func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *pro
 		Partition:    partition,
 		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
-		TenantId:     tenantID,
-		TenantSlug:   tenantSlug,
 	}
 }
 
@@ -814,8 +796,6 @@ func (p *PushLoop) buildResultsStatusChunks(
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
-	tenantID := p.server.config.TenantID
-	tenantSlug := p.server.config.TenantSlug
 	p.server.mu.RUnlock()
 	gatewayID := ""
 
@@ -837,8 +817,6 @@ func (p *PushLoop) buildResultsStatusChunks(
 			Partition:    partition,
 			Source:       "results",
 			KvStoreId:    "",
-			TenantId:     tenantID,
-			TenantSlug:   tenantSlug,
 		}
 
 		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
@@ -851,8 +829,6 @@ func (p *PushLoop) buildResultsStatusChunks(
 			ChunkIndex:  chunk.ChunkIndex,
 			TotalChunks: chunk.TotalChunks,
 			KvStoreId:   "",
-			TenantId:    tenantID,
-			TenantSlug:  tenantSlug,
 		})
 	}
 
@@ -1024,12 +1000,6 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		return err
 	}
 
-	// Update server config with tenant info from gateway
-	p.server.mu.Lock()
-	p.server.config.TenantID = helloResp.TenantId
-	p.server.config.TenantSlug = helloResp.TenantSlug
-	p.server.mu.Unlock()
-
 	// Update push interval if specified by gateway
 	if helloResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(helloResp.HeartbeatIntervalSec) * time.Second
@@ -1049,10 +1019,9 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	p.logger.Info().
 		Str("agent_id", helloResp.AgentId).
 		Str("gateway_id", helloResp.GatewayId).
-		Str("tenant_slug", helloResp.TenantSlug).
 		Msg("Successfully enrolled with gateway")
 
-	p.markSyncEnrolled(helloResp.TenantId, helloResp.TenantSlug)
+	p.markSyncEnrolled()
 	p.startSync(ctx)
 
 	// Fetch initial config if outdated or not yet fetched

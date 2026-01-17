@@ -144,7 +144,7 @@ const natsConfigTemplate = `# NATS Server Configuration
 server_name: {{ .ServerName }}
 port: {{ .ListenPort }}
 
-# Operator and system account for multi-tenant JWT authentication
+# Operator and system account for JWT authentication
 operator: {{ .OperatorJWTPath }}
 system_account: {{ .SystemAccountPublicKey }}
 
@@ -265,8 +265,8 @@ type NATSBootstrapRequest struct {
 
 // CollectorCredsConfig contains parameters for generating collector NATS credentials.
 type CollectorCredsConfig struct {
-	// TenantSlug is the tenant's slug for subject prefixing
-	TenantSlug string
+	// Namespace is the namespace for subject prefixing
+	Namespace string
 
 	// CollectorType is the type of collector (flowgger, trapd, netflow, otel)
 	CollectorType string
@@ -282,8 +282,8 @@ type CollectorCredsConfig struct {
 }
 
 // GenerateCollectorPermissions returns NATS permissions for a specific collector type.
-func GenerateCollectorPermissions(tenantSlug, collectorType string) (publishAllow, subscribeAllow []string) {
-	prefix := tenantSlug + "."
+func GenerateCollectorPermissions(namespace, collectorType string) (publishAllow, subscribeAllow []string) {
+	prefix := namespace + "."
 
 	switch collectorType {
 	case "flowgger":

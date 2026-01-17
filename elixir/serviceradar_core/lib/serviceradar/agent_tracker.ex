@@ -8,7 +8,7 @@ defmodule ServiceRadar.AgentTracker do
   ## Usage
 
       # Track an agent status push
-      AgentTracker.track_agent("docker-agent", "default", %{service_count: 5})
+      AgentTracker.track_agent("docker-agent", %{service_count: 5})
 
       # List all tracked agents
       AgentTracker.list_agents()
@@ -34,13 +34,12 @@ defmodule ServiceRadar.AgentTracker do
   @doc """
   Track an agent that has pushed status.
   """
-  @spec track_agent(String.t(), String.t(), map()) :: :ok
-  def track_agent(agent_id, tenant_slug, metadata \\ %{}) do
+  @spec track_agent(String.t(), map()) :: :ok
+  def track_agent(agent_id, metadata \\ %{}) do
     now = System.monotonic_time(:millisecond)
 
     agent_info = %{
       agent_id: agent_id,
-      tenant_slug: tenant_slug,
       last_seen: DateTime.utc_now(),
       last_seen_mono: now,
       service_count: Map.get(metadata, :service_count, 0),

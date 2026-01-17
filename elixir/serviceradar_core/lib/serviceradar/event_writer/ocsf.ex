@@ -333,13 +333,6 @@ defmodule ServiceRadar.EventWriter.OCSF do
   def protocol_name(_), do: "Unknown"
 
   @doc """
-  Parse tenant_id from JSON payload.
-  """
-  def parse_tenant_id(json) do
-    json["tenant_id"] || json["tenantId"]
-  end
-
-  @doc """
   Parse time field using FieldParser.
   """
   def parse_time(json, field \\ "timestamp") do

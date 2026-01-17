@@ -14,7 +14,7 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   the main request. Use `record_sync/3` for synchronous recording when needed.
   """
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.OnboardingEvent
   alias ServiceRadar.Edge.Workers.RecordEventWorker
 
@@ -38,12 +38,11 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
           {:ok, [OnboardingEvent.t()]} | {:error, Ash.Error.t()}
   def list_for_package(package_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, @default_limit)
-    actor = Keyword.get(opts, :actor)
-    tenant_schema = tenant_schema_from_opts(opts)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:onboarding_events)
 
     OnboardingEvent
     |> Ash.Query.for_read(:by_package, %{package_id: package_id}, actor: actor)
-    |> Ash.Query.set_tenant(tenant_schema)
     |> Ash.Query.sort(event_time: :desc)
     |> Ash.Query.limit(limit)
     |> Ash.read()
@@ -84,11 +83,7 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   @spec record(String.t(), atom() | String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, Ecto.Changeset.t()}
   def record(package_id, event_type, opts \\ []) do
-    tenant_schema = tenant_schema_from_opts(opts)
-
-    RecordEventWorker.enqueue(package_id, event_type,
-      Keyword.put(opts, :tenant_schema, tenant_schema)
-    )
+    RecordEventWorker.enqueue(package_id, event_type, opts)
   end
 
   @doc """
@@ -108,9 +103,9 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   @spec record_sync(String.t(), atom() | String.t(), keyword()) ::
           {:ok, OnboardingEvent.t()} | {:error, Ash.Error.t()}
   def record_sync(package_id, event_type, opts \\ []) do
-    actor = Keyword.get(opts, :actor_user) || build_system_actor(Keyword.get(opts, :actor))
+    # Simple actor - DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor_user) || SystemActor.system(:onboarding_events)
     event_type_atom = normalize_event_type(event_type)
-    tenant_schema = tenant_schema_from_opts(opts)
 
     attrs = %{
       event_time: Keyword.get(opts, :event_time, DateTime.utc_now()),
@@ -122,7 +117,7 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
     }
 
     OnboardingEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor, tenant: tenant_schema)
+    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
     |> Ash.create()
   end
 
@@ -134,22 +129,6 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   def record!(package_id, event_type, opts \\ []) do
     record(package_id, event_type, opts)
     :ok
-  end
-
-  defp tenant_schema_from_opts(opts) do
-    cond do
-      schema = Keyword.get(opts, :tenant_schema) ->
-        schema
-
-      tenant = Keyword.get(opts, :tenant) ->
-        TenantSchemas.schema_for_tenant(tenant)
-
-      tenant_id = Keyword.get(opts, :tenant_id) ->
-        TenantSchemas.schema_for_id(tenant_id)
-
-      true ->
-        nil
-    end
   end
 
   @doc """
@@ -167,7 +146,8 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   def recent(opts \\ []) do
     limit = Keyword.get(opts, :limit, @default_limit)
     since = Keyword.get(opts, :since)
-    actor = Keyword.get(opts, :actor)
+    # Simple actor - DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:onboarding_events)
 
     query =
       if since do
@@ -207,13 +187,4 @@ defmodule ServiceRadar.Edge.OnboardingEvents do
   defp stringify_actor(actor) when is_binary(actor), do: actor
   defp stringify_actor(%{email: email}), do: email
   defp stringify_actor(_), do: "system"
-
-  # Build a system actor struct for internal operations
-  defp build_system_actor(actor_name) do
-    %{
-      id: "system",
-      email: actor_name || "system@serviceradar",
-      role: :admin
-    }
-  end
 end

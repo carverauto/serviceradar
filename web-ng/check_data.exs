@@ -10,7 +10,6 @@ tables = %{
   "service_checks" => 0,
   "alerts" => 0,
   "ng_users" => 0,
-  "tenants" => 0,
   "logs" => 0
 }
 

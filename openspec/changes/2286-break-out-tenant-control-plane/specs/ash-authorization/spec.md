@@ -4,13 +4,13 @@
 
 ### Requirement: Role-Based Access Control
 
-The system SHALL implement RBAC with roles: admin, operator, viewer, and system. The super_admin role is deprecated in Tenant Instances.
+The system SHALL implement RBAC with roles: admin, operator, viewer, and system.
 
 #### Scenario: Admin role permissions
 - **GIVEN** a user with admin role
-- **WHEN** the user accesses resources within their tenant
+- **WHEN** the user accesses resources within their deployment
 - **THEN** the user SHALL have full CRUD permissions
-- **AND** the user SHALL NOT access other tenants' data
+- **AND** the user SHALL NOT access data outside the deployment
 
 #### Scenario: Operator role permissions
 - **GIVEN** a user with operator role
@@ -26,17 +26,9 @@ The system SHALL implement RBAC with roles: admin, operator, viewer, and system.
 
 #### Scenario: System role for background operations
 - **GIVEN** a SystemActor with system role
-- **WHEN** the actor performs operations within tenant context
+- **WHEN** the actor performs operations within instance context
 - **THEN** the system role SHALL bypass user-level policies
-- **AND** the actor SHALL still be restricted to the specified tenant_id
-- **AND** cross-tenant access SHALL be denied
-
-#### Scenario: Super_admin role restricted to Control Plane
-- **GIVEN** a super_admin role user or actor
-- **WHEN** the actor operates in a Tenant Instance
-- **THEN** the super_admin is treated as admin for that tenant
-- **AND** cross-tenant bypass is NOT granted
-- **AND** true super_admin access is only available via Control Plane
+- **AND** the actor SHALL still be restricted to the instance database search_path
 
 ## ADDED Requirements
 
@@ -44,19 +36,11 @@ The system SHALL implement RBAC with roles: admin, operator, viewer, and system.
 
 Background operations SHALL use the SystemActor pattern for authorization instead of bypassing policies.
 
-#### Scenario: Tenant-scoped SystemActor
-- **WHEN** background operation needs to access tenant data
-- **THEN** the operation creates SystemActor with for_tenant(tenant_id, component_name)
+#### Scenario: Instance-scoped SystemActor
+- **WHEN** background operation needs to access instance data
+- **THEN** the operation creates SystemActor with system(component_name)
 - **AND** the actor has role: :system
-- **AND** the actor has tenant_id matching the operation context
 - **AND** the operation passes actor to all Ash operations
-
-#### Scenario: Platform SystemActor for Control Plane operations
-- **WHEN** Control Plane needs cross-tenant access
-- **THEN** the operation creates SystemActor with platform(component_name)
-- **AND** the actor has role: :super_admin
-- **AND** the operation runs in Control Plane context only
-- **AND** Tenant Instances do NOT use platform SystemActors
 
 #### Scenario: No hardcoded system actors in web-ng
 - **WHEN** web-ng code needs system-level authorization

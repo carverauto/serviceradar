@@ -56,11 +56,10 @@ func TestParseOCSFEvent(t *testing.T) {
 		"type_uid":100800,
 		"activity_id":1,
 		"severity_id":2,
-		"message":"test event",
-		"tenant_id":"11111111-1111-1111-1111-111111111111"
+		"message":"test event"
 	}`)
 
-	row, err := parseOCSFEvent(payload, "")
+	row, err := parseOCSFEvent(payload)
 	if err != nil {
 		t.Fatalf("expected OCSF event parse to succeed: %v", err)
 	}
@@ -75,10 +74,6 @@ func TestParseOCSFEvent(t *testing.T) {
 
 	if row.ClassUID != 1008 {
 		t.Fatalf("unexpected class_uid: %d", row.ClassUID)
-	}
-
-	if row.TenantID != "11111111-1111-1111-1111-111111111111" {
-		t.Fatalf("unexpected tenant_id: %s", row.TenantID)
 	}
 
 	if !row.CreatedAt.Before(time.Now().Add(1 * time.Minute)) {

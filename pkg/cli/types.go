@@ -102,7 +102,7 @@ type CmdConfig struct {
 	NATSPlatformAccount   string
 	NATSPlatformUser      string
 	NATSSystemUser        string
-	NATSTenantLimit       int
+	NATSAccountLimit      int
 	AdminNatsAction       string
 	AdminCommand          string
 }

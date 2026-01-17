@@ -18,14 +18,7 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
       index [:config_instance_id, :version],
         unique: true,
         name: "agent_config_versions_instance_version_idx"
-
-      index [:tenant_id, :created_at],
-        name: "agent_config_versions_tenant_created_idx"
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -43,7 +36,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
         :change_reason
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     read :for_instance do
@@ -68,17 +60,14 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can read version history
+    # Admins can read version history
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)
     end
@@ -91,12 +80,6 @@ defmodule ServiceRadar.AgentConfig.ConfigVersion do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this version belongs to"
-    end
 
     attribute :config_instance_id, :uuid do
       allow_nil? false

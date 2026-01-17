@@ -41,10 +41,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -62,7 +58,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
         :enabled
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
     end
 
     update :update do
@@ -93,12 +88,9 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -125,12 +117,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this profile belongs to"
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -215,6 +201,6 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 end

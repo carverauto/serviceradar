@@ -14,7 +14,7 @@ availability data back into Armis).
 
 ## Configuration Delivery
 
-Integration sources are configured per tenant in the UI (Integrations -> New
+Integration sources are configured per deployment in the UI (Integrations -> New
 Source). Core stores the configuration in CNPG and delivers it to the agent via
 `GetConfig`. The sync runtime keeps the config in memory and reloads it whenever
 the gateway publishes updates.

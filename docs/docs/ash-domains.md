@@ -12,10 +12,8 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) to organize business 
 ```mermaid
 graph TB
     subgraph Identity["Identity Domain"]
-        Tenant[Tenant]
         User[User]
         ApiToken[API Token]
-        User -->|belongs_to| Tenant
         ApiToken -->|belongs_to| User
     end
 
@@ -53,37 +51,26 @@ graph TB
         OnboardingEvent -->|belongs_to| OnboardingPackage
     end
 
-    %% Cross-domain relationships
-    Device -.->|tenant_id| Tenant
-    Gateway -.->|tenant_id| Tenant
-    Alert -.->|tenant_id| Tenant
-    OnboardingPackage -.->|tenant_id| Tenant
 ```
 
-## Multi-Tenancy
+## Instance Isolation
 
-Tenant-scoped resources use **schema-based multitenancy** (`strategy :context`) and are stored
-under `tenant_<slug>` schemas. Platform-managed resources (tenants, users, tenant memberships,
-platform NATS tables, platform Oban, platform job schedules) remain in the public schema.
-Tenant AshOban schedules and Oban jobs are stored in tenant schemas via per-tenant Oban instances.
+ServiceRadar uses a **dedicated-deployment** model where each deployment is isolated.
+Resources are isolated by PostgreSQL schema (via CNPG search_path) at the
+infrastructure level, not by application-level identifiers.
 
-```elixir
-multitenancy do
-  strategy :context
-end
-```
-
-The `tenant` option is passed from the actor's tenant context and enforced in policies.
+- Each deployment connects to a dedicated PostgreSQL schema
+- No cross-deployment access is possible at the instance level
+- CNPG credentials configure the database connection's `search_path`
 
 ## Domain Modules
 
 ### ServiceRadar.Identity
 
-User authentication and tenant management.
+User authentication and access.
 
 | Resource | Description | Key Actions |
 |----------|-------------|-------------|
-| `Tenant` | Organization/account | `create`, `update`, `read` |
 | `User` | User accounts | `register_with_password`, `sign_in_with_password`, `update_role` |
 | `ApiToken` | API access tokens | `create`, `validate`, `revoke`, `record_use` |
 
@@ -148,8 +135,8 @@ Edge device onboarding and lifecycle.
 
 ## Background Jobs (AshOban)
 
-Tenant-triggered jobs run from per-tenant Oban schemas; platform maintenance jobs remain in
-the public Oban schema.
+Deployment-triggered jobs run from the public Oban schema; platform maintenance jobs remain
+in the same default schema.
 
 ServiceRadar uses AshOban for scheduled background processing:
 
@@ -170,7 +157,6 @@ elixir/serviceradar_core/
 ├── lib/serviceradar/
 │   ├── identity.ex           # Identity domain
 │   ├── identity/
-│   │   ├── tenant.ex
 │   │   ├── user.ex
 │   │   └── api_token.ex
 │   ├── inventory.ex          # Inventory domain

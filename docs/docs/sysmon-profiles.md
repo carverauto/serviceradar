@@ -62,7 +62,7 @@ Navigate to **Settings > Sysmon Profiles** in the web UI.
 
 ### Default Profile
 
-Each tenant has a default sysmon profile that provides baseline monitoring:
+Each deployment has a default sysmon profile that provides baseline monitoring:
 - Sample interval: 10 seconds
 - Enabled metrics: CPU, Memory, Disk
 - Disk paths: `/` (root filesystem)
@@ -170,7 +170,7 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
    - Higher priority values win when multiple tags match
 
 4. **Default profile** (lowest priority)
-   - The tenant's default sysmon profile
+   - The deployment's default sysmon profile
 
 ## Profile Settings Reference
 

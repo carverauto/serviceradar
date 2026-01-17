@@ -5,7 +5,6 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Observability.{LogPromotion, LogPromotionRule}
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -16,18 +15,11 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
   end
 
   setup do
-    tenant = TestSupport.create_tenant_schema!("log-promote")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-    end)
-
-    schema = TenantSchemas.schema_for_id(tenant.tenant_id)
-    {:ok, tenant: tenant, schema: schema}
+    :ok
   end
 
-  test "promotes log to event and creates alert", %{tenant: tenant, schema: schema} do
-    actor = %{id: "system", role: :admin, tenant_id: tenant.tenant_id}
+  test "promotes log to event and creates alert" do
+    actor = %{id: "system", role: :admin}
 
     {:ok, _rule} =
       LogPromotionRule
@@ -38,8 +30,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
           match: %{"subject_prefix" => "logs.syslog", "severity_text" => "ERROR"},
           event: %{"log_name" => "syslog.promoted"}
         },
-        actor: actor,
-        tenant: schema
+        actor: actor
       )
       |> Ash.create()
 
@@ -52,23 +43,22 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
       service_name: "syslog",
       attributes: %{"serviceradar.ingest" => %{"subject" => "logs.syslog.processed"}},
       resource_attributes: %{},
-      tenant_id: tenant.tenant_id,
       created_at: DateTime.utc_now()
     }
 
-    assert {:ok, 1} = LogPromotion.promote([log], tenant.tenant_id, schema)
+    assert {:ok, 1} = LogPromotion.promote([log])
 
     assert %Result{rows: [[1]]} =
              SQL.query!(
                Repo,
-               "SELECT COUNT(*) FROM #{schema}.ocsf_events WHERE log_name = $1",
+               "SELECT COUNT(*) FROM ocsf_events WHERE log_name = $1",
                ["syslog.promoted"]
              )
 
     assert %Result{rows: [[alert_count]]} =
              SQL.query!(
                Repo,
-               "SELECT COUNT(*) FROM #{schema}.alerts WHERE event_id IS NOT NULL",
+               "SELECT COUNT(*) FROM alerts WHERE event_id IS NOT NULL",
                []
              )
 

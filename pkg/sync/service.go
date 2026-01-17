@@ -109,10 +109,7 @@ type SimpleSyncService struct {
 	// Gateway push support (push-first architecture)
 	gatewayClient       *agentgateway.GatewayClient
 	gatewayEnrolled     int32
-	gatewayTenantID     string
-	gatewayTenantSlug   string
 	sharedGatewayClient bool
-	gatewayMu           sync.RWMutex
 
 	configMu           sync.RWMutex
 	configVersion      string
@@ -121,12 +118,6 @@ type SimpleSyncService struct {
 	heartbeatMu        sync.RWMutex
 	heartbeatInterval  time.Duration
 
-	tenantMu           sync.RWMutex
-	tenantSources      map[string]map[string]*models.SourceConfig
-	tenantIntegrations map[string]map[string]Integration
-	tenantSlugs        map[string]string
-	tenantResults      map[string]*StreamingResultsStore
-
 	// Hot-reload support
 	discoveryTicker   *time.Ticker
 	armisUpdateTicker *time.Ticker
@@ -134,7 +125,7 @@ type SimpleSyncService struct {
 
 	// Per-source discovery scheduling
 	sourceLastDiscoveryMu sync.RWMutex
-	sourceLastDiscovery   map[string]time.Time // key: "tenantID:sourceName"
+	sourceLastDiscovery   map[string]time.Time // key: sourceName
 }
 
 // NewSimpleSyncService creates a new simplified sync service
@@ -173,14 +164,10 @@ func NewSimpleSyncServiceWithMetrics(
 		ctx:                 serviceCtx,
 		cancel:              cancel,
 		errorChan:           make(chan error, 10), // Buffered channel for error collection
-		metrics:             metrics,
-		logger:              log,
-		reloadChan:          make(chan struct{}, 1),
-		tenantSources:       make(map[string]map[string]*models.SourceConfig),
-		tenantIntegrations:  make(map[string]map[string]Integration),
-		tenantSlugs:         make(map[string]string),
-		tenantResults:       make(map[string]*StreamingResultsStore),
-		configPollInterval:  defaultConfigPollInterval,
+		metrics:            metrics,
+		logger:             log,
+		reloadChan:         make(chan struct{}, 1),
+		configPollInterval: defaultConfigPollInterval,
 		heartbeatInterval:   defaultHeartbeatInterval,
 		sourceLastDiscovery: make(map[string]time.Time),
 	}
@@ -328,16 +315,11 @@ func (s *SimpleSyncService) Stop(_ context.Context) error {
 	return nil
 }
 
-// MarkGatewayEnrolled marks the shared gateway client as enrolled and stores tenant identity.
-func (s *SimpleSyncService) MarkGatewayEnrolled(tenantID, tenantSlug string) {
+// MarkGatewayEnrolled marks the shared gateway client as enrolled.
+func (s *SimpleSyncService) MarkGatewayEnrolled() {
 	if s.gatewayClient == nil {
 		return
 	}
-
-	s.gatewayMu.Lock()
-	s.gatewayTenantID = tenantID
-	s.gatewayTenantSlug = tenantSlug
-	s.gatewayMu.Unlock()
 
 	atomic.StoreInt32(&s.gatewayEnrolled, 1)
 }
@@ -411,68 +393,21 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 		Time("started_at", start).
 		Msg("Starting discovery cycle")
 
-	tenantIntegrations := s.snapshotTenantIntegrations()
-	if len(tenantIntegrations) == 0 {
-		sourcesSnapshot := s.snapshotLegacySources()
-		allDeviceUpdates, discoveryErrors := s.runDiscoveryForIntegrations(ctx, "", "", sourcesSnapshot)
-		s.updateResultsStore(allDeviceUpdates)
+	sourcesSnapshot := s.snapshotSources()
+	allDeviceUpdates, discoveryErrors := s.runDiscoveryForIntegrations(ctx, sourcesSnapshot)
+	s.updateResultsStore(allDeviceUpdates)
 
-		if err := s.pushResultsForTenant(ctx, "", "", allDeviceUpdates); err != nil {
-			s.logger.Error().Err(err).Msg("Failed to push sync results to gateway")
-		}
-
-		totalDevices := countDevices(allDeviceUpdates)
-		s.metrics.RecordActiveIntegrations(len(sourcesSnapshot))
-		s.metrics.RecordTotalDevicesDiscovered(totalDevices)
-
-		s.logger.Info().
-			Int("total_devices", totalDevices).
-			Int("sources", len(allDeviceUpdates)).
-			Msg("Discovery cycle completed")
-
-		if len(discoveryErrors) > 0 {
-			return fmt.Errorf("discovery completed with %d errors: %w", len(discoveryErrors), errors.Join(discoveryErrors...))
-		}
-
-		return nil
+	if err := s.pushResults(ctx, allDeviceUpdates); err != nil {
+		s.logger.Error().Err(err).Msg("Failed to push sync results to gateway")
 	}
 
-	var discoveryErrors []error
-	totalSources := 0
-	totalDevices := 0
-
-	for tenantID, integrations := range tenantIntegrations {
-		tenantSlug := s.tenantSlugFor(tenantID)
-		tenantUpdates, tenantErrors := s.runDiscoveryForIntegrations(ctx, tenantID, tenantSlug, integrations)
-		if len(tenantErrors) > 0 {
-			discoveryErrors = append(discoveryErrors, tenantErrors...)
-		}
-
-		if len(tenantUpdates) == 0 {
-			continue
-		}
-
-		totalSources += len(integrations)
-		s.updateTenantResults(tenantID, tenantUpdates)
-
-		for _, devices := range tenantUpdates {
-			totalDevices += len(devices)
-		}
-
-		if err := s.pushResultsForTenant(ctx, tenantID, tenantSlug, tenantUpdates); err != nil {
-			s.logger.Error().Err(err).
-				Str("tenant_id", tenantID).
-				Msg("Failed to push sync results for tenant")
-		}
-	}
-
-	s.metrics.RecordActiveIntegrations(totalSources)
+	totalDevices := countDevices(allDeviceUpdates)
+	s.metrics.RecordActiveIntegrations(len(sourcesSnapshot))
 	s.metrics.RecordTotalDevicesDiscovered(totalDevices)
 
 	s.logger.Info().
 		Int("total_devices", totalDevices).
-		Int("sources", totalSources).
-		Int("tenants", len(tenantIntegrations)).
+		Int("sources", len(allDeviceUpdates)).
 		Msg("Discovery cycle completed")
 
 	if len(discoveryErrors) > 0 {
@@ -484,8 +419,6 @@ func (s *SimpleSyncService) runDiscovery(ctx context.Context) error {
 
 func (s *SimpleSyncService) runDiscoveryForIntegrations(
 	ctx context.Context,
-	tenantID string,
-	tenantSlug string,
 	integrations map[string]Integration,
 ) (map[string][]*models.DeviceUpdate, []error) {
 	allDeviceUpdates := make(map[string][]*models.DeviceUpdate)
@@ -493,32 +426,29 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 
 	for sourceName, integration := range integrations {
 		// Get source config to check per-source interval
-		sourceConfig := s.getSourceConfig(tenantID, sourceName)
+		sourceConfig := s.getSourceConfig(sourceName)
 
 		// Check if this source is due for discovery based on its interval
-		if !s.isSourceDueForDiscovery(tenantID, sourceName, sourceConfig) {
+		if !s.isSourceDueForDiscovery(sourceName, sourceConfig) {
 			s.configMu.RLock()
 			interval := s.config.GetEffectiveDiscoveryInterval(sourceConfig)
 			s.configMu.RUnlock()
 
 			s.logger.Debug().
 				Str("source", sourceName).
-				Str("tenant_id", tenantID).
 				Dur("interval", interval).
 				Msg("Skipping discovery for source - not due yet")
 			continue
 		}
 
-		logEvent := s.logger.Info().Str("source", sourceName)
-		if tenantID != "" {
-			logEvent = logEvent.Str("tenant_id", tenantID)
-		}
-
 		s.configMu.RLock()
 		interval := s.config.GetEffectiveDiscoveryInterval(sourceConfig)
 		s.configMu.RUnlock()
-		logEvent = logEvent.Dur("interval", interval)
-		logEvent.Msg("Running discovery for source")
+
+		s.logger.Info().
+			Str("source", sourceName).
+			Dur("interval", interval).
+			Msg("Running discovery for source")
 
 		s.metrics.RecordDiscoveryAttempt(sourceName)
 
@@ -527,7 +457,6 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 		if err != nil {
 			s.logger.Error().Err(err).
 				Str("source", sourceName).
-				Str("tenant_id", tenantID).
 				Msg("Discovery failed for source")
 			s.metrics.RecordDiscoveryFailure(sourceName, err, time.Since(sourceStart))
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("source %s: %w", sourceName, err))
@@ -535,48 +464,36 @@ func (s *SimpleSyncService) runDiscoveryForIntegrations(
 		}
 
 		// Record successful discovery time for per-source scheduling
-		s.recordSourceDiscovery(tenantID, sourceName)
+		s.recordSourceDiscovery(sourceName)
 
-		if tenantID != "" {
-			devices = s.applyTenantSourceBlacklist(tenantID, sourceName, devices)
-		} else {
-			devices = s.applySourceBlacklist(sourceName, devices)
-		}
+		devices = s.applySourceBlacklist(sourceName, devices)
 
 		s.metrics.RecordDiscoverySuccess(sourceName, len(devices), time.Since(sourceStart))
 		allDeviceUpdates[sourceName] = devices
 
 		s.logger.Info().
 			Str("source", sourceName).
-			Str("tenant_id", tenantID).
-			Str("tenant_slug", tenantSlug).
 			Int("devices_discovered", len(devices)).
 			Dur("interval", interval).
 			Msg("Discovery completed for source")
 	}
 
-	s.logDiscoveredDevices(tenantID, allDeviceUpdates)
+	s.logDiscoveredDevices(allDeviceUpdates)
 
 	return allDeviceUpdates, discoveryErrors
 }
 
-func (s *SimpleSyncService) logDiscoveredDevices(tenantID string, allDeviceUpdates map[string][]*models.DeviceUpdate) {
+func (s *SimpleSyncService) logDiscoveredDevices(allDeviceUpdates map[string][]*models.DeviceUpdate) {
 	for sourceName, devices := range allDeviceUpdates {
-		logEvent := s.logger.Debug().
+		s.logger.Debug().
 			Str("source", sourceName).
-			Int("device_count", len(devices))
-		if tenantID != "" {
-			logEvent = logEvent.Str("tenant_id", tenantID)
-		}
-		logEvent.Msg("Devices discovered in source")
+			Int("device_count", len(devices)).
+			Msg("Devices discovered in source")
 
 		for _, device := range devices {
 			entry := s.logger.Debug().
 				Str("source", sourceName).
 				Str("device_ip", device.IP)
-			if tenantID != "" {
-				entry = entry.Str("tenant_id", tenantID)
-			}
 
 			if device.Hostname != nil && *device.Hostname != "" {
 				entry = entry.Str("device_name", *device.Hostname)
@@ -603,61 +520,8 @@ func (s *SimpleSyncService) updateResultsStore(allDeviceUpdates map[string][]*mo
 	s.resultsStore.mu.Unlock()
 }
 
-func (s *SimpleSyncService) updateTenantResults(tenantID string, allDeviceUpdates map[string][]*models.DeviceUpdate) {
-	if tenantID == "" {
-		return
-	}
-
-	store := s.tenantResultsStore(tenantID)
-	deviceCount := countDevices(allDeviceUpdates)
-	sourceCount := len(allDeviceUpdates)
-	store.mu.Lock()
-	store.deviceCount = deviceCount
-	store.sourceCount = sourceCount
-	store.updated = time.Now()
-	store.mu.Unlock()
-}
-
 func (s *SimpleSyncService) aggregateStatus() (int, int, int64) {
-	s.tenantMu.RLock()
-	tenantCount := len(s.tenantResults)
-	if tenantCount == 0 {
-		s.tenantMu.RUnlock()
-		return statusFromStore(s.resultsStore)
-	}
-	if tenantCount == 1 {
-		var store *StreamingResultsStore
-		for _, sstore := range s.tenantResults {
-			store = sstore
-			break
-		}
-		s.tenantMu.RUnlock()
-		return statusFromStore(store)
-	}
-	stores := make([]*StreamingResultsStore, 0, tenantCount)
-	for _, store := range s.tenantResults {
-		stores = append(stores, store)
-	}
-	s.tenantMu.RUnlock()
-
-	totalDevices := 0
-	totalSources := 0
-	lastUpdated := int64(0)
-
-	for _, store := range stores {
-		if store == nil {
-			continue
-		}
-		store.mu.RLock()
-		totalSources += store.sourceCount
-		totalDevices += store.deviceCount
-		if updated := store.updated.Unix(); updated > lastUpdated {
-			lastUpdated = updated
-		}
-		store.mu.RUnlock()
-	}
-
-	return totalDevices, totalSources, lastUpdated
+	return statusFromStore(s.resultsStore)
 }
 
 func statusFromStore(store *StreamingResultsStore) (int, int, int64) {
@@ -689,16 +553,8 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 
 	s.logger.Info().Msg("Starting Armis update cycle")
 
-	var updateErrors []error
-	tenantIntegrations := s.snapshotTenantIntegrations()
-	if len(tenantIntegrations) == 0 {
-		sourcesSnapshot := s.snapshotLegacySources()
-		updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, "", sourcesSnapshot)...)
-	} else {
-		for tenantID, integrations := range tenantIntegrations {
-			updateErrors = append(updateErrors, s.runArmisUpdatesForIntegrations(ctx, tenantID, integrations)...)
-		}
-	}
+	sourcesSnapshot := s.snapshotSources()
+	updateErrors := s.runArmisUpdatesForIntegrations(ctx, sourcesSnapshot)
 
 	s.logger.Info().Msg("Armis update cycle completed")
 
@@ -712,7 +568,6 @@ func (s *SimpleSyncService) runArmisUpdates(ctx context.Context) error {
 
 func (s *SimpleSyncService) runArmisUpdatesForIntegrations(
 	ctx context.Context,
-	tenantID string,
 	integrations map[string]Integration,
 ) []error {
 	var updateErrors []error
@@ -725,7 +580,6 @@ func (s *SimpleSyncService) runArmisUpdatesForIntegrations(
 		if err := integration.Reconcile(ctx); err != nil {
 			s.logger.Error().Err(err).
 				Str("source", sourceName).
-				Str("tenant_id", tenantID).
 				Msg("Armis update failed for source")
 			s.metrics.RecordReconciliationFailure(sourceName, err, time.Since(sourceStart))
 			updateErrors = append(updateErrors, fmt.Errorf("reconcile source %s: %w", sourceName, err))
@@ -855,25 +709,15 @@ func (s *SimpleSyncService) ensureGatewayEnrolled(ctx context.Context) error {
 		s.setHeartbeatInterval(time.Duration(resp.HeartbeatIntervalSec) * time.Second)
 	}
 
-	s.gatewayMu.Lock()
-	if s.gatewayTenantID == "" && resp.TenantId != "" {
-		s.gatewayTenantID = resp.TenantId
-	}
-	if s.gatewayTenantSlug == "" && resp.TenantSlug != "" {
-		s.gatewayTenantSlug = resp.TenantSlug
-	}
-	s.gatewayMu.Unlock()
-
 	atomic.StoreInt32(&s.gatewayEnrolled, 1)
 
 	return nil
 }
 
 type gatewaySyncPayload struct {
-	AgentID  string                          `json:"agent_id,omitempty"`
-	TenantID string                          `json:"tenant_id,omitempty"`
-	Scope    string                          `json:"scope,omitempty"`
-	Sources  map[string]*models.SourceConfig `json:"sources"`
+	AgentID string                          `json:"agent_id,omitempty"`
+	Scope   string                          `json:"scope,omitempty"`
+	Sources map[string]*models.SourceConfig `json:"sources"`
 }
 
 func (s *SimpleSyncService) applyConfigPayload(payload *gatewaySyncPayload, configVersion string) {
@@ -894,18 +738,9 @@ func (s *SimpleSyncService) applyConfigPayload(payload *gatewaySyncPayload, conf
 	if payload.AgentID != "" {
 		updatedCfg.AgentID = payload.AgentID
 	}
-	if payload.TenantID != "" {
-		updatedCfg.TenantID = payload.TenantID
-	}
 	updatedCfg.Sources = sources
 
-	scope := payload.Scope
-	if scope == "" {
-		scope = "tenant"
-	}
-
 	s.UpdateConfig(&updatedCfg)
-	s.setTenantSources(sources, scope)
 
 	if configVersion != "" {
 		s.setConfigVersion(configVersion)
@@ -1117,23 +952,6 @@ func (s *SimpleSyncService) setConfigVersion(version string) {
 	s.configMu.Unlock()
 }
 
-func (s *SimpleSyncService) tenantInfo() (string, string) {
-	s.gatewayMu.RLock()
-	tenantID := s.gatewayTenantID
-	tenantSlug := s.gatewayTenantSlug
-	s.gatewayMu.RUnlock()
-
-	if tenantID != "" || tenantSlug != "" {
-		return tenantID, tenantSlug
-	}
-
-	s.configMu.RLock()
-	cfgTenantID := s.config.TenantID
-	cfgTenantSlug := s.config.TenantSlug
-	s.configMu.RUnlock()
-
-	return cfgTenantID, cfgTenantSlug
-}
 
 func (s *SimpleSyncService) buildResultsChunks(
 	allDeviceUpdates []*models.DeviceUpdate,
@@ -1223,8 +1041,6 @@ func (s *SimpleSyncService) buildResultsChunks(
 
 func (s *SimpleSyncService) buildGatewayStatusChunks(
 	chunks []*proto.ResultsChunk,
-	tenantID string,
-	tenantSlug string,
 ) []*proto.GatewayStatusChunk {
 	s.configMu.RLock()
 	agentID := s.config.AgentID
@@ -1249,33 +1065,24 @@ func (s *SimpleSyncService) buildGatewayStatusChunks(
 			GatewayId:    gatewayID,
 			Partition:    partition,
 			Source:       syncResultsSource,
-			KvStoreId:    "",
-			TenantId:     tenantID,
-			TenantSlug:   tenantSlug,
 		}
 
 		statusChunks = append(statusChunks, &proto.GatewayStatusChunk{
 			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   "",
 			AgentId:     agentID,
 			Timestamp:   chunk.Timestamp,
 			Partition:   partition,
 			IsFinal:     chunk.IsFinal,
 			ChunkIndex:  chunk.ChunkIndex,
 			TotalChunks: chunk.TotalChunks,
-			KvStoreId:   "",
-			TenantId:    tenantID,
-			TenantSlug:  tenantSlug,
 		})
 	}
 
 	return statusChunks
 }
 
-func (s *SimpleSyncService) pushResultsForTenant(
+func (s *SimpleSyncService) pushResults(
 	ctx context.Context,
-	tenantID string,
-	tenantSlug string,
 	allDeviceUpdates map[string][]*models.DeviceUpdate,
 ) error {
 	if s.gatewayClient == nil {
@@ -1290,25 +1097,19 @@ func (s *SimpleSyncService) pushResultsForTenant(
 		return err
 	}
 
-	tenantID, tenantSlug = s.resolveTenantInfo(tenantID, tenantSlug)
-	if tenantID == "" {
-		s.logger.Warn().Msg("Skipping sync results push without tenant id")
-		return nil
-	}
-
 	updates := s.collectDeviceUpdates(allDeviceUpdates)
 	if len(updates) == 0 {
 		return nil
 	}
 
-	sequence := s.tenantSequence(tenantID)
+	sequence := s.getSequence()
 
 	chunks, err := s.buildResultsChunks(updates, sequence)
 	if err != nil {
 		return err
 	}
 
-	statusChunks := s.buildGatewayStatusChunks(chunks, tenantID, tenantSlug)
+	statusChunks := s.buildGatewayStatusChunks(chunks)
 	if len(statusChunks) == 0 {
 		return nil
 	}
@@ -1333,12 +1134,6 @@ func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
 		return err
 	}
 
-	tenantID, tenantSlug := s.resolveTenantInfo("", "")
-	if tenantID == "" {
-		s.logger.Warn().Msg("Skipping sync heartbeat push without tenant id")
-		return nil
-	}
-
 	s.configMu.RLock()
 	agentID := s.config.AgentID
 	partition := s.config.Partition
@@ -1347,26 +1142,17 @@ func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  syncServiceName,
 		Available:    true,
-		Message:      nil,
 		ServiceType:  syncServiceType,
-		ResponseTime: 0,
 		AgentId:      agentID,
-		GatewayId:    "",
 		Partition:    partition,
 		Source:       syncStatusSource,
-		KvStoreId:    "",
-		TenantId:     tenantID,
-		TenantSlug:   tenantSlug,
 	}
 
 	request := &proto.GatewayStatusRequest{
-		Services:   []*proto.GatewayServiceStatus{status},
-		GatewayId:  "",
-		AgentId:    agentID,
-		Timestamp:  time.Now().Unix(),
-		Partition:  partition,
-		TenantId:   tenantID,
-		TenantSlug: tenantSlug,
+		Services:  []*proto.GatewayServiceStatus{status},
+		AgentId:   agentID,
+		Timestamp: time.Now().Unix(),
+		Partition: partition,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -1376,26 +1162,10 @@ func (s *SimpleSyncService) pushHeartbeat(ctx context.Context) error {
 	return err
 }
 
-func (s *SimpleSyncService) resolveTenantInfo(tenantID, tenantSlug string) (string, string) {
-	if tenantID != "" || tenantSlug != "" {
-		return tenantID, tenantSlug
-	}
-
-	return s.tenantInfo()
-}
-
-func (s *SimpleSyncService) tenantSequence(tenantID string) string {
-	if tenantID == "" {
-		s.resultsStore.mu.RLock()
-		sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
-		s.resultsStore.mu.RUnlock()
-		return sequence
-	}
-
-	store := s.tenantResultsStore(tenantID)
-	store.mu.RLock()
-	sequence := fmt.Sprintf("%d", store.updated.Unix())
-	store.mu.RUnlock()
+func (s *SimpleSyncService) getSequence() string {
+	s.resultsStore.mu.RLock()
+	sequence := fmt.Sprintf("%d", s.resultsStore.updated.Unix())
+	s.resultsStore.mu.RUnlock()
 	return sequence
 }
 
@@ -1430,177 +1200,7 @@ func (s *SimpleSyncService) initializeIntegrations(ctx context.Context) {
 	}
 }
 
-func (s *SimpleSyncService) setTenantSources(sources map[string]*models.SourceConfig, scope string) {
-	grouped, slugs := s.groupSourcesByTenant(sources, scope)
-	tenantIntegrations := make(map[string]map[string]Integration, len(grouped))
-	tenantResults := make(map[string]*StreamingResultsStore, len(grouped))
-
-	s.tenantMu.RLock()
-	oldSources := s.tenantSources
-	s.tenantMu.RUnlock()
-
-	// Read fallback values under lock
-	s.configMu.RLock()
-	agentID := s.config.AgentID
-	gatewayID := s.config.GatewayID
-	partition := s.config.Partition
-	s.configMu.RUnlock()
-
-	// Detect interval changes and reset timers for affected sources
-	s.detectAndResetChangedIntervals(grouped, oldSources)
-
-	for tenantID, sourceMap := range grouped {
-		integrations := make(map[string]Integration, len(sourceMap))
-		for name, src := range sourceMap {
-			factory, ok := s.registry[src.Type]
-			if !ok {
-				s.logger.Warn().
-					Str("source_type", src.Type).
-					Str("tenant_id", tenantID).
-					Msg("Unknown source type for tenant")
-				continue
-			}
-
-			integrations[name] = s.createIntegration(s.ctx, src, factory, agentID, gatewayID, partition)
-		}
-
-		if len(integrations) == 0 {
-			continue
-		}
-
-		tenantIntegrations[tenantID] = integrations
-		tenantResults[tenantID] = &StreamingResultsStore{}
-	}
-
-	s.tenantMu.Lock()
-	s.tenantSources = grouped
-	s.tenantIntegrations = tenantIntegrations
-	s.tenantSlugs = slugs
-	s.tenantResults = tenantResults
-	s.tenantMu.Unlock()
-}
-
-// detectAndResetChangedIntervals compares old and new source configs,
-// resetting discovery timers for sources whose intervals have changed.
-func (s *SimpleSyncService) detectAndResetChangedIntervals(
-	newSources map[string]map[string]*models.SourceConfig,
-	oldSources map[string]map[string]*models.SourceConfig,
-) {
-	s.configMu.RLock()
-	globalInterval := s.config.GetEffectiveDiscoveryInterval(nil)
-	s.configMu.RUnlock()
-
-	for tenantID, newSourceMap := range newSources {
-		oldSourceMap := oldSources[tenantID]
-
-		for sourceName, newSrc := range newSourceMap {
-			newInterval := time.Duration(newSrc.DiscoveryInterval)
-			if newInterval == 0 {
-				newInterval = globalInterval
-			}
-
-			// Check if source existed before
-			if oldSourceMap != nil {
-				if oldSrc, exists := oldSourceMap[sourceName]; exists {
-					oldInterval := time.Duration(oldSrc.DiscoveryInterval)
-					if oldInterval == 0 {
-						oldInterval = globalInterval
-					}
-
-					// If interval changed, reset the timer
-					if newInterval != oldInterval {
-						s.logger.Info().
-							Str("source", sourceName).
-							Str("tenant_id", tenantID).
-							Dur("old_interval", oldInterval).
-							Dur("new_interval", newInterval).
-							Msg("Discovery interval changed for source, resetting timer")
-						s.resetSourceDiscoveryTimer(tenantID, sourceName)
-					}
-					continue
-				}
-			}
-
-			// New source - will run on first discovery cycle automatically
-			s.logger.Debug().
-				Str("source", sourceName).
-				Str("tenant_id", tenantID).
-				Dur("interval", newInterval).
-				Msg("New source added with discovery interval")
-		}
-	}
-}
-
-func (s *SimpleSyncService) groupSourcesByTenant(
-	sources map[string]*models.SourceConfig,
-	scope string,
-) (map[string]map[string]*models.SourceConfig, map[string]string) {
-	grouped := make(map[string]map[string]*models.SourceConfig)
-	slugs := make(map[string]string)
-	defaultTenantID, defaultTenantSlug := s.tenantInfo()
-	allowDefaultTenant := scope != "platform"
-
-	for name, src := range sources {
-		if src == nil {
-			continue
-		}
-
-		tenantID := src.TenantID
-		tenantSlug := src.TenantSlug
-
-		if tenantID == "" && allowDefaultTenant {
-			tenantID = defaultTenantID
-		}
-		if tenantSlug == "" && allowDefaultTenant {
-			tenantSlug = defaultTenantSlug
-		}
-
-		if tenantID == "" {
-			s.logger.Warn().
-				Str("source", name).
-				Msg("Skipping source without tenant_id")
-			continue
-		}
-
-		if grouped[tenantID] == nil {
-			grouped[tenantID] = make(map[string]*models.SourceConfig)
-		}
-
-		grouped[tenantID][name] = src
-
-		if tenantSlug != "" && slugs[tenantID] == "" {
-			slugs[tenantID] = tenantSlug
-		}
-	}
-
-	return grouped, slugs
-}
-
-func (s *SimpleSyncService) snapshotTenantIntegrations() map[string]map[string]Integration {
-	s.tenantMu.RLock()
-	defer s.tenantMu.RUnlock()
-
-	if len(s.tenantIntegrations) == 0 {
-		return nil
-	}
-
-	snapshot := make(map[string]map[string]Integration, len(s.tenantIntegrations))
-	for tenantID, integrations := range s.tenantIntegrations {
-		if len(integrations) == 0 {
-			continue
-		}
-
-		inner := make(map[string]Integration, len(integrations))
-		for name, integration := range integrations {
-			inner[name] = integration
-		}
-		snapshot[tenantID] = inner
-	}
-
-	return snapshot
-}
-
-func (s *SimpleSyncService) snapshotLegacySources() map[string]Integration {
+func (s *SimpleSyncService) snapshotSources() map[string]Integration {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 
@@ -1614,34 +1214,6 @@ func (s *SimpleSyncService) snapshotLegacySources() map[string]Integration {
 	}
 
 	return snapshot
-}
-
-func (s *SimpleSyncService) tenantSlugFor(tenantID string) string {
-	s.tenantMu.RLock()
-	defer s.tenantMu.RUnlock()
-	return s.tenantSlugs[tenantID]
-}
-
-func (s *SimpleSyncService) tenantResultsStore(tenantID string) *StreamingResultsStore {
-	s.tenantMu.RLock()
-	store := s.tenantResults[tenantID]
-	s.tenantMu.RUnlock()
-	if store != nil {
-		return store
-	}
-
-	s.tenantMu.Lock()
-	defer s.tenantMu.Unlock()
-	store = s.tenantResults[tenantID]
-	if store != nil {
-		return store
-	}
-	store = &StreamingResultsStore{}
-	if s.tenantResults == nil {
-		s.tenantResults = make(map[string]*StreamingResultsStore)
-	}
-	s.tenantResults[tenantID] = store
-	return store
 }
 
 // applySourceBlacklist applies source-specific network blacklist filtering to devices.
@@ -1676,58 +1248,10 @@ func (s *SimpleSyncService) applySourceBlacklist(
 	return filteredDevices
 }
 
-func (s *SimpleSyncService) applyTenantSourceBlacklist(
-	tenantID string,
-	sourceName string,
-	devices []*models.DeviceUpdate,
-) (filteredDevices []*models.DeviceUpdate) {
-	s.tenantMu.RLock()
-	tenantSources := s.tenantSources[tenantID]
-	sourceConfig := tenantSources[sourceName]
-	s.tenantMu.RUnlock()
-
-	if sourceConfig == nil || len(sourceConfig.NetworkBlacklist) == 0 {
-		return devices
-	}
-
-	networkBlacklist, err := NewNetworkBlacklist(sourceConfig.NetworkBlacklist, s.logger)
-	if err != nil {
-		s.logger.Error().Err(err).
-			Str("source", sourceName).
-			Str("tenant_id", tenantID).
-			Msg("Failed to create network blacklist for tenant source")
-		return devices
-	}
-
-	originalCount := len(devices)
-	filteredDevices = networkBlacklist.FilterDevices(devices)
-
-	if filteredCount := originalCount - len(filteredDevices); filteredCount > 0 {
-		s.logger.Info().
-			Str("source", sourceName).
-			Str("tenant_id", tenantID).
-			Int("filtered_count", filteredCount).
-			Int("remaining_count", len(filteredDevices)).
-			Msg("Applied tenant source network blacklist filtering to devices")
-	}
-
-	return filteredDevices
-}
-
-// sourceKey generates a unique key for tracking per-source discovery times.
-func sourceKey(tenantID, sourceName string) string {
-	if tenantID == "" {
-		return sourceName
-	}
-	return tenantID + ":" + sourceName
-}
-
 // isSourceDueForDiscovery checks if a source's discovery interval has elapsed.
-func (s *SimpleSyncService) isSourceDueForDiscovery(tenantID, sourceName string, source *models.SourceConfig) bool {
-	key := sourceKey(tenantID, sourceName)
-
+func (s *SimpleSyncService) isSourceDueForDiscovery(sourceName string, source *models.SourceConfig) bool {
 	s.sourceLastDiscoveryMu.RLock()
-	lastRun, exists := s.sourceLastDiscovery[key]
+	lastRun, exists := s.sourceLastDiscovery[sourceName]
 	s.sourceLastDiscoveryMu.RUnlock()
 
 	// If never run, it's due for discovery
@@ -1743,37 +1267,17 @@ func (s *SimpleSyncService) isSourceDueForDiscovery(tenantID, sourceName string,
 }
 
 // recordSourceDiscovery records the last discovery time for a source.
-func (s *SimpleSyncService) recordSourceDiscovery(tenantID, sourceName string) {
-	key := sourceKey(tenantID, sourceName)
-
+func (s *SimpleSyncService) recordSourceDiscovery(sourceName string) {
 	s.sourceLastDiscoveryMu.Lock()
-	s.sourceLastDiscovery[key] = time.Now()
+	s.sourceLastDiscovery[sourceName] = time.Now()
 	s.sourceLastDiscoveryMu.Unlock()
 }
 
-// resetSourceDiscoveryTimer clears the last discovery time for a source,
-// causing it to run on the next discovery cycle.
-func (s *SimpleSyncService) resetSourceDiscoveryTimer(tenantID, sourceName string) {
-	key := sourceKey(tenantID, sourceName)
-
-	s.sourceLastDiscoveryMu.Lock()
-	delete(s.sourceLastDiscovery, key)
-	s.sourceLastDiscoveryMu.Unlock()
-}
-
-// getSourceConfig returns the source config for a given tenant and source name.
-func (s *SimpleSyncService) getSourceConfig(tenantID, sourceName string) *models.SourceConfig {
-	if tenantID == "" {
-		s.configMu.RLock()
-		source := s.config.Sources[sourceName]
-		s.configMu.RUnlock()
-		return source
-	}
-
-	s.tenantMu.RLock()
-	tenantSources := s.tenantSources[tenantID]
-	source := tenantSources[sourceName]
-	s.tenantMu.RUnlock()
+// getSourceConfig returns the source config for a given source name.
+func (s *SimpleSyncService) getSourceConfig(sourceName string) *models.SourceConfig {
+	s.configMu.RLock()
+	source := s.config.Sources[sourceName]
+	s.configMu.RUnlock()
 	return source
 }
 

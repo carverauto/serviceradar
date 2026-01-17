@@ -449,8 +449,6 @@ pub struct GatewayRow {
     pub checker_count: Option<i32>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub updated_at: Option<DateTime<Utc>>,
-    #[diesel(sql_type = SqlUuid)]
-    pub tenant_id: Uuid,
     #[diesel(sql_type = Nullable<SqlUuid>)]
     pub partition_id: Option<Uuid>,
 }

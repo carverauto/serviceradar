@@ -11,13 +11,8 @@ defmodule ServiceRadar.Events.HealthWriter do
 
   @spec write(HealthEvent.t()) :: :ok | {:error, term()}
   def write(%HealthEvent{} = event) do
-    if is_nil(event.tenant_id) do
-      {:error, :missing_tenant_id}
-    else
-      payload = build_event_attrs(event)
-
-      InternalLogPublisher.publish("health", payload, tenant_id: event.tenant_id)
-    end
+    payload = build_event_attrs(event)
+    InternalLogPublisher.publish("health", payload)
   rescue
     e ->
       Logger.warning("Failed to publish health log: #{inspect(e)}")
@@ -52,8 +47,7 @@ defmodule ServiceRadar.Events.HealthWriter do
       log_name: "health.state_change",
       log_provider: "serviceradar.core",
       log_level: log_level_for_severity(severity_id),
-      unmapped: build_unmapped(event),
-      tenant_id: event.tenant_id
+      unmapped: build_unmapped(event)
     }
   end
 

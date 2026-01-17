@@ -1,12 +1,17 @@
 defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @moduledoc """
-  Generates agent configuration from tenant data stored in CNPG.
+  Generates agent configuration from database.
 
   This module is responsible for:
   1. Loading service checks assigned to a specific agent
   2. Converting them to proto-compatible format (AgentCheckConfig)
   3. Computing a version hash for cache validation
   4. Supporting `not_modified` responses when config hasn't changed
+
+  ## Schema Isolation
+
+  The database connection's search_path (set by CNPG credentials) determines
+  the schema for this deployment.
 
   ## Config Versioning
 
@@ -17,18 +22,18 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   ## Usage
 
       # Generate full config for an agent
-      {:ok, config} = AgentConfigGenerator.generate_config(agent_id, tenant_id)
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_id)
 
       # Check if config has changed (returns :not_modified or {:ok, config})
-      result = AgentConfigGenerator.get_config_if_changed(agent_id, tenant_id, current_version)
+      result = AgentConfigGenerator.get_config_if_changed(agent_id, current_version)
   """
 
   require Logger
   require Ash.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
@@ -64,23 +69,24 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   Loads all enabled service checks assigned to this agent from the database
   and returns them in a format suitable for the AgentConfigResponse proto.
 
+  The schema is determined by the DB connection's search_path.
+
   ## Parameters
 
     - `agent_id` - The agent's unique identifier (uid)
-    - `tenant_id` - The tenant's UUID (for multi-tenant isolation)
 
   ## Returns
 
     - `{:ok, config}` - The generated config with version hash
     - `{:error, reason}` - If config generation fails
   """
-  @spec generate_config(String.t(), String.t()) :: {:ok, agent_config()} | {:error, term()}
-  def generate_config(agent_id, tenant_id) do
-    case load_agent_checks(agent_id, tenant_id) do
+  @spec generate_config(String.t()) :: {:ok, agent_config()} | {:error, term()}
+  def generate_config(agent_id) do
+    case load_agent_checks(agent_id) do
       {:ok, checks} ->
-        sync_payload = load_sync_payload(agent_id, tenant_id)
-        sweep_config = load_sweep_config(agent_id, tenant_id)
-        sysmon_config = load_sysmon_config(agent_id, tenant_id)
+        sync_payload = load_sync_payload(agent_id)
+        sweep_config = load_sweep_config(agent_id)
+        sysmon_config = load_sysmon_config(agent_id)
         config = build_config(checks, sync_payload, sweep_config, sysmon_config)
         {:ok, config}
 
@@ -99,10 +105,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   3. Returns `:not_modified` if the hash matches `current_version`
   4. Returns `{:ok, config}` if the config has changed
 
+  The schema is determined by the DB connection's search_path.
+
   ## Parameters
 
     - `agent_id` - The agent's unique identifier
-    - `tenant_id` - The tenant's UUID
     - `current_version` - The agent's current config version hash (or empty string)
 
   ## Returns
@@ -111,10 +118,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     - `{:ok, config}` - If config has changed (includes new version hash)
     - `{:error, reason}` - If config generation fails
   """
-  @spec get_config_if_changed(String.t(), String.t(), String.t()) ::
+  @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, agent_config()} | {:error, term()}
-  def get_config_if_changed(agent_id, tenant_id, current_version) do
-    case generate_config(agent_id, tenant_id) do
+  def get_config_if_changed(agent_id, current_version) do
+    case generate_config(agent_id) do
       {:ok, config} ->
         if config.config_version == current_version do
           Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
@@ -158,22 +165,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   # Load service checks assigned to this agent from the database
-  defp load_agent_checks(agent_id, tenant_id) do
-    actor = %{
-      id: "system",
-      email: "gateway@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-    tenant_schema = TenantSchemas.schema_for_tenant(tenant_id)
+  defp load_agent_checks(agent_id) do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:agent_config_generator)
 
     # Query for enabled checks assigned to this agent
     checks =
       ServiceCheck
-      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id},
-        actor: actor,
-        tenant: tenant_schema
-      )
+      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
       |> Ash.read!()
 
@@ -276,8 +275,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     "v" <> Base.encode16(hash, case: :lower)
   end
 
-  defp load_sync_payload(agent_id, tenant_id) do
-    case SyncConfigGenerator.build_payload(agent_id, tenant_id) do
+  defp load_sync_payload(agent_id) do
+    case SyncConfigGenerator.build_payload(agent_id) do
       {:ok, payload} ->
         payload
 
@@ -286,17 +285,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           "Failed to load integration config for agent #{agent_id}: #{inspect(reason)}"
         )
 
-        %{"agent_id" => agent_id, "tenant_id" => tenant_id, "sources" => %{}}
+        %{"agent_id" => agent_id, "sources" => %{}}
     end
   end
 
   # Load sweep configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
-  defp load_sweep_config(agent_id, tenant_id) do
+  defp load_sweep_config(agent_id) do
     # Use "default" partition for now - can be extended to support partitions later
     partition = "default"
 
-    case ConfigServer.get_config(tenant_id, :sweep, partition, agent_id) do
+    case ConfigServer.get_config(:sweep, partition, agent_id) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
         entry.config
@@ -317,10 +316,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
-  defp load_sysmon_config(agent_id, tenant_id) do
+  defp load_sysmon_config(agent_id) do
     partition = "default"
 
-    case ConfigServer.get_config(tenant_id, :sysmon, partition, agent_id) do
+    case ConfigServer.get_config(:sysmon, partition, agent_id) do
       {:ok, entry} ->
         entry.config
 

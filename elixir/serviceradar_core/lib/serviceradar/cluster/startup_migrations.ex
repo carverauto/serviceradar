@@ -1,14 +1,15 @@
 defmodule ServiceRadar.Cluster.StartupMigrations do
   @moduledoc """
-  Runs database migrations on startup for public and tenant schemas.
+  Runs database migrations on startup.
+
+  In the single-deployment architecture, migrations run against the single schema
+  determined by the PostgreSQL search_path (set by CNPG credentials).
 
   This task is intended for core-elx only and will fail fast if migrations
   cannot be applied.
   """
 
   require Logger
-
-  alias ServiceRadar.Cluster.TenantSchemas
 
   def child_spec(_opts) do
     %{
@@ -27,19 +28,25 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @spec run!(keyword()) :: :ok
   def run!(opts \\ []) do
     if migrations_enabled?() do
-      public_migrations = Keyword.get(opts, :public_migrations, &TenantSchemas.run_public_migrations!/0)
-      tenant_migrations = Keyword.get(opts, :tenant_migrations, &TenantSchemas.run_all_tenant_migrations!/0)
+      migrations_fn = Keyword.get(opts, :migrations, &run_migrations!/0)
 
-      Logger.info("[StartupMigrations] Running public migrations")
-      public_migrations.()
-
-      Logger.info("[StartupMigrations] Running tenant migrations")
-      tenant_migrations.()
+      Logger.info("[StartupMigrations] Running migrations")
+      migrations_fn.()
     else
       Logger.debug("[StartupMigrations] Startup migrations disabled; skipping")
     end
 
     :ok
+  end
+
+  defp run_migrations! do
+    # Run Ecto migrations for the current schema (determined by search_path)
+    Ecto.Migrator.run(
+      ServiceRadar.Repo,
+      Application.app_dir(:serviceradar_core, "priv/repo/migrations"),
+      :up,
+      all: true
+    )
   end
 
   defp migrations_enabled? do

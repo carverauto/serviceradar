@@ -38,9 +38,7 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
     now = DateTime.utc_now()
 
     # Find packages that are still in "issued" state but tokens have expired
-    # NOTE: This is a platform-level operation that queries across tenants.
-    # In SaaS mode, this worker should move to the Control Plane.
-    actor = SystemActor.platform(:expire_packages_worker)
+    actor = SystemActor.system(:expire_packages_worker)
 
     expired_packages =
       OnboardingPackage

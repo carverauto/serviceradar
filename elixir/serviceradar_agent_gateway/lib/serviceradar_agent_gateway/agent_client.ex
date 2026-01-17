@@ -48,9 +48,9 @@ defmodule ServiceRadarAgentGateway.AgentClient do
 
   Returns `{:ok, status}` or `{:error, reason}`.
   """
-  @spec get_status(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def get_status(tenant_id, agent_id, opts \\ %{}) do
-    GenServer.call(__MODULE__, {:get_status, tenant_id, agent_id, opts}, @call_timeout)
+  @spec get_status(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def get_status(agent_id, opts \\ %{}) do
+    GenServer.call(__MODULE__, {:get_status, agent_id, opts}, @call_timeout)
   end
 
   @doc """
@@ -62,9 +62,9 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     - `:service_name` - Specific service name
     - `:last_sequence` - For incremental fetches
   """
-  @spec get_results(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def get_results(tenant_id, agent_id, opts \\ %{}) do
-    GenServer.call(__MODULE__, {:get_results, tenant_id, agent_id, opts}, @call_timeout)
+  @spec get_results(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def get_results(agent_id, opts \\ %{}) do
+    GenServer.call(__MODULE__, {:get_results, agent_id, opts}, @call_timeout)
   end
 
   @doc """
@@ -72,18 +72,18 @@ defmodule ServiceRadarAgentGateway.AgentClient do
 
   Calls the callback function for each chunk received.
   """
-  @spec stream_results(String.t(), String.t(), map(), (map() -> any())) ::
+  @spec stream_results(String.t(), map(), (map() -> any())) ::
           :ok | {:error, term()}
-  def stream_results(tenant_id, agent_id, opts, callback) when is_function(callback, 1) do
-    GenServer.call(__MODULE__, {:stream_results, tenant_id, agent_id, opts, callback}, @call_timeout)
+  def stream_results(agent_id, opts, callback) when is_function(callback, 1) do
+    GenServer.call(__MODULE__, {:stream_results, agent_id, opts, callback}, @call_timeout)
   end
 
   @doc """
   Check if an agent is reachable.
   """
-  @spec agent_reachable?(String.t(), String.t()) :: boolean()
-  def agent_reachable?(tenant_id, agent_id) do
-    case get_status(tenant_id, agent_id, %{}) do
+  @spec agent_reachable?(String.t()) :: boolean()
+  def agent_reachable?(agent_id) do
+    case get_status(agent_id, %{}) do
       {:ok, %{available: true}} -> true
       _ -> false
     end
@@ -118,8 +118,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
   end
 
   @impl true
-  def handle_call({:get_status, tenant_id, agent_id, opts}, _from, state) do
-    {result, new_state} = with_connection(state, tenant_id, agent_id, fn channel ->
+  def handle_call({:get_status, agent_id, opts}, _from, state) do
+    {result, new_state} = with_connection(state, agent_id, fn channel ->
       request = %Monitoring.StatusRequest{
         agent_id: agent_id,
         service_type: opts[:service_type] || "",
@@ -145,8 +145,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
   end
 
   @impl true
-  def handle_call({:get_results, tenant_id, agent_id, opts}, _from, state) do
-    {result, new_state} = with_connection(state, tenant_id, agent_id, fn channel ->
+  def handle_call({:get_results, agent_id, opts}, _from, state) do
+    {result, new_state} = with_connection(state, agent_id, fn channel ->
       request = %Monitoring.ResultsRequest{
         agent_id: agent_id,
         service_type: opts[:service_type] || "",
@@ -176,8 +176,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
   end
 
   @impl true
-  def handle_call({:stream_results, tenant_id, agent_id, opts, callback}, _from, state) do
-    {result, new_state} = with_connection(state, tenant_id, agent_id, fn channel ->
+  def handle_call({:stream_results, agent_id, opts, callback}, _from, state) do
+    {result, new_state} = with_connection(state, agent_id, fn channel ->
       request = %Monitoring.ResultsRequest{
         agent_id: agent_id,
         service_type: opts[:service_type] || "",
@@ -230,19 +230,17 @@ defmodule ServiceRadarAgentGateway.AgentClient do
   end
 
   @impl true
-  def handle_info({:reconnect, key}, state) do
-    Logger.info("Attempting reconnect to #{inspect(key)}")
+  def handle_info({:reconnect, agent_id}, state) do
+    Logger.info("Attempting reconnect to agent #{agent_id}")
     # Connection will be re-established on next request
-    new_connections = Map.delete(state.connections, key)
+    new_connections = Map.delete(state.connections, agent_id)
     {:noreply, %{state | connections: new_connections}}
   end
 
   # Private functions
 
-  defp with_connection(state, tenant_id, agent_id, fun) do
-    key = {tenant_id, agent_id}
-
-    case get_or_create_connection(state, tenant_id, agent_id) do
+  defp with_connection(state, agent_id, fun) do
+    case get_or_create_connection(state, agent_id) do
       {:ok, channel, new_state} ->
         result = fun.(channel)
 
@@ -252,8 +250,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
           {:error, %GRPC.RPCError{status: status}} when status in [:unavailable, :deadline_exceeded] ->
             # Connection issue, mark for reconnection
             Logger.warning("Connection issue with agent #{agent_id}, scheduling reconnect")
-            new_connections = Map.delete(new_state.connections, key)
-            schedule_reconnect(key)
+            new_connections = Map.delete(new_state.connections, agent_id)
+            schedule_reconnect(agent_id)
             {result, %{new_state | connections: new_connections}}
 
           _ ->
@@ -265,15 +263,13 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     end
   end
 
-  defp get_or_create_connection(state, tenant_id, agent_id) do
-    key = {tenant_id, agent_id}
-
-    case Map.get(state.connections, key) do
+  defp get_or_create_connection(state, agent_id) do
+    case Map.get(state.connections, agent_id) do
       %{channel: channel, connected_at: _} ->
         {:ok, channel, state}
 
       nil ->
-        case create_connection(tenant_id, agent_id) do
+        case create_connection(agent_id) do
           {:ok, channel} ->
             conn_info = %{
               channel: channel,
@@ -281,7 +277,7 @@ defmodule ServiceRadarAgentGateway.AgentClient do
               last_used: DateTime.utc_now()
             }
 
-            new_connections = Map.put(state.connections, key, conn_info)
+            new_connections = Map.put(state.connections, agent_id, conn_info)
             {:ok, channel, %{state | connections: new_connections}}
 
           {:error, reason} ->
@@ -290,20 +286,17 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     end
   end
 
-  defp create_connection(tenant_id, agent_id) do
-    # Look up tenant slug for certificate validation
-    tenant_slug = get_tenant_slug(tenant_id)
-
-    case AgentRegistry.get_grpc_address(tenant_id, agent_id) do
+  defp create_connection(agent_id) do
+    case AgentRegistry.get_grpc_address(agent_id) do
       {:ok, {host, port}} ->
-        Logger.info("Connecting to agent #{agent_id} at #{host}:#{port} for tenant #{tenant_slug || tenant_id}")
+        Logger.info("Connecting to agent #{agent_id} at #{host}:#{port}")
 
-        cred_opts = build_grpc_credentials(host, tenant_slug)
+        cred_opts = build_grpc_credentials(host)
         connect_opts = [timeout: @connection_timeout] ++ cred_opts
 
         case GRPC.Stub.connect("#{host}:#{port}", connect_opts) do
           {:ok, channel} ->
-            Logger.info("Connected to agent #{agent_id} for tenant #{tenant_slug || tenant_id}")
+            Logger.info("Connected to agent #{agent_id}")
             {:ok, channel}
 
           {:error, reason} ->
@@ -319,25 +312,16 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     end
   end
 
-  # Resolve tenant_id (UUID) to tenant_slug for certificate validation
-  defp get_tenant_slug(tenant_id) do
-    case ServiceRadar.Cluster.TenantRegistry.slug_for_tenant_id(tenant_id) do
-      {:ok, slug} -> slug
-      :error -> nil
-    end
-  end
-
   # Build gRPC credentials with mTLS if configured
-  defp build_grpc_credentials(host, expected_tenant_slug) do
+  defp build_grpc_credentials(host) do
     case gateway_client_ssl_opts() do
       {:ok, ssl_opts} ->
-        ssl_opts_with_verification =
+        ssl_opts_with_sni =
           ssl_opts
           |> Keyword.put(:server_name_indication, String.to_charlist(host))
-          |> maybe_add_tenant_verification(expected_tenant_slug)
 
-        Logger.debug("Using mTLS for agent connection (tenant: #{expected_tenant_slug || "any"})")
-        [cred: GRPC.Credential.new(ssl: ssl_opts_with_verification)]
+        Logger.debug("Using mTLS for agent connection")
+        [cred: GRPC.Credential.new(ssl: ssl_opts_with_sni)]
 
       {:error, reason} ->
         Logger.warning("mTLS not available (#{inspect(reason)}), using insecure connection")
@@ -365,99 +349,21 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     end
   end
 
-  # Add tenant verification to SSL options if tenant slug is known
-  defp maybe_add_tenant_verification(ssl_opts, nil), do: ssl_opts
-
-  defp maybe_add_tenant_verification(ssl_opts, expected_tenant_slug) do
-    verify_fun = {&verify_agent_tenant/3, %{expected_tenant: expected_tenant_slug}}
-    Keyword.put(ssl_opts, :verify_fun, verify_fun)
-  end
-
-  # Custom TLS verification function that checks agent certificate tenant
-  defp verify_agent_tenant(cert, event, state) do
-    case event do
-      {:bad_cert, _reason} = error ->
-        {:fail, error}
-
-      {:extension, _} ->
-        {:unknown, state}
-
-      :valid ->
-        {:valid, state}
-
-      :valid_peer ->
-        # This is the leaf certificate (the agent's cert) - validate tenant
-        validate_peer_tenant(cert, state)
-    end
-  end
-
-  defp validate_peer_tenant(cert, %{expected_tenant: expected_tenant} = state) do
-    # Extract CN from certificate
-    case extract_cn_from_cert(cert) do
-      {:ok, cn} ->
-        case ServiceRadar.Edge.TenantResolver.extract_slug_from_cn(cn) do
-          {:ok, ^expected_tenant} ->
-            Logger.debug("Agent certificate tenant validated: #{expected_tenant}")
-            {:valid, state}
-
-          {:ok, actual_tenant} ->
-            Logger.error("Agent certificate tenant mismatch: expected #{expected_tenant}, got #{actual_tenant}")
-            {:fail, {:tenant_mismatch, expected_tenant, actual_tenant}}
-
-          :error ->
-            Logger.warning("Could not extract tenant from agent certificate CN: #{cn}")
-            # Allow connection but log warning - CN might be in different format
-            {:valid, state}
-        end
-
-      {:error, reason} ->
-        Logger.error("Failed to extract CN from agent certificate: #{inspect(reason)}")
-        {:fail, {:invalid_certificate, reason}}
-    end
-  end
-
-  # Extract Common Name from OTP certificate
-  defp extract_cn_from_cert(otp_cert) do
-    try do
-      {:OTPCertificate, tbs_cert, _, _} = otp_cert
-      subject = elem(tbs_cert, 5)
-
-      case subject do
-        {:rdnSequence, rdns} ->
-          cn =
-            rdns
-            |> List.flatten()
-            |> Enum.find_value(fn
-              {:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, cn}} -> cn
-              {:AttributeTypeAndValue, {2, 5, 4, 3}, {:printableString, cn}} -> List.to_string(cn)
-              _ -> nil
-            end)
-
-          if cn, do: {:ok, cn}, else: {:error, :no_cn}
-
-        _ ->
-          {:error, :invalid_subject}
-      end
-    rescue
-      _ -> {:error, :parse_error}
-    end
-  end
-
   defp perform_health_checks(state) do
-    Enum.reduce(state.connections, state, fn {{tenant_id, agent_id}, conn_info}, acc ->
+    Enum.reduce(state.connections, state, fn {agent_id, conn_info}, acc ->
       request = %Monitoring.StatusRequest{agent_id: agent_id}
 
       case Monitoring.AgentService.Stub.get_status(conn_info.channel, request, timeout: 5000) do
         {:ok, _response} ->
           # Update last_used timestamp
           new_conn = Map.put(conn_info, :last_used, DateTime.utc_now())
-          new_connections = Map.put(acc.connections, {tenant_id, agent_id}, new_conn)
+          new_connections = Map.put(acc.connections, agent_id, new_conn)
           %{acc | connections: new_connections}
 
         {:error, _reason} ->
           Logger.warning("Health check failed for agent #{agent_id}")
-          new_connections = Map.delete(acc.connections, {tenant_id, agent_id})
-          schedule_reconnect({tenant_id, agent_id})
+          new_connections = Map.delete(acc.connections, agent_id)
+          schedule_reconnect(agent_id)
           %{acc | connections: new_connections}
       end
     end)
@@ -467,8 +373,8 @@ defmodule ServiceRadarAgentGateway.AgentClient do
     Process.send_after(self(), :health_check, @health_check_interval)
   end
 
-  defp schedule_reconnect(key, delay \\ @reconnect_backoff_ms) do
-    Process.send_after(self(), {:reconnect, key}, delay)
+  defp schedule_reconnect(agent_id, delay \\ @reconnect_backoff_ms) do
+    Process.send_after(self(), {:reconnect, agent_id}, delay)
   end
 
   defp update_stats(state, result) do

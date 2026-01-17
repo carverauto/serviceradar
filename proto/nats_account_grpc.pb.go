@@ -36,7 +36,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	NATSAccountService_BootstrapOperator_FullMethodName       = "/proto.NATSAccountService/BootstrapOperator"
 	NATSAccountService_GetOperatorInfo_FullMethodName         = "/proto.NATSAccountService/GetOperatorInfo"
-	NATSAccountService_CreateTenantAccount_FullMethodName     = "/proto.NATSAccountService/CreateTenantAccount"
+	NATSAccountService_CreateAccount_FullMethodName           = "/proto.NATSAccountService/CreateAccount"
 	NATSAccountService_GenerateUserCredentials_FullMethodName = "/proto.NATSAccountService/GenerateUserCredentials"
 	NATSAccountService_SignAccountJWT_FullMethodName          = "/proto.NATSAccountService/SignAccountJWT"
 	NATSAccountService_PushAccountJWT_FullMethodName          = "/proto.NATSAccountService/PushAccountJWT"
@@ -50,11 +50,11 @@ const (
 //
 // This service is called by Elixir core (with platform mTLS credentials) to:
 // - Bootstrap the NATS operator (first-time platform setup)
-// - Generate new tenant account keys and sign account JWTs
-// - Generate user credentials signed with tenant account keys
+// - Generate new account keys and sign account JWTs
+// - Generate user credentials signed with account keys
 // - Re-sign account JWTs when claims change (revocations, limits)
 //
-// Elixir is responsible for storing tenant account data in CNPG.
+// Elixir is responsible for storing account data in CNPG.
 // datasvc holds only the operator key and performs cryptographic operations.
 type NATSAccountServiceClient interface {
 	// BootstrapOperator initializes the NATS operator for the platform.
@@ -62,12 +62,12 @@ type NATSAccountServiceClient interface {
 	// Should be called once during initial platform setup.
 	BootstrapOperator(ctx context.Context, in *BootstrapOperatorRequest, opts ...grpc.CallOption) (*BootstrapOperatorResponse, error)
 	// GetOperatorInfo returns the current operator status and public key.
-	// Used to verify the operator is initialized before tenant operations.
+	// Used to verify the operator is initialized before account operations.
 	GetOperatorInfo(ctx context.Context, in *GetOperatorInfoRequest, opts ...grpc.CallOption) (*GetOperatorInfoResponse, error)
-	// CreateTenantAccount generates new account NKeys and a signed account JWT.
+	// CreateAccount generates new account NKeys and a signed account JWT.
 	// The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
-	CreateTenantAccount(ctx context.Context, in *CreateTenantAccountRequest, opts ...grpc.CallOption) (*CreateTenantAccountResponse, error)
-	// GenerateUserCredentials creates NATS user credentials for a tenant's account.
+	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
+	// GenerateUserCredentials creates NATS user credentials for an account.
 	// Requires the account_seed to sign the user JWT.
 	GenerateUserCredentials(ctx context.Context, in *GenerateUserCredentialsRequest, opts ...grpc.CallOption) (*GenerateUserCredentialsResponse, error)
 	// SignAccountJWT regenerates an account JWT with updated claims.
@@ -107,10 +107,10 @@ func (c *nATSAccountServiceClient) GetOperatorInfo(ctx context.Context, in *GetO
 	return out, nil
 }
 
-func (c *nATSAccountServiceClient) CreateTenantAccount(ctx context.Context, in *CreateTenantAccountRequest, opts ...grpc.CallOption) (*CreateTenantAccountResponse, error) {
+func (c *nATSAccountServiceClient) CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateTenantAccountResponse)
-	err := c.cc.Invoke(ctx, NATSAccountService_CreateTenantAccount_FullMethodName, in, out, cOpts...)
+	out := new(CreateAccountResponse)
+	err := c.cc.Invoke(ctx, NATSAccountService_CreateAccount_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -155,11 +155,11 @@ func (c *nATSAccountServiceClient) PushAccountJWT(ctx context.Context, in *PushA
 //
 // This service is called by Elixir core (with platform mTLS credentials) to:
 // - Bootstrap the NATS operator (first-time platform setup)
-// - Generate new tenant account keys and sign account JWTs
-// - Generate user credentials signed with tenant account keys
+// - Generate new account keys and sign account JWTs
+// - Generate user credentials signed with account keys
 // - Re-sign account JWTs when claims change (revocations, limits)
 //
-// Elixir is responsible for storing tenant account data in CNPG.
+// Elixir is responsible for storing account data in CNPG.
 // datasvc holds only the operator key and performs cryptographic operations.
 type NATSAccountServiceServer interface {
 	// BootstrapOperator initializes the NATS operator for the platform.
@@ -167,12 +167,12 @@ type NATSAccountServiceServer interface {
 	// Should be called once during initial platform setup.
 	BootstrapOperator(context.Context, *BootstrapOperatorRequest) (*BootstrapOperatorResponse, error)
 	// GetOperatorInfo returns the current operator status and public key.
-	// Used to verify the operator is initialized before tenant operations.
+	// Used to verify the operator is initialized before account operations.
 	GetOperatorInfo(context.Context, *GetOperatorInfoRequest) (*GetOperatorInfoResponse, error)
-	// CreateTenantAccount generates new account NKeys and a signed account JWT.
+	// CreateAccount generates new account NKeys and a signed account JWT.
 	// The account_seed is returned and should be stored encrypted by Elixir (AshCloak).
-	CreateTenantAccount(context.Context, *CreateTenantAccountRequest) (*CreateTenantAccountResponse, error)
-	// GenerateUserCredentials creates NATS user credentials for a tenant's account.
+	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
+	// GenerateUserCredentials creates NATS user credentials for an account.
 	// Requires the account_seed to sign the user JWT.
 	GenerateUserCredentials(context.Context, *GenerateUserCredentialsRequest) (*GenerateUserCredentialsResponse, error)
 	// SignAccountJWT regenerates an account JWT with updated claims.
@@ -198,8 +198,8 @@ func (UnimplementedNATSAccountServiceServer) BootstrapOperator(context.Context, 
 func (UnimplementedNATSAccountServiceServer) GetOperatorInfo(context.Context, *GetOperatorInfoRequest) (*GetOperatorInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOperatorInfo not implemented")
 }
-func (UnimplementedNATSAccountServiceServer) CreateTenantAccount(context.Context, *CreateTenantAccountRequest) (*CreateTenantAccountResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateTenantAccount not implemented")
+func (UnimplementedNATSAccountServiceServer) CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateAccount not implemented")
 }
 func (UnimplementedNATSAccountServiceServer) GenerateUserCredentials(context.Context, *GenerateUserCredentialsRequest) (*GenerateUserCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GenerateUserCredentials not implemented")
@@ -267,20 +267,20 @@ func _NATSAccountService_GetOperatorInfo_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
-func _NATSAccountService_CreateTenantAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateTenantAccountRequest)
+func _NATSAccountService_CreateAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAccountRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NATSAccountServiceServer).CreateTenantAccount(ctx, in)
+		return srv.(NATSAccountServiceServer).CreateAccount(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: NATSAccountService_CreateTenantAccount_FullMethodName,
+		FullMethod: NATSAccountService_CreateAccount_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NATSAccountServiceServer).CreateTenantAccount(ctx, req.(*CreateTenantAccountRequest))
+		return srv.(NATSAccountServiceServer).CreateAccount(ctx, req.(*CreateAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -355,8 +355,8 @@ var NATSAccountService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _NATSAccountService_GetOperatorInfo_Handler,
 		},
 		{
-			MethodName: "CreateTenantAccount",
-			Handler:    _NATSAccountService_CreateTenantAccount_Handler,
+			MethodName: "CreateAccount",
+			Handler:    _NATSAccountService_CreateAccount_Handler,
 		},
 		{
 			MethodName: "GenerateUserCredentials",

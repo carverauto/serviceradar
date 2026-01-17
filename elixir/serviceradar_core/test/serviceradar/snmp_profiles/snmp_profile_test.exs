@@ -3,13 +3,14 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
   Tests for the SNMPProfile resource.
 
   Tests resource creation, validation, and policy enforcement.
+  In the single-deployment architecture, tests run against the single schema
+  determined by PostgreSQL search_path.
   """
 
   use ExUnit.Case, async: false
 
   alias ResourceInfo, as: ResourceInfo
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
@@ -98,30 +99,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
   describe "CRUD operations" do
     @tag :integration
     setup do
-      tenant = ServiceRadar.TestSupport.create_tenant_schema!("snmp-profile")
-
-      on_exit(fn ->
-        ServiceRadar.TestSupport.drop_tenant_schema!(tenant.tenant_slug)
-      end)
-
-      {:ok, tenant_id: tenant.tenant_id, tenant_slug: tenant.tenant_slug}
+      ServiceRadar.TestSupport.start_core!()
+      :ok
     end
 
     @tag :integration
-    test "creates a profile with required fields", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "creates a profile with required fields" do
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Test Profile"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -135,12 +126,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     end
 
     @tag :integration
-    test "creates a profile with all fields", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "creates a profile with all fields" do
+      actor = SystemActor.system(:test)
 
       {:ok, profile} =
         SNMPProfile
@@ -157,8 +144,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
             target_query: "in:devices tags.role:network",
             priority: 50
           },
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -172,20 +158,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     end
 
     @tag :integration
-    test "enforces unique name per tenant", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "enforces unique name per instance" do
+      actor = SystemActor.system(:test)
 
       {:ok, _profile1} =
         SNMPProfile
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Duplicate Name"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -194,19 +175,14 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Duplicate Name"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
     end
 
     @tag :integration
-    test "set_as_default clears other defaults", %{
-      tenant_id: tenant_id,
-      tenant_slug: tenant_slug
-    } do
-      schema = TenantSchemas.schema_for_tenant(%{slug: tenant_slug})
-      actor = SystemActor.for_tenant(tenant_id, :test)
+    test "set_as_default clears other defaults" do
+      actor = SystemActor.system(:test)
 
       # Create first profile as default
       {:ok, profile1} =
@@ -214,8 +190,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Profile 1", is_default: true},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
@@ -225,21 +200,20 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
         |> Ash.Changeset.for_create(
           :create,
           %{name: "Profile 2"},
-          actor: actor,
-          tenant: schema
+          actor: actor
         )
         |> Ash.create(actor: actor)
 
       # Set profile2 as default
       {:ok, updated_profile2} =
         profile2
-        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor, tenant: schema)
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
         |> Ash.update(actor: actor)
 
       assert updated_profile2.is_default == true
 
       # Reload profile1 and check it's no longer default
-      {:ok, reloaded_profile1} = Ash.get(SNMPProfile, profile1.id, actor: actor, tenant: schema)
+      {:ok, reloaded_profile1} = Ash.get(SNMPProfile, profile1.id, actor: actor)
       assert reloaded_profile1.is_default == false
     end
   end

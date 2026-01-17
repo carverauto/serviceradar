@@ -45,15 +45,11 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :partition], name: "sweep_groups_tenant_partition_idx"
-      index [:tenant_id, :agent_id],
+      index [:partition], name: "sweep_groups_partition_idx"
+      index [:agent_id],
         where: "agent_id IS NOT NULL",
-        name: "sweep_groups_tenant_agent_idx"
+        name: "sweep_groups_agent_idx"
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -77,7 +73,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         :profile_id
       ]
 
-      change ServiceRadar.Changes.AssignTenantId
       change ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
 
       validate fn changeset, _context ->
@@ -213,12 +208,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -246,12 +238,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this group belongs to"
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -384,6 +370,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
   end
 
   identities do
-    identity :unique_name_per_tenant, [:tenant_id, :name]
+    identity :unique_name, [:name]
   end
 end

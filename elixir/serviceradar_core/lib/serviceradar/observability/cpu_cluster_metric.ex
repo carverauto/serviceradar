@@ -28,10 +28,6 @@ defmodule ServiceRadar.Observability.CpuClusterMetric do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   resource do
     require_primary_key? false
   end

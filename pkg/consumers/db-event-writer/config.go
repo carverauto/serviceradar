@@ -11,6 +11,7 @@ import (
 var (
 	ErrMissingListenAddr     = errors.New("listen_addr is required")
 	ErrMissingNATSURL        = errors.New("nats_url is required")
+	ErrMissingNATSCredsFile  = errors.New("nats_creds_file is required for NATS JWT auth")
 	ErrMissingStreamName     = errors.New("stream_name is required")
 	ErrMissingConsumerName   = errors.New("consumer_name is required")
 	ErrMissingTableName      = errors.New("table is required")
@@ -27,11 +28,12 @@ type StreamConfig struct {
 }
 
 // DBEventWriterConfig holds configuration for the DB event writer consumer.
+// In single-instance-per-deployment architecture, each deployment is isolated.
+// CNPG credentials set the search_path for schema isolation.
 type DBEventWriterConfig struct {
 	ListenAddr    string                 `json:"listen_addr"`
 	NATSURL       string                 `json:"nats_url" hot:"rebuild"`
 	NATSCredsFile string                 `json:"nats_creds_file,omitempty" hot:"rebuild"`
-	TenantID      string                 `json:"tenant_id"`
 	Subject       string                 `json:"subject"` // Legacy field for backward compatibility
 	StreamName    string                 `json:"stream_name" hot:"rebuild"`
 	ConsumerName  string                 `json:"consumer_name" hot:"rebuild"`
@@ -54,6 +56,10 @@ func (c *DBEventWriterConfig) Validate() error {
 
 	if c.NATSURL == "" {
 		errs = append(errs, ErrMissingNATSURL)
+	}
+
+	if strings.TrimSpace(c.NATSCredsFile) == "" {
+		errs = append(errs, ErrMissingNATSCredsFile)
 	}
 
 	if c.StreamName == "" {

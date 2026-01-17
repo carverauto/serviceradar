@@ -66,14 +66,13 @@ defmodule ServiceRadar.Infrastructure.Changes.PublishStateChange do
       :ok
     else
       entity_id = get_entity_id(record, entity_type)
-      tenant_id = Map.get(record, :tenant_id)
       metadata = get_entity_metadata(record, entity_type)
 
       # Get reason from context or action name
       reason = get_reason(context)
 
       # Use HealthTracker to record the event and broadcast PubSub updates
-      HealthTracker.record_state_change(entity_type, entity_id, tenant_id,
+      HealthTracker.record_state_change(entity_type, entity_id,
         old_state: old_state,
         new_state: new_state,
         reason: reason,

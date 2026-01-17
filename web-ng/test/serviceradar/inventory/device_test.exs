@@ -7,7 +7,6 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   - Read actions (by_uid, by_ip, available, etc.)
   - Calculations (type_name, display_name, is_stale)
   - Policy enforcement
-  - Tenant isolation
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
@@ -17,12 +16,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   alias ServiceRadar.Inventory.Device
 
   describe "device creation" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "can create a device with required fields", %{tenant: tenant} do
+    test "can create a device with required fields" do
       result =
         Device
         |> Ash.Changeset.for_create(
@@ -33,9 +27,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
             type_id: 1,
             is_available: true
           },
-          actor: system_actor(),
-          authorize?: false,
-          tenant: tenant.id
+          actor: system_actor()
         )
         |> Ash.create()
 
@@ -44,23 +36,22 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert device.hostname == "test-host.local"
       assert device.type_id == 1
       assert device.is_available == true
-      assert device.tenant_id == tenant.id
     end
 
-    test "sets first_seen_time and last_seen_time on creation", %{tenant: tenant} do
-      device = device_fixture(tenant)
+    test "sets first_seen_time and last_seen_time on creation" do
+      device = device_fixture()
 
       assert device.first_seen_time != nil
       assert device.last_seen_time != nil
       assert DateTime.diff(DateTime.utc_now(), device.first_seen_time, :second) < 60
     end
 
-    test "supports all OCSF type IDs", %{tenant: tenant} do
+    test "supports all OCSF type IDs" do
       for type_id <- [0, 1, 2, 3, 6, 7, 9, 10, 12, 99] do
         unique = System.unique_integer([:positive])
 
         device =
-          device_fixture(tenant, %{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
+          device_fixture(%{uid: "device-type-#{type_id}-#{unique}", type_id: type_id})
 
         assert device.type_id == type_id
       end
@@ -69,13 +60,12 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
   describe "update actions" do
     setup do
-      tenant = tenant_fixture()
-      device = device_fixture(tenant)
-      {:ok, tenant: tenant, device: device}
+      device = device_fixture()
+      {:ok, device: device}
     end
 
-    test "operator can update device", %{tenant: tenant, device: device} do
-      actor = operator_actor(tenant)
+    test "operator can update device", %{device: device} do
+      actor = operator_actor()
 
       result =
         device
@@ -85,8 +75,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
             name: "Updated Name",
             is_managed: true
           },
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
         |> Ash.update()
 
@@ -96,36 +85,30 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert updated.modified_time != nil
     end
 
-    test "admin can update device", %{tenant: tenant, device: device} do
-      actor = admin_actor(tenant)
+    test "admin can update device", %{device: device} do
+      actor = admin_actor()
 
       {:ok, updated} =
         device
-        |> Ash.Changeset.for_update(:update, %{name: "Admin Update"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Admin Update"}, actor: actor)
         |> Ash.update()
 
       assert updated.name == "Admin Update"
     end
 
-    test "viewer cannot update device", %{tenant: tenant, device: device} do
-      actor = viewer_actor(tenant)
+    test "viewer cannot update device", %{device: device} do
+      actor = viewer_actor()
 
       result =
         device
-        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"},
-          actor: actor,
-          tenant: tenant.id
-        )
+        |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
       assert {:error, %Ash.Error.Forbidden{}} = result
     end
 
-    test "touch updates last_seen_time", %{tenant: tenant, device: device} do
-      actor = operator_actor(tenant)
+    test "touch updates last_seen_time", %{device: device} do
+      actor = operator_actor()
       original_last_seen = device.last_seen_time
 
       # Wait for database timestamp resolution (at least 1 second for PostgreSQL)
@@ -133,7 +116,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       {:ok, touched} =
         device
-        |> Ash.Changeset.for_update(:touch, %{}, actor: actor, tenant: tenant.id)
+        |> Ash.Changeset.for_update(:touch, %{}, actor: actor)
         |> Ash.update()
 
       # Allow :gt or :eq (in case of very fast execution)
@@ -145,42 +128,40 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
   describe "read actions" do
     setup do
-      tenant = tenant_fixture()
-
       device1 =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "device-available",
           ip: "192.168.1.1",
           is_available: true
         })
 
       device2 =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "device-unavailable",
           ip: "192.168.1.2",
           is_available: false
         })
 
-      {:ok, tenant: tenant, device1: device1, device2: device2}
+      {:ok, device1: device1, device2: device2}
     end
 
-    test "by_uid returns specific device", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "by_uid returns specific device", %{device1: device1} do
+      actor = viewer_actor()
 
       {:ok, found} =
         Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device1.uid}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_uid, %{uid: device1.uid}, actor: actor)
         |> Ash.read_one()
 
       assert found.uid == device1.uid
     end
 
-    test "by_ip returns device with specific IP", %{tenant: tenant, device1: device1} do
-      actor = viewer_actor(tenant)
+    test "by_ip returns device with specific IP", %{device1: device1} do
+      actor = viewer_actor()
 
       {:ok, found} =
         Device
-        |> Ash.Query.for_read(:by_ip, %{ip: "192.168.1.1"}, actor: actor, tenant: tenant.id)
+        |> Ash.Query.for_read(:by_ip, %{ip: "192.168.1.1"}, actor: actor)
         |> Ash.read()
 
       assert length(found) == 1
@@ -188,17 +169,15 @@ defmodule ServiceRadar.Inventory.DeviceTest do
     end
 
     test "available returns only available devices", %{
-      tenant: tenant,
       device1: device1,
       device2: device2
     } do
-      actor = viewer_actor(tenant)
+      actor = viewer_actor()
 
       {:ok, available} =
         Ash.read(Device,
           action: :available,
-          actor: actor,
-          tenant: tenant.id
+          actor: actor
         )
 
       uids = Enum.map(available, & &1.uid)
@@ -208,13 +187,8 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   end
 
   describe "calculations" do
-    setup do
-      tenant = tenant_fixture()
-      {:ok, tenant: tenant}
-    end
-
-    test "type_name returns correct OCSF type names", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "type_name returns correct OCSF type names" do
+      actor = viewer_actor()
 
       type_map = %{
         0 => "Unknown",
@@ -231,24 +205,24 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         unique = System.unique_integer([:positive])
 
         device =
-          device_fixture(tenant, %{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
+          device_fixture(%{uid: "type-test-#{type_id}-#{unique}", type_id: type_id})
 
         {:ok, [loaded]} =
           Device
           |> Ash.Query.filter(uid == ^device.uid)
           |> Ash.Query.load(:type_name)
-          |> Ash.read(actor: actor, tenant: tenant.id)
+          |> Ash.read(actor: actor)
 
         assert loaded.type_name == expected_name
       end
     end
 
-    test "display_name uses name, then hostname, then ip, then uid", %{tenant: tenant} do
-      actor = viewer_actor(tenant)
+    test "display_name uses name, then hostname, then ip, then uid" do
+      actor = viewer_actor()
 
       # Device with all fields
       device_full =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "uid-full",
           name: "Display Name",
           hostname: "hostname.local",
@@ -259,14 +233,14 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         Device
         |> Ash.Query.filter(uid == ^device_full.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       # Should use name first
       assert loaded.display_name == "Display Name"
 
       # Device with only hostname
       device_hostname =
-        device_fixture(tenant, %{
+        device_fixture(%{
           uid: "uid-hostname",
           hostname: "just-hostname.local"
         })
@@ -275,66 +249,9 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         Device
         |> Ash.Query.filter(uid == ^device_hostname.uid)
         |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor, tenant: tenant.id)
+        |> Ash.read(actor: actor)
 
       assert loaded.display_name == "just-hostname.local"
-    end
-  end
-
-  describe "tenant isolation" do
-    setup do
-      tenant_a = tenant_fixture(%{name: "Tenant A", slug: "tenant-a-device"})
-      tenant_b = tenant_fixture(%{name: "Tenant B", slug: "tenant-b-device"})
-
-      device_a = device_fixture(tenant_a, %{uid: "device-a", hostname: "host-a.local"})
-      device_b = device_fixture(tenant_b, %{uid: "device-b", hostname: "host-b.local"})
-
-      {:ok, tenant_a: tenant_a, tenant_b: tenant_b, device_a: device_a, device_b: device_b}
-    end
-
-    test "user cannot see devices from other tenant", %{
-      tenant_a: tenant_a,
-      device_a: device_a,
-      device_b: device_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, devices} = Ash.read(Device, actor: actor, tenant: tenant_a.id)
-      uids = Enum.map(devices, & &1.uid)
-
-      assert device_a.uid in uids
-      refute device_b.uid in uids
-    end
-
-    test "user cannot update device from other tenant", %{
-      tenant_a: tenant_a,
-      device_b: device_b
-    } do
-      actor = operator_actor(tenant_a)
-
-      result =
-        device_b
-        |> Ash.Changeset.for_update(:update, %{name: "Hacked"}, actor: actor, tenant: tenant_a.id)
-        |> Ash.update()
-
-      # Should fail - either Forbidden or StaleRecord
-      assert {:error, error} = result
-      assert match?(%Ash.Error.Forbidden{}, error) or match?(%Ash.Error.Invalid{}, error)
-    end
-
-    test "user cannot get device from other tenant by uid", %{
-      tenant_a: tenant_a,
-      device_b: device_b
-    } do
-      actor = viewer_actor(tenant_a)
-
-      {:ok, result} =
-        Device
-        |> Ash.Query.for_read(:by_uid, %{uid: device_b.uid}, actor: actor, tenant: tenant_a.id)
-        |> Ash.read_one()
-
-      # Should be nil - device not found in tenant context
-      assert result == nil
     end
   end
 end

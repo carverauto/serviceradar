@@ -8,30 +8,27 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.ComponentTemplates
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadar.Edge.OnboardingPackage
-  alias ServiceRadar.Identity.Tenant
 
   @impl true
   def mount(_params, _session, socket) do
     security_mode = OnboardingPackages.configured_security_mode()
-    tenant = get_tenant(socket)
 
     socket =
       socket
       |> assign(:page_title, "Edge Onboarding")
-      |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant))
+      |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
       |> assign(:show_create_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_package, nil)
       |> assign(:package_events, [])
       |> assign(:created_tokens, nil)
       |> assign(:creating, false)
-      |> assign(:create_form, build_create_form(tenant, security_mode))
+      |> assign(:create_form, build_create_form(security_mode))
       |> assign(:filter_status, nil)
       |> assign(:filter_component_type, nil)
       |> assign(:security_mode, security_mode)
@@ -56,11 +53,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
-    tenant = get_tenant(socket)
-
-    case OnboardingPackages.get(id, tenant: tenant) do
+    case OnboardingPackages.get(id) do
       {:ok, package} ->
-        events = OnboardingEvents.list_for_package(id, limit: 20, tenant: tenant)
+        events = OnboardingEvents.list_for_package(id, limit: 20)
 
         socket
         |> assign(:selected_package, package)
@@ -76,25 +71,23 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   @impl true
   def handle_event("open_create_modal", _params, socket) do
-    tenant = get_tenant(socket)
     security_mode = socket.assigns.security_mode
 
     {:noreply,
      socket
      |> assign(:show_create_modal, true)
-     |> assign(:create_form, build_create_form(tenant, security_mode))
+     |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)
      |> assign(:selected_component_type, "gateway")}
   end
 
   def handle_event("close_create_modal", _params, socket) do
-    tenant = get_tenant(socket)
     security_mode = socket.assigns.security_mode
 
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, build_create_form(tenant, security_mode))
+     |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)}
   end
 
@@ -128,15 +121,13 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       # Extract validated form data
       actor = get_actor(socket)
-      tenant = get_tenant(socket)
       attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
 
-      # Use create_with_tenant_cert for automatic certificate generation
-      # This will auto-generate the tenant CA if it doesn't exist
+      # Use create_with_platform_cert for automatic certificate generation
+      # This will auto-generate the platform CA if it doesn't exist
       result =
-        OnboardingPackages.create_with_tenant_cert(attrs,
-          actor: actor,
-          tenant: tenant
+        OnboardingPackages.create_with_platform_cert(attrs,
+          actor: actor
         )
 
       case result do
@@ -147,8 +138,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            socket
            |> assign(:creating, false)
            |> assign(:created_tokens, package_result)
-           |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant))
-           |> assign(:create_form, build_create_form(tenant, security_mode))
+           |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
+           |> assign(:create_form, build_create_form(security_mode))
            |> put_flash(:info, "Package created with certificates")}
 
         {:error, :ca_generation_failed} ->
@@ -157,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> assign(:creating, false)
            |> put_flash(
              :error,
-             "Failed to generate tenant certificate authority. Please try again."
+             "Failed to generate certificate authority. Please try again."
            )}
 
         {:error, %Ash.Error.Invalid{} = error} ->
@@ -188,17 +179,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("revoke_package", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
     actor = if user, do: user.email, else: "system"
-    tenant = get_tenant(socket)
 
     case OnboardingPackages.revoke(id,
            actor: actor,
-           reason: "Revoked from admin UI",
-           tenant: tenant
+           reason: "Revoked from admin UI"
          ) do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package revoked successfully")}
@@ -214,17 +203,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("delete_package", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
     actor = if user, do: user.email, else: "system"
-    tenant = get_tenant(socket)
 
     case OnboardingPackages.delete(id,
            actor: actor,
-           reason: "Deleted from admin UI",
-           tenant: tenant
+           reason: "Deleted from admin UI"
          ) do
       {:ok, _package} ->
         {:noreply,
          socket
-         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, tenant: tenant))
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}))
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> put_flash(:info, "Package deleted successfully")}
@@ -238,13 +225,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     filters = %{limit: 50}
     filters = if status != "", do: Map.put(filters, :status, [status]), else: filters
     filters = if type != "", do: Map.put(filters, :component_type, [type]), else: filters
-    tenant = get_tenant(socket)
 
     {:noreply,
      socket
      |> assign(:filter_status, if(status == "", do: nil, else: status))
      |> assign(:filter_component_type, if(type == "", do: nil, else: type))
-     |> assign(:packages, OnboardingPackages.list(filters, tenant: tenant))}
+     |> assign(:packages, OnboardingPackages.list(filters))}
   end
 
   def handle_event("copy_token", %{"token" => token}, socket) do
@@ -729,10 +715,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   defp cert_cn(%{spiffe_id: spiffe_id}) when is_binary(spiffe_id) do
     # Extract component info from SPIFFE ID
-    # spiffe://serviceradar.local/<type>/<tenant>/<partition>/<component>
+    # spiffe://serviceradar.local/<type>/<partition>/<component>
     case String.split(spiffe_id, "/") do
-      [_, _, _, _type, tenant, partition, component] ->
-        "#{component}.#{partition}.#{tenant}.serviceradar"
+      [_, _, _, _type, partition, component] ->
+        "#{component}.#{partition}.serviceradar"
 
       _ ->
         spiffe_id
@@ -946,10 +932,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   # Build AshPhoenix.Form for creating OnboardingPackage
-  defp build_create_form(tenant, security_mode) do
+  defp build_create_form(security_mode) do
     AshPhoenix.Form.for_create(OnboardingPackage, :create,
       domain: ServiceRadar.Edge,
-      tenant: tenant,
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params =
@@ -977,27 +962,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         end
       end
     )
-  end
-
-  defp get_tenant(socket) do
-    case socket.assigns[:current_scope] do
-      %{active_tenant: %Tenant{} = tenant} ->
-        tenant
-
-      %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) ->
-        load_tenant(tenant_id)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp load_tenant(tenant_id) do
-    actor = SystemActor.platform(:edge_package_live)
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
-    end
   end
 
   defp format_json_value(nil), do: ""

@@ -39,7 +39,6 @@ defmodule ServiceRadar.Edge.EdgeSite do
     extensions: [AshStateMachine]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
 
   postgres do
     table "edge_sites"
@@ -58,15 +57,11 @@ defmodule ServiceRadar.Edge.EdgeSite do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   actions do
     defaults [:read, :destroy]
 
     read :by_slug do
-      description "Find edge site by tenant and slug"
+      description "Find edge site by slug"
       argument :slug, :string, allow_nil?: false
       get? true
       filter expr(slug == ^arg(:slug))
@@ -148,46 +143,36 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   policies do
-    # Super admins can manage all sites
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can manage all sites
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant admins can manage their tenant's sites
+    # Admins can manage sites
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:create) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:update) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
     policy action_type(:destroy) do
-      authorize_if expr(^actor(:role) == :admin and tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :admin)
     end
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this edge site belongs to"
-    end
 
     attribute :name, :string do
       allow_nil? false
@@ -226,11 +211,6 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   relationships do
-    belongs_to :tenant, ServiceRadar.Identity.Tenant do
-      source_attribute :tenant_id
-      allow_nil? false
-    end
-
     has_one :nats_leaf_server, ServiceRadar.Edge.NatsLeafServer do
       source_attribute :id
       destination_attribute :edge_site_id
@@ -243,29 +223,21 @@ defmodule ServiceRadar.Edge.EdgeSite do
   end
 
   identities do
-    identity :unique_slug_per_tenant, [:tenant_id, :slug]
+    identity :unique_slug, [:slug]
   end
 
   # Helper function to create associated NatsLeafServer
   defp create_nats_leaf_server(site) do
     # Get platform NATS URL from config
     upstream_url = Application.get_env(:serviceradar, :nats_leaf_upstream_url, "tls://nats.serviceradar.cloud:7422")
-    tenant_schema = TenantSchemas.schema_for_id(site.tenant_id)
+    actor = SystemActor.system(:edge_site)
 
-    case tenant_schema do
-      nil ->
-        {:error, :tenant_schema_not_found}
-
-      _ ->
-        actor = SystemActor.for_tenant(site.tenant_id, :edge_site)
-        ServiceRadar.Edge.NatsLeafServer
-        |> Ash.Changeset.for_create(:create, %{
-          edge_site_id: site.id,
-          tenant_id: site.tenant_id,
-          upstream_url: upstream_url,
-          local_listen: "0.0.0.0:4222"
-        }, tenant: tenant_schema)
-        |> Ash.create(actor: actor)
-    end
+    ServiceRadar.Edge.NatsLeafServer
+    |> Ash.Changeset.for_create(:create, %{
+      edge_site_id: site.id,
+      upstream_url: upstream_url,
+      local_listen: "0.0.0.0:4222"
+    })
+    |> Ash.create(actor: actor)
   end
 end

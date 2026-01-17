@@ -9,8 +9,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Integrations
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Infrastructure.Agent
@@ -18,17 +16,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    tenant_id = get_tenant_id(socket)
-    partitions = list_partitions(tenant_id)
-    agents = list_agents(tenant_id)
+    actor = get_actor(socket)
+    partitions = list_partitions(actor)
+    agents = list_agents(actor)
     agent_index = build_agent_index(agents)
     agent_options = build_agent_options(agents)
-    sync_agent_available = sync_agent_available?(tenant_id)
+    sync_agent_available = sync_agent_available?(actor)
 
     socket =
       socket
       |> assign(:page_title, "Integration Sources")
-      |> assign(:sources, list_sources(tenant_id))
+      |> assign(:sources, list_sources(actor))
       |> assign(:partitions, partitions)
       |> assign(:partition_options, build_partition_options(partitions))
       |> assign(:agents, agents)
@@ -39,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
       |> assign(:show_edit_modal, false)
       |> assign(:show_details_modal, false)
       |> assign(:selected_source, nil)
-      |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
+      |> assign(:create_form, build_create_form(actor))
       |> assign(:edit_form, nil)
       |> assign(:filter_type, nil)
       |> assign(:filter_enabled, nil)
@@ -80,9 +78,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp apply_action(socket, :index, _params), do: socket
 
   defp apply_action(socket, :new, _params) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    if sync_agent_available?(tenant_id) do
+    if sync_agent_available?(actor) do
       assign(socket, :show_create_modal, true)
     else
       socket
@@ -92,9 +90,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp apply_action(socket, :show, %{"id" => id}) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    case get_source(id, tenant_id) do
+    case get_source(id, actor) do
       {:ok, source} ->
         socket
         |> assign(:selected_source, source)
@@ -108,9 +106,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp apply_action(socket, :edit, %{"id" => id}) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    case get_source(id, tenant_id) do
+    case get_source(id, actor) do
       {:ok, source} ->
         # Convert source queries to form_queries format with IDs
         form_queries = source_queries_to_form(source.queries)
@@ -119,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
         socket
         |> assign(:selected_source, source)
-        |> assign(:edit_form, build_edit_form(source, get_actor(socket)))
+        |> assign(:edit_form, build_edit_form(source, actor))
         |> assign(:form_queries, form_queries)
         |> assign(:form_network_blacklist, form_blacklist)
         |> assign(:show_edit_modal, true)
@@ -147,17 +145,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   @impl true
   def handle_event("open_create_modal", _params, socket) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
-    if sync_agent_available?(tenant_id) do
-      agents = list_agents(tenant_id)
+    if sync_agent_available?(actor) do
+      agents = list_agents(actor)
       agent_index = build_agent_index(agents)
       agent_options = build_agent_options(agents)
 
       {:noreply,
        socket
        |> assign(:show_create_modal, true)
-       |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
+       |> assign(:create_form, build_create_form(actor))
        |> assign(:agents, agents)
        |> assign(:agent_index, agent_index)
        |> assign(:agent_options, agent_options)
@@ -171,12 +169,12 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("close_create_modal", _params, socket) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
     {:noreply,
      socket
      |> assign(:show_create_modal, false)
-     |> assign(:create_form, build_create_form(tenant_id, get_actor(socket)))
+     |> assign(:create_form, build_create_form(actor))
      |> assign(:form_queries, [default_query()])
      |> assign(:form_network_blacklist, "")}
   end
@@ -266,13 +264,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("create_source", %{"form" => params}, socket) do
-    tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
-    if sync_agent_available?(tenant_id) do
-      # Add tenant_id to params
-      params = Map.put(params, "tenant_id", tenant_id)
-
+    if sync_agent_available?(actor) do
       # Handle credentials JSON if provided
       params = parse_credentials_json(params)
 
@@ -293,8 +287,8 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           {:noreply,
            socket
            |> assign(:show_create_modal, false)
-           |> assign(:sources, list_sources(tenant_id))
-           |> assign(:create_form, build_create_form(tenant_id, actor))
+           |> assign(:sources, list_sources(actor))
+           |> assign(:create_form, build_create_form(actor))
            |> put_flash(:info, "Integration source created successfully")}
 
         {:error, form} ->
@@ -311,7 +305,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("update_source", %{"form" => params}, socket) do
-    tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
     # Handle credentials JSON if provided
@@ -336,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
          |> assign(:show_edit_modal, false)
          |> assign(:selected_source, nil)
          |> assign(:edit_form, nil)
-         |> assign(:sources, list_sources(tenant_id))
+         |> assign(:sources, list_sources(actor))
          |> assign(:form_queries, [default_query()])
          |> assign(:form_network_blacklist, "")
          |> put_flash(:info, "Integration source updated successfully")}
@@ -350,10 +343,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
-    case get_source(id, tenant_id) do
+    case get_source(id, actor) do
       {:ok, source} ->
         action = if source.enabled, do: :disable, else: :enable
 
@@ -361,7 +353,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
           {:ok, _} ->
             {:noreply,
              socket
-             |> assign(:sources, list_sources(tenant_id))
+             |> assign(:sources, list_sources(actor))
              |> put_flash(:info, "Integration source #{action}d")}
 
           {:error, _} ->
@@ -374,10 +366,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("delete_source", %{"id" => id}, socket) do
-    tenant_id = get_tenant_id(socket)
     actor = get_actor(socket)
 
-    case get_source(id, tenant_id) do
+    case get_source(id, actor) do
       {:ok, source} ->
         case Ash.destroy(source, actor: actor) do
           :ok ->
@@ -385,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
              socket
              |> assign(:show_details_modal, false)
              |> assign(:selected_source, nil)
-             |> assign(:sources, list_sources(tenant_id))
+             |> assign(:sources, list_sources(actor))
              |> put_flash(:info, "Integration source deleted")}
 
           {:error, _} ->
@@ -398,7 +389,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   def handle_event("filter", params, socket) do
-    tenant_id = get_tenant_id(socket)
+    actor = get_actor(socket)
 
     source_type = Map.get(params, "source_type", "")
     enabled = Map.get(params, "enabled", "")
@@ -411,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
      socket
      |> assign(:filter_type, if(source_type == "", do: nil, else: source_type))
      |> assign(:filter_enabled, if(enabled == "", do: nil, else: enabled == "true"))
-     |> assign(:sources, list_sources(tenant_id, filters))}
+     |> assign(:sources, list_sources(actor, filters))}
   end
 
   defp update_query_field(queries, id, field, value) do
@@ -917,7 +908,7 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
           <.dynamic_credentials_fields
             form={@form}
-            source_type={@selected_source && @selected_source.source_type || :armis}
+            source_type={(@selected_source && @selected_source.source_type) || :armis}
             mode={:edit}
           />
 
@@ -1202,13 +1193,10 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   # Data access helpers
 
-  defp list_partitions(tenant_id) do
-    schema = tenant_schema(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :integration_live)
-
+  defp list_partitions(actor) do
     Partition
     |> Ash.Query.for_read(:enabled)
-    |> Ash.read!(tenant: schema, actor: actor)
+    |> Ash.read!(actor: actor)
   rescue
     _ -> []
   end
@@ -1225,14 +1213,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     default_option ++ partition_options
   end
 
-  defp list_agents(tenant_id) do
-    schema = tenant_schema(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :integration_live)
-
+  defp list_agents(actor) do
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.sort([:name, :uid])
-    |> Ash.read(tenant: schema, actor: actor)
+    |> Ash.read(actor: actor)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results
       {:ok, results} when is_list(results) -> results
@@ -1255,17 +1240,13 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     Map.new(agents, fn agent -> {agent.uid, agent} end)
   end
 
-  defp list_sources(tenant_id, filters \\ %{}) do
-    schema = tenant_schema(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :integration_live)
-    opts = [tenant: schema, actor: actor]
-
+  defp list_sources(actor, filters \\ %{}) do
     case Map.get(filters, :source_type) do
       nil ->
         IntegrationSource
         |> Ash.Query.for_read(:read)
         |> maybe_filter_enabled(filters)
-        |> Ash.read!(opts)
+        |> Ash.read!(actor: actor)
 
       type ->
         type_atom = if is_binary(type), do: String.to_existing_atom(type), else: type
@@ -1273,20 +1254,17 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
         IntegrationSource
         |> Ash.Query.for_read(:by_type, %{source_type: type_atom})
         |> maybe_filter_enabled(filters)
-        |> Ash.read!(opts)
+        |> Ash.read!(actor: actor)
     end
   rescue
     _ -> []
   end
 
-  defp sync_agent_available?(tenant_id) do
-    schema = tenant_schema(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :integration_live)
-
+  defp sync_agent_available?(actor) do
     Agent
     |> Ash.Query.for_read(:connected)
     |> Ash.Query.limit(1)
-    |> Ash.read(tenant: schema, actor: actor)
+    |> Ash.read(actor: actor)
     |> case do
       {:ok, %Ash.Page.Keyset{results: results}} -> results != []
       {:ok, results} when is_list(results) -> results != []
@@ -1303,24 +1281,16 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
 
   defp maybe_filter_enabled(query, _), do: query
 
-  defp get_source(id, tenant_id) do
-    schema = tenant_schema(tenant_id)
-    actor = SystemActor.for_tenant(tenant_id, :integration_live)
-    IntegrationSource.get_by_id(id, tenant: schema, actor: actor)
+  defp get_source(id, actor) do
+    IntegrationSource.get_by_id(id, actor: actor)
   end
 
-  defp build_create_form(tenant_id, actor) do
-    schema = tenant_schema(tenant_id)
-
+  defp build_create_form(actor) do
     IntegrationSource
     |> AshPhoenix.Form.for_create(:create,
       domain: Integrations,
-      tenant: schema,
       actor: actor,
       transform_params: fn _form, params, _action ->
-        # Set tenant_id
-        params = Map.put(params, "tenant_id", tenant_id)
-
         # Convert source_type string to atom
         params =
           case params["source_type"] do
@@ -1472,20 +1442,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   defp shows_network_blacklist?("custom"), do: true
   defp shows_network_blacklist?(_), do: false
 
-  defp get_tenant_id(socket) do
-    case socket.assigns[:current_scope] do
-      %{user: %{tenant_id: tenant_id}} when not is_nil(tenant_id) -> tenant_id
-      _ -> default_tenant_id()
-    end
-  end
-
-  # Convert tenant_id (UUID) to schema name for Ash multitenancy context
-  defp tenant_schema(tenant_id) when is_binary(tenant_id) do
-    TenantSchemas.schema_for_id(tenant_id)
-  end
-
-  defp tenant_schema(_), do: nil
-
   defp agent_display_name(nil, fallback), do: fallback || "Unknown"
   defp agent_display_name(agent, _fallback), do: agent.name || agent.uid
 
@@ -1521,13 +1477,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
     """
-  end
-
-  defp default_tenant_id do
-    case Application.get_env(:serviceradar_web_ng, :env) do
-      :test -> "00000000-0000-0000-0000-000000000099"
-      _ -> "00000000-0000-0000-0000-000000000000"
-    end
   end
 
   defp get_actor(socket) do
@@ -1566,7 +1515,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               type="password"
               name="cred_api_secret"
               class="input input-bordered w-full font-mono text-sm"
-              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Armis API secret"}
+              placeholder={
+                if @mode == :edit,
+                  do: "Leave empty to keep existing",
+                  else: "Enter your Armis API secret"
+              }
             />
           </div>
           <label class="label">
@@ -1575,7 +1528,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </span>
           </label>
         </div>
-
       <% :snmp -> %>
         <div class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
@@ -1596,7 +1548,9 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
                 type="password"
                 name="cred_community"
                 class="input input-bordered w-full font-mono text-sm"
-                placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"}
+                placeholder={
+                  if @mode == :edit, do: "Leave empty to keep existing", else: "e.g., public"
+                }
               />
             </div>
           </div>
@@ -1606,7 +1560,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </span>
           </label>
         </div>
-
       <% :netbox -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1633,7 +1586,11 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
               type="password"
               name="cred_netbox_token"
               class="input input-bordered w-full font-mono text-sm"
-              placeholder={if @mode == :edit, do: "Leave empty to keep existing", else: "Enter your Netbox API token"}
+              placeholder={
+                if @mode == :edit,
+                  do: "Leave empty to keep existing",
+                  else: "Enter your Netbox API token"
+              }
             />
             <label class="label">
               <span class="label-text-alt text-base-content/60">
@@ -1651,7 +1608,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </select>
           </div>
         </div>
-
       <% :custom -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1671,7 +1627,6 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
             </label>
           </div>
         </div>
-
       <% _ -> %>
         <div class="space-y-3">
           <div class="form-control">
@@ -1696,7 +1651,10 @@ defmodule ServiceRadarWebNGWeb.Admin.IntegrationLive.Index do
   end
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
-  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+
+  defp credential_placeholder(:netbox),
+    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})
 end

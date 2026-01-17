@@ -1,6 +1,6 @@
 import Config
 
-# Mark this as test environment for multitenancy default tenant selection
+# Mark this as test environment for single-deployment defaults
 config :serviceradar_web_ng, :env, :test
 
 # Only in tests, remove the complexity from the password hashing algorithm

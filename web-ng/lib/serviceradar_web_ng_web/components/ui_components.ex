@@ -335,7 +335,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       |> assign(:has_prev, has_prev)
       |> assign(:has_next, has_next)
       |> assign(:total_pages, total_pages)
-      |> assign(:showing_text, pagination_text(assigns.result_count, assigns.limit, assigns.total_count))
+      |> assign(
+        :showing_text,
+        pagination_text(assigns.result_count, assigns.limit, assigns.total_count)
+      )
 
     ~H"""
     <div class={["flex flex-wrap items-center justify-between gap-4", @class]}>
@@ -357,11 +360,20 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
         >
           <.icon name="hero-chevron-double-left" class="size-4" />
         </.link>
-
-        <!-- Previous Button -->
+        
+    <!-- Previous Button -->
         <.link
           :if={@has_prev}
-          patch={pagination_href(@base_path, @query, @limit, @prev_cursor, @current_page - 1, @extra_params)}
+          patch={
+            pagination_href(
+              @base_path,
+              @query,
+              @limit,
+              @prev_cursor,
+              @current_page - 1,
+              @extra_params
+            )
+          }
           class="join-item btn btn-sm btn-outline"
         >
           <.icon name="hero-chevron-left" class="size-4" /> Prev
@@ -369,16 +381,28 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
         <button :if={not @has_prev} class="join-item btn btn-sm btn-outline" disabled>
           <.icon name="hero-chevron-left" class="size-4" /> Prev
         </button>
-
-        <!-- Page Indicator (when we have total pages) -->
-        <span :if={@total_pages && @total_pages > 1} class="join-item btn btn-sm btn-ghost pointer-events-none">
+        
+    <!-- Page Indicator (when we have total pages) -->
+        <span
+          :if={@total_pages && @total_pages > 1}
+          class="join-item btn btn-sm btn-ghost pointer-events-none"
+        >
           {@current_page} / {@total_pages}
         </span>
-
-        <!-- Next Button -->
+        
+    <!-- Next Button -->
         <.link
           :if={@has_next}
-          patch={pagination_href(@base_path, @query, @limit, @next_cursor, @current_page + 1, @extra_params)}
+          patch={
+            pagination_href(
+              @base_path,
+              @query,
+              @limit,
+              @next_cursor,
+              @current_page + 1,
+              @extra_params
+            )
+          }
           class="join-item btn btn-sm btn-outline"
         >
           Next <.icon name="hero-chevron-right" class="size-4" />
@@ -392,9 +416,12 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   end
 
   defp calculate_total_pages(nil, _limit), do: nil
-  defp calculate_total_pages(total, limit) when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
+
+  defp calculate_total_pages(total, limit)
+       when is_integer(total) and total > 0 and is_integer(limit) and limit > 0 do
     ceil(total / limit)
   end
+
   defp calculate_total_pages(_, _), do: nil
 
   defp pagination_href(base_path, query, limit, cursor, page, extra_params) do
@@ -418,7 +445,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
 
   defp normalize_query_params(_), do: %{}
 
-  defp pagination_text(count, _limit, total) when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
+  defp pagination_text(count, _limit, total)
+       when is_integer(count) and count > 0 and is_integer(total) and total > 0 do
     "Showing #{count} of #{format_number(total)} result#{if total != 1, do: "s", else: ""}"
   end
 

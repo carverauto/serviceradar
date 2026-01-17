@@ -54,7 +54,7 @@ agents/<agent-id>/<stream-name>/<subject>/<decision_key>.json
 
 If `subject_prefix` is set, the prefix (with an optional trailing dot) is
 stripped from the incoming message subject when selecting decision groups and
-building the KV key. This lets you subscribe to tenant-prefixed subjects such
+building the KV key. This lets you subscribe to prefixed subjects such
 as `platform.logs.syslog` while storing rules under `logs.syslog`.
 
 ```json

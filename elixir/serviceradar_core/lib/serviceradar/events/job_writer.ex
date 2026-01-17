@@ -11,8 +11,6 @@ defmodule ServiceRadar.Events.JobWriter do
   @type severity :: :informational | :low | :medium | :high | :critical
 
   @type opts :: [
-          tenant_id: Ecto.UUID.t(),
-          tenant_slug: String.t() | nil,
           job_name: String.t(),
           job_id: String.t() | nil,
           queue: String.t() | nil,
@@ -29,15 +27,9 @@ defmodule ServiceRadar.Events.JobWriter do
 
   @spec write_failure(opts()) :: :ok | {:error, term()}
   def write_failure(opts) do
-    with {:ok, tenant_id} <- fetch_required(opts, :tenant_id),
-         {:ok, job_name} <- fetch_required(opts, :job_name) do
-      payload = build_failure_attrs(opts, tenant_id, job_name)
-      tenant_slug = Keyword.get(opts, :tenant_slug)
-
-      InternalLogPublisher.publish("jobs", payload,
-        tenant_id: tenant_id,
-        tenant_slug: tenant_slug
-      )
+    with {:ok, job_name} <- fetch_required(opts, :job_name) do
+      payload = build_failure_attrs(opts, job_name)
+      InternalLogPublisher.publish("jobs", payload)
     end
   rescue
     e ->
@@ -52,7 +44,7 @@ defmodule ServiceRadar.Events.JobWriter do
     end
   end
 
-  defp build_failure_attrs(opts, tenant_id, job_name) do
+  defp build_failure_attrs(opts, job_name) do
     job_id = Keyword.get(opts, :job_id)
     queue = Keyword.get(opts, :queue)
     attempt = Keyword.get(opts, :attempt)
@@ -103,8 +95,7 @@ defmodule ServiceRadar.Events.JobWriter do
           max_attempts,
           error,
           details
-        ),
-      tenant_id: tenant_id
+        )
     }
   end
 

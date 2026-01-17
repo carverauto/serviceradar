@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   @moduletag :integration
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
 
   alias ServiceRadar.SweepJobs.{
@@ -22,27 +23,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("sweep-results")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
-    actor = %{
-      id: Ash.UUID.generate(),
-      email: "sweep-results@serviceradar.local",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-
+    actor = SystemActor.system(:test)
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
-    {:ok, tenant_id: tenant_id, actor: actor, agent_id: agent_id}
+    {:ok, actor: actor, agent_id: agent_id}
   end
 
   test "ingest results updates devices and execution stats", %{
-    tenant_id: tenant_id,
     actor: actor,
     agent_id: agent_id
   } do
@@ -63,8 +50,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           is_available: false
         },
         actor: actor,
-        tenant: tenant_id,
-        authorize?: false
+        actor: actor
       )
       |> Ash.create()
 
@@ -76,8 +62,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
           name: "Group #{unique_id}"
         },
         actor: actor,
-        tenant: tenant_id,
-        authorize?: false
+        actor: actor
       )
       |> Ash.create()
 
@@ -102,7 +87,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     ]
 
     assert {:ok, stats} =
-             SweepResultsIngestor.ingest_results(results, execution_id, tenant_id,
+             SweepResultsIngestor.ingest_results(results, execution_id, nil,
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
@@ -118,7 +103,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [existing_device]} =
              Device
              |> Ash.Query.filter(ip == ^existing_ip)
-             |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor)
 
     assert existing_device.is_available
     assert "sweep" in existing_device.discovery_sources
@@ -127,7 +112,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [new_device]} =
              Device
              |> Ash.Query.filter(ip == ^new_ip)
-             |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor)
 
     refute new_device.is_available
     assert Enum.sort(new_device.discovery_sources) == ["sweep"]
@@ -135,7 +120,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, host_results} =
              SweepHostResult
              |> Ash.Query.for_read(:by_execution, %{execution_id: execution_id})
-             |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor)
 
     assert length(host_results) == 2
 
@@ -151,7 +136,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert {:ok, [execution]} =
              SweepGroupExecution
              |> Ash.Query.filter(id == ^execution_id)
-             |> Ash.read(tenant: tenant_id, actor: actor, authorize?: false)
+             |> Ash.read(actor: actor)
 
     assert execution.status == :completed
     assert execution.hosts_total == 2

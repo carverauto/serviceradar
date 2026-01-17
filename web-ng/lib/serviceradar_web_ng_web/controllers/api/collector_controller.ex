@@ -11,19 +11,17 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
   alias ServiceRadar.Edge.CollectorPackage
   alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.CollectorBundleGenerator
-  alias ServiceRadar.Identity.Tenant
 
   action_fallback ServiceRadarWebNG.Api.FallbackController
 
   @doc """
   GET /api/admin/collectors
 
-  Lists collector packages for the current tenant.
+  Lists collector packages.
   """
   def index(conn, params) do
     limit = parse_int(params["limit"]) || 50
@@ -50,9 +48,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
-      packages = Ash.read!(query, actor: actor, tenant: tenant)
+    with :ok <- require_authenticated(conn) do
+      actor = SystemActor.system(:collector_controller)
+      packages = Ash.read!(query, actor: actor)
       json(conn, Enum.map(packages, &package_to_json/1))
     end
   end
@@ -75,7 +73,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     collector_type = params["collector_type"]
 
     if collector_type in ["flowgger", "trapd", "netflow", "otel"] do
-      with {:ok, tenant} <- require_tenant(conn) do
+      with :ok <- require_authenticated(conn) do
         attrs = %{
           collector_type: String.to_existing_atom(collector_type),
           site: params["site"],
@@ -84,12 +82,12 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           edge_site_id: params["edge_site_id"]
         }
 
-        actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+        actor = SystemActor.system(:collector_controller)
+        opts = [actor: actor]
 
         case CollectorPackage
              |> Ash.Changeset.for_create(:create, attrs)
-             |> Ash.Changeset.force_change_attribute(:tenant_id, tenant.id)
-             |> Ash.create(actor: actor, tenant: tenant) do
+             |> Ash.create(opts) do
           {:ok, package} ->
             conn
             |> put_status(:created)
@@ -114,13 +112,13 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   Gets a single collector package by ID.
   """
   def show(conn, %{"id" => id}) do
-    with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+    with :ok <- require_authenticated(conn) do
+      actor = SystemActor.system(:collector_controller)
 
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.read_one(actor: actor, tenant: tenant) do
+           |> Ash.read_one(actor: actor) do
         {:ok, nil} -> {:error, :not_found}
         {:ok, package} -> json(conn, package_to_json(package))
         {:error, error} -> {:error, error}
@@ -191,13 +189,14 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   def revoke(conn, %{"id" => id} = params) do
     reason = params["reason"]
 
-    with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
+    with :ok <- require_authenticated(conn) do
+      actor = SystemActor.system(:collector_controller)
+      opts = [actor: actor]
 
       case CollectorPackage
            |> Ash.Query.for_read(:read)
            |> Ash.Query.filter(id == ^id)
-           |> Ash.read_one(actor: actor, tenant: tenant) do
+           |> Ash.read_one(opts) do
         {:ok, nil} ->
           {:error, :not_found}
 
@@ -205,7 +204,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
           case package
                |> Ash.Changeset.for_update(:revoke)
                |> Ash.Changeset.set_argument(:reason, reason)
-               |> Ash.update(actor: actor, tenant: tenant) do
+               |> Ash.update(opts) do
             {:ok, updated_package} ->
               json(conn, package_to_json(updated_package))
 
@@ -222,7 +221,7 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   @doc """
   GET /api/admin/nats/credentials
 
-  Lists NATS credentials issued to the current tenant.
+  Lists NATS credentials.
   """
   def credentials(conn, params) do
     limit = parse_int(params["limit"]) || 50
@@ -249,38 +248,21 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         query
       end
 
-    with {:ok, tenant} <- require_tenant(conn) do
-      actor = SystemActor.for_tenant(tenant.id, :collector_controller)
-      credentials = Ash.read!(query, actor: actor, tenant: tenant)
+    with :ok <- require_authenticated(conn) do
+      actor = SystemActor.system(:collector_controller)
+      credentials = Ash.read!(query, actor: actor)
       json(conn, Enum.map(credentials, &credential_to_json/1))
-    end
-  end
-
-  @doc """
-  GET /api/admin/nats/account
-
-  Gets the current tenant's NATS account status.
-  """
-  def account_status(conn, _params) do
-    with {:ok, tenant} <- require_tenant(conn) do
-      json(conn, %{
-        tenant_id: tenant.id,
-        slug: tenant.slug,
-        nats_account_status: to_string(tenant.nats_account_status),
-        nats_account_public_key: tenant.nats_account_public_key,
-        nats_account_provisioned_at: format_datetime(tenant.nats_account_provisioned_at)
-      })
     end
   end
 
   # Private helpers
 
-  defp do_download(package_id, download_token, tenant_schema, source_ip) do
-    with {:ok, package} <- get_package(package_id, tenant_schema),
+  defp do_download(package_id, download_token, source_ip) do
+    with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_ready(package),
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
-         {:ok, updated_package} <- mark_downloaded(package, source_ip, tenant_schema) do
+         {:ok, updated_package} <- mark_downloaded(package, source_ip) do
       {:ok,
        %{
          package: package_to_json(updated_package),
@@ -292,47 +274,36 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
   end
 
   defp download_with_token(package_id, download_token, source_ip) do
-    case find_package_across_tenants(package_id) do
-      {:ok, _package, tenant_schema} ->
-        do_download(package_id, download_token, tenant_schema, source_ip)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    do_download(package_id, download_token, source_ip)
   end
 
   defp bundle_with_token(package_id, download_token, source_ip) do
-    case find_package_across_tenants(package_id) do
-      {:ok, _package, tenant_schema} ->
-        do_bundle_download(package_id, download_token, tenant_schema, source_ip)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    do_bundle_download(package_id, download_token, source_ip)
   end
 
-  defp do_bundle_download(package_id, download_token, tenant_schema, source_ip) do
-    with {:ok, package} <- get_package(package_id, tenant_schema),
+  defp do_bundle_download(package_id, download_token, source_ip) do
+    with {:ok, package} <- get_package(package_id),
          :ok <- validate_package_ready(package),
          :ok <- validate_download_token(package, download_token),
          {:ok, creds_content} <- get_nats_creds(package),
          {:ok, tls_key_pem} <- get_tls_key(package),
          {:ok, tarball} <-
            CollectorBundleGenerator.create_tarball(package, creds_content, tls_key_pem),
-         {:ok, _updated_package} <- mark_downloaded(package, source_ip, tenant_schema) do
+         {:ok, _updated_package} <- mark_downloaded(package, source_ip) do
       filename = CollectorBundleGenerator.bundle_filename(package)
       {:ok, tarball, filename}
     end
   end
 
-  defp get_package(package_id, tenant_schema) do
-    actor = SystemActor.platform(:collector_controller)
+  defp get_package(package_id) do
+    actor = SystemActor.system(:collector_controller)
+    opts = [actor: actor]
 
     case CollectorPackage
          |> Ash.Query.for_read(:read)
          |> Ash.Query.filter(id == ^package_id)
          |> Ash.Query.load(:edge_site)
-         |> Ash.read_one(actor: actor, tenant: tenant_schema) do
+         |> Ash.read_one(opts) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
@@ -417,13 +388,14 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
 
   defp decrypt_tls_key(_), do: {:error, :tls_key_invalid}
 
-  defp mark_downloaded(package, source_ip, tenant_schema) do
-    actor = SystemActor.platform(:collector_controller)
+  defp mark_downloaded(package, source_ip) do
+    actor = SystemActor.system(:collector_controller)
+    opts = [actor: actor]
 
     package
     |> Ash.Changeset.for_update(:download)
     |> Ash.Changeset.set_argument(:downloaded_by_ip, source_ip)
-    |> Ash.update(actor: actor, tenant: tenant_schema)
+    |> Ash.update(opts)
   end
 
   defp generate_collector_config(package) do
@@ -556,28 +528,9 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
     return_error(conn, :internal_server_error, "bundle creation failed: #{inspect(reason)}")
   end
 
-  defp require_tenant(conn) do
+  defp require_authenticated(conn) do
     case conn.assigns[:current_scope] do
-      %Scope{active_tenant: %Tenant{} = tenant} ->
-        {:ok, tenant}
-
-      %Scope{} = scope ->
-        scope
-        |> Scope.tenant_id()
-        |> load_tenant()
-
-      _ ->
-        {:error, :unauthorized}
-    end
-  end
-
-  defp load_tenant(nil), do: {:error, :unauthorized}
-
-  defp load_tenant(tenant_id) do
-    actor = SystemActor.platform(:collector_controller)
-
-    case Ash.get(Tenant, tenant_id, actor: actor) do
-      {:ok, %Tenant{} = tenant} -> {:ok, tenant}
+      %Scope{} -> :ok
       _ -> {:error, :unauthorized}
     end
   end
@@ -602,27 +555,6 @@ defmodule ServiceRadarWebNG.Api.CollectorController do
         |> :inet.ntoa()
         |> to_string()
     end
-  end
-
-  defp find_package_across_tenants(package_id) do
-    actor = SystemActor.platform(:collector_controller)
-
-    TenantSchemas.list_schemas()
-    |> Enum.reduce_while({:error, :not_found}, fn schema, _ ->
-      case CollectorPackage
-           |> Ash.Query.for_read(:read)
-           |> Ash.Query.filter(id == ^package_id)
-           |> Ash.read_one(actor: actor, tenant: schema) do
-        {:ok, nil} ->
-          {:cont, {:error, :not_found}}
-
-        {:ok, package} ->
-          {:halt, {:ok, package, schema}}
-
-        {:error, error} ->
-          {:halt, {:error, error}}
-      end
-    end)
   end
 
   defp format_datetime(nil), do: nil

@@ -215,7 +215,6 @@ CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1 \
 ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/gateway.conf \
 SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
 GATEWAY_PARTITION_ID=local GATEWAY_ID=gateway-local-1 GATEWAY_DOMAIN=local GATEWAY_CAPABILITIES=icmp,tcp \
-GATEWAY_TENANT_ID=<tenant-uuid> GATEWAY_TENANT_SLUG=platform \
 nohup mix run --no-halt > $PWD/tmp/logs/gateway-local.log 2>&1 &
 ```
 
@@ -453,7 +452,7 @@ When a change must remain atomic, implement `atomic/3` or refactor the action to
 
 ## Multitenancy Guardrails
 
-Never propose or implement multi-tenant bypasses. Do not use Ash multitenancy bypass modes (`:bypass`, `:bypass_all`, `allow_global` overrides) or cross-tenant reads/writes. All access must remain tenant-scoped and enforced by mTLS-derived tenant identity.
+ServiceRadar is single-deployment. Do not add multitenancy features, per-customer routing, or multitenancy bypass modes (`:bypass`, `:bypass_all`, `allow_global` overrides). Keep all access scoped to the deployment and schema defined by the database connection.
 
 ## Code Generation
 

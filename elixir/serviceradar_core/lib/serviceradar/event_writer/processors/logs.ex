@@ -18,7 +18,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Common.V1.{AnyValue, ArrayValue, InstrumentationScope, KeyValue, KeyValueList}
   alias Opentelemetry.Proto.Logs.V1.{LogRecord, ResourceLogs, ScopeLogs}
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.EventWriter.TenantContext
   alias ServiceRadar.Observability.LogPromotion
 
   require Logger
@@ -28,19 +27,13 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def process_batch(messages) do
-    schema = TenantContext.current_schema()
+    # DB connection's search_path determines the schema
+    rows = build_rows(messages)
 
-    if is_nil(schema) do
-      Logger.error("Logs batch missing tenant schema context")
-      {:error, :missing_tenant_schema}
+    if Enum.empty?(rows) do
+      {:ok, 0}
     else
-      rows = build_rows(messages)
-
-      if Enum.empty?(rows) do
-        {:ok, 0}
-      else
-        insert_log_rows(schema, rows)
-      end
+      insert_log_rows(rows)
     end
   rescue
     e ->
@@ -49,16 +42,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   @impl true
-  def parse_message(%{data: data, metadata: metadata} = message) do
-    tenant_id = TenantContext.resolve_tenant_id(message)
-
-    with tenant_id when not is_nil(tenant_id) <- tenant_id,
-         decoded <- Jason.decode(data) do
-      parse_log_payload(decoded, data, metadata, tenant_id)
-    else
-      nil ->
-        Logger.error("OTEL log missing tenant_id", subject: metadata[:subject])
-        nil
+  def parse_message(%{data: data, metadata: metadata}) do
+    case Jason.decode(data) do
+      {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
+      {:error, _} = error -> parse_log_payload(error, data, metadata)
     end
   end
 
@@ -70,27 +57,29 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp insert_log_rows(schema, rows) do
-    case ServiceRadar.Repo.insert_all(table_name(), rows,
-           prefix: schema,
+  defp insert_log_rows(rows) do
+    # DB connection's search_path determines the schema
+    case ServiceRadar.Repo.insert_all(
+           table_name(),
+           rows,
            on_conflict: :nothing,
            returning: false
          ) do
       {count, _} ->
-        maybe_promote_logs(rows, schema)
+        maybe_promote_logs(rows)
         {:ok, count}
     end
   end
 
-  defp parse_log_payload({:ok, json}, _data, metadata, tenant_id) do
-    parse_json_log(json, metadata, tenant_id)
+  defp parse_log_payload({:ok, json}, _data, metadata) do
+    parse_json_log(json, metadata)
   end
 
-  defp parse_log_payload({:error, _}, data, metadata, tenant_id) do
-    parse_protobuf_log(data, metadata, tenant_id)
+  defp parse_log_payload({:error, _}, data, metadata) do
+    parse_protobuf_log(data, metadata)
   end
 
-  defp parse_json_log(json, metadata, tenant_id) when is_map(json) do
+  defp parse_json_log(json, metadata) when is_map(json) do
     log_id = Ash.UUID.generate()
     attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
     attributes = attach_ingest_metadata(attributes, metadata)
@@ -126,17 +115,16 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       scope_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
       attributes: attributes,
       resource_attributes: resource_attributes,
-      tenant_id: tenant_id,
       created_at: DateTime.utc_now()
     }
   end
 
-  defp parse_json_log(_json, _metadata, _tenant_id), do: nil
+  defp parse_json_log(_json, _metadata), do: nil
 
-  defp parse_protobuf_log(data, metadata, tenant_id) do
+  defp parse_protobuf_log(data, metadata) do
     case decode_export_logs(data) do
       {:ok, %ExportLogsServiceRequest{} = request} ->
-        parse_export_logs(request, metadata, tenant_id)
+        parse_export_logs(request, metadata)
 
       {:error, reason} ->
         Logger.debug("Failed to decode OTLP logs protobuf: #{inspect(reason)}")
@@ -150,11 +138,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     error -> {:error, error}
   end
 
-  defp parse_export_logs(%ExportLogsServiceRequest{resource_logs: resource_logs}, metadata, tenant_id) do
-    Enum.flat_map(resource_logs, &parse_resource_logs(&1, metadata, tenant_id))
+  defp parse_export_logs(%ExportLogsServiceRequest{resource_logs: resource_logs}, metadata) do
+    Enum.flat_map(resource_logs, &parse_resource_logs(&1, metadata))
   end
 
-  defp parse_resource_logs(%ResourceLogs{resource: resource, scope_logs: scope_logs}, metadata, tenant_id) do
+  defp parse_resource_logs(%ResourceLogs{resource: resource, scope_logs: scope_logs}, metadata) do
     resource_attributes = key_values_to_map(resource && resource.attributes)
 
     service_name =
@@ -173,13 +161,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         service_version,
         service_instance,
         resource_attributes,
-        metadata,
-        tenant_id
+        metadata
       )
     end)
   end
 
-  defp parse_resource_logs(_, _metadata, _tenant_id), do: []
+  defp parse_resource_logs(_, _metadata), do: []
 
   defp parse_scope_logs(
          %ScopeLogs{scope: scope, log_records: log_records},
@@ -187,8 +174,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          service_version,
          service_instance,
          resource_attributes,
-         metadata,
-         tenant_id
+         metadata
        ) do
     {scope_name, scope_version} = parse_scope(scope)
 
@@ -213,7 +199,6 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
           scope_version: scope_version,
           attributes: log_attributes,
           resource_attributes: resource_attributes,
-          tenant_id: tenant_id,
           created_at: DateTime.utc_now()
         }
       ]
@@ -226,8 +211,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _service_version,
          _service_instance,
          _resource_attributes,
-         _metadata,
-         _tenant_id
+         _metadata
        ),
     do: []
 
@@ -307,14 +291,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   defp source_kind(_), do: nil
 
-  defp maybe_promote_logs(rows, schema) do
-    tenant_id =
-      case rows do
-        [%{tenant_id: tenant_id} | _] -> tenant_id
-        _ -> TenantContext.current_tenant_id()
-      end
-
-    _ = LogPromotion.promote(rows, tenant_id, schema)
+  defp maybe_promote_logs(rows) do
+    # DB connection's search_path determines the schema
+    _ = LogPromotion.promote(rows)
     :ok
   end
 

@@ -11,11 +11,11 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 
 ### Resource patterns
 
-- **Always** use `Ash.Changeset.for_create/for_update` with an actor:
+- **Always** use `Ash.Changeset.for_create/for_update` with scope (or actor):
   ```elixir
   ServiceRadar.Inventory.Device
-  |> Ash.Changeset.for_create(:create, attrs, actor: actor, tenant: tenant_id)
-  |> Ash.create()
+  |> Ash.Changeset.for_create(:create, attrs)
+  |> Ash.create(scope: scope)
   ```
 
 - **Always** use `Ash.Query.for_read` for queries:
@@ -28,14 +28,16 @@ ServiceRadar uses the [Ash Framework](https://ash-hq.org/) for domain-driven des
 - **Never** access `changeset.data` fields that don't exist - use `changeset.data.field_name` pattern
 - **Never** use `Ash.Changeset.get_data/1` or `Ash.Changeset.get_data/2` - these don't exist in Ash 3.x. Use `changeset.data` directly
 
-### Multi-tenancy
+### Dedicated Deployment Isolation
 
-- Tenant-scoped resources use schema-based multitenancy (`strategy :context`)
-- Public resources (tenants, users, tenant memberships, platform tables) use the public schema and do not take tenant context
+ServiceRadar uses a dedicated-deployment model:
+- Each deployment is isolated (web-ng, core-elx, agent-gateway)
+- CNPG credentials set PostgreSQL's `search_path` for schema isolation at infrastructure level
+- No deployment identifier fields in application code - isolation is handled by the database connection
 
-#### Passing tenant context via Ash.Scope
+#### Passing scope via Ash.Scope
 
-**Always** use the `scope:` option instead of separate `actor:` and `tenant:` options. The `Ash.Scope.ToOpts` protocol extracts actor and tenant automatically:
+**Always** use the `scope:` option instead of threading separate `actor:` options. The `Ash.Scope.ToOpts` protocol extracts actor automatically:
 
 ```elixir
 # In LiveViews - get scope from socket assigns
@@ -49,11 +51,11 @@ Ash.create(changeset, scope: scope)
 srql_module.query(query, %{scope: scope})
 ```
 
-**Never** thread actor and tenant as separate parameters:
+**Never** thread actor as a separate parameter:
 ```elixir
 # DON'T DO THIS - deprecated pattern
-Ash.read(query, actor: actor, tenant: tenant)
-my_helper(socket, actor, tenant)
+Ash.read(query, actor: actor)
+my_helper(socket, actor)
 
 # DO THIS INSTEAD
 Ash.read(query, scope: scope)
@@ -62,14 +64,13 @@ my_helper(socket, scope)
 
 The scope struct (`ServiceRadarWebNG.Accounts.Scope`) contains:
 - `user` - the current user (actor)
-- `active_tenant` - the current tenant struct (converted to schema name via `Ash.ToTenant`)
-- `tenant_memberships` - list of memberships (available in policy context)
+- Schema context is implicit from the database connection's search_path (dedicated deployment)
 
 ### Domains
 
 | Domain | Location | Resources |
 |--------|----------|-----------|
-| `ServiceRadar.Identity` | `serviceradar_core` | Tenant, User, ApiToken |
+| `ServiceRadar.Identity` | `serviceradar_core` | User, ApiToken |
 | `ServiceRadar.Inventory` | `serviceradar_core` | Device, DeviceGroup, Interface |
 | `ServiceRadar.Infrastructure` | `serviceradar_core` | Partition, Gateway, Agent, Checker |
 | `ServiceRadar.Monitoring` | `serviceradar_core` | PollingSchedule, ServiceCheck, Alert, Event |
@@ -90,15 +91,14 @@ Use test helpers from `ServiceRadarWebNG.AshTestHelpers`:
 use ServiceRadarWebNG.AshTestHelpers
 
 test "creates device" do
-  tenant = tenant_fixture()
-  device = device_fixture(tenant)
+  device = device_fixture()
   assert device.id
 end
 ```
 
-Available fixtures: `tenant_fixture/1`, `user_fixture/2`, `device_fixture/2`, `gateway_fixture/2`, `agent_fixture/2`, `alert_fixture/2`, etc.
+Available fixtures: `user_fixture/1`, `device_fixture/1`, `gateway_fixture/1`, `agent_fixture/2`, `alert_fixture/1`, etc.
 
-Available actors: `system_actor/0`, `admin_actor/1`, `operator_actor/1`, `viewer_actor/1`
+Available actors: `system_actor/0`, `admin_actor/0`, `operator_actor/0`, `viewer_actor/0`
 
 ### Phoenix v1.8 guidelines
 

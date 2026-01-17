@@ -32,10 +32,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_job_key, action: :by_job_key, args: [:job_key]
     define :list_enabled, action: :enabled
@@ -104,7 +100,6 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     policy action([:create, :update, :enable, :disable, :update_last_enqueued]) do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
-      authorize_if actor_attribute_equals(:role, :super_admin)
       # Allow system operations (no actor)
       authorize_if always()
     end

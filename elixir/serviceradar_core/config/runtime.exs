@@ -32,12 +32,6 @@ if config_env() == :prod do
     env: :prod,
     cloak_key: cloak_key
 
-  default_tenant_id =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
-      "00000000-0000-0000-0000-000000000000"
-
-  config :serviceradar_core, :default_tenant_id, default_tenant_id
-
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do
       "workload_api" -> :workload_api
@@ -57,19 +51,6 @@ if config_env() == :prod do
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
     workload_api_socket: spiffe_socket,
     trust_bundle_path: spiffe_bundle_path
-
-  platform_tenant_id =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_ID") ||
-      System.get_env("PLATFORM_TENANT_ID")
-
-  config :serviceradar_core, :platform_tenant_id, platform_tenant_id
-
-  platform_tenant_slug =
-    System.get_env("SERVICERADAR_PLATFORM_TENANT_SLUG") ||
-      System.get_env("PLATFORM_TENANT_SLUG") ||
-      "platform"
-
-  config :serviceradar_core, :platform_tenant_slug, platform_tenant_slug
 
   platform_sync_component_id =
     System.get_env("SERVICERADAR_PLATFORM_SYNC_COMPONENT_ID") || "platform-sync"
@@ -147,9 +128,6 @@ if config_env() == :prod do
   config :serviceradar_core,
     run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
-  config :serviceradar_core,
-    reset_tenant_schemas: System.get_env("SERVICERADAR_RESET_TENANT_SCHEMAS", "false") in ~w(true 1 yes)
-
   sync_ingestor_batch_concurrency =
     System.get_env("SYNC_INGESTOR_BATCH_CONCURRENCY")
     |> case do
@@ -220,11 +198,20 @@ if config_env() == :prod do
     peer: Oban.Peers.Database
 
   # Core NATS connection configuration
+  nats_enabled = System.get_env("NATS_ENABLED", "false") in ~w(true 1 yes)
   nats_url = System.get_env("NATS_URL", "nats://localhost:4222")
   nats_uri = URI.parse(nats_url)
   nats_tls_enabled = System.get_env("NATS_TLS", "false") in ~w(true 1 yes)
   nats_server_name = System.get_env("NATS_SERVER_NAME", "nats.serviceradar")
   cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+  nats_creds_file = System.get_env("NATS_CREDS_FILE")
+
+  if nats_enabled && nats_creds_file in [nil, ""] do
+    raise """
+    NATS_CREDS_FILE is required for NATS JWT auth.
+    Generate or provision JWT credentials and set NATS_CREDS_FILE.
+    """
+  end
 
   nats_tls_config =
     if nats_tls_enabled do
@@ -244,7 +231,7 @@ if config_env() == :prod do
     port: nats_uri.port || 4222,
     user: System.get_env("NATS_USER"),
     password: {:system, "NATS_PASSWORD"},
-    creds_file: System.get_env("NATS_CREDS_FILE"),
+    creds_file: nats_creds_file,
     tls: nats_tls_config
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
@@ -252,6 +239,14 @@ if config_env() == :prod do
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
   if event_writer_enabled do
+    event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+    if event_writer_creds in [nil, ""] do
+      raise """
+      EVENT_WRITER_NATS_CREDS_FILE is required when EVENT_WRITER_ENABLED=true.
+      Generate or provision JWT credentials and set EVENT_WRITER_NATS_CREDS_FILE.
+      """
+    end
+
     nats_url = System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
     nats_uri = URI.parse(nats_url)
 
@@ -281,7 +276,7 @@ if config_env() == :prod do
         port: nats_uri.port || 4222,
         user: System.get_env("EVENT_WRITER_NATS_USER"),
         password: {:system, "EVENT_WRITER_NATS_PASSWORD"},
-        creds_file: System.get_env("EVENT_WRITER_NATS_CREDS_FILE"),
+        creds_file: event_writer_creds,
         tls: nats_tls_config
       ],
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),

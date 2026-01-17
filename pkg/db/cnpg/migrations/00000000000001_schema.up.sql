@@ -1,7 +1,7 @@
 -- Consolidated idempotent schema for ServiceRadar CNPG/Timescale
 -- PUBLIC SCHEMA ONLY - Platform-level tables
--- Tenant-scoped tables are created via Elixir tenant migrations in:
---   elixir/serviceradar_core/priv/repo/tenant_migrations/
+-- Schema-scoped tables are created via Elixir Ash migrations in:
+--   elixir/serviceradar_core/priv/repo/migrations/
 
 -- ================================
 -- Extensions
@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ================================
 -- Platform Registry (gateways, agents, checkers)
--- These are platform-level registrations, not tenant-scoped
+-- These are platform-level registrations, not schema-scoped
 -- ================================
 CREATE TABLE IF NOT EXISTS gateways (
     gateway_id           TEXT              PRIMARY KEY,

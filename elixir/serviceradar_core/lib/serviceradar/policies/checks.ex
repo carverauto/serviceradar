@@ -2,6 +2,8 @@ defmodule ServiceRadar.Policies.Checks do
   @moduledoc """
   Reusable Ash policy checks for ServiceRadar authorization.
 
+  # DB connection's search_path determines the schema
+
   These checks can be used in policy definitions:
 
       policies do
@@ -50,42 +52,20 @@ defmodule ServiceRadar.Policies.Checks do
     defp get_role(_), do: nil
   end
 
-  defmodule ActorIsSuperAdmin do
-    @moduledoc """
-    Check if the actor is a super admin.
-    Super admins bypass tenant restrictions.
-    """
-    use Ash.Policy.SimpleCheck
-
-    @impl true
-    def describe(_opts), do: "actor is super admin"
-
-    @impl true
-    def match?(nil, _opts, _context), do: false
-
-    def match?(actor, _opts, _context) do
-      get_role(actor) == :super_admin
-    end
-
-    defp get_role(%{role: role}) when is_atom(role), do: role
-    defp get_role(%{role: role}) when is_binary(role), do: String.to_existing_atom(role)
-    defp get_role(_), do: nil
-  end
-
   defmodule ActorIsAdmin do
     @moduledoc """
-    Check if the actor is an admin (or super admin).
+    Check if the actor is an admin.
     """
     use Ash.Policy.SimpleCheck
 
     @impl true
-    def describe(_opts), do: "actor is admin or super admin"
+    def describe(_opts), do: "actor is admin"
 
     @impl true
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, _opts, _context) do
-      get_role(actor) in [:admin, :super_admin]
+      get_role(actor) == :admin
     end
 
     defp get_role(%{role: role}) when is_atom(role), do: role
@@ -95,58 +75,23 @@ defmodule ServiceRadar.Policies.Checks do
 
   defmodule ActorIsOperator do
     @moduledoc """
-    Check if the actor is an operator (or higher).
+    Check if the actor is an operator or admin.
     """
     use Ash.Policy.SimpleCheck
 
     @impl true
-    def describe(_opts), do: "actor is operator, admin, or super admin"
+    def describe(_opts), do: "actor is operator or admin"
 
     @impl true
     def match?(nil, _opts, _context), do: false
 
     def match?(actor, _opts, _context) do
-      get_role(actor) in [:operator, :admin, :super_admin]
+      get_role(actor) in [:operator, :admin]
     end
 
     defp get_role(%{role: role}) when is_atom(role), do: role
     defp get_role(%{role: role}) when is_binary(role), do: String.to_existing_atom(role)
     defp get_role(_), do: nil
-  end
-
-  defmodule TenantMatches do
-    @moduledoc """
-    Check if the resource belongs to the actor's tenant.
-    Used for multi-tenant isolation.
-
-    Expects the resource to have a `tenant_id` attribute and
-    the actor to have a `tenant_id` attribute.
-    """
-    use Ash.Policy.SimpleCheck
-
-    @impl true
-    def describe(_opts), do: "resource belongs to actor's tenant"
-
-    @impl true
-    def match?(nil, _opts, _context), do: false
-
-    def match?(actor, _opts, %{changeset: %{data: resource}}) do
-      actor_tenant = get_tenant_id(actor)
-      resource_tenant = get_tenant_id(resource)
-
-      actor_tenant != nil && actor_tenant == resource_tenant
-    end
-
-    def match?(actor, _opts, %{query: _query, resource: _resource} = context) do
-      # For queries, we can't check specific records, so we rely on filters
-      # Return true if actor has a tenant_id (actual filtering done via expr)
-      Map.has_key?(context, :actor) && get_tenant_id(actor) != nil
-    end
-
-    def match?(_actor, _opts, _context), do: false
-
-    defp get_tenant_id(%{tenant_id: tenant_id}), do: tenant_id
-    defp get_tenant_id(_), do: nil
   end
 
   defmodule ActorOwnsResource do

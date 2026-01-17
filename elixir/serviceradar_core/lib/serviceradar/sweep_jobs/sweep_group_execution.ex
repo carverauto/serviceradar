@@ -39,16 +39,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     repo ServiceRadar.Repo
 
     custom_indexes do
-      index [:tenant_id, :sweep_group_id, :started_at],
+      index [:sweep_group_id, :started_at],
         name: "sweep_group_executions_group_started_idx"
 
-      index [:tenant_id, :status],
+      index [:status],
         name: "sweep_group_executions_status_idx"
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   actions do
@@ -59,7 +55,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
 
       accept [:sweep_group_id, :agent_id, :config_version]
 
-      change ServiceRadar.Changes.AssignTenantId
       change set_attribute(:status, :running)
       change set_attribute(:started_at, &DateTime.utc_now/0)
     end
@@ -141,12 +136,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
   end
 
   policies do
-    # Super admins can do anything
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
+    # System actors can do anything
 
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
@@ -174,12 +166,6 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
 
   attributes do
     uuid_primary_key :id
-
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this execution belongs to"
-    end
 
     attribute :status, :atom do
       allow_nil? false

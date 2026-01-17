@@ -5,6 +5,9 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   This module evaluates SRQL `target_query` fields on profiles to determine
   which profile should apply to a given device.
 
+  In single-deployment architecture, the DB connection's
+  search_path determines which schema is queried.
+
   ## Resolution Process
 
   1. Load all targeting profiles (enabled, non-default, with target_query)
@@ -46,7 +49,6 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   ## Parameters
 
-  - `tenant_schema` - The tenant schema string (e.g., "tenant_abc123")
   - `device_uid` - The UID of the device to match
   - `actor` - The actor for Ash operations
 
@@ -56,19 +58,19 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   - `{:ok, nil}` - No targeting profiles matched
   - `{:error, reason}` - An error occurred
   """
-  @spec resolve_for_device(String.t(), String.t(), map()) ::
+  @spec resolve_for_device(String.t(), map()) ::
           {:ok, SNMPProfile.t() | nil} | {:error, term()}
-  def resolve_for_device(tenant_schema, device_uid, actor) when is_binary(device_uid) do
+  def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
     # Validate device_uid is a proper UUID to prevent SRQL injection
     if Regex.match?(@uuid_regex, device_uid) do
       # Load all targeting profiles ordered by priority
-      case load_targeting_profiles(tenant_schema, actor) do
+      case load_targeting_profiles(actor) do
         {:ok, []} ->
           {:ok, nil}
 
         {:ok, profiles} ->
           # Try each profile in order until one matches
-          find_matching_profile(profiles, tenant_schema, device_uid, actor)
+          find_matching_profile(profiles, device_uid, actor)
 
         {:error, reason} ->
           {:error, reason}
@@ -79,13 +81,13 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
     end
   end
 
-  def resolve_for_device(_tenant_schema, nil, _actor), do: {:ok, nil}
+  def resolve_for_device(nil, _actor), do: {:ok, nil}
 
   # Load all profiles with SRQL targeting, ordered by priority
-  defp load_targeting_profiles(tenant_schema, actor) do
+  defp load_targeting_profiles(actor) do
     query =
       SNMPProfile
-      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:list_targeting_profiles, %{}, actor: actor)
 
     case Ash.read(query, actor: actor) do
       {:ok, profiles} -> {:ok, profiles}
@@ -94,10 +96,10 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   end
 
   # Find the first profile that matches the device
-  defp find_matching_profile([], _tenant_schema, _device_uid, _actor), do: {:ok, nil}
+  defp find_matching_profile([], _device_uid, _actor), do: {:ok, nil}
 
-  defp find_matching_profile([profile | rest], tenant_schema, device_uid, actor) do
-    case matches_device?(profile, tenant_schema, device_uid, actor) do
+  defp find_matching_profile([profile | rest], device_uid, actor) do
+    case matches_device?(profile, device_uid, actor) do
       {:ok, true} ->
         Logger.debug(
           "SNMPSrqlTargetResolver: profile #{profile.id} matches device #{device_uid}"
@@ -106,7 +108,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
         {:ok, profile}
 
       {:ok, false} ->
-        find_matching_profile(rest, tenant_schema, device_uid, actor)
+        find_matching_profile(rest, device_uid, actor)
 
       {:error, reason} ->
         # Log error but continue trying other profiles
@@ -114,12 +116,12 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
           "SNMPSrqlTargetResolver: error evaluating profile #{profile.id}: #{inspect(reason)}"
         )
 
-        find_matching_profile(rest, tenant_schema, device_uid, actor)
+        find_matching_profile(rest, device_uid, actor)
     end
   end
 
   # Check if a profile's target_query matches a device
-  defp matches_device?(profile, tenant_schema, device_uid, actor) do
+  defp matches_device?(profile, device_uid, actor) do
     target_query = profile.target_query
 
     if is_nil(target_query) or target_query == "" do
@@ -128,22 +130,22 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
       # Determine if this is a device or interface query
       if String.starts_with?(target_query, "in:interfaces") do
         # Interface targeting - check if device has matching interfaces
-        match_via_interfaces(target_query, tenant_schema, device_uid, actor)
+        match_via_interfaces(device_uid, actor)
       else
         # Device targeting - check if device matches directly
         combined_query = String.trim(target_query) <> " uid:" <> device_uid
-        execute_device_match(combined_query, tenant_schema, actor)
+        execute_device_match(combined_query, actor)
       end
     end
   end
 
   # Execute a device match query
-  defp execute_device_match(query_string, tenant_schema, actor) do
+  defp execute_device_match(query_string, actor) do
     case ServiceRadarSRQL.Native.parse_ast(query_string) do
       {:ok, ast_json} ->
         case Jason.decode(ast_json) do
           {:ok, ast} ->
-            check_device_exists(ast, tenant_schema, actor)
+            check_device_exists(ast, actor)
 
           {:error, reason} ->
             {:error, {:json_decode_error, reason}}
@@ -156,7 +158,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
 
   # For interface targeting, check if the device has any matching interfaces
   # This is a simplified approach - for full interface targeting we'd query the interfaces table
-  defp match_via_interfaces(_query_string, tenant_schema, device_uid, actor) do
+  defp match_via_interfaces(device_uid, actor) do
     # Transform interface query to device query by adding device.uid filter
     # e.g., "in:interfaces type:ethernet" -> check if device with uid has any interfaces
     # For now, we do a simple device lookup and assume interface targeting works
@@ -167,7 +169,7 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
       {:ok, ast_json} ->
         case Jason.decode(ast_json) do
           {:ok, ast} ->
-            check_device_exists(ast, tenant_schema, actor)
+            check_device_exists(ast, actor)
 
           {:error, reason} ->
             {:error, {:json_decode_error, reason}}
@@ -179,12 +181,12 @@ defmodule ServiceRadar.SNMPProfiles.SrqlTargetResolver do
   end
 
   # Check if any devices match the parsed SRQL filters
-  defp check_device_exists(ast, tenant_schema, actor) do
+  defp check_device_exists(ast, actor) do
     filters = extract_filters(ast)
 
     query =
       Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor, tenant: tenant_schema)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> apply_srql_filters(filters)
       |> Ash.Query.limit(1)
 

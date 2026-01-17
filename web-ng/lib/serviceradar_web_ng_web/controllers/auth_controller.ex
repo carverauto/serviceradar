@@ -10,12 +10,16 @@ defmodule ServiceRadarWebNGWeb.AuthController do
   AshAuthentication stores JWT tokens in the session automatically via `store_in_session/2`.
   The token is stored under the subject token key (e.g., `"user_token"`) and can be retrieved
   for verification using `AshAuthentication.Jwt.verify/2`.
+
+  ## Schema Context
+
+  In a single-deployment UI, schema context is implicit from the PostgreSQL search_path
+  configured for the instance. No deployment identifier needs to be stored in the session
+  or JWT claims.
   """
 
   use ServiceRadarWebNGWeb, :controller
   use AshAuthentication.Phoenix.Controller
-
-  alias ServiceRadarWebNGWeb.TenantResolver
 
   plug :fetch_session
 
@@ -41,24 +45,11 @@ defmodule ServiceRadarWebNGWeb.AuthController do
 
   def success(conn, _activity, %_{} = user, _token) do
     return_to = get_session(conn, :user_return_to) || ~p"/analytics"
-    tenant_id = user.tenant_id
 
-    tenant_schema =
-      case Map.fetch(user.__metadata__, :tenant) do
-        {:ok, tenant} when is_binary(tenant) -> tenant
-        _ -> TenantResolver.schema_for_tenant_id(tenant_id)
-      end
-
-    case AshAuthentication.Jwt.token_for_user(
-           user,
-           %{"tenant_id" => tenant_id},
-           tenant: tenant_schema
-         ) do
+    case AshAuthentication.Jwt.token_for_user(user, %{}) do
       {:ok, token, _claims} ->
         conn
         |> put_session("user_token", token)
-        |> put_session("active_tenant_id", tenant_id)
-        |> put_session("tenant", tenant_schema)
         |> delete_session(:user_return_to)
         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
         |> configure_session(renew: true)

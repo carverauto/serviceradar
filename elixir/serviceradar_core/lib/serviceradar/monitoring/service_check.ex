@@ -48,8 +48,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   oban do
-    list_tenants ServiceRadar.Oban.TenantList
-
     triggers do
       # Scheduled trigger to execute due checks
       trigger :execute_due_checks do
@@ -63,10 +61,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
         worker_module_name ServiceRadar.Monitoring.ServiceCheck.ExecuteDueChecksWorker
       end
     end
-  end
-
-  multitenancy do
-    strategy :context
   end
 
   code_interface do
@@ -221,49 +215,34 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   policies do
     # Import common policy checks
 
-    # Super admins bypass all policies (platform-wide access)
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # TENANT ISOLATION: Service checks define what to monitor for a tenant
-    # Must be strictly isolated
-
-    # Read access: Must be authenticated AND in same tenant
+    # Read access: authenticated users with appropriate roles
     policy action_type(:read) do
-      authorize_if expr(
-                     ^actor(:role) in [:viewer, :operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create/update checks: Operators/admins in same tenant
+    # Create/update checks: Operators/admins
     policy action([:create, :update, :enable, :disable]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Record results: Operators/admins in same tenant
+    # Record results: Operators/admins
     policy action([:record_result, :reset_failures]) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Execute action: Operators/admins in same tenant, or AshOban (no actor)
+    # Execute action: Operators/admins, or AshOban (no actor)
     policy action(:execute) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow AshOban scheduler (no actor) to execute checks
       authorize_if always()
@@ -271,7 +250,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -397,13 +375,6 @@ defmodule ServiceRadar.Monitoring.ServiceCheck do
     attribute :schedule_id, :uuid do
       public? true
       description "Polling schedule this check belongs to"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this check belongs to"
     end
 
     create_timestamp :created_at

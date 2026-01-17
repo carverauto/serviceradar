@@ -65,7 +65,6 @@ CREATE TABLE gateways (
     agent_count         INT,
     checker_count       INT,
     updated_at          TIMESTAMPTZ,
-    tenant_id           UUID        NOT NULL,
     partition_id        UUID
 );
 

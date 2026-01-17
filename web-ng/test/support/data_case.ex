@@ -12,15 +12,15 @@ defmodule ServiceRadarWebNG.DataCase do
   PostgreSQL, you can even run database tests asynchronously
   by setting `use ServiceRadarWebNG.DataCase, async: true`, although
   this option is not recommended for other databases.
+
+  ## Dedicated Deployment Model
+
+  In a single-deployment architecture, the schema is determined by
+  PostgreSQL search_path set via CNPG credentials. No dynamic schema handling
+  is needed for tests.
   """
 
   use ExUnit.CaseTemplate
-
-  alias ServiceRadar.Cluster.{TenantRegistry, TenantSchemas}
-
-  # Default test tenant ID - must match the UUID format
-  @test_tenant_id "00000000-0000-0000-0000-000000000099"
-  @test_tenant_slug "test-tenant"
 
   using do
     quote do
@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNG.DataCase do
 
   setup tags do
     ServiceRadarWebNG.DataCase.setup_sandbox(tags)
-    ServiceRadarWebNG.DataCase.ensure_test_tenant()
+    ServiceRadarWebNG.DataCase.ensure_test_schema()
     :ok
   end
 
@@ -49,53 +49,16 @@ defmodule ServiceRadarWebNG.DataCase do
   end
 
   @doc """
-  Ensures the test tenant exists in the database.
-  Creates it if it doesn't exist.
+  Ensures the test schema is ready for testing.
+
+  In single-deployment architecture, the schema is determined by
+  the database connection's search_path (set via CNPG credentials).
+  No dynamic schema creation is needed.
   """
-  def ensure_test_tenant do
-    tenant_id = test_tenant_id()
-    {:ok, tenant_uuid} = Ecto.UUID.dump(tenant_id)
-
-    # Check if tenant already exists
-    case ServiceRadar.Repo.get_by(ServiceRadar.Identity.Tenant, id: tenant_id) do
-      nil ->
-        # Create test tenant directly via SQL to avoid Ash authorization
-        now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-        ServiceRadar.Repo.insert_all(
-          "tenants",
-          [
-            %{
-              id: tenant_uuid,
-              name: "Test Tenant",
-              slug: @test_tenant_slug,
-              status: "active",
-              plan: "enterprise",
-              max_devices: 1000,
-              max_users: 100,
-              settings: %{},
-              inserted_at: now,
-              updated_at: now
-            }
-          ],
-          on_conflict: :nothing
-        )
-
-      _tenant ->
-        :ok
-    end
-
-    TenantRegistry.register_slug(@test_tenant_slug, tenant_id)
-
-    if not TenantSchemas.schema_exists?(@test_tenant_slug) do
-      {:ok, _schema} = TenantSchemas.create_schema(@test_tenant_slug)
-    end
+  def ensure_test_schema do
+    # Schema is determined by DB connection's search_path in single-deployment mode
+    :ok
   end
-
-  @doc """
-  Returns the test tenant ID.
-  """
-  def test_tenant_id, do: @test_tenant_id
 
   @doc """
   A helper that transforms changeset errors into a map of messages.

@@ -15,27 +15,18 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
   end
 
   setup do
-    %{tenant_id: tenant_id, tenant_slug: tenant_slug} =
-      TestSupport.create_tenant_schema!("sweep-config")
-
-    on_exit(fn ->
-      TestSupport.drop_tenant_schema!(tenant_slug)
-    end)
-
     actor = %{
       id: Ash.UUID.generate(),
       email: "sweep-config@serviceradar.local",
-      role: :admin,
-      tenant_id: tenant_id
+      role: :admin
     }
 
     agent_id = "agent-#{System.unique_integer([:positive])}"
 
-    {:ok, tenant_id: tenant_id, actor: actor, agent_id: agent_id}
+    {:ok, actor: actor, agent_id: agent_id}
   end
 
   test "includes sweep config in agent payload", %{
-    tenant_id: tenant_id,
     actor: actor,
     agent_id: agent_id
   } do
@@ -51,7 +42,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           uid: device_uid,
           ip: device_ip,
           tags: %{"env" => "prod"}
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor)
       |> Ash.create()
 
     {:ok, profile} =
@@ -64,7 +55,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           sweep_modes: ["icmp", "tcp"],
           concurrency: 25,
           timeout: "4s"
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor)
       |> Ash.create()
 
     {:ok, group} =
@@ -78,10 +69,10 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
           profile_id: profile.id,
           target_criteria: %{"tags" => %{"has_any" => ["env=prod"]}},
           static_targets: ["10.0.2.0/24"]
-        }, actor: actor, tenant: tenant_id, authorize?: false)
+        }, actor: actor)
       |> Ash.create()
 
-    {:ok, entry} = ConfigServer.get_config(tenant_id, :sweep, "default", agent_id)
+    {:ok, entry} = ConfigServer.get_config(:sweep, "default", agent_id)
 
     assert is_map(entry.config)
     assert is_binary(entry.config["config_hash"])
@@ -93,7 +84,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert compiled_group["ports"] == profile.ports
     assert compiled_group["modes"] == profile.sweep_modes
 
-    {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id, tenant_id)
+    {:ok, agent_config} = AgentConfigGenerator.generate_config(agent_id)
     payload = Jason.decode!(agent_config.config_json)
     sweep_payload = payload["sweep"]
 

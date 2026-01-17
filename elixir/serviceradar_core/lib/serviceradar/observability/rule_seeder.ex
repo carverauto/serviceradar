@@ -1,9 +1,12 @@
 defmodule ServiceRadar.Observability.RuleSeeder do
   @moduledoc """
-  Seeds default LogPromotionRules and StatefulAlertRules for each tenant.
+  Seeds default LogPromotionRules and StatefulAlertRules on startup.
 
-  These rules are created by default so tenants have working rules for
+  These rules are created by default so the instance has working rules for
   common use cases like missed sweep detection out of the box.
+
+  In single-deployment architecture, the DB connection's
+  search_path determines which schema rules are seeded into.
   """
 
   use GenServer
@@ -12,8 +15,6 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Identity.Tenant
   alias ServiceRadar.Observability.LogPromotionRule
   alias ServiceRadar.Observability.StatefulAlertRule
 
@@ -37,47 +38,37 @@ defmodule ServiceRadar.Observability.RuleSeeder do
 
   def seed_all do
     if repo_enabled?() do
-      # Tenant listing is cross-tenant, use platform actor
-      actor = SystemActor.platform(:rule_seeder)
-      Tenant
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.Query.select([:id, :slug])
-      |> Ash.read(actor: actor)
-      |> case do
-        {:ok, tenants} ->
-          Enum.each(tenants, &seed_for_tenant/1)
-
-        {:error, reason} ->
-          Logger.warning("Rule seed skipped: #{inspect(reason)}")
-      end
+      # DB connection's search_path determines the schema
+      seed_rules()
     end
   end
 
-  def seed_for_tenant(%Tenant{} = tenant) do
-    schema = TenantSchemas.schema_for_tenant(tenant)
-    actor = SystemActor.for_tenant(tenant.id, :rule_seeder)
+  defp seed_rules do
+    # DB connection's search_path determines the schema
+    actor = SystemActor.system(:rule_seeder)
+    opts = [actor: actor]
 
-    ensure_promotion_rules(schema, actor)
-    ensure_stateful_rules(schema, actor)
+    ensure_promotion_rules(opts)
+    ensure_stateful_rules(opts)
 
     :ok
   end
 
-  defp ensure_promotion_rules(schema, actor) do
-    ensure_defaults(LogPromotionRule, default_promotion_rules(), schema, actor)
+  defp ensure_promotion_rules(opts) do
+    ensure_defaults(LogPromotionRule, default_promotion_rules(), opts)
   end
 
-  defp ensure_stateful_rules(schema, actor) do
-    ensure_defaults(StatefulAlertRule, default_stateful_rules(), schema, actor)
+  defp ensure_stateful_rules(opts) do
+    ensure_defaults(StatefulAlertRule, default_stateful_rules(), opts)
   end
 
-  defp ensure_defaults(resource, defaults, schema, actor) do
+  defp ensure_defaults(resource, defaults, opts) do
     query =
       resource
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.select([:name])
 
-    case Ash.read(query, actor: actor, tenant: schema) do
+    case Ash.read(query, opts) do
       {:ok, rules} ->
         existing =
           rules
@@ -85,30 +76,28 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           |> MapSet.new()
 
         Enum.each(defaults, fn attrs ->
-          seed_rule_if_missing(existing, attrs, resource, schema, actor)
+          seed_rule_if_missing(existing, attrs, resource, opts)
         end)
 
       {:error, reason} ->
+        schema = Keyword.get(opts, :schema, "unknown")
         Logger.warning("Failed to check rule defaults for #{resource} in #{schema}: #{inspect(reason)}")
     end
   end
 
-  defp seed_rule_if_missing(existing, attrs, resource, schema, actor) do
+  defp seed_rule_if_missing(existing, attrs, resource, opts) do
     if MapSet.member?(existing, attrs[:name]) do
       :ok
     else
-      create_rule(resource, attrs, schema, actor)
+      create_rule(resource, attrs, opts)
     end
   end
 
-  defp create_rule(resource, attrs, schema, actor) do
-    changeset =
-      Ash.Changeset.for_create(resource, :create, attrs,
-        tenant: schema,
-        actor: actor
-      )
+  defp create_rule(resource, attrs, opts) do
+    changeset = Ash.Changeset.for_create(resource, :create, attrs, opts)
+    schema = Keyword.get(opts, :schema, "unknown")
 
-    case Ash.create(changeset, actor: actor) do
+    case Ash.create(changeset) do
       {:ok, _} ->
         Logger.info("Seeded rule: #{attrs[:name]} for #{schema}")
 

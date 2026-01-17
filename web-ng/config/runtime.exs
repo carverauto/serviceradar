@@ -337,7 +337,6 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "localhost"
-  tenant_base_domain = System.get_env("SERVICERADAR_TENANT_BASE_DOMAIN") || host
 
   dev_routes =
     case System.get_env("SERVICERADAR_DEV_ROUTES") do
@@ -387,8 +386,8 @@ if config_env() == :prod do
   config :serviceradar_web_ng, :base_url, "https://#{host}"
 
   # Control Plane JWT configuration
-  # Used to validate JWTs issued by the SaaS Control Plane for multi-tenant deployments.
-  # In OSS/single-tenant deployments, this can be left unconfigured.
+  # Used to validate JWTs issued by the SaaS Control Plane.
+  # In OSS/single-deployment setups, this can be left unconfigured.
   control_plane_public_key = System.get_env("CONTROL_PLANE_PUBLIC_KEY")
   control_plane_public_key_file = System.get_env("CONTROL_PLANE_PUBLIC_KEY_FILE")
 
@@ -407,18 +406,17 @@ if config_env() == :prod do
   if control_plane_jwt_config != [] do
     control_plane_jwt_config =
       control_plane_jwt_config
-      |> Keyword.put(:issuer, System.get_env("CONTROL_PLANE_JWT_ISSUER", "serviceradar-control-plane"))
-      |> Keyword.put(:audience, System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-tenant-instance"))
+      |> Keyword.put(
+        :issuer,
+        System.get_env("CONTROL_PLANE_JWT_ISSUER", "serviceradar-control-plane")
+      )
+      |> Keyword.put(
+        :audience,
+        System.get_env("CONTROL_PLANE_JWT_AUDIENCE", "serviceradar-deployment")
+      )
 
     config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
   end
-  config :serviceradar_web_ng, :tenant_base_domain, tenant_base_domain
-
-  default_tenant_id =
-    System.get_env("SERVICERADAR_DEFAULT_TENANT_ID") ||
-      "00000000-0000-0000-0000-000000000000"
-
-  config :serviceradar_core, :default_tenant_id, default_tenant_id
 
   spiffe_mode =
     case System.get_env("SPIFFE_MODE", "filesystem") do

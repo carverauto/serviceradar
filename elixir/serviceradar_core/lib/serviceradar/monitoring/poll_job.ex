@@ -85,10 +85,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
     end
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_by_schedule, action: :by_schedule, args: [:schedule_id]
@@ -285,37 +281,30 @@ defmodule ServiceRadar.Monitoring.PollJob do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # System actors can perform all operations (tenant isolation via schema)
+    # System actors can perform all operations (schema isolation via search_path)
     bypass always() do
       authorize_if actor_attribute_equals(:role, :system)
     end
 
-    # Tenant isolation for reads
+    # Read access: authenticated users with appropriate roles
     policy action_type(:read) do
-      authorize_if expr(tenant_id == ^actor(:tenant_id))
+      authorize_if actor_attribute_equals(:role, :viewer)
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
     end
 
-    # Create/update for operators and admins in same tenant
+    # Create for operators and admins
     policy action_type(:create) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow system (AshOban/orchestrator) to create jobs
       authorize_if always()
     end
 
     policy action_type(:update) do
-      authorize_if expr(
-                     ^actor(:role) in [:operator, :admin] and
-                       tenant_id == ^actor(:tenant_id)
-                   )
+      authorize_if actor_attribute_equals(:role, :operator)
+      authorize_if actor_attribute_equals(:role, :admin)
 
       # Allow system transitions
       authorize_if always()
@@ -323,7 +312,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
   end
 
   changes do
-    change ServiceRadar.Changes.AssignTenantId
   end
 
   attributes do
@@ -463,13 +451,6 @@ defmodule ServiceRadar.Monitoring.PollJob do
       default %{}
       public? true
       description "Additional job metadata"
-    end
-
-    # Multi-tenancy
-    attribute :tenant_id, :uuid do
-      allow_nil? false
-      public? false
-      description "Tenant this job belongs to"
     end
 
     create_timestamp :inserted_at

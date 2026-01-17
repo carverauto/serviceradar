@@ -167,9 +167,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       %{
         label: "Edge Sites",
         navigate: ~p"/admin/edge-sites",
-        active:
-          String.starts_with?(path, "/admin/edge-sites") or
-            String.starts_with?(path, "/admin/nats")
+        active: String.starts_with?(path, "/admin/edge-sites")
       },
       %{
         label: "Data Collectors",

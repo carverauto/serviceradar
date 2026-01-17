@@ -24,10 +24,6 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :record, action: :record
     define :by_package, action: :by_package, args: [:package_id]
@@ -67,11 +63,6 @@ defmodule ServiceRadar.Edge.OnboardingEvent do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
     # Admins and operators can read events
     policy action_type(:read) do
       authorize_if actor_attribute_equals(:role, :admin)

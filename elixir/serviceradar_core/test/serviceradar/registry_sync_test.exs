@@ -3,7 +3,6 @@ defmodule ServiceRadar.RegistrySyncTest do
 
   @moduletag :integration
 
-  @tenant_id "tenant-sync"
   @partition_id "partition-sync"
   @domain "sync-domain"
 
@@ -27,10 +26,9 @@ defmodule ServiceRadar.RegistrySyncTest do
   end
 
   test "gateway registry syncs across nodes", %{peer_node: peer_node} do
-    key = {@tenant_id, @partition_id, Node.self()}
+    key = {@partition_id, Node.self()}
 
     metadata = %{
-      tenant_id: @tenant_id,
       partition_id: @partition_id,
       domain: @domain,
       capabilities: [:icmp, :tcp],
@@ -52,10 +50,9 @@ defmodule ServiceRadar.RegistrySyncTest do
 
   test "agent registry syncs across nodes", %{peer_node: peer_node} do
     agent_id = "agent-sync-#{System.unique_integer([:positive])}"
-    key = {@tenant_id, @partition_id, agent_id}
+    key = {@partition_id, agent_id}
 
     metadata = %{
-      tenant_id: @tenant_id,
       partition_id: @partition_id,
       agent_id: agent_id,
       gateway_node: Node.self(),

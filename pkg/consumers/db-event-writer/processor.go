@@ -43,7 +43,6 @@ type Processor struct {
 	table   string         // Legacy single table
 	streams []StreamConfig // Multi-stream configuration
 	logger  logger.Logger
-	tenantID string
 }
 
 // extractAttributeValue extracts a string value from an attribute based on its type
@@ -242,23 +241,23 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 }
 
 // NewProcessor creates a Processor using the provided db.Service.
-func NewProcessor(dbService db.Service, table string, tenantID string, log logger.Logger) (*Processor, error) {
+func NewProcessor(dbService db.Service, table string, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{db: dbImpl, table: table, logger: log, tenantID: tenantID}, nil
+	return &Processor{db: dbImpl, table: table, logger: log}, nil
 }
 
 // NewProcessorWithStreams creates a Processor with multi-stream configuration.
-func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, tenantID string, log logger.Logger) (*Processor, error) {
+func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log logger.Logger) (*Processor, error) {
 	dbImpl, ok := dbService.(*db.DB)
 	if !ok {
 		return nil, errDBServiceNotDB
 	}
 
-	return &Processor{db: dbImpl, streams: streams, logger: log, tenantID: tenantID}, nil
+	return &Processor{db: dbImpl, streams: streams, logger: log}, nil
 }
 
 // getTableForSubject returns the table name for a given subject
@@ -344,7 +343,7 @@ func (p *Processor) processOCSFEventsTable(ctx context.Context, table string, ms
 
 	for _, msg := range msgs {
 		processed = append(processed, msg)
-		row, err := parseOCSFEvent(msg.Data(), p.tenantID)
+		row, err := parseOCSFEvent(msg.Data())
 		if err != nil {
 			p.logger.Warn().
 				Err(err).

@@ -152,10 +152,6 @@ services:
       - SERVICERADAR_CORE_OBAN_ENABLED=${SERVICERADAR_CORE_OBAN_ENABLED:-true}
       - SERVICERADAR_CORE_REPO_ENABLED=${SERVICERADAR_CORE_REPO_ENABLED:-true}
       - SERVICERADAR_CORE_RUN_MIGRATIONS=${SERVICERADAR_CORE_RUN_MIGRATIONS:-true}
-      - SERVICERADAR_RESET_TENANT_SCHEMAS=${SERVICERADAR_RESET_TENANT_SCHEMAS:-false}
-      - SERVICERADAR_DEFAULT_TENANT_ID=${SERVICERADAR_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
-      - SERVICERADAR_PLATFORM_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
-      - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - SERVICERADAR_LOCAL_MAILER=${SERVICERADAR_LOCAL_MAILER:-false}
       - CLOAK_KEY=${CLOAK_KEY:-}
       - CLOAK_KEY_FILE=/etc/serviceradar/cloak/cloak.key
@@ -240,7 +236,7 @@ services:
                 echo "$${NATS_OPERATOR_SEED}" > "$${creds_dir}/operator.seed"
                 chmod 0600 "$${creds_dir}/operator.seed"
               else
-                echo "Warning: operator.seed missing and NATS_OPERATOR_SEED not set; tenant account provisioning will fail."
+                echo "Warning: operator.seed missing and NATS_OPERATOR_SEED not set; NATS account provisioning will fail."
               fi
             fi
             if [ ! -f "$${creds_dir}/system_account.pub" ] && [ -n "$${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY}" ]; then
@@ -434,9 +430,6 @@ services:
     container_name: serviceradar-agent-gateway-mtls
     hostname: agent-gateway
     environment:
-      # Optional: tenant_id is auto-discovered from core via cluster RPC if not set
-      - GATEWAY_TENANT_ID=${SERVICERADAR_PLATFORM_TENANT_ID:-}
-      - GATEWAY_TENANT_SLUG=${GATEWAY_TENANT_SLUG:-platform}
       - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
       - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
       - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
@@ -450,7 +443,6 @@ services:
       - SSL_DIST_OPTFILE=/etc/serviceradar/ssl_dist.conf
       - ELIXIR_ERL_OPTIONS=${ELIXIR_ERL_OPTIONS:-+fnu}
       - SPIFFE_CERT_DIR=/etc/serviceradar/certs
-      - SERVICERADAR_PLATFORM_TENANT_SLUG=${SERVICERADAR_PLATFORM_TENANT_SLUG:-platform}
       - RELEASE_NODE=serviceradar_agent_gateway@agent-gateway
       - RELEASE_DISTRIBUTION=sname
       - RELEASE_COOKIE=${RELEASE_COOKIE:-serviceradar_dev_cookie}

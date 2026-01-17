@@ -6,7 +6,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   action is triggered. It handles:
 
   1. Creating a PollJob record to track execution
-  2. Finding an available gateway for the schedule's partition/tenant
+  2. Finding an available gateway for the schedule's partition
   3. Loading the service checks associated with the schedule
   4. Dispatching the job to the gateway
   5. Transitioning the PollJob through states and recording results
@@ -15,12 +15,12 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   Jobs are dispatched to gateways across the ERTS cluster using Horde registries:
 
-  1. **Discovery**: GatewayRegistry (backed by Horde via TenantRegistry) provides
+  1. **Discovery**: GatewayRegistry (backed by ProcessRegistry Horde) provides
      cluster-wide gateway discovery. Each registered gateway has a PID that is
      location-transparent across nodes.
 
-  2. **Selection**: Gateways are selected by tenant/partition using:
-     - `:any` - Random available gateway for tenant
+  2. **Selection**: Gateways are selected by partition using:
+     - `:any` - Random available gateway
      - `:partition` - Available gateway in specific partition
      - `:specific` - Directly assigned gateway by UUID
 
@@ -64,7 +64,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   require Logger
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.GatewayProcess
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.Monitoring.PollJob
@@ -141,8 +141,7 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       check_count: length(checks),
       check_ids: check_ids,
       priority: schedule.priority || 0,
-      timeout_seconds: schedule.timeout_seconds || 60,
-      tenant_id: schedule.tenant_id
+      timeout_seconds: schedule.timeout_seconds || 60
     })
     |> Ash.create()
   end
@@ -241,9 +240,9 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
   end
 
   # Find an available gateway based on schedule assignment mode
-  defp find_gateway(%{assignment_mode: :any, tenant_id: tenant_id}) do
-    # Find any available gateway for this tenant
-    case GatewayRegistry.find_available_gateways(tenant_id) do
+  defp find_gateway(%{assignment_mode: :any}) do
+    # Find any available gateway
+    case GatewayRegistry.find_available_gateways() do
       [] -> {:error, :no_available_gateway}
       gateways -> {:ok, Enum.random(gateways)}
     end
@@ -251,41 +250,39 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
 
   defp find_gateway(%{
          assignment_mode: :partition,
-         tenant_id: tenant_id,
          assigned_partition_id: partition_id
        }) do
     # Find gateway in specific partition
     if is_nil(partition_id) do
       {:error, :no_partition_assigned}
     else
-      GatewayRegistry.find_available_gateway_for_partition(tenant_id, partition_id)
+      GatewayRegistry.find_available_gateway_for_partition(partition_id)
     end
   end
 
-  defp find_gateway(%{assignment_mode: :domain, tenant_id: tenant_id, assigned_domain: domain}) do
+  defp find_gateway(%{assignment_mode: :domain, assigned_domain: domain}) do
     # Find gateway in specific domain (e.g., site-a, datacenter-east)
     if is_nil(domain) do
       {:error, :no_domain_assigned}
     else
-      GatewayRegistry.find_available_gateway_for_domain(tenant_id, domain)
+      GatewayRegistry.find_available_gateway_for_domain(domain)
     end
   end
 
   defp find_gateway(%{
          assignment_mode: :specific,
-         tenant_id: tenant_id,
          assigned_gateway_id: gateway_id
        }) do
     # Use specifically assigned gateway
     if is_nil(gateway_id) do
       {:error, :no_gateway_assigned}
     else
-      lookup_specific_gateway(tenant_id, gateway_id)
+      lookup_specific_gateway(gateway_id)
     end
   end
 
-  defp lookup_specific_gateway(tenant_id, gateway_id) do
-    case GatewayRegistry.lookup(tenant_id, gateway_id) do
+  defp lookup_specific_gateway(gateway_id) do
+    case GatewayRegistry.lookup(gateway_id) do
       [{pid, metadata}] ->
         if metadata[:status] == :available do
           # Include the PID in the returned metadata for cross-node dispatch
@@ -336,28 +333,26 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     end
   end
 
-  defp resolve_gateway_pid(gateway, schedule) do
+  defp resolve_gateway_pid(gateway, _schedule) do
     case gateway[:pid] do
       pid when is_pid(pid) ->
         pid
 
       _ ->
-        resolve_gateway_pid_from_registry(gateway, schedule.tenant_id)
+        resolve_gateway_pid_from_registry(gateway)
     end
   end
 
-  defp resolve_gateway_pid_from_registry(gateway, tenant_id) do
+  defp resolve_gateway_pid_from_registry(gateway) do
     gid = gateway[:gateway_id] || gateway[:id]
 
-    case {tenant_id, gid} do
-      {t, g} when not is_nil(t) and not is_nil(g) ->
-        case GatewayRegistry.lookup(t, g) do
-          [{pid, _meta}] when is_pid(pid) -> pid
-          _ -> nil
-        end
-
-      _ ->
-        nil
+    if gid do
+      case GatewayRegistry.lookup(gid) do
+        [{pid, _meta}] when is_pid(pid) -> pid
+        _ -> nil
+      end
+    else
+      nil
     end
   end
 
@@ -384,11 +379,14 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     require Ash.Query
 
     try do
+      # DB connection's search_path determines the schema
+      actor = SystemActor.system(:poll_orchestrator)
+
       checks =
         ServiceRadar.Monitoring.ServiceCheck
         |> Ash.Query.filter(schedule_id == ^schedule.id)
         |> Ash.Query.filter(enabled == true)
-        |> Ash.read!(tenant: TenantSchemas.schema_for_tenant(schedule.tenant_id))
+        |> Ash.read!(actor: actor)
         |> Enum.map(&check_to_map/1)
 
       {:ok, checks}
@@ -418,7 +416,6 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
       job_id: poll_job.id,
       schedule_id: schedule.id,
       schedule_name: schedule.name,
-      tenant_id: schedule.tenant_id,
       checks: checks,
       timeout: schedule.timeout_seconds * 1000,
       priority: schedule.priority
@@ -431,13 +428,6 @@ defmodule ServiceRadar.Monitoring.PollOrchestrator do
     Phoenix.PubSub.broadcast(
       ServiceRadar.PubSub,
       "schedule:results:#{schedule.id}",
-      {:schedule_completed, schedule.id, poll_job.id, result}
-    )
-
-    # Also broadcast to tenant-level topic
-    Phoenix.PubSub.broadcast(
-      ServiceRadar.PubSub,
-      "tenant:#{schedule.tenant_id}:schedule_results",
       {:schedule_completed, schedule.id, poll_job.id, result}
     )
 

@@ -28,7 +28,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       )
   """
 
-  alias ServiceRadar.Cluster.TenantSchemas
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.{Alert, WebhookNotifier}
 
   require Logger
@@ -62,7 +62,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:device_uid` - Device the service runs on
   - `:agent_uid` - Agent managing the gateway
   - `:error` - Error message/details
-  - `:tenant_id` - Tenant ID (required)
   - `:details` - Additional details map
   """
   @spec service_down(keyword()) :: {:ok, Alert.t()} | {:error, term()}
@@ -78,8 +77,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       service_check_id: Keyword.get(opts, :service_check_id),
       device_uid: Keyword.get(opts, :device_uid),
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -106,8 +104,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       service_check_id: Keyword.get(opts, :service_check_id),
       device_uid: Keyword.get(opts, :device_uid),
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -121,7 +118,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:device_uid` - Device UID (required)
   - `:last_seen_at` - When the device was last seen
   - `:ip` - Device IP address
-  - `:tenant_id` - Tenant ID (required)
   - `:details` - Additional details
   """
   @spec device_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
@@ -135,8 +131,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :device,
       source_id: device_uid,
       device_uid: device_uid,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -150,7 +145,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:gateway_id` - Gateway ID (required)
   - `:agent_uid` - Agent UID
   - `:partition` - Partition the gateway belongs to
-  - `:tenant_id` - Tenant ID (required)
   """
   @spec gateway_offline(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def gateway_offline(opts) do
@@ -163,8 +157,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :gateway,
       source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -187,8 +180,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :gateway,
       source_id: gateway_id,
       agent_uid: Keyword.get(opts, :agent_uid),
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -208,8 +200,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       source_type: :agent,
       source_id: agent_uid,
       agent_uid: agent_uid,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -225,7 +216,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   - `:threshold_value` - Threshold that was violated (required)
   - `:comparison` - How value compared (:greater_than, :less_than, etc.)
   - `:device_uid` - Device the metric belongs to
-  - `:tenant_id` - Tenant ID (required)
   """
   @spec threshold_violation(keyword()) :: {:ok, Alert.t()} | {:error, term()}
   def threshold_violation(opts) do
@@ -253,8 +243,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       metric_value: metric_value,
       threshold_value: threshold,
       comparison: comparison,
-      metadata: build_metadata(opts),
-      tenant_id: Keyword.fetch!(opts, :tenant_id)
+      metadata: build_metadata(opts)
     }
 
     create_alert_and_notify(attrs, opts)
@@ -265,7 +254,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   Options:
     - `:alert` - map of overrides (title, description, severity, metadata)
-    - `:tenant` - tenant schema name (optional)
     - `:actor` - Ash actor to use for policy checks (optional)
   """
   @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
@@ -287,8 +275,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         source_id: event_id_string(event),
         event_id: Map.get(event, :id),
         event_time: Map.get(event, :time),
-        metadata: event_alert_metadata(event, alert_config),
-        tenant_id: Map.get(event, :tenant_id)
+        metadata: event_alert_metadata(event, alert_config)
       }
 
       create_alert_and_notify(attrs, opts)
@@ -423,27 +410,21 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   # Private functions
 
   defp create_alert_and_notify(attrs, opts) do
-    tenant_id = Map.get(attrs, :tenant_id) || Keyword.get(opts, :tenant_id)
-    tenant_schema = Keyword.get(opts, :tenant) || tenant_schema_for(tenant_id)
-    actor = Keyword.get(opts, :actor) || system_actor(tenant_id)
+    # DB connection's search_path determines the schema
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)
 
     # Create the alert in the database
-    if is_nil(tenant_schema) do
-      Logger.warning("Skipping alert creation; tenant schema missing", tenant_id: tenant_id)
-      {:error, :missing_tenant_schema}
-    else
-      case Alert
-           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor, tenant: tenant_schema)
-           |> Ash.create() do
-        {:ok, alert} ->
-          # Also send webhook notification
-          send_webhook_notification(alert, opts)
-          {:ok, alert}
+    case Alert
+         |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
+         |> Ash.create() do
+      {:ok, alert} ->
+        # Also send webhook notification
+        send_webhook_notification(alert, opts)
+        {:ok, alert}
 
-        {:error, error} ->
-          Logger.error("Failed to create alert: #{inspect(error)}")
-          {:error, error}
-      end
+      {:error, error} ->
+        Logger.error("Failed to create alert: #{inspect(error)}")
+        {:error, error}
     end
   end
 
@@ -600,20 +581,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   defp atom_key("severity"), do: :severity
   defp atom_key("metadata"), do: :metadata
   defp atom_key(_), do: nil
-
-  defp tenant_schema_for(nil), do: nil
-  defp tenant_schema_for(tenant_id), do: TenantSchemas.schema_for_tenant(tenant_id)
-
-  defp system_actor(nil), do: nil
-
-  defp system_actor(tenant_id) do
-    %{
-      id: "system",
-      email: "core@serviceradar",
-      role: :admin,
-      tenant_id: tenant_id
-    }
-  end
 
   defp get_hostname do
     case :inet.gethostname() do

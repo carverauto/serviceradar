@@ -228,3 +228,32 @@ The system SHALL attach refresh policies to each observability CAGG that run eve
 - **WHEN** data arrives up to 1 hour late
 - **THEN** subsequent refresh cycles include the late data in the appropriate buckets.
 
+### Requirement: Core-Elx Runs Ash Migrations on Startup
+The core-elx service SHALL run Ash migrations for the public schema and all tenant schemas during startup, and SHALL fail startup if migrations cannot be applied.
+
+#### Scenario: Startup migrations succeed
+- **GIVEN** a core-elx instance with database access
+- **WHEN** the service starts
+- **THEN** Ash migrations SHALL be applied to the public schema
+- **AND** tenant migrations SHALL be applied to every `tenant_<tenant_slug>` schema
+- **AND** the service SHALL continue startup after migrations succeed
+
+#### Scenario: Startup migrations fail fast
+- **GIVEN** a core-elx instance with database access
+- **WHEN** a migration fails
+- **THEN** core-elx SHALL terminate startup
+- **AND** application endpoints SHALL NOT be exposed until migrations succeed
+
+### Requirement: db-event-writer uses CNPG client certificate for mTLS
+The db-event-writer deployment SHALL provide CNPG TLS client certificate and key from the CNPG client certificate bundle (cnpg-client.pem/cnpg-client-key.pem) whenever CNPG client certificate authentication is enabled.
+
+#### Scenario: Helm deployment with client certs
+- **GIVEN** Helm values enable CNPG client certificate authentication and mount the CNPG client cert bundle at `/etc/serviceradar/certs`
+- **WHEN** `serviceradar-db-event-writer` starts
+- **THEN** it connects to CNPG using `cnpg-client.pem` and `cnpg-client-key.pem` for TLS client authentication
+
+#### Scenario: Demo kustomize deployment
+- **GIVEN** the demo kustomize manifests enable CNPG client certificate authentication
+- **WHEN** `serviceradar-db-event-writer` starts
+- **THEN** its CNPG TLS configuration references `cnpg-client.pem` and `cnpg-client-key.pem` and the connection succeeds
+

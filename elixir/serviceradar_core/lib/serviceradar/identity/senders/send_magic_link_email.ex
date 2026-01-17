@@ -3,24 +3,22 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
   Sends magic link authentication emails.
 
   Uses Swoosh for email delivery via the configured mailer.
+
+  ## Instance Isolation
+
+  In the instance-only architecture, each deployment serves a single account.
+  The magic link URL uses the configured base_url directly without complex
+  routing - infrastructure handles schema isolation.
   """
 
   use AshAuthentication.Sender
   import Swoosh.Email
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Cluster.TenantSchemas
-  alias ServiceRadar.Identity.Tenant
-
-  require Ash.Query
   require Logger
 
-  @zero_uuid "00000000-0000-0000-0000-000000000000"
-
   @impl true
-  def send(user_or_email, token, opts) do
-    # Build the magic link URL
-    url = build_magic_link_url(user_or_email, token, opts)
+  def send(user_or_email, token, _opts) do
+    url = build_magic_link_url(token)
 
     # Handle both user struct and email string (for registration flow)
     {email_string, display_name} = extract_email_info(user_or_email)
@@ -70,167 +68,13 @@ defmodule ServiceRadar.Identity.Senders.SendMagicLinkEmail do
     {email_string, email_string}
   end
 
-  defp build_magic_link_url(user_or_email, token, opts) do
-    base_uri = base_uri()
-    tenant = resolve_tenant(user_or_email, opts)
+  defp build_magic_link_url(token) do
+    base_url = Application.get_env(:serviceradar_web_ng, :base_url, "http://localhost:4000")
 
-    uri =
-      case tenant do
-        %Tenant{is_platform_tenant: true} ->
-          base_uri
-
-        %Tenant{slug: slug} ->
-          tenant_base_domain =
-            Application.get_env(:serviceradar_web_ng, :tenant_base_domain, base_uri.host)
-
-          %{base_uri | host: "#{slug}.#{tenant_base_domain}"}
-
-        nil ->
-          Logger.warning("Unable to resolve tenant for magic link URL; falling back to base URL")
-          base_uri
-
-        _ ->
-          raise "Unable to resolve tenant for magic link URL"
-      end
-
-    %{uri | path: "/auth/user/magic_link", query: URI.encode_query(%{"token" => token})}
+    base_url
+    |> URI.parse()
+    |> Map.put(:path, "/auth/user/magic_link")
+    |> Map.put(:query, URI.encode_query(%{"token" => token}))
     |> URI.to_string()
   end
-
-  defp base_uri do
-    base_url = Application.get_env(:serviceradar_web_ng, :base_url, "http://localhost:4000")
-    URI.parse(base_url)
-  end
-
-  defp resolve_tenant(%{tenant_id: tenant_id}, _opts) when is_binary(tenant_id) do
-    fetch_tenant_by_id(tenant_id) || default_tenant()
-  end
-
-  defp resolve_tenant(_user_or_email, opts) do
-    opts
-    |> Keyword.get(:tenant)
-    |> fetch_tenant_by_schema()
-    |> case do
-      %Tenant{} = tenant -> tenant
-      _ -> tenant_from_base_uri() || default_tenant()
-    end
-  end
-
-  defp tenant_from_base_uri do
-    base_uri = base_uri()
-    base_host = base_uri.host
-
-    case tenant_slug_from_host(base_host) do
-      slug when is_binary(slug) -> fetch_tenant_by_slug(slug)
-      _ -> nil
-    end
-  end
-
-  defp tenant_slug_from_host(nil), do: nil
-
-  defp tenant_slug_from_host(host) when is_binary(host) do
-    base_domain = Application.get_env(:serviceradar_web_ng, :tenant_base_domain, host)
-
-    if is_binary(base_domain) do
-      suffix = "." <> base_domain
-      downcased_host = String.downcase(host)
-
-      cond do
-        downcased_host == String.downcase(base_domain) ->
-          nil
-
-        String.ends_with?(downcased_host, suffix) ->
-          String.trim_trailing(downcased_host, suffix)
-
-        true ->
-          nil
-      end
-    else
-      nil
-    end
-  end
-
-  defp default_tenant do
-    configured =
-      Application.get_env(:serviceradar_core, :default_tenant_id, @zero_uuid)
-
-    platform_tenant_id = Application.get_env(:serviceradar_core, :platform_tenant_id)
-
-    tenant_id =
-      if is_nil(configured) or configured == @zero_uuid do
-        platform_tenant_id
-      else
-        configured
-      end
-
-    fetch_tenant_by_id(tenant_id) || fetch_platform_tenant()
-  end
-
-  defp fetch_tenant_by_id(tenant_id) when is_binary(tenant_id) do
-    # Platform actor for authentication routing (before tenant is confirmed)
-    actor = SystemActor.platform(:magic_link_sender)
-
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^tenant_id)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
-    end
-  end
-
-  defp fetch_tenant_by_id(_), do: nil
-
-  defp fetch_tenant_by_slug(slug) when is_binary(slug) do
-    actor = SystemActor.platform(:magic_link_sender)
-
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(slug == ^slug)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
-    end
-  end
-
-  defp fetch_tenant_by_slug(_), do: nil
-
-  defp fetch_platform_tenant do
-    actor = SystemActor.platform(:magic_link_sender)
-
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(is_platform_tenant: true)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read_one(actor: actor)
-    |> case do
-      {:ok, %Tenant{} = tenant} -> tenant
-      _ -> nil
-    end
-  end
-
-  defp fetch_tenant_by_schema(schema) when is_binary(schema) do
-    # Platform actor for authentication routing (before tenant is confirmed)
-    actor = SystemActor.platform(:magic_link_sender)
-
-    Tenant
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.select([:id, :slug, :is_platform_tenant])
-    |> Ash.read(actor: actor)
-    |> case do
-      {:ok, tenants} when is_list(tenants) ->
-        Enum.find(tenants, fn tenant ->
-          TenantSchemas.schema_for_tenant(tenant) == schema
-        end)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp fetch_tenant_by_schema(_), do: nil
 end

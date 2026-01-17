@@ -733,9 +733,10 @@ func NewNATSClientFromEnv(ctx context.Context, role models.ServiceRole) (kv.KVSt
 	}
 
 	credsFile := strings.TrimSpace(os.Getenv("KV_NATS_CREDS_FILE"))
-	if credsFile != "" {
-		opts = append(opts, nats.UserCredentials(credsFile))
+	if credsFile == "" {
+		return nil, fmt.Errorf("KV_NATS_CREDS_FILE is required for NATS JWT auth")
 	}
+	opts = append(opts, nats.UserCredentials(credsFile))
 
 	nc, err := nats.Connect(addr, opts...)
 	if err != nil {

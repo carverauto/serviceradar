@@ -36,10 +36,6 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     repo ServiceRadar.Repo
   end
 
-  multitenancy do
-    strategy :context
-  end
-
   code_interface do
     define :lookup, action: :lookup, args: [:identifier_type, :identifier_value]
     define :get_by_device, action: :by_device, args: [:device_id]
@@ -160,13 +156,8 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   end
 
   policies do
-    # Super admins bypass all policies
-    bypass always() do
-      authorize_if actor_attribute_equals(:role, :super_admin)
-    end
-
-    # Read access for authenticated users in same tenant
-    # Note: device_identifiers doesn't have tenant_id; schema isolation handles tenancy.
+    # Read access for authenticated users
+    # DB connection's search_path determines the schema.
     policy action_type(:read) do
       authorize_if expr(^actor(:role) in [:viewer, :operator, :admin])
     end
