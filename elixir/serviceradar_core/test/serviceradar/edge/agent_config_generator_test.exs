@@ -324,7 +324,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, _pid} = AgentRegistry.register_agent(agent_uid, %{
         partition_id: partition,
         grpc_host: "127.0.0.1",
-        grpc_port: 50051,
+        grpc_port: 50_051,
         capabilities: [:sweep],
         status: :connected
       })

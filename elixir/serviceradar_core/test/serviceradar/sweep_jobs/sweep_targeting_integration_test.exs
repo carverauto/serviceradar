@@ -150,7 +150,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       {:ok, entry} = ConfigServer.get_config(:sweep, "default", nil)
 
       assert is_map(entry.config)
-      assert length(entry.config["groups"]) >= 1
+      assert not Enum.empty?(entry.config["groups"])
 
       # Find our group
       compiled_group = Enum.find(entry.config["groups"], fn g ->

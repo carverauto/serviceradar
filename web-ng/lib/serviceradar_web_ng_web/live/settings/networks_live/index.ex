@@ -2355,41 +2355,36 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         "[NetworksLive] criteria_to_rules - parsing field=#{inspect(field)}, spec=#{inspect(operator_spec)}"
       )
 
-      case operator_spec do
-        # Standard case: map with single operator
-        %{} = spec when map_size(spec) == 1 ->
-          [{operator, value}] = Map.to_list(spec)
-
-          [
-            %{
-              id: System.unique_integer([:positive]),
-              field: field,
-              operator: operator,
-              value: format_rule_value(operator, value)
-            }
-          ]
-
-        # Handle case where operator_spec might have multiple operators
-        # Create a rule for each operator
-        %{} = spec when map_size(spec) > 1 ->
-          Enum.map(Map.to_list(spec), fn {operator, value} ->
-            %{
-              id: System.unique_integer([:positive]),
-              field: field,
-              operator: operator,
-              value: format_rule_value(operator, value)
-            }
-          end)
-
-        # Handle unexpected formats
-        other ->
-          Logger.warning(
-            "[NetworksLive] criteria_to_rules - unexpected operator_spec format: #{inspect(other)} for field #{field}"
-          )
-
-          []
-      end
+      parse_operator_spec(field, operator_spec)
     end)
+  end
+
+  defp parse_operator_spec(field, %{} = spec) when map_size(spec) == 1 do
+    [{operator, value}] = Map.to_list(spec)
+    [build_rule(field, operator, value)]
+  end
+
+  defp parse_operator_spec(field, %{} = spec) when map_size(spec) > 1 do
+    Enum.map(spec, fn {operator, value} -> build_rule(field, operator, value) end)
+  end
+
+  defp parse_operator_spec(field, other) do
+    require Logger
+
+    Logger.warning(
+      "[NetworksLive] criteria_to_rules - unexpected operator_spec format: #{inspect(other)} for field #{field}"
+    )
+
+    []
+  end
+
+  defp build_rule(field, operator, value) do
+    %{
+      id: System.unique_integer([:positive]),
+      field: field,
+      operator: operator,
+      value: format_rule_value(operator, value)
+    }
   end
 
   # Device count query using SRQL
