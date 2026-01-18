@@ -78,7 +78,7 @@ defmodule ServiceRadar.Application do
         # GRPC client supervisor (required for DataService.Client)
         grpc_client_supervisor_child(),
 
-        # NATS JetStream connection for event publishing
+        # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
         nats_connection_child(),
 
         # Event batcher for high-frequency NATS events
@@ -324,7 +324,7 @@ defmodule ServiceRadar.Application do
 
   defp nats_connection_child do
     if nats_enabled?() do
-      ServiceRadar.NATS.Connection
+      ServiceRadar.NATS.Supervisor
     else
       nil
     end
