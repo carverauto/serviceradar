@@ -89,14 +89,17 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     %{
       id: log_id,
       timestamp: parse_timestamp(json),
+      observed_timestamp: parse_observed_timestamp(json),
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
+      trace_flags: parse_trace_flags(json),
       severity_text: FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
       severity_number:
         json
         |> FieldParser.get_field("severity_number", "severityNumber")
         |> FieldParser.safe_bigint(),
       body: extract_body(json),
+      event_name: FieldParser.get_field(json, "event_name", "eventName"),
       service_name: service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
       service_version:
         service_field(json, resource_attributes, "service_version", "serviceVersion", "service.version"),
@@ -110,6 +113,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         ),
       scope_name: scope_name,
       scope_version: scope_version,
+      scope_attributes: parse_scope_attributes(json),
       attributes: attributes,
       resource_attributes: resource_attributes,
       created_at: DateTime.utc_now()
@@ -127,6 +131,50 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_scope_fields(_), do: {nil, nil}
+
+  defp parse_scope_attributes(json) when is_map(json) do
+    json
+    |> FieldParser.get_field("scope_attributes", "scopeAttributes")
+    |> case do
+      nil -> json["scope"]
+      value -> value
+    end
+    |> FieldParser.encode_jsonb()
+    |> case do
+      nil -> %{}
+      value -> value
+    end
+  end
+
+  defp parse_scope_attributes(_), do: %{}
+
+  defp parse_observed_timestamp(json) when is_map(json) do
+    case json["observed_timestamp"] ||
+           json["observedTimestamp"] ||
+           json["observed_time_unix_nano"] ||
+           json["observedTimeUnixNano"] do
+      nil -> nil
+      value -> FieldParser.parse_timestamp(value)
+    end
+  end
+
+  defp parse_observed_timestamp(_), do: nil
+
+  defp parse_trace_flags(json) when is_map(json) do
+    case json["trace_flags"] || json["traceFlags"] || json["flags"] do
+      value when is_integer(value) -> value
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {int, _} -> int
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_trace_flags(_), do: nil
 
   defp normalize_resource_attributes(json) do
     json

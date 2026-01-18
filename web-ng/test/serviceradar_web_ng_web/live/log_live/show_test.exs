@@ -211,6 +211,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
     after
       Application.delete_env(:serviceradar_web_ng, :srql_module)
     end
+
+    test "derives resource and scope fields from nested attributes", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithNestedAttributes)
+
+      log_id = "b661cddf-7e67-4fb4-873d-68e9dde54bf3"
+      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+
+      assert has_element?(lv, "span", "Resource Attributes")
+      assert has_element?(lv, "span", "service.name")
+      assert has_element?(lv, "span", "serviceradar-db-event-writer")
+      assert has_element?(lv, "span", "db-writer-service")
+    after
+      Application.delete_env(:serviceradar_web_ng, :srql_module)
+    end
   end
 
   describe "can_create_rules? helper" do
@@ -274,6 +291,36 @@ defmodule MockSRQLWithLog do
              "resource_attributes" => %{
                "service.name" => "test-service",
                "service.version" => "1.0.0"
+             }
+           }
+         ],
+         "total_count" => 1
+       }}
+    else
+      {:ok, %{"results" => [], "total_count" => 0}}
+    end
+  end
+end
+
+defmodule MockSRQLWithNestedAttributes do
+  def query(query) do
+    if String.contains?(query, "in:logs") do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "id" => "b661cddf-7e67-4fb4-873d-68e9dde54bf3",
+             "body" => "ProcessBatch called",
+             "severity_text" => "INFO",
+             "service_name" => "serviceradar-db-event-writer",
+             "timestamp" => "2026-01-18T19:45:20Z",
+             "attributes" => %{
+               "attributes" => %{"message_count" => "1"},
+               "resource" => %{
+                 "service.name" => "serviceradar-db-event-writer",
+                 "service.version" => "1.0.0"
+               },
+               "scope" => "db-writer-service"
              }
            }
          ],
