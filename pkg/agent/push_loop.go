@@ -30,7 +30,6 @@ import (
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
