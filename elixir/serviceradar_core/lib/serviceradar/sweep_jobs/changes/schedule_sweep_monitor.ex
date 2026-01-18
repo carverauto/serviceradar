@@ -43,14 +43,16 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
         )
 
       {:error, :oban_unavailable} ->
-        Logger.warning("Sweep monitor scheduling deferred (Oban unavailable)",
-          sweep_group_id: record.id
+        Logger.debug("Sweep monitor scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          note: "sweep schedule reconciler will enqueue when available"
         )
 
       {:error, {:oban_unavailable, message}} ->
-        Logger.warning("Sweep monitor scheduling deferred (Oban unavailable)",
+        Logger.debug("Sweep monitor scheduling deferred (Oban unavailable)",
           sweep_group_id: record.id,
-          reason: message
+          reason: message,
+          note: "sweep schedule reconciler will enqueue when available"
         )
 
       {:error, reason} ->
@@ -72,14 +74,16 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
         )
 
       {:error, :oban_unavailable} ->
-        Logger.warning("Sweep data cleanup scheduling deferred (Oban unavailable)",
-          sweep_group_id: record.id
+        Logger.debug("Sweep data cleanup scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          note: "sweep schedule reconciler will enqueue when available"
         )
 
       {:error, {:oban_unavailable, message}} ->
-        Logger.warning("Sweep data cleanup scheduling deferred (Oban unavailable)",
+        Logger.debug("Sweep data cleanup scheduling deferred (Oban unavailable)",
           sweep_group_id: record.id,
-          reason: message
+          reason: message,
+          note: "sweep schedule reconciler will enqueue when available"
         )
 
       {:error, reason} ->

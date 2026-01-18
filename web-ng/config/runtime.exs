@@ -178,7 +178,7 @@ if config_env() != :test do
   end
 
   oban_enabled =
-    System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "false") in ~w(true 1 yes)
+    System.get_env("SERVICERADAR_WEB_NG_OBAN_ENABLED", "true") in ~w(true 1 yes)
 
   config :serviceradar_core, :oban_enabled, oban_enabled
 
@@ -212,7 +212,7 @@ if config_env() != :test do
       {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
       # No Cron plugin - core-elx handles all scheduled jobs
     ],
-    peer: Oban.Peers.Database
+    peer: {Oban.Peers.Database, []}
   ]
 
   oban_config =
