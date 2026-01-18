@@ -102,9 +102,16 @@ defmodule ServiceRadarWebNG.MixProject do
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["serviceradar.maybe_test"],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "cmd --cd assets bun install --frozen-lockfile",
+        "cmd --cd assets/component bun install --frozen-lockfile"
+      ],
       "assets.build": ["compile", "tailwind serviceradar_web_ng", "esbuild serviceradar_web_ng"],
       "assets.deploy": [
+        "cmd --cd assets bun install --frozen-lockfile",
+        "cmd --cd assets/component bun install --frozen-lockfile",
         "tailwind serviceradar_web_ng --minify",
         "esbuild serviceradar_web_ng --minify",
         "phx.react.bun.bundle --component-base=assets/component --output=priv/react/server.js",

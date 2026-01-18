@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.SweepJobs.{
     CriteriaQuery,
+    ObanSupport,
     SweepGroup,
     SweepGroupExecution,
     SweepProfile,
@@ -259,13 +260,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
         case Ash.update(group, action, scope: scope) do
           {:ok, _updated} ->
+            flash_message = sweep_group_toggle_message(action)
+
             {:noreply,
              socket
              |> assign(:sweep_groups, load_sweep_groups(scope))
-             |> put_flash(
-               :info,
-               "Sweep group #{if action == :enable, do: "enabled", else: "disabled"}"
-             )}
+             |> put_flash(:info, flash_message)}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to update sweep group")}
@@ -330,12 +330,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> Form.validate(params)
 
     case Form.submit(ash_form, params: params) do
-      {:ok, _group} ->
+      {:ok, group} ->
+        flash_message = sweep_group_save_message(group.enabled)
+
         {:noreply,
          socket
          |> assign(:sweep_groups, load_sweep_groups(scope))
          |> assign(:criteria_rules, [])
-         |> put_flash(:info, "Sweep group saved")
+         |> put_flash(:info, flash_message)
+         |> push_navigate(to: ~p"/settings/networks")}
+
+      {:ok, group, _notifications} ->
+        flash_message = sweep_group_save_message(group.enabled)
+
+        {:noreply,
+         socket
+         |> assign(:sweep_groups, load_sweep_groups(scope))
+         |> assign(:criteria_rules, [])
+         |> put_flash(:info, flash_message)
          |> push_navigate(to: ~p"/settings/networks")}
 
       {:error, ash_form} ->
@@ -463,6 +475,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   def handle_event("preview_targets", _params, socket) do
     {:noreply, update_target_count(socket)}
   end
+
+  defp sweep_group_save_message(true) do
+    if ObanSupport.available?() do
+      "Sweep group saved"
+    else
+      "Sweep group saved. Scheduling is deferred until the scheduler is available."
+    end
+  end
+
+  defp sweep_group_save_message(false), do: "Sweep group saved"
+
+  defp sweep_group_toggle_message(:enable) do
+    if ObanSupport.available?() do
+      "Sweep group enabled"
+    else
+      "Sweep group enabled. Scheduling is deferred until the scheduler is available."
+    end
+  end
+
+  defp sweep_group_toggle_message(:disable), do: "Sweep group disabled"
 
   defp maybe_update_target_count(socket) do
     rules = socket.assigns.criteria_rules
