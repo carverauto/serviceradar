@@ -162,12 +162,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       rule_name = "edit-test-#{unique}"
 
       {:ok, rule} =
-        Ash.create(LogPromotionRule, %{
-          name: rule_name,
-          enabled: true,
-          priority: 100,
-          match: %{"body_contains" => "original error"}
-        }, scope: scope)
+        Ash.create(
+          LogPromotionRule,
+          %{
+            name: rule_name,
+            enabled: true,
+            priority: 100,
+            match: %{"body_contains" => "original error"}
+          }, scope: scope)
 
       {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
 
@@ -201,12 +203,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       unique = System.unique_integer([:positive])
 
       {:ok, rule} =
-        Ash.create(LogPromotionRule, %{
-          name: "toggle-test-#{unique}",
-          enabled: true,
-          priority: 100,
-          match: %{"body_contains" => "test"}
-        }, scope: scope)
+        Ash.create(
+          LogPromotionRule,
+          %{
+            name: "toggle-test-#{unique}",
+            enabled: true,
+            priority: 100,
+            match: %{"body_contains" => "test"}
+          }, scope: scope)
 
       {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
 
@@ -224,16 +228,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
       unique = System.unique_integer([:positive])
 
       {:ok, _rule} =
-        Ash.create(LogPromotionRule, %{
-          name: "summary-test-#{unique}",
-          enabled: true,
-          priority: 100,
-          match: %{
-            "body_contains" => "error message",
-            "severity_text" => "error",
-            "service_name" => "test-service"
-          }
-        }, scope: scope)
+        Ash.create(
+          LogPromotionRule,
+          %{
+            name: "summary-test-#{unique}",
+            enabled: true,
+            priority: 100,
+            match: %{
+              "body_contains" => "error message",
+              "severity_text" => "error",
+              "service_name" => "test-service"
+            }
+          }, scope: scope)
 
       {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=events")
 

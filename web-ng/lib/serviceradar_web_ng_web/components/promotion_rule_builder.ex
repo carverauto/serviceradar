@@ -163,7 +163,10 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
         </h3>
         <p class="py-2 text-sm text-base-content/70">
           Configure match conditions to promote logs into events.
-          For advanced configuration, visit <.link navigate="/settings/rules?tab=events" class="link link-primary">Settings → Rules</.link>.
+          For advanced configuration, visit <.link
+            navigate="/settings/rules?tab=events"
+            class="link link-primary"
+          >Settings → Rules</.link>.
         </p>
 
         <.form
@@ -191,8 +194,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
 
           <div class="divider text-xs text-base-content/50">Match Conditions</div>
-
-          <!-- Message Body Contains -->
+          
+    <!-- Message Body Contains -->
           <div class="form-control">
             <label class="label cursor-pointer justify-start gap-3">
               <input
@@ -216,11 +219,13 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               disabled={not @form[:body_contains_enabled].value}
             />
             <label class="label">
-              <span class="label-text-alt text-base-content/50">Case-insensitive substring match</span>
+              <span class="label-text-alt text-base-content/50">
+                Case-insensitive substring match
+              </span>
             </label>
           </div>
-
-          <!-- Severity -->
+          
+    <!-- Severity -->
           <div class="form-control">
             <label class="label cursor-pointer justify-start gap-3">
               <input
@@ -248,8 +253,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               <% end %>
             </select>
           </div>
-
-          <!-- Service Name -->
+          
+    <!-- Service Name -->
           <div class="form-control">
             <label class="label cursor-pointer justify-start gap-3">
               <input
@@ -273,8 +278,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               disabled={not @form[:service_name_enabled].value}
             />
           </div>
-
-          <!-- Attribute Match -->
+          
+    <!-- Attribute Match -->
           <div class="form-control">
             <label class="label cursor-pointer justify-start gap-3">
               <input
@@ -308,7 +313,10 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               />
             </div>
             <!-- Show parsed attributes as suggestions -->
-            <div :if={@form[:parsed_attributes].value && map_size(@form[:parsed_attributes].value) > 0} class="mt-2">
+            <div
+              :if={@form[:parsed_attributes].value && map_size(@form[:parsed_attributes].value) > 0}
+              class="mt-2"
+            >
               <span class="text-xs text-base-content/50">Available attributes:</span>
               <div class="flex flex-wrap gap-1 mt-1">
                 <%= for {key, value} <- flatten_for_suggestions(@form[:parsed_attributes].value) do %>
@@ -328,8 +336,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
           </div>
 
           <div class="divider text-xs text-base-content/50">Event Options</div>
-
-          <!-- Auto-create Alert -->
+          
+    <!-- Auto-create Alert -->
           <div class="form-control">
             <label class="label cursor-pointer justify-start gap-3">
               <input
@@ -347,8 +355,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               </div>
             </label>
           </div>
-
-          <!-- Rule Preview Section -->
+          
+    <!-- Rule Preview Section -->
           <div class="bg-base-200/50 rounded-lg p-4 mt-4">
             <div class="flex items-center justify-between mb-2">
               <span class="text-sm font-medium">Rule Preview</span>
@@ -360,7 +368,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 disabled={@preview_state == :loading}
               >
                 <.icon :if={@preview_state != :loading} name="hero-play" class="w-4 h-4" />
-                <span :if={@preview_state == :loading} class="loading loading-spinner loading-xs"></span>
+                <span :if={@preview_state == :loading} class="loading loading-spinner loading-xs">
+                </span>
                 Test Rule
               </button>
             </div>
@@ -386,7 +395,9 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 <div class="mt-1 space-y-1 max-h-32 overflow-y-auto">
                   <%= for log <- @preview_result.sample_logs do %>
                     <div class="text-xs font-mono bg-base-300/50 px-2 py-1 rounded flex gap-2">
-                      <span class="text-base-content/50">{format_preview_time(log["timestamp"])}</span>
+                      <span class="text-base-content/50">
+                        {format_preview_time(log["timestamp"])}
+                      </span>
                       <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
                       <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
                     </div>
@@ -403,14 +414,14 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
               {@preview_error}
             </div>
           </div>
-
-          <!-- Validation Error -->
+          
+    <!-- Validation Error -->
           <div :if={@error} class="alert alert-error">
             <.icon name="hero-exclamation-circle" class="w-5 h-5" />
             <span>{@error}</span>
           </div>
-
-          <!-- Actions -->
+          
+    <!-- Actions -->
           <div class="modal-action">
             <button type="button" class="btn btn-ghost" phx-click="close" phx-target={@myself}>
               Cancel
@@ -530,7 +541,10 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       nil ->
         socket
         |> assign(:preview_state, :error)
-        |> assign(:preview_error, "Query timed out after 5 seconds. Try narrowing your conditions.")
+        |> assign(
+          :preview_error,
+          "Query timed out after 5 seconds. Try narrowing your conditions."
+        )
 
       {:exit, reason} ->
         socket
@@ -639,7 +653,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   end
 
   defp maybe_add_attribute_equals(match, params) do
-    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and has_value?(params["attribute_value"]) do
+    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and
+         has_value?(params["attribute_value"]) do
       Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
     else
       match
@@ -726,7 +741,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     filters = []
 
     filters =
-      if form[:body_contains_enabled].value and String.trim(form[:body_contains].value || "") != "" do
+      if form[:body_contains_enabled].value and
+           String.trim(form[:body_contains].value || "") != "" do
         escaped = escape_srql_value(form[:body_contains].value)
         ["body:\"*#{escaped}*\"" | filters]
       else
@@ -816,7 +832,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
     |> Enum.reduce(%{}, &parse_key_value_pair/2)
   end
 
-  defp parse_key_value_pair([_full, key, json_value], acc) when binary_part(json_value, 0, 1) == "{" do
+  defp parse_key_value_pair([_full, key, json_value], acc)
+       when binary_part(json_value, 0, 1) == "{" do
     case Jason.decode(json_value) do
       {:ok, decoded} -> Map.put(acc, key, decoded)
       _ -> Map.put(acc, key, json_value)

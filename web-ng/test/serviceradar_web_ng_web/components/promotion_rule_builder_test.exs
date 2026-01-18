@@ -407,7 +407,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
   end
 
   defp maybe_add_attribute_equals(match, params) do
-    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and has_value?(params["attribute_value"]) do
+    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and
+         has_value?(params["attribute_value"]) do
       Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
     else
       match
@@ -457,7 +458,8 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
     filters = []
 
     filters =
-      if form[:body_contains_enabled].value and String.trim(form[:body_contains].value || "") != "" do
+      if form[:body_contains_enabled].value and
+           String.trim(form[:body_contains].value || "") != "" do
         escaped = escape_srql_value(form[:body_contains].value)
         ["body:\"*#{escaped}*\"" | filters]
       else

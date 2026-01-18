@@ -461,7 +461,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No event promotion rules configured.</p>
-                        <button type="button" class="btn btn-primary btn-sm" phx-click="new_promotion_rule">
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          phx-click="new_promotion_rule"
+                        >
                           Create your first rule
                         </button>
                       </div>
@@ -538,8 +542,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           </.ui_panel>
         </div>
       </.settings_shell>
-
-      <!-- Rule Builder Modal -->
+      
+    <!-- Rule Builder Modal -->
       <.live_component
         :if={@show_rule_builder}
         module={PromotionRuleBuilder}
@@ -609,7 +613,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
 
     conditions =
       if match["body_contains"] do
-        [{"hero-chat-bubble-bottom-center", "body: #{truncate(match["body_contains"], 15)}"} | conditions]
+        [
+          {"hero-chat-bubble-bottom-center", "body: #{truncate(match["body_contains"], 15)}"}
+          | conditions
+        ]
       else
         conditions
       end
