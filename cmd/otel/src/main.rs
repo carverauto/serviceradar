@@ -7,9 +7,6 @@ use otel::setup::{
 use otel::tls::setup_grpc_tls;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
-const CONFIG_PATH: &str = "config/otel.toml";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,9 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_path = resolve_config_path(&args);
     log::debug!("Loading OTEL config from {}", config_path.display());
 
-    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv")
-        && !std::env::var("KV_ADDRESS").unwrap_or_default().is_empty();
-    let kv_key = use_kv.then(|| CONFIG_PATH.to_string());
+    let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "otel".to_string(),
         config_path: config_path
@@ -32,10 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("/etc/serviceradar/otel.toml")
             .to_string(),
         format: ConfigFormat::Toml,
-        kv_key,
-        pinned_path: config_bootstrap::pinned_path_from_env(),
-        seed_kv: use_kv,
-        watch_kv: use_kv,
+        pinned_path: pinned_path.clone(),
     })
     .await?;
 
@@ -48,26 +40,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let nats_config = config.nats_config();
     let grpc_tls_config = setup_grpc_tls(&config)?;
     let collector = create_collector(nats_config).await?;
-
-    if let Some(mut watcher) = bootstrap.watch::<otel::config::Config>().await? {
-        let shared_cfg = Arc::new(tokio::sync::RwLock::new(config.clone()));
-        let shared_for_watch = shared_cfg.clone();
-        let collector_for_watch = collector.clone();
-        tokio::spawn(async move {
-            while let Some(updated) = watcher.recv().await {
-                let mut guard = shared_for_watch.write().await;
-                let previous = guard.clone();
-                *guard = updated.clone();
-                let new_nats = guard.nats_config();
-                collector_for_watch.reconfigure_nats(new_nats).await;
-                let prev_bind = previous.bind_address();
-                let new_bind = guard.bind_address();
-                if prev_bind != new_bind || previous.grpc_tls.as_ref() != guard.grpc_tls.as_ref() {
-                    eprintln!("OTEL server bind/TLS changed; restart required to apply");
-                }
-            }
-        });
-    }
 
     // Start metrics server if configured
     if let Some(metrics_addr_str) = config.metrics_address() {

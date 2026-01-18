@@ -1,7 +1,7 @@
 extern crate flowgger;
 
 use clap::{Arg, Command};
-use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use std::io::{stderr, Write};
 use tempfile::NamedTempFile;
 use toml::Value;
@@ -45,43 +45,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(|s| s.as_ref())
         .unwrap_or(DEFAULT_CONFIG_FILE);
 
-    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
-    let kv_key = use_kv.then(|| "config/flowgger.toml".to_string());
+    let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "flowgger".to_string(),
         config_path: config_file.to_string(),
         format: ConfigFormat::Toml,
-        kv_key,
-        pinned_path: config_bootstrap::pinned_path_from_env(),
-        seed_kv: use_kv,
-        watch_kv: use_kv,
+        pinned_path: pinned_path.clone(),
     })
     .await?;
 
     let config_value: Value = bootstrap.load().await?;
-    let runtime_config_path = if use_kv {
-        Some(write_temp_config(&config_value)?)
-    } else {
-        None
-    };
-
-    if use_kv {
-        if let Some(watcher) = bootstrap.watch::<Value>().await? {
-            let restarter = RestartHandle::new("flowgger", "config/flowgger.toml");
-            tokio::spawn(async move {
-                let mut cfg_watcher = watcher;
-                let mut is_initial = true;
-                while cfg_watcher.recv().await.is_some() {
-                    if is_initial {
-                        // First event is the current value; don't restart on initial sync.
-                        is_initial = false;
-                        continue;
-                    }
-                    restarter.trigger();
-                }
-            });
-        }
-    }
+    let runtime_config_path = pinned_path
+        .map(|_| write_temp_config(&config_value))
+        .transpose()?;
 
     let _ = writeln!(stderr(), "Flowgger {FLOWGGER_VERSION_STRING}");
     let final_path = runtime_config_path.as_deref().unwrap_or(config_file);

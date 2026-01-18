@@ -4,8 +4,8 @@ use crate::{
     models::ServiceStatusRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::service_status::dsl::{
-        agent_id as col_agent_id, available as col_available, message as col_message,
-        partition as col_partition, gateway_id as col_gateway_id, service_name as col_service_name,
+        agent_id as col_agent_id, available as col_available, gateway_id as col_gateway_id,
+        message as col_message, partition as col_partition, service_name as col_service_name,
         service_status, service_type as col_service_type, timestamp as col_timestamp,
     },
     time::TimeRange,
@@ -306,7 +306,11 @@ FROM services_availability_5m"#,
 
     // Add time range filter
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        where_clauses.push(format!("bucket >= ${} AND bucket <= ${}", bind_idx, bind_idx + 1));
+        where_clauses.push(format!(
+            "bucket >= ${} AND bucket <= ${}",
+            bind_idx,
+            bind_idx + 1
+        ));
         binds.push(SqlBindValue::Timestamptz(*start));
         binds.push(SqlBindValue::Timestamptz(*end));
         bind_idx += 2;
@@ -315,12 +319,16 @@ FROM services_availability_5m"#,
     // Add service_name filter if present
     for filter in &plan.filters {
         if filter.field == "service_name" || filter.field == "name" {
-            if let Some(clause) = build_rollup_text_clause("service_name", filter, &mut binds, &mut bind_idx)? {
+            if let Some(clause) =
+                build_rollup_text_clause("service_name", filter, &mut binds, &mut bind_idx)?
+            {
                 where_clauses.push(clause);
             }
         }
         if filter.field == "service_type" || filter.field == "type" {
-            if let Some(clause) = build_rollup_text_clause("service_type", filter, &mut binds, &mut bind_idx)? {
+            if let Some(clause) =
+                build_rollup_text_clause("service_type", filter, &mut binds, &mut bind_idx)?
+            {
                 where_clauses.push(clause);
             }
         }

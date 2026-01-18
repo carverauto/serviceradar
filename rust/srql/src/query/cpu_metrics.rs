@@ -5,8 +5,8 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::cpu_metrics::dsl::{
         agent_id as col_agent_id, cluster as col_cluster, core_id as col_core_id, cpu_metrics,
-        device_id as col_device_id, frequency_hz as col_frequency_hz, host_id as col_host_id,
-        label as col_label, partition as col_partition, gateway_id as col_gateway_id,
+        device_id as col_device_id, frequency_hz as col_frequency_hz, gateway_id as col_gateway_id,
+        host_id as col_host_id, label as col_label, partition as col_partition,
         timestamp as col_timestamp, usage_percent as col_usage_percent,
     },
     time::TimeRange,
@@ -706,7 +706,9 @@ mod tests {
             r#"avg(usage_percent) as avg_cpu by device_id"#,
             "demo-partition",
         );
-        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw())).unwrap().unwrap();
+        let spec = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))
+            .unwrap()
+            .unwrap();
         assert_eq!(spec.alias, "avg_cpu");
 
         let sql = build_stats_query(&plan, &spec).expect("stats SQL should build");

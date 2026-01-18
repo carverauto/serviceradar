@@ -12,6 +12,7 @@ ServiceRadar uses NATS JetStream for platform KV and object storage. Most deploy
 - **Datasvc** exposes KV and object APIs over gRPC.
 - **NATS JetStream** stores the data.
 - **mTLS** is required for all KV access.
+- **Service configuration is no longer stored in KV**; services load config from files or gRPC.
 
 ## When to Configure Manually
 
@@ -27,10 +28,10 @@ Only needed if you are running Datasvc and NATS outside the standard Compose/Hel
 
 ## Operational Check
 
-If the UI shows missing config, confirm datasvc can reach NATS and that the service templates exist:
+If the UI shows missing config metadata, confirm core can reach datasvc/NATS and that the service templates are registered:
 
 ```bash
-curl -sS -H "Authorization: Bearer ${TOKEN}" \
+curl -sS -H "Authorization: Bearer ${TOKEN}" \\
   https://<core-host>/api/admin/config | jq '.[].service_type'
 ```
 

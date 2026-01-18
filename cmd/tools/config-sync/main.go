@@ -14,7 +14,10 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/config/kvgrpc"
+	coregrpc "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -116,7 +119,7 @@ func readTemplate(path string) ([]byte, error) {
 }
 
 func newKVClient(ctx context.Context, role models.ServiceRole) (*kvgrpc.Client, error) {
-	client, closer, err := config.NewKVServiceClientFromEnv(ctx, role)
+	client, closer, err := newKVServiceClientFromEnv(ctx, role)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +127,81 @@ func newKVClient(ctx context.Context, role models.ServiceRole) (*kvgrpc.Client, 
 		return nil, nil
 	}
 	return kvgrpc.New(client, closer), nil
+}
+
+func newKVServiceClientFromEnv(ctx context.Context, role models.ServiceRole) (proto.KVServiceClient, func() error, error) {
+	addr := strings.TrimSpace(os.Getenv("KV_ADDRESS"))
+	if addr == "" {
+		return nil, nil, nil
+	}
+
+	secMode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
+	var sec *models.SecurityConfig
+
+	switch secMode {
+	case string(models.SecurityModeMTLS):
+		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
+		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
+		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
+		if cert == "" || key == "" || ca == "" {
+			return nil, nil, nil
+		}
+
+		sec = &models.SecurityConfig{
+			Mode: models.SecurityModeMTLS,
+			TLS: models.TLSConfig{
+				CertFile: cert,
+				KeyFile:  key,
+				CAFile:   ca,
+			},
+			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
+			Role:       role,
+		}
+	case string(models.SecurityModeSPIFFE):
+		trustDomain := strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN"))
+		serverID := strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID"))
+		workloadSocket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
+		if workloadSocket == "" {
+			workloadSocket = "unix:/run/spire/sockets/agent.sock"
+		}
+
+		sec = &models.SecurityConfig{
+			Mode:           models.SecurityModeSPIFFE,
+			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
+			Role:           role,
+			TrustDomain:    trustDomain,
+			ServerSPIFFEID: serverID,
+			WorkloadSocket: workloadSocket,
+		}
+	case string(models.SecurityModeNone):
+		sec = &models.SecurityConfig{
+			Mode: models.SecurityModeNone,
+			Role: role,
+		}
+	default:
+		return nil, nil, nil
+	}
+
+	provider, err := coregrpc.NewSecurityProvider(ctx, sec, logger.NewTestLogger())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	client, err := coregrpc.NewClient(ctx, coregrpc.ClientConfig{
+		Address:          addr,
+		SecurityProvider: provider,
+		DisableTelemetry: true,
+	})
+	if err != nil {
+		_ = provider.Close()
+		return nil, nil, err
+	}
+
+	kvClient := proto.NewKVServiceClient(client.GetConnection())
+	closer := func() error {
+		return client.Close()
+	}
+	return kvClient, closer, nil
 }
 
 func syncOnce(ctx context.Context, client *kvgrpc.Client, opts options, template []byte) error {

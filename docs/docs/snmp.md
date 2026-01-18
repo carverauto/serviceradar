@@ -9,13 +9,13 @@ Simple Network Management Protocol (SNMP) polling remains the fastest way to pop
 ## Prepare Gateways
 
 1. Ensure each gateway can reach monitored devices on UDP 161 (and UDP 162 if you plan to receive traps).
-2. Store SNMP communities or v3 credentials in the KV store so gateways can refresh secrets without redeploys. Follow the [KV configuration](./kv-configuration.md) examples for encrypted values.
+2. Store SNMP communities or v3 credentials in the gateway configuration/profile data so gateways can refresh secrets without redeploys.
 3. Map device targets to the correct SNMP profile inside the registry. The [sync runtime guide](./sync.md) explains how to seed profiles programmatically.
 
 ## Define Credentials
 
 - **SNMPv2c** – use unique read-only community strings per device class; avoid `public` or `private`.
-- **SNMPv3** – prefer `authPriv` with SHA-256 and AES-256 where devices allow. Record usernames, auth passwords, and privacy keys in KV.
+- **SNMPv3** – prefer `authPriv` with SHA-256 and AES-256 where devices allow. Record usernames, auth passwords, and privacy keys in profiles.
 - Rotate secrets quarterly and update the registry via the embedded sync runtime to prevent stale gateway configs.
 
 ## Build Polling Plans
@@ -32,7 +32,7 @@ Traps complement polling by pushing urgent events:
 2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose.
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
-`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `packaging/trapd/config/trapd.json` for base settings you can override through the KV overlay.
+`serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
 
 ## Trap Processing Pipeline
 

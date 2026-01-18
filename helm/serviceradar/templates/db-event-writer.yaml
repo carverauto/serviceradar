@@ -54,7 +54,7 @@ spec:
           readOnly: true
         env:
         - name: CONFIG_SOURCE
-          value: "{{ default (default "kv" .Values.kv.configSource) .Values.dbEventWriter.configSource }}"
+          value: "file"
         - name: CONFIG_PATH
           value: "/etc/serviceradar/templates/db-event-writer.json"
         - name: CNPG_SSLMODE

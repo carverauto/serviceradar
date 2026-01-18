@@ -7,9 +7,9 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::ocsf_agents::dsl::{
         capabilities as col_capabilities, config_source as col_config_source,
-        created_time as col_created_time, first_seen_time as col_first_seen_time, ip as col_ip,
-        last_seen_time as col_last_seen_time, modified_time as col_modified_time,
-        name as col_name, ocsf_agents, gateway_id as col_gateway_id, type_id as col_type_id,
+        created_time as col_created_time, first_seen_time as col_first_seen_time,
+        gateway_id as col_gateway_id, ip as col_ip, last_seen_time as col_last_seen_time,
+        modified_time as col_modified_time, name as col_name, ocsf_agents, type_id as col_type_id,
         uid as col_uid, vendor_name as col_vendor_name, version as col_version,
     },
     time::TimeRange,
@@ -84,7 +84,11 @@ fn build_query(plan: &QueryPlan) -> Result<AgentsQuery<'static>> {
     let mut query = ocsf_agents.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_last_seen_time.ge(*start).and(col_last_seen_time.le(*end)));
+        query = query.filter(
+            col_last_seen_time
+                .ge(*start)
+                .and(col_last_seen_time.le(*end)),
+        );
     }
 
     for filter in &plan.filters {
@@ -116,11 +120,10 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
             query = apply_text_filter!(query, filter, col_ip)?;
         }
         "type_id" => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i32>()
-                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            let value =
+                filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("type_id must be an integer".into())
+                })?;
             query = apply_eq_filter!(
                 query,
                 filter,
@@ -141,9 +144,8 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
                         query = query.filter(col_capabilities.overlaps_with(values));
                     }
                     FilterOp::NotIn | FilterOp::NotEq => {
-                        query = query.filter(diesel::dsl::not(
-                            col_capabilities.overlaps_with(values),
-                        ));
+                        query =
+                            query.filter(diesel::dsl::not(col_capabilities.overlaps_with(values)));
                     }
                     _ => {
                         return Err(ServiceError::InvalidRequest(
@@ -193,11 +195,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             collect_text_params(params, filter)
         }
         "type_id" => {
-            let value = filter
-                .value
-                .as_scalar()?
-                .parse::<i32>()
-                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            let value =
+                filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                    ServiceError::InvalidRequest("type_id must be an integer".into())
+                })?;
             params.push(BindParam::Int(value as i64));
             Ok(())
         }
@@ -421,7 +422,10 @@ mod tests {
         };
 
         let result = build_query(&plan);
-        assert!(result.is_ok(), "should build query with config_source filter");
+        assert!(
+            result.is_ok(),
+            "should build query with config_source filter"
+        );
     }
 
     #[test]
@@ -443,6 +447,9 @@ mod tests {
         };
 
         let result = build_query(&plan);
-        assert!(result.is_ok(), "should build query with config_source IN filter");
+        assert!(
+            result.is_ok(),
+            "should build query with config_source IN filter"
+        );
     }
 }

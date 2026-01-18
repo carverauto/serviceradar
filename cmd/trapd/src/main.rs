@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat, RestartHandle};
+use config_bootstrap::{Bootstrap, BootstrapOptions, ConfigFormat};
 use env_logger::Env;
 use futures::Stream;
 use log::{info, warn};
@@ -73,42 +73,16 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
-    let use_kv = std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv");
-    let kv_key = if use_kv {
-        Some("config/trapd.json".to_string())
-    } else {
-        None
-    };
+    let pinned_path = config_bootstrap::pinned_path_from_env();
     let mut bootstrap = Bootstrap::new(BootstrapOptions {
         service_name: "trapd".to_string(),
         config_path: cli.config.clone(),
         format: ConfigFormat::Json,
-        kv_key,
-        pinned_path: config_bootstrap::pinned_path_from_env(),
-        seed_kv: use_kv,
-        watch_kv: use_kv,
+        pinned_path: pinned_path.clone(),
     })
     .await?;
     let cfg: Config = bootstrap.load().await?;
     cfg.validate()?;
-
-    if use_kv {
-        if let Some(watcher) = bootstrap.watch::<Config>().await? {
-            let restarter = RestartHandle::new("trapd", "config/trapd.json");
-            tokio::spawn(async move {
-                let mut cfg_watcher = watcher;
-                let mut is_initial = true;
-                while cfg_watcher.recv().await.is_some() {
-                    if is_initial {
-                        // First event is the current value; don't restart on initial sync.
-                        is_initial = false;
-                        continue;
-                    }
-                    restarter.trigger();
-                }
-            });
-        }
-    }
 
     info!("Starting trap receiver on {}", cfg.listen_addr);
 

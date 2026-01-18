@@ -5,8 +5,8 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::process_metrics::dsl::{
         agent_id as col_agent_id, cpu_usage as col_cpu_usage, device_id as col_device_id,
-        host_id as col_host_id, memory_usage as col_memory_usage, name as col_name,
-        partition as col_partition, pid as col_pid, gateway_id as col_gateway_id, process_metrics,
+        gateway_id as col_gateway_id, host_id as col_host_id, memory_usage as col_memory_usage,
+        name as col_name, partition as col_partition, pid as col_pid, process_metrics,
         start_time as col_start_time, status as col_status, timestamp as col_timestamp,
     },
     time::TimeRange,

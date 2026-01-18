@@ -670,36 +670,23 @@ func loadFakerConfig(ctx context.Context, path string, cfg *Config) *cfgbootstra
 		return nil
 	}
 
-	useKV := strings.EqualFold(os.Getenv("CONFIG_SOURCE"), "kv")
 	resolvedPath := configPath
 
 	info, err := os.Stat(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if !useKV {
-				if err := cfg.Validate(); err != nil {
-					log.Fatalf("default faker configuration invalid: %v", err)
-				}
-				log.Printf("Config file %s not found; using defaults", configPath)
-				return nil
-			}
-
 			materializedPath, matErr := materializeEmbeddedConfig(configPath)
 			if matErr != nil {
-				log.Fatalf("Failed to materialize default faker config for KV bootstrap: %v", matErr)
+				log.Fatalf("Failed to materialize default faker config: %v", matErr)
 			}
-			log.Printf("Config file %s not found; using embedded defaults from %s for KV bootstrap", configPath, materializedPath)
+			log.Printf("Config file %s not found; using embedded defaults from %s", configPath, materializedPath)
 			resolvedPath = materializedPath
 		} else {
-			if !useKV {
-				log.Fatalf("Failed to inspect config file %s: %v", configPath, err)
-			}
-
 			materializedPath, matErr := materializeEmbeddedConfig(configPath)
 			if matErr != nil {
-				log.Fatalf("Failed to materialize fallback faker config for KV bootstrap: %v", matErr)
+				log.Fatalf("Failed to materialize fallback faker config: %v", matErr)
 			}
-			log.Printf("Unable to read config file %s (%v); using embedded defaults from %s for KV bootstrap", configPath, err, materializedPath)
+			log.Printf("Unable to read config file %s (%v); using embedded defaults from %s", configPath, err, materializedPath)
 			resolvedPath = materializedPath
 		}
 	} else if info.IsDir() {
