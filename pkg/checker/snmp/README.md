@@ -1,4 +1,4 @@
-# SNMP Checker
+# SNMP Collector (embedded in serviceradar-agent)
 
 ## Key Components
 
@@ -27,8 +27,7 @@ Manages data retention
 
 ```json
 {
-  "node_address": "localhost:50051",
-  "listen_addr": ":50052",
+  "enabled": true,
   "timeout": "5m",
   "logger": {
     "level": "info",
@@ -39,7 +38,7 @@ Manages data retention
       "enabled": false,
       "endpoint": "",
       "headers": {},
-      "service_name": "serviceradar-snmp-checker",
+      "service_name": "serviceradar-agent",
       "batch_timeout": "5s",
       "insecure": false
     }
@@ -90,7 +89,7 @@ The SNMP checker supports structured logging with optional OpenTelemetry integra
 - **enabled**: Enable OTel log export - defaults to false
 - **endpoint**: OTel collector endpoint (e.g., "localhost:4317")
 - **headers**: Additional headers for authentication
-- **service_name**: Service name for telemetry - defaults to "serviceradar-snmp-checker"
+- **service_name**: Service name for telemetry - defaults to "serviceradar-agent"
 - **batch_timeout**: Batch timeout for log export - defaults to "5s"
 - **insecure**: Use insecure connection - defaults to false
 

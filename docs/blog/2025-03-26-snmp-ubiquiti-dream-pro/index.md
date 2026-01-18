@@ -6,6 +6,8 @@ tags: [monitoring, nms, netauto, observability, security]
 date: 2025-03-26
 ---
 
+> Note: This post references the legacy standalone `snmp-checker` package. ServiceRadar now ships SNMP collection embedded in `serviceradar-agent` instead.
+
 Network monitoring doesn't have to be complicated—especially when you're managing devices like the Ubiquiti UniFi Dream Machine Pro (UDM-Pro). With ServiceRadar's SNMP Poller feature, you can easily keep tabs on your router's performance, like tracking bandwidth on your primary WAN interface, without breaking a sweat. In this post, we'll walk you through enabling SNMP on your UDM-Pro, finding the right OID for your WAN interface using a handy open-source tool, and setting it up in ServiceRadar. Whether you're a seasoned network admin or just getting started, this guide will show you how simple it can be to gain real-time visibility into your network.
 
 Let's dive in and see how ServiceRadar makes monitoring your Ubiquiti gear a breeze!

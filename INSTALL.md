@@ -48,8 +48,6 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/ser
 sudo dpkg -i serviceradar-agent_1.0.52.deb
 
 # Optional checkers
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.52/serviceradar-snmp-checker_1.0.52.deb
-sudo dpkg -i serviceradar-snmp-checker_1.0.52.deb
 ```
 
 ## Architecture Overview

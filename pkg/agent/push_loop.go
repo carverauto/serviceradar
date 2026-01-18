@@ -30,8 +30,6 @@ import (
 
 	agentgateway "github.com/carverauto/serviceradar/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/pkg/logger"
-	"github.com/carverauto/serviceradar/pkg/models"
-	syncsvc "github.com/carverauto/serviceradar/pkg/sync"
 	"github.com/carverauto/serviceradar/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
@@ -62,8 +60,6 @@ type PushLoop struct {
 	configPollInterval time.Duration // How often to poll for config updates
 	enrolled           bool          // Whether we've successfully enrolled
 	started            bool          // Whether Start has been invoked
-	syncer             *syncsvc.SimpleSyncService
-	syncStarted        bool
 	enrollMu           sync.Mutex
 	enrollInFlight     bool
 	sweepResultsSeq    string
@@ -71,7 +67,6 @@ type PushLoop struct {
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
-	syncMu   sync.Mutex
 }
 
 // Thread-safe accessors for shared state
@@ -169,86 +164,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 }
 
-func (p *PushLoop) initSync(ctx context.Context) {
-	p.syncMu.Lock()
-	defer p.syncMu.Unlock()
-
-	if p.syncer != nil {
-		return
-	}
-
-	syncCfg := p.buildSyncConfig()
-	syncer, err := syncsvc.NewEmbedded(ctx, syncCfg, p.gateway, p.logger)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to initialize sync runtime")
-		return
-	}
-
-	p.syncer = syncer
-}
-
-func (p *PushLoop) startSync(ctx context.Context) {
-	p.syncMu.Lock()
-	if p.syncer == nil || p.syncStarted {
-		p.syncMu.Unlock()
-		return
-	}
-	syncer := p.syncer
-	p.syncStarted = true
-	p.syncMu.Unlock()
-
-	go func() {
-		if err := syncer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			p.logger.Error().Err(err).Msg("Sync runtime stopped")
-		}
-	}()
-}
-
-func (p *PushLoop) markSyncEnrolled() {
-	p.syncMu.Lock()
-	syncer := p.syncer
-	p.syncMu.Unlock()
-
-	if syncer == nil {
-		return
-	}
-
-	syncer.MarkGatewayEnrolled()
-}
-
-func (p *PushLoop) stopSync(ctx context.Context) {
-	p.syncMu.Lock()
-	syncer := p.syncer
-	started := p.syncStarted
-	p.syncMu.Unlock()
-
-	if syncer == nil || !started {
-		return
-	}
-
-	if err := syncer.Stop(ctx); err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to stop sync runtime")
-	}
-}
-
-func (p *PushLoop) buildSyncConfig() *syncsvc.Config {
-	p.server.mu.RLock()
-	cfg := p.server.config
-	p.server.mu.RUnlock()
-
-	syncCfg := &syncsvc.Config{
-		Sources:         map[string]*models.SourceConfig{},
-		AgentID:         cfg.AgentID,
-		GatewayID:       "",
-		Security:        cfg.Security,
-		Logging:         cfg.Logging,
-		GatewayAddr:     cfg.GatewayAddr,
-		GatewaySecurity: cfg.GatewaySecurity,
-		Partition:       cfg.Partition,
-	}
-
-	return syncCfg
-}
 
 // Start begins the push loop. It runs until the context is cancelled or Stop is called.
 func (p *PushLoop) Start(ctx context.Context) error {
@@ -266,7 +181,6 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	p.stateMu.Unlock()
 
 	p.logger.Info().Dur("interval", p.getInterval()).Msg("Starting push loop")
-	p.initSync(runCtx)
 
 	// Initial connection and enrollment attempt
 	if err := p.gateway.Connect(runCtx); err != nil {
@@ -317,7 +231,6 @@ func (p *PushLoop) Stop(ctx context.Context) error {
 	}
 	p.cancelMu.Unlock()
 
-	p.stopSync(ctx)
 
 	p.stateMu.RLock()
 	started := p.started
@@ -933,7 +846,6 @@ func (p *PushLoop) enrollLoop(ctx context.Context) {
 	}()
 
 	p.logger.Info().Msg("Enrolling with gateway...")
-	p.initSync(ctx)
 
 	delay := defaultEnrollRetryDelay
 	for {
@@ -1021,8 +933,6 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		Str("gateway_id", helloResp.GatewayId).
 		Msg("Successfully enrolled with gateway")
 
-	p.markSyncEnrolled()
-	p.startSync(ctx)
 
 	// Fetch initial config if outdated or not yet fetched
 	if helloResp.ConfigOutdated || p.getConfigVersion() == "" {
