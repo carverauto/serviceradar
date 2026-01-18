@@ -169,7 +169,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
             enabled: true,
             priority: 100,
             match: %{"body_contains" => "original error"}
-          }, scope: scope)
+          },
+          scope: scope
+        )
 
       {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
 
@@ -210,7 +212,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
             enabled: true,
             priority: 100,
             match: %{"body_contains" => "test"}
-          }, scope: scope)
+          },
+          scope: scope
+        )
 
       {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
 
@@ -239,7 +243,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
               "severity_text" => "error",
               "service_name" => "test-service"
             }
-          }, scope: scope)
+          },
+          scope: scope
+        )
 
       {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=events")
 

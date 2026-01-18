@@ -83,16 +83,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     log_id = Ash.UUID.generate()
     attributes = FieldParser.encode_jsonb(json["attributes"]) || %{}
     attributes = attach_ingest_metadata(attributes, metadata)
-    resource_attributes =
-      json
-      |> FieldParser.get_field("resource_attributes", "resourceAttributes")
-      |> FieldParser.encode_jsonb()
-      |> case do
-        nil -> %{}
-        value -> value
-      end
-
-    resource_lookup = resource_attributes
+    resource_attributes = normalize_resource_attributes(json)
+    {scope_name, scope_version} = parse_scope_fields(json)
 
     %{
       id: log_id,
@@ -100,19 +92,24 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
       span_id: FieldParser.get_field(json, "span_id", "spanId"),
       severity_text: FieldParser.get_field(json, "severity_text", "severityText") || json["level"],
-      severity_number: FieldParser.safe_bigint(FieldParser.get_field(json, "severity_number", "severityNumber")),
+      severity_number:
+        json
+        |> FieldParser.get_field("severity_number", "severityNumber")
+        |> FieldParser.safe_bigint(),
       body: extract_body(json),
-      service_name:
-        FieldParser.get_field(json, "service_name", "serviceName") ||
-          resource_lookup["service.name"],
+      service_name: service_field(json, resource_attributes, "service_name", "serviceName", "service.name"),
       service_version:
-        FieldParser.get_field(json, "service_version", "serviceVersion") ||
-          resource_lookup["service.version"],
+        service_field(json, resource_attributes, "service_version", "serviceVersion", "service.version"),
       service_instance:
-        FieldParser.get_field(json, "service_instance", "serviceInstance") ||
-          resource_lookup["service.instance.id"],
-      scope_name: FieldParser.get_field(json, "scope_name", "scopeName"),
-      scope_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
+        service_field(
+          json,
+          resource_attributes,
+          "service_instance",
+          "serviceInstance",
+          "service.instance.id"
+        ),
+      scope_name: scope_name,
+      scope_version: scope_version,
       attributes: attributes,
       resource_attributes: resource_attributes,
       created_at: DateTime.utc_now()
@@ -120,6 +117,54 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(_json, _metadata), do: nil
+
+  defp parse_scope_fields(json) when is_map(json) do
+    scope_name = FieldParser.get_field(json, "scope_name", "scopeName")
+    scope_version = FieldParser.get_field(json, "scope_version", "scopeVersion")
+
+    json["scope"]
+    |> merge_scope_fields(scope_name, scope_version)
+  end
+
+  defp parse_scope_fields(_), do: {nil, nil}
+
+  defp normalize_resource_attributes(json) do
+    json
+    |> resource_attributes_source()
+    |> FieldParser.encode_jsonb()
+    |> case do
+      nil -> %{}
+      value -> value
+    end
+  end
+
+  defp resource_attributes_source(json) do
+    FieldParser.get_field(json, "resource_attributes", "resourceAttributes") || json["resource"]
+  end
+
+  defp service_field(json, resource_attributes, snake_key, camel_key, resource_key) do
+    FieldParser.get_field(json, snake_key, camel_key) || resource_attributes[resource_key]
+  end
+
+  defp merge_scope_fields(%{} = scope_map, scope_name, scope_version) do
+    scope_name =
+      scope_name ||
+        FieldParser.get_field(scope_map, "name", "scopeName") ||
+        FieldParser.get_field(scope_map, "scope_name", "scopeName")
+
+    scope_version =
+      scope_version ||
+        FieldParser.get_field(scope_map, "version", "scopeVersion") ||
+        FieldParser.get_field(scope_map, "scope_version", "scopeVersion")
+
+    {scope_name, scope_version}
+  end
+
+  defp merge_scope_fields(scope, scope_name, scope_version) when is_binary(scope) and scope != "" do
+    {scope_name || scope, scope_version}
+  end
+
+  defp merge_scope_fields(_, scope_name, scope_version), do: {scope_name, scope_version}
 
   defp parse_protobuf_log(data, metadata) do
     case decode_export_logs(data) do

@@ -202,9 +202,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "id" => {
             let value = filter.value.as_scalar()?;
-            let uuid = Uuid::parse_str(value).map_err(|_| {
-                ServiceError::InvalidRequest("id must be a valid UUID".into())
-            })?;
+            let uuid = Uuid::parse_str(value)
+                .map_err(|_| ServiceError::InvalidRequest("id must be a valid UUID".into()))?;
             params.push(BindParam::Uuid(uuid));
             Ok(())
         }
@@ -419,9 +418,8 @@ fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQue
     match filter.field.as_str() {
         "id" => {
             let value = filter.value.as_scalar()?;
-            let uuid = Uuid::parse_str(value).map_err(|_| {
-                ServiceError::InvalidRequest("id must be a valid UUID".into())
-            })?;
+            let uuid = Uuid::parse_str(value)
+                .map_err(|_| ServiceError::InvalidRequest("id must be a valid UUID".into()))?;
             query = match filter.op {
                 FilterOp::Eq => query.filter(col_id.eq(uuid)),
                 FilterOp::NotEq => query.filter(col_id.ne(uuid)),

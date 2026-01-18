@@ -1,5 +1,6 @@
 use prost::Message;
 use serde_json::{json, Value};
+use std::fmt::Write;
 
 // Include the generated protobuf code
 pub mod opentelemetry {
@@ -43,21 +44,62 @@ pub fn otel_logs_to_json(data: &[u8]) -> anyhow::Result<Value> {
             .map(|r| attributes_to_json(&r.attributes))
             .unwrap_or_default();
 
+        let service_name = get_attr_string(&resource_attrs, "service.name");
+        let service_version = get_attr_string(&resource_attrs, "service.version");
+        let service_instance = get_attr_string(&resource_attrs, "service.instance.id");
+
         for scope_logs in resource_logs.scope_logs {
             let scope_name = scope_logs
                 .scope
                 .as_ref()
                 .map(|s| s.name.clone())
                 .unwrap_or_default();
+            let scope_version = scope_logs
+                .scope
+                .as_ref()
+                .map(|s| s.version.clone())
+                .unwrap_or_default();
 
             for log_record in scope_logs.log_records {
+                let timestamp = if log_record.time_unix_nano > 0 {
+                    log_record.time_unix_nano
+                } else {
+                    log_record.observed_time_unix_nano
+                };
+
                 let mut log_json = json!({
-                    "timestamp": log_record.time_unix_nano,
+                    "timestamp": timestamp,
                     "severity_number": log_record.severity_number,
                     "severity_text": log_record.severity_text,
-                    "resource": resource_attrs.clone(),
-                    "scope": scope_name.clone(),
+                    "resource_attributes": resource_attrs.clone(),
                 });
+
+                log_json["resource"] = resource_attrs.clone();
+
+                if !service_name.is_empty() {
+                    log_json["service_name"] = json!(service_name);
+                }
+                if !service_version.is_empty() {
+                    log_json["service_version"] = json!(service_version);
+                }
+                if !service_instance.is_empty() {
+                    log_json["service_instance"] = json!(service_instance);
+                }
+
+                if !scope_name.is_empty() {
+                    log_json["scope_name"] = json!(scope_name);
+                    log_json["scope"] = json!(scope_name);
+                }
+                if !scope_version.is_empty() {
+                    log_json["scope_version"] = json!(scope_version);
+                }
+
+                if let Some(trace_id) = bytes_to_hex(&log_record.trace_id) {
+                    log_json["trace_id"] = json!(trace_id);
+                }
+                if let Some(span_id) = bytes_to_hex(&log_record.span_id) {
+                    log_json["span_id"] = json!(span_id);
+                }
 
                 if let Some(body) = log_record.body {
                     log_json["body"] = any_value_to_json(&body);
@@ -88,6 +130,29 @@ fn attributes_to_json(attrs: &[opentelemetry::proto::common::v1::KeyValue]) -> V
         }
     }
     Value::Object(map)
+}
+
+fn get_attr_string(attrs: &Value, key: &str) -> String {
+    match attrs {
+        Value::Object(map) => map
+            .get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{:02x}", byte);
+    }
+    Some(out)
 }
 
 fn any_value_to_json(value: &opentelemetry::proto::common::v1::AnyValue) -> Value {
@@ -199,8 +264,13 @@ mod tests {
         assert_eq!(result["severity_number"], 9);
         assert_eq!(result["severity_text"], "INFO");
         assert_eq!(result["body"], "Test log message");
-        assert_eq!(result["scope"], "test-scope");
-        assert_eq!(result["resource"]["service.name"], "test-service");
+        assert_eq!(result["scope_name"], "test-scope");
+        assert_eq!(result["scope_version"], "1.0.0");
+        assert_eq!(
+            result["resource_attributes"]["service.name"],
+            "test-service"
+        );
+        assert_eq!(result["service_name"], "test-service");
         assert_eq!(result["attributes"]["service.name"], "test-service");
         assert_eq!(result["attributes"]["log.level"], "info");
     }
