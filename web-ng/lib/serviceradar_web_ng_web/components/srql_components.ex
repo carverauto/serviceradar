@@ -622,6 +622,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     config = Catalog.entity(entity)
     supports_downsample = Map.get(config, :downsample, false)
     series_fields = Map.get(config, :series_fields, [])
+    boolean_fields = Map.get(config, :boolean_fields, [])
 
     assigns =
       assigns
@@ -629,6 +630,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:config, config)
       |> assign(:supports_downsample, supports_downsample)
       |> assign(:series_fields, series_fields)
+      |> assign(:boolean_fields, boolean_fields)
 
     ~H"""
     <.ui_panel>
@@ -752,6 +754,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
                   <div class="flex flex-col gap-3">
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
+                      <% is_bool_field = (filter["field"] || "") in @boolean_fields %>
                       <div class="flex items-center gap-3">
                         <.query_builder_pill label="Filter">
                           <%= if @config.filter_fields == [] do %>
@@ -776,36 +779,71 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                             </.ui_inline_select>
                           <% end %>
 
-                          <.ui_inline_select
-                            name={"builder[filters][#{idx}][op]"}
-                            disabled={not @supported}
-                            class="text-xs text-base-content/70"
-                          >
-                            <option
-                              value="contains"
-                              selected={(filter["op"] || "contains") == "contains"}
+                          <%= if is_bool_field do %>
+                            <%!-- Boolean fields only support equals/not_equals --%>
+                            <.ui_inline_select
+                              name={"builder[filters][#{idx}][op]"}
+                              disabled={not @supported}
+                              class="text-xs text-base-content/70"
                             >
-                              contains
-                            </option>
-                            <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                              does not contain
-                            </option>
-                            <option value="equals" selected={filter["op"] == "equals"}>
-                              equals
-                            </option>
-                            <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                              does not equal
-                            </option>
-                          </.ui_inline_select>
+                              <option
+                                value="equals"
+                                selected={(filter["op"] || "equals") == "equals"}
+                              >
+                                equals
+                              </option>
+                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                does not equal
+                              </option>
+                            </.ui_inline_select>
+                          <% else %>
+                            <.ui_inline_select
+                              name={"builder[filters][#{idx}][op]"}
+                              disabled={not @supported}
+                              class="text-xs text-base-content/70"
+                            >
+                              <option
+                                value="contains"
+                                selected={(filter["op"] || "contains") == "contains"}
+                              >
+                                contains
+                              </option>
+                              <option value="not_contains" selected={filter["op"] == "not_contains"}>
+                                does not contain
+                              </option>
+                              <option value="equals" selected={filter["op"] == "equals"}>
+                                equals
+                              </option>
+                              <option value="not_equals" selected={filter["op"] == "not_equals"}>
+                                does not equal
+                              </option>
+                            </.ui_inline_select>
+                          <% end %>
 
-                          <.ui_inline_input
-                            type="text"
-                            name={"builder[filters][#{idx}][value]"}
-                            value={filter["value"] || ""}
-                            placeholder="value"
-                            class="placeholder:text-base-content/40 w-56"
-                            disabled={not @supported}
-                          />
+                          <%= if is_bool_field do %>
+                            <%!-- Boolean fields get a dropdown with true/false --%>
+                            <.ui_inline_select
+                              name={"builder[filters][#{idx}][value]"}
+                              disabled={not @supported}
+                              class="w-24"
+                            >
+                              <option value="true" selected={filter["value"] == "true"}>
+                                true
+                              </option>
+                              <option value="false" selected={filter["value"] == "false"}>
+                                false
+                              </option>
+                            </.ui_inline_select>
+                          <% else %>
+                            <.ui_inline_input
+                              type="text"
+                              name={"builder[filters][#{idx}][value]"}
+                              value={filter["value"] || ""}
+                              placeholder="value"
+                              class="placeholder:text-base-content/40 w-56"
+                              disabled={not @supported}
+                            />
+                          <% end %>
                         </.query_builder_pill>
 
                         <.ui_icon_button

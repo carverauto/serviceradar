@@ -291,6 +291,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         },
         Entity::Logs => VizMeta {
             columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
                 col(
                     "timestamp",
                     ColumnType::Timestamptz,
@@ -589,6 +590,42 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                     ColumnType::Timestamptz,
                     Some(ColumnSemantic::Time),
                 ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::Alerts => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("title", ColumnType::Text, None),
+                col("description", ColumnType::Text, None),
+                col("severity", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("status", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("source_type", ColumnType::Text, None),
+                col("source_id", ColumnType::Text, None),
+                col("device_uid", ColumnType::Text, None),
+                col("agent_uid", ColumnType::Text, None),
+                col("metric_name", ColumnType::Text, None),
+                col("metric_value", ColumnType::Float, None),
+                col("threshold_value", ColumnType::Float, None),
+                col("comparison", ColumnType::Text, None),
+                col(
+                    "triggered_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("acknowledged_at", ColumnType::Timestamptz, None),
+                col("acknowledged_by", ColumnType::Text, None),
+                col("resolved_at", ColumnType::Timestamptz, None),
+                col("resolved_by", ColumnType::Text, None),
+                col("escalated_at", ColumnType::Timestamptz, None),
+                col("escalation_level", ColumnType::Int, None),
+                col("notification_count", ColumnType::Int, None),
+                col("tags", ColumnType::TextArray, None),
             ],
             suggestions: vec![VizSuggestion {
                 kind: VizKind::Table,

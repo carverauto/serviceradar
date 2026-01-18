@@ -287,6 +287,79 @@ Controllers automatically have the `current_scope` available if they use the `:b
 - You **must** use `Ecto.Changeset.get_field(changeset, :field)` to access changeset fields
 - Fields which are set programatically, such as `user_id`, must not be listed in `cast` calls or similar for security purposes. Instead they must be explicitly set when creating the struct
 - **Always** invoke `mix ecto.gen.migration migration_name_using_underscores` when generating migration files, so the correct timestamp and conventions are applied
+
+## Running Tests with Docker Compose Database
+
+When running tests against the local Docker Compose PostgreSQL database, you need TLS certificates and proper credentials.
+
+### 1. Extract TLS Certificates from Docker Volume
+
+```bash
+# Create directory for certs
+mkdir -p /tmp/sr-certs
+
+# Copy certs from docker volume
+docker run --rm -v serviceradar_cert-data:/certs -v /tmp/sr-certs:/out alpine \
+  sh -c "cp /certs/root.pem /certs/db-client.pem /certs/db-client-key.pem /out/ && chmod 644 /out/*.pem"
+
+# Fix key permissions
+sudo chmod 600 /tmp/sr-certs/db-client-key.pem
+sudo chown $USER /tmp/sr-certs/db-client-key.pem
+```
+
+### 2. Find Database Credentials
+
+Get the database credentials from the running container:
+
+```bash
+docker inspect serviceradar-cnpg-mtls | grep -A10 '"Env"'
+# Look for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+# Default: username=serviceradar, password=serviceradar, database=serviceradar
+```
+
+### 3. Run Tests with Full Configuration
+
+```bash
+env SERVICERADAR_REQUIRE_DB_TESTS=1 \
+  TEST_CNPG_PORT=5455 \
+  TEST_CNPG_DATABASE=serviceradar \
+  TEST_CNPG_USERNAME=serviceradar \
+  TEST_CNPG_PASSWORD=serviceradar \
+  CNPG_SSL_MODE=verify-ca \
+  CNPG_CA_FILE=/tmp/sr-certs/root.pem \
+  CNPG_CERT_FILE=/tmp/sr-certs/db-client.pem \
+  CNPG_KEY_FILE=/tmp/sr-certs/db-client-key.pem \
+  mix test test/path/to/test.exs --trace
+```
+
+### Environment Variables Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVICERADAR_REQUIRE_DB_TESTS` | (unset) | Set to `1` to enable database tests |
+| `TEST_CNPG_PORT` | `5432` | PostgreSQL port (Docker uses `5455`) |
+| `TEST_CNPG_DATABASE` | `serviceradar` | Database name |
+| `TEST_CNPG_USERNAME` | `postgres` | Database username |
+| `TEST_CNPG_PASSWORD` | `postgres` | Database password |
+| `CNPG_SSL_MODE` | `disable` | Set to `verify-ca` for TLS |
+| `CNPG_CA_FILE` | (unset) | Path to CA certificate |
+| `CNPG_CERT_FILE` | (unset) | Path to client certificate |
+| `CNPG_KEY_FILE` | (unset) | Path to client key |
+
+### Quick Reference
+
+```bash
+# One-liner to extract certs and run a specific test file
+mkdir -p /tmp/sr-certs && \
+docker run --rm -v serviceradar_cert-data:/certs -v /tmp/sr-certs:/out alpine \
+  sh -c "cp /certs/root.pem /certs/db-client.pem /certs/db-client-key.pem /out/ && chmod 644 /out/*.pem" && \
+sudo chown $USER /tmp/sr-certs/*.pem && \
+env SERVICERADAR_REQUIRE_DB_TESTS=1 TEST_CNPG_PORT=5455 TEST_CNPG_DATABASE=serviceradar \
+  TEST_CNPG_USERNAME=serviceradar TEST_CNPG_PASSWORD=serviceradar \
+  CNPG_SSL_MODE=verify-ca CNPG_CA_FILE=/tmp/sr-certs/root.pem \
+  CNPG_CERT_FILE=/tmp/sr-certs/db-client.pem CNPG_KEY_FILE=/tmp/sr-certs/db-client-key.pem \
+  mix test test/serviceradar_web_ng/srql_param_types_test.exs --trace
+```
 <!-- phoenix:ecto-end -->
 
 <!-- phoenix:html-start -->

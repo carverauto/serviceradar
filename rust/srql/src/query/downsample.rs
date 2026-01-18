@@ -85,8 +85,10 @@ fn build_sql(plan: &QueryPlan) -> Result<String> {
         clauses.push(clause);
     }
 
+    // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
+    // This floors the timestamp to the nearest bucket boundary
     let mut sql = format!(
-        "SELECT time_bucket(make_interval(secs => {bucket_secs}), {ts_col}) AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
+        "SELECT to_timestamp(floor(extract(epoch from {ts_col}) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp, {series_expr} AS series, {agg_expr} AS value\nFROM {table}\nWHERE ",
     );
     sql.push_str(&clauses.join(" AND "));
     sql.push_str("\nGROUP BY 1, 2\nORDER BY 1 ASC\nLIMIT ? OFFSET ?");

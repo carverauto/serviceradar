@@ -179,10 +179,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Map.get("filters", [])
         |> List.wrap()
 
+      field = default_filter_field(entity, filters)
+      config = Catalog.entity(entity)
+      boolean_fields = Map.get(config, :boolean_fields, [])
+
+      # Use appropriate defaults based on field type
+      {default_op, default_value} =
+        if field in boolean_fields do
+          {"equals", "true"}
+        else
+          {"contains", ""}
+        end
+
       next = %{
-        "field" => default_filter_field(entity, filters),
-        "op" => "contains",
-        "value" => ""
+        "field" => field,
+        "op" => default_op,
+        "value" => default_value
       }
 
       updated_builder = Map.put(builder, "filters", filters ++ [next])
