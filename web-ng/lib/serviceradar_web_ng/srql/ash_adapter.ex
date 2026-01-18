@@ -56,6 +56,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   """
 
   require Logger
+  require Ash.Query
 
   # ALL entities are routed through Ash - no exceptions
   @ash_entities ~w(
@@ -218,6 +219,21 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
                     # SRQL uses uid but TimeseriesMetric doesn't have it
                     "uid"
                   ])
+
+  # Check if a field is an array type by introspecting the Ash resource
+  # This is dynamic so we don't need to hardcode array field names
+  defp array_field?(resource, field_name) when is_atom(field_name) do
+    case Ash.Resource.Info.attribute(resource, field_name) do
+      %{type: {:array, _}} -> true
+      %{type: Ash.Type.Array} -> true
+      _ -> false
+    end
+  rescue
+    # If introspection fails, assume it's not an array
+    _ -> false
+  end
+
+  defp array_field?(_resource, _field_name), do: false
 
   @doc """
   Check if an entity should be routed through Ash.
@@ -399,7 +415,7 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     query =
       resource
       |> Ash.Query.new()
-      |> apply_filters(entity, Map.get(params, :filters, []))
+      |> apply_filters(resource, entity, Map.get(params, :filters, []))
       |> apply_sort(entity, Map.get(params, :sort))
       |> maybe_apply_offset(offset, apply_pagination?)
       |> maybe_apply_limit(limit, apply_pagination?)
@@ -410,25 +426,25 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       {:error, {:query_build_error, Exception.message(e)}}
   end
 
-  defp apply_filters(query, entity, filters) when is_list(filters) do
+  defp apply_filters(query, resource, entity, filters) when is_list(filters) do
     Enum.reduce(filters, query, fn filter, q ->
-      apply_filter(q, entity, filter)
+      apply_filter(q, resource, entity, filter)
     end)
   end
 
-  defp apply_filters(query, _entity, _), do: query
+  defp apply_filters(query, _resource, _entity, _), do: query
 
-  defp apply_filter(query, entity, %{field: field, op: op, value: value}) do
-    apply_filter_op(query, entity, field, op, value)
+  defp apply_filter(query, resource, entity, %{field: field, op: op, value: value}) do
+    apply_filter_op(query, resource, entity, field, op, value)
   end
 
-  defp apply_filter(query, entity, %{"field" => field, "op" => op, "value" => value}) do
-    apply_filter_op(query, entity, field, op, value)
+  defp apply_filter(query, resource, entity, %{"field" => field, "op" => op, "value" => value}) do
+    apply_filter_op(query, resource, entity, field, op, value)
   end
 
-  defp apply_filter(query, _entity, _), do: query
+  defp apply_filter(query, _resource, _entity, _), do: query
 
-  defp apply_filter_op(query, entity, field, op, value) when is_binary(field) do
+  defp apply_filter_op(query, resource, entity, field, op, value) when is_binary(field) do
     # Skip ignored fields
     if MapSet.member?(@ignored_fields, field) do
       query
@@ -437,34 +453,11 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
       mapped_field = map_field(entity, field)
       field_atom = String.to_existing_atom(mapped_field)
 
-      # Use filter_input for dynamic filter building (recommended in Ash 3.x)
-      case op do
-        "eq" ->
-          Ash.Query.filter_input(query, %{field_atom => %{eq: value}})
-
-        "neq" ->
-          Ash.Query.filter_input(query, %{field_atom => %{not_eq: value}})
-
-        "gt" ->
-          Ash.Query.filter_input(query, %{field_atom => %{greater_than: value}})
-
-        "gte" ->
-          Ash.Query.filter_input(query, %{field_atom => %{greater_than_or_equal: value}})
-
-        "lt" ->
-          Ash.Query.filter_input(query, %{field_atom => %{less_than: value}})
-
-        "lte" ->
-          Ash.Query.filter_input(query, %{field_atom => %{less_than_or_equal: value}})
-
-        "contains" ->
-          Ash.Query.filter_input(query, %{field_atom => %{contains: value}})
-
-        "in" when is_list(value) ->
-          Ash.Query.filter_input(query, %{field_atom => %{in: value}})
-
-        _ ->
-          query
+      # Use Ash resource introspection to detect array fields dynamically
+      if array_field?(resource, field_atom) do
+        apply_array_filter(query, field_atom, op, value)
+      else
+        apply_scalar_filter(query, field_atom, op, value)
       end
     end
   rescue
@@ -472,7 +465,80 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
     ArgumentError -> query
   end
 
-  defp apply_filter_op(query, _, _, _, _), do: query
+  # Handle array field filters using array containment
+  defp apply_array_filter(query, field_atom, op, value) do
+    # Convert scalar to list for array containment check
+    values = if is_list(value), do: value, else: [value]
+
+    case op do
+      op when op in ["in", "eq", "contains", "like"] ->
+        # For arrays, use "in" to check if array contains any of the values
+        # This translates to array && ARRAY[values] in PostgreSQL
+        Ash.Query.filter_input(query, %{field_atom => %{has_any: values}})
+
+      op when op in ["not_in", "neq", "not_like"] ->
+        # Negated array containment - doesn't have any of the values
+        Ash.Query.filter(query, not(has_any(^ref(field_atom), ^values)))
+
+      _ ->
+        query
+    end
+  rescue
+    # Fall back to no filter on error
+    _ -> query
+  end
+
+  # Handle scalar field filters
+  defp apply_scalar_filter(query, field_atom, op, value) do
+    # Use filter_input for dynamic filter building (recommended in Ash 3.x)
+    case op do
+      "eq" ->
+        Ash.Query.filter_input(query, %{field_atom => %{eq: value}})
+
+      "neq" ->
+        Ash.Query.filter_input(query, %{field_atom => %{not_eq: value}})
+
+      "gt" ->
+        Ash.Query.filter_input(query, %{field_atom => %{greater_than: value}})
+
+      "gte" ->
+        Ash.Query.filter_input(query, %{field_atom => %{greater_than_or_equal: value}})
+
+      "lt" ->
+        Ash.Query.filter_input(query, %{field_atom => %{less_than: value}})
+
+      "lte" ->
+        Ash.Query.filter_input(query, %{field_atom => %{less_than_or_equal: value}})
+
+      "contains" ->
+        # String contains (substring match)
+        Ash.Query.filter_input(query, %{field_atom => %{contains: value}})
+
+      "like" ->
+        # LIKE with wildcards - strip % and use case-insensitive contains
+        pattern = value |> to_string() |> String.replace("%", "")
+        Ash.Query.filter(query, ilike(^ref(field_atom), ^"%#{pattern}%"))
+
+      "not_like" ->
+        # Negated LIKE
+        pattern = value |> to_string() |> String.replace("%", "")
+        Ash.Query.filter(query, not(ilike(^ref(field_atom), ^"%#{pattern}%")))
+
+      "in" when is_list(value) ->
+        Ash.Query.filter_input(query, %{field_atom => %{in: value}})
+
+      "not_in" when is_list(value) ->
+        Ash.Query.filter(query, ^ref(field_atom) not in ^value)
+
+      _ ->
+        query
+    end
+  rescue
+    # Fall back to no filter on error
+    _ -> query
+  end
+
+  defp apply_filter_op(query, _, _, _, _, _), do: query
 
   defp apply_sort(query, _entity, nil), do: query
 

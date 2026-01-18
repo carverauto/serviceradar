@@ -555,19 +555,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
           <.link
-            navigate={~p"/devices?q=is_available:true"}
+            navigate={~p"/devices?q=in:devices is_available:true"}
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "true"), do: "btn-primary", else: "btn-ghost"}"}
           >
             <.icon name="hero-check-circle" class="size-3" /> Available
           </.link>
           <.link
-            navigate={~p"/devices?q=is_available:false"}
+            navigate={~p"/devices?q=in:devices is_available:false"}
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
           >
             <.icon name="hero-x-circle" class="size-3" /> Unavailable
           </.link>
           <.link
-            navigate={~p"/devices?q=discovery_sources:sweep"}
+            navigate={~p"/devices?q=in:devices discovery_sources:(sweep)"}
             class={"btn btn-xs #{if has_filter?(@srql, "discovery_sources", "sweep"), do: "btn-info", else: "btn-ghost"}"}
           >
             <.icon name="hero-signal" class="size-3" /> Swept
