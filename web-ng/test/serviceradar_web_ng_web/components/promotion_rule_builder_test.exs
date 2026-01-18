@@ -375,40 +375,48 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilderTest do
   end
 
   defp build_match_map(params) do
-    match = %{}
-
-    match =
-      if params["body_contains_enabled"] and String.trim(params["body_contains"] || "") != "" do
-        Map.put(match, "body_contains", params["body_contains"])
-      else
-        match
-      end
-
-    match =
-      if params["severity_enabled"] and String.trim(params["severity_text"] || "") != "" do
-        Map.put(match, "severity_text", params["severity_text"])
-      else
-        match
-      end
-
-    match =
-      if params["service_name_enabled"] and String.trim(params["service_name"] || "") != "" do
-        Map.put(match, "service_name", params["service_name"])
-      else
-        match
-      end
-
-    match =
-      if params["attribute_enabled"] and
-           String.trim(params["attribute_key"] || "") != "" and
-           String.trim(params["attribute_value"] || "") != "" do
-        Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
-      else
-        match
-      end
-
-    match
+    %{}
+    |> maybe_add_body_contains(params)
+    |> maybe_add_severity(params)
+    |> maybe_add_service_name(params)
+    |> maybe_add_attribute_equals(params)
   end
+
+  defp maybe_add_body_contains(match, params) do
+    if params["body_contains_enabled"] and has_value?(params["body_contains"]) do
+      Map.put(match, "body_contains", params["body_contains"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_severity(match, params) do
+    if params["severity_enabled"] and has_value?(params["severity_text"]) do
+      Map.put(match, "severity_text", params["severity_text"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_service_name(match, params) do
+    if params["service_name_enabled"] and has_value?(params["service_name"]) do
+      Map.put(match, "service_name", params["service_name"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_attribute_equals(match, params) do
+    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and has_value?(params["attribute_value"]) do
+      Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
+    else
+      match
+    end
+  end
+
+  defp has_value?(nil), do: false
+  defp has_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp has_value?(_), do: false
 
   defp build_event_map(params) do
     if params["auto_alert"] do

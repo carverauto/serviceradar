@@ -607,40 +607,48 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   end
 
   defp build_match_map(params) do
-    match = %{}
-
-    match =
-      if params["body_contains_enabled"] and String.trim(params["body_contains"] || "") != "" do
-        Map.put(match, "body_contains", params["body_contains"])
-      else
-        match
-      end
-
-    match =
-      if params["severity_enabled"] and String.trim(params["severity_text"] || "") != "" do
-        Map.put(match, "severity_text", params["severity_text"])
-      else
-        match
-      end
-
-    match =
-      if params["service_name_enabled"] and String.trim(params["service_name"] || "") != "" do
-        Map.put(match, "service_name", params["service_name"])
-      else
-        match
-      end
-
-    match =
-      if params["attribute_enabled"] and
-           String.trim(params["attribute_key"] || "") != "" and
-           String.trim(params["attribute_value"] || "") != "" do
-        Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
-      else
-        match
-      end
-
-    match
+    %{}
+    |> maybe_add_body_contains(params)
+    |> maybe_add_severity(params)
+    |> maybe_add_service_name(params)
+    |> maybe_add_attribute_equals(params)
   end
+
+  defp maybe_add_body_contains(match, params) do
+    if params["body_contains_enabled"] and has_value?(params["body_contains"]) do
+      Map.put(match, "body_contains", params["body_contains"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_severity(match, params) do
+    if params["severity_enabled"] and has_value?(params["severity_text"]) do
+      Map.put(match, "severity_text", params["severity_text"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_service_name(match, params) do
+    if params["service_name_enabled"] and has_value?(params["service_name"]) do
+      Map.put(match, "service_name", params["service_name"])
+    else
+      match
+    end
+  end
+
+  defp maybe_add_attribute_equals(match, params) do
+    if params["attribute_enabled"] and has_value?(params["attribute_key"]) and has_value?(params["attribute_value"]) do
+      Map.put(match, "attribute_equals", %{params["attribute_key"] => params["attribute_value"]})
+    else
+      match
+    end
+  end
+
+  defp has_value?(nil), do: false
+  defp has_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp has_value?(_), do: false
 
   defp build_event_map(params) do
     if params["auto_alert"] do
@@ -785,28 +793,38 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
 
     cond do
       String.starts_with?(value, "{") ->
-        case Jason.decode(value) do
-          {:ok, decoded} when is_map(decoded) -> decoded
-          _ -> %{}
-        end
+        parse_json_attributes(value)
 
       String.contains?(value, "=") ->
-        ~r/(\w+)=(\{[^}]*\}|[^,]+?)(?=,\w+=|$)/
-        |> Regex.scan(value)
-        |> Enum.reduce(%{}, fn
-          [_full, key, json_value], acc when binary_part(json_value, 0, 1) == "{" ->
-            case Jason.decode(json_value) do
-              {:ok, decoded} -> Map.put(acc, key, decoded)
-              _ -> Map.put(acc, key, json_value)
-            end
-
-          [_full, key, plain_value], acc ->
-            Map.put(acc, key, String.trim(plain_value))
-        end)
+        parse_key_value_attributes(value)
 
       true ->
         %{}
     end
+  end
+
+  defp parse_json_attributes(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp parse_key_value_attributes(value) do
+    ~r/(\w+)=(\{[^}]*\}|[^,]+?)(?=,\w+=|$)/
+    |> Regex.scan(value)
+    |> Enum.reduce(%{}, &parse_key_value_pair/2)
+  end
+
+  defp parse_key_value_pair([_full, key, json_value], acc) when binary_part(json_value, 0, 1) == "{" do
+    case Jason.decode(json_value) do
+      {:ok, decoded} -> Map.put(acc, key, decoded)
+      _ -> Map.put(acc, key, json_value)
+    end
+  end
+
+  defp parse_key_value_pair([_full, key, plain_value], acc) do
+    Map.put(acc, key, String.trim(plain_value))
   end
 
   defp flatten_for_suggestions(attributes) when is_map(attributes) do
@@ -857,8 +875,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   defp format_error(reason), do: inspect(reason)
 
   defp format_ash_error(%Ash.Error.Invalid{errors: errors}) do
-    errors
-    |> Enum.map(fn
+    Enum.map_join(errors, ", ", fn
       %{field: field, message: message} when is_atom(field) ->
         "#{field}: #{message}"
 
@@ -868,7 +885,6 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
       other ->
         inspect(other)
     end)
-    |> Enum.join(", ")
   end
 
   defp srql_module do
