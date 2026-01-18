@@ -59,6 +59,11 @@ pub fn otel_logs_to_json(data: &[u8]) -> anyhow::Result<Value> {
                 .as_ref()
                 .map(|s| s.version.clone())
                 .unwrap_or_default();
+            let scope_attributes = scope_logs
+                .scope
+                .as_ref()
+                .map(|s| attributes_to_json(&s.attributes))
+                .unwrap_or_else(|| json!({}));
 
             for log_record in scope_logs.log_records {
                 let timestamp = if log_record.time_unix_nano > 0 {
@@ -69,9 +74,13 @@ pub fn otel_logs_to_json(data: &[u8]) -> anyhow::Result<Value> {
 
                 let mut log_json = json!({
                     "timestamp": timestamp,
+                    "observed_time_unix_nano": log_record.observed_time_unix_nano,
                     "severity_number": log_record.severity_number,
                     "severity_text": log_record.severity_text,
                     "resource_attributes": resource_attrs.clone(),
+                    "scope_attributes": scope_attributes.clone(),
+                    "trace_flags": (log_record.flags & 0xFF),
+                    "event_name": log_record.event_name,
                 });
 
                 log_json["resource"] = resource_attrs.clone();

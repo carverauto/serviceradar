@@ -113,7 +113,7 @@ func processLogAttributes(attributes []*commonv1.KeyValue) []string {
 func createLogRow(
 	logRecord *logsv1.LogRecord,
 	serviceName, serviceVersion, serviceInstance string,
-	scopeName, scopeVersion string,
+	scopeName, scopeVersion, scopeAttributes string,
 	resourceAttribs []string,
 	logAttribs []string,
 ) models.OTELLogRow {
@@ -123,58 +123,29 @@ func createLogRow(
 		body = logRecord.Body.GetStringValue()
 	}
 
-	// Convert timestamp safely to prevent uint64 -> int64 overflow
-	var timestamp time.Time
-
-	if logRecord.TimeUnixNano <= uint64(maxInt64) {
-		timestamp = time.Unix(0, int64(logRecord.TimeUnixNano))
-	} else {
-		// Handle overflow case - split into seconds and remaining nanoseconds
-		// For extremely large values, use a safe approach that avoids overflow
-		seconds := logRecord.TimeUnixNano / 1000000000
-		nanos := logRecord.TimeUnixNano % 1000000000
-
-		// Ensure seconds is within int64 range
-		var secInt64 int64
-
-		if seconds > uint64(maxInt64) {
-			// If seconds would overflow int64, use max int64 value
-			// This is an extreme edge case (timestamp far in the future)
-			secInt64 = maxInt64
-		} else {
-			secInt64 = int64(seconds)
-		}
-
-		// Explicitly check that nanos is within int64 range
-		// This check is redundant since nanos is always < 1000000000 after modulo operation,
-		// but it satisfies the linter
-		var nanosInt64 int64
-
-		if nanos > uint64(maxInt64) {
-			// This condition should never be true after modulo 1000000000
-			nanosInt64 = 0
-		} else {
-			nanosInt64 = int64(nanos)
-		}
-
-		timestamp = time.Unix(secInt64, nanosInt64)
-	}
+	timestamp := safeTimeFromUnixNano(logRecord.TimeUnixNano)
+	observedTimestamp := safeTimeFromUnixNanoPtr(logRecord.ObservedTimeUnixNano)
+	traceFlags := traceFlagsFromRecord(logRecord.Flags)
 
 	// Note: Removed raw_data JSON generation to save storage space
 	// The raw protobuf data was consuming massive storage with no benefit
 
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
+		ObservedTimestamp:  observedTimestamp,
 		TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
 		SpanID:             fmt.Sprintf("%x", logRecord.SpanId),
+		TraceFlags:         traceFlags,
 		SeverityText:       logRecord.SeverityText,
 		SeverityNumber:     int32(logRecord.SeverityNumber),
 		Body:               body,
+		EventName:          logRecord.EventName,
 		ServiceName:        serviceName,
 		ServiceVersion:     serviceVersion,
 		ServiceInstance:    serviceInstance,
 		ScopeName:          scopeName,
 		ScopeVersion:       scopeVersion,
+		ScopeAttributes:    scopeAttributes,
 		Attributes:         strings.Join(logAttribs, ","),
 		ResourceAttributes: strings.Join(resourceAttribs, ","),
 		// RawData field removed to save storage space
@@ -182,12 +153,55 @@ func createLogRow(
 }
 
 // getScopeInfo extracts scope name and version
-func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version string) {
+func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version, attributes string) {
 	if scope == nil {
-		return "", ""
+		return "", "", ""
 	}
 
-	return scope.Name, scope.Version
+	scopeAttributes := processLogAttributes(scope.Attributes)
+
+	return scope.Name, scope.Version, strings.Join(scopeAttributes, ",")
+}
+
+func safeTimeFromUnixNano(value uint64) time.Time {
+	if value == 0 {
+		return time.Now().UTC()
+	}
+
+	if value <= uint64(maxInt64) {
+		return time.Unix(0, int64(value))
+	}
+
+	seconds := value / 1000000000
+	nanos := value % 1000000000
+
+	var secInt64 int64
+	if seconds > uint64(maxInt64) {
+		secInt64 = maxInt64
+	} else {
+		secInt64 = int64(seconds)
+	}
+
+	return time.Unix(secInt64, int64(nanos))
+}
+
+func safeTimeFromUnixNanoPtr(value uint64) *time.Time {
+	if value == 0 {
+		return nil
+	}
+
+	parsed := safeTimeFromUnixNano(value)
+	return &parsed
+}
+
+func traceFlagsFromRecord(flags uint32) *int32 {
+	if flags == 0 {
+		return nil
+	}
+
+	// Mask to W3C trace flags (lowest 8 bits).
+	traceFlags := int32(flags & 0xFF)
+	return &traceFlags
 }
 
 // parseOTELLogs parses OTEL protobuf logs data and returns LogRow entries
@@ -216,7 +230,7 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 		// Process all scope logs for this resource
 		for _, scopeLog := range resourceLog.ScopeLogs {
 			// Get scope info once per scope
-			scopeName, scopeVersion := getScopeInfo(scopeLog.Scope)
+			scopeName, scopeVersion, scopeAttributes := getScopeInfo(scopeLog.Scope)
 
 			// Process all log records for this scope
 			for _, logRecord := range scopeLog.LogRecords {
@@ -227,7 +241,7 @@ func parseOTELLogs(b []byte, _ string) ([]models.OTELLogRow, error) {
 				row := createLogRow(
 					logRecord,
 					serviceName, serviceVersion, serviceInstance,
-					scopeName, scopeVersion,
+					scopeName, scopeVersion, scopeAttributes,
 					resourceAttribs,
 					logAttribs,
 				)
@@ -1016,7 +1030,7 @@ func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []models.OTELTr
 	// Process all scope spans for this resource
 	for _, scopeSpan := range resourceSpan.ScopeSpans {
 		// Get scope info once per scope
-		scopeName, scopeVersion := getScopeInfo(scopeSpan.Scope)
+		scopeName, scopeVersion, _ := getScopeInfo(scopeSpan.Scope)
 
 		// Process all spans for this scope
 		for _, span := range scopeSpan.Spans {
