@@ -71,7 +71,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {:noreply,
      socket
      |> assign(:show_rule_builder, false)
-     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully. View it in Settings > Rules.")}
+     |> put_flash(
+       :info,
+       "Rule \"#{rule.name}\" created successfully. View it in Settings > Rules."
+     )}
   end
 
   def handle_info({:rule_creation_failed, reason}, socket) do
@@ -97,8 +100,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               variant="primary"
               size="sm"
             >
-              <.icon name="hero-bolt" class="w-4 h-4" />
-              Create Event Rule
+              <.icon name="hero-bolt" class="w-4 h-4" /> Create Event Rule
             </.ui_button>
             <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="ghost" size="sm">
               Back to logs
@@ -116,8 +118,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           <.log_details log={@log} />
         </div>
       </div>
-
-      <!-- Rule Builder Modal -->
+      
+    <!-- Rule Builder Modal -->
       <.live_component
         :if={@show_rule_builder}
         module={PromotionRuleBuilder}
