@@ -102,7 +102,7 @@ config :serviceradar_core, Oban,
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
     # No Cron plugin - core-elx handles all scheduled jobs
   ],
-  peer: Oban.Peers.Database
+  peer: {Oban.Peers.Database, []}
 
 # AshOban configuration
 config :ash_oban,
