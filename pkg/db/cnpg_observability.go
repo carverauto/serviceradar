@@ -20,22 +20,27 @@ const (
 const (
 	otelLogsInsertSQL = `INSERT INTO %s (
 		timestamp,
+		observed_timestamp,
 		trace_id,
 		span_id,
+		trace_flags,
 		severity_text,
 		severity_number,
 		body,
+		event_name,
 		service_name,
 		service_version,
 		service_instance,
 		scope_name,
 		scope_version,
+		scope_attributes,
 		attributes,
 		resource_attributes
 	) VALUES (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
-		$11,$12,$13
+		$11,$12,$13,$14,$15,
+		$16,$17
 	) ON CONFLICT DO NOTHING`
 
 	otelMetricsInsertSQL = `INSERT INTO %s (
@@ -113,16 +118,20 @@ func (inserter otelLogInserter) QueueRow(batch *pgx.Batch, query string, rowInde
 	row := inserter.rows[rowIndex]
 	batch.Queue(query,
 		timestamp,
+		row.ObservedTimestamp,
 		row.TraceID,
 		row.SpanID,
+		row.TraceFlags,
 		row.SeverityText,
 		row.SeverityNumber,
 		row.Body,
+		row.EventName,
 		row.ServiceName,
 		row.ServiceVersion,
 		row.ServiceInstance,
 		row.ScopeName,
 		row.ScopeVersion,
+		row.ScopeAttributes,
 		row.Attributes,
 		row.ResourceAttributes,
 	)

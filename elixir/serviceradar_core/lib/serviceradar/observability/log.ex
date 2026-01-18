@@ -72,16 +72,20 @@ defmodule ServiceRadar.Observability.Log do
     create :create do
       accept [
         :timestamp,
+        :observed_timestamp,
         :trace_id,
         :span_id,
+        :trace_flags,
         :severity_text,
         :severity_number,
         :body,
+        :event_name,
         :service_name,
         :service_version,
         :service_instance,
         :scope_name,
         :scope_version,
+        :scope_attributes,
         :attributes,
         :resource_attributes
       ]
@@ -121,6 +125,11 @@ defmodule ServiceRadar.Observability.Log do
       description "When the log entry was generated (part of composite PK)"
     end
 
+    attribute :observed_timestamp, :utc_datetime_usec do
+      public? true
+      description "When the log entry was observed by the collector"
+    end
+
     attribute :id, :uuid do
       primary_key? true
       allow_nil? false
@@ -140,6 +149,11 @@ defmodule ServiceRadar.Observability.Log do
       description "Span ID for correlation"
     end
 
+    attribute :trace_flags, :integer do
+      public? true
+      description "W3C trace flags"
+    end
+
     # OpenTelemetry severity
     attribute :severity_text, :string do
       public? true
@@ -155,6 +169,11 @@ defmodule ServiceRadar.Observability.Log do
     attribute :body, :string do
       public? true
       description "Log message body"
+    end
+
+    attribute :event_name, :string do
+      public? true
+      description "Event name identifying the log record type"
     end
 
     # Service identification (from Resource)
@@ -182,6 +201,11 @@ defmodule ServiceRadar.Observability.Log do
     attribute :scope_version, :string do
       public? true
       description "Instrumentation scope version"
+    end
+
+    attribute :scope_attributes, :string do
+      public? true
+      description "Instrumentation scope attributes"
     end
 
     # Structured attributes (stored as TEXT by db-event-writer)

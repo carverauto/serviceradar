@@ -976,7 +976,8 @@ mod tests {
         assert!(matches!(plan.entity, Entity::Devices));
         assert!(plan.stats.is_some());
 
-        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
         let lower = sql.to_lowercase();
         assert!(
             lower.contains("group by"),
@@ -994,7 +995,10 @@ mod tests {
             lower.contains("count(*)"),
             "expected COUNT(*) in SQL, got: {sql}"
         );
-        assert!(params.is_empty(), "grouped stats without filters should have no params");
+        assert!(
+            params.is_empty(),
+            "grouped stats without filters should have no params"
+        );
     }
 
     #[test]
@@ -1033,7 +1037,8 @@ mod tests {
         let query = "in:devices vendor_name:Cisco stats:count() as count by type";
         let plan = plan_for(query);
 
-        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build filtered grouped stats SQL");
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build filtered grouped stats SQL");
         let lower = sql.to_lowercase();
         assert!(
             lower.contains("where") && lower.contains("vendor_name"),
@@ -1043,7 +1048,11 @@ mod tests {
             lower.contains("group by") && lower.contains("coalesce(type"),
             "expected GROUP BY with type column in SQL, got: {sql}"
         );
-        assert_eq!(params.len(), 1, "should have one param for vendor_name filter");
+        assert_eq!(
+            params.len(),
+            1,
+            "should have one param for vendor_name filter"
+        );
     }
 
     #[test]

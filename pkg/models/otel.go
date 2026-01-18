@@ -5,16 +5,20 @@ import "time"
 // OTELLogRow represents a normalized log entry emitted by OTEL collectors.
 type OTELLogRow struct {
 	Timestamp          time.Time
+	ObservedTimestamp  *time.Time
 	TraceID            string
 	SpanID             string
+	TraceFlags         *int32
 	SeverityText       string
 	SeverityNumber     int32
 	Body               string
+	EventName          string
 	ServiceName        string
 	ServiceVersion     string
 	ServiceInstance    string
 	ScopeName          string
 	ScopeVersion       string
+	ScopeAttributes    string
 	Attributes         string
 	ResourceAttributes string
 }

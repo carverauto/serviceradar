@@ -325,7 +325,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp log_details(assigns) do
     # Fields shown in summary or body (exclude from details)
     summary_fields =
-      ~w(id log_id severity_text severity_number timestamp observed_timestamp service_name scope_name trace_id span_id body message)
+      ~w(id log_id severity_text severity_number timestamp service_name scope_name trace_id span_id body message)
 
     # Get remaining fields
     detail_fields =

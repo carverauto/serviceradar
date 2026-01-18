@@ -135,10 +135,7 @@ pub(super) async fn execute(
                 .load(conn)
                 .await
                 .map_err(|err| ServiceError::Internal(err.into()))?;
-            return Ok(rows
-                .into_iter()
-                .filter_map(|row| row.payload)
-                .collect());
+            return Ok(rows.into_iter().filter_map(|row| row.payload).collect());
         }
 
         // Simple count (ungrouped)
@@ -404,7 +401,10 @@ fn build_grouped_stats_order_clause(plan: &QueryPlan, alias: &str, group_column:
     for clause in &plan.order {
         let expr = if clause.field.eq_ignore_ascii_case(alias) || clause.field == "count" {
             "COUNT(*)".to_string()
-        } else if clause.field.eq_ignore_ascii_case(group_column.split('(').next().unwrap_or("")) {
+        } else if clause
+            .field
+            .eq_ignore_ascii_case(group_column.split('(').next().unwrap_or(""))
+        {
             group_column.to_string()
         } else {
             continue;
@@ -437,11 +437,10 @@ fn build_grouped_stats_filter_clause(
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
         "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
         "type_id" => {
-            let type_id: i64 = filter
-                .value
-                .as_scalar()?
-                .parse()
-                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            let type_id: i64 =
+                filter.value.as_scalar()?.parse().map_err(|_| {
+                    ServiceError::InvalidRequest("type_id must be an integer".into())
+                })?;
             binds.push(DeviceSqlBindValue::Int(type_id));
             match filter.op {
                 FilterOp::Eq => "type_id = ?".to_string(),
