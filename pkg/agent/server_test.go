@@ -32,47 +32,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	cconfig "github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
-
-type mockKVStore struct{}
-
-func (*mockKVStore) Get(_ context.Context, _ string) (data []byte, found bool, err error) {
-	data = nil
-	found = false
-	err = nil
-
-	return data, found, err
-}
-
-func (*mockKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) (err error) {
-	err = nil
-
-	return err
-}
-
-func (*mockKVStore) Create(_ context.Context, _ string, _ []byte, _ time.Duration) error {
-	return nil
-}
-
-func (*mockKVStore) Delete(_ context.Context, _ string) error {
-	return nil
-}
-
-func (*mockKVStore) Watch(_ context.Context, _ string) (<-chan []byte, error) {
-	ch := make(chan []byte)
-	close(ch)
-
-	return ch, nil
-}
-
-func (*mockKVStore) Close() error {
-	return nil
-}
-
-var _ KVStore = (*mockKVStore)(nil)
 
 type mockService struct{}
 
@@ -104,41 +66,6 @@ func setupServerConfig() *ServerConfig {
 	}
 }
 
-func TestResolveKVConnectionSettingsPrefersConfig(t *testing.T) {
-	t.Setenv("KV_ADDRESS", "env-kv:50057")
-	t.Setenv("KV_SEC_MODE", "spiffe")
-
-	cfg := &ServerConfig{
-		KVAddress: "config-kv:50057",
-		KVSecurity: &models.SecurityConfig{
-			Mode:           "spiffe",
-			ServerSPIFFEID: "spiffe://example.org/ns/demo/sa/serviceradar-datasvc",
-		},
-	}
-
-	addr, sec, err := resolveKVConnectionSettings(cfg)
-	require.NoError(t, err)
-	assert.Equal(t, "config-kv:50057", addr)
-	assert.Equal(t, cfg.KVSecurity, sec)
-}
-
-func TestResolveKVConnectionSettingsEnvFallback(t *testing.T) {
-	t.Setenv("KV_ADDRESS", "env-kv:50057")
-	t.Setenv("KV_SEC_MODE", "spiffe")
-	t.Setenv("KV_TRUST_DOMAIN", "example.org")
-	t.Setenv("KV_SERVER_SPIFFE_ID", "spiffe://example.org/ns/demo/sa/serviceradar-datasvc")
-	t.Setenv("KV_WORKLOAD_SOCKET", "unix:/tmp/spire-agent.sock")
-
-	addr, sec, err := resolveKVConnectionSettings(&ServerConfig{})
-	require.NoError(t, err)
-	assert.Equal(t, "env-kv:50057", addr)
-	require.NotNil(t, sec)
-	assert.Equal(t, models.SecurityMode("spiffe"), sec.Mode)
-	assert.Equal(t, "spiffe://example.org/ns/demo/sa/serviceradar-datasvc", sec.ServerSPIFFEID)
-	assert.Equal(t, "unix:/tmp/spire-agent.sock", sec.WorkloadSocket)
-	assert.Equal(t, models.RoleAgent, sec.Role)
-}
-
 // In server_test.go
 
 func TestNewServerBasic(t *testing.T) {
@@ -148,13 +75,11 @@ func TestNewServerBasic(t *testing.T) {
 	defer cleanup()
 
 	config := setupServerConfig()
-	kvStore := &mockKVStore{}
 	testLogger := createTestLogger()
 
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
-		configStore:  kvStore,
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
@@ -165,18 +90,11 @@ func TestNewServerBasic(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, error) {
-		t.Log("KVAddress not set, using mock KV store")
-
-		return kvStore, nil
-	}
-
 	s.createSweepService = func(_ context.Context, _ *SweepConfig) (Service, error) {
 		return &mockService{}, nil
 	}
 
 	cfgLoader := cconfig.NewConfig(nil)
-
 	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
@@ -186,8 +104,6 @@ func TestNewServerBasic(t *testing.T) {
 	require.NotNil(t, server)
 
 	assert.Equal(t, config.Security, server.SecurityConfig())
-
-	t.Logf("server.configStore = %v", server.configStore)
 }
 
 func TestServer_HandleSweepGetResults_Success(t *testing.T) {
@@ -473,8 +389,6 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	defer cleanup()
 
 	config := setupServerConfig()
-	kvStore := &mockKVStore{}
-
 	sweepDir := filepath.Join(tmpDir, "sweep")
 	require.NoError(t, os.MkdirAll(sweepDir, 0755))
 
@@ -495,7 +409,6 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	s := &Server{
 		configDir:    tmpDir,
 		config:       config,
-		configStore:  kvStore,
 		services:     make([]Service, 0),
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]*CheckerConfig),
@@ -506,12 +419,6 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		logger:       testLogger,
 	}
 
-	s.setupDataStores = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig, _ logger.Logger) (KVStore, error) {
-		t.Log("KVAddress not set, using mock KV store")
-
-		return kvStore, nil
-	}
-
 	s.createSweepService = func(_ context.Context, sweepConfig *SweepConfig) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
@@ -519,16 +426,12 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 	}
 
 	cfgLoader := cconfig.NewConfig(nil)
-	cfgLoader.SetKVStore(kvStore)
-
 	err = s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
 	assert.Equal(t, config.Security, s.SecurityConfig())
 	assert.Len(t, s.services, 1)
 	assert.Equal(t, "mock_sweep", s.services[0].Name())
-
-	t.Logf("server.configStore = %v", s.configStore)
 }
 
 func TestServerGetStatus(t *testing.T) {

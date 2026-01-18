@@ -5,11 +5,11 @@ use crate::{
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::discovered_interfaces::dsl::{
         agent_id as col_agent_id, created_at as col_created_at, device_id as col_device_id,
-        device_ip as col_device_ip, discovered_interfaces, if_admin_status as col_if_admin_status,
-        if_alias as col_if_alias, if_descr as col_if_descr, if_index as col_if_index,
-        if_name as col_if_name, if_oper_status as col_if_oper_status,
+        device_ip as col_device_ip, discovered_interfaces, gateway_id as col_gateway_id,
+        if_admin_status as col_if_admin_status, if_alias as col_if_alias, if_descr as col_if_descr,
+        if_index as col_if_index, if_name as col_if_name, if_oper_status as col_if_oper_status,
         if_phys_address as col_if_phys_address, if_speed as col_if_speed,
-        gateway_id as col_gateway_id, timestamp as col_timestamp,
+        timestamp as col_timestamp,
     },
     time::TimeRange,
 };

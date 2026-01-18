@@ -93,7 +93,7 @@ sequenceDiagram
 
 ## Agent & Registry Overview
 
-- The agent loads checker configs from `CheckersDir` and/or KV (see
+- The agent loads checker configs from `CheckersDir` (see
   `pkg/agent/server.go:1432`). For gRPC checks the gateway-provided `details`
   value is sufficient—you do not need an extra config file.
 - Service types are registered in `pkg/agent/registry.go`. Most new checkers can

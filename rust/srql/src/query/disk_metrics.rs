@@ -6,8 +6,8 @@ use crate::{
     schema::disk_metrics::dsl::{
         agent_id as col_agent_id, available_bytes as col_available_bytes,
         device_id as col_device_id, device_name as col_device_name, disk_metrics,
-        host_id as col_host_id, mount_point as col_mount_point, partition as col_partition,
-        gateway_id as col_gateway_id, timestamp as col_timestamp, total_bytes as col_total_bytes,
+        gateway_id as col_gateway_id, host_id as col_host_id, mount_point as col_mount_point,
+        partition as col_partition, timestamp as col_timestamp, total_bytes as col_total_bytes,
         usage_percent as col_usage_percent, used_bytes as col_used_bytes,
     },
     time::TimeRange,

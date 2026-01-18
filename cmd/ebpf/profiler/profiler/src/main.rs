@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::info;
 use profiler::{
     config::Config,
     run_standalone_profiling,
@@ -41,10 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Server mode - existing logic
-    if std::env::var("CONFIG_SOURCE").ok().as_deref() == Some("kv") {
-        warn!("CONFIG_SOURCE=kv is not supported for the profiler; falling back to local config file");
-    }
-
     let config: Config = load_configuration(&args)?;
     let addr = parse_bind_address(&config)?;
 

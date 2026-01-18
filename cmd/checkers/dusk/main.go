@@ -34,8 +34,8 @@ import (
 )
 
 var (
-	errFailedToLoadConfig      = fmt.Errorf("failed to load config")
-	errDuskDescriptorMissing   = fmt.Errorf("dusk-checker descriptor missing")
+	errFailedToLoadConfig    = fmt.Errorf("failed to load config")
+	errDuskDescriptorMissing = fmt.Errorf("dusk-checker descriptor missing")
 )
 
 func main() {

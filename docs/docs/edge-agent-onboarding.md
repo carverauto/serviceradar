@@ -9,11 +9,11 @@ to today’s manual steps.
 
 ## 1. Roles & Relationships
 
-| Component | Purpose | Parent | Downstream scope | KV document |
-|-----------|---------|--------|------------------|-------------|
-| Gateway | Site gateway that maintains the control channel to Core and Data Service. | None | Agents | `config/gateways/<gateway-id>` |
-| Agent | Executes discovery tasks for a gateway (SNMP, sysmon, custom scanners). | Gateway | Checkers | `config/gateways/<gateway-id>/agents/<agent-id>` |
-| Checker | Device-specific worker (e.g. SNMP credential set, sysmon target). | Agent | N/A | `config/agents/<agent-id>/checkers/<checker-id>` |
+| Component | Purpose | Parent | Downstream scope | Registry record |
+|-----------|---------|--------|------------------|-----------------|
+| Gateway | Site gateway that maintains the control channel to Core and Data Service. | None | Agents | Gateway record |
+| Agent | Executes discovery tasks for a gateway (SNMP, sysmon, custom scanners). | Gateway | Checkers | Agent record |
+| Checker | Device-specific worker (e.g. SNMP credential set, sysmon target). | Agent | N/A | Checker record |
 
 Key rules:
 
@@ -38,8 +38,8 @@ Key rules:
 ## 3. Desired Flow (Post-Automation)
 
 The UI and API expose a single onboarding surface with a `Component type`
-selector. Each type captures a different set of inputs and triggers cascading KV
-updates.
+selector. Each type captures a different set of inputs and triggers cascading
+registry updates.
 
 ### 3.1 Common Inputs
 
@@ -56,14 +56,14 @@ updates.
 
 ### 3.2 Outcomes By Type
 
-| Type | Package contents | KV mutation | Status transitions |
-|------|------------------|-------------|--------------------|
-| Gateway | `edge-gateway.env`, SPIRE join token, bundle | `config/gateways/<id>` → create/refresh with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
-| Agent | `edge-agent.env`, SPIRE join token, bundle | `config/gateways/<gateway-id>/agents/<agent-id>` (`status: pending`) | Same as gateway; activation tied to agent status reports |
-| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | `config/agents/<agent-id>/checkers/<checker-id>` (`status: pending`) | Same as gateway; activation triggered by agent heartbeat |
+| Type | Package contents | Registry update | Status transitions |
+|------|------------------|-----------------|--------------------|
+| Gateway | `edge-gateway.env`, SPIRE join token, bundle | Create/refresh gateway record with metadata (`status: pending`) | `issued → delivered → activated → revoked/expired` |
+| Agent | `edge-agent.env`, SPIRE join token, bundle | Create/refresh agent record (`status: pending`) | Same as gateway; activation tied to agent status reports |
+| Checker | `edge-checker.env`, optional SPIRE artifacts, checker metadata | Create/refresh checker record (`status: pending`) | Same as gateway; activation triggered by agent heartbeat |
 
-On activation, Core updates the relevant KV node to `status: "active"` and
-emits an audit event capturing the parent association.
+On activation, Core updates the relevant registry record to `status: "active"`
+and emits an audit event capturing the parent association.
 
 ---
 
@@ -94,33 +94,33 @@ and `parent_id` columns so operators can confirm hierarchy from the terminal.
 
 ---
 
-## 5. KV Automation Model
+## 5. Registry Automation Model
 
 When Core accepts the creation request it performs the following:
 
 1. **Validate parents** – ensure gateway or agent exists (activated or pending).
 2. **Persist package** – insert record into `edge_onboarding_packages` with the
    parent linkage fields.
-3. **Update KV**:
-   - Gateway: upsert `config/gateways/<gateway-id>` with metadata, `status` and a
-     generated timestamp.
-   - Agent: upsert `config/gateways/<gateway-id>/agents/<agent-id>.json`.
-   - Checker: upsert `config/agents/<agent-id>/checkers/<checker-id>.json`.
+3. **Update registry records**:
+   - Gateway: upsert the gateway record with metadata, `status`, and a generated
+     timestamp.
+   - Agent: upsert the agent record with its parent linkage.
+   - Checker: upsert the checker record with its parent linkage and metadata.
 4. **Broadcast cache updates** – notify Core’s in-memory gateway/agent registries
    so report-status calls accept the pending IDs immediately.
 
-All KV writes use optimistic concurrency with revision checks to avoid clobbering
-manual overrides. On failure, the API returns `409 Conflict` and the frontend
-raises a toast instructing operators to refresh.
+All registry writes use optimistic concurrency with revision checks to avoid
+clobbering manual overrides. On failure, the API returns `409 Conflict` and the
+frontend raises a toast instructing operators to refresh.
 
 Activation transitions occur when Core observes the new component in its
 reporting pipelines:
 
-| Trigger | Condition | KV effect |
-|---------|-----------|-----------|
-| Gateway report | `gateway_id` matches pending package | `config/gateways/<id>.status = "active"` |
-| Agent report | `agent_id` + `gateway_id` matches pending agent | `.../agents/<agent-id>.status = "active"` |
-| Checker report | agent heartbeat includes checker metrics / `checker_id` | `.../checkers/<checker-id>.status = "active"` |
+| Trigger | Condition | Registry effect |
+|---------|-----------|-----------------|
+| Gateway report | `gateway_id` matches pending package | Gateway status set to `active` |
+| Agent report | `agent_id` + `gateway_id` matches pending agent | Agent status set to `active` |
+| Checker report | agent heartbeat includes checker metrics / `checker_id` | Checker status set to `active` |
 
 Revocation and expiry events set `status: "disabled"` and cache evictions ensure
 future reports are rejected until reissued.
@@ -143,7 +143,7 @@ Additional files for checkers may include credential bundles (encrypted ZIP) or
 device target manifests. Install scripts (`edge-gateway-restart.sh`,
 `edge-agent-install.sh`, `edge-checker-install.sh`) consume the env file, apply
 metadata, and restart Docker Compose services. The scripts must no-op if the
-KV status is already `active` to keep replays idempotent.
+status is already `active` to keep replays idempotent.
 
 ---
 
@@ -157,11 +157,9 @@ Until GH-1909 lands, operators can emulate the flow:
      `agent-metadata.json`.
    - Issue another gateway package solely to obtain SPIRE artifacts.
    - Rename `edge-gateway.env` to `edge-agent.env` and adjust variables.
-   - `serviceradar-cli kv get --key config/gateways/<gateway-id>/agents/<agent-id>.json`
-     → merge the new agent definition and `kv put` it back with `status: "pending"`.
+   - Use the admin API or database tooling to create the pending agent record.
 3. For checkers:
-   - Edit the agent’s KV blob under
-     `config/agents/<agent-id>/checkers/<checker-id>.json`.
+   - Use the admin API or database tooling to create the pending checker record.
    - Restart the agent container so it reads the new checker.
 
 Document every manual change in the site’s bead issue so the automation work can
@@ -180,14 +178,14 @@ fold those steps into the API updates.
 - Logs:
   - Package creation logs include parent references (`parent_type`, `parent_id`)
     but never the plaintext download token.
-  - Activation logs confirm KV updates by printing the revision number.
+  - Activation logs confirm registry updates by printing the revision number.
 
 Failure modes:
 
 | Symptom | Resolution |
 |---------|------------|
 | 409 on create | Refresh parent list; ensure parent not revoked. |
-| Agent stays pending | Verify gateway reports agent in status heartbeat; check KV revision to ensure automation updated entry. |
+| Agent stays pending | Verify gateway reports agent in status heartbeat; check the registry record to ensure automation updated entry. |
 | Checker missing credentials | Confirm metadata JSON carried the credential payload; reissue package if file omitted. |
 
 ---
@@ -203,19 +201,19 @@ Failure modes:
 ## 10. Implementation Plan (Draft)
 
 ### Backend (Core + DB)
-- Extend `edge_onboarding_packages` schema with `component_type`, `parent_type`, `parent_id`, `checker_kind`, `checker_config_json`, and `kv_revision` columns. Update CNPG migrations + Bazel targets.
+- Extend `edge_onboarding_packages` schema with `component_type`, `parent_type`, `parent_id`, `checker_kind`, `checker_config_json`, and a registry revision column. Update CNPG migrations + Bazel targets.
 - Update `models.EdgeOnboardingPackage` and related request structs to carry the new fields. Introduce enumerations for component/parent types.
-- Adjust `edgeOnboardingService.CreatePackage` to validate parent existence via KV/cache, derive default IDs, and perform KV writes through `pkg/kv`.
+- Adjust `edgeOnboardingService.CreatePackage` to validate parent existence via registry cache, derive default IDs, and perform registry writes through the core data layer.
 - API payloads now include `component_id` (the new component identifier) and `parent_id` for agent/checker relationships.
 - Emit parent linkage in audit events and include in cache refresh payloads.
-- Update activation paths (`RecordActivation`, status reports) to promote agents/checkers and write KV revisions.
+- Update activation paths (`RecordActivation`, status reports) to promote agents/checkers and write registry revisions.
 - Add metrics labels (`component_type` / `parent_type`) and logs.
 
-### KV Integrations
-- Build helper functions in `pkg/kv/edgeconfig` to upsert gateway/agent/checker documents with optimistic revision checks.
-- Ensure rollbacks handle partial failure (e.g., KV failure after package persistence) by revoking created SPIRE entries and marking package aborted.
+### Registry Integrations
+- Build helper functions in the core data layer to upsert gateway/agent/checker records with optimistic revision checks.
+- Ensure rollbacks handle partial failure (e.g., registry failure after package persistence) by revoking created SPIRE entries and marking package aborted.
 - Cover new helpers with unit tests exercising pending→active transitions.
-- `pkg/core/edge_onboarding.applyComponentKVUpdates` writes `pending` documents to the appropriate KV keys (`config/gateways/<gateway>.json`, `config/gateways/<gateway>/agents/<agent>.json`, `config/agents/<agent>/checkers/<checker>.json`).
+- Update `pkg/core/edge_onboarding` to apply pending records for gateways, agents, and checkers in the registry.
 
 ### CLI
 - Expand `serviceradar-cli edge package create/list/download` flags and output to surface component type, parent, and checker metadata.
@@ -235,5 +233,5 @@ Failure modes:
 
 ### Testing
 - Add unit tests covering create/list/revoke flows for each component type.
-- Extend API integration tests (Bazel target `//pkg/core:edge_onboarding_test`) to validate KV mutations and status transitions.
+- Extend API integration tests (Bazel target `//pkg/core:edge_onboarding_test`) to validate registry mutations and status transitions.
 - Wire web e2e test stub (Playwright) to create dummy packages against mock API once available.

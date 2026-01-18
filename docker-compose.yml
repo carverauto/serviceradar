@@ -447,15 +447,8 @@ services:
       - otel-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/otel.toml
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/otel.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/otel-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:
@@ -481,15 +474,8 @@ services:
       - flowgger-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/flowgger.toml
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/flowgger.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/flowgger-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -517,15 +503,8 @@ services:
       - trapd-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/trapd.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/trapd.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/trapd-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_BIND_SERVICE
@@ -583,15 +562,8 @@ services:
       - db-event-writer-config:/etc/serviceradar/consumers
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/db-event-writer.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/db-event-writer-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
       - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
@@ -633,15 +605,8 @@ services:
       - mapper-data:/var/lib/serviceradar
       - ./logs:/var/log/serviceradar
     environment:
-      - CONFIG_SOURCE=kv
+      - CONFIG_SOURCE=file
       - CONFIG_PATH=/etc/serviceradar/mapper.json
-      - KV_ADDRESS=datasvc:50057
-      - KV_SEC_MODE=mtls
-      - KV_CERT_DIR=/etc/serviceradar/certs
-      - KV_CERT_FILE=/etc/serviceradar/certs/mapper.pem
-      - KV_KEY_FILE=/etc/serviceradar/certs/mapper-key.pem
-      - KV_CA_FILE=/etc/serviceradar/certs/root.pem
-      - KV_SERVER_NAME=datasvc.serviceradar
       - LOG_LEVEL=${LOG_LEVEL:-info}
     depends_on:
       cert-permissions-fixer:

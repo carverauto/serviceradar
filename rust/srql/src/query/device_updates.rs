@@ -5,9 +5,9 @@ use crate::{
     parser::{Entity, Filter, OrderClause, OrderDirection},
     schema::device_updates::dsl::{
         agent_id as col_agent_id, available as col_available, device_id as col_device_id,
-        device_updates, discovery_source as col_discovery_source, hostname as col_hostname,
-        ip as col_ip, mac as col_mac, observed_at as col_observed_at, partition as col_partition,
-        gateway_id as col_gateway_id,
+        device_updates, discovery_source as col_discovery_source, gateway_id as col_gateway_id,
+        hostname as col_hostname, ip as col_ip, mac as col_mac, observed_at as col_observed_at,
+        partition as col_partition,
     },
     time::TimeRange,
 };

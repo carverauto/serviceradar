@@ -33,7 +33,7 @@ image:
     tools: *appTag
 kv:
   enabled: true
-  configSource: kv
+  configSource: file
   bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
   secMode: spiffe
@@ -49,11 +49,11 @@ natsCreds:
   system: ""
   operator: ""
 checkerTemplates:
-  # Enable checker template seeding into KV for edge onboarding
-  enabled: true
+  # KV-backed checker template seeding is deprecated; leave disabled.
+  enabled: false
 core:
-  # Enable or disable KV watch/reload in the core service
-  configWatchEnabled: true
+  # KV watch/reload is no longer supported for service configuration.
+  configWatchEnabled: false
   clusterStrategy: "dns"
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"

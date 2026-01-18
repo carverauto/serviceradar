@@ -53,7 +53,7 @@ Implementation details:
 
 1. **Ingress TLS:** Keep the edge proxy (Caddy/Ingress) terminating TLS in front of SRQL; the service itself only speaks plain HTTP.
 2. **Datasvc connectivity:** When using KV-backed keys, ensure the pod has:
-   - `KV_ADDRESS`, `KV_SERVER_SPIFFE_ID`, and the mTLS cert volume (see the [KV configuration guide](./kv-configuration.md)).
+   - `KV_ADDRESS`, `KV_SERVER_SPIFFE_ID`, and the mTLS cert volume.
    - Network access to the datasvc endpoint.
 3. **Environment:** Set the new variables in your manifest:
    ```yaml title="k8s snippet"

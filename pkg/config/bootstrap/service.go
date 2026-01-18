@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/logger"
@@ -17,9 +16,7 @@ var (
 	errConfigPathEmpty = errors.New("config path is required")
 )
 
-const watcherSnapshotRefreshInterval = time.Minute
-
-// ServiceOptions controls how a service configuration is loaded and watched.
+// ServiceOptions controls how a service configuration is loaded.
 type ServiceOptions struct {
 	Role         models.ServiceRole
 	ConfigPath   string
@@ -33,189 +30,24 @@ type ServiceOptions struct {
 
 // Result contains helpers returned from Service.
 type Result struct {
-	manager    *config.KVManager
 	descriptor config.ServiceDescriptor
 	instanceID string
-	cfgLoader  *config.Config
-	pinnedPath string
 }
 
-// Close closes the underlying KV manager if it was created.
+// Close is a no-op now that KV-managed config is removed.
 func (r *Result) Close() error {
-	if r == nil || r.manager == nil {
-		return nil
-	}
-
-	return r.manager.Close()
+	return nil
 }
 
-// StartWatch starts watching the descriptor's KV key using the provided logger.
-// If the manager is nil, this is a no-op.
-func (r *Result) StartWatch(ctx context.Context, log logger.Logger, cfg interface{}, onReload func()) {
-	if r == nil || r.manager == nil {
-		return
-	}
+// StartWatch is a no-op now that KV-managed config is removed.
+func (r *Result) StartWatch(_ context.Context, _ logger.Logger, _ interface{}, _ func()) {}
 
-	if log == nil {
-		log = logger.NewTestLogger()
-	}
-
-	watchCtx := ctx
-	watcherID := ""
-	if r.descriptor.Name != "" {
-		watcherID = config.RegisterWatcher(config.WatcherRegistration{
-			Service:    r.descriptor.Name,
-			Scope:      r.descriptor.Scope,
-			KVKey:      r.descriptor.KVKey,
-			InstanceID: r.instanceIDOrDefault(),
-		})
-		watchCtx = config.ContextWithWatcher(ctx, watcherID)
-	}
-
-	wrappedReload := onReload
-	if watcherID != "" || onReload != nil {
-		wrappedReload = func() {
-			if watcherID != "" {
-				config.MarkWatcherEvent(watcherID, nil)
-			}
-			if onReload != nil {
-				onReload()
-			}
-		}
-	}
-
-	if r.pinnedPath != "" && r.cfgLoader != nil {
-		r.manager.StartWatchWithPinned(watchCtx, r.descriptor.KVKey, cfg, log, r.pinnedPath, r.cfgLoader, wrappedReload)
-		return
-	}
-
-	r.manager.StartWatch(watchCtx, r.descriptor.KVKey, cfg, log, wrappedReload)
-}
-
-// Manager returns the underlying KV manager (may be nil).
-func (r *Result) Manager() *config.KVManager {
-	if r == nil {
-		return nil
-	}
-
-	return r.manager
-}
-
-// SetInstanceID overrides the identifier associated with watcher telemetry (defaults to descriptor name).
+// SetInstanceID overrides the identifier associated with watcher telemetry (unused now).
 func (r *Result) SetInstanceID(id string) {
 	if r == nil {
 		return
 	}
 	r.instanceID = id
-}
-
-func (r *Result) instanceIDOrDefault() string {
-	if r == nil {
-		return ""
-	}
-	if r.instanceID != "" {
-		return r.instanceID
-	}
-	if r.descriptor.Name != "" {
-		return r.descriptor.Name
-	}
-	return "default"
-}
-
-func newKVManager(ctx context.Context, opts ServiceOptions, cfgLoader *config.Config) (*config.KVManager, error) {
-	if opts.Role == "" {
-		return nil, nil
-	}
-
-	kvMgr, err := config.NewKVManagerFromEnv(ctx, opts.Role)
-	if err != nil {
-		waitLogger := opts.Logger
-		if waitLogger == nil {
-			waitLogger = logger.NewTestLogger()
-		}
-		kvMgr, err = config.NewKVManagerFromEnvWithRetry(ctx, opts.Role, waitLogger)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	kvMgr.SetupConfigLoader(cfgLoader)
-	return kvMgr, nil
-}
-
-func resolveKeyContext(cfg interface{}, opts ServiceOptions) config.KeyContext {
-	keyCtx := mergeKeyContexts(opts.KeyContext, nil)
-	if opts.KeyContextFn != nil {
-		fnCtx := opts.KeyContextFn(cfg)
-		keyCtx = mergeKeyContexts(keyCtx, &fnCtx)
-	}
-	return keyCtx
-}
-
-func applyKVOverlays(ctx context.Context, kvMgr *config.KVManager, desc config.ServiceDescriptor, cfg interface{}, opts ServiceOptions) error {
-	if kvMgr == nil {
-		return nil
-	}
-
-	if err := kvMgr.OverlayConfig(ctx, desc.KVKey, cfg); err != nil && opts.Logger != nil {
-		opts.Logger.Warn().
-			Err(err).
-			Str("service", desc.Name).
-			Str("kv_key", desc.KVKey).
-			Msg("failed to overlay configuration from KV")
-	}
-	if err := kvMgr.BootstrapConfig(ctx, desc.KVKey, opts.ConfigPath, cfg); err != nil {
-		return err
-	}
-	if err := kvMgr.RepairConfigPlaceholders(ctx, desc, opts.ConfigPath, cfg); err != nil && opts.Logger != nil {
-		opts.Logger.Warn().
-			Err(err).
-			Str("service", desc.Name).
-			Str("kv_key", desc.KVKey).
-			Msg("failed to repair placeholder configuration; KV retains existing value")
-	}
-
-	return nil
-}
-
-func attachWatcherHooks(ctx context.Context, kvMgr *config.KVManager, result *Result, log logger.Logger) {
-	if kvMgr == nil {
-		return
-	}
-
-	publishSnapshot := func(info config.WatcherInfo) {
-		if info.InstanceID == "" {
-			info.InstanceID = result.instanceIDOrDefault()
-		}
-		if err := kvMgr.PublishWatcherSnapshot(context.Background(), info); err != nil {
-			log.Warn().
-				Err(err).
-				Str("service", info.Service).
-				Str("kv_key", info.KVKey).
-				Msg("failed to publish watcher snapshot")
-		}
-	}
-
-	config.SetWatcherUpdateHook(publishSnapshot)
-
-	if watcherSnapshotRefreshInterval <= 0 {
-		return
-	}
-
-	go func(ctx context.Context) {
-		ticker := time.NewTicker(watcherSnapshotRefreshInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				for _, info := range config.ListWatchers() {
-					publishSnapshot(info)
-				}
-			}
-		}
-	}(ctx)
 }
 
 func logMergedConfig(log logger.Logger, desc config.ServiceDescriptor, cfg interface{}) {
@@ -234,12 +66,11 @@ func logMergedConfig(log logger.Logger, desc config.ServiceDescriptor, cfg inter
 
 	log.Info().
 		Str("service", desc.Name).
-		Str("kv_key", desc.KVKey).
 		Interface("config", filtered).
 		Msg("loaded service configuration")
 }
 
-// Service loads, overlays, seeds, and optionally watches configuration for a managed service.
+// Service loads configuration for a managed service (file + optional pinned overlay).
 func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}, opts ServiceOptions) (*Result, error) {
 	if ctx == nil {
 		return nil, errContextNil
@@ -251,26 +82,11 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 	cfgLoader := config.NewConfig(opts.Logger)
 	pinnedPath := strings.TrimSpace(os.Getenv("PINNED_CONFIG_PATH"))
 
-	kvMgr, err := newKVManager(ctx, opts, cfgLoader)
-	if err != nil {
+	if err := cfgLoader.LoadAndValidate(ctx, opts.ConfigPath, cfg); err != nil {
 		return nil, err
 	}
 
-	if err = cfgLoader.LoadAndValidate(ctx, opts.ConfigPath, cfg); err != nil {
-		return nil, err
-	}
-
-	resolvedKey, err := desc.ResolveKVKey(resolveKeyContext(cfg, opts))
-	if err != nil {
-		return nil, err
-	}
-	desc.KVKey = resolvedKey
-
-	if err := applyKVOverlays(ctx, kvMgr, desc, cfg, opts); err != nil {
-		return nil, err
-	}
-
-	// Apply pinned config last: pinned > KV > default.
+	// Apply pinned config last: pinned > default.
 	if pinnedPath != "" {
 		if err := cfgLoader.OverlayPinned(ctx, pinnedPath, cfg); err != nil {
 			return nil, err
@@ -289,33 +105,9 @@ func Service(ctx context.Context, desc config.ServiceDescriptor, cfg interface{}
 	}
 
 	result := &Result{
-		manager:    kvMgr,
 		descriptor: desc,
 		instanceID: instanceID,
-		cfgLoader:  cfgLoader,
-		pinnedPath: pinnedPath,
-	}
-
-	if kvMgr != nil {
-		attachWatcherHooks(ctx, kvMgr, result, log)
-
-		if !opts.DisableWatch {
-			result.StartWatch(ctx, log, cfg, opts.OnReload)
-		}
 	}
 
 	return result, nil
-}
-
-func mergeKeyContexts(base config.KeyContext, override *config.KeyContext) config.KeyContext {
-	if override == nil {
-		return base
-	}
-	if override.AgentID != "" {
-		base.AgentID = override.AgentID
-	}
-	if override.GatewayID != "" {
-		base.GatewayID = override.GatewayID
-	}
-	return base
 }

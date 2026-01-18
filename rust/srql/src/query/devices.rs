@@ -5,10 +5,11 @@ use crate::{
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
         agent_id as col_agent_id, device_type as col_device_type,
-        first_seen_time as col_first_seen_time, hostname as col_hostname, ip as col_ip,
-        is_available as col_is_available, last_seen_time as col_last_seen_time, mac as col_mac,
-        model as col_model, ocsf_devices, gateway_id as col_gateway_id, risk_level as col_risk_level,
-        type_id as col_type_id, uid as col_uid, vendor_name as col_vendor_name,
+        first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
+        hostname as col_hostname, ip as col_ip, is_available as col_is_available,
+        last_seen_time as col_last_seen_time, mac as col_mac, model as col_model, ocsf_devices,
+        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        vendor_name as col_vendor_name,
     },
     time::TimeRange,
 };
@@ -634,8 +635,7 @@ fn apply_tags_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Devi
             if tags.is_empty() {
                 return Ok(query);
             }
-            let expr = sql::<Bool>("coalesce(tags, '{}'::jsonb) ?| ")
-                .bind::<Array<Text>, _>(tags);
+            let expr = sql::<Bool>("coalesce(tags, '{}'::jsonb) ?| ").bind::<Array<Text>, _>(tags);
             if matches!(filter.op, FilterOp::NotIn) {
                 Ok(query.filter(not(expr)))
             } else {

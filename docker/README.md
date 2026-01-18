@@ -310,9 +310,10 @@ psql "postgres://serviceradar:<password>@cnpg-rw:5432/serviceradar?sslmode=verif
 
 ### Configuration not loading
 
-Check CONFIG_SOURCE and verify:
+Verify the config file is mounted and CONFIG_SOURCE is set to `file` or `env`:
 ```bash
 docker-compose exec core env | grep CONFIG
+docker-compose exec core ls -la /etc/serviceradar
 ```
 
 ### Clean restart

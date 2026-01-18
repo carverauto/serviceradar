@@ -550,8 +550,7 @@ fn build_tls_connector(
     client_cert: Option<&str>,
     client_key: Option<&str>,
 ) -> anyhow::Result<MakeRustlsConnect> {
-    let mut reader =
-        BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
+    let mut reader = BufReader::new(File::open(root_cert).context("failed to open PGSSLROOTCERT")?);
     let mut root_store = RootCertStore::empty();
     for cert in certs(&mut reader) {
         let cert = cert.context("failed to parse PGSSLROOTCERT")?;

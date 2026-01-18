@@ -45,9 +45,7 @@ var (
 	// ErrAgentIDRequired indicates agent_id is required in configuration
 	ErrAgentIDRequired = errors.New("agent_id is required in configuration")
 	// ErrInvalidJSONResponse indicates invalid JSON response from checker
-	ErrInvalidJSONResponse  = errors.New("invalid JSON response from checker")
-	errKVMtlsEnvMissing     = errors.New("KV_SEC_MODE=mtls requires KV_CERT_FILE, KV_KEY_FILE, and KV_CA_FILE")
-	errUnsupportedKVSecMode = errors.New("unsupported KV_SEC_MODE")
+	ErrInvalidJSONResponse = errors.New("invalid JSON response from checker")
 )
 
 const (
@@ -78,24 +76,12 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 
 	s := initializeServer(configDir, cfg, log)
 
-	configStore, err := s.setupDataStores(ctx, cfgLoader, cfg, log)
-	if err != nil {
-		return nil, err
-	}
-
-	s.configStore = configStore
-
 	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig) (Service, error) {
 		return createSweepService(ctx, sweepConfig, cfg, log)
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
-	}
-
-	// Bootstrap default configs for common services in KV (PutIfAbsent), best-effort.
-	if s.configStore != nil && cfg.AgentID != "" {
-		s.bootstrapKVDefaults(ctx, cfg.AgentID)
 	}
 
 	// Initialize embedded sysmon service
@@ -111,191 +97,19 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	return s, nil
 }
 
-// bootstrapKVDefaults writes minimal default configs for standard services if missing.
-func (s *Server) bootstrapKVDefaults(ctx context.Context, agentID string) {
-	type putIfAbsent interface {
-		PutIfAbsent(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	}
-	pfa, hasPFA := any(s.configStore).(putIfAbsent)
-	// Conventional keys for agent-local checkers
-	entries := map[string][]byte{
-		fmt.Sprintf("agents/%s/checkers/snmp/snmp.json", agentID):     []byte(`{"enabled": false, "targets": []}`),
-		fmt.Sprintf("agents/%s/checkers/mapper/mapper.json", agentID): []byte(`{"enabled": false, "address": "serviceradar-mapper:50056"}`),
-		fmt.Sprintf("agents/%s/checkers/trapd/trapd.json", agentID):   []byte(`{"enabled": false, "listen_addr": ":50043"}`),
-		fmt.Sprintf("agents/%s/checkers/rperf/rperf.json", agentID):   []byte(`{"enabled": false, "targets": []}`),
-		fmt.Sprintf("agents/%s/checkers/sysmon/sysmon.json", agentID): []byte(`{"enabled": true, "interval": "10s"}`),
-	}
-
-	for key, val := range entries {
-		// Try atomic create first
-		if hasPFA {
-			if err := pfa.PutIfAbsent(ctx, key, val, 0); err == nil {
-				s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (created)")
-				continue
-			}
-		}
-		// Fallback: check then put
-		if _, found, err := s.configStore.Get(ctx, key); err == nil && !found {
-			if err := s.configStore.Put(ctx, key, val, 0); err == nil {
-				s.logger.Info().Str("key", key).Msg("Bootstrapped default config in KV (fallback)")
-			}
-		}
-	}
-}
-
 // initializeServer creates a new Server struct with default values.
 func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *Server {
 	return &Server{
-		checkers:        make(map[string]checker.Checker),
-		checkerConfs:    make(map[string]*CheckerConfig),
-		configDir:       configDir,
-		services:        make([]Service, 0),
-		registry:        initRegistry(log),
-		errChan:         make(chan error, defaultErrChansize),
-		done:            make(chan struct{}),
-		config:          cfg,
-		connections:     make(map[string]*CheckerConnection),
-		logger:          log,
-		setupDataStores: setupDataStores,
-	}
-}
-
-// setupDataStores configures the KV store if an address is provided.
-func setupDataStores(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig, log logger.Logger) (KVStore, error) {
-	kvAddress, securityConfig, err := resolveKVConnectionSettings(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if kvAddress == "" {
-		log.Info().Msg("KVAddress not set via config or environment, skipping KV store setup")
-		return nil, nil
-	}
-
-	if securityConfig == nil {
-		return nil, errNoSecurityConfigKV
-	}
-
-	cfg.KVAddress = kvAddress
-	if cfg.KVSecurity == nil && securityConfig != cfg.Security {
-		cfg.KVSecurity = securityConfig
-	}
-
-	clientCfg := grpc.ClientConfig{
-		Address:          kvAddress,
-		MaxRetries:       3,
-		Logger:           log,
-		DisableTelemetry: true,
-	}
-
-	secMode := ""
-	if securityConfig != nil {
-		secMode = string(securityConfig.Mode)
-	}
-
-	log.Info().
-		Str("kv_address", kvAddress).
-		Str("kv_security_mode", secMode).
-		Msg("Initializing KV security provider")
-
-	provider, err := grpc.NewSecurityProvider(ctx, securityConfig, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create KV security provider: %w", err)
-	}
-
-	clientCfg.SecurityProvider = provider
-
-	client, err := grpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create KV gRPC client: %w", err)
-	}
-
-	conn := client.GetConnection()
-	store := &grpcRemoteStore{
-		configClient: proto.NewKVServiceClient(conn),
-		conn:         client,
-	}
-
-	if store.configClient == nil {
-		if err := client.Close(); err != nil {
-			log.Error().Err(err).Msg("Error closing client")
-			return nil, err
-		}
-
-		return nil, errFailedToInitializeKVClient
-	}
-
-	cfgLoader.SetKVStore(store)
-
-	return store, nil
-}
-
-func resolveKVConnectionSettings(cfg *ServerConfig) (string, *models.SecurityConfig, error) {
-	var kvAddress string
-	if cfg != nil {
-		kvAddress = strings.TrimSpace(cfg.KVAddress)
-	}
-	if kvAddress == "" {
-		kvAddress = strings.TrimSpace(os.Getenv("KV_ADDRESS"))
-	}
-
-	var securityConfig *models.SecurityConfig
-	switch {
-	case cfg != nil && cfg.KVSecurity != nil:
-		securityConfig = cfg.KVSecurity
-	case cfg != nil && cfg.Security != nil:
-		securityConfig = cfg.Security
-	default:
-		var err error
-		securityConfig, err = kvSecurityFromEnv()
-		if err != nil {
-			return kvAddress, nil, err
-		}
-	}
-
-	return kvAddress, securityConfig, nil
-}
-
-func kvSecurityFromEnv() (*models.SecurityConfig, error) {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("KV_SEC_MODE")))
-	switch mode {
-	case "":
-		return nil, nil
-	case "spiffe":
-		socket := strings.TrimSpace(os.Getenv("KV_WORKLOAD_SOCKET"))
-		if socket == "" {
-			socket = "unix:/run/spire/sockets/agent.sock"
-		}
-
-		return &models.SecurityConfig{
-			Mode:           "spiffe",
-			CertDir:        strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
-			Role:           models.RoleAgent,
-			TrustDomain:    strings.TrimSpace(os.Getenv("KV_TRUST_DOMAIN")),
-			ServerSPIFFEID: strings.TrimSpace(os.Getenv("KV_SERVER_SPIFFE_ID")),
-			WorkloadSocket: socket,
-		}, nil
-	case "mtls":
-		cert := strings.TrimSpace(os.Getenv("KV_CERT_FILE"))
-		key := strings.TrimSpace(os.Getenv("KV_KEY_FILE"))
-		ca := strings.TrimSpace(os.Getenv("KV_CA_FILE"))
-		if cert == "" || key == "" || ca == "" {
-			return nil, errKVMtlsEnvMissing
-		}
-
-		return &models.SecurityConfig{
-			Mode:       "mtls",
-			CertDir:    strings.TrimSpace(os.Getenv("KV_CERT_DIR")),
-			Role:       models.RoleAgent,
-			ServerName: strings.TrimSpace(os.Getenv("KV_SERVER_NAME")),
-			TLS: models.TLSConfig{
-				CertFile: cert,
-				KeyFile:  key,
-				CAFile:   ca,
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("%w %q", errUnsupportedKVSecMode, mode)
+		checkers:     make(map[string]checker.Checker),
+		checkerConfs: make(map[string]*CheckerConfig),
+		configDir:    configDir,
+		services:     make([]Service, 0),
+		registry:     initRegistry(log),
+		errChan:      make(chan error, defaultErrChansize),
+		done:         make(chan struct{}),
+		config:       cfg,
+		connections:  make(map[string]*CheckerConnection),
+		logger:       log,
 	}
 }
 
@@ -588,10 +402,6 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 	s.connections = make(map[string]*CheckerConnection)
 
 	cfgLoader := config.NewConfig(s.logger)
-
-	if s.configStore != nil {
-		cfgLoader.SetKVStore(s.configStore)
-	}
 
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != jsonSuffix {
@@ -1347,26 +1157,8 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config, filePath string) (*CheckerConfig, error) {
 	var conf CheckerConfig
 
-	// Determine KV path
-	kvPath := filepath.Base(filePath)
-	if s.config.AgentID != "" {
-		kvPath = fmt.Sprintf("agents/%s/checkers/%s", s.config.AgentID, filepath.Base(filePath))
-	}
-
-	// Try KV if available
-	var err error
-
-	if s.configStore != nil {
-		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &conf); err == nil {
-			s.logger.Info().Str("kvPath", kvPath).Msg("Loaded checker config from KV")
-
-			return s.applyCheckerDefaults(&conf), nil
-		}
-
-		s.logger.Error().Err(err).Str("kvPath", kvPath).Msg("Failed to load checker config from KV")
-	}
-
 	// Load from file (either directly or as fallback)
+	var err error
 	if err = cfgLoader.LoadAndValidate(ctx, filePath, &conf); err != nil {
 		return nil, fmt.Errorf("failed to load checker config %s: %w", filePath, err)
 	}

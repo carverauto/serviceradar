@@ -6,9 +6,9 @@ use crate::{
     models::TimeseriesMetricRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::timeseries_metrics::dsl::{
-        agent_id as col_agent_id, device_id as col_device_id, if_index as col_if_index,
-        metric_name as col_metric_name, metric_type as col_metric_type, partition as col_partition,
-        gateway_id as col_gateway_id, target_device_ip as col_target_device_ip, timeseries_metrics,
+        agent_id as col_agent_id, device_id as col_device_id, gateway_id as col_gateway_id,
+        if_index as col_if_index, metric_name as col_metric_name, metric_type as col_metric_type,
+        partition as col_partition, target_device_ip as col_target_device_ip, timeseries_metrics,
         timestamp as col_timestamp, value as col_value,
     },
     time::TimeRange,
