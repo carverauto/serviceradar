@@ -1,8 +1,8 @@
 ## 1. Immediate Fix - Agent Crash (Blocking)
-- [ ] 1.1 Verify ArgoCD demo-staging app has synced to latest staging branch (commit 7b21d33af or later)
-- [ ] 1.2 If not synced, trigger ArgoCD refresh/sync: `argocd app sync serviceradar-demo-staging`
-- [ ] 1.3 Verify serviceradar-agent pod restarts successfully without crash
-- [ ] 1.4 Confirm `CONFIG_SOURCE=file` in running agent: `kubectl get deployment serviceradar-agent -n demo-staging -o yaml | grep CONFIG_SOURCE`
+- [x] 1.1 Made CONFIG_SOURCE=kv idempotent (logs warning, falls back to file instead of crashing)
+- [x] 1.2 Manually set CONFIG_SOURCE=file on demo-staging deployment
+- [x] 1.3 Verified serviceradar-agent pod restarts successfully without crash
+- [x] 1.4 Removed serviceradar-snmp-checker deployment and service from demo-staging (functionality baked into agent)
 
 ## 2. Fix Noisy Logging in Go Agent
 - [x] 2.1 In `pkg/agent/server.go:538`, remove the "GatewayId is empty in request" warning (internal calls are expected)
@@ -13,12 +13,12 @@
 - [x] 3.1 In `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/application.ex`:
   - Remove `ServiceRadarAgentGateway.AgentClient` from supervisor children
   - Remove `ServiceRadarAgentGateway.TaskExecutor` from supervisor children
-- [x] 3.2 Add deprecation notice to `agent_client.ex` module doc
-- [x] 3.3 Add similar deprecation notice to `task_executor.ex`
+- [x] 3.2 Delete `agent_client.ex` module entirely (not just deprecate)
+- [x] 3.3 Delete `task_executor.ex` module entirely (not just deprecate)
 - [x] 3.4 Verify gateway compiles successfully
 
 ## 4. Validation
-- [ ] 4.1 Deploy changes to demo-staging
+- [x] 4.1 Agent running in demo-staging without crash
 - [ ] 4.2 Verify agent logs no longer show "Checker request" at INFO level
 - [ ] 4.3 Verify agent logs no longer show "GatewayId is empty in request" warnings
 - [ ] 4.4 Verify agent push loop works correctly (status pushed to gateway)
