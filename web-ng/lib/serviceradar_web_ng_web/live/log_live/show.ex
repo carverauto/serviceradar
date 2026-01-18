@@ -74,6 +74,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> put_flash(:info, "Rule \"#{rule.name}\" created successfully. View it in Settings > Rules.")}
   end
 
+  def handle_info({:rule_creation_failed, reason}, socket) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "Failed to create rule: #{format_error(reason)}")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""

@@ -27,7 +27,7 @@
 - [x] 3.4 Implement `handle_event("open_rule_builder", ...)` to extract log data and open modal
 - [x] 3.5 Pass parsed log attributes to rule builder for pre-population
 - [x] 3.6 Handle `{:rule_created, rule}` message to close modal and show success flash
-- [ ] 3.7 Handle `{:rule_creation_failed, reason}` for error display
+- [x] 3.7 Handle `{:rule_creation_failed, reason}` for error display
 
 ## 4. Rule Testing/Preview
 
@@ -73,4 +73,4 @@ Test files created:
 
 - [x] 8.1 Add inline help text explaining match conditions
 - [x] 8.2 Add help text explaining rule preview ("Tests against logs from the last hour")
-- [ ] 8.3 Link to Rules settings page for advanced configuration
+- [x] 8.3 Link to Rules settings page for advanced configuration
