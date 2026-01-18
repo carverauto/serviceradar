@@ -226,6 +226,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
             "stats" => {
                 let mut expr = value.as_scalar()?.to_string();
 
+                // Handle "as alias" part
                 if tokens
                     .peek()
                     .is_some_and(|next| next.as_str().eq_ignore_ascii_case("as"))
@@ -255,6 +256,40 @@ pub fn parse(input: &str) -> Result<QueryAst> {
 
                     expr.push_str(" as ");
                     expr.push_str(&alias);
+                }
+
+                // Handle "by field" part for GROUP BY
+                if tokens
+                    .peek()
+                    .is_some_and(|next| next.as_str().eq_ignore_ascii_case("by"))
+                {
+                    let _ = tokens.next();
+                    let field_token = tokens.next().ok_or_else(|| {
+                        ServiceError::InvalidRequest(
+                            "stats group by must be of the form 'stats:expr as alias by field'"
+                                .into(),
+                        )
+                    })?;
+                    if field_token.contains(':') {
+                        return Err(ServiceError::InvalidRequest(
+                            "stats group by must be of the form 'stats:expr as alias by field'"
+                                .into(),
+                        ));
+                    }
+
+                    let field = field_token
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
+                    if field.is_empty() {
+                        return Err(ServiceError::InvalidRequest(
+                            "stats group by field cannot be empty".into(),
+                        ));
+                    }
+
+                    expr.push_str(" by ");
+                    expr.push_str(&field);
                 }
 
                 if expr.trim().len() > MAX_STATS_EXPR_LEN {

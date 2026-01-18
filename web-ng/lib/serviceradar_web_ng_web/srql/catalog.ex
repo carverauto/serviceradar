@@ -21,10 +21,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "is_compliant",
         "is_trusted",
         "type_id",
+        "type",
+        "vendor_name",
         "discovery_sources",
         "tags"
       ],
       boolean_fields: ["is_available", "is_managed", "is_compliant", "is_trusted"],
+      # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
+      stats_fields: ["type", "vendor_name", "risk_level", "is_available", "gateway_id"],
       downsample: false
     },
     %{
