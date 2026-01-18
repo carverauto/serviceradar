@@ -163,6 +163,7 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
         </h3>
         <p class="py-2 text-sm text-base-content/70">
           Configure match conditions to promote logs into events.
+          For advanced configuration, visit <.link navigate="/settings/rules?tab=events" class="link link-primary">Settings → Rules</.link>.
         </p>
 
         <.form
