@@ -140,7 +140,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
     * Describe how each of the cloud native principles apply to your project.  
       - Declarative configs (Helm/KV), automated identity bootstrapping (SPIRE), immutable container builds via Bazel, and observable OTEL signals.  
     * How do you recommend users alter security defaults in order to "loosen" the security of the project? Please link to any documentation the project has written concerning these use cases.  
-      - Non-production may relax JWT audience/issuer checks and disable webhook signing; documented in `docs/docs/helm-configuration.md` and `docs/docs/kv-configuration.md`.  
+      - Non-production may relax JWT audience/issuer checks and disable webhook signing; documented in `docs/docs/helm-configuration.md`.  
 * Security Hygiene  
     * Please describe the frameworks, practices and procedures the project uses to maintain the basic health and security of the project.  
       - Weekly Dependabot updates, reproducible builds, SBOM via syft (`docs/LF/SBOM.spdx`), repolinter checks (`docs/LF/repo_lint.md`), and CI lint/test workflows.  

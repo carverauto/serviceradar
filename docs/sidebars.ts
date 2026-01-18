@@ -66,7 +66,6 @@ const sidebars: SidebarsConfig = {
       label: 'Configure',
       items: [
         {type: 'doc', id: 'configuration', label: 'Configuration'},
-        {type: 'doc', id: 'kv-configuration', label: 'KV Configuration'},
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
         {type: 'doc', id: 'custom-checkers', label: 'Custom Checkers'},
         {type: 'doc', id: 'web-ui', label: 'Web UI'},
