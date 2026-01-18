@@ -11,11 +11,12 @@ The `serviceradar-agent` MUST load all configuration from local filesystem or gR
 - **THEN** configuration is loaded from the local filesystem
 - **AND** the agent starts successfully
 
-#### Scenario: Agent rejects KV configuration source
+#### Scenario: Agent handles deprecated KV configuration source gracefully
 - **GIVEN** the agent has `CONFIG_SOURCE=kv` environment variable
 - **WHEN** the agent attempts to load configuration
-- **THEN** the agent fails with error "CONFIG_SOURCE=kv is no longer supported"
-- **AND** the agent does not start
+- **THEN** the agent logs a deprecation warning
+- **AND** the agent falls back to file-based configuration
+- **AND** the agent starts successfully
 
 #### Scenario: Agent uses environment-based configuration
 - **GIVEN** the agent has `CONFIG_SOURCE=env` environment variable

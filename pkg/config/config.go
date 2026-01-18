@@ -35,7 +35,6 @@ import (
 
 var (
 	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
-	errKVConfigRemoved     = errors.New("CONFIG_SOURCE=kv is no longer supported")
 	errInvalidConfigPtr    = errors.New("config must be a non-nil pointer")
 )
 
@@ -238,7 +237,9 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 
 	switch source {
 	case "kv":
-		return errKVConfigRemoved
+		// KV config source removed - treat as no-op and use file config instead
+		c.logger.Warn().Msg("CONFIG_SOURCE=kv is deprecated and no longer supported; using file configuration instead")
+		loader = c.defaultLoader
 	case configSourceEnv:
 		// Use environment variables with optional prefix
 		prefix := os.Getenv("CONFIG_ENV_PREFIX")
