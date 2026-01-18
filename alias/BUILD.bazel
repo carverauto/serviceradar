@@ -90,18 +90,6 @@ alias(
     actual = "//pkg/grpc:grpc",
 )
 
-# pkg/http
-alias(
-    name = "http",
-    actual = "//pkg/http:http",
-)
-
-# pkg/identitymap
-alias(
-    name = "identitymap",
-    actual = "//pkg/identitymap:identitymap",
-)
-
 # pkg/integration_test
 alias(
     name = "integration_test",
@@ -168,12 +156,6 @@ alias(
     actual = "//pkg/natsutil:natsutil",
 )
 
-# pkg/registry
-alias(
-    name = "registry",
-    actual = "//pkg/registry:registry",
-)
-
 # pkg/scan
 alias(
     name = "scan",
@@ -196,22 +178,6 @@ alias(
 alias(
     name = "sysmon",
     actual = "//pkg/sysmon:sysmon",
-)
-
-# pkg/sync
-alias(
-    name = "sync",
-    actual = "//pkg/sync:sync",
-)
-
-alias(
-    name = "armis",
-    actual = "//pkg/sync/integrations/armis:armis",
-)
-
-alias(
-    name = "netbox",
-    actual = "//pkg/sync/integrations/netbox:netbox",
 )
 
 # pkg/version

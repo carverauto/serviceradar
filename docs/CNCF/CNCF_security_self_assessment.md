@@ -61,7 +61,7 @@ serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to trans
 serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into the CNPG database. Scales horizontally due to use of subscription queue groups in NATS JetStream.
 serviceradar-flowgger: SYSLOG/Gelf receiver, receives messages and places them on NATS JetStream stream for processing by serviceradar-zen.
 serviceradar-rperf-checker: RPerf bandwidth (iperf3 clone) measurement tool. Client/server model, servers live on remote systems and serve as endpoints for rperf-client (serviceradar-rperf-checker). Bandwidth measurements are collected through agent/gateway and forwarded to the Core and stored in the CNPG database.
-serviceradar-snmp-checker: Periodically polls SNMP OIDs to collect metrics, data is collected through agent/gateway system and forwarded to the Core, then saved in the database.
+serviceradar-agent (SNMP): Periodically polls SNMP OIDs via the embedded collector, forwarding data through the agent/gateway system to Core for storage.
 serviceradar-srql: ServiceRadar Query Language (SRQL) is our API and SQL translator that provides an intuitive key-based query language for retrieving data from the database. Used to create composable dashboards in web-ui.
 serviceradar-tools: Utility container/image service that is pre-configured with mTLS certificates and other configuration items needed to easily connect to and manage NATS JetStream and CNPG, and also includes the serviceradar-cli tool, where users can easily generate new bcrypt strings for local-auth users.
 serviceradar-trapd: SNMP trap receiver, receives SNMP traps and forwards to NATS JetStream message broker for processing.

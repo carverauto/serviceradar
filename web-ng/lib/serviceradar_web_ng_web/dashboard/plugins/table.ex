@@ -48,27 +48,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   defp normalize_results(_), do: []
 
   defp attach_sparklines(results) when is_list(results) do
-    if length(results) < 5 do
-      results
+    with true <- length(results) >= 5,
+         {:ok, spec} <- infer_sparkline_spec(results),
+         {:ok, spark_by_series} <- build_sparklines(results, spec),
+         true <- map_size(spark_by_series) > 0 do
+      add_sparklines(results, spec, spark_by_series)
     else
-      with {:ok, spec} <- infer_sparkline_spec(results),
-           {:ok, spark_by_series} <- build_sparklines(results, spec),
-           true <- map_size(spark_by_series) > 0 do
-        Enum.map(results, &attach_row_sparkline(&1, spark_by_series, spec.series_key))
-      else
-        _ -> results
-      end
+      _ -> results
     end
   end
 
   defp attach_sparklines(results), do: results
-
-  defp attach_row_sparkline(%{} = row, spark_by_series, series_key) do
-    spark = Map.get(spark_by_series, series_value(row, series_key))
-    if is_list(spark), do: Map.put(row, "_sparkline", spark), else: row
-  end
-
-  defp attach_row_sparkline(other, _spark_by_series, _series_key), do: other
 
   defp infer_sparkline_spec(results) do
     keys =
@@ -158,6 +148,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   end
 
   defp series_value(_row, _series_key), do: "overall"
+
+  defp add_sparklines(results, spec, spark_by_series) do
+    Enum.map(results, fn
+      %{} = row ->
+        series_key = series_value(row, spec.series_key)
+
+        case Map.get(spark_by_series, series_key) do
+          spark when is_list(spark) -> Map.put(row, "_sparkline", spark)
+          _ -> row
+        end
+
+      other ->
+        other
+    end)
+  end
 
   defp parse_number(value) when is_integer(value), do: {:ok, value * 1.0}
   defp parse_number(value) when is_float(value), do: {:ok, value}

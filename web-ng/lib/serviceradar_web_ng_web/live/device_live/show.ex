@@ -115,9 +115,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     device_row = List.first(Enum.filter(results, &is_map/1))
     sysmon_identity = sysmon_identity(device_row, uid)
+    sysmon_filters = resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
-    metric_sections = load_metric_sections(srql_module, sysmon_identity, scope)
-    sysmon_presence = load_sysmon_presence(srql_module, sysmon_identity, scope)
+    metric_sections = load_metric_sections(srql_module, sysmon_filters, scope)
+    sysmon_presence = sysmon_filters != []
     availability = load_availability(srql_module, uid, scope)
     healthcheck_summary = load_healthcheck_summary(srql_module, uid, scope)
 
@@ -133,7 +134,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_uid, uid)
      |> assign(:limit, limit)
      |> assign(:results, results)
-     |> assign(:panels, srql_response |> Engine.build_panels() |> drop_low_value_categories())
+     |> assign(
+       :panels,
+       srql_response
+       |> Engine.build_panels()
+       |> drop_low_value_categories()
+       |> drop_table_panels()
+     )
      |> assign(:metric_sections, metric_sections)
      |> assign(:sysmon_presence, sysmon_presence)
      |> assign(:sysmon_profile_info, sysmon_profile_info)
@@ -1089,13 +1096,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp load_metric_sections(_srql_module, identity, _scope)
-       when identity == %{} or identity == nil,
-       do: []
+  defp load_metric_sections(_srql_module, [], _scope), do: []
 
-  defp load_metric_sections(srql_module, identity, scope) do
+  defp load_metric_sections(srql_module, filter_tokens, scope) do
     metric_section_specs()
-    |> Enum.map(&build_metric_section(srql_module, &1, identity, scope))
+    |> Enum.map(&build_metric_section(srql_module, &1, filter_tokens, scope))
   end
 
   defp metric_section_specs do
@@ -1124,8 +1129,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ]
   end
 
-  defp build_metric_section(srql_module, spec, identity, scope) do
-    query = metric_query(spec.entity, identity, spec.series)
+  defp build_metric_section(srql_module, spec, filter_tokens, scope) do
+    query = metric_query(spec.entity, filter_tokens, spec.series)
 
     base = %{
       key: spec.key,
@@ -1268,56 +1273,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp sysmon_filter_tokens(identity) when identity == %{} or identity == nil, do: []
+  defp resolve_sysmon_filter_tokens(_srql_module, identity, _scope)
+       when identity == %{} or identity == nil,
+       do: []
 
-  defp sysmon_filter_tokens(identity) do
-    tokens = []
-    device_uid = Map.get(identity, :device_uid)
-    agent_id = Map.get(identity, :agent_id)
+  defp resolve_sysmon_filter_tokens(srql_module, identity, scope) do
+    device_tokens = sysmon_filter_tokens(identity, :device_uid, "device_id")
+    agent_tokens = sysmon_filter_tokens(identity, :agent_id, "agent_id")
 
-    tokens =
-      if is_binary(device_uid) and device_uid != "" do
-        tokens ++ ["device_id:\"#{escape_value(device_uid)}\""]
-      else
-        tokens
-      end
+    cond do
+      device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope) ->
+        device_tokens
 
-    if is_binary(agent_id) and agent_id != "" do
-      tokens ++ ["agent_id:\"#{escape_value(agent_id)}\""]
-    else
-      tokens
+      agent_tokens != [] and sysmon_filter_has_data?(srql_module, agent_tokens, scope) ->
+        agent_tokens
+
+      true ->
+        []
     end
   end
 
-  defp row_matches_identity?(row, identity) when is_map(row) and is_map(identity) do
-    device_match =
-      case Map.get(identity, :device_uid) do
-        value when is_binary(value) and value != "" ->
-          Map.get(row, "uid") == value or Map.get(row, "device_id") == value
+  defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
+    query =
+      [
+        "in:cpu_metrics",
+        Enum.join(filter_tokens, " "),
+        "time:last_24h",
+        "sort:timestamp:desc",
+        "limit:1"
+      ]
+      |> Enum.join(" ")
 
-        _ ->
-          true
-      end
-
-    agent_match =
-      case Map.get(identity, :agent_id) do
-        value when is_binary(value) and value != "" ->
-          Map.get(row, "agent_id") == value
-
-        _ ->
-          true
-      end
-
-    device_match and agent_match
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) -> rows != []
+      _ -> false
+    end
   end
 
-  defp row_matches_identity?(_row, _identity), do: false
+  defp sysmon_filter_tokens(identity, key, field) do
+    value = Map.get(identity, key)
+
+    if is_binary(value) and String.trim(value) != "" do
+      ["#{field}:\"#{escape_value(value)}\""]
+    else
+      []
+    end
+  end
 
   defp drop_low_value_categories(panels) when is_list(panels) do
     Enum.reject(panels, &low_value_categories_panel?/1)
   end
 
   defp drop_low_value_categories(_), do: []
+
+  defp drop_table_panels(panels) when is_list(panels) do
+    Enum.reject(panels, &(&1.plugin == TablePlugin))
+  end
+
+  defp drop_table_panels(panels), do: panels
 
   defp low_value_categories_panel?(%{plugin: CategoriesPlugin, assigns: assigns}) do
     case Map.get(assigns, :viz) do
@@ -1338,7 +1351,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> String.downcase()
   end
 
-  defp metric_query(entity, identity, series_field) do
+  defp metric_query(entity, filter_tokens, series_field) do
     series_field =
       case series_field do
         nil -> nil
@@ -1355,7 +1368,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "sort:timestamp:desc",
         "limit:#{@metrics_limit}"
       ]
-      |> Kernel.++(sysmon_filter_tokens(identity))
+      |> Kernel.++(filter_tokens)
 
     tokens =
       if is_binary(series_field) and series_field != "" do
@@ -1568,30 +1581,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       offline_checks: offline,
       segments: segments
     }
-  end
-
-  defp load_sysmon_presence(_srql_module, identity, _scope)
-       when identity == %{} or identity == nil,
-       do: false
-
-  defp load_sysmon_presence(srql_module, identity, scope) do
-    query =
-      [
-        "in:cpu_metrics",
-        Enum.join(sysmon_filter_tokens(identity), " "),
-        "time:last_24h",
-        "sort:timestamp:desc",
-        "limit:1"
-      ]
-      |> Enum.join(" ")
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) ->
-        Enum.any?(rows, &row_matches_identity?(&1, identity))
-
-      _ ->
-        false
-    end
   end
 
   defp format_bytes(bytes) when is_number(bytes) do

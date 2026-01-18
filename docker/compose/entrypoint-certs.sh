@@ -24,7 +24,7 @@ if [ "$FORCE_CERT_REGEN" != "true" ] && [ -f "$CERT_DIR/root.pem" ] && [ -f "$CE
    [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && \
    [ -f "$CERT_DIR/otel.pem" ] && [ -f "$CERT_DIR/flowgger.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
    [ -f "$CERT_DIR/zen.pem" ] && [ -f "$CERT_DIR/db-event-writer.pem" ] && \
-   [ -f "$CERT_DIR/snmp-checker.pem" ] && [ -f "$CERT_DIR/mapper.pem" ] && \
+   [ -f "$CERT_DIR/mapper.pem" ] && \
    [ -f "$CERT_DIR/rperf-client.pem" ] && [ -f "$CERT_DIR/agent.pem" ] && \
    [ -f "$CERT_DIR/web.pem" ]; then
     echo "All certificates already exist, nothing to generate"
@@ -124,7 +124,6 @@ generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:serviceradar-zen,DNS:localho
 generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1,IP:172.28.0.11"
 
 # Generate certificates for checker services
-generate_cert "snmp-checker" "snmp-checker.serviceradar" "DNS:snmp-checker,DNS:serviceradar-snmp-checker,DNS:localhost,IP:127.0.0.1"
 generate_cert "mapper" "mapper.serviceradar" "DNS:mapper,DNS:serviceradar-mapper,DNS:localhost,IP:127.0.0.1"
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"
 

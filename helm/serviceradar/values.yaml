@@ -21,7 +21,6 @@ image:
     datasvc: *appTag
     agent: *appTag
     agentGateway: *appTag
-    snmpChecker: *appTag
     dbEventWriter: *appTag
     otel: *appTag
     mapper: *appTag
@@ -251,7 +250,6 @@ spire:
   zenServiceAccount: serviceradar-zen
   mapperServiceAccount: serviceradar-mapper
   dbEventWriterServiceAccount: serviceradar-db-event-writer
-  snmpCheckerServiceAccount: serviceradar-snmp-checker
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd

@@ -24,7 +24,6 @@ otel|serviceradar-otel
 flowgger|serviceradar-flowgger
 trapd|serviceradar-trapd
 zen|serviceradar-zen
-snmp-checker|serviceradar-snmp-checker
 rperf-client|serviceradar-rperf-client
 EOF
 )
