@@ -229,13 +229,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> Enum.reject(&(&1 in summary_fields))
       |> Enum.sort()
 
-    # Parse attributes field if present for structured display
+    # Parse attributes fields if present for structured display
     parsed_attributes = parse_attributes(Map.get(assigns.log, "attributes"))
+    parsed_resource_attributes = parse_attributes(Map.get(assigns.log, "resource_attributes"))
 
     assigns =
       assigns
       |> assign(:detail_fields, detail_fields)
       |> assign(:parsed_attributes, parsed_attributes)
+      |> assign(:parsed_resource_attributes, parsed_resource_attributes)
 
     ~H"""
     <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -246,16 +248,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       <div class="divide-y divide-base-200">
         <%= for field <- @detail_fields do %>
           <%= if field == "attributes" and is_map(@parsed_attributes) do %>
-            <.parsed_attributes_section attributes={@parsed_attributes} />
+            <.parsed_attributes_section attributes={@parsed_attributes} title="Attributes" />
           <% else %>
-            <div class="px-4 py-3 flex items-start gap-4">
-              <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
-                {humanize_field(field)}
-              </span>
-              <span class="text-sm flex-1 break-all">
-                <.format_value value={Map.get(@log, field)} />
-              </span>
-            </div>
+            <%= if field == "resource_attributes" and is_map(@parsed_resource_attributes) do %>
+              <.parsed_attributes_section
+                attributes={@parsed_resource_attributes}
+                title="Resource Attributes"
+              />
+            <% else %>
+              <div class="px-4 py-3 flex items-start gap-4">
+                <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
+                  {humanize_field(field)}
+                </span>
+                <span class="text-sm flex-1 break-all">
+                  <.format_value value={Map.get(@log, field)} />
+                </span>
+              </div>
+            <% end %>
           <% end %>
         <% end %>
       </div>
@@ -264,11 +273,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   attr :attributes, :map, required: true
+  attr :title, :string, default: "Attributes"
 
   defp parsed_attributes_section(assigns) do
     ~H"""
     <div class="px-4 py-3">
-      <span class="text-xs text-base-content/50 uppercase tracking-wider">Attributes</span>
+      <span class="text-xs text-base-content/50 uppercase tracking-wider">{@title}</span>
       <div class="mt-2 space-y-2">
         <%= for {section, values} <- @attributes do %>
           <div class="pl-2 border-l-2 border-base-300">

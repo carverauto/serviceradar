@@ -195,6 +195,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
     end
   end
 
+  describe "log detail metadata rendering" do
+    test "renders resource attributes section when present", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440000"
+      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+
+      assert has_element?(lv, "span", "Resource Attributes")
+      assert has_element?(lv, "span", "service.name")
+      assert has_element?(lv, "span", "service.version")
+    after
+      Application.delete_env(:serviceradar_web_ng, :srql_module)
+    end
+  end
+
   describe "can_create_rules? helper" do
     test "returns true for operator role" do
       scope = %{user: %{role: :operator}}
@@ -249,8 +267,14 @@ defmodule MockSRQLWithLog do
              "body" => "Test error message",
              "severity_text" => "ERROR",
              "service_name" => "test-service",
+             "scope_name" => "test-scope",
+             "scope_version" => "1.0.0",
              "timestamp" => "2024-01-15T10:30:00Z",
-             "attributes" => %{"error" => "connection failed"}
+             "attributes" => %{"error" => "connection failed"},
+             "resource_attributes" => %{
+               "service.name" => "test-service",
+               "service.version" => "1.0.0"
+             }
            }
          ],
          "total_count" => 1
