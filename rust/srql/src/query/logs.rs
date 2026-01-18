@@ -4,11 +4,11 @@ use crate::{
     models::LogRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::logs::dsl::{
-        body as col_body, logs, scope_name as col_scope_name, scope_version as col_scope_version,
-        service_instance as col_service_instance, service_name as col_service_name,
-        service_version as col_service_version, severity_number as col_severity_number,
-        severity_text as col_severity_text, span_id as col_span_id, timestamp as col_timestamp,
-        trace_id as col_trace_id,
+        body as col_body, id as col_id, logs, scope_name as col_scope_name,
+        scope_version as col_scope_version, service_instance as col_service_instance,
+        service_name as col_service_name, service_version as col_service_version,
+        severity_number as col_severity_number, severity_text as col_severity_text,
+        span_id as col_span_id, timestamp as col_timestamp, trace_id as col_trace_id,
     },
     time::TimeRange,
 };
@@ -22,6 +22,7 @@ use diesel::sql_types::{Int4, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+use uuid::Uuid;
 
 type LogsTable = crate::schema::logs::table;
 type LogsFromClause = FromClause<LogsTable>;
@@ -199,6 +200,14 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
+        "id" => {
+            let value = filter.value.as_scalar()?;
+            Uuid::parse_str(value).map_err(|_| {
+                ServiceError::InvalidRequest("id must be a valid UUID".into())
+            })?;
+            params.push(BindParam::Text(value.to_string()));
+            Ok(())
+        }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
         | "scope_name" | "scope_version" | "severity_text" | "severity" | "level" | "body" => {
             collect_text_params(params, filter)
@@ -408,6 +417,21 @@ fn build_rollup_text_clause(
 
 fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Result<LogsQuery<'a>> {
     match filter.field.as_str() {
+        "id" => {
+            let value = filter.value.as_scalar()?;
+            let uuid = Uuid::parse_str(value).map_err(|_| {
+                ServiceError::InvalidRequest("id must be a valid UUID".into())
+            })?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_id.eq(uuid)),
+                FilterOp::NotEq => query.filter(col_id.ne(uuid)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "id filter only supports equality comparisons".into(),
+                    ))
+                }
+            };
+        }
         "trace_id" => {
             query = apply_text_filter!(query, filter, col_trace_id)?;
         }

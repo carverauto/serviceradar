@@ -56,14 +56,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
   defp infer_categories([first | _] = rows) do
     keys = Map.keys(first) |> Enum.map(&to_string/1)
 
+    # Only infer categories if we have explicit aggregation columns
+    # Don't use arbitrary numeric columns like type_id, id, etc.
     value_key =
       Enum.find(keys, fn k ->
-        k in ["count", "value"]
-      end) || Enum.find(keys, &numeric_column?(rows, &1))
+        k in ["count", "value", "sum", "avg", "total"]
+      end)
 
     label_key =
       keys
       |> Enum.reject(&(&1 == value_key))
+      # Exclude ID-like columns that don't make sense as category labels
+      |> Enum.reject(&String.ends_with?(&1, "_id"))
+      |> Enum.reject(&(&1 in ["id", "uid", "uuid", "guid"]))
       |> Enum.find(&stringish_column?(rows, &1))
 
     with true <- is_binary(label_key),

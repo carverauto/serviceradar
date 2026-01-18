@@ -295,6 +295,7 @@ impl DeviceUpdateRow {
 #[diesel(table_name = crate::schema::logs)]
 pub struct LogRow {
     pub timestamp: DateTime<Utc>,
+    pub id: Uuid,
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
     pub severity_text: Option<String>,
@@ -313,6 +314,7 @@ pub struct LogRow {
 impl LogRow {
     pub fn into_json(self) -> serde_json::Value {
         serde_json::json!({
+            "id": self.id.to_string(),
             "timestamp": self.timestamp,
             "trace_id": self.trace_id,
             "span_id": self.span_id,
@@ -760,6 +762,84 @@ impl TraceSummaryRow {
             "service_set": self.service_set.unwrap_or_default(),
             "span_count": self.span_count.unwrap_or(0),
             "error_count": self.error_count.unwrap_or(0),
+        })
+    }
+}
+
+/// Alert row for monitoring alerts
+#[derive(Debug, Clone, Queryable, Serialize)]
+#[diesel(table_name = crate::schema::alerts)]
+pub struct AlertRow {
+    pub id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub severity: String,
+    pub status: String,
+    pub source_type: Option<String>,
+    pub source_id: Option<String>,
+    pub service_check_id: Option<Uuid>,
+    pub device_uid: Option<String>,
+    pub agent_uid: Option<String>,
+    pub event_id: Option<Uuid>,
+    pub event_time: Option<DateTime<Utc>>,
+    pub metric_name: Option<String>,
+    pub metric_value: Option<f64>,
+    pub threshold_value: Option<f64>,
+    pub comparison: Option<String>,
+    pub triggered_at: Option<DateTime<Utc>>,
+    pub acknowledged_at: Option<DateTime<Utc>>,
+    pub acknowledged_by: Option<String>,
+    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolved_by: Option<String>,
+    pub resolution_note: Option<String>,
+    pub escalated_at: Option<DateTime<Utc>>,
+    pub escalation_level: Option<i64>,
+    pub escalation_reason: Option<String>,
+    pub notification_count: Option<i64>,
+    pub last_notification_at: Option<DateTime<Utc>>,
+    pub suppressed_until: Option<DateTime<Utc>>,
+    pub metadata: Option<serde_json::Value>,
+    pub tags: Option<Vec<String>>,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl AlertRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "title": self.title,
+            "description": self.description,
+            "severity": self.severity,
+            "status": self.status,
+            "source_type": self.source_type,
+            "source_id": self.source_id,
+            "service_check_id": self.service_check_id.map(|u| u.to_string()),
+            "device_uid": self.device_uid,
+            "agent_uid": self.agent_uid,
+            "event_id": self.event_id.map(|u| u.to_string()),
+            "event_time": self.event_time,
+            "metric_name": self.metric_name,
+            "metric_value": self.metric_value,
+            "threshold_value": self.threshold_value,
+            "comparison": self.comparison,
+            "triggered_at": self.triggered_at,
+            "timestamp": self.triggered_at,  // Alias for sorting/display
+            "acknowledged_at": self.acknowledged_at,
+            "acknowledged_by": self.acknowledged_by,
+            "resolved_at": self.resolved_at,
+            "resolved_by": self.resolved_by,
+            "resolution_note": self.resolution_note,
+            "escalated_at": self.escalated_at,
+            "escalation_level": self.escalation_level.unwrap_or(0),
+            "escalation_reason": self.escalation_reason,
+            "notification_count": self.notification_count.unwrap_or(0),
+            "last_notification_at": self.last_notification_at,
+            "suppressed_until": self.suppressed_until,
+            "metadata": self.metadata.unwrap_or(serde_json::json!({})),
+            "tags": self.tags.unwrap_or_default(),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
         })
     }
 }

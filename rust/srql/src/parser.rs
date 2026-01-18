@@ -29,6 +29,7 @@ pub enum Entity {
     SnmpMetrics,
     TraceSummaries,
     Traces,
+    Alerts,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -336,6 +337,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "alerts" | "alert" => Ok(Entity::Alerts),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

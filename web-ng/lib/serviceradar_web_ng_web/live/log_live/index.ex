@@ -1362,7 +1362,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
   defp log_id(log) do
-    Map.get(log, "id") || Map.get(log, "log_id") || "unknown"
+    # Use the UUID id field from the logs table
+    Map.get(log, "id") || "unknown"
   end
 
   defp format_timestamp(log) do
