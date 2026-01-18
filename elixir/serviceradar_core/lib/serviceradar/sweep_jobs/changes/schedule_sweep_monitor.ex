@@ -42,6 +42,17 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
           sweep_group_id: record.id
         )
 
+      {:error, :oban_unavailable} ->
+        Logger.warning("Sweep monitor scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id
+        )
+
+      {:error, {:oban_unavailable, message}} ->
+        Logger.warning("Sweep monitor scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          reason: message
+        )
+
       {:error, reason} ->
         Logger.error("Failed to schedule sweep monitor",
           sweep_group_id: record.id,
@@ -58,6 +69,17 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
       {:ok, _job} ->
         Logger.info("Scheduled sweep data cleanup",
           sweep_group_id: record.id
+        )
+
+      {:error, :oban_unavailable} ->
+        Logger.warning("Sweep data cleanup scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id
+        )
+
+      {:error, {:oban_unavailable, message}} ->
+        Logger.warning("Sweep data cleanup scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          reason: message
         )
 
       {:error, reason} ->

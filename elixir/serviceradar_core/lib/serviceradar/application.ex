@@ -72,6 +72,9 @@ defmodule ServiceRadar.Application do
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
 
+        # Sweep scheduling reconciliation (safe when Oban is unavailable)
+        sweep_schedule_reconciler_child(),
+
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
 
@@ -158,6 +161,14 @@ defmodule ServiceRadar.Application do
         nil -> nil
         oban_config when is_list(oban_config) -> {Oban, oban_config}
       end
+    else
+      nil
+    end
+  end
+
+  defp sweep_schedule_reconciler_child do
+    if Application.get_env(:serviceradar_core, :repo_enabled, true) do
+      ServiceRadar.SweepJobs.SweepScheduleReconciler
     else
       nil
     end
