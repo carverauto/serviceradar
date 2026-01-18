@@ -800,7 +800,7 @@ pub struct AlertRow {
     pub suppressed_until: Option<DateTime<Utc>>,
     pub metadata: Option<serde_json::Value>,
     pub tags: Option<Vec<String>>,
-    pub inserted_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -838,7 +838,7 @@ impl AlertRow {
             "suppressed_until": self.suppressed_until,
             "metadata": self.metadata.unwrap_or(serde_json::json!({})),
             "tags": self.tags.unwrap_or_default(),
-            "inserted_at": self.inserted_at,
+            "created_at": self.created_at,
             "updated_at": self.updated_at,
         })
     }

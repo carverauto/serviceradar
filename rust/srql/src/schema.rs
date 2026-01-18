@@ -382,7 +382,7 @@ diesel::table! {
         suppressed_until -> Nullable<Timestamptz>,
         metadata -> Nullable<Jsonb>,
         tags -> Nullable<Array<Text>>,
-        inserted_at -> Timestamptz,
+        created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
 }

@@ -297,6 +297,6 @@ CREATE TABLE alerts (
     suppressed_until     TIMESTAMPTZ,
     metadata             JSONB       DEFAULT '{}',
     tags                 TEXT[]      DEFAULT '{}',
-    inserted_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
