@@ -47,7 +47,7 @@ flowchart TB
 - **Core-elx, Web-NG, and Agent-Gateway** form the internal ERTS cluster over mTLS
 - **Edge agents** (Go binaries) connect via gRPC mTLS to the Agent-Gateway on port 50052
 - **Edge deployments** run the agent with collectors/checkers and optionally a NATS leaf server
-- **NATS JetStream + Datasvc** provide platform messaging and KV storage for platform services
+- **NATS JetStream + Datasvc** provide platform messaging plus KV-backed rule metadata and object storage
 - **NATS access uses JWT account credentials** (every service connects with `.creds`; no user/password fallback)
 - **CNPG/Timescale** is the system of record for telemetry and inventory
 - **SPIRE** issues X.509 certificates to all workloads via DaemonSet agents
@@ -104,7 +104,7 @@ For detailed edge agent deployment, see [Edge Agents](./edge-agents.md). For sec
 - **CNPG / TimescaleDB** stores telemetry, inventory, and analytics data.
 - **NATS JetStream** provides messaging and stream persistence.
 - **NATS authentication** is JWT-only; instances always use account-scoped `.creds` files.
-- **Datasvc (KV)** exposes configuration and object storage for platform consumers.
+- **Datasvc** exposes rule metadata and object storage for platform consumers.
 
 ### Security and Identity
 

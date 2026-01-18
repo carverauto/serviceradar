@@ -201,12 +201,11 @@ Once the agent logs report “Completed streaming results”, poll `/api/stats` 
 - The analytics dashboard’s “Total Devices” card now shows the raw/processed breakdown plus a yellow callout whenever any skips occur. When investigating, open the browser console and inspect `window.__SERVICERADAR_DEVICE_COUNTER_DEBUG__` to review the last 25 `/api/stats` samples and headers.
 - For ad-hoc validation, hit `/api/stats` directly; the `X-Serviceradar-Stats-*` headers mirror the numbers the alert uses (`X-Serviceradar-Stats-Skipped-Non-Canonical`, `X-Serviceradar-Stats-Skipped-Service-Components`, etc.).
 
-## KV Configuration Checks
+## Configuration File Checks
 
-- The `serviceradar-tools` pod already bundles the `nats-kv` helper. Exec into the pod and list expected entries before debugging the Admin UI:
+- Exec into the pod and confirm the expected config files exist before debugging the Admin UI:
 
   ```bash
-  kubectl exec -n demo deploy/serviceradar-tools -- nats-kv ls config
   kubectl exec -n demo deploy/serviceradar-tools -- ls -la /etc/serviceradar
   kubectl exec -n demo deploy/serviceradar-tools -- rg -n \"core.json|flowgger.toml\" /etc/serviceradar
   ```
@@ -251,8 +250,8 @@ Once the agent logs report “Completed streaming results”, poll `/api/stats` 
     cp /etc/serviceradar/templates/flowgger.toml /etc/serviceradar/flowgger.toml
   ```
 
-  The service will load the file on next start; no KV seeding or config sync sidecar is required.
-- Hot reload via KV is no longer supported. Update the on-disk config (or pinned overlay) and restart the service to apply changes.
+  The service will load the file on next start; no remote config seeding or config sync sidecar is required.
+- Hot reload is no longer supported. Update the on-disk config (or pinned overlay) and restart the service to apply changes.
 
 ## Device Registry Feature Flags
 
@@ -415,14 +414,12 @@ Run the script in staging first; it is idempotent and leaves the namespace with 
     cnpg-sql "SELECT NOW()"
   ```
 - Outside the cluster, port-forward the RW service and export the `CNPG_*` environment variables before running `mix ash.migrate` (from `elixir/serviceradar_core`) or `psql`. The helpers respect `CNPG_PASSWORD_FILE`, so you can pass `/etc/serviceradar/cnpg/superuser-password` directly instead of copying secrets to your laptop.
-- JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-kv` for quick config or replay checks.
+- JetStream helpers still share the `serviceradar` context; the same pod gives you `nats-streams`, `nats-events`, and `nats-kv` for quick rule or replay checks.
 
 ## Sweep Config Distribution
 
-- Agents still read `agents/<id>/checkers/sweep/sweep.json` from disk first, then apply any JSON overrides stored in the KV bucket via `pkg/config`. This preserves the existing knobs for intervals, timeout, and protocol selection.
-- Sync now streams the per-device target list into JetStream object storage through the `proto.DataService/UploadObject` RPC before updating KV. The pointer that lands in KV carries `storage: "data_service"`, the object key, and the SHA-256 digest so downloads can be verified.
-- When the agent sees the pointer metadata it layers the downloaded object _after_ file + KV overlays. If the DataService call fails the agent logs a warning and falls back to the KV/file configuration with no sweep targets.
-- Atomicity: the object is uploaded first; only after `UploadObject` returns do we write the metadata pointer. A partially written pointer is therefore either the previous revision or a fully verified new blob.
+- Agents read `agents/<id>/checkers/sweep/sweep.json` from disk. Update the file and restart the agent to apply changes.
+- Sync streams the per-device target list into JetStream object storage through the `proto.DataService/UploadObject` RPC so agents can fetch the latest target list on demand.
 - Manual inspection:
   ```bash
   # List sweep blobs (default bucket is serviceradar-sweeps)
