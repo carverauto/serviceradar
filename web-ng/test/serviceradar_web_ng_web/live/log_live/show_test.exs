@@ -124,6 +124,49 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       Application.delete_env(:serviceradar_web_ng, :srql_module)
     end
 
+    test "creates promotion rule from log entry", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+      scope = ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, MockSRQLWithLog)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440000"
+      {:ok, lv, _html} = live(conn, ~p"/observability/logs/#{log_id}")
+
+      lv
+      |> element("button", "Create Event Rule")
+      |> render_click()
+
+      unique = System.unique_integer([:positive])
+      rule_name = "log-promote-#{unique}"
+
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true",
+          "body_contains" => "Test error message",
+          "severity_enabled" => "true",
+          "severity_text" => "error",
+          "service_name_enabled" => "true",
+          "service_name" => "test-service"
+        }
+      })
+      |> render_submit()
+
+      refute has_element?(lv, "#rule_builder_modal")
+
+      rules = unwrap_page(Ash.read(ServiceRadar.Observability.LogPromotionRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+      assert rule.match["body_contains"] == "Test error message"
+      assert rule.match["severity_text"] == "error"
+      assert rule.match["service_name"] == "test-service"
+    after
+      Application.delete_env(:serviceradar_web_ng, :srql_module)
+    end
+
     test "closes modal when clicking cancel", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -181,6 +224,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   # Test helper that mirrors the component's RBAC check
   defp can_create_rules?(%{user: %{role: role}}) when role in [:operator, :admin], do: true
   defp can_create_rules?(_), do: false
+
+  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
+  defp unwrap_page({:ok, results}) when is_list(results), do: results
+  defp unwrap_page(_), do: []
 end
 
 # Mock SRQL module that returns no results
