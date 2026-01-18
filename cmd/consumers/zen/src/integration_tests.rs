@@ -130,11 +130,14 @@ mod tests {
         assert_eq!(result["severity_number"], 13);
         assert_eq!(result["severity_text"], "WARN");
         assert_eq!(result["body"], "This is a warning message from OTEL");
-        assert_eq!(result["scope"], "my-instrumentation");
+        assert_eq!(result["scope_name"], "my-instrumentation");
+        assert_eq!(result["scope_version"], "1.0.0");
 
         // Check resource attributes
-        assert_eq!(result["resource"]["service.name"], "my-service");
-        assert_eq!(result["resource"]["service.version"], "1.0.0");
+        assert_eq!(result["resource_attributes"]["service.name"], "my-service");
+        assert_eq!(result["resource_attributes"]["service.version"], "1.0.0");
+        assert_eq!(result["service_name"], "my-service");
+        assert_eq!(result["service_version"], "1.0.0");
 
         // Check log attributes
         assert_eq!(result["attributes"]["http.method"], "GET");

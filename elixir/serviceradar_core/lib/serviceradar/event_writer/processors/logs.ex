@@ -86,6 +86,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     resource_attributes =
       json
       |> FieldParser.get_field("resource_attributes", "resourceAttributes")
+      |> case do
+        nil -> json["resource"]
+        value -> value
+      end
       |> FieldParser.encode_jsonb()
       |> case do
         nil -> %{}
@@ -93,6 +97,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       end
 
     resource_lookup = resource_attributes
+    {scope_name, scope_version} = parse_scope_fields(json)
 
     %{
       id: log_id,
@@ -111,8 +116,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       service_instance:
         FieldParser.get_field(json, "service_instance", "serviceInstance") ||
           resource_lookup["service.instance.id"],
-      scope_name: FieldParser.get_field(json, "scope_name", "scopeName"),
-      scope_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
+      scope_name: scope_name,
+      scope_version: scope_version,
       attributes: attributes,
       resource_attributes: resource_attributes,
       created_at: DateTime.utc_now()
@@ -120,6 +125,34 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_json_log(_json, _metadata), do: nil
+
+  defp parse_scope_fields(json) when is_map(json) do
+    scope_name = FieldParser.get_field(json, "scope_name", "scopeName")
+    scope_version = FieldParser.get_field(json, "scope_version", "scopeVersion")
+
+    case json["scope"] do
+      %{} = scope_map ->
+        scope_name =
+          scope_name ||
+            FieldParser.get_field(scope_map, "name", "scopeName") ||
+            FieldParser.get_field(scope_map, "scope_name", "scopeName")
+
+        scope_version =
+          scope_version ||
+            FieldParser.get_field(scope_map, "version", "scopeVersion") ||
+            FieldParser.get_field(scope_map, "scope_version", "scopeVersion")
+
+        {scope_name, scope_version}
+
+      scope when is_binary(scope) and scope != "" ->
+        {scope_name || scope, scope_version}
+
+      _ ->
+        {scope_name, scope_version}
+    end
+  end
+
+  defp parse_scope_fields(_), do: {nil, nil}
 
   defp parse_protobuf_log(data, metadata) do
     case decode_export_logs(data) do

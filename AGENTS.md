@@ -464,6 +464,4 @@ When you're done executing code, try to compile the code, and check the logs or 
 
 ## Tools
 
-Use Tidewave MCP tools, as they let you interrogate the running application in various useful ways.
-- Use the `project_eval` tool to execute code in the running instance of the application. Eval `h Module.fun` to get documentation for a module or function.
-- Always use `search_package_docs` to find relevant documentation before beginning work.
+Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.

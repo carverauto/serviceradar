@@ -3,7 +3,6 @@ package dbeventwriter
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,43 +21,50 @@ const (
 
 //nolint:gochecknoglobals // package-level lookup table for performance
 var jsonLogReservedKeys = map[string]struct{}{
-	"@timestamp":           {},
-	"body":                 {},
-	"event":                {},
-	"host":                 {},
-	"hostname":             {},
-	"ip":                   {},
-	"ip_address":           {},
-	"level":                {},
-	"log":                  {},
-	"message":              {},
-	"msg":                  {},
-	"remote_addr":          {},
-	"scope.name":           {},
-	"scope.version":        {},
-	"scope_name":           {},
-	"scope_version":        {},
-	"service.instance":     {},
-	"service.instance.id":  {},
-	"service.name":         {},
-	"service.version":      {},
-	"service_instance":     {},
-	"service_instance_id":  {},
-	"service_name":         {},
-	"service_version":      {},
-	"severity":             {},
-	"severity_number":      {},
-	"severity_text":        {},
-	"short_message":        {},
-	"source":               {},
-	"span_id":              {},
-	"spanId":               {},
-	"summary":              {},
-	"time":                 {},
-	"timestamp":            {},
-	"trace_id":             {},
-	"traceId":              {},
-	"ts":                   {},
+	"@timestamp":          {},
+	"body":                {},
+	"attributes":          {},
+	"event":               {},
+	"host":                {},
+	"hostname":            {},
+	"ip":                  {},
+	"ip_address":          {},
+	"level":               {},
+	"log":                 {},
+	"message":             {},
+	"msg":                 {},
+	"remote_addr":         {},
+	"resource":            {},
+	"resource_attributes": {},
+	"resourceAttributes":  {},
+	"scope":               {},
+	"scope.name":          {},
+	"scope.version":       {},
+	"scopeName":           {},
+	"scopeVersion":        {},
+	"scope_name":          {},
+	"scope_version":       {},
+	"service.instance":    {},
+	"service.instance.id": {},
+	"service.name":        {},
+	"service.version":     {},
+	"service_instance":    {},
+	"service_instance_id": {},
+	"service_name":        {},
+	"service_version":     {},
+	"severity":            {},
+	"severity_number":     {},
+	"severity_text":       {},
+	"short_message":       {},
+	"source":              {},
+	"span_id":             {},
+	"spanId":              {},
+	"summary":             {},
+	"time":                {},
+	"timestamp":           {},
+	"trace_id":            {},
+	"traceId":             {},
+	"ts":                  {},
 }
 
 func parseJSONLogs(payload []byte, subject string) ([]models.OTELLogRow, bool) {
@@ -105,19 +111,48 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 
 	severityText, severityNumber := normalizeSeverity(entry)
 
-	serviceName := firstString(entry, "service.name", "service_name", "service")
+	resourceMap := extractAttributesMap(entry, "resource_attributes", "resourceAttributes", "resource")
+	resourceAttribs := resourceMap
+	if len(resourceAttribs) == 0 {
+		resourceAttribs = buildResourceAttributesMap(entry)
+	}
+
+	attributesMap := extractAttributesMap(entry, "attributes")
+	extraAttributes := buildAttributesMap(entry, jsonLogReservedKeys)
+	attributesMap = mergeAttributeMaps(attributesMap, extraAttributes)
+
+	serviceName := firstString(entry, "service.name", "service_name", "service", "serviceName")
 	host := firstString(entry, "host", "hostname")
 	if serviceName == "" {
 		serviceName = host
 	}
+	if serviceName == "" {
+		serviceName = firstStringFromMap(resourceAttribs, "service.name", "service_name", "serviceName")
+	}
 
-	serviceVersion := firstString(entry, "service.version", "service_version")
-	serviceInstance := firstString(entry, "service.instance.id", "service_instance", "service_instance_id")
-	scopeName := firstString(entry, "scope.name", "scope_name")
-	scopeVersion := firstString(entry, "scope.version", "scope_version")
+	serviceVersion := firstString(entry, "service.version", "service_version", "serviceVersion")
+	if serviceVersion == "" {
+		serviceVersion = firstStringFromMap(resourceAttribs, "service.version", "service_version", "serviceVersion")
+	}
 
-	attributes := buildAttributes(entry, jsonLogReservedKeys)
-	resourceAttributes := buildResourceAttributes(entry)
+	serviceInstance := firstString(entry, "service.instance.id", "service_instance", "service_instance_id", "serviceInstance")
+	if serviceInstance == "" {
+		serviceInstance = firstStringFromMap(
+			resourceAttribs,
+			"service.instance.id",
+			"service.instance",
+			"service_instance",
+			"service_instance_id",
+			"serviceInstance",
+		)
+	}
+
+	scopeName := firstString(entry, "scope.name", "scope_name", "scopeName")
+	scopeVersion := firstString(entry, "scope.version", "scope_version", "scopeVersion")
+	scopeName, scopeVersion = applyScopeFallbacks(entry, scopeName, scopeVersion)
+
+	attributes := encodeAttributes(attributesMap)
+	resourceAttributes := encodeAttributes(resourceAttribs)
 
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
@@ -136,38 +171,36 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	}
 }
 
-func buildResourceAttributes(entry map[string]interface{}) string {
+func buildResourceAttributesMap(entry map[string]interface{}) map[string]interface{} {
 	keys := []string{"host", "hostname", "remote_addr", "source", "ip", "ip_address"}
-	pairs := make([]string, 0, len(keys))
+	resource := make(map[string]interface{})
 	for _, key := range keys {
 		value := firstString(entry, key)
 		if value == "" {
 			continue
 		}
 
-		pairs = append(pairs, fmt.Sprintf("%s=%s", key, value))
+		resource[key] = value
 	}
 
-	return strings.Join(pairs, ",")
+	return resource
 }
 
-func buildAttributes(entry map[string]interface{}, reserved map[string]struct{}) string {
-	pairs := make([]string, 0, len(entry))
+func buildAttributesMap(entry map[string]interface{}, reserved map[string]struct{}) map[string]interface{} {
+	attributes := make(map[string]interface{})
 	for key, value := range entry {
 		if _, skip := reserved[key]; skip {
 			continue
 		}
 
-		strValue := stringifyValue(value)
-		if strValue == "" {
+		if isEmptyAttributeValue(value) {
 			continue
 		}
 
-		pairs = append(pairs, fmt.Sprintf("%s=%s", key, strValue))
+		attributes[key] = value
 	}
 
-	sort.Strings(pairs)
-	return strings.Join(pairs, ",")
+	return attributes
 }
 
 func normalizeSeverity(entry map[string]interface{}) (string, int32) {
@@ -388,4 +421,168 @@ func stringifyValue(value interface{}) string {
 		}
 		return string(encoded)
 	}
+}
+
+func extractAttributesMap(entry map[string]interface{}, keys ...string) map[string]interface{} {
+	for _, key := range keys {
+		if value, ok := entry[key]; ok {
+			if parsed := parseAttributeValue(value); len(parsed) > 0 {
+				return parsed
+			}
+		}
+	}
+
+	return nil
+}
+
+func parseAttributeValue(value interface{}) map[string]interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		return typed
+	case string:
+		text := strings.TrimSpace(typed)
+		if text == "" {
+			return nil
+		}
+
+		var decoded map[string]interface{}
+		if err := json.Unmarshal([]byte(text), &decoded); err == nil {
+			return decoded
+		}
+
+		return parseKeyValueMap(text)
+	default:
+		return nil
+	}
+}
+
+func parseKeyValueMap(text string) map[string]interface{} {
+	parts := strings.Split(text, ",")
+	attributes := make(map[string]interface{})
+	for _, part := range parts {
+		segment := strings.TrimSpace(part)
+		if segment == "" {
+			continue
+		}
+
+		kv := strings.SplitN(segment, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		if key == "" || value == "" {
+			continue
+		}
+
+		if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") {
+			var decoded interface{}
+			if err := json.Unmarshal([]byte(value), &decoded); err == nil {
+				attributes[key] = decoded
+				continue
+			}
+		}
+
+		attributes[key] = value
+	}
+
+	if len(attributes) == 0 {
+		return nil
+	}
+
+	return attributes
+}
+
+func encodeAttributes(attributes map[string]interface{}) string {
+	if len(attributes) == 0 {
+		return ""
+	}
+
+	encoded, err := json.Marshal(attributes)
+	if err != nil {
+		return ""
+	}
+
+	return string(encoded)
+}
+
+func mergeAttributeMaps(base, extra map[string]interface{}) map[string]interface{} {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]interface{})
+	for key, value := range base {
+		merged[key] = value
+	}
+
+	for key, value := range extra {
+		if _, exists := merged[key]; exists {
+			continue
+		}
+		merged[key] = value
+	}
+
+	return merged
+}
+
+func isEmptyAttributeValue(value interface{}) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	default:
+		return false
+	}
+}
+
+func firstStringFromMap(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			if text := stringFromValue(value); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func stringFromValue(value interface{}) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func applyScopeFallbacks(entry map[string]interface{}, scopeName, scopeVersion string) (string, string) {
+	if scopeName != "" && scopeVersion != "" {
+		return scopeName, scopeVersion
+	}
+
+	scopeValue, ok := entry["scope"]
+	if !ok {
+		return scopeName, scopeVersion
+	}
+
+	switch typed := scopeValue.(type) {
+	case map[string]interface{}:
+		if scopeName == "" {
+			scopeName = firstStringFromMap(typed, "name", "scope_name", "scopeName")
+		}
+		if scopeVersion == "" {
+			scopeVersion = firstStringFromMap(typed, "version", "scope_version", "scopeVersion")
+		}
+	case string:
+		if scopeName == "" {
+			scopeName = strings.TrimSpace(typed)
+		}
+	}
+
+	return scopeName, scopeVersion
 }

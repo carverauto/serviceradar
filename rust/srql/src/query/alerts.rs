@@ -86,11 +86,7 @@ fn build_query(plan: &QueryPlan) -> Result<AlertsQuery<'static>> {
 
     // Use triggered_at for time-based filtering (primary timestamp for alerts)
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(
-            col_triggered_at
-                .ge(*start)
-                .and(col_triggered_at.le(*end)),
-        );
+        query = query.filter(col_triggered_at.ge(*start).and(col_triggered_at.le(*end)));
     }
 
     for filter in &plan.filters {
@@ -105,9 +101,8 @@ fn apply_filter<'a>(mut query: AlertsQuery<'a>, filter: &Filter) -> Result<Alert
     match filter.field.as_str() {
         "id" => {
             let value = filter.value.as_scalar()?;
-            let uuid = Uuid::parse_str(value).map_err(|_| {
-                ServiceError::InvalidRequest("id must be a valid UUID".into())
-            })?;
+            let uuid = Uuid::parse_str(value)
+                .map_err(|_| ServiceError::InvalidRequest("id must be a valid UUID".into()))?;
             query = match filter.op {
                 crate::parser::FilterOp::Eq => query.filter(col_id.eq(uuid)),
                 crate::parser::FilterOp::NotEq => query.filter(col_id.ne(uuid)),
