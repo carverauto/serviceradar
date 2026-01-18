@@ -33,7 +33,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     unique: [period: 3600, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.{SweepGroupExecution, SweepHostResult}
+  alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroupExecution, SweepHostResult}
 
   import Ecto.Query
 
@@ -53,12 +53,16 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   """
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
-    case check_existing_job() do
-      true ->
-        {:ok, :already_scheduled}
+    if ObanSupport.available?() do
+      case check_existing_job() do
+        true ->
+          {:ok, :already_scheduled}
 
-      false ->
-        %{} |> new() |> Oban.insert()
+        false ->
+          %{} |> new() |> ObanSupport.safe_insert()
+      end
+    else
+      {:error, :oban_unavailable}
     end
   end
 
@@ -106,7 +110,14 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   end
 
   defp schedule_next_cleanup do
-    %{} |> new(schedule_in: @reschedule_interval_seconds) |> Oban.insert()
+    case ObanSupport.safe_insert(new(%{}, schedule_in: @reschedule_interval_seconds)) do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Sweep data cleanup reschedule deferred", reason: inspect(reason))
+        :ok
+    end
   end
 
   defp cleanup_data(host_results_cutoff, executions_cutoff, batch_size) do

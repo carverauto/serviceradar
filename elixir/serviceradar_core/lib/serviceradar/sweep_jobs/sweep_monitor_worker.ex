@@ -37,7 +37,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Events.InternalLogPublisher
-  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.{ObanSupport, SweepGroup}
 
   require Logger
   require Ash.Query
@@ -55,12 +55,16 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   """
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
-    case check_existing_job() do
-      true ->
-        {:ok, :already_scheduled}
+    if ObanSupport.available?() do
+      case check_existing_job() do
+        true ->
+          {:ok, :already_scheduled}
 
-      false ->
-        %{} |> new() |> Oban.insert()
+        false ->
+          %{} |> new() |> ObanSupport.safe_insert()
+      end
+    else
+      {:error, :oban_unavailable}
     end
   end
 
@@ -111,7 +115,14 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   end
 
   defp schedule_next_check(args) do
-    args |> new(schedule_in: @monitor_interval_seconds) |> Oban.insert()
+    case ObanSupport.safe_insert(new(args, schedule_in: @monitor_interval_seconds)) do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Sweep monitor reschedule deferred", reason: inspect(reason))
+        :ok
+    end
   end
 
   defp get_enabled_sweep_groups do
