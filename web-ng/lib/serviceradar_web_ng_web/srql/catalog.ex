@@ -21,6 +21,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "is_compliant",
         "is_trusted",
         "type_id",
+        "type",
+        "vendor_name",
         "discovery_sources",
         "tags"
       ],

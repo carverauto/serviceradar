@@ -1036,12 +1036,12 @@ mod tests {
         let (sql, params) = devices::to_sql_and_params(&plan).expect("should build filtered grouped stats SQL");
         let lower = sql.to_lowercase();
         assert!(
-            lower.contains("where") && lower.contains("device_type"),
-            "expected WHERE clause with filter in SQL, got: {sql}"
+            lower.contains("where") && lower.contains("vendor_name"),
+            "expected WHERE clause with vendor_name filter in SQL, got: {sql}"
         );
         assert!(
-            lower.contains("group by"),
-            "expected GROUP BY in SQL, got: {sql}"
+            lower.contains("group by") && lower.contains("coalesce(type"),
+            "expected GROUP BY with type column in SQL, got: {sql}"
         );
         assert_eq!(params.len(), 1, "should have one param for vendor_name filter");
     }

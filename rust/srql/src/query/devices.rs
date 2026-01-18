@@ -53,7 +53,8 @@ impl DeviceGroupField {
 
     fn column(&self) -> &'static str {
         match self {
-            Self::Type => "COALESCE(device_type, 'Unknown')",
+            // Note: Diesel schema uses "device_type" but actual SQL column is "type"
+            Self::Type => "COALESCE(type, 'Unknown')",
             Self::VendorName => "COALESCE(vendor_name, 'Unknown')",
             Self::RiskLevel => "COALESCE(risk_level, 'Unknown')",
             Self::IsAvailable => "COALESCE(is_available, false)",

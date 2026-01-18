@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   import Ash.Expr
 
   require Ash.Query
+  require Logger
 
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadar.Inventory.Device
@@ -1215,7 +1216,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         <!-- Availability -->
         <.link
-          navigate={~p"/devices?q=in:devices is_available:false"}
+          navigate={~p"/devices?q=in:devices is_available:true"}
           class="block group"
         >
           <div class={[
@@ -1249,7 +1250,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           title="By Type"
           items={@by_type}
           icon="hero-cpu-chip"
-          filter_field="type_id"
+          filter_field="type"
           empty_text="No type data"
         />
 
@@ -1277,11 +1278,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     top_item = List.first(items)
     other_count = items |> Enum.drop(1) |> Enum.reduce(0, fn %{count: c}, acc -> acc + c end)
 
+    # Build the link for the top item (skip "Unknown" since we can't filter NULL values)
+    top_item_link =
+      if top_item && top_item.name != "Unknown" do
+        "/devices?q=" <> URI.encode("in:devices #{assigns.filter_field}:\"#{top_item.name}\"")
+      else
+        nil
+      end
+
     assigns =
       assigns
       |> assign(:top_item, top_item)
       |> assign(:other_count, other_count)
       |> assign(:item_count, length(items))
+      |> assign(:top_item_link, top_item_link)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100 p-4 hover:shadow-md transition-shadow">
@@ -1290,19 +1300,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <.icon name={@icon} class="size-5 text-info" />
         </div>
         <div class="flex-1 min-w-0">
-          <div :if={@top_item} class="flex items-baseline gap-1">
-            <span class="text-lg font-bold text-base-content truncate max-w-[8rem]" title={@top_item.name}>
-              {@top_item.name}
-            </span>
-            <span class="text-sm text-base-content/60">({@top_item.count})</span>
+          <!-- Clickable top item (when not "Unknown") -->
+          <.link :if={@top_item && @top_item_link} navigate={@top_item_link} class="block group cursor-pointer">
+            <div class="flex items-baseline gap-1">
+              <span class="text-lg font-bold text-base-content truncate max-w-[8rem] group-hover:text-primary transition-colors" title={@top_item.name}>
+                {@top_item.name}
+              </span>
+              <span class="text-sm text-base-content/60">({@top_item.count})</span>
+            </div>
+            <div class="text-xs text-base-content/60">
+              {@title}
+              <span :if={@other_count > 0} class="text-base-content/40">
+                · +{@item_count - 1} more
+              </span>
+            </div>
+          </.link>
+          <!-- Non-clickable top item (for "Unknown" values) -->
+          <div :if={@top_item && @top_item_link == nil}>
+            <div class="flex items-baseline gap-1">
+              <span class="text-lg font-bold text-base-content truncate max-w-[8rem]" title={@top_item.name}>
+                {@top_item.name}
+              </span>
+              <span class="text-sm text-base-content/60">({@top_item.count})</span>
+            </div>
+            <div class="text-xs text-base-content/60">
+              {@title}
+              <span :if={@other_count > 0} class="text-base-content/40">
+                · +{@item_count - 1} more
+              </span>
+            </div>
           </div>
           <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
-          <div class="text-xs text-base-content/60">
-            {@title}
-            <span :if={@other_count > 0} class="text-base-content/40">
-              · +{@item_count - 1} more
-            </span>
-          </div>
         </div>
         <div :if={@items != []} class="dropdown dropdown-end">
           <div tabindex="0" role="button" class="btn btn-ghost btn-xs btn-circle">
@@ -1311,13 +1339,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200">
             <%= for item <- Enum.take(@items, 10) do %>
               <li>
-                <.link
-                  navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
-                  class="flex justify-between text-sm"
-                >
-                  <span class="truncate">{item.name}</span>
-                  <span class="badge badge-sm badge-ghost">{item.count}</span>
-                </.link>
+                <%= if item.name == "Unknown" do %>
+                  <span class="flex justify-between text-sm text-base-content/50 cursor-not-allowed">
+                    <span class="truncate">{item.name}</span>
+                    <span class="badge badge-sm badge-ghost">{item.count}</span>
+                  </span>
+                <% else %>
+                  <.link
+                    navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
+                    class="flex justify-between text-sm"
+                  >
+                    <span class="truncate">{item.name}</span>
+                    <span class="badge badge-sm badge-ghost">{item.count}</span>
+                  </.link>
+                <% end %>
               </li>
             <% end %>
           </ul>
@@ -1951,21 +1986,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         timeout: 10_000
       )
       |> Enum.reduce(%{}, fn
-        {:ok, {key, {:ok, result}}}, acc -> Map.put(acc, key, result)
-        {:ok, {key, result}}, acc -> Map.put(acc, key, result)
-        _, acc -> acc
+        {:ok, {key, {:ok, result}}}, acc ->
+          Map.put(acc, key, result)
+
+        {:ok, {key, {:error, reason}}}, acc ->
+          Logger.warning("Device stats query #{key} failed: #{inspect(reason)}")
+          acc
+
+        {:exit, reason}, acc ->
+          Logger.warning("Device stats query task exited: #{inspect(reason)}")
+          acc
+
+        other, acc ->
+          Logger.debug("Device stats unexpected result: #{inspect(other)}")
+          acc
       end)
 
-    %{
-      total: extract_stats_count(results[:total]),
-      available: extract_stats_count(results[:available]),
-      unavailable: extract_stats_count(results[:unavailable]),
+    Logger.debug("Device stats raw results: #{inspect(results, limit: 500)}")
+
+    stats = %{
+      total: extract_stats_count(results[:total], "total"),
+      available: extract_stats_count(results[:available], "count"),
+      unavailable: extract_stats_count(results[:unavailable], "count"),
       by_type: extract_grouped_stats(results[:by_type], "type"),
       by_vendor: extract_grouped_stats(results[:by_vendor], "vendor_name"),
       by_risk_level: extract_grouped_stats(results[:by_risk_level], "risk_level")
     }
+
+    Logger.debug("Device stats parsed: #{inspect(stats)}")
+    stats
   rescue
-    _ ->
+    e ->
+      Logger.error("Device stats loading failed: #{inspect(e)}")
+
       %{
         total: 0,
         available: 0,
@@ -1976,43 +2029,79 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       }
   end
 
-  defp extract_stats_count({:ok, %{"results" => [%{"total" => count} | _]}})
-       when is_integer(count),
-       do: count
-
-  defp extract_stats_count({:ok, %{"results" => [%{"count" => count} | _]}})
-       when is_integer(count),
-       do: count
-
-  defp extract_stats_count(%{"results" => [%{"total" => count} | _]}) when is_integer(count),
-    do: count
-
-  defp extract_stats_count(%{"results" => [%{"count" => count} | _]}) when is_integer(count),
-    do: count
-
-  defp extract_stats_count(_), do: 0
-
-  defp extract_grouped_stats({:ok, %{"results" => results}}, field) when is_list(results) do
-    extract_grouped_stats_list(results, field)
+  # Handle map result (multiple columns): {"results": [{"total": 123}]}
+  defp extract_stats_count(%{"results" => [row | _]}, field) when is_map(row) do
+    value = Map.get(row, field) || Map.get(row, "count") || Map.get(row, "total")
+    to_stats_int(value)
   end
+
+  # Handle single value result (single column): {"results": [123]}
+  defp extract_stats_count(%{"results" => [value | _]}, _field) when not is_map(value) do
+    to_stats_int(value)
+  end
+
+  # Handle payload column (grouped stats): {"results": [%{"payload" => %{...}}]}
+  defp extract_stats_count(%{"results" => [%{"payload" => payload} | _]}, field)
+       when is_map(payload) do
+    value = Map.get(payload, field) || Map.get(payload, "count") || Map.get(payload, "total")
+    to_stats_int(value)
+  end
+
+  defp extract_stats_count(%{"results" => []}, _field), do: 0
+  defp extract_stats_count(nil, _field), do: 0
+  defp extract_stats_count(result, field) do
+    Logger.warning("Unexpected stats count result format: #{inspect(result)}, field: #{field}")
+    0
+  end
+
+  defp to_stats_int(nil), do: 0
+  defp to_stats_int(value) when is_integer(value), do: value
+  defp to_stats_int(value) when is_float(value), do: trunc(value)
+  defp to_stats_int(%Decimal{} = value), do: Decimal.to_integer(value)
+
+  defp to_stats_int(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, _} -> parsed
+      :error -> 0
+    end
+  end
+
+  defp to_stats_int(_), do: 0
 
   defp extract_grouped_stats(%{"results" => results}, field) when is_list(results) do
+    Logger.debug("Extracting grouped stats for field '#{field}' from #{inspect(results, limit: 200)}")
     extract_grouped_stats_list(results, field)
   end
 
-  defp extract_grouped_stats(_, _), do: []
+  defp extract_grouped_stats(nil, _field), do: []
+
+  defp extract_grouped_stats(result, field) do
+    Logger.warning("Unexpected grouped stats result format: #{inspect(result)}, field: #{field}")
+    []
+  end
 
   defp extract_grouped_stats_list(results, field) do
-    results
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(fn row ->
-      %{
-        name: Map.get(row, field) || "Unknown",
-        count: Map.get(row, "count") || 0
-      }
-    end)
-    |> Enum.filter(fn %{count: count} -> count > 0 end)
-    |> Enum.sort_by(fn %{count: count} -> -count end)
+    items =
+      results
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn row ->
+        # Handle both direct field and nested payload
+        data = Map.get(row, "payload", row)
+
+        %{
+          name: to_string(Map.get(data, field) || "Unknown"),
+          count: to_stats_int(Map.get(data, "count") || 0)
+        }
+      end)
+      |> Enum.filter(fn %{count: count} -> count > 0 end)
+
+    # Separate known values from "Unknown" - show known types first
+    {known, unknown} = Enum.split_with(items, fn %{name: name} -> name != "Unknown" end)
+
+    known_sorted = Enum.sort_by(known, fn %{count: count} -> -count end)
+    unknown_sorted = Enum.sort_by(unknown, fn %{count: count} -> -count end)
+
+    (known_sorted ++ unknown_sorted)
     |> Enum.take(10)
   end
 
