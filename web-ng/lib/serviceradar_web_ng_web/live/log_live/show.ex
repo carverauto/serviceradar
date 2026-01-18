@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     {log, error} =
       case srql_module().query(query) do
         {:ok, %{"results" => [log | _]}} when is_map(log) ->
-          {log, nil}
+          {augment_log(log), nil}
 
         {:ok, %{"results" => []}} ->
           # Try alternate query without filter - just return not found
@@ -134,6 +134,111 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # RBAC check - only operators and admins can create rules
   defp can_create_rules?(%{user: %{role: role}}) when role in [:operator, :admin], do: true
   defp can_create_rules?(_), do: false
+
+  defp augment_log(%{} = log) do
+    attributes = parse_attributes(Map.get(log, "attributes")) || %{}
+    resource_attributes =
+      parse_attributes(Map.get(log, "resource_attributes")) ||
+        extract_resource_from_attributes(attributes)
+
+    {scope_name, scope_version} =
+      extract_scope_from_attributes(
+        Map.get(log, "scope_name"),
+        Map.get(log, "scope_version"),
+        attributes
+      )
+
+    attributes =
+      attributes
+      |> drop_attribute_keys(["resource", "resource_attributes", "resourceAttributes", "scope"])
+      |> unwrap_nested_attributes()
+
+    log
+    |> Map.put("attributes", if(map_size(attributes) == 0, do: nil, else: attributes))
+    |> Map.put("resource_attributes", resource_attributes || Map.get(log, "resource_attributes"))
+    |> Map.put("scope_name", scope_name)
+    |> Map.put("scope_version", scope_version)
+    |> put_service_from_resource(resource_attributes)
+  end
+
+  defp augment_log(log), do: log
+
+  defp extract_resource_from_attributes(attributes) when is_map(attributes) do
+    attributes
+    |> Map.get("resource")
+    |> parse_attributes()
+    |> case do
+      nil ->
+        attributes
+        |> Map.get("resource_attributes")
+        |> parse_attributes()
+        |> case do
+          nil ->
+            attributes
+            |> Map.get("resourceAttributes")
+            |> parse_attributes()
+
+          resource -> resource
+        end
+
+      resource ->
+        resource
+    end
+  end
+
+  defp extract_resource_from_attributes(_), do: nil
+
+  defp extract_scope_from_attributes(scope_name, scope_version, attributes)
+       when scope_name in [nil, ""] or scope_version in [nil, ""] do
+    case Map.get(attributes, "scope") do
+      scope when is_binary(scope) and scope != "" ->
+        {scope_name || scope, scope_version}
+
+      %{} = scope_map ->
+        {
+          scope_name || Map.get(scope_map, "name") || Map.get(scope_map, "scope_name"),
+          scope_version || Map.get(scope_map, "version") || Map.get(scope_map, "scope_version")
+        }
+
+      _ ->
+        {scope_name, scope_version}
+    end
+  end
+
+  defp extract_scope_from_attributes(scope_name, scope_version, _attributes),
+    do: {scope_name, scope_version}
+
+  defp drop_attribute_keys(attributes, keys) when is_map(attributes) do
+    Enum.reduce(keys, attributes, fn key, acc -> Map.delete(acc, key) end)
+  end
+
+  defp drop_attribute_keys(attributes, _keys), do: attributes
+
+  defp unwrap_nested_attributes(%{"attributes" => %{} = nested} = attributes)
+       when map_size(attributes) == 1 do
+    nested
+  end
+
+  defp unwrap_nested_attributes(attributes), do: attributes
+
+  defp put_service_from_resource(log, resource_attributes) when is_map(resource_attributes) do
+    log
+    |> put_if_blank("service_name", Map.get(resource_attributes, "service.name"))
+    |> put_if_blank("service_version", Map.get(resource_attributes, "service.version"))
+    |> put_if_blank("service_instance", Map.get(resource_attributes, "service.instance.id"))
+  end
+
+  defp put_service_from_resource(log, _resource_attributes), do: log
+
+  defp put_if_blank(%{} = log, key, value) when value in [nil, ""], do: log
+
+  defp put_if_blank(%{} = log, key, value) do
+    case Map.get(log, key) do
+      nil -> Map.put(log, key, value)
+      "" -> Map.put(log, key, value)
+      _ -> log
+    end
+  end
 
   attr :log, :map, required: true
 

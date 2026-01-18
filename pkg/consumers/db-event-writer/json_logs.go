@@ -121,6 +121,31 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	extraAttributes := buildAttributesMap(entry, jsonLogReservedKeys)
 	attributesMap = mergeAttributeMaps(attributesMap, extraAttributes)
 
+	scopeName := firstString(entry, "scope.name", "scope_name", "scopeName")
+	scopeVersion := firstString(entry, "scope.version", "scope_version", "scopeVersion")
+
+	if len(resourceAttribs) == 0 {
+		resourceValue, updated := popAttribute(attributesMap, "resource_attributes", "resourceAttributes", "resource")
+		attributesMap = updated
+		if parsed := parseAttributeValue(resourceValue); len(parsed) > 0 {
+			resourceAttribs = parsed
+		}
+	}
+
+	scopeName, scopeVersion = applyScopeFallbacks(entry, scopeName, scopeVersion)
+	if scopeName == "" || scopeVersion == "" {
+		scopeValue, updated := popAttribute(attributesMap, "scope")
+		attributesMap = updated
+		scopeName, scopeVersion = applyScopeValue(scopeValue, scopeName, scopeVersion)
+
+		if scopeVersion == "" {
+			if value, updated := popAttribute(attributesMap, "scope_version", "scopeVersion"); value != nil {
+				attributesMap = updated
+				scopeVersion = stringFromValue(value)
+			}
+		}
+	}
+
 	serviceName := firstString(entry, "service.name", "service_name", "service", "serviceName")
 	host := firstString(entry, "host", "hostname")
 	if serviceName == "" {
@@ -146,10 +171,6 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 			"serviceInstance",
 		)
 	}
-
-	scopeName := firstString(entry, "scope.name", "scope_name", "scopeName")
-	scopeVersion := firstString(entry, "scope.version", "scope_version", "scopeVersion")
-	scopeName, scopeVersion = applyScopeFallbacks(entry, scopeName, scopeVersion)
 
 	attributes := encodeAttributes(attributesMap)
 	resourceAttributes := encodeAttributes(resourceAttribs)
@@ -506,6 +527,21 @@ func mergeAttributeMaps(base, extra map[string]interface{}) map[string]interface
 	return merged
 }
 
+func popAttribute(attributes map[string]interface{}, keys ...string) (interface{}, map[string]interface{}) {
+	if len(attributes) == 0 {
+		return nil, attributes
+	}
+
+	for _, key := range keys {
+		if value, ok := attributes[key]; ok {
+			delete(attributes, key)
+			return value, attributes
+		}
+	}
+
+	return nil, attributes
+}
+
 func isEmptyAttributeValue(value interface{}) bool {
 	switch typed := value.(type) {
 	case nil:
@@ -549,6 +585,24 @@ func applyScopeFallbacks(entry map[string]interface{}, scopeName, scopeVersion s
 		return scopeName, scopeVersion
 	}
 
+	switch typed := scopeValue.(type) {
+	case map[string]interface{}:
+		if scopeName == "" {
+			scopeName = firstStringFromMap(typed, "name", "scope_name", "scopeName")
+		}
+		if scopeVersion == "" {
+			scopeVersion = firstStringFromMap(typed, "version", "scope_version", "scopeVersion")
+		}
+	case string:
+		if scopeName == "" {
+			scopeName = strings.TrimSpace(typed)
+		}
+	}
+
+	return scopeName, scopeVersion
+}
+
+func applyScopeValue(scopeValue interface{}, scopeName, scopeVersion string) (string, string) {
 	switch typed := scopeValue.(type) {
 	case map[string]interface{}:
 		if scopeName == "" {
