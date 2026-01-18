@@ -336,36 +336,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}) do
     field = field |> safe_to_string() |> String.trim()
-
-    if field == "" do
-      nil
-    else
-      case op do
-        # Equals - split comma-separated values and use list syntax if multiple
-        "equals" ->
-          expanded = expand_comma_values(values)
-          build_equals_token(field, expanded)
-
-        # Not equals - split comma-separated values and use list syntax if multiple
-        "not_equals" ->
-          expanded = expand_comma_values(values)
-          build_not_equals_token(field, expanded)
-
-        # Contains - use LIKE syntax, don't split commas (take first value only)
-        "contains" ->
-          value = values |> List.first() |> safe_to_string() |> String.trim()
-          if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
-
-        # Not contains - use NOT LIKE syntax, don't split commas
-        "not_contains" ->
-          value = values |> List.first() |> safe_to_string() |> String.trim()
-          if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
-
-        _ ->
-          nil
-      end
-    end
+    if field == "", do: nil, else: build_filter_by_op(field, op, values)
   end
+
+  defp build_filter_by_op(field, "equals", values) do
+    expanded = expand_comma_values(values)
+    build_equals_token(field, expanded)
+  end
+
+  defp build_filter_by_op(field, "not_equals", values) do
+    expanded = expand_comma_values(values)
+    build_not_equals_token(field, expanded)
+  end
+
+  defp build_filter_by_op(field, "contains", values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(field, "not_contains", values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(_field, _op, _values), do: nil
 
   # Expand comma-separated values into individual items (for equals/not_equals only)
   defp expand_comma_values(values) do

@@ -54,15 +54,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
       with {:ok, spec} <- infer_sparkline_spec(results),
            {:ok, spark_by_series} <- build_sparklines(results, spec),
            true <- map_size(spark_by_series) > 0 do
-        Enum.map(results, fn
-          %{} = row ->
-            series_key = series_value(row, spec.series_key)
-            spark = Map.get(spark_by_series, series_key)
-            if is_list(spark), do: Map.put(row, "_sparkline", spark), else: row
-
-          other ->
-            other
-        end)
+        Enum.map(results, &attach_row_sparkline(&1, spark_by_series, spec.series_key))
       else
         _ -> results
       end
@@ -70,6 +62,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   end
 
   defp attach_sparklines(results), do: results
+
+  defp attach_row_sparkline(%{} = row, spark_by_series, series_key) do
+    spark = Map.get(spark_by_series, series_value(row, series_key))
+    if is_list(spark), do: Map.put(row, "_sparkline", spark), else: row
+  end
+
+  defp attach_row_sparkline(other, _spark_by_series, _series_key), do: other
 
   defp infer_sparkline_spec(results) do
     keys =
@@ -107,12 +106,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
         ]
       end)
 
-    cond do
-      is_binary(x) and is_binary(y) ->
-        {:ok, %{x: x, y: y, series_key: series_key || "series"}}
-
-      true ->
-        {:error, :no_sparkline_spec}
+    if is_binary(x) and is_binary(y) do
+      {:ok, %{x: x, y: y, series_key: series_key || "series"}}
+    else
+      {:error, :no_sparkline_spec}
     end
   end
 

@@ -65,10 +65,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Viz do
 
     label_key =
       keys
-      |> Enum.reject(&(&1 == value_key))
-      # Exclude ID-like columns that don't make sense as category labels
-      |> Enum.reject(&String.ends_with?(&1, "_id"))
-      |> Enum.reject(&(&1 in ["id", "uid", "uuid", "guid"]))
+      |> Enum.reject(fn k ->
+        k == value_key or String.ends_with?(k, "_id") or k in ["id", "uid", "uuid", "guid"]
+      end)
       |> Enum.find(&stringish_column?(rows, &1))
 
     with true <- is_binary(label_key),

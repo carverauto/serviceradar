@@ -373,8 +373,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> Enum.map(&Integer.to_string(&1, 16))
     |> Enum.map(&String.downcase/1)
     |> Enum.zip([8, 4, 4, 4, 12])
-    |> Enum.map(fn {hex, len} -> String.pad_leading(hex, len, "0") end)
-    |> Enum.join("-")
+    |> Enum.map_join("-", fn {hex, len} -> String.pad_leading(hex, len, "0") end)
   end
 
   defp uuid_to_string(_), do: "unknown"
