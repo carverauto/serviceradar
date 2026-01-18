@@ -163,6 +163,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp apply_action(socket, :edit_group, %{"id" => id}) do
+    require Logger
+
     case load_sweep_group(socket.assigns.current_scope, id) do
       nil ->
         socket
@@ -170,9 +172,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> push_navigate(to: ~p"/settings/networks")
 
       group ->
+        Logger.debug(
+          "[NetworksLive] edit_group - group.target_criteria: #{inspect(group.target_criteria)}"
+        )
+
         scope = socket.assigns.current_scope
         ash_form = Form.for_update(group, :update, domain: ServiceRadar.SweepJobs, scope: scope)
         rules = criteria_to_rules(group.target_criteria || %{})
+        Logger.debug("[NetworksLive] edit_group - converted rules: #{inspect(rules)}")
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
@@ -320,10 +327,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     # Convert criteria rules to target_criteria map
     target_criteria = rules_to_criteria(socket.assigns.criteria_rules)
 
+    require Logger
+
+    Logger.debug(
+      "[NetworksLive] save_group - criteria_rules: #{inspect(socket.assigns.criteria_rules)}"
+    )
+
+    Logger.debug("[NetworksLive] save_group - target_criteria: #{inspect(target_criteria)}")
+
     params =
       params
       |> Map.put("target_criteria", target_criteria)
       |> normalize_static_targets()
+
+    Logger.debug("[NetworksLive] save_group - params with target_criteria: #{inspect(params)}")
 
     ash_form =
       socket.assigns.ash_form
@@ -331,6 +348,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
     case Form.submit(ash_form, params: params) do
       {:ok, group} ->
+        Logger.debug(
+          "[NetworksLive] save_group SUCCESS - saved group.target_criteria: #{inspect(group.target_criteria)}"
+        )
+
         flash_message = sweep_group_save_message(group.enabled)
 
         {:noreply,
@@ -341,6 +362,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> push_navigate(to: ~p"/settings/networks")}
 
       {:ok, group, _notifications} ->
+        Logger.debug(
+          "[NetworksLive] save_group SUCCESS - saved group.target_criteria: #{inspect(group.target_criteria)}"
+        )
+
         flash_message = sweep_group_save_message(group.enabled)
 
         {:noreply,
@@ -351,6 +376,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
          |> push_navigate(to: ~p"/settings/networks")}
 
       {:error, ash_form} ->
+        Logger.warning(
+          "[NetworksLive] save_group ERROR - form errors: #{inspect(Form.errors(ash_form))}"
+        )
+
         {:noreply,
          socket
          |> assign(:ash_form, ash_form)
@@ -2319,22 +2348,43 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp criteria_to_rules(criteria) when criteria == %{} or criteria == nil, do: []
 
   defp criteria_to_rules(criteria) when is_map(criteria) do
-    Enum.flat_map(criteria, fn {field, operator_spec} ->
-      case Map.to_list(operator_spec) do
-        [{operator, value}] ->
-          [
-            %{
-              id: System.unique_integer([:positive]),
-              field: field,
-              operator: operator,
-              value: format_rule_value(operator, value)
-            }
-          ]
+    require Logger
 
-        _ ->
-          []
-      end
+    Enum.flat_map(criteria, fn {field, operator_spec} ->
+      Logger.debug(
+        "[NetworksLive] criteria_to_rules - parsing field=#{inspect(field)}, spec=#{inspect(operator_spec)}"
+      )
+
+      parse_operator_spec(field, operator_spec)
     end)
+  end
+
+  defp parse_operator_spec(field, %{} = spec) when map_size(spec) == 1 do
+    [{operator, value}] = Map.to_list(spec)
+    [build_rule(field, operator, value)]
+  end
+
+  defp parse_operator_spec(field, %{} = spec) when map_size(spec) > 1 do
+    Enum.map(spec, fn {operator, value} -> build_rule(field, operator, value) end)
+  end
+
+  defp parse_operator_spec(field, other) do
+    require Logger
+
+    Logger.warning(
+      "[NetworksLive] criteria_to_rules - unexpected operator_spec format: #{inspect(other)} for field #{field}"
+    )
+
+    []
+  end
+
+  defp build_rule(field, operator, value) do
+    %{
+      id: System.unique_integer([:positive]),
+      field: field,
+      operator: operator,
+      value: format_rule_value(operator, value)
+    }
   end
 
   # Device count query using SRQL
