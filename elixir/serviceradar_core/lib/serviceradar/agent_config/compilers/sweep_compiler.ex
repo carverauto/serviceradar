@@ -37,8 +37,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
+
+  @srql_page_limit_default 500
 
   @impl true
   def config_type, do: :sweep
@@ -141,7 +143,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
         Enum.each(groups, fn g ->
           Logger.debug(
-            "SweepCompiler: group #{g.name} - target_criteria=#{inspect(g.target_criteria)}, static_targets=#{inspect(g.static_targets)}"
+            "SweepCompiler: group #{g.name} - target_query=#{inspect(g.target_query)}, static_targets=#{inspect(g.static_targets)}"
           )
         end)
 
@@ -177,7 +179,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build schedule
     schedule = compile_schedule(group)
 
-    # Build targets from criteria and static targets
+    # Build targets from SRQL query and static targets
     targets = compile_targets(group, actor)
 
     # Merge ports from profile and group overrides
@@ -222,62 +224,176 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Start with static targets
     static_targets = group.static_targets || []
 
-    # Get targets from device criteria if defined
-    criteria_targets =
-      if map_size(group.target_criteria || %{}) > 0 do
-        get_targets_from_criteria(group.target_criteria, actor)
-      else
-        []
+    # Get targets from SRQL query if defined
+    srql_targets =
+      case group.target_query do
+        nil -> []
+        "" -> []
+        query -> get_targets_from_query(query, actor)
       end
 
     # Combine and deduplicate
-    (static_targets ++ criteria_targets)
+    (static_targets ++ srql_targets)
     |> Enum.uniq()
   end
 
-  defp get_targets_from_criteria(criteria, actor) do
-    # Split criteria into Ash-supported filters and those needing in-memory filtering
-    {ash_filters, unsupported_criteria} = TargetCriteria.to_ash_filter_with_fallback(criteria)
+  defp get_targets_from_query(query, _actor) when is_binary(query) do
+    query = normalize_target_query(query)
 
-    # Build query with Ash filters applied at database level
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> apply_ash_filters(ash_filters)
+    query
+    |> fetch_srql_device_ips(nil, MapSet.new())
+    |> MapSet.to_list()
+    |> Enum.sort()
+  rescue
+    _ -> []
+  end
 
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} ->
-        # Apply in-memory filtering for unsupported operators (CIDR, tags, etc.)
-        filtered_devices =
-          if map_size(unsupported_criteria) > 0 do
-            TargetCriteria.filter_devices(devices, unsupported_criteria)
-          else
-            devices
-          end
+  defp get_targets_from_query(_query, _actor), do: []
 
-        # Extract IPs from filtered devices
-        filtered_devices
-        |> Enum.map(&get_device_ip/1)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
+  defp normalize_target_query(query) do
+    query = String.trim(query)
 
-      {:error, reason} ->
-        Logger.warning("SweepCompiler: failed to load devices - #{inspect(reason)}")
-        []
+    if String.starts_with?(query, "in:") do
+      query
+    else
+      "in:devices " <> query
     end
   end
 
-  # Apply Ash filter conditions to query
-  # Filters are keyword lists like [{:partition, "default"}, {:discovery_sources, [contains: "armis"]}]
-  defp apply_ash_filters(query, []), do: query
+  defp fetch_srql_device_ips(_query, _cursor, acc) when is_nil(acc), do: MapSet.new()
 
-  defp apply_ash_filters(query, filters) when is_list(filters) do
-    Ash.Query.filter(query, ^filters)
+  defp fetch_srql_device_ips(query, cursor, acc) do
+    case translate_srql(query, cursor) do
+      {:ok, %{"sql" => sql} = translation} when is_binary(sql) ->
+        params = Map.get(translation, "params", [])
+
+        with {:ok, decoded_params} <- decode_params(params),
+             {:ok, result} <- run_sql(sql, decoded_params) do
+          acc = add_ips(acc, result)
+          next_cursor = next_cursor(translation, result)
+
+          if is_binary(next_cursor) do
+            fetch_srql_device_ips(query, next_cursor, acc)
+          else
+            acc
+          end
+        else
+          {:error, reason} ->
+            Logger.warning("SweepCompiler: SRQL query failed - #{inspect(reason)}")
+            acc
+        end
+
+      {:error, reason} ->
+        Logger.warning("SweepCompiler: SRQL translate failed - #{inspect(reason)}")
+        acc
+
+      other ->
+        Logger.warning("SweepCompiler: SRQL translate returned #{inspect(other)}")
+        acc
+    end
   end
 
-  defp get_device_ip(device) do
-    Map.get(device, :ip) || Map.get(device, "ip")
+  defp translate_srql(query, cursor) do
+    case ServiceRadarSRQL.Native.translate(query, srql_page_limit(), cursor, "next", nil) do
+      {:ok, json} when is_binary(json) -> Jason.decode(json)
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_srql_translate_result, other}}
+    end
   end
+
+  defp srql_page_limit do
+    Application.get_env(:serviceradar_core, :sweep_srql_page_limit, @srql_page_limit_default)
+  end
+
+  defp run_sql(sql, params) do
+    Ecto.Adapters.SQL.query(Repo, sql, params)
+  end
+
+  defp add_ips(acc, %Postgrex.Result{columns: columns, rows: rows}) do
+    case Enum.find_index(columns, &(&1 == "ip")) do
+      nil ->
+        acc
+
+      index ->
+        rows
+        |> Enum.reduce(acc, fn row, set ->
+          case Enum.at(row, index) do
+            value when is_binary(value) -> MapSet.put(set, value)
+            _ -> set
+          end
+        end)
+    end
+  end
+
+  defp add_ips(acc, _), do: acc
+
+  defp next_cursor(translation, %Postgrex.Result{rows: rows}) do
+    limit = get_in(translation, ["pagination", "limit"])
+    candidate = get_in(translation, ["pagination", "next_cursor"])
+
+    if is_integer(limit) and is_binary(candidate) and length(rows) >= limit do
+      candidate
+    else
+      nil
+    end
+  end
+
+  defp next_cursor(_translation, _result), do: nil
+
+  defp decode_params(params) when is_list(params) do
+    params
+    |> Enum.reduce_while({:ok, []}, fn param, {:ok, acc} ->
+      case decode_param(param) do
+        {:ok, decoded} -> {:cont, {:ok, [decoded | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp decode_params(_), do: {:error, :invalid_srql_params}
+
+  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
+  defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
+  defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
+
+  defp decode_param(%{"t" => "int_array", "v" => values}) when is_list(values) do
+    if Enum.all?(values, &is_integer/1) do
+      {:ok, values}
+    else
+      {:error, :invalid_int_array_param}
+    end
+  end
+
+  defp decode_param(%{"t" => "float", "v" => value}) when is_float(value), do: {:ok, value}
+  defp decode_param(%{"t" => "float", "v" => value}) when is_integer(value), do: {:ok, value / 1}
+
+  defp decode_param(%{"t" => "text_array", "v" => values}) when is_list(values) do
+    if Enum.all?(values, &is_binary/1) do
+      {:ok, values}
+    else
+      {:error, :invalid_text_array_param}
+    end
+  end
+
+  defp decode_param(%{"t" => "timestamptz", "v" => value}) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      _ -> {:error, :invalid_timestamptz_param}
+    end
+  end
+
+  defp decode_param(%{"t" => "uuid", "v" => value}) when is_binary(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, binary_uuid} -> {:ok, binary_uuid}
+      :error -> {:error, :invalid_uuid_param}
+    end
+  end
+
+  defp decode_param(_), do: {:error, :invalid_srql_param}
 
   defp merge_ports(nil, group), do: group.ports || []
 

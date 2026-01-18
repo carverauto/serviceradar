@@ -3,8 +3,8 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   Integration tests for sweep targeting rules end-to-end.
 
   These tests verify that:
-  1. Targeting criteria is correctly saved to the database
-  2. SweepCompiler correctly resolves targets from criteria
+  1. Targeting SRQL query is correctly saved to the database
+  2. SweepCompiler correctly resolves targets from SRQL
   3. Agents receive the correct sweep config based on partition
   4. Config changes trigger cache invalidation
   """
@@ -16,7 +16,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile, TargetCriteria}
+  alias ServiceRadar.SweepJobs.{SweepGroup, SweepProfile}
   alias ServiceRadar.TestSupport
 
   setup_all do
@@ -36,76 +36,58 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     {:ok, actor: actor, unique_id: unique_id}
   end
 
-  describe "targeting criteria persistence" do
-    test "CIDR targeting criteria is saved and loaded correctly", %{actor: actor, unique_id: unique_id} do
-      criteria = %{"ip" => %{"in_cidr" => "10.0.0.0/8"}}
-
+  describe "target_query persistence" do
+    test "CIDR targeting query is saved and normalized", %{actor: actor, unique_id: unique_id} do
       {:ok, group} =
         SweepGroup
         |> Ash.Changeset.for_create(:create, %{
           name: "CIDR Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: criteria
+          target_query: "ip:10.0.0.0/8"
         }, actor: actor)
         |> Ash.create()
 
-      # Verify saved correctly
-      assert group.target_criteria == criteria
+      assert group.target_query == "in:devices ip:10.0.0.0/8"
 
-      # Reload from database
       {:ok, reloaded} = Ash.get(SweepGroup, group.id, actor: actor)
-      assert reloaded.target_criteria == criteria
+      assert reloaded.target_query == "in:devices ip:10.0.0.0/8"
     end
 
-    test "tag targeting criteria is saved and loaded correctly", %{actor: actor, unique_id: unique_id} do
-      criteria = %{"tags" => %{"has_any" => ["env=prod", "critical", "monitored"]}}
-
+    test "tag targeting query is saved and loaded correctly", %{actor: actor, unique_id: unique_id} do
       {:ok, group} =
         SweepGroup
         |> Ash.Changeset.for_create(:create, %{
           name: "Tag Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: criteria
+          target_query: "in:devices tags.env:prod"
         }, actor: actor)
         |> Ash.create()
 
-      assert group.target_criteria == criteria
+      assert group.target_query == "in:devices tags.env:prod"
 
       {:ok, reloaded} = Ash.get(SweepGroup, group.id, actor: actor)
-      assert reloaded.target_criteria["tags"]["has_any"] == ["env=prod", "critical", "monitored"]
+      assert reloaded.target_query == "in:devices tags.env:prod"
     end
 
-    test "complex multi-field criteria is saved and loaded correctly", %{actor: actor, unique_id: unique_id} do
-      criteria = %{
-        "ip" => %{"in_cidr" => "10.0.0.0/8"},
-        "hostname" => %{"contains" => "server"},
-        "tags" => %{"has_any" => ["prod"]},
-        "is_available" => %{"eq" => true}
-      }
-
+    test "empty target_query is stored as nil", %{actor: actor, unique_id: unique_id} do
       {:ok, group} =
         SweepGroup
         |> Ash.Changeset.for_create(:create, %{
-          name: "Complex Group #{unique_id}",
+          name: "Empty Query Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: criteria
+          target_query: ""
         }, actor: actor)
         |> Ash.create()
 
-      {:ok, reloaded} = Ash.get(SweepGroup, group.id, actor: actor)
-
-      assert reloaded.target_criteria["ip"] == %{"in_cidr" => "10.0.0.0/8"}
-      assert reloaded.target_criteria["hostname"] == %{"contains" => "server"}
-      assert reloaded.target_criteria["tags"] == %{"has_any" => ["prod"]}
-      assert reloaded.target_criteria["is_available"] == %{"eq" => true}
+      assert group.target_query == nil
     end
   end
 
-  describe "sweep compiler with targeting criteria" do
-    test "compiles sweep group with CIDR criteria and matching devices", %{actor: actor, unique_id: unique_id} do
+  describe "sweep compiler with SRQL targeting" do
+    test "compiles sweep group with CIDR query and matching devices", %{actor: actor, unique_id: unique_id} do
       # Create devices - some matching, some not
       {:ok, matching_device1} =
         Device
@@ -134,14 +116,14 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
         }, actor: actor)
         |> Ash.create()
 
-      # Create sweep group with CIDR criteria
+      # Create sweep group with CIDR query
       {:ok, _group} =
         SweepGroup
         |> Ash.Changeset.for_create(:create, %{
           name: "CIDR Compile Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{"ip" => %{"in_cidr" => "10.0.0.0/8"}},
+          target_query: "in:devices ip:10.0.0.0/8",
           enabled: true
         }, actor: actor)
         |> Ash.create()
@@ -163,7 +145,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       refute "192.168.1.100" in compiled_group["targets"]
     end
 
-    test "compiles sweep group with tag criteria and matching devices", %{actor: actor, unique_id: unique_id} do
+    test "compiles sweep group with tag query and matching devices", %{actor: actor, unique_id: unique_id} do
       # Create devices with tags
       {:ok, prod_device} =
         Device
@@ -192,7 +174,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           name: "Tag Compile Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{"tags" => %{"has_any" => ["env=prod"]}},
+          target_query: "in:devices tags.env:prod",
           enabled: true
         }, actor: actor)
         |> Ash.create()
@@ -208,7 +190,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       # Dev device should not be in targets (different tag value)
     end
 
-    test "compiles sweep group combining criteria with static_targets", %{actor: actor, unique_id: unique_id} do
+    test "compiles sweep group combining SRQL with static_targets", %{actor: actor, unique_id: unique_id} do
       {:ok, device} =
         Device
         |> Ash.Changeset.for_create(:create, %{
@@ -226,7 +208,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           name: "Combined Targets Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{"ip" => %{"in_cidr" => "10.0.0.0/8"}},
+          target_query: "in:devices ip:10.0.0.0/8",
           static_targets: static_targets,
           enabled: true
         }, actor: actor)
@@ -245,7 +227,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       assert "172.16.0.1" in compiled_group["targets"]
     end
 
-    test "empty criteria with static_targets only includes static_targets", %{actor: actor, unique_id: unique_id} do
+    test "empty SRQL query with static_targets only includes static_targets", %{actor: actor, unique_id: unique_id} do
       static_targets = ["10.0.0.0/24", "192.168.1.1"]
 
       {:ok, _group} =
@@ -254,7 +236,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
           name: "Static Only Group #{unique_id}",
           partition: "default",
           interval: "15m",
-          target_criteria: %{},
+          target_query: nil,
           static_targets: static_targets,
           enabled: true
         }, actor: actor)
@@ -452,58 +434,4 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     end
   end
 
-  describe "TargetCriteria DSL operators" do
-    test "in_range operator for IP ranges" do
-      device_in_range = %{ip: "10.0.0.25"}
-      device_out_of_range = %{ip: "10.0.1.1"}
-
-      criteria = %{"ip" => %{"in_range" => "10.0.0.10-10.0.0.50"}}
-
-      assert TargetCriteria.matches?(device_in_range, criteria)
-      refute TargetCriteria.matches?(device_out_of_range, criteria)
-    end
-
-    test "numeric comparison operators" do
-      device = %{type_id: 15}
-
-      assert TargetCriteria.matches?(device, %{"type_id" => %{"gt" => 10}})
-      assert TargetCriteria.matches?(device, %{"type_id" => %{"gte" => 15}})
-      assert TargetCriteria.matches?(device, %{"type_id" => %{"lt" => 20}})
-      assert TargetCriteria.matches?(device, %{"type_id" => %{"lte" => 15}})
-
-      refute TargetCriteria.matches?(device, %{"type_id" => %{"gt" => 15}})
-      refute TargetCriteria.matches?(device, %{"type_id" => %{"lt" => 15}})
-    end
-
-    test "is_null and is_not_null operators" do
-      device_with_field = %{hostname: "server1", ip: "10.0.0.1"}
-      device_with_nil = %{hostname: nil, ip: "10.0.0.2"}
-
-      assert TargetCriteria.matches?(device_with_field, %{"hostname" => %{"is_not_null" => true}})
-      assert TargetCriteria.matches?(device_with_nil, %{"hostname" => %{"is_null" => true}})
-
-      refute TargetCriteria.matches?(device_with_field, %{"hostname" => %{"is_null" => true}})
-      refute TargetCriteria.matches?(device_with_nil, %{"hostname" => %{"is_not_null" => true}})
-    end
-
-    test "has_all operator for tags" do
-      device_with_all = %{tags: %{"env" => "prod", "tier" => "1", "region" => "us-east"}}
-      device_with_some = %{tags: %{"env" => "prod", "tier" => "2"}}
-
-      criteria = %{"tags" => %{"has_all" => ["env=prod", "tier=1"]}}
-
-      assert TargetCriteria.matches?(device_with_all, criteria)
-      refute TargetCriteria.matches?(device_with_some, criteria)
-    end
-
-    test "starts_with and ends_with operators" do
-      device = %{hostname: "prod-server-01"}
-
-      assert TargetCriteria.matches?(device, %{"hostname" => %{"starts_with" => "prod-"}})
-      assert TargetCriteria.matches?(device, %{"hostname" => %{"ends_with" => "-01"}})
-
-      refute TargetCriteria.matches?(device, %{"hostname" => %{"starts_with" => "dev-"}})
-      refute TargetCriteria.matches?(device, %{"hostname" => %{"ends_with" => "-02"}})
-    end
-  end
 end

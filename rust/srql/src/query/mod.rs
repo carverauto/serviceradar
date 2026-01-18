@@ -659,6 +659,45 @@ mod tests {
     }
 
     #[test]
+    fn devices_ip_cidr_filter_generates_inet_clause() {
+        let query = "in:devices ip:10.0.0.0/8";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("ip::inet") && lower.contains("<<="),
+            "expected CIDR inet containment, got: {sql}"
+        );
+
+        assert!(params.iter().any(|param| {
+            matches!(param, BindParam::Text(value) if value == "10.0.0.0/8")
+        }));
+    }
+
+    #[test]
+    fn devices_ip_range_filter_generates_range_clause() {
+        let query = "in:devices ip:10.0.0.10-10.0.0.50";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("ip::inet >=") && lower.contains("ip::inet <="),
+            "expected IP range inet comparison, got: {sql}"
+        );
+
+        assert!(params.iter().any(|param| {
+            matches!(param, BindParam::Text(value) if value == "10.0.0.10")
+        }));
+        assert!(params.iter().any(|param| {
+            matches!(param, BindParam::Text(value) if value == "10.0.0.50")
+        }));
+    }
+
+    #[test]
     fn services_docs_example_service_type_timeframe() {
         let query =
             r#"in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc"#;

@@ -7,14 +7,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
-  require Ash.Query
-
   import ServiceRadarWebNGWeb.SettingsComponents
   import ServiceRadarWebNGWeb.QueryBuilderComponents
 
   alias AshPhoenix.Form
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -969,111 +966,34 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   defp count_target_devices(_scope, ""), do: nil
 
   defp count_target_devices(scope, target_query) when is_binary(target_query) do
-    # Parse the SRQL query and count matching devices
-    case ServiceRadarSRQL.Native.parse_ast(target_query) do
-      {:ok, ast_json} ->
-        case Jason.decode(ast_json) do
-          {:ok, ast} ->
-            count_devices_from_ast(scope, ast)
+    srql_module = srql_module()
+    query = String.trim(target_query)
 
-          {:error, _} ->
-            nil
-        end
+    full_query =
+      cond do
+        query == "" ->
+          ~s|in:devices stats:"count() as total"|
 
-      {:error, _} ->
+        String.starts_with?(query, "in:") ->
+          ~s|#{query} stats:"count() as total"|
+
+        true ->
+          ~s|in:devices #{query} stats:"count() as total"|
+      end
+
+    case srql_module.query(full_query, %{scope: scope}) do
+      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
+        count
+
+      _ ->
         nil
     end
   rescue
     _ -> nil
   end
 
-  defp count_devices_from_ast(scope, ast) do
-    filters = extract_srql_filters(ast)
-
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{})
-      |> apply_srql_filters(filters)
-
-    case Ash.count(query, scope: scope) do
-      {:ok, count} -> count
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp extract_srql_filters(%{"filters" => filters}) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      %{
-        field: Map.get(filter, "field"),
-        op: Map.get(filter, "op", "eq"),
-        value: Map.get(filter, "value")
-      }
-    end)
-  end
-
-  defp extract_srql_filters(_), do: []
-
-  defp apply_srql_filters(query, filters) do
-    Enum.reduce(filters, query, fn filter, q ->
-      apply_srql_filter(q, filter)
-    end)
-  end
-
-  defp apply_srql_filter(query, %{field: field, op: op, value: value}) when is_binary(field) do
-    if String.starts_with?(field, "tags.") do
-      tag_key = String.replace_prefix(field, "tags.", "")
-      # Tags only support equality matching via JSONB containment
-      Ash.Query.filter(query, fragment("tags @> ?", ^%{tag_key => value}))
-    else
-      # Map common fields
-      mapped_field =
-        case field do
-          "hostname" -> :hostname
-          "uid" -> :uid
-          "type" -> :type_id
-          "os" -> :os
-          "status" -> :status
-          _ -> nil
-        end
-
-      if mapped_field do
-        apply_field_filter(query, mapped_field, op, value)
-      else
-        query
-      end
-    end
-  rescue
-    _ -> query
-  end
-
-  defp apply_srql_filter(query, _), do: query
-
-  # Apply filter based on SRQL operator (op comes from rust parser: eq, not_eq, like, not_like)
-  defp apply_field_filter(query, field, "eq", value) do
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
-  end
-
-  defp apply_field_filter(query, field, "not_eq", value) do
-    Ash.Query.filter_input(query, %{field => %{not_eq: value}})
-  end
-
-  defp apply_field_filter(query, field, "like", value) do
-    # SRQL "like" values contain % wildcards (e.g., "%test%"), strip them for Ash contains
-    stripped = value |> String.trim_leading("%") |> String.trim_trailing("%")
-    Ash.Query.filter_input(query, %{field => %{contains: stripped}})
-  end
-
-  defp apply_field_filter(query, _field, "not_like", _value) do
-    # Ash filter_input doesn't have a direct not_contains operator.
-    # Skip this filter - device count will be an approximation for not_like queries.
-    query
-  end
-
-  defp apply_field_filter(query, field, _op, value) do
-    # Default to equality for unknown operators
-    Ash.Query.filter_input(query, %{field => %{eq: value}})
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
   # Builder Helper Functions
