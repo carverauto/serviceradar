@@ -13,19 +13,109 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
 use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::{Array, BigInt, Bool, Text};
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_types::{Array, BigInt, Bool, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde_json::Value;
 
 type OcsfDevicesTable = crate::schema::ocsf_devices::table;
 type DeviceFromClause = FromClause<OcsfDevicesTable>;
 type DeviceQuery<'a> =
     BoxedSelectStatement<'a, <OcsfDevicesTable as AsQuery>::SqlType, DeviceFromClause, Pg>;
 type DeviceStatsQuery<'a> = BoxedSelectStatement<'a, BigInt, DeviceFromClause, Pg>;
+
+/// Groupable fields for device stats queries
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DeviceGroupField {
+    Type,
+    VendorName,
+    RiskLevel,
+    IsAvailable,
+    GatewayId,
+}
+
+impl DeviceGroupField {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "type" | "device_type" => Some(Self::Type),
+            "vendor_name" | "vendor" => Some(Self::VendorName),
+            "risk_level" | "risk" => Some(Self::RiskLevel),
+            "is_available" | "available" => Some(Self::IsAvailable),
+            "gateway_id" | "gateway" => Some(Self::GatewayId),
+            _ => None,
+        }
+    }
+
+    fn column(&self) -> &'static str {
+        match self {
+            // Note: Diesel schema uses "device_type" but actual SQL column is "type"
+            Self::Type => "COALESCE(type, 'Unknown')",
+            Self::VendorName => "COALESCE(vendor_name, 'Unknown')",
+            Self::RiskLevel => "COALESCE(risk_level, 'Unknown')",
+            Self::IsAvailable => "COALESCE(is_available, false)",
+            Self::GatewayId => "gateway_id",
+        }
+    }
+
+    fn response_key(&self) -> &'static str {
+        match self {
+            Self::Type => "type",
+            Self::VendorName => "vendor_name",
+            Self::RiskLevel => "risk_level",
+            Self::IsAvailable => "is_available",
+            Self::GatewayId => "gateway_id",
+        }
+    }
+}
+
+/// SQL bind value for grouped stats queries
+#[derive(Debug, Clone)]
+enum DeviceSqlBindValue {
+    Text(String),
+    TextArray(Vec<String>),
+    Bool(bool),
+    Int(i64),
+    Timestamp(DateTime<Utc>),
+}
+
+impl DeviceSqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            DeviceSqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
+            DeviceSqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            DeviceSqlBindValue::Bool(value) => query.bind::<Bool, _>(*value),
+            DeviceSqlBindValue::Int(value) => query.bind::<BigInt, _>(*value),
+            DeviceSqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_device_stats(value: DeviceSqlBindValue) -> BindParam {
+    match value {
+        DeviceSqlBindValue::Text(value) => BindParam::Text(value),
+        DeviceSqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        DeviceSqlBindValue::Bool(value) => BindParam::Bool(value),
+        DeviceSqlBindValue::Int(value) => BindParam::Int(value),
+        DeviceSqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+struct DeviceStatsPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<Value>,
+}
+
+/// Grouped stats query result
+struct DeviceGroupedStatsSql {
+    sql: String,
+    binds: Vec<DeviceSqlBindValue>,
+}
 
 pub(super) async fn execute(
     conn: &mut AsyncPgConnection,
@@ -34,6 +124,24 @@ pub(super) async fn execute(
     ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        // Check if this is a grouped stats query
+        if spec.group_field.is_some() {
+            let grouped_sql = build_grouped_stats_query(plan, &spec)?;
+            let mut query = diesel::sql_query(&grouped_sql.sql).into_boxed();
+            for bind in grouped_sql.binds {
+                query = bind.apply(query);
+            }
+            let rows: Vec<DeviceStatsPayload> = query
+                .load(conn)
+                .await
+                .map_err(|err| ServiceError::Internal(err.into()))?;
+            return Ok(rows
+                .into_iter()
+                .filter_map(|row| row.payload)
+                .collect());
+        }
+
+        // Simple count (ungrouped)
         let query = build_stats_query(plan, &spec)?;
         let values: Vec<i64> = query
             .load(conn)
@@ -57,6 +165,19 @@ pub(super) async fn execute(
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        // Check if this is a grouped stats query
+        if spec.group_field.is_some() {
+            let grouped_sql = build_grouped_stats_query(plan, &spec)?;
+            let sql = rewrite_placeholders(&grouped_sql.sql);
+            let params: Vec<BindParam> = grouped_sql
+                .binds
+                .into_iter()
+                .map(bind_param_from_device_stats)
+                .collect();
+            return Ok((sql, params));
+        }
+
+        // Simple count (ungrouped)
         let query = build_stats_query(plan, &spec)?;
         let sql = super::diesel_sql(&query)?;
 
@@ -146,6 +267,7 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
 #[derive(Debug, Clone)]
 struct DeviceStatsSpec {
     alias: String,
+    group_field: Option<DeviceGroupField>,
 }
 
 fn parse_stats_spec(raw: Option<&str>) -> Result<Option<DeviceStatsSpec>> {
@@ -182,13 +304,271 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<DeviceStatsSpec>> {
         ));
     }
 
-    if tokens.len() > 3 {
+    // Parse optional "by <field>" clause
+    let mut group_field = None;
+    if tokens.len() >= 5 {
+        if !tokens[3].eq_ignore_ascii_case("by") {
+            return Err(ServiceError::InvalidRequest(
+                "expected 'by <field>' after stats alias".into(),
+            ));
+        }
+        group_field = Some(parse_group_field(tokens[4])?);
+    } else if tokens.len() > 3 {
         return Err(ServiceError::InvalidRequest(
-            "devices stats do not support grouping yet".into(),
+            "expected 'by <field>' after stats alias".into(),
         ));
     }
 
-    Ok(Some(DeviceStatsSpec { alias }))
+    Ok(Some(DeviceStatsSpec { alias, group_field }))
+}
+
+fn parse_group_field(raw: &str) -> Result<DeviceGroupField> {
+    DeviceGroupField::from_str(raw).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!(
+            "unsupported stats group field '{}'. Supported fields: type, vendor_name, risk_level, is_available, gateway_id",
+            raw
+        ))
+    })
+}
+
+/// Builds a grouped stats query using raw SQL (Diesel doesn't support GROUP BY well)
+fn build_grouped_stats_query(
+    plan: &QueryPlan,
+    spec: &DeviceStatsSpec,
+) -> Result<DeviceGroupedStatsSql> {
+    let group_field = spec
+        .group_field
+        .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("group_field is required")))?;
+
+    let mut binds = Vec::new();
+    let mut clauses = Vec::new();
+
+    // Time range filter
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("last_seen_time >= ?".to_string());
+        binds.push(DeviceSqlBindValue::Timestamp(*start));
+        clauses.push("last_seen_time <= ?".to_string());
+        binds.push(DeviceSqlBindValue::Timestamp(*end));
+    }
+
+    // Apply filters
+    for filter in &plan.filters {
+        if let Some((clause, mut bind_values)) = build_grouped_stats_filter_clause(filter)? {
+            clauses.push(clause);
+            binds.append(&mut bind_values);
+        }
+    }
+
+    let column = group_field.column();
+    let response_key = group_field.response_key();
+
+    // Build SELECT with jsonb_build_object
+    let mut sql = format!(
+        "SELECT jsonb_build_object('{}', {}, '{}', COUNT(*)) AS payload",
+        response_key, column, spec.alias
+    );
+    sql.push_str("\nFROM ocsf_devices");
+
+    if !clauses.is_empty() {
+        sql.push_str("\nWHERE ");
+        sql.push_str(&clauses.join(" AND "));
+    }
+
+    sql.push_str(&format!("\nGROUP BY {column}"));
+
+    // Order by count descending by default
+    let order_sql = build_grouped_stats_order_clause(plan, &spec.alias, column);
+    sql.push_str(&order_sql);
+
+    // Apply limit (default 20 for distributions)
+    let limit = if plan.limit > 0 && plan.limit <= 100 {
+        plan.limit
+    } else {
+        20
+    };
+    sql.push_str(&format!("\nLIMIT {limit}"));
+
+    if plan.offset > 0 {
+        sql.push_str(&format!(" OFFSET {}", plan.offset));
+    }
+
+    Ok(DeviceGroupedStatsSql { sql, binds })
+}
+
+fn build_grouped_stats_order_clause(plan: &QueryPlan, alias: &str, group_column: &str) -> String {
+    if plan.order.is_empty() {
+        return "\nORDER BY COUNT(*) DESC".to_string();
+    }
+
+    let mut parts = Vec::new();
+    for clause in &plan.order {
+        let expr = if clause.field.eq_ignore_ascii_case(alias) || clause.field == "count" {
+            "COUNT(*)".to_string()
+        } else if clause.field.eq_ignore_ascii_case(group_column.split('(').next().unwrap_or("")) {
+            group_column.to_string()
+        } else {
+            continue;
+        };
+
+        let dir = match clause.direction {
+            OrderDirection::Asc => "ASC",
+            OrderDirection::Desc => "DESC",
+        };
+        parts.push(format!("{expr} {dir}"));
+    }
+
+    if parts.is_empty() {
+        "\nORDER BY COUNT(*) DESC".to_string()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
+fn build_grouped_stats_filter_clause(
+    filter: &Filter,
+) -> Result<Option<(String, Vec<DeviceSqlBindValue>)>> {
+    let mut binds = Vec::new();
+    let clause = match filter.field.as_str() {
+        "uid" => build_grouped_text_clause("uid", filter, &mut binds)?,
+        "hostname" => build_grouped_text_clause("hostname", filter, &mut binds)?,
+        "ip" => build_grouped_text_clause("ip", filter, &mut binds)?,
+        "mac" => build_grouped_text_clause("mac", filter, &mut binds)?,
+        "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
+        "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
+        "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
+        "type_id" => {
+            let type_id: i64 = filter
+                .value
+                .as_scalar()?
+                .parse()
+                .map_err(|_| ServiceError::InvalidRequest("type_id must be an integer".into()))?;
+            binds.push(DeviceSqlBindValue::Int(type_id));
+            match filter.op {
+                FilterOp::Eq => "type_id = ?".to_string(),
+                FilterOp::NotEq => "(type_id IS NULL OR type_id <> ?)".to_string(),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "type_id filter only supports equality".into(),
+                    ))
+                }
+            }
+        }
+        "vendor_name" => build_grouped_text_clause("vendor_name", filter, &mut binds)?,
+        "model" => build_grouped_text_clause("model", filter, &mut binds)?,
+        "risk_level" => build_grouped_text_clause("risk_level", filter, &mut binds)?,
+        "is_available" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            binds.push(DeviceSqlBindValue::Bool(value));
+            match filter.op {
+                FilterOp::Eq => "is_available = ?".to_string(),
+                FilterOp::NotEq => "(is_available IS NULL OR is_available <> ?)".to_string(),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "is_available filter only supports equality".into(),
+                    ))
+                }
+            }
+        }
+        "discovery_sources" => {
+            let values = match &filter.value {
+                FilterValue::Scalar(v) => vec![v.to_string()],
+                FilterValue::List(list) => list.clone(),
+            };
+            if values.is_empty() {
+                return Ok(None);
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            match filter.op {
+                FilterOp::In | FilterOp::Eq => {
+                    "coalesce(discovery_sources, ARRAY[]::text[]) @> ?".to_string()
+                }
+                FilterOp::NotIn | FilterOp::NotEq => {
+                    "NOT (coalesce(discovery_sources, ARRAY[]::text[]) @> ?)".to_string()
+                }
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "discovery_sources filter only supports equality and list filters".into(),
+                    ))
+                }
+            }
+        }
+        other => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for device stats: '{other}'"
+            )));
+        }
+    };
+
+    Ok(Some((clause, binds)))
+}
+
+fn build_grouped_text_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{column} = ?"))
+        }
+        FilterOp::NotEq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("({column} IS NULL OR {column} <> ?)"))
+        }
+        FilterOp::Like => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{column} ILIKE ?"))
+        }
+        FilterOp::NotLike => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("({column} IS NULL OR {column} NOT ILIKE ?)"))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            Ok(format!("{column} = ANY(?)"))
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            Ok(format!("({column} IS NULL OR NOT ({column} = ANY(?)))"))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+/// Rewrites ? placeholders to $1, $2, etc. for PostgreSQL
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut index = 1;
+    for ch in sql.chars() {
+        if ch == '?' {
+            result.push('$');
+            result.push_str(&index.to_string());
+            index += 1;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 fn build_stats_query(
