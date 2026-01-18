@@ -1,21 +1,27 @@
 defmodule ServiceRadarAgentGateway.TaskExecutor do
   @moduledoc """
-  GenServer for executing polling tasks from the core cluster (legacy support).
+  DEPRECATED: This module is no longer used and will be removed in a future release.
 
-  This module receives polling task requests from the core and executes them
-  using the appropriate check executor (ICMP, TCP, HTTP, SNMP, etc.).
+  This was a GenServer for executing polling tasks from the core cluster. In the
+  new push-only architecture, agents push their status to the gateway. The gateway
+  does not execute polling tasks or delegate checks to agents.
 
-  Note: In the new architecture, the primary data flow is agent → gateway (push).
-  This TaskExecutor is maintained for backwards compatibility and for cases
-  where the gateway needs to perform active checks.
+  This module has been removed from the supervisor tree in application.ex.
+  It is kept here for reference only.
 
-  ## Task Flow
+  ## Why Deprecated
 
-  1. Core sends task via `:execute_task` call
-  2. TaskExecutor spawns a supervised task to execute the check
-  3. Results are sent back to the calling process or core cluster
+  The old task execution model:
+  - Core sent polling tasks to gateway
+  - Gateway executed local checks (ICMP, TCP, HTTP, DNS)
+  - Gateway delegated checks to agents via AgentClient (also deprecated)
 
-  ## Supported Check Types
+  The new push model:
+  - Agents collect their own status and push to gateway
+  - Gateway is a stateless receiver, not an active checker
+  - Local checks (if needed) should be done by agents in customer networks
+
+  ## Historical Check Types (for reference)
 
   ### Local Checks (executed directly by gateway)
   - `:icmp` - ICMP ping check
@@ -23,14 +29,11 @@ defmodule ServiceRadarAgentGateway.TaskExecutor do
   - `:http` - HTTP/HTTPS health check
   - `:dns` - DNS resolution check
 
-  ### Agent-Delegated Checks (via gRPC to Go agents - legacy)
+  ### Agent-Delegated Checks (via gRPC to Go agents)
   - `:agent_status` - Agent health check
   - `:agent_sweep` - Network sweep via agent
   - `:snmp` - SNMP polling via agent
   - `:wmi` - Windows WMI polling via agent
-
-  Agent-delegated checks require an `agent_id` in the task config.
-  The gateway will connect to the agent via gRPC to execute these checks.
   """
 
   use GenServer

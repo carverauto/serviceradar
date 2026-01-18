@@ -1,29 +1,34 @@
 defmodule ServiceRadarAgentGateway.AgentClient do
   @moduledoc """
-  gRPC client for communicating with Go-based monitoring agents (legacy support).
+  DEPRECATED: This module is no longer used and will be removed in a future release.
 
-  This client is maintained for backwards compatibility with the old polling model
-  where the gateway would poll agents. In the new architecture, agents push status
-  to the gateway instead.
+  This was a gRPC client for polling Go-based monitoring agents. In the new
+  push-only architecture, agents push status to the gateway via gRPC. The
+  gateway never initiates connections to agents.
 
-  ## Architecture
+  This module has been removed from the supervisor tree in application.ex.
+  It is kept here for reference only.
 
-  In the legacy model:
-  - Gateway initiates connections to agents (agents never connect back)
-  - Minimal firewall exposure: only gRPC port open inbound to agent
-  - Secure communication via mTLS
+  ## Why Deprecated
 
-  In the new model:
+  The old polling model had these drawbacks:
+  - Required inbound firewall rules in customer networks
+  - Gateway had to maintain connections to all agents
+  - Complex connection management and health checking
+
+  The new push model:
   - Agents push status to the gateway (see AgentGatewayServer)
   - Gateway never needs to initiate connections
   - Simpler firewall rules: agents only need outbound access
+  - More scalable: gateway is stateless receiver
 
-  ## Connection Management
+  ## Historical Architecture (for reference)
 
-  The client maintains a connection pool per agent. Connections are:
-  - Established on first request
-  - Kept alive via periodic health checks
-  - Reconnected automatically on failure
+  In the legacy model:
+  - Gateway initiated connections to agents
+  - Minimal firewall exposure: only gRPC port open inbound to agent
+  - Secure communication via mTLS
+  - Connection pool per agent with health checks
   """
 
   use GenServer
