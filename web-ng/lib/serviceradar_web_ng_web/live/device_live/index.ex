@@ -36,6 +36,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
      |> assign(:current_page, 1)
+     # Device stats for cards
+     |> assign(:device_stats, %{
+       total: 0,
+       available: 0,
+       unavailable: 0,
+       by_type: [],
+       by_vendor: [],
+       by_risk_level: []
+     })
+     |> assign(:device_stats_loading, true)
      # Bulk selection
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
@@ -85,6 +95,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     # Track current page from URL params (default to 1 if not present or no cursor)
     current_page = parse_page_param(params)
 
+    # Load device stats for cards (async to not block page load)
+    device_stats = load_device_stats(srql_module(), scope)
+
     {:noreply,
      assign(socket,
        icmp_sparklines: icmp_sparklines,
@@ -94,7 +107,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        sysmon_profiles_by_device: sysmon_profiles_by_device,
        default_sysmon_profile: default_sysmon_profile,
        total_device_count: total_device_count,
-       current_page: current_page
+       current_page: current_page,
+       device_stats: device_stats,
+       device_stats_loading: false
      )}
   end
 
@@ -550,7 +565,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </.link>
           </div>
         </div>
-        
+
+    <!-- Device Stats Cards -->
+        <.device_stats_cards
+          stats={@device_stats}
+          loading={@device_stats_loading}
+        />
+
     <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
@@ -1127,6 +1148,200 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       </form>
     </dialog>
     """
+  end
+
+  # Device Stats Cards Component
+  attr :stats, :map, required: true
+  attr :loading, :boolean, default: false
+
+  def device_stats_cards(assigns) do
+    stats = assigns.stats || %{}
+    total = Map.get(stats, :total, 0)
+    available = Map.get(stats, :available, 0)
+    unavailable = Map.get(stats, :unavailable, 0)
+    by_type = Map.get(stats, :by_type, [])
+    by_vendor = Map.get(stats, :by_vendor, [])
+    by_risk_level = Map.get(stats, :by_risk_level, [])
+
+    # Get top items for display
+    top_type = List.first(by_type)
+    top_vendor = List.first(by_vendor)
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:available, available)
+      |> assign(:unavailable, unavailable)
+      |> assign(:by_type, by_type)
+      |> assign(:by_vendor, by_vendor)
+      |> assign(:by_risk_level, by_risk_level)
+      |> assign(:top_type, top_type)
+      |> assign(:top_vendor, top_vendor)
+
+    ~H"""
+    <div class="mb-6">
+      <div :if={@loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
+          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
+          <div class="h-6 bg-base-200 rounded w-3/4" />
+        </div>
+        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
+          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
+          <div class="h-6 bg-base-200 rounded w-3/4" />
+        </div>
+        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
+          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
+          <div class="h-6 bg-base-200 rounded w-3/4" />
+        </div>
+        <div class="rounded-xl border border-base-200 bg-base-100 p-4 h-24 animate-pulse">
+          <div class="h-4 bg-base-200 rounded w-1/2 mb-2" />
+          <div class="h-6 bg-base-200 rounded w-3/4" />
+        </div>
+      </div>
+
+      <div :if={not @loading} class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <!-- Total Devices -->
+        <.link navigate={~p"/devices"} class="block group">
+          <div class="rounded-xl border border-base-200 bg-base-100 p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3">
+            <div class="p-2.5 rounded-lg bg-primary/10">
+              <.icon name="hero-server" class="size-5 text-primary" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xl font-bold text-base-content">{format_stat_number(@total)}</div>
+              <div class="text-xs text-base-content/60">Total Devices</div>
+            </div>
+          </div>
+        </.link>
+
+        <!-- Availability -->
+        <.link
+          navigate={~p"/devices?q=in:devices is_available:false"}
+          class="block group"
+        >
+          <div class={[
+            "rounded-xl border p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3",
+            if(@unavailable > 0, do: "border-error/30 bg-error/5", else: "border-success/30 bg-success/5")
+          ]}>
+            <div class={["p-2.5 rounded-lg", if(@unavailable > 0, do: "bg-error/10", else: "bg-success/10")]}>
+              <.icon
+                name={if(@unavailable > 0, do: "hero-signal-slash", else: "hero-signal")}
+                class={["size-5", if(@unavailable > 0, do: "text-error", else: "text-success")]}
+              />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline gap-1">
+                <span class={["text-xl font-bold", if(@unavailable > 0, do: "text-error", else: "text-success")]}>
+                  {format_stat_number(@available)}
+                </span>
+                <span :if={@unavailable > 0} class="text-sm text-error/80">
+                  / {format_stat_number(@unavailable)} offline
+                </span>
+              </div>
+              <div class="text-xs text-base-content/60">
+                {if @unavailable == 0, do: "All Online", else: "Available"}
+              </div>
+            </div>
+          </div>
+        </.link>
+
+        <!-- Top Device Type -->
+        <.device_breakdown_card
+          title="By Type"
+          items={@by_type}
+          icon="hero-cpu-chip"
+          filter_field="type_id"
+          empty_text="No type data"
+        />
+
+        <!-- Top Vendor -->
+        <.device_breakdown_card
+          title="By Vendor"
+          items={@by_vendor}
+          icon="hero-building-office"
+          filter_field="vendor_name"
+          empty_text="No vendor data"
+        />
+      </div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :items, :list, required: true
+  attr :icon, :string, required: true
+  attr :filter_field, :string, required: true
+  attr :empty_text, :string, default: "No data"
+
+  defp device_breakdown_card(assigns) do
+    items = assigns.items || []
+    top_item = List.first(items)
+    other_count = items |> Enum.drop(1) |> Enum.reduce(0, fn %{count: c}, acc -> acc + c end)
+
+    assigns =
+      assigns
+      |> assign(:top_item, top_item)
+      |> assign(:other_count, other_count)
+      |> assign(:item_count, length(items))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100 p-4 hover:shadow-md transition-shadow">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 rounded-lg bg-info/10">
+          <.icon name={@icon} class="size-5 text-info" />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div :if={@top_item} class="flex items-baseline gap-1">
+            <span class="text-lg font-bold text-base-content truncate max-w-[8rem]" title={@top_item.name}>
+              {@top_item.name}
+            </span>
+            <span class="text-sm text-base-content/60">({@top_item.count})</span>
+          </div>
+          <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
+          <div class="text-xs text-base-content/60">
+            {@title}
+            <span :if={@other_count > 0} class="text-base-content/40">
+              · +{@item_count - 1} more
+            </span>
+          </div>
+        </div>
+        <div :if={@items != []} class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-ghost btn-xs btn-circle">
+            <.icon name="hero-chevron-down" class="size-3" />
+          </div>
+          <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200">
+            <%= for item <- Enum.take(@items, 10) do %>
+              <li>
+                <.link
+                  navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
+                  class="flex justify-between text-sm"
+                >
+                  <span class="truncate">{item.name}</span>
+                  <span class="badge badge-sm badge-ghost">{item.count}</span>
+                </.link>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_stat_number(n) when is_integer(n) and n >= 1000 do
+    n |> Integer.to_string() |> add_stat_commas()
+  end
+
+  defp format_stat_number(n) when is_integer(n), do: Integer.to_string(n)
+  defp format_stat_number(n) when is_float(n), do: n |> trunc() |> format_stat_number()
+  defp format_stat_number(_), do: "0"
+
+  defp add_stat_commas(str) do
+    str
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.join(",")
+    |> String.reverse()
   end
 
   attr :available, :any, default: nil
@@ -1715,6 +1930,90 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  # Load device stats for cards using SRQL GROUP BY queries
+  defp load_device_stats(srql_module, scope) do
+    queries = %{
+      total: ~s|in:devices stats:"count() as total"|,
+      available: ~s|in:devices is_available:true stats:"count() as count"|,
+      unavailable: ~s|in:devices is_available:false stats:"count() as count"|,
+      by_type: ~s|in:devices stats:count() as count by type|,
+      by_vendor: ~s|in:devices stats:count() as count by vendor_name|,
+      by_risk_level: ~s|in:devices stats:count() as count by risk_level|
+    }
+
+    results =
+      queries
+      |> Task.async_stream(
+        fn {key, query} -> {key, srql_module.query(query, %{scope: scope})} end,
+        ordered: false,
+        timeout: 10_000
+      )
+      |> Enum.reduce(%{}, fn
+        {:ok, {key, {:ok, result}}}, acc -> Map.put(acc, key, result)
+        {:ok, {key, result}}, acc -> Map.put(acc, key, result)
+        _, acc -> acc
+      end)
+
+    %{
+      total: extract_stats_count(results[:total]),
+      available: extract_stats_count(results[:available]),
+      unavailable: extract_stats_count(results[:unavailable]),
+      by_type: extract_grouped_stats(results[:by_type], "type"),
+      by_vendor: extract_grouped_stats(results[:by_vendor], "vendor_name"),
+      by_risk_level: extract_grouped_stats(results[:by_risk_level], "risk_level")
+    }
+  rescue
+    _ ->
+      %{
+        total: 0,
+        available: 0,
+        unavailable: 0,
+        by_type: [],
+        by_vendor: [],
+        by_risk_level: []
+      }
+  end
+
+  defp extract_stats_count({:ok, %{"results" => [%{"total" => count} | _]}})
+       when is_integer(count),
+       do: count
+
+  defp extract_stats_count({:ok, %{"results" => [%{"count" => count} | _]}})
+       when is_integer(count),
+       do: count
+
+  defp extract_stats_count(%{"results" => [%{"total" => count} | _]}) when is_integer(count),
+    do: count
+
+  defp extract_stats_count(%{"results" => [%{"count" => count} | _]}) when is_integer(count),
+    do: count
+
+  defp extract_stats_count(_), do: 0
+
+  defp extract_grouped_stats({:ok, %{"results" => results}}, field) when is_list(results) do
+    extract_grouped_stats_list(results, field)
+  end
+
+  defp extract_grouped_stats(%{"results" => results}, field) when is_list(results) do
+    extract_grouped_stats_list(results, field)
+  end
+
+  defp extract_grouped_stats(_, _), do: []
+
+  defp extract_grouped_stats_list(results, field) do
+    results
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn row ->
+      %{
+        name: Map.get(row, field) || "Unknown",
+        count: Map.get(row, "count") || 0
+      }
+    end)
+    |> Enum.filter(fn %{count: count} -> count > 0 end)
+    |> Enum.sort_by(fn %{count: count} -> -count end)
+    |> Enum.take(10)
   end
 
   defp get_total_matching_count(scope, query) do

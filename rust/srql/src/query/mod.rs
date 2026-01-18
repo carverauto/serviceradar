@@ -967,6 +967,98 @@ mod tests {
             response.params
         );
     }
+
+    #[test]
+    fn devices_stats_group_by_type() {
+        let query = "in:devices stats:count() as count by type";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        assert!(plan.stats.is_some());
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("group by"),
+            "expected GROUP BY in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("jsonb_build_object"),
+            "expected jsonb_build_object in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("device_type") || lower.contains("type"),
+            "expected type column in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("count(*)"),
+            "expected COUNT(*) in SQL, got: {sql}"
+        );
+        assert!(params.is_empty(), "grouped stats without filters should have no params");
+    }
+
+    #[test]
+    fn devices_stats_group_by_vendor() {
+        let query = "in:devices stats:count() as count by vendor_name";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("vendor_name"),
+            "expected vendor_name column in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("order by count(*) desc"),
+            "expected ORDER BY COUNT(*) DESC in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_group_by_availability() {
+        let query = "in:devices stats:count() as count by is_available";
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("is_available"),
+            "expected is_available column in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_group_by_with_filter() {
+        let query = "in:devices vendor_name:Cisco stats:count() as count by type";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build filtered grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("where") && lower.contains("device_type"),
+            "expected WHERE clause with filter in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("group by"),
+            "expected GROUP BY in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "should have one param for vendor_name filter");
+    }
+
+    #[test]
+    fn devices_stats_group_by_unsupported_field_returns_error() {
+        let query = "in:devices stats:count() as count by hostname";
+        let plan = plan_for(query);
+
+        let result = devices::to_sql_and_params(&plan);
+        assert!(result.is_err(), "grouping by hostname should fail");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported"),
+            "error should mention unsupported field, got: {err}"
+        );
+    }
 }
 
 #[derive(Debug, Clone)]
