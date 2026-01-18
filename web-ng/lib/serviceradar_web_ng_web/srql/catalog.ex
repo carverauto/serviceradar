@@ -17,10 +17,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "gateway_id",
         "agent_id",
         "is_available",
+        "is_managed",
+        "is_compliant",
+        "is_trusted",
         "type_id",
         "discovery_sources",
         "tags"
       ],
+      boolean_fields: ["is_available", "is_managed", "is_compliant", "is_trusted"],
       downsample: false
     },
     %{
@@ -31,7 +35,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "last_seen",
       default_sort_dir: "desc",
       default_filter_field: "id",
-      filter_fields: ["id", "status", "component_id", "registration_source"],
+      filter_fields: ["id", "status", "component_id", "registration_source", "is_healthy"],
+      boolean_fields: ["is_healthy"],
       downsample: false
     },
     %{

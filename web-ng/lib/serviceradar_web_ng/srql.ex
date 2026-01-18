@@ -255,6 +255,15 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
+  defp decode_param(%{"t" => "uuid", "v" => value}) when is_binary(value) do
+    # UUID is passed as a string, but Postgrex expects 16-byte binary
+    # Use Ecto.UUID.dump to convert string to binary format
+    case Ecto.UUID.dump(value) do
+      {:ok, binary_uuid} -> {:ok, binary_uuid}
+      :error -> {:error, :invalid_uuid_param}
+    end
+  end
+
   defp decode_param(_), do: {:error, :invalid_srql_param}
 
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do

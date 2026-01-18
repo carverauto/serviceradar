@@ -10,6 +10,21 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
   """
   use Ecto.Migration
 
+  @timeseries_tables [
+    "events",
+    "logs",
+    "service_status",
+    "otel_traces",
+    "otel_metrics",
+    "timeseries_metrics",
+    "cpu_metrics",
+    "disk_metrics",
+    "memory_metrics",
+    "process_metrics",
+    "device_updates",
+    "otel_metrics_hourly_stats"
+  ]
+
   def up do
     # Create events table (CloudEvents-style activity log)
     execute("""
@@ -263,6 +278,11 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     )
     """)
 
+    # Ensure tables are owned by the current user (handles case where tables
+    # were created by a different user, e.g., postgres vs serviceradar)
+    @timeseries_tables
+    |> Enum.each(&ensure_table_ownership/1)
+
     # Try to convert tables to TimescaleDB hypertables if available
     # Each call is wrapped in its own exception handler to be idempotent
     maybe_create_hypertable("events", "event_timestamp")
@@ -366,6 +386,24 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesTables do
     EXCEPTION
       WHEN others THEN
         RAISE NOTICE 'Could not create hypertable for #{table_name}: %', SQLERRM;
+    END;
+    $$;
+    """)
+  end
+
+  # Helper to ensure table ownership matches current user (idempotent)
+  # This handles the case where tables were created by a different user
+  defp ensure_table_ownership(table_name) do
+    execute("""
+    DO $$
+    BEGIN
+      -- Only change ownership if table exists and current user is not already owner
+      IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = '#{table_name}') THEN
+        EXECUTE format('ALTER TABLE %I OWNER TO CURRENT_USER', '#{table_name}');
+      END IF;
+    EXCEPTION
+      WHEN others THEN
+        RAISE NOTICE 'Could not change ownership for #{table_name}: %', SQLERRM;
     END;
     $$;
     """)
