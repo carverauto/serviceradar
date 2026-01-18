@@ -92,6 +92,7 @@ macro_rules! apply_eq_filter {
 }
 
 mod agents;
+mod alerts;
 mod cpu_metrics;
 mod device_graph;
 mod device_updates;
@@ -136,6 +137,7 @@ pub enum BindParam {
     Int(i64),
     Float(f64),
     Timestamptz(String),
+    Uuid(uuid::Uuid),
 }
 
 impl BindParam {
@@ -191,6 +193,7 @@ impl QueryEngine {
                 Entity::Services => services::execute(&mut conn, &plan).await?,
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
+                Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
             }
         };
 
@@ -547,6 +550,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Services => services::to_sql_and_params(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
+            Entity::Alerts => alerts::to_sql_and_params(&plan)?,
         }
     };
 
@@ -886,8 +890,8 @@ mod tests {
         let response = translate_request(&config, request).expect("translation should succeed");
 
         assert!(
-            response.sql.to_lowercase().contains("time_bucket("),
-            "expected time_bucket in SQL, got: {}",
+            response.sql.to_lowercase().contains("to_timestamp(floor("),
+            "expected floor-based time bucketing in SQL, got: {}",
             response.sql
         );
         assert!(

@@ -77,11 +77,6 @@ config :ash,
 config :ash_postgres,
   manage_migrations?: true
 
-# Feature flags for Ash integration
-# Note: All Ash domains are now active by default. The ash_srql_adapter flag
-# controls whether SRQL queries for devices/gateways/agents route through Ash.
-config :serviceradar_web_ng, :feature_flags, ash_srql_adapter: true
-
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
 
 # Oban job processing configuration

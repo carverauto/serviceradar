@@ -91,6 +91,7 @@ CREATE TABLE events (
 DROP TABLE IF EXISTS logs;
 CREATE TABLE logs (
     timestamp           TIMESTAMPTZ NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
     trace_id            TEXT,
     span_id             TEXT,
     severity_text       TEXT,
@@ -104,7 +105,7 @@ CREATE TABLE logs (
     attributes          TEXT,
     resource_attributes TEXT,
     created_at          TIMESTAMPTZ NOT NULL,
-    PRIMARY KEY (timestamp, trace_id, span_id)
+    PRIMARY KEY (timestamp, id)
 );
 
 DROP TABLE IF EXISTS service_status;
@@ -262,4 +263,40 @@ CREATE TABLE memory_metrics (
     partition       TEXT,
     created_at      TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, gateway_id)
+);
+
+DROP TABLE IF EXISTS alerts;
+CREATE TABLE alerts (
+    id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    title                TEXT        NOT NULL,
+    description          TEXT,
+    severity             TEXT        NOT NULL DEFAULT 'warning',
+    status               TEXT        NOT NULL DEFAULT 'pending',
+    source_type          TEXT,
+    source_id            TEXT,
+    service_check_id     UUID,
+    device_uid           TEXT,
+    agent_uid            TEXT,
+    event_id             UUID,
+    event_time           TIMESTAMPTZ,
+    metric_name          TEXT,
+    metric_value         FLOAT8,
+    threshold_value      FLOAT8,
+    comparison           TEXT,
+    triggered_at         TIMESTAMPTZ,
+    acknowledged_at      TIMESTAMPTZ,
+    acknowledged_by      TEXT,
+    resolved_at          TIMESTAMPTZ,
+    resolved_by          TEXT,
+    resolution_note      TEXT,
+    escalated_at         TIMESTAMPTZ,
+    escalation_level     BIGINT      DEFAULT 0,
+    escalation_reason    TEXT,
+    notification_count   BIGINT      DEFAULT 0,
+    last_notification_at TIMESTAMPTZ,
+    suppressed_until     TIMESTAMPTZ,
+    metadata             JSONB       DEFAULT '{}',
+    tags                 TEXT[]      DEFAULT '{}',
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -297,31 +297,96 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp maybe_add_sort(tokens, field, dir), do: tokens ++ ["sort:#{field}:#{dir}"]
 
   defp maybe_add_filters(tokens, filters) when is_list(filters) do
-    Enum.reduce(filters, tokens, fn %{"field" => field, "op" => op, "value" => value}, acc ->
-      case build_filter_token(field, op, value) do
+    # Group filters by field and operator type for merging
+    grouped = group_filters_for_merge(filters)
+
+    Enum.reduce(grouped, tokens, fn filter_group, acc ->
+      case build_merged_filter_token(filter_group) do
         nil -> acc
         token -> acc ++ [token]
       end
     end)
   end
 
-  defp build_filter_token(field, op, value) do
-    field = field |> safe_to_string() |> String.trim()
-    value = value |> safe_to_string() |> String.trim()
+  # Group filters that can be merged (same field, compatible operators)
+  defp group_filters_for_merge(filters) do
+    # Separate filters into mergeable (equals/not_equals) and non-mergeable (contains)
+    {mergeable, non_mergeable} =
+      Enum.split_with(filters, fn %{"op" => op} ->
+        op in ["equals", "not_equals"]
+      end)
 
-    if value == "" or field == "" do
-      nil
-    else
-      escaped = String.replace(value, " ", "\\ ")
+    # Group mergeable filters by {field, op}
+    merged =
+      mergeable
+      |> Enum.group_by(fn %{"field" => field, "op" => op} -> {field, op} end)
+      |> Enum.map(fn {{field, op}, group} ->
+        values = Enum.map(group, &Map.get(&1, "value")) |> Enum.filter(&(&1 != ""))
+        %{"field" => field, "op" => op, "values" => values}
+      end)
 
-      case op do
-        "equals" -> "#{field}:#{escaped}"
-        "not_equals" -> "!#{field}:#{escaped}"
-        "not_contains" -> "!#{field}:%#{escaped}%"
-        _ -> "#{field}:%#{escaped}%"
-      end
-    end
+    # Non-mergeable filters stay as single-value
+    singles =
+      Enum.map(non_mergeable, fn %{"field" => field, "op" => op, "value" => value} ->
+        %{"field" => field, "op" => op, "values" => [value]}
+      end)
+
+    merged ++ singles
   end
+
+  defp build_merged_filter_token(%{"field" => field, "op" => op, "values" => values}) do
+    field = field |> safe_to_string() |> String.trim()
+    if field == "", do: nil, else: build_filter_by_op(field, op, values)
+  end
+
+  defp build_filter_by_op(field, "equals", values) do
+    expanded = expand_comma_values(values)
+    build_equals_token(field, expanded)
+  end
+
+  defp build_filter_by_op(field, "not_equals", values) do
+    expanded = expand_comma_values(values)
+    build_not_equals_token(field, expanded)
+  end
+
+  defp build_filter_by_op(field, "contains", values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(field, "not_contains", values) do
+    value = values |> List.first() |> safe_to_string() |> String.trim()
+    if value == "", do: nil, else: "!#{field}:%#{escape_value(value)}%"
+  end
+
+  defp build_filter_by_op(_field, _op, _values), do: nil
+
+  # Expand comma-separated values into individual items (for equals/not_equals only)
+  defp expand_comma_values(values) do
+    values
+    |> Enum.flat_map(fn v ->
+      v |> safe_to_string() |> String.split(",") |> Enum.map(&String.trim/1)
+    end)
+    |> Enum.filter(&(&1 != ""))
+  end
+
+  defp build_equals_token(_field, []), do: nil
+  defp build_equals_token(field, [value]), do: "#{field}:#{escape_value(value)}"
+
+  defp build_equals_token(field, values) do
+    escaped = Enum.map(values, &escape_value/1)
+    "#{field}:(#{Enum.join(escaped, ",")})"
+  end
+
+  defp build_not_equals_token(_field, []), do: nil
+  defp build_not_equals_token(field, [value]), do: "!#{field}:#{escape_value(value)}"
+
+  defp build_not_equals_token(field, values) do
+    escaped = Enum.map(values, &escape_value/1)
+    "!#{field}:(#{Enum.join(escaped, ",")})"
+  end
+
+  defp escape_value(value), do: String.replace(value, " ", "\\ ")
 
   defp stringify_map(%{} = map) do
     Map.new(map, fn
