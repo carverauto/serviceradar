@@ -402,27 +402,6 @@ func parseNumeric(value interface{}) (float64, bool) {
 	return 0, false
 }
 
-func stringifyValue(value interface{}) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return strings.TrimSpace(typed)
-	case float64:
-		return strconv.FormatFloat(typed, 'f', -1, 64)
-	case json.Number:
-		return typed.String()
-	case bool:
-		return strconv.FormatBool(typed)
-	default:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return fmt.Sprint(typed)
-		}
-		return string(encoded)
-	}
-}
-
 func extractAttributesMap(entry map[string]interface{}, keys ...string) map[string]interface{} {
 	for _, key := range keys {
 		if value, ok := entry[key]; ok {
