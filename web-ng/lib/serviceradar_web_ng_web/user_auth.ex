@@ -195,8 +195,14 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         |> redirect(to: ~p"/users/log-in")
         |> halt()
 
+      oban_access?(scope) and oban_running?() ->
+        conn
+
       oban_access?(scope) ->
         conn
+        |> put_flash(:error, "Oban is not running on this node.")
+        |> redirect(to: ~p"/admin/jobs")
+        |> halt()
 
       true ->
         conn
@@ -218,4 +224,13 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp oban_access?(_), do: false
+
+  defp oban_running? do
+    case Oban.Registry.whereis(Oban) do
+      pid when is_pid(pid) -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
 end

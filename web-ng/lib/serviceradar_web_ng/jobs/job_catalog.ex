@@ -13,7 +13,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   require Logger
 
-  alias ServiceRadar.Monitoring.PollingSchedule
+  alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Monitoring.{Alert, PollingSchedule, ServiceCheck}
   alias ServiceRadar.Oban.Router
 
   @type job_entry :: %{
@@ -163,36 +164,46 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec ash_oban_jobs() :: [job_entry()]
   def ash_oban_jobs do
-    # Get AshOban triggers from known resources
-    polling_schedule_triggers()
+    ash_oban_resources()
+    |> Enum.flat_map(&resource_triggers/1)
   end
 
-  # Get polling schedule triggers
-  defp polling_schedule_triggers do
-    case AshOban.Info.oban_triggers(PollingSchedule) do
+  defp ash_oban_resources do
+    [
+      PollingSchedule,
+      ServiceCheck,
+      Alert,
+      OnboardingPackage
+    ]
+  end
+
+  defp resource_triggers(resource) do
+    case AshOban.Info.oban_triggers(resource) do
       {:ok, triggers} ->
-        Enum.map(triggers, fn trigger ->
-          %{
-            id: "ash_oban:polling_schedule:#{trigger.name}",
-            name: humanize_trigger_name(trigger.name),
-            description: "Executes polling schedules for service checks",
-            source: :ash_oban,
-            cron: trigger.scheduler_cron,
-            queue: trigger.queue,
-            enabled: true,
-            worker: trigger.worker_module_name,
-            resource: PollingSchedule,
-            action: trigger.action,
-            last_run_at: nil,
-            next_run_at: next_run_at(trigger.scheduler_cron)
-          }
-        end)
+        Enum.map(triggers, &trigger_entry(resource, &1))
 
       _ ->
         []
     end
   rescue
     _ -> []
+  end
+
+  defp trigger_entry(resource, trigger) do
+    %{
+      id: "ash_oban:#{resource_id(resource)}:#{trigger.name}",
+      name: "#{resource_label(resource)}: #{humanize_trigger_name(trigger.name)}",
+      description: resource_description(resource),
+      source: :ash_oban,
+      cron: trigger.scheduler_cron,
+      queue: trigger.queue,
+      enabled: true,
+      worker: trigger.worker_module_name,
+      resource: resource,
+      action: trigger.action,
+      last_run_at: nil,
+      next_run_at: next_run_at(trigger.scheduler_cron)
+    }
   end
 
   @doc """
@@ -431,6 +442,37 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     |> String.replace("_", " ")
     |> String.capitalize()
   end
+
+  defp resource_label(resource) when is_atom(resource) do
+    resource
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp resource_id(resource) when is_atom(resource) do
+    resource
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+  end
+
+  defp resource_description(PollingSchedule),
+    do: "Executes polling schedules for service checks"
+
+  defp resource_description(ServiceCheck),
+    do: "Executes scheduled service checks"
+
+  defp resource_description(Alert),
+    do: "Sends alert notifications for active alert rules"
+
+  defp resource_description(OnboardingPackage),
+    do: "Expires edge onboarding packages"
+
+  defp resource_description(_),
+    do: "Executes scheduled actions for Ash resources"
 
   # Get last run time for a worker
   defp get_last_run(worker) when is_atom(worker) do
