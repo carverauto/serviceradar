@@ -229,26 +229,6 @@ PACKAGES = {
             "/etc/serviceradar/checkers/dusk.json",
         ],
     },
-    "snmp-checker": {
-        "package_name": "serviceradar-snmp-checker",
-        "description": "ServiceRadar SNMP Checker",
-        "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//cmd/checkers/snmp:snmp",
-            "dest": "/usr/local/bin/serviceradar-snmp-checker",
-        },
-        "systemd": {
-            "src": "systemd/serviceradar-snmp-checker.service",
-            "dest": "/lib/systemd/system/serviceradar-snmp-checker.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-    },
     "trapd": {
         "package_name": "serviceradar-trapd",
         "description": "ServiceRadar SNMP trap receiver service",

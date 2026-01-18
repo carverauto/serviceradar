@@ -48,7 +48,7 @@ fi
 # Check deployments
 echo ""
 echo "🚀 Checking deployment status:"
-DEPLOYMENTS=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent" "serviceradar-snmp-checker")
+DEPLOYMENTS=("serviceradar-core" "serviceradar-web-ng" "serviceradar-nats" "serviceradar-datasvc" "serviceradar-agent")
 ALL_READY=true
 
 for deployment in "${DEPLOYMENTS[@]}"; do

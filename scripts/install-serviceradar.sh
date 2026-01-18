@@ -778,7 +778,6 @@ install_optional_checkers() {
     fi
 
     if [ "$INSTALL_SNMP" = "true" ]; then
-        checker_packages+=("serviceradar-snmp-checker")
         INSTALLED_CHECKERS+=("snmp")
     fi
 

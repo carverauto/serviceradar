@@ -14,7 +14,6 @@ SERVICE_TAG_KEYS = [
     "webNg",
     "datasvc",
     "agent",
-    "snmpChecker",
     "dbEventWriter",
     "otel",
     "mapper",

@@ -48,24 +48,13 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   defp normalize_results(_), do: []
 
   defp attach_sparklines(results) when is_list(results) do
-    if length(results) < 5 do
-      results
+    with true <- length(results) >= 5,
+         {:ok, spec} <- infer_sparkline_spec(results),
+         {:ok, spark_by_series} <- build_sparklines(results, spec),
+         true <- map_size(spark_by_series) > 0 do
+      add_sparklines(results, spec, spark_by_series)
     else
-      with {:ok, spec} <- infer_sparkline_spec(results),
-           {:ok, spark_by_series} <- build_sparklines(results, spec),
-           true <- map_size(spark_by_series) > 0 do
-        Enum.map(results, fn
-          %{} = row ->
-            series_key = series_value(row, spec.series_key)
-            spark = Map.get(spark_by_series, series_key)
-            if is_list(spark), do: Map.put(row, "_sparkline", spark), else: row
-
-          other ->
-            other
-        end)
-      else
-        _ -> results
-      end
+      _ -> results
     end
   end
 
@@ -107,12 +96,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
         ]
       end)
 
-    cond do
-      is_binary(x) and is_binary(y) ->
-        {:ok, %{x: x, y: y, series_key: series_key || "series"}}
-
-      true ->
-        {:error, :no_sparkline_spec}
+    if is_binary(x) and is_binary(y) do
+      {:ok, %{x: x, y: y, series_key: series_key || "series"}}
+    else
+      {:error, :no_sparkline_spec}
     end
   end
 
@@ -161,6 +148,21 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
   end
 
   defp series_value(_row, _series_key), do: "overall"
+
+  defp add_sparklines(results, spec, spark_by_series) do
+    Enum.map(results, fn
+      %{} = row ->
+        series_key = series_value(row, spec.series_key)
+
+        case Map.get(spark_by_series, series_key) do
+          spark when is_list(spark) -> Map.put(row, "_sparkline", spark)
+          _ -> row
+        end
+
+      other ->
+        other
+    end)
+  end
 
   defp parse_number(value) when is_integer(value), do: {:ok, value * 1.0}
   defp parse_number(value) when is_float(value), do: {:ok, value}

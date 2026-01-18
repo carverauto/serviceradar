@@ -221,6 +221,8 @@ The status includes:
 
 ### Migration from Standalone SNMP Checker
 
+The standalone `snmp-checker` service is no longer shipped. Use the embedded SNMP service in `serviceradar-agent`.
+
 If you were previously using the standalone `snmp-checker` service, follow these steps to migrate to the embedded agent SNMP:
 
 1. **Create SNMP Profiles in the UI**
@@ -241,7 +243,7 @@ If you were previously using the standalone `snmp-checker` service, follow these
    - Verify metrics are being collected in the UI
 
 5. **Remove Standalone Service**
-   - Once verified, remove the standalone `snmp-checker` deployment
+   - Remove any legacy `snmp-checker` deployments or systemd units
    - Remove any associated configuration files
 
 **Key Differences:**

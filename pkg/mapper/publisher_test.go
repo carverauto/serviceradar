@@ -28,7 +28,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/registry"
 )
 
 var (
@@ -40,32 +39,21 @@ func TestNewRegistryPublisher(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRegistry := registry.NewMockManager(ctrl)
 
 	tests := []struct {
 		name           string
-		deviceRegistry registry.Manager
 		dbService      db.Service
 		config         *StreamConfig
 		expectError    bool
 	}{
 		{
-			name:           "nil device registry",
-			deviceRegistry: nil,
-			dbService:      mockDB,
-			config:         &StreamConfig{},
-			expectError:    true,
-		},
-		{
 			name:           "nil db service",
-			deviceRegistry: mockRegistry,
 			dbService:      nil,
 			config:         &StreamConfig{},
 			expectError:    true,
 		},
 		{
 			name:           "valid services",
-			deviceRegistry: mockRegistry,
 			dbService:      mockDB,
 			config:         &StreamConfig{},
 			expectError:    false,
@@ -74,7 +62,7 @@ func TestNewRegistryPublisher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			publisher, err := NewRegistryPublisher(tt.deviceRegistry, tt.dbService, tt.config)
+			publisher, err := NewRegistryPublisher(tt.dbService, tt.config)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -92,13 +80,12 @@ func TestPublishDevice(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -118,8 +105,8 @@ func TestPublishDevice(t *testing.T) {
 		},
 	}
 
-	// Test successful publish via registry
-	mockRegistry.EXPECT().ProcessDeviceUpdate(gomock.Any(), gomock.Any()).DoAndReturn(
+	// Test successful publish
+	mockDB.EXPECT().PublishDeviceUpdate(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, update *models.DeviceUpdate) error {
 			assert.Equal(t, config.AgentID, update.AgentID)
 			assert.Equal(t, config.GatewayID, update.GatewayID)
@@ -147,12 +134,12 @@ func TestPublishDevice(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test error case
-	mockRegistry.EXPECT().ProcessDeviceUpdate(gomock.Any(), gomock.Any()).Return(errMockDB)
+	mockDB.EXPECT().PublishDeviceUpdate(gomock.Any(), gomock.Any()).Return(errMockDB)
 
 	err = publisher.PublishDevice(ctx, device)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to publish device via registry")
+	assert.Contains(t, err.Error(), "failed to publish device update")
 }
 
 func TestPublishInterface(t *testing.T) {
@@ -160,13 +147,12 @@ func TestPublishInterface(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -234,13 +220,12 @@ func TestPublishTopologyLink(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -304,13 +289,12 @@ func TestPublishBatchDevices(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRegistry := registry.NewMockManager(ctrl)
 	config := &StreamConfig{
 		AgentID:  "test-agent",
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(mockRegistry, mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -344,7 +328,7 @@ func TestPublishBatchDevices(t *testing.T) {
 	}
 
 	// Test successful publish
-	mockRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).DoAndReturn(
+	mockDB.EXPECT().PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, updates []*models.DeviceUpdate) error {
 			assert.Len(t, updates, 2)
 
@@ -372,12 +356,12 @@ func TestPublishBatchDevices(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test error case
-	mockRegistry.EXPECT().ProcessBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(errMockDB)
+	mockDB.EXPECT().PublishBatchDeviceUpdates(gomock.Any(), gomock.Any()).Return(errMockDB)
 
 	err = registryPublisher.PublishBatchDevices(ctx, devices)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to publish batch devices via registry")
+	assert.Contains(t, err.Error(), "failed to publish batch devices")
 }
 
 func TestPublishBatchInterfaces(t *testing.T) {
@@ -390,7 +374,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
@@ -462,7 +446,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 		GatewayID: "test-gateway",
 	}
 
-	publisher, err := NewRegistryPublisher(registry.NewMockManager(ctrl), mockDB, config)
+	publisher, err := NewRegistryPublisher(mockDB, config)
 	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 

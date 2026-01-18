@@ -37,7 +37,6 @@ go_library(
         "//pkg/logger",
         "//pkg/models",
         "//pkg/scan",
-        "//pkg/sync",
         "//pkg/sweeper",
         "//pkg/sysmon",
         "//proto",

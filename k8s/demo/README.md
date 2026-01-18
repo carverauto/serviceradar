@@ -22,7 +22,6 @@ This directory contains Kubernetes manifests for deploying ServiceRadar in the d
 - **cloud** – central service that collects and stores monitoring data
 - **agent** – DaemonSet on every node for local resource monitoring
 - **dusk-checker** – checker for Dusk Network services
-- **snmp-checker** – SNMP monitoring service
 - **web-ng/edge-proxy/nats** – other core platform services defined in `base/`
 - **cnpg** – CloudNativePG cluster (Timescale + AGE) deployed via `base/spire`; hosts telemetry + SPIRE state.
 

@@ -34,7 +34,6 @@ var (
 	ErrUnsupportedSNMPVersion   = errors.New("unsupported SNMP version")
 
 	ErrDatabaseServiceRequired = errors.New("database service is required")
-	ErrDeviceRegistryRequired  = errors.New("device registry is required")
 	ErrSNMPGetFailed           = errors.New("SNMP GET failed")
 	ErrSNMPError               = errors.New("SNMP error occurred")
 	ErrNoSNMPDataReturned      = errors.New("no SNMP data returned")

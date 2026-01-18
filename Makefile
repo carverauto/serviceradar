@@ -326,7 +326,6 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
@@ -364,11 +363,6 @@ deb-dusk: ## Build the Dusk checker Debian package
 	@echo "$(COLOR_BOLD)Building Dusk checker Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb dusk-checker
 
-.PHONY: deb-snmp
-deb-snmp: ## Build the SNMP checker Debian package
-	@echo "$(COLOR_BOLD)Building SNMP checker Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb snmp-checker
-
 .PHONY: deb-rperf-checker
 deb-rperf-checker: ## Build the RPerf checker Debian package
 	@echo "$(COLOR_BOLD)Building RPerf checker Debian package$(COLOR_RESET)"
@@ -402,7 +396,6 @@ deb-all-container: ## Build all Debian packages
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb dusk-checker
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb snmp-checker
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb cli
@@ -433,11 +426,6 @@ rpm-sync: ## Build the KV Sync RPM package
 rpm-dusk: ## Build the Dusk checker RPM package
 	@echo "$(COLOR_BOLD)Building Dusk checker RPM package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm dusk-checker
-
-.PHONY: rpm-snmp
-rpm-snmp: ## Build the SNMP checker RPM package
-	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm snmp-checker
 
 .PHONY: rpm-rperf
 rpm-rperf: ## Build the RPerf server RPM package

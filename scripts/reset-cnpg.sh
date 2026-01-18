@@ -42,8 +42,7 @@ echo "🔁 Ash migrations are applied by core-elx on startup (SERVICERADAR_CORE_
 
 echo "♻️  Restarting core services so they reconnect to the fresh database..."
 for deployment in serviceradar-core serviceradar-datasvc \
-  serviceradar-db-event-writer serviceradar-web-ng serviceradar-agent \
-  serviceradar-snmp-checker; do
+  serviceradar-db-event-writer serviceradar-web-ng serviceradar-agent; do
   kubectl rollout restart "deployment/${deployment}" -n "${NAMESPACE}" || true
 done
 

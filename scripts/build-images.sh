@@ -18,7 +18,7 @@ declare -A SERVICE_GROUPS=(
     ["core"]="core web agent-gateway agent"
     ["data"]="kv db-event-writer"
     ["observability"]="otel flowgger trapd zen"
-    ["checkers"]="mapper snmp-checker rperf-client"
+    ["checkers"]="mapper rperf-client"
     ["tools"]="tools"
 )
 
@@ -75,7 +75,7 @@ SERVICE GROUPS:
   core:          core, web, agent-gateway, agent
   data:          kv, db-event-writer
   observability: otel, flowgger, trapd, zen
-  checkers:      mapper, snmp-checker, rperf-client
+  checkers:      mapper, rperf-client
   tools:         tools
   all:           Build all services (default if no services specified)
 
@@ -83,7 +83,7 @@ SERVICES:
   You can specify individual services to build:
   cert-generator, config-updater, core, web, agent-gateway, agent,
   kv, db-event-writer, otel, flowgger, trapd, zen,
-  mapper, snmp-checker, rperf-client, tools
+  mapper, rperf-client, tools
 
 EXAMPLES:
   # Build and push all images
@@ -317,7 +317,6 @@ declare -A SERVICE_DOCKERFILES=(
     ["trapd"]="docker/compose/Dockerfile.trapd"
     ["zen"]="docker/compose/Dockerfile.zen"
     ["mapper"]="docker/compose/Dockerfile.mapper"
-    ["snmp-checker"]="docker/compose/Dockerfile.snmp-checker"
     ["rperf-client"]="docker/compose/Dockerfile.rperf-client"
     ["tools"]="docker/compose/Dockerfile.tools"
 )
@@ -332,7 +331,6 @@ declare -A SERVICE_BUILD_ARGS=(
     ["datasvc"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["db-event-writer"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["mapper"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
-    ["snmp-checker"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 )
 
 # Function to build cert-generator with dynamic Dockerfile
