@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     ZenRule
   }
 
+  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -26,6 +28,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
       |> assign(:zen_rules, list_zen_rules(scope))
       |> assign(:promotion_rules, list_promotion_rules(scope))
       |> assign(:stateful_rules, list_stateful_rules(scope))
+      |> assign(:show_rule_builder, false)
+      |> assign(:editing_rule, nil)
 
     {:ok, socket}
   end
@@ -110,6 +114,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
     end
   end
 
+  def handle_event("toggle_promotion", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    id = to_string(id)
+
+    case Enum.find(socket.assigns.promotion_rules, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, socket}
+
+      rule ->
+        changeset =
+          Ash.Changeset.for_update(rule, :update, %{enabled: !rule.enabled}, scope: scope)
+
+        case Ash.update(changeset) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> assign(:promotion_rules, list_promotion_rules(scope))
+             |> put_flash(:info, "Rule #{if rule.enabled, do: "disabled", else: "enabled"}")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to toggle rule")}
+        end
+    end
+  end
+
   def handle_event("delete_stateful", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
     id = to_string(id)
@@ -130,6 +159,58 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
             {:noreply, put_flash(socket, :error, "Failed to delete rule")}
         end
     end
+  end
+
+  def handle_event("new_promotion_rule", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, true)
+     |> assign(:editing_rule, nil)}
+  end
+
+  def handle_event("edit_promotion_rule", %{"id" => id}, socket) do
+    id = to_string(id)
+
+    case Enum.find(socket.assigns.promotion_rules, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Rule not found")}
+
+      rule ->
+        {:noreply,
+         socket
+         |> assign(:show_rule_builder, true)
+         |> assign(:editing_rule, rule)}
+    end
+  end
+
+  @impl true
+  def handle_info({:rule_builder_closed}, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, false)
+     |> assign(:editing_rule, nil)}
+  end
+
+  def handle_info({:rule_created, rule}, socket) do
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, false)
+     |> assign(:editing_rule, nil)
+     |> assign(:promotion_rules, list_promotion_rules(scope))
+     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully")}
+  end
+
+  def handle_info({:rule_updated, rule}, socket) do
+    scope = socket.assigns.current_scope
+
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, false)
+     |> assign(:editing_rule, nil)
+     |> assign(:promotion_rules, list_promotion_rules(scope))
+     |> put_flash(:info, "Rule \"#{rule.name}\" updated successfully")}
   end
 
   defp normalize_tab(tab) do
@@ -316,7 +397,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   Promote log patterns into events for downstream alerting.
                 </p>
               </div>
-              <button type="button" class="btn btn-primary btn-sm" disabled>
+              <button type="button" class="btn btn-primary btn-sm" phx-click="new_promotion_rule">
                 <.icon name="hero-plus" class="w-4 h-4" /> New Rule
               </button>
             </:header>
@@ -326,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                 <thead>
                   <tr class="text-xs uppercase tracking-wide text-base-content/60">
                     <th>Rule</th>
-                    <th>Subject</th>
+                    <th>Match Conditions</th>
                     <th>Priority</th>
                     <th>Status</th>
                     <th></th>
@@ -336,25 +417,42 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                   <%= for rule <- @promotion_rules do %>
                     <tr class="hover">
                       <td class="font-mono text-sm">{rule.name}</td>
-                      <td class="text-sm">
-                        {Map.get(rule.match || %{}, "subject_prefix") || "Any"}
+                      <td class="text-sm max-w-xs">
+                        <.match_conditions_summary match={rule.match} />
                       </td>
                       <td class="text-sm">{rule.priority}</td>
                       <td>
-                        <.ui_badge variant={if rule.enabled, do: "success", else: "ghost"} size="xs">
-                          {if rule.enabled, do: "Enabled", else: "Disabled"}
-                        </.ui_badge>
+                        <label class="swap">
+                          <input
+                            type="checkbox"
+                            checked={rule.enabled}
+                            phx-click="toggle_promotion"
+                            phx-value-id={rule.id}
+                          />
+                          <span class="swap-on badge badge-success badge-sm">Enabled</span>
+                          <span class="swap-off badge badge-ghost badge-sm">Disabled</span>
+                        </label>
                       </td>
                       <td class="text-right">
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-xs text-error"
-                          phx-click="delete_promotion"
-                          phx-value-id={rule.id}
-                          data-confirm="Are you sure?"
-                        >
-                          <.icon name="hero-trash" class="w-4 h-4" />
-                        </button>
+                        <div class="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs"
+                            phx-click="edit_promotion_rule"
+                            phx-value-id={rule.id}
+                          >
+                            <.icon name="hero-pencil-square" class="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-xs text-error"
+                            phx-click="delete_promotion"
+                            phx-value-id={rule.id}
+                            data-confirm="Are you sure you want to delete this rule?"
+                          >
+                            <.icon name="hero-trash" class="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   <% end %>
@@ -363,6 +461,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
                       <div class="flex flex-col items-center gap-2">
                         <.icon name="hero-inbox" class="w-8 h-8 opacity-40" />
                         <p>No event promotion rules configured.</p>
+                        <button type="button" class="btn btn-primary btn-sm" phx-click="new_promotion_rule">
+                          Create your first rule
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -437,6 +538,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
           </.ui_panel>
         </div>
       </.settings_shell>
+
+      <!-- Rule Builder Modal -->
+      <.live_component
+        :if={@show_rule_builder}
+        module={PromotionRuleBuilder}
+        id="rule-builder"
+        rule={@editing_rule}
+        current_scope={@current_scope}
+      />
     </Layouts.app>
     """
   end
@@ -467,4 +577,78 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   defp unwrap_page({:ok, %Ash.Page.Offset{results: results}}), do: results
   defp unwrap_page({:ok, results}) when is_list(results), do: results
   defp unwrap_page(_), do: []
+
+  # Component to display match conditions summary
+  attr :match, :map, default: nil
+
+  defp match_conditions_summary(assigns) do
+    conditions = build_conditions_list(assigns.match)
+    assigns = assign(assigns, :conditions, conditions)
+
+    ~H"""
+    <div class="flex flex-wrap gap-1">
+      <%= if @conditions == [] do %>
+        <span class="text-base-content/50">No conditions</span>
+      <% else %>
+        <%= for {icon, label} <- @conditions do %>
+          <span class="badge badge-ghost badge-xs gap-1">
+            <.icon name={icon} class="w-3 h-3" />
+            {label}
+          </span>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp build_conditions_list(nil), do: []
+  defp build_conditions_list(match) when map_size(match) == 0, do: []
+
+  defp build_conditions_list(match) when is_map(match) do
+    conditions = []
+
+    conditions =
+      if match["body_contains"] do
+        [{"hero-chat-bubble-bottom-center", "body: #{truncate(match["body_contains"], 15)}"} | conditions]
+      else
+        conditions
+      end
+
+    conditions =
+      if match["severity_text"] do
+        [{"hero-exclamation-triangle", "severity: #{match["severity_text"]}"} | conditions]
+      else
+        conditions
+      end
+
+    conditions =
+      if match["service_name"] do
+        [{"hero-server", "service: #{truncate(match["service_name"], 15)}"} | conditions]
+      else
+        conditions
+      end
+
+    conditions =
+      if match["subject_prefix"] do
+        [{"hero-envelope", "subject: #{truncate(match["subject_prefix"], 15)}"} | conditions]
+      else
+        conditions
+      end
+
+    conditions =
+      if is_map(match["attribute_equals"]) and map_size(match["attribute_equals"]) > 0 do
+        count = map_size(match["attribute_equals"])
+        [{"hero-tag", "#{count} attr#{if count > 1, do: "s", else: ""}"} | conditions]
+      else
+        conditions
+      end
+
+    Enum.reverse(conditions)
+  end
+
+  defp truncate(str, max) when is_binary(str) and byte_size(str) > max do
+    String.slice(str, 0, max) <> "..."
+  end
+
+  defp truncate(str, _max), do: str
 end

@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -11,7 +13,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:log_id, nil)
      |> assign(:log, nil)
      |> assign(:error, nil)
-     |> assign(:srql, %{enabled: false})}
+     |> assign(:srql, %{enabled: false})
+     |> assign(:show_rule_builder, false)}
   end
 
   @impl true
@@ -55,6 +58,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   @impl true
+  def handle_event("open_rule_builder", _params, socket) do
+    {:noreply, assign(socket, :show_rule_builder, true)}
+  end
+
+  @impl true
+  def handle_info({:rule_builder_closed}, socket) do
+    {:noreply, assign(socket, :show_rule_builder, false)}
+  end
+
+  def handle_info({:rule_created, rule}, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_rule_builder, false)
+     |> put_flash(:info, "Rule \"#{rule.name}\" created successfully. View it in Settings > Rules.")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -65,6 +85,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             <span class="font-mono text-xs">{@log_id}</span>
           </:subtitle>
           <:actions>
+            <.ui_button
+              :if={is_map(@log) and can_create_rules?(@current_scope)}
+              phx-click="open_rule_builder"
+              variant="primary"
+              size="sm"
+            >
+              <.icon name="hero-bolt" class="w-4 h-4" />
+              Create Event Rule
+            </.ui_button>
             <.ui_button href={~p"/observability?#{%{tab: "logs"}}"} variant="ghost" size="sm">
               Back to logs
             </.ui_button>
@@ -81,9 +110,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           <.log_details log={@log} />
         </div>
       </div>
+
+      <!-- Rule Builder Modal -->
+      <.live_component
+        :if={@show_rule_builder}
+        module={PromotionRuleBuilder}
+        id="rule-builder"
+        log={@log}
+        current_scope={@current_scope}
+      />
     </Layouts.app>
     """
   end
+
+  # RBAC check - only operators and admins can create rules
+  defp can_create_rules?(%{user: %{role: role}}) when role in [:operator, :admin], do: true
+  defp can_create_rules?(_), do: false
 
   attr :log, :map, required: true
 
@@ -179,7 +221,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> Enum.reject(&(&1 in summary_fields))
       |> Enum.sort()
 
-    assigns = assign(assigns, :detail_fields, detail_fields)
+    # Parse attributes field if present for structured display
+    parsed_attributes = parse_attributes(Map.get(assigns.log, "attributes"))
+
+    assigns =
+      assigns
+      |> assign(:detail_fields, detail_fields)
+      |> assign(:parsed_attributes, parsed_attributes)
 
     ~H"""
     <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
@@ -189,19 +237,117 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
       <div class="divide-y divide-base-200">
         <%= for field <- @detail_fields do %>
-          <div class="px-4 py-3 flex items-start gap-4">
-            <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
-              {humanize_field(field)}
-            </span>
-            <span class="text-sm flex-1 break-all">
-              <.format_value value={Map.get(@log, field)} />
-            </span>
+          <%= if field == "attributes" and is_map(@parsed_attributes) do %>
+            <.parsed_attributes_section attributes={@parsed_attributes} />
+          <% else %>
+            <div class="px-4 py-3 flex items-start gap-4">
+              <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">
+                {humanize_field(field)}
+              </span>
+              <span class="text-sm flex-1 break-all">
+                <.format_value value={Map.get(@log, field)} />
+              </span>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :attributes, :map, required: true
+
+  defp parsed_attributes_section(assigns) do
+    ~H"""
+    <div class="px-4 py-3">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider">Attributes</span>
+      <div class="mt-2 space-y-2">
+        <%= for {section, values} <- @attributes do %>
+          <div class="pl-2 border-l-2 border-base-300">
+            <span class="text-xs font-medium text-base-content/70">{section}</span>
+            <div class="mt-1 grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
+              <%= for {key, value} <- flatten_attribute_values(values) do %>
+                <span class="text-xs text-base-content/50">{key}</span>
+                <span class="text-sm break-all">{format_attribute_value(value)}</span>
+              <% end %>
+            </div>
           </div>
         <% end %>
       </div>
     </div>
     """
   end
+
+  # Parse attribute strings into structured maps
+  # Handles: already-parsed maps, JSON strings, key={json},key2={json} format, key=value format
+  defp parse_attributes(nil), do: nil
+  defp parse_attributes(""), do: nil
+  defp parse_attributes(value) when is_map(value), do: value
+
+  defp parse_attributes(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      # Try JSON first
+      String.starts_with?(value, "{") or String.starts_with?(value, "[") ->
+        case Jason.decode(value) do
+          {:ok, decoded} when is_map(decoded) -> decoded
+          _ -> parse_key_value_format(value)
+        end
+
+      # Try key={json},key2={json} or key=value format
+      String.contains?(value, "=") ->
+        parse_key_value_format(value)
+
+      true ->
+        nil
+    end
+  end
+
+  defp parse_attributes(_), do: nil
+
+  # Parse formats like: attributes={"error":"nats: no heartbeat"},resource={"service.name":"foo"}
+  # or simpler: key=value,key2=value2
+  defp parse_key_value_format(value) do
+    # Match pattern: word={...} or word=value
+    # This regex captures: key followed by = and either {json} or plain value until next key= or end
+    result =
+      ~r/(\w+)=(\{[^}]*\}|[^,]+?)(?=,\w+=|$)/
+      |> Regex.scan(value)
+      |> Enum.reduce(%{}, fn
+        [_full, key, json_value], acc when binary_part(json_value, 0, 1) == "{" ->
+          case Jason.decode(json_value) do
+            {:ok, decoded} -> Map.put(acc, key, decoded)
+            _ -> Map.put(acc, key, json_value)
+          end
+
+        [_full, key, plain_value], acc ->
+          Map.put(acc, key, String.trim(plain_value))
+      end)
+
+    if map_size(result) > 0, do: result, else: nil
+  end
+
+  defp flatten_attribute_values(values) when is_map(values) do
+    Enum.flat_map(values, fn
+      {k, v} when is_map(v) ->
+        Enum.map(v, fn {nested_k, nested_v} -> {"#{k}.#{nested_k}", nested_v} end)
+
+      {k, v} ->
+        [{k, v}]
+    end)
+    |> Enum.sort_by(fn {k, _} -> k end)
+  end
+
+  defp flatten_attribute_values(value), do: [{"value", value}]
+
+  defp format_attribute_value(value) when is_binary(value), do: value
+  defp format_attribute_value(value) when is_number(value), do: to_string(value)
+  defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
+  defp format_attribute_value(value) when is_map(value), do: Jason.encode!(value)
+  defp format_attribute_value(value) when is_list(value), do: Jason.encode!(value)
+  defp format_attribute_value(nil), do: "—"
+  defp format_attribute_value(value), do: inspect(value)
 
   attr :value, :any, default: nil
 

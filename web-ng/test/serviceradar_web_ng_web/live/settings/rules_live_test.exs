@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Observability.ZenRule
+  alias ServiceRadar.Observability.LogPromotionRule
 
   setup :register_and_log_in_user
 
@@ -103,6 +104,170 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLiveTest do
 
       assert has_element?(lv, "#zen_presets_modal")
       assert has_element?(lv, "#zen_template_form")
+    end
+  end
+
+  describe "promotion rule builder" do
+    test "opens rule builder modal when clicking New Rule", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
+
+      # Click the New Rule button
+      lv
+      |> element("button", "New Rule")
+      |> render_click()
+
+      # Modal should be visible
+      assert has_element?(lv, "#rule_builder_modal")
+      assert has_element?(lv, "h3", "Create Event Rule")
+    end
+
+    test "creates promotion rule via rule builder", %{conn: conn, scope: scope} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
+      unique = System.unique_integer([:positive])
+      rule_name = "test-rule-#{unique}"
+
+      # Open the rule builder
+      lv
+      |> element("button", "New Rule")
+      |> render_click()
+
+      # Fill in the form
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true",
+          "body_contains" => "test error",
+          "severity_enabled" => "true",
+          "severity_text" => "error"
+        }
+      })
+      |> render_submit()
+
+      # Modal should close and rule should appear
+      refute has_element?(lv, "#rule_builder_modal")
+      assert render(lv) =~ rule_name
+
+      # Verify rule was created
+      rules = unwrap_page(Ash.read(LogPromotionRule, scope: scope))
+      rule = Enum.find(rules, &(&1.name == rule_name))
+      assert rule
+      assert rule.match["body_contains"] == "test error"
+      assert rule.match["severity_text"] == "error"
+    end
+
+    test "edits existing promotion rule", %{conn: conn, scope: scope} do
+      # Create a rule first
+      unique = System.unique_integer([:positive])
+      rule_name = "edit-test-#{unique}"
+
+      {:ok, rule} =
+        Ash.create(LogPromotionRule, %{
+          name: rule_name,
+          enabled: true,
+          priority: 100,
+          match: %{"body_contains" => "original error"}
+        }, scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
+
+      # Click edit button for the rule
+      lv
+      |> element("button[phx-click='edit_promotion_rule'][phx-value-id='#{rule.id}']")
+      |> render_click()
+
+      # Modal should show with existing values
+      assert has_element?(lv, "#rule_builder_modal")
+      assert has_element?(lv, "h3", "Edit Event Rule")
+
+      # Update the rule
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => rule_name,
+          "body_contains_enabled" => "true",
+          "body_contains" => "updated error"
+        }
+      })
+      |> render_submit()
+
+      # Verify rule was updated
+      {:ok, updated_rule} = Ash.get(LogPromotionRule, rule.id, scope: scope)
+      assert updated_rule.match["body_contains"] == "updated error"
+    end
+
+    test "toggles promotion rule enabled status", %{conn: conn, scope: scope} do
+      # Create a rule first
+      unique = System.unique_integer([:positive])
+
+      {:ok, rule} =
+        Ash.create(LogPromotionRule, %{
+          name: "toggle-test-#{unique}",
+          enabled: true,
+          priority: 100,
+          match: %{"body_contains" => "test"}
+        }, scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
+
+      # Toggle the rule off
+      lv
+      |> element("input[phx-click='toggle_promotion'][phx-value-id='#{rule.id}']")
+      |> render_click()
+
+      # Verify rule was disabled
+      {:ok, updated_rule} = Ash.get(LogPromotionRule, rule.id, scope: scope)
+      refute updated_rule.enabled
+    end
+
+    test "shows match conditions summary for rules", %{conn: conn, scope: scope} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, _rule} =
+        Ash.create(LogPromotionRule, %{
+          name: "summary-test-#{unique}",
+          enabled: true,
+          priority: 100,
+          match: %{
+            "body_contains" => "error message",
+            "severity_text" => "error",
+            "service_name" => "test-service"
+          }
+        }, scope: scope)
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/rules?tab=events")
+
+      # Should show match conditions in the UI
+      assert html =~ "body: error message"
+      assert html =~ "severity: error"
+      assert html =~ "service: test-service"
+    end
+
+    test "validates at least one condition is required", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/rules?tab=events")
+      unique = System.unique_integer([:positive])
+
+      # Open the rule builder
+      lv
+      |> element("button", "New Rule")
+      |> render_click()
+
+      # Try to submit without enabling any conditions
+      lv
+      |> form("#rule-builder-form", %{
+        "rule" => %{
+          "name" => "invalid-rule-#{unique}",
+          "body_contains_enabled" => "false",
+          "severity_enabled" => "false",
+          "service_name_enabled" => "false",
+          "attribute_enabled" => "false"
+        }
+      })
+      |> render_submit()
+
+      # Should show validation error
+      assert has_element?(lv, ".alert-error")
+      assert render(lv) =~ "At least one match condition must be enabled"
     end
   end
 
