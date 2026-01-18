@@ -153,6 +153,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     Enum.map(results, fn
       %{} = row ->
         series_key = series_value(row, spec.series_key)
+
         case Map.get(spark_by_series, series_key) do
           spark when is_list(spark) -> Map.put(row, "_sparkline", spark)
           _ -> row
