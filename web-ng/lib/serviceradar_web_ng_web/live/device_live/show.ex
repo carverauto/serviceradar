@@ -54,7 +54,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:srql, srql)
      # Edit mode
      |> assign(:editing, false)
-     |> assign(:device_form, to_form(%{}, as: :device))}
+     |> assign(:device_form, to_form(%{}, as: :device))
+     # Tab state for device details
+     |> assign(:active_tab, "details")}
   end
 
   @impl true
@@ -225,6 +227,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :active_tab, tab)}
+  end
+
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp format_tags_for_edit(nil), do: ""
@@ -281,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-          
+
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -297,7 +303,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
-          
+
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -440,61 +446,94 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             </.form>
           </div>
 
-          <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
+    <!-- Tabs Navigation (only show if sysmon is active) -->
+          <div :if={@sysmon_presence and is_map(@device_row)} class="tabs tabs-box">
+            <button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="details"
+              class={["tab", @active_tab == "details" && "tab-active"]}
+            >
+              <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
+            </button>
+            <button
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="profiles"
+              class={["tab", @active_tab == "profiles" && "tab-active"]}
+            >
+              <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
+            </button>
+          </div>
 
-          <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
+    <!-- Details Tab Content -->
+          <div :if={@active_tab == "details" or not @sysmon_presence}>
+            <div class="grid grid-cols-1 gap-4">
+              <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
-          <.availability_section :if={is_map(@availability)} availability={@availability} />
+              <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
-          <.healthcheck_section :if={is_map(@healthcheck_summary)} summary={@healthcheck_summary} />
+              <.availability_section :if={is_map(@availability)} availability={@availability} />
 
-          <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
+              <.healthcheck_section
+                :if={is_map(@healthcheck_summary)}
+                summary={@healthcheck_summary}
+              />
 
-          <.sysmon_config_section
-            :if={is_map(@sysmon_profile_info)}
-            profile_info={@sysmon_profile_info}
-            available_profiles={@available_profiles}
-            device_uid={@device_uid}
-          />
+              <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
 
-          <%= for section <- @metric_sections_to_render do %>
-            <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
-              <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
-                <div class="flex items-center gap-3">
-                  <span class="text-sm font-semibold">{section.title}</span>
-                  <span class="text-xs text-base-content/50">{section.subtitle}</span>
+              <%= for section <- @metric_sections_to_render do %>
+                <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
+                  <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                      <span class="text-sm font-semibold">{section.title}</span>
+                      <span class="text-xs text-base-content/50">{section.subtitle}</span>
+                    </div>
+                  </div>
+
+                  <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-base-content/70">
+                    {section.error}
+                  </div>
+
+                  <div :if={is_nil(section.error)}>
+                    <%= for panel <- section.panels do %>
+                      <.live_component
+                        module={panel.plugin}
+                        id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
+                        title={section.title}
+                        panel_assigns={Map.put(panel.assigns, :compact, true)}
+                      />
+                    <% end %>
+                  </div>
                 </div>
-              </div>
+              <% end %>
 
-              <div :if={is_binary(section.error)} class="px-4 py-3 text-sm text-base-content/70">
-                {section.error}
-              </div>
-
-              <div :if={is_nil(section.error)}>
-                <%= for panel <- section.panels do %>
+              <%= for panel <- @panels do %>
+                <%= if panel.plugin == TablePlugin and length(@results) == 1 and is_map(@device_row) do %>
+                  <.device_properties_card row={@device_row} />
+                <% else %>
                   <.live_component
                     module={panel.plugin}
-                    id={"device-#{@device_uid}-#{section.key}-#{panel.id}"}
-                    title={section.title}
-                    panel_assigns={Map.put(panel.assigns, :compact, true)}
+                    id={"device-#{panel.id}"}
+                    title={panel.title}
+                    panel_assigns={panel.assigns}
                   />
                 <% end %>
-              </div>
+              <% end %>
             </div>
-          <% end %>
+          </div>
 
-          <%= for panel <- @panels do %>
-            <%= if panel.plugin == TablePlugin and length(@results) == 1 and is_map(@device_row) do %>
-              <.device_properties_card row={@device_row} />
-            <% else %>
-              <.live_component
-                module={panel.plugin}
-                id={"device-#{panel.id}"}
-                title={panel.title}
-                panel_assigns={panel.assigns}
+    <!-- Profiles Tab Content (only when sysmon is active) -->
+          <div :if={@active_tab == "profiles" and @sysmon_presence}>
+            <div class="grid grid-cols-1 gap-4">
+              <.sysmon_profile_card
+                :if={is_map(@sysmon_profile_info)}
+                profile_info={@sysmon_profile_info}
+                available_profiles={@available_profiles}
+                device_uid={@device_uid}
               />
-            <% end %>
-          <% end %>
+            </div>
+          </div>
         </div>
       </div>
     </Layouts.app>
@@ -1986,14 +2025,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   # ---------------------------------------------------------------------------
-  # Sysmon Configuration Section
+  # Sysmon Profile Card (shown in Profiles tab)
   # ---------------------------------------------------------------------------
 
   attr :profile_info, :map, required: true
   attr :available_profiles, :list, required: true
   attr :device_uid, :string, required: true
 
-  def sysmon_config_section(assigns) do
+  defp sysmon_profile_card(assigns) do
     profile = Map.get(assigns.profile_info, :profile)
     source = Map.get(assigns.profile_info, :source, "default")
 
@@ -2006,55 +2045,71 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <div class="rounded-xl border border-base-200 bg-base-100 shadow-sm">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <.icon name="hero-cog-6-tooth" class="size-4 text-base-content/60" />
-          <span class="text-sm font-semibold">Sysmon Configuration</span>
+          <.icon name="hero-cog-6-tooth" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Sysmon Profile</span>
         </div>
-        <div class="flex items-center gap-2">
-          <.source_badge source={@source} />
-        </div>
+        <.source_badge source={@source} />
       </div>
 
       <div class="p-4">
-        <div class="space-y-3">
-          <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-            Effective Profile
-          </div>
-          <div :if={@profile} class="space-y-2">
-            <div class="flex items-center gap-2">
-              <span class="font-medium">{@profile.name}</span>
-              <.ui_badge :if={@profile.is_default} variant="info" size="xs">Default</.ui_badge>
+        <div :if={@profile} class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-medium">{@profile.name}</div>
+              <div class="text-xs text-base-content/60 mt-0.5">
+                Sample interval: <span class="font-mono">{@profile.sample_interval}</span>
+              </div>
             </div>
-            <div class="text-xs text-base-content/60">
-              Interval: <span class="font-mono">{@profile.sample_interval}</span>
-            </div>
-            <div :if={@profile.target_query && @source == "srql"} class="text-xs text-base-content/60">
-              Matched by:
-              <code class="font-mono bg-base-200/50 px-1 rounded">{@profile.target_query}</code>
-            </div>
-            <div class="flex flex-wrap gap-1 mt-1">
-              <.ui_badge :if={@profile.collect_cpu} variant="ghost" size="xs">CPU</.ui_badge>
-              <.ui_badge :if={@profile.collect_memory} variant="ghost" size="xs">Memory</.ui_badge>
-              <.ui_badge :if={@profile.collect_disk} variant="ghost" size="xs">Disk</.ui_badge>
-              <.ui_badge :if={@profile.collect_network} variant="ghost" size="xs">
-                Network
-              </.ui_badge>
-              <.ui_badge :if={@profile.collect_processes} variant="ghost" size="xs">
-                Processes
-              </.ui_badge>
+            <.ui_badge :if={@profile.is_default} variant="info" size="sm">Default</.ui_badge>
+          </div>
+
+          <div :if={@profile.target_query && @source == "srql"} class="text-xs">
+            <span class="text-base-content/60">Matched by SRQL:</span>
+            <code class="font-mono bg-base-200/50 px-1.5 py-0.5 rounded ml-1">
+              {@profile.target_query}
+            </code>
+          </div>
+
+          <div class="pt-2 border-t border-base-200">
+            <div class="text-xs text-base-content/60 mb-2">Collection enabled:</div>
+            <div class="flex flex-wrap gap-2">
+              <.collection_badge enabled={@profile.collect_cpu} label="CPU" />
+              <.collection_badge enabled={@profile.collect_memory} label="Memory" />
+              <.collection_badge enabled={@profile.collect_disk} label="Disk" />
+              <.collection_badge enabled={@profile.collect_network} label="Network" />
+              <.collection_badge enabled={@profile.collect_processes} label="Processes" />
             </div>
           </div>
-          <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
-            Using default configuration
-          </div>
-          <div class="text-xs text-base-content/50 pt-2">
-            Profile targeting is configured via SRQL queries in <.link
-              navigate="/settings/sysmon"
-              class="link link-primary"
-            >Settings</.link>.
-          </div>
+        </div>
+
+        <div :if={is_nil(@profile)} class="text-sm text-base-content/60">
+          Using default configuration
+        </div>
+
+        <div class="text-xs text-base-content/50 pt-3 border-t border-base-200 mt-4">
+          <.link navigate="/settings/sysmon" class="link link-primary">
+            Manage sysmon profiles
+          </.link>
         </div>
       </div>
     </div>
+    """
+  end
+
+  attr :enabled, :boolean, required: true
+  attr :label, :string, required: true
+
+  defp collection_badge(assigns) do
+    ~H"""
+    <span class={[
+      "inline-flex items-center gap-1 px-2 py-1 rounded text-xs",
+      @enabled && "bg-success/10 text-success",
+      not @enabled && "bg-base-200 text-base-content/40"
+    ]}>
+      <.icon :if={@enabled} name="hero-check" class="size-3" />
+      <.icon :if={not @enabled} name="hero-x-mark" class="size-3" />
+      {@label}
+    </span>
     """
   end
 
