@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.AgentRegistry
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Monitoring.ServiceCheck
 
@@ -292,32 +293,69 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Load sweep configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile resources
   defp load_sweep_config(agent_id) do
-    # Use "default" partition for now - can be extended to support partitions later
-    partition = "default"
+    # Resolve partition from agent registry, fall back to "default"
+    partition = get_agent_partition(agent_id)
+
+    Logger.debug(
+      "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
+    )
 
     case ConfigServer.get_config(:sweep, partition, agent_id) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
+        Logger.debug(
+          "AgentConfigGenerator: got sweep config with #{length(entry.config["groups"] || [])} groups, hash=#{entry.hash}"
+        )
+
         entry.config
 
       {:error, :no_config_found} ->
         # No sweep config defined for this agent - return empty config
-        Logger.debug("No sweep config found for agent #{agent_id}")
+        Logger.debug(
+          "AgentConfigGenerator: no sweep config found for agent #{agent_id} in partition #{partition}"
+        )
+
         %{}
 
       {:error, reason} ->
         Logger.warning(
-          "Failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
+          "AgentConfigGenerator: failed to load sweep config for agent #{agent_id}: #{inspect(reason)}"
         )
 
         %{}
     end
   end
 
+  # Resolve the partition for an agent from the registry
+  # Falls back to "default" if agent is not registered or has no partition
+  defp get_agent_partition(agent_id) do
+    case AgentRegistry.lookup(agent_id) do
+      [{_pid, metadata}] ->
+        partition = metadata[:partition_id] || "default"
+        Logger.debug("AgentConfigGenerator: resolved partition=#{partition} for agent #{agent_id}")
+        partition
+
+      [] ->
+        Logger.debug(
+          "AgentConfigGenerator: agent #{agent_id} not found in registry, using partition=default"
+        )
+
+        "default"
+
+      other ->
+        Logger.warning(
+          "AgentConfigGenerator: unexpected registry lookup result for #{agent_id}: #{inspect(other)}"
+        )
+
+        "default"
+    end
+  end
+
   # Load sysmon configuration from the AgentConfig system
   # This uses the ConfigServer which compiles sysmon configs from SysmonProfile resources
   defp load_sysmon_config(agent_id) do
-    partition = "default"
+    # Resolve partition from agent registry, fall back to "default"
+    partition = get_agent_partition(agent_id)
 
     case ConfigServer.get_config(:sysmon, partition, agent_id) do
       {:ok, entry} ->

@@ -275,4 +275,233 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert Map.has_key?(config.sysmon_config, :config_source)
     end
   end
+
+  describe "sweep config with partition resolution" do
+    alias ServiceRadar.AgentConfig.ConfigServer
+    alias ServiceRadar.AgentRegistry
+    alias ServiceRadar.SweepJobs.SweepGroup
+
+    test "unregistered agent receives sweep config from default partition", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "unregistered-sweep-agent-#{unique_id}"
+
+      # Create sweep group in default partition
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Default Sweep Group #{unique_id}",
+          partition: "default",
+          interval: "15m",
+          static_targets: ["10.0.0.1"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      assert Map.has_key?(payload, "sweep")
+      assert is_map(payload["sweep"])
+
+      if payload["sweep"]["groups"] do
+        group_names = Enum.map(payload["sweep"]["groups"], & &1["name"])
+        assert "Default Sweep Group #{unique_id}" in group_names
+      end
+    end
+
+    test "registered agent receives sweep config from its partition", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "registered-sweep-agent-#{unique_id}"
+      partition = "test-partition-#{unique_id}"
+
+      # Register agent with specific partition
+      {:ok, _pid} = AgentRegistry.register_agent(agent_uid, %{
+        partition_id: partition,
+        grpc_host: "127.0.0.1",
+        grpc_port: 50051,
+        capabilities: [:sweep],
+        status: :connected
+      })
+
+      # Create sweep group in agent's partition
+      {:ok, _partition_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Partition Sweep Group #{unique_id}",
+          partition: partition,
+          interval: "15m",
+          static_targets: ["192.168.1.0/24"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      # Create sweep group in default partition (should NOT be included)
+      {:ok, _default_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Default Partition Group #{unique_id}",
+          partition: "default",
+          interval: "15m",
+          static_targets: ["10.0.0.1"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      if payload["sweep"]["groups"] do
+        group_names = Enum.map(payload["sweep"]["groups"], & &1["name"])
+        # Should include partition-specific group
+        assert "Partition Sweep Group #{unique_id}" in group_names
+        # Should NOT include default partition group
+        refute "Default Partition Group #{unique_id}" in group_names
+      end
+
+      # Cleanup
+      AgentRegistry.unregister_agent(agent_uid)
+    end
+
+    test "agent receives sweep groups with resolved targeting criteria", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "criteria-sweep-agent-#{unique_id}"
+
+      # Create device that matches criteria
+      {:ok, device} =
+        ServiceRadar.Inventory.Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sweep-target-device-#{unique_id}",
+          ip: "10.100.50.25",
+          hostname: "target-server",
+          tags: %{"env" => "prod", "tier" => "1"}
+        }, actor: actor)
+        |> Ash.create()
+
+      # Create sweep group with targeting criteria
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Criteria Sweep Group #{unique_id}",
+          partition: "default",
+          interval: "15m",
+          target_criteria: %{
+            "ip" => %{"in_cidr" => "10.100.0.0/16"},
+            "tags" => %{"has_any" => ["env=prod"]}
+          },
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      if payload["sweep"]["groups"] do
+        group = Enum.find(payload["sweep"]["groups"], fn g ->
+          g["name"] == "Criteria Sweep Group #{unique_id}"
+        end)
+
+        if group do
+          # Device IP should be in targets
+          assert device.ip in group["targets"]
+        end
+      end
+    end
+
+    test "sweep config version changes when targeting criteria updated", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "version-sweep-agent-#{unique_id}"
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Version Test Sweep #{unique_id}",
+          partition: "default",
+          interval: "15m",
+          target_criteria: %{"ip" => %{"in_cidr" => "10.0.0.0/8"}},
+          static_targets: ["192.168.1.1"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config1} = AgentConfigGenerator.generate_config(agent_uid)
+      version1 = config1.config_version
+
+      # Update targeting criteria
+      {:ok, _updated} =
+        group
+        |> Ash.Changeset.for_update(:update, %{
+          target_criteria: %{"ip" => %{"in_cidr" => "172.16.0.0/12"}}
+        })
+        |> Ash.update(actor: actor)
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+      version2 = config2.config_version
+
+      # Version should be different after criteria update
+      refute version1 == version2
+    end
+
+    test "agent-specific sweep groups are included for matching agent", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "agent-specific-sweep-#{unique_id}"
+
+      # Create agent-specific sweep group
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Agent Specific Sweep #{unique_id}",
+          partition: "default",
+          agent_id: agent_uid,
+          interval: "15m",
+          static_targets: ["10.0.99.1"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      # Create partition-wide sweep group
+      {:ok, _partition_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Partition Wide Sweep #{unique_id}",
+          partition: "default",
+          agent_id: nil,
+          interval: "15m",
+          static_targets: ["10.0.1.1"],
+          enabled: true
+        }, actor: actor)
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      if payload["sweep"]["groups"] do
+        group_names = Enum.map(payload["sweep"]["groups"], & &1["name"])
+        # Should include both agent-specific and partition-wide groups
+        assert "Agent Specific Sweep #{unique_id}" in group_names
+        assert "Partition Wide Sweep #{unique_id}" in group_names
+      end
+    end
+  end
 end
