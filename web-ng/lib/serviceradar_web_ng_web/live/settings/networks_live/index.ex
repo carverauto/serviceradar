@@ -1774,7 +1774,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           name="field"
           class="text-sm font-medium"
           phx-change="update_criteria_rule"
-          phx-value-id={@rule.id}
+          rule_id={@rule.id}
         >
           <%= if @rule.field && not field_known?(@rule.field) do %>
             <option value={@rule.field} selected>{@rule.field}</option>
@@ -1788,7 +1788,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           name="operator"
           class="text-xs text-base-content/70 font-medium"
           phx-change="update_criteria_rule"
-          phx-value-id={@rule.id}
+          rule_id={@rule.id}
         >
           <%= if @rule.operator && not operator_known?(@rule.field, @rule.operator) do %>
             <option value={@rule.operator} selected>{@rule.operator}</option>
@@ -1803,7 +1803,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             name="value"
             class="text-xs text-base-content/70 font-medium"
             phx-change="update_criteria_rule"
-            phx-value-id={@rule.id}
+            rule_id={@rule.id}
           >
             <option value="true" selected={to_string(@rule.value) == "true"}>true</option>
             <option value="false" selected={to_string(@rule.value) == "false"}>false</option>
@@ -1818,7 +1818,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             phx-change="update_criteria_rule"
             phx-blur="update_criteria_rule"
             phx-debounce="150"
-            phx-value-id={@rule.id}
+            rule_id={@rule.id}
           />
         <% end %>
       </.query_builder_pill>
