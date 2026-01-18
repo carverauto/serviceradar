@@ -566,13 +566,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </.link>
           </div>
         </div>
-
+        
     <!-- Device Stats Cards -->
         <.device_stats_cards
           stats={@device_stats}
           loading={@device_stats_loading}
         />
-
+        
     <!-- Quick Filters -->
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
@@ -1213,17 +1213,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </div>
           </div>
         </.link>
-
-        <!-- Availability -->
+        
+    <!-- Availability -->
         <.link
           navigate={~p"/devices?q=in:devices is_available:true"}
           class="block group"
         >
           <div class={[
             "rounded-xl border p-4 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3",
-            if(@unavailable > 0, do: "border-error/30 bg-error/5", else: "border-success/30 bg-success/5")
+            if(@unavailable > 0,
+              do: "border-error/30 bg-error/5",
+              else: "border-success/30 bg-success/5"
+            )
           ]}>
-            <div class={["p-2.5 rounded-lg", if(@unavailable > 0, do: "bg-error/10", else: "bg-success/10")]}>
+            <div class={[
+              "p-2.5 rounded-lg",
+              if(@unavailable > 0, do: "bg-error/10", else: "bg-success/10")
+            ]}>
               <.icon
                 name={if(@unavailable > 0, do: "hero-signal-slash", else: "hero-signal")}
                 class={["size-5", if(@unavailable > 0, do: "text-error", else: "text-success")]}
@@ -1231,7 +1237,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-baseline gap-1">
-                <span class={["text-xl font-bold", if(@unavailable > 0, do: "text-error", else: "text-success")]}>
+                <span class={[
+                  "text-xl font-bold",
+                  if(@unavailable > 0, do: "text-error", else: "text-success")
+                ]}>
                   {format_stat_number(@available)}
                 </span>
                 <span :if={@unavailable > 0} class="text-sm text-error/80">
@@ -1244,8 +1253,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             </div>
           </div>
         </.link>
-
-        <!-- Top Device Type -->
+        
+    <!-- Top Device Type -->
         <.device_breakdown_card
           title="By Type"
           items={@by_type}
@@ -1253,8 +1262,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           filter_field="type"
           empty_text="No type data"
         />
-
-        <!-- Top Vendor -->
+        
+    <!-- Top Vendor -->
         <.device_breakdown_card
           title="By Vendor"
           items={@by_vendor}
@@ -1301,9 +1310,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         </div>
         <div class="flex-1 min-w-0">
           <!-- Clickable top item (when not "Unknown") -->
-          <.link :if={@top_item && @top_item_link} navigate={@top_item_link} class="block group cursor-pointer">
+          <.link
+            :if={@top_item && @top_item_link}
+            navigate={@top_item_link}
+            class="block group cursor-pointer"
+          >
             <div class="flex items-baseline gap-1">
-              <span class="text-lg font-bold text-base-content truncate max-w-[8rem] group-hover:text-primary transition-colors" title={@top_item.name}>
+              <span
+                class="text-lg font-bold text-base-content truncate max-w-[8rem] group-hover:text-primary transition-colors"
+                title={@top_item.name}
+              >
                 {@top_item.name}
               </span>
               <span class="text-sm text-base-content/60">({@top_item.count})</span>
@@ -1318,7 +1334,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <!-- Non-clickable top item (for "Unknown" values) -->
           <div :if={@top_item && @top_item_link == nil}>
             <div class="flex items-baseline gap-1">
-              <span class="text-lg font-bold text-base-content truncate max-w-[8rem]" title={@top_item.name}>
+              <span
+                class="text-lg font-bold text-base-content truncate max-w-[8rem]"
+                title={@top_item.name}
+              >
                 {@top_item.name}
               </span>
               <span class="text-sm text-base-content/60">({@top_item.count})</span>
@@ -1336,7 +1355,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <div tabindex="0" role="button" class="btn btn-ghost btn-xs btn-circle">
             <.icon name="hero-chevron-down" class="size-3" />
           </div>
-          <ul tabindex="0" class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200">
+          <ul
+            tabindex="0"
+            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200"
+          >
             <%= for item <- Enum.take(@items, 10) do %>
               <li>
                 <%= if item.name == "Unknown" do %>
@@ -2049,6 +2071,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp extract_stats_count(%{"results" => []}, _field), do: 0
   defp extract_stats_count(nil, _field), do: 0
+
   defp extract_stats_count(result, field) do
     Logger.warning("Unexpected stats count result format: #{inspect(result)}, field: #{field}")
     0
@@ -2069,7 +2092,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp to_stats_int(_), do: 0
 
   defp extract_grouped_stats(%{"results" => results}, field) when is_list(results) do
-    Logger.debug("Extracting grouped stats for field '#{field}' from #{inspect(results, limit: 200)}")
+    Logger.debug(
+      "Extracting grouped stats for field '#{field}' from #{inspect(results, limit: 200)}"
+    )
+
     extract_grouped_stats_list(results, field)
   end
 
