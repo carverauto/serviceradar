@@ -134,13 +134,11 @@ defmodule ServiceRadarAgentGateway.Application do
          endpoint: ServiceRadarAgentGateway.Endpoint,
          port: grpc_port,
          start_server: true,
-         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+         adapter_opts: build_adapter_opts(grpc_ssl_opts)}
 
-        # gRPC client for communicating with Go agents (legacy support)
-        ServiceRadarAgentGateway.AgentClient,
-
-        # Task executor - executes polling tasks from the core
-        ServiceRadarAgentGateway.TaskExecutor
+        # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
+        # In the new push-only architecture, agents push status to the gateway.
+        # The gateway never initiates connections to agents.
       ] ++ registration_children
 
     children = core_children ++ gateway_children

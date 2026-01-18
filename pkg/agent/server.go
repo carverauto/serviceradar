@@ -535,8 +535,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	if req.GatewayId == "" {
-		s.logger.Warn().Interface("request", req).Msg("GatewayId is empty in request")
-		req.GatewayId = "unknown-gateway" // Fallback to avoid empty
+		// Internal calls (e.g., from push loop) don't have GatewayId set - this is expected
+		req.GatewayId = "internal" // Mark as internal call
 	}
 
 	var response *proto.StatusResponse
@@ -1119,7 +1119,7 @@ func (s *Server) handleDefaultChecker(
 
 	available, message := c.Check(ctx, req)
 
-	s.logger.Info().Str("type", req.GetServiceType()).Str("name", req.GetServiceName()).Str("details", req.GetDetails()).Msg("Checker request")
+	s.logger.Debug().Str("type", req.GetServiceType()).Str("name", req.GetServiceName()).Str("details", req.GetDetails()).Msg("Checker request")
 
 	if !json.Valid(message) {
 		s.logger.Error().Str("serviceName", req.ServiceName).RawJSON("message", message).Msg("Invalid JSON from checker")
