@@ -8,9 +8,8 @@ The serviceradar-agent is crashing in demo-staging with a fatal error: `CONFIG_S
 ### Issue 1: Agent Crash (Primary - Blocking)
 - **Root Cause**: The agent deployment has `CONFIG_SOURCE=kv` environment variable set
 - **Impact**: Agent pod is in CrashLoopBackOff, unable to load any configs
-- **Code Path**: `pkg/config/config.go:241` returns `errKVConfigRemoved` when `CONFIG_SOURCE=kv`
-- **Fix Status**: Code fix exists in commit `7b21d33af` (sets `CONFIG_SOURCE=file`), but ArgoCD hasn't synced demo-staging
-- **Resolution**: Force ArgoCD sync to deploy the fix
+- **Code Path**: `pkg/config/config.go:241` returned `errKVConfigRemoved` when `CONFIG_SOURCE=kv`
+- **Resolution**: Made CONFIG_SOURCE=kv idempotent - logs deprecation warning and falls back to file config instead of crashing
 
 ### Issue 2: "Checker request" Logs (Not a Bug - Just Noise)
 - **Root Cause**: The agent's push loop calls `server.GetStatus()` internally to collect checker statuses before pushing to gateway (`push_loop.go:638`)
@@ -32,25 +31,27 @@ The serviceradar-agent is crashing in demo-staging with a fatal error: `CONFIG_S
 
 ### Code Changes
 
-1. **pkg/agent/server.go** - Fix noisy logging:
+1. **pkg/config/config.go** - Make CONFIG_SOURCE=kv idempotent:
+   - Changed from returning fatal error to logging warning and using file config
+   - Removed unused `errKVConfigRemoved` error variable
+
+2. **pkg/agent/server.go** - Fix noisy logging:
    - Line 538: Remove or downgrade "GatewayId is empty" warning (internal calls are expected)
    - Line 1122: Downgrade "Checker request" from INFO to DEBUG
 
-2. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/application.ex**:
-   - Remove `ServiceRadarAgentGateway.AgentClient` from supervisor children (line 140)
-   - Remove `ServiceRadarAgentGateway.TaskExecutor` from supervisor children (line 143)
+3. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/application.ex**:
+   - Remove `ServiceRadarAgentGateway.AgentClient` from supervisor children
+   - Remove `ServiceRadarAgentGateway.TaskExecutor` from supervisor children
 
-3. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/agent_client.ex**:
-   - Add deprecation notice to module doc
-   - Keep file for reference (can be deleted in future cleanup)
+4. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/agent_client.ex**:
+   - Delete entirely (legacy polling code, no longer needed)
 
-4. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/task_executor.ex**:
-   - Add deprecation notice to module doc
-   - Keep file for reference (can be deleted in future cleanup)
+5. **elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/task_executor.ex**:
+   - Delete entirely (legacy polling code, no longer needed)
 
 ### Deployment Changes
 
-1. Verify ArgoCD demo-staging syncs to latest staging branch
+1. Remove serviceradar-snmp-checker deployment from demo-staging (functionality now in agent)
 2. Confirm agent restarts without crash
 3. Validate push loop works correctly
 
