@@ -332,6 +332,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       assigns.log
       |> Map.keys()
       |> Enum.reject(&(&1 in summary_fields))
+      |> Enum.filter(&display_field?(assigns.log, &1))
       |> Enum.sort()
 
     # Parse attributes fields if present for structured display
@@ -384,19 +385,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     ~H"""
     <div class="px-4 py-3">
       <span class="text-xs text-base-content/50 uppercase tracking-wider">{@title}</span>
-      <div class="mt-2 space-y-2">
-        <%= for {section, values} <- @attributes do %>
-          <div class="pl-2 border-l-2 border-base-300">
-            <span class="text-xs font-medium text-base-content/70">{section}</span>
-            <div class="mt-1 grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
-              <%= for {key, value} <- flatten_attribute_values(values) do %>
-                <span class="text-xs text-base-content/50">{key}</span>
-                <span class="text-sm break-all">{format_attribute_value(value)}</span>
-              <% end %>
+      <%= if simple_attribute_map?(@attributes) do %>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <%= for {key, value} <- flatten_attribute_values(@attributes) do %>
+            <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70 shadow-sm">
+              <span class="font-medium">{key}</span>
+              <span class="text-base-content/40">=</span>
+              <span class="font-mono text-base-content/90">{format_attribute_value(value)}</span>
+            </span>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="mt-2 space-y-2">
+          <%= for {section, values} <- @attributes do %>
+            <div class="pl-2 border-l-2 border-base-300">
+              <span class="text-xs font-medium text-base-content/70">{section}</span>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <%= for {key, value} <- flatten_attribute_values(values) do %>
+                  <span class="inline-flex items-center gap-2 rounded-full border border-base-200 bg-base-100 px-2.5 py-1 text-xs text-base-content/70 shadow-sm">
+                    <span class="font-medium">{key}</span>
+                    <span class="text-base-content/40">=</span>
+                    <span class="font-mono text-base-content/90">{format_attribute_value(value)}</span>
+                  </span>
+                <% end %>
+              </div>
             </div>
-          </div>
-        <% end %>
-      </div>
+          <% end %>
+        </div>
+      <% end %>
     </div>
     """
   end
@@ -452,17 +468,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp flatten_attribute_values(values) when is_map(values) do
-    Enum.flat_map(values, fn
+    values
+    |> Enum.flat_map(fn
       {k, v} when is_map(v) ->
         Enum.map(v, fn {nested_k, nested_v} -> {"#{k}.#{nested_k}", nested_v} end)
 
       {k, v} ->
         [{k, v}]
     end)
+    |> Enum.reject(fn {_k, v} -> blank_value?(v) end)
     |> Enum.sort_by(fn {k, _} -> k end)
   end
 
-  defp flatten_attribute_values(value), do: [{"value", value}]
+  defp flatten_attribute_values(value) do
+    if blank_value?(value) do
+      []
+    else
+      [{"value", value}]
+    end
+  end
 
   defp format_attribute_value(value) when is_binary(value), do: value
   defp format_attribute_value(value) when is_number(value), do: to_string(value)
@@ -471,6 +495,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp format_attribute_value(value) when is_list(value), do: Jason.encode!(value)
   defp format_attribute_value(nil), do: "—"
   defp format_attribute_value(value), do: inspect(value)
+
+  defp simple_attribute_map?(attributes) when is_map(attributes) do
+    Enum.all?(attributes, fn
+      {_k, v} -> not is_map(v)
+    end)
+  end
+
+  defp simple_attribute_map?(_), do: false
+
+  defp blank_value?(nil), do: true
+  defp blank_value?(""), do: true
+  defp blank_value?(_), do: false
 
   attr :value, :any, default: nil
 
@@ -488,6 +524,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       {to_string(@value)}
     </.ui_badge>
     """
+  end
+
+  defp format_value(%{value: value} = assigns) when is_integer(value) and value == 0 do
+    ~H|<span class="text-base-content/40">—</span>|
   end
 
   defp format_value(%{value: value} = assigns) when is_map(value) or is_list(value) do
@@ -594,6 +634,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   defp parse_timestamp(_), do: :error
+
+  defp display_field?(log, field) do
+    value = Map.get(log, field)
+
+    cond do
+      field == "trace_flags" and value in [0, "0"] -> false
+      is_map(value) and map_size(value) == 0 -> false
+      value in [nil, ""] -> false
+      true -> true
+    end
+  end
 
   defp has_value?(map, key) do
     case Map.get(map, key) do
