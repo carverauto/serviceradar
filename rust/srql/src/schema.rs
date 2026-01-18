@@ -133,8 +133,9 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    logs (timestamp, trace_id, span_id) {
+    logs (timestamp, id) {
         timestamp -> Timestamptz,
+        id -> Uuid,
         trace_id -> Nullable<Text>,
         span_id -> Nullable<Text>,
         severity_text -> Nullable<Text>,
@@ -343,6 +344,46 @@ diesel::table! {
         device_id -> Nullable<Text>,
         partition -> Nullable<Text>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    alerts (id) {
+        id -> Uuid,
+        title -> Text,
+        description -> Nullable<Text>,
+        severity -> Text,
+        status -> Text,
+        source_type -> Nullable<Text>,
+        source_id -> Nullable<Text>,
+        service_check_id -> Nullable<Uuid>,
+        device_uid -> Nullable<Text>,
+        agent_uid -> Nullable<Text>,
+        event_id -> Nullable<Uuid>,
+        event_time -> Nullable<Timestamptz>,
+        metric_name -> Nullable<Text>,
+        metric_value -> Nullable<Float8>,
+        threshold_value -> Nullable<Float8>,
+        comparison -> Nullable<Text>,
+        triggered_at -> Nullable<Timestamptz>,
+        acknowledged_at -> Nullable<Timestamptz>,
+        acknowledged_by -> Nullable<Text>,
+        resolved_at -> Nullable<Timestamptz>,
+        resolved_by -> Nullable<Text>,
+        resolution_note -> Nullable<Text>,
+        escalated_at -> Nullable<Timestamptz>,
+        escalation_level -> Nullable<Int8>,
+        escalation_reason -> Nullable<Text>,
+        notification_count -> Nullable<Int8>,
+        last_notification_at -> Nullable<Timestamptz>,
+        suppressed_until -> Nullable<Timestamptz>,
+        metadata -> Nullable<Jsonb>,
+        tags -> Nullable<Array<Text>>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 

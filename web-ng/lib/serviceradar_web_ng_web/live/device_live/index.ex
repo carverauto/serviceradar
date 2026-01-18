@@ -555,19 +555,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="text-xs font-medium text-base-content/60 mr-1">Quick filters:</span>
           <.link
-            navigate={~p"/devices?q=is_available:true"}
+            navigate={~p"/devices?q=in:devices is_available:true"}
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "true"), do: "btn-primary", else: "btn-ghost"}"}
           >
             <.icon name="hero-check-circle" class="size-3" /> Available
           </.link>
           <.link
-            navigate={~p"/devices?q=is_available:false"}
+            navigate={~p"/devices?q=in:devices is_available:false"}
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
           >
             <.icon name="hero-x-circle" class="size-3" /> Unavailable
           </.link>
           <.link
-            navigate={~p"/devices?q=discovery_sources:sweep"}
+            navigate={~p"/devices?q=in:devices discovery_sources:(sweep)"}
             class={"btn btn-xs #{if has_filter?(@srql, "discovery_sources", "sweep"), do: "btn-info", else: "btn-ghost"}"}
           >
             <.icon name="hero-signal" class="size-3" /> Swept
@@ -638,7 +638,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       phx-click="toggle_select_all"
                     />
                   </th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">UID</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Hostname</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">IP</th>
                   <th
@@ -666,20 +665,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   >
                     Metrics
                   </th>
-                  <th
-                    class="text-xs font-semibold text-base-content/70 bg-base-200/60"
-                    title="Sysmon monitoring profile"
-                  >
-                    Sysmon Profile
-                  </th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Risk</th>
-                  <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Gateway</th>
                   <th class="text-xs font-semibold text-base-content/70 bg-base-200/60">Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 <tr :if={@devices == []}>
-                  <td colspan="13" class="py-8 text-center text-sm text-base-content/60">
+                  <td colspan="10" class="py-8 text-center text-sm text-base-content/60">
                     No devices found.
                   </td>
                 </tr>
@@ -694,10 +686,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <% sysmon_profile =
-                    if is_binary(device_uid),
-                      do: Map.get(@sysmon_profiles_by_device, device_uid),
-                      else: nil %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -709,17 +697,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                         phx-value-uid={device_uid}
                       />
                     </td>
-                    <td class="font-mono text-xs">
+                    <td class="text-sm max-w-[18rem] truncate">
                       <.link
                         :if={is_binary(device_uid)}
                         navigate={~p"/devices/#{device_uid}"}
                         class="link link-hover"
+                        title={"UID: #{device_uid}"}
                       >
-                        {device_uid}
+                        {Map.get(row, "hostname") || device_uid}
                       </.link>
-                      <span :if={not is_binary(device_uid)} class="text-base-content/70">—</span>
+                      <span :if={not is_binary(device_uid)}>
+                        {Map.get(row, "hostname") || "—"}
+                      </span>
                     </td>
-                    <td class="text-sm max-w-[18rem] truncate">{Map.get(row, "hostname") || "—"}</td>
                     <td class="font-mono text-xs">{Map.get(row, "ip") || "—"}</td>
                     <td class="text-xs">
                       <.device_type_badge
@@ -745,15 +735,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       />
                     </td>
                     <td class="text-xs">
-                      <.sysmon_profile_badge
-                        profile={sysmon_profile}
-                        default_profile={@default_sysmon_profile}
-                      />
-                    </td>
-                    <td class="text-xs">
                       <.risk_level_badge risk_level={Map.get(row, "risk_level")} />
                     </td>
-                    <td class="font-mono text-xs">{Map.get(row, "gateway_id") || "—"}</td>
                     <td class="font-mono text-xs">
                       <.srql_cell col="last_seen" value={Map.get(row, "last_seen")} />
                     </td>

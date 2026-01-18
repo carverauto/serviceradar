@@ -121,4 +121,31 @@ _ =
     end
   )
 
+# Create logs table for SRQL UUID parameter testing
+_ =
+  Ecto.Adapters.SQL.query!(
+    repo,
+    """
+    CREATE TABLE IF NOT EXISTS logs (
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
+      trace_id TEXT,
+      span_id TEXT,
+      severity_text TEXT,
+      severity_number INT,
+      body TEXT,
+      service_name TEXT,
+      service_version TEXT,
+      service_instance TEXT,
+      scope_name TEXT,
+      scope_version TEXT,
+      attributes TEXT,
+      resource_attributes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (timestamp, id)
+    )
+    """,
+    []
+  )
+
 Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :manual)
