@@ -247,6 +247,39 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
 
   defp array_field?(_resource, _field_name), do: false
 
+  # Check if a field is a boolean type by introspecting the Ash resource
+  defp boolean_field?(resource, field_name) when is_atom(field_name) do
+    case Ash.Resource.Info.attribute(resource, field_name) do
+      %{type: Ash.Type.Boolean} -> true
+      %{type: :boolean} -> true
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp boolean_field?(_resource, _field_name), do: false
+
+  # Parse a value as boolean
+  defp parse_boolean("true"), do: true
+  defp parse_boolean("false"), do: false
+  defp parse_boolean("1"), do: true
+  defp parse_boolean("0"), do: false
+  defp parse_boolean(true), do: true
+  defp parse_boolean(false), do: false
+  defp parse_boolean(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "true" -> true
+      "false" -> false
+      "yes" -> true
+      "no" -> false
+      "1" -> true
+      "0" -> false
+      _ -> nil
+    end
+  end
+  defp parse_boolean(_), do: nil
+
   @doc """
   Check if an entity should be routed through Ash.
   """
@@ -471,11 +504,16 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
         mapped_field = map_field(entity, field)
         field_atom = String.to_existing_atom(mapped_field)
 
-        # Use Ash resource introspection to detect array fields dynamically
-        if array_field?(resource, field_atom) do
-          apply_array_filter(query, field_atom, op, value)
-        else
-          apply_scalar_filter(query, field_atom, op, value)
+        # Use Ash resource introspection to detect field types dynamically
+        cond do
+          boolean_field?(resource, field_atom) ->
+            apply_boolean_filter(query, field_atom, op, value)
+
+          array_field?(resource, field_atom) ->
+            apply_array_filter(query, field_atom, op, value)
+
+          true ->
+            apply_scalar_filter(query, field_atom, op, value)
         end
       end
     end
@@ -485,6 +523,40 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapter do
   end
 
   defp apply_filter_op(query, _, _, _, _, _), do: query
+
+  # Handle boolean field filters - convert string values to actual booleans
+  # This prevents errors like "boolean ~~ unknown" when LIKE is used on boolean fields
+  defp apply_boolean_filter(query, field_atom, op, value) do
+    bool_value = parse_boolean(value)
+
+    case {op, bool_value} do
+      # Standard equality operators
+      {"eq", bool} when is_boolean(bool) ->
+        Ash.Query.filter_input(query, %{field_atom => %{eq: bool}})
+
+      {"neq", bool} when is_boolean(bool) ->
+        Ash.Query.filter_input(query, %{field_atom => %{not_eq: bool}})
+
+      # LIKE/contains on boolean should be treated as equality
+      # e.g., is_available:"true" or is_available:%true% both mean is_available == true
+      {op, bool} when op in ["like", "contains"] and is_boolean(bool) ->
+        Ash.Query.filter_input(query, %{field_atom => %{eq: bool}})
+
+      {op, bool} when op in ["not_like", "not_contains"] and is_boolean(bool) ->
+        Ash.Query.filter_input(query, %{field_atom => %{not_eq: bool}})
+
+      # IN operator with list of values
+      {"in", _} when is_list(value) ->
+        bool_values = Enum.map(value, &parse_boolean/1) |> Enum.filter(&is_boolean/1)
+        if bool_values != [], do: Ash.Query.filter_input(query, %{field_atom => %{in: bool_values}}), else: query
+
+      # If we can't parse the boolean value, skip the filter
+      _ ->
+        query
+    end
+  rescue
+    _ -> query
+  end
 
   # Handle array field filters using PostgreSQL array operators via fragments
   defp apply_array_filter(query, field_atom, op, value) do

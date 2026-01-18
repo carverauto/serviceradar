@@ -23,10 +23,10 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       assert AshAdapter.ash_entity?("agents")
     end
 
-    test "returns false for metrics entities" do
-      refute AshAdapter.ash_entity?("timeseries_metrics")
-      refute AshAdapter.ash_entity?("snmp_metrics")
-      refute AshAdapter.ash_entity?("cpu_metrics")
+    test "returns true for metrics entities" do
+      assert AshAdapter.ash_entity?("timeseries_metrics")
+      assert AshAdapter.ash_entity?("snmp_metrics")
+      assert AshAdapter.ash_entity?("cpu_metrics")
     end
 
     test "returns false for unknown entities" do
@@ -507,6 +507,301 @@ defmodule ServiceRadarWebNG.SRQL.AshAdapterTest do
       # All keys should be strings
       assert Enum.all?(keys, &is_binary/1)
       assert "uid" in keys or "id" in keys
+    end
+  end
+
+  describe "query/3 - LIKE operator" do
+    setup do
+      device1 =
+        device_fixture(%{
+          uid: "like-test-001",
+          hostname: "faker-server-01.local",
+          ip: "172.16.80.10"
+        })
+
+      device2 =
+        device_fixture(%{
+          uid: "like-test-002",
+          hostname: "faker-server-02.local",
+          ip: "172.16.80.20"
+        })
+
+      device3 =
+        device_fixture(%{
+          uid: "like-test-003",
+          hostname: "production-server.local",
+          ip: "10.0.0.1"
+        })
+
+      {:ok, device1: device1, device2: device2, device3: device3}
+    end
+
+    test "filters by hostname with LIKE operator and wildcards", %{device1: device1, device2: device2, device3: device3} do
+      actor = viewer_actor()
+
+      # Simulates query: hostname:%faker%
+      params = %{
+        filters: [%{field: "hostname", op: "like", value: "%faker%"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert device1.uid in uids
+      assert device2.uid in uids
+      refute device3.uid in uids
+    end
+
+    test "filters by IP with LIKE operator", %{device1: device1, device2: device2, device3: device3} do
+      actor = viewer_actor()
+
+      # Simulates query: ip:%172.16%
+      params = %{
+        filters: [%{field: "ip", op: "like", value: "%172.16%"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert device1.uid in uids
+      assert device2.uid in uids
+      refute device3.uid in uids
+    end
+
+    test "LIKE without wildcards still works", %{device1: device1} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "hostname", op: "like", value: "faker"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert device1.uid in uids
+    end
+
+    test "not_like excludes matching records", %{device1: device1, device3: device3} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "hostname", op: "not_like", value: "%faker%"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      refute device1.uid in uids
+      assert device3.uid in uids
+    end
+  end
+
+  describe "query/3 - boolean field handling" do
+    setup do
+      available_device =
+        device_fixture(%{
+          uid: "bool-test-available",
+          hostname: "available.local",
+          is_available: true
+        })
+
+      unavailable_device =
+        device_fixture(%{
+          uid: "bool-test-unavailable",
+          hostname: "unavailable.local",
+          is_available: false
+        })
+
+      {:ok, available: available_device, unavailable: unavailable_device}
+    end
+
+    test "filters boolean field with eq and true value", %{available: available, unavailable: unavailable} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "is_available", op: "eq", value: true}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert available.uid in uids
+      refute unavailable.uid in uids
+    end
+
+    test "filters boolean field with eq and string 'true'", %{available: available, unavailable: unavailable} do
+      actor = viewer_actor()
+
+      # User might pass string "true" instead of boolean
+      params = %{
+        filters: [%{field: "is_available", op: "eq", value: "true"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert available.uid in uids
+      refute unavailable.uid in uids
+    end
+
+    test "filters boolean field with like operator (should not error)", %{available: available, unavailable: unavailable} do
+      actor = viewer_actor()
+
+      # This should NOT throw "boolean ~~ unknown" error
+      # It should treat like as eq for boolean fields
+      params = %{
+        filters: [%{field: "is_available", op: "like", value: "true"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert available.uid in uids
+      refute unavailable.uid in uids
+    end
+
+    test "filters boolean field with contains operator (should not error)", %{available: available, unavailable: unavailable} do
+      actor = viewer_actor()
+
+      # Contains on boolean should also work
+      params = %{
+        filters: [%{field: "is_available", op: "contains", value: "false"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      refute available.uid in uids
+      assert unavailable.uid in uids
+    end
+
+    test "filters boolean with neq", %{available: available, unavailable: unavailable} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "is_available", op: "neq", value: true}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      refute available.uid in uids
+      assert unavailable.uid in uids
+    end
+  end
+
+  describe "query/3 - array field handling" do
+    setup do
+      sweep_device =
+        device_fixture(%{
+          uid: "array-test-sweep",
+          hostname: "sweep.local",
+          discovery_sources: ["sweep", "agent"]
+        })
+
+      armis_device =
+        device_fixture(%{
+          uid: "array-test-armis",
+          hostname: "armis.local",
+          discovery_sources: ["armis"]
+        })
+
+      multi_source_device =
+        device_fixture(%{
+          uid: "array-test-multi",
+          hostname: "multi.local",
+          discovery_sources: ["sweep", "armis", "sysmon"]
+        })
+
+      {:ok, sweep: sweep_device, armis: armis_device, multi: multi_source_device}
+    end
+
+    test "filters array field with in operator", %{sweep: sweep, multi: multi, armis: armis} do
+      actor = viewer_actor()
+
+      # Simulates: discovery_sources:(sweep)
+      params = %{
+        filters: [%{field: "discovery_sources", op: "in", value: ["sweep"]}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert sweep.uid in uids
+      assert multi.uid in uids
+      refute armis.uid in uids
+    end
+
+    test "filters array field with eq operator (single value)", %{sweep: sweep, armis: armis} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "discovery_sources", op: "eq", value: "sweep"}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert sweep.uid in uids
+      refute armis.uid in uids
+    end
+
+    test "filters array field with not_in operator", %{sweep: sweep, armis: armis} do
+      actor = viewer_actor()
+
+      params = %{
+        filters: [%{field: "discovery_sources", op: "not_in", value: ["armis"]}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      uids = Enum.map(response["results"], & &1["uid"])
+      assert sweep.uid in uids
+      refute armis.uid in uids
+    end
+  end
+
+  describe "query/3 - uid field filtering (regression test)" do
+    setup do
+      device =
+        device_fixture(%{
+          uid: "uid-filter-test-#{System.unique_integer([:positive])}",
+          hostname: "uid-test.local"
+        })
+
+      {:ok, device: device}
+    end
+
+    test "uid field filter is NOT ignored for devices", %{device: device} do
+      actor = viewer_actor()
+
+      # This was previously broken because uid was in @ignored_fields
+      params = %{
+        filters: [%{field: "uid", op: "eq", value: device.uid}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      assert length(response["results"]) == 1
+      assert hd(response["results"])["uid"] == device.uid
+    end
+
+    test "uid filter returns single device, not all devices", %{device: device} do
+      actor = viewer_actor()
+
+      # Create additional devices to ensure we're not getting all
+      device_fixture(%{uid: "other-device-1"})
+      device_fixture(%{uid: "other-device-2"})
+
+      params = %{
+        filters: [%{field: "uid", op: "eq", value: device.uid}]
+      }
+
+      {:ok, response} = AshAdapter.query("devices", params, actor)
+
+      # Should only return the ONE device we're filtering for
+      assert length(response["results"]) == 1
+      assert hd(response["results"])["uid"] == device.uid
     end
   end
 
