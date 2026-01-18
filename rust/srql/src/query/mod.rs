@@ -890,8 +890,8 @@ mod tests {
         let response = translate_request(&config, request).expect("translation should succeed");
 
         assert!(
-            response.sql.to_lowercase().contains("time_bucket("),
-            "expected time_bucket in SQL, got: {}",
+            response.sql.to_lowercase().contains("to_timestamp(floor("),
+            "expected floor-based time bucketing in SQL, got: {}",
             response.sql
         );
         assert!(

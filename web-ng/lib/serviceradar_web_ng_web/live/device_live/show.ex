@@ -287,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
+          
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -303,7 +303,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.kv_inline label="Last Seen" value={Map.get(@device_row, "last_seen")} mono />
             </div>
           </div>
-
+          
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -445,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </.form>
           </div>
-
+          
     <!-- Tabs Navigation (only show if sysmon is active) -->
           <div :if={@sysmon_presence and is_map(@device_row)} class="tabs tabs-box">
             <button
@@ -465,7 +465,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
             </button>
           </div>
-
+          
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details" or not @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
@@ -522,7 +522,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-
+          
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
