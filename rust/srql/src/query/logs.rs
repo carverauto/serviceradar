@@ -202,10 +202,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "id" => {
             let value = filter.value.as_scalar()?;
-            Uuid::parse_str(value).map_err(|_| {
+            let uuid = Uuid::parse_str(value).map_err(|_| {
                 ServiceError::InvalidRequest("id must be a valid UUID".into())
             })?;
-            params.push(BindParam::Text(value.to_string()));
+            params.push(BindParam::Uuid(uuid));
             Ok(())
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"

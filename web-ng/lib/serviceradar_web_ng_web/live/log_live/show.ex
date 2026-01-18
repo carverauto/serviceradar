@@ -16,6 +16,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   @impl true
   def handle_params(%{"log_id" => log_id}, _uri, socket) do
+    # Convert binary UUID to string format if needed
+    log_id = normalize_uuid(log_id)
+
     # Use 'id' field (not 'log_id') to filter logs
     query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
 
@@ -356,4 +359,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
+
+  # Convert raw 16-byte binary UUID to string format, or return as-is if already a string
+  defp normalize_uuid(<<_::binary-size(16)>> = bin) do
+    uuid_to_string(bin)
+  end
+
+  defp normalize_uuid(id) when is_binary(id), do: id
+  defp normalize_uuid(_), do: "unknown"
+
+  defp uuid_to_string(<<a::32, b::16, c::16, d::16, e::48>>) do
+    [a, b, c, d, e]
+    |> Enum.map(&Integer.to_string(&1, 16))
+    |> Enum.map(&String.downcase/1)
+    |> Enum.zip([8, 4, 4, 4, 12])
+    |> Enum.map(fn {hex, len} -> String.pad_leading(hex, len, "0") end)
+    |> Enum.join("-")
+  end
+
+  defp uuid_to_string(_), do: "unknown"
 end

@@ -1363,8 +1363,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp log_id(log) do
     # Use the UUID id field from the logs table
-    Map.get(log, "id") || "unknown"
+    case Map.get(log, "id") do
+      nil -> "unknown"
+      # Handle binary UUID (16 bytes) - convert to string format
+      <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
+      # Already a string UUID
+      id when is_binary(id) -> id
+      _ -> "unknown"
+    end
   end
+
+  # Convert raw 16-byte binary UUID to string format
+  defp uuid_to_string(<<a::32, b::16, c::16, d::16, e::48>>) do
+    [a, b, c, d, e]
+    |> Enum.map(&Integer.to_string(&1, 16))
+    |> Enum.map(&String.downcase/1)
+    |> Enum.zip([8, 4, 4, 4, 12])
+    |> Enum.map(fn {hex, len} -> String.pad_leading(hex, len, "0") end)
+    |> Enum.join("-")
+  end
+
+  defp uuid_to_string(_), do: "unknown"
 
   defp format_timestamp(log) do
     ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
