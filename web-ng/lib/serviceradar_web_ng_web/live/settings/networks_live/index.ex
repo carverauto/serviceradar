@@ -444,6 +444,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Criteria builder handlers
   def handle_event("add_criteria_rule", _params, socket) do
+    require Logger
+
     new_rule = %{
       id: System.unique_integer([:positive]),
       field: default_criteria_field(),
@@ -452,6 +454,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     }
 
     rules = socket.assigns.criteria_rules ++ [new_rule]
+
+    Logger.debug(
+      "[NetworksLive] add_criteria_rule - added rule #{new_rule.id}, total rules: #{length(rules)}"
+    )
+
     {:noreply, assign(socket, :criteria_rules, rules)}
   end
 
@@ -474,16 +481,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("update_criteria_rule", %{"id" => id_str} = params, socket)
       when is_binary(id_str) do
+    require Logger
+
     case Integer.parse(id_str) do
       {id, ""} ->
         field = params["field"]
         operator = params["operator"]
         value = Map.get(params, "value")
 
+        Logger.debug(
+          "[NetworksLive] update_criteria_rule - id=#{id}, field=#{inspect(field)}, operator=#{inspect(operator)}, value=#{inspect(value)}"
+        )
+
         rules =
           Enum.map(socket.assigns.criteria_rules, fn rule ->
             apply_rule_update(rule, id, field, operator, value)
           end)
+
+        Logger.debug("[NetworksLive] update_criteria_rule - updated rules: #{inspect(rules)}")
 
         socket =
           socket
@@ -493,11 +508,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         {:noreply, socket}
 
       _ ->
+        Logger.warning(
+          "[NetworksLive] update_criteria_rule - failed to parse id: #{inspect(id_str)}"
+        )
+
         {:noreply, socket}
     end
   end
 
-  def handle_event("update_criteria_rule", _params, socket) do
+  def handle_event("update_criteria_rule", params, socket) do
+    require Logger
+    Logger.warning("[NetworksLive] update_criteria_rule - missing id in params: #{inspect(params)}")
     {:noreply, socket}
   end
 
@@ -1691,9 +1712,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           </div>
 
           <div class="space-y-2">
-            <%= for rule <- @criteria_rules do %>
+            <div :for={rule <- @criteria_rules} :key={rule.id}>
               <.criteria_rule_row rule={rule} fields={@criteria_fields} />
-            <% end %>
+            </div>
 
             <button
               type="button"
@@ -1795,7 +1816,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             placeholder={value_placeholder(@rule.field, @rule.operator)}
             class="placeholder:text-base-content/40 w-56"
             phx-change="update_criteria_rule"
-            phx-debounce="300"
+            phx-blur="update_criteria_rule"
+            phx-debounce="150"
             phx-value-id={@rule.id}
           />
         <% end %>
